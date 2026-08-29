@@ -266,7 +266,12 @@ pub fn register_extension_data_providers(
         );
         for (name, provider) in local {
             if classify_and_warn_collision(&mut owners, &name, ext.name(), &DATA_PROVIDER_AUDIT) {
-                registry.register(name, provider);
+                // CL-3 / TASK-1872: the discard is deliberate and already
+                // reported. `classify_and_warn_collision` returning true means
+                // `name` is unowned, so `register` takes the vacant path and
+                // returns `None`; a collision was warned about above and never
+                // reaches here.
+                let _ = registry.register(name, provider);
             }
         }
     }

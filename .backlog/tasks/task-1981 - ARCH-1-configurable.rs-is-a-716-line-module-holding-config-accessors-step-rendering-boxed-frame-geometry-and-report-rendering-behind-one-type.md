@@ -3,11 +3,11 @@ id: TASK-1981
 title: >-
   ARCH-1: configurable.rs is a 716-line module holding config accessors, step
   rendering, boxed-frame geometry and report rendering behind one type
-status: To Do
+status: Done
 assignee:
   - TASK-1987
 created_date: '2026-08-27 15:56'
-updated_date: '2026-08-28 14:10'
+updated_date: '2026-08-28 19:29'
 labels:
   - code-review-rust
   - architecture
@@ -43,3 +43,9 @@ Filed Low: no defect today, but the file is the natural home for the fixes queue
 - [ ] #3 configurable.rs retains the ConfigurableTheme type, its constructor and the shared render_slot seam, and is under the 500-line ARCH-1 threshold
 - [ ] #4 no public API changes: every item currently reachable from lib.rs stays reachable at the same path
 <!-- AC:END -->
+
+## Implementation Notes
+
+<!-- SECTION:NOTES:BEGIN -->
+configurable.rs split into configurable/{boxed,report,config_access}.rs; parent is 451 lines (under the 500-line ARCH-1 threshold). No public API change: every item stays a method on ConfigurableTheme (or a private free fn) at the same path.
+<!-- SECTION:NOTES:END -->

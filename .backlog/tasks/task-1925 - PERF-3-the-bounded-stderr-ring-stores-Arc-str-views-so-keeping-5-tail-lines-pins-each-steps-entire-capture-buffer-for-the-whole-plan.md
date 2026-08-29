@@ -3,11 +3,11 @@ id: TASK-1925
 title: >-
   PERF-3: the bounded stderr ring stores Arc<str> views, so keeping 5 tail lines
   pins each step's entire capture buffer for the whole plan
-status: To Do
+status: Done
 assignee:
   - TASK-1986
 created_date: '2026-08-27 15:45'
-updated_date: '2026-08-28 14:10'
+updated_date: '2026-08-28 19:12'
 labels:
   - code-review-rust
   - performance
@@ -40,8 +40,14 @@ Fix direction: since the tail is at most `max_lines` short lines and `extract_st
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 record_stderr no longer keeps a step's full capture buffer alive via a retained OutputLine view — retained tail lines own only their own bytes
-- [ ] #2 the ProgressState doc comment's O(tail) claim is true as written, or is corrected to describe actual retention
-- [ ] #3 a regression test feeds many lines that all share one Arc<str> buffer (as production does) and asserts the buffer is released once the ring has evicted past it — e.g. via Arc::strong_count on the shared buffer
-- [ ] #4 StderrTail::Unbounded documents that --verbose intentionally removes the eviction bound, and the resulting growth is bounded or acknowledged
+- [x] #1 record_stderr no longer keeps a step's full capture buffer alive via a retained OutputLine view — retained tail lines own only their own bytes
+- [x] #2 the ProgressState doc comment's O(tail) claim is true as written, or is corrected to describe actual retention
+- [x] #3 a regression test feeds many lines that all share one Arc<str> buffer (as production does) and asserts the buffer is released once the ring has evicted past it — e.g. via Arc::strong_count on the shared buffer
+- [x] #4 StderrTail::Unbounded documents that --verbose intentionally removes the eviction bound, and the resulting growth is bounded or acknowledged
 <!-- AC:END -->
+
+## Implementation Notes
+
+<!-- SECTION:NOTES:BEGIN -->
+ProgressState.step_stderr is now HashMap<String, VecDeque<Box<str>>> and record_stderr takes &str and copies, so a retained tail line owns only its own bytes and no longer pins the step OutputLine Arc<str> capture buffer (up to OPS_OUTPUT_BYTE_CAP, 4 MiB, per step). display::on_step_output passes line.as_str() (also drops a per-line OutputLine clone); extract_stderr_tail takes &[Box<str>]. ProgressState type docs now state the real retention and why the old O(tail) claim was only about the deque element count; StderrTail::Unbounded documents that --verbose deliberately removes eviction and what now bounds the growth. New test record_stderr_does_not_pin_the_shared_capture_buffer feeds many lines from ONE shared Arc<str> (the production shape the old ring test never produced) and asserts Arc::strong_count is back to 1.
+<!-- SECTION:NOTES:END -->

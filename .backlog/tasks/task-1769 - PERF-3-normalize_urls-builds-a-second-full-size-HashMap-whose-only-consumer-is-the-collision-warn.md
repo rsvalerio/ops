@@ -3,11 +3,11 @@ id: TASK-1769
 title: >-
   PERF-3: normalize_urls builds a second full-size HashMap whose only consumer
   is the collision warn
-status: To Do
+status: Done
 assignee:
   - TASK-1992
 created_date: '2026-08-27 11:20'
-updated_date: '2026-08-28 14:11'
+updated_date: '2026-08-28 20:06'
 labels:
   - code-review-rust
   - performance
@@ -43,8 +43,23 @@ Related: the collision branch this code serves has no test coverage at all — f
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 normalize_urls uses a single map keyed by the normalised key, holding both the raw key and the URL
-- [ ] #2 The per-key norm.clone() is gone
-- [ ] #3 The .map_or("", ...) fallback for a missing first-seen key is gone — the raw key comes directly from the entry
-- [ ] #4 Collision behaviour (keep first, warn with both raw keys and both URLs) is unchanged
+- [x] #1 normalize_urls uses a single map keyed by the normalised key, holding both the raw key and the URL
+- [x] #2 The per-key norm.clone() is gone
+- [x] #3 The .map_or("", ...) fallback for a missing first-seen key is gone — the raw key comes directly from the entry
+- [x] #4 Collision behaviour (keep first, warn with both raw keys and both URLs) is unchanged
 <!-- AC:END -->
+
+## Implementation Notes
+
+<!-- SECTION:NOTES:BEGIN -->
+`normalize_urls` now returns `HashMap<String, (&String, &String)>` -- one map
+holding the first-seen raw key and its URL. `first_seen_raw`, the per-key
+`norm.clone()`, and the `.copied().map_or("", ...)` fallback are all gone; the
+warn reads `first_key` straight out of the entry, so the "both halves are
+present" invariant is structural. `pick_url`'s signature follows the new type
+and destructures `(_, v)`.
+
+Collision behaviour is unchanged and is now covered by TASK-1757's tests,
+which were written against this shape and verified to fail against a naive
+`.collect()`.
+<!-- SECTION:NOTES:END -->

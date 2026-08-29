@@ -3,11 +3,11 @@ id: TASK-1865
 title: >-
   SEC-38: the provider-cycle guard lives in Context::get_or_provide, but the
   public DataRegistry::provide dispatch path bypasses it entirely
-status: To Do
+status: Done
 assignee:
   - TASK-1985
 created_date: '2026-08-27 15:30'
-updated_date: '2026-08-28 14:09'
+updated_date: '2026-08-28 19:24'
 labels:
   - code-review-rust
   - security
@@ -59,3 +59,9 @@ Nothing in the type system steers a caller to the guarded path. The only thing s
 - [ ] #3 A regression test drives the same cycle through a &dyn DataProvider obtained from DataRegistry::get, or that path is closed off
 - [ ] #4 Context::get_or_provide keeps its existing behaviour and all current tests in crates/extension/src/tests.rs still pass
 <!-- AC:END -->
+
+## Implementation Notes
+
+<!-- SECTION:NOTES:BEGIN -->
+Guard moved into DataRegistry::provide (the single dispatch point); Context::get_or_provide reduced to cache fast-path + dispatch. New pub(crate) Context::enter_provider/exit_provider own the in_flight marker and clear it on both paths. Tests: data_registry_provide_detects_cycle_without_the_cache_wrapper (AC#2), dyn_data_provider_obtained_from_get_still_bottoms_out_on_cycle (AC#3 — the unmarked first hop shifts detection to the second provider, which is bounded, not a stack overflow), failed_provider_clears_its_in_flight_marker.
+<!-- SECTION:NOTES:END -->

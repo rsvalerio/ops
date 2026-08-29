@@ -47,7 +47,7 @@ ops_extension::impl_extension! {
     stack: Some(ops_extension::Stack::Rust),
     data_provider_name: Some(DATA_PROVIDER_NAME),
     register_data_providers: |_self, registry| {
-        registry.register(DATA_PROVIDER_NAME, Box::new(RustLocProvider));
+        let _ = registry.register(DATA_PROVIDER_NAME, Box::new(RustLocProvider));
     },
     factory: RUST_LOC_FACTORY = |_, _| {
         Some((NAME, Box::new(RustLocExtension)))
@@ -63,7 +63,7 @@ impl DataProvider for RustLocProvider {
 
     fn provide(&self, ctx: &mut Context) -> Result<serde_json::Value, DataProviderError> {
         ops_duckdb::try_provide_from_db(ctx, provide_from_db, |ctx| {
-            collect_rust_loc(&ctx.working_directory)
+            collect_rust_loc(ctx.working_directory())
         })
     }
 

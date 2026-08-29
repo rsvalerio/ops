@@ -548,8 +548,11 @@ impl ProgressDisplay {
 
     fn on_step_output(&mut self, id: &str, line: &crate::command::OutputLine, stderr: bool) {
         if stderr {
+            // PERF-3 / TASK-1925: pass the borrowed text, not the
+            // `OutputLine` view — the ring must not retain a handle on the
+            // step's whole capture buffer.
             self.state
-                .record_stderr(id, line.clone(), self.render.stderr_tail.cap());
+                .record_stderr(id, line.as_str(), self.render.stderr_tail.cap());
         }
         self.tap_line_for(line.as_str(), Some(id));
     }

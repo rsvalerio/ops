@@ -89,7 +89,7 @@ mod tests {
     #[test]
     fn warm_providers_swallows_real_failures_without_panic() {
         let mut registry = DataRegistry::new();
-        registry.register("flaky", Box::new(FailingProvider("flaky")));
+        let _ = registry.register("flaky", Box::new(FailingProvider("flaky")));
 
         let mut ctx = test_ctx();
         warm_providers(&mut ctx, &registry, &["flaky", "absent"], "test");
@@ -102,7 +102,7 @@ mod tests {
     #[test]
     fn load_or_default_propagates_real_failures() {
         let mut registry = DataRegistry::new();
-        registry.register("flaky", Box::new(FailingProvider("flaky")));
+        let _ = registry.register("flaky", Box::new(FailingProvider("flaky")));
 
         let mut ctx = test_ctx();
         let result: anyhow::Result<Vec<u8>> = load_or_default(&mut ctx, &registry, "flaky");

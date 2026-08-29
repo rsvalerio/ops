@@ -3,11 +3,11 @@ id: TASK-1790
 title: >-
   SEC-21: strip_ansi only strips CSI, so ESC bytes reach UpdateEntry fields and
   the provider JSON unescaped
-status: To Do
+status: Done
 assignee:
   - TASK-1995
 created_date: '2026-08-27 11:24'
-updated_date: '2026-08-28 14:12'
+updated_date: '2026-08-28 20:26'
 labels:
   - code-review-rust
   - security
@@ -64,8 +64,14 @@ its sibling path received.
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 strip_ansi handles the non-CSI escape families it claims to (at minimum OSC ESC ] terminated by BEL or ST, and two-character ESC sequences), or its doc comment is narrowed to state exactly what it strips
-- [ ] #2 No ESC (U+001B) or other C0 control byte can survive into UpdateEntry.name/from/to — either scrubbed in strip_ansi or rejected/escaped where the entry is built
-- [ ] #3 The success branch of provide gives the same control-byte guarantee the non-zero-exit branch got from SEC-21/TASK-1537
-- [ ] #4 Tests cover an OSC-8 hyperlink line, a bare ESC, and the existing truncated-CSI case, asserting no ESC reaches the serialized JSON
+- [x] #1 strip_ansi handles the non-CSI escape families it claims to (at minimum OSC ESC ] terminated by BEL or ST, and two-character ESC sequences), or its doc comment is narrowed to state exactly what it strips
+- [x] #2 No ESC (U+001B) or other C0 control byte can survive into UpdateEntry.name/from/to — either scrubbed in strip_ansi or rejected/escaped where the entry is built
+- [x] #3 The success branch of provide gives the same control-byte guarantee the non-zero-exit branch got from SEC-21/TASK-1537
+- [x] #4 Tests cover an OSC-8 hyperlink line, a bare ESC, and the existing truncated-CSI case, asserting no ESC reaches the serialized JSON
 <!-- AC:END -->
+
+## Implementation Notes
+
+<!-- SECTION:NOTES:BEGIN -->
+TASK-1995: strip_ansi now handles OSC (BEL and ST terminated) and nF/two-character escapes, each with a bounded scan. Truncated sequences and a bare ESC are still preserved (TASK-1028), so the control-byte guarantee is enforced where the entry is built: parse_action_line rejects any name/version carrying a control character and the caller warns. Tests assert no ESC/NUL reaches the serialized JSON for the OSC-8, bare-ESC and truncated-CSI shapes.
+<!-- SECTION:NOTES:END -->

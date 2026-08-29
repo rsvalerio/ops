@@ -20,7 +20,9 @@
 ///     data_provider_name: Some(DATA_PROVIDER_NAME),
 ///     register_commands: |_self, _registry| {},
 ///     register_data_providers: |_self, registry| {
-///         registry.register(DATA_PROVIDER_NAME, Box::new(MyProvider));
+///         // `register` is `#[must_use]`: it hands back a provider it
+///         // rejected as a duplicate. `let _ =` accepts the drop.
+///         let _ = registry.register(DATA_PROVIDER_NAME, Box::new(MyProvider));
 ///     },
 /// }
 /// ```

@@ -90,7 +90,7 @@ where
 /// repository URL is present.
 ///
 /// ERR-1 / TASK-1103: rejects a non-UTF-8 `cwd` with a typed
-/// [`DataProviderError::ComputationFailed`] rather than letting
+/// [`DataProviderError::ComputationMessage`] rather than letting
 /// `Path::display` smuggle `U+FFFD` replacement bytes into the
 /// `project_root` JSON field. This mirrors the strict
 /// [`ops_duckdb::DbError::NonUtf8Path`] policy adopted in TASK-0928 for
@@ -172,7 +172,7 @@ mod tests {
     use super::*;
 
     /// ERR-1 / TASK-1103: a non-UTF-8 `cwd` must fail fast with a typed
-    /// [`DataProviderError::ComputationFailed`] rather than silently
+    /// [`DataProviderError::ComputationMessage`] rather than silently
     /// shipping `U+FFFD`-mangled bytes into the `project_root` JSON
     /// field. Mirrors the `upsert_data_source` `NonUtf8Path` test in
     /// `ops-duckdb`.
@@ -190,7 +190,9 @@ mod tests {
 
         let err = build_identity_value(manifest, bad_cwd)
             .expect_err("non-UTF-8 cwd must yield a typed error");
-        assert!(matches!(err, DataProviderError::ComputationFailed(_)));
+        // ERR-2 / TASK-1887: `computation_failed` carries the message
+        // directly instead of fabricating a `std::io::Error` to hold it.
+        assert!(matches!(err, DataProviderError::ComputationMessage(_)));
         let msg = err.to_string();
         // ERR-1 / TASK-1211: the rendered message must NOT smuggle U+FFFD
         // (Path::display's lossy substitute) and must encode the offending

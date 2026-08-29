@@ -51,7 +51,7 @@ ops_extension::impl_extension! {
     stack: Some(ops_extension::Stack::JavaMaven),
     data_provider_name: Some("project_identity"),
     register_data_providers: |_self, registry| {
-        registry.register("project_identity", Box::new(MavenIdentityProvider));
+        let _ = registry.register("project_identity", Box::new(MavenIdentityProvider));
     },
     factory: MAVEN_ABOUT_FACTORY = |_, _| {
         Some((MAVEN_NAME, Box::new(AboutMavenExtension)))
@@ -76,7 +76,7 @@ ops_extension::impl_extension! {
     stack: Some(ops_extension::Stack::JavaGradle),
     data_provider_name: Some("project_identity"),
     register_data_providers: |_self, registry| {
-        registry.register("project_identity", Box::new(GradleIdentityProvider));
+        let _ = registry.register("project_identity", Box::new(GradleIdentityProvider));
     },
     factory: GRADLE_ABOUT_FACTORY = |_, _| {
         Some((GRADLE_NAME, Box::new(AboutGradleExtension)))

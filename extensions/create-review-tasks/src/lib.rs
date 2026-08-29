@@ -152,7 +152,7 @@ fn fetch_review_targets(
     registry: &DataRegistry,
     workspace_root: &Path,
 ) -> anyhow::Result<ReviewTargets> {
-    // The provider only consumes `ctx.working_directory`; matching the
+    // The provider only consumes `ctx.working_directory()`; matching the
     // ops-about precedent, an empty Config is sufficient here.
     let config = Arc::new(Config::empty());
     let mut ctx = Context::new(config, workspace_root.to_path_buf());
@@ -519,7 +519,7 @@ mod tests {
 
     fn registry_with(payload: serde_json::Value) -> DataRegistry {
         let mut registry = DataRegistry::new();
-        registry.register(DATA_PROVIDER_NAME, Box::new(FixedTargets(payload)));
+        let _ = registry.register(DATA_PROVIDER_NAME, Box::new(FixedTargets(payload)));
         registry
     }
 

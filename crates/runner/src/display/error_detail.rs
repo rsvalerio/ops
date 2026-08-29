@@ -2,7 +2,6 @@
 //!
 //! Owns the stderr-tail extraction and theme-driven error block rendering.
 
-use crate::command::OutputLine;
 use ops_core::output::{tail_lines, ErrorDetail};
 use ops_theme::ConfigurableTheme;
 
@@ -24,16 +23,18 @@ impl<'a> ErrorDetailRenderer<'a> {
         self.theme.render_error_detail(&detail, self.columns)
     }
 
-    /// PERF-3 / TASK-0732: stderr capture now lives in the bounded ring as
-    /// `OutputLine` views over a shared `Arc<str>` buffer. Error rendering
-    /// only ever needs the last `max_lines`, so we stringify the tail once
-    /// here (small, bounded by `stderr_tail_lines`, default 5) rather than
-    /// shouldering an allocation per stderr line on the hot path.
+    /// Error rendering only ever needs the last `max_lines`, so the tail is
+    /// stringified once here (small, bounded by `stderr_tail_lines`,
+    /// default 5).
+    ///
+    /// PERF-3 / TASK-1925: the ring now holds owned `Box<str>` lines rather
+    /// than `OutputLine` views, so this no longer touches the step's shared
+    /// capture buffer at all — see `ProgressState`'s type-level docs.
     #[must_use]
-    pub fn extract_stderr_tail(stderr_lines: &[OutputLine], max_lines: usize) -> Vec<String> {
+    pub fn extract_stderr_tail(stderr_lines: &[Box<str>], max_lines: usize) -> Vec<String> {
         tail_lines(stderr_lines, max_lines)
             .iter()
-            .map(|l| l.as_str().to_string())
+            .map(std::string::ToString::to_string)
             .collect()
     }
 }

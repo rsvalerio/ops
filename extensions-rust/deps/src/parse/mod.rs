@@ -8,12 +8,17 @@ mod deny;
 mod upgrade;
 
 pub use deny::{interpret_deny_result, parse_deny_output, run_cargo_deny};
-pub use upgrade::{categorize_upgrades, parse_upgrade_table, run_cargo_upgrade_dry_run};
+pub use upgrade::{categorize_upgrades, interpret_upgrade_output, run_cargo_upgrade_dry_run};
+
+// ARCH-9 / TASK-1846: `parse_upgrade_table` is deliberately absent from this
+// list. It is `parse_upgrade_table_inner(stdout).0`, so it discards the parse
+// diagnostics and cannot report cargo-edit format drift; only
+// `interpret_upgrade_output` applies the guards, which is why that is now the
+// published counterpart of `interpret_deny_result`. The table-shape tests
+// reach the unguarded slicing through `upgrade`'s own `#[cfg(test)]` wrapper.
 
 #[cfg(test)]
 pub use deny::MISSING_SEVERITY_SENTINEL;
-#[cfg(test)]
-pub use upgrade::interpret_upgrade_output;
 
 /// Truncate a log line for tracing — operators get enough context to
 /// diagnose schema drift without flooding logs with multi-KB cargo-deny

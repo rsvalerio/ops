@@ -3,11 +3,11 @@ id: TASK-1848
 title: >-
   OWN-1: resolve_package takes &mut and hollows out the diagnostic it reads,
   making it silently non-idempotent
-status: To Do
+status: Done
 assignee:
   - TASK-1997
 created_date: '2026-08-27 15:25'
-updated_date: '2026-08-28 14:13'
+updated_date: '2026-08-28 20:42'
 labels:
   - code-review-rust
   - idioms-correctness
@@ -51,8 +51,8 @@ The mutation buys nothing measurable — it avoids one `String` clone per cargo-
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 resolve_package no longer leaves the DecodedDiagnostic partially emptied — it either borrows immutably and clones, or consumes the value and returns the remaining fields alongside the package
-- [ ] #2 push_diagnostic no longer depends on an unwritten agreement about which fields resolve_package emptied
-- [ ] #3 A test asserts that resolving the package for a diagnostic twice (or resolving then re-reading the advisory/graph) yields the same package name rather than the <no package> sentinel
-- [ ] #4 Existing deny/tests.rs package-resolution cases (advisory package, graphs[0].krate fallback, <no package> sentinel) still pass unchanged
+- [x] #1 resolve_package no longer leaves the DecodedDiagnostic partially emptied — it either borrows immutably and clones, or consumes the value and returns the remaining fields alongside the package
+- [x] #2 push_diagnostic no longer depends on an unwritten agreement about which fields resolve_package emptied
+- [x] #3 A test asserts that resolving the package for a diagnostic twice (or resolving then re-reading the advisory/graph) yields the same package name rather than the <no package> sentinel
+- [x] #4 Existing deny/tests.rs package-resolution cases (advisory package, graphs[0].krate fallback, <no package> sentinel) still pass unchanged
 <!-- AC:END -->

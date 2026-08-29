@@ -152,6 +152,53 @@ fn interpret_upgrade_output_preamble_does_not_inflate_body_lines() {
     assert!(result.is_empty());
 }
 
+/// ERR-1 / TASK-1817: the third fail-open permutation. `check_header_drift`
+/// (TASK-1074) and `check_row_shape_drift` (TASK-1202) are both gated on
+/// `saw_separator`, so output carrying a *recognised* header plus body rows
+/// but no `====` separator used to escape both guards: no row was ever
+/// sliced, `Ok(vec![])` came back, and `ops deps` rendered "no upgrades" on
+/// a zero exit. It must bail instead.
+#[test]
+fn interpret_upgrade_output_bails_on_missing_separator() {
+    // Recognised header, real body rows, separator row dropped entirely
+    // (e.g. cargo-edit switching to a box-drawing or ANSI-styled table).
+    let stdout = b"name   old req compatible latest  new req\n\
+                   serde  1.0.100 1.0.228    1.0.228 1.0.228\n\
+                   tokio  1.35.0  1.38.0     1.38.0  1.38.0\n";
+
+    let (result, logged) =
+        crate::test_support::with_captured_logs(tracing::Level::WARN, false, || {
+            crate::parse::interpret_upgrade_output(Some(0), stdout, b"")
+        });
+
+    let err = result.expect_err("missing separator must bail, not score as `no upgrades`");
+    let msg = err.to_string();
+    assert!(
+        msg.contains("separator"),
+        "error must name the missing-separator case; got: {msg}"
+    );
+    // Distinguishable from the header-drift (TASK-1074) and row-shape-drift
+    // (TASK-1202) messages, both of which describe a table we *could* align.
+    assert!(
+        !msg.contains("header line was not recognised") && !msg.contains("5 fixed columns"),
+        "missing-separator message must not read as header or row-shape drift; got: {msg}"
+    );
+    // AC #3: the TASK-1026 breadcrumb stays observable in logs.
+    assert!(
+        logged.contains("TASK-1026") && logged.contains("separator"),
+        "expected the TASK-1026 separator-drift warn to survive; got: {logged}"
+    );
+}
+
+/// The missing-separator guard must not fire on genuinely empty output —
+/// `cargo upgrade --dry-run` printing nothing is "no upgrades", not drift.
+#[test]
+fn interpret_upgrade_output_empty_stdout_is_not_separator_drift() {
+    let result = crate::parse::interpret_upgrade_output(Some(0), b"", b"")
+        .expect("empty stdout must stay Ok([])");
+    assert!(result.is_empty());
+}
+
 // -- ERR-7 / SEC-21 / TASK-1160: stderr tail Debug-escapes control bytes --
 
 /// `interpret_upgrade_output` and `interpret_deny_result` must format the

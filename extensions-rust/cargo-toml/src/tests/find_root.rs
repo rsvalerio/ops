@@ -203,9 +203,11 @@ fn find_root_canonicalize_notfound_routes_to_not_found_variant() {
 /// `attacker/`, and the lenient walker — which canonicalises once up
 /// front — walks inside the attacker subtree and returns the attacker's
 /// `[workspace]` manifest. This is the documented trade-off: the
-/// lenient variant preserves today's behaviour; the strict variant
-/// (tested by `find_root_strict_skips_off_chain_canonical_ancestor`)
-/// rejects off-chain canonical ancestors.
+/// lenient variant preserves today's behaviour. The strict variant is
+/// contrasted against the same layout in
+/// `find_root_strict_also_follows_symlink_inside_the_start_path`, and its
+/// off-chain rejection arm is covered by
+/// `strict_candidate_action_skips_off_chain_canonical_parent`.
 #[cfg(unix)]
 #[test]
 fn find_root_lenient_follows_symlinked_ancestor_into_attacker_tree() {
@@ -230,15 +232,17 @@ fn find_root_lenient_follows_symlinked_ancestor_into_attacker_tree() {
     );
 }
 
-/// SEC-25 / TASK-1204: clean mid-walk-escape case. The start path
-/// canonicalises into the real workspace tree, but a sibling symlink at
-/// an intermediate ancestor would redirect a lexical walk into an
-/// attacker tree. The strict variant inspects each candidate's
-/// *canonical* parent and skips the redirected ancestor; the lenient
-/// variant follows the lexical chain and is intentionally left as-is.
+/// SEC-25 / TASK-1204: the strict variant accepts a candidate whose
+/// canonical parent is on the canonical start's ancestor chain.
+///
+/// TEST-6 / TASK-1785: renamed from
+/// `find_root_strict_skips_off_chain_canonical_ancestor`, which promised a
+/// rejection this body never exercised (it plants no symlink and asserts
+/// nothing the lenient walk does not already satisfy). The rejection arms
+/// are covered by `strict_candidate_action_*` below.
 #[cfg(unix)]
 #[test]
-fn find_root_strict_skips_off_chain_canonical_ancestor() {
+fn find_root_strict_accepts_on_chain_canonical_ancestor() {
     let tmp = tempfile::tempdir().expect("tempdir");
     let real_root = fs::canonicalize(tmp.path()).expect("canonicalize");
 
@@ -262,6 +266,126 @@ fn find_root_strict_skips_off_chain_canonical_ancestor() {
     assert_eq!(lenient, leaf);
 }
 
+/// TEST-6 / TASK-1785: pin the actual scope of the strict variant against
+/// the symlinked-ancestor layout its doc comment describes.
+///
+/// A symlink inside the *caller's* `start` path is resolved by the shared
+/// walk before any candidate is inspected, so the strict variant walks the
+/// attacker's real chain and — like the lenient variant — returns the
+/// attacker's manifest. This is the paired contrast to
+/// `find_root_lenient_follows_symlinked_ancestor_into_attacker_tree`: both
+/// variants behave identically here, and the strict variant's extra
+/// canonicalize buys nothing for this shape. Pinning it keeps a future
+/// reader from mistaking the check for a defence it does not provide.
+#[cfg(unix)]
+#[test]
+fn find_root_strict_also_follows_symlink_inside_the_start_path() {
+    let tmp = tempfile::tempdir().expect("tempdir");
+    let real_root = fs::canonicalize(tmp.path()).expect("canonicalize tempdir");
+
+    let attacker = real_root.join("attacker");
+    fs::create_dir(&attacker).unwrap();
+    fs::write(attacker.join("Cargo.toml"), "[workspace]\nmembers = []\n").unwrap();
+    fs::create_dir(attacker.join("leaf")).unwrap();
+
+    let symlink_at = real_root.join("inner_link");
+    std::os::unix::fs::symlink(&attacker, &symlink_at).unwrap();
+    let leaf_via_symlink = symlink_at.join("leaf");
+
+    let canonical_attacker = fs::canonicalize(&attacker).unwrap();
+    let strict = find_workspace_root_strict(&leaf_via_symlink).expect("strict finds a root");
+    let lenient = find_workspace_root(&leaf_via_symlink).expect("lenient finds a root");
+    assert_eq!(strict, canonical_attacker);
+    assert_eq!(
+        strict, lenient,
+        "strict and lenient must agree when the symlink is inside the caller's start path"
+    );
+}
+
+/// TEST-6 / TASK-1785: the off-chain rejection arm
+/// (`workspace_root.rs`, `CandidateAction::Skip`) is unreachable through a
+/// quiescent filesystem — every lexical ancestor of an already-canonical
+/// path is canonical — so it is driven here through the injected
+/// canonicalizer instead of by racing a symlink swap. Before this test,
+/// deleting the whole arm left the suite green.
+#[test]
+fn strict_candidate_action_skips_off_chain_canonical_parent() {
+    let start_canonical = Path::new("/real/legit/leaf");
+    let lexical_parent = Path::new("/real/legit");
+    let cargo_toml = lexical_parent.join("Cargo.toml");
+
+    // The ancestor was swapped for a symlink into an attacker tree after
+    // `start` was canonicalized, so its canonical form is off-chain.
+    let action = crate::workspace_root::strict_candidate_action(
+        lexical_parent,
+        &cargo_toml,
+        start_canonical,
+        &|_| Ok(PathBuf::from("/attacker/tree")),
+    );
+
+    assert_eq!(
+        action,
+        crate::workspace_root::CandidateAction::Skip,
+        "an off-chain canonical parent must be rejected, not recorded as a fallback root"
+    );
+}
+
+/// TEST-6 / TASK-1785: the second `CandidateAction::Skip` arm — a candidate
+/// ancestor whose `canonicalize` fails — is likewise unreachable through a
+/// quiescent filesystem, since `walk_ancestors` already canonicalized the
+/// start successfully.
+#[test]
+fn strict_candidate_action_skips_ancestor_that_fails_to_canonicalize() {
+    let start_canonical = Path::new("/real/legit/leaf");
+    let lexical_parent = Path::new("/real/legit");
+    let cargo_toml = lexical_parent.join("Cargo.toml");
+
+    let action = crate::workspace_root::strict_candidate_action(
+        lexical_parent,
+        &cargo_toml,
+        start_canonical,
+        &|_| {
+            Err(std::io::Error::new(
+                std::io::ErrorKind::PermissionDenied,
+                "denied",
+            ))
+        },
+    );
+
+    assert_eq!(
+        action,
+        crate::workspace_root::CandidateAction::Skip,
+        "a candidate whose parent cannot be canonicalized must be skipped"
+    );
+}
+
+/// TEST-6 / TASK-1785: the accept arms of the same function, so the two
+/// `Skip` tests above cannot pass by the function returning `Skip`
+/// unconditionally.
+#[test]
+fn strict_candidate_action_accepts_on_chain_parent() {
+    use crate::workspace_root::{strict_candidate_action, CandidateAction};
+
+    let tmp = tempfile::tempdir().expect("tempdir");
+    let root = fs::canonicalize(tmp.path()).expect("canonicalize");
+    let leaf = root.join("leaf");
+    fs::create_dir(&leaf).unwrap();
+
+    let ws_manifest = root.join("Cargo.toml");
+    fs::write(&ws_manifest, "[workspace]\nmembers = []\n").unwrap();
+    assert_eq!(
+        strict_candidate_action(&root, &ws_manifest, &leaf, &|p| fs::canonicalize(p)),
+        CandidateAction::AcceptWorkspace(root.clone())
+    );
+
+    let pkg_manifest = leaf.join("Cargo.toml");
+    fs::write(&pkg_manifest, "[package]\nname = \"leaf\"\n").unwrap();
+    assert_eq!(
+        strict_candidate_action(&leaf, &pkg_manifest, &leaf, &|p| fs::canonicalize(p)),
+        CandidateAction::RecordFirst(leaf.clone())
+    );
+}
+
 /// ARCH-2 / TASK-0918: a non-NotFound canonicalize failure still
 /// surfaces as a typed `FindWorkspaceRootError` variant so it remains
 /// investigable. Use a 0o000-permission directory on Unix to force a
@@ -270,23 +394,29 @@ fn find_root_strict_skips_off_chain_canonical_ancestor() {
 /// The exact variant (`CanonicalizeFailed` vs `NotFound`) depends on
 /// how the kernel surfaces EACCES on a descendant — Linux and macOS
 /// differ — so the assertion accepts either.
+///
+/// TEST-18 / TASK-1802: the 0o000 directory is owned by a `Drop` guard so a
+/// panic in the body cannot leak an undeletable directory past the
+/// `TempDir`, and the guard probes whether the mode bits are enforced at all
+/// — as uid 0 the traversal succeeds and there is no error to assert on.
 #[cfg(unix)]
 #[test]
 fn find_root_canonicalize_perm_denied_returns_typed_error() {
-    use std::os::unix::fs::PermissionsExt;
     let temp_dir = tempfile::tempdir().expect("create temp dir");
     let locked = temp_dir.path().join("locked");
     fs::create_dir(&locked).unwrap();
     let inside = locked.join("inner");
     fs::create_dir(&inside).unwrap();
-    fs::set_permissions(&locked, fs::Permissions::from_mode(0o000)).unwrap();
 
-    let result = find_workspace_root(&inside);
+    // Probe the operation actually under test: traversing `locked` to
+    // canonicalize its child.
+    let Some(_guard) = PermGuard::deny_all(&locked, |_| fs::canonicalize(&inside).map(|_| ()))
+    else {
+        skip_no_dac_enforcement("find_root_canonicalize_perm_denied_returns_typed_error");
+        return;
+    };
 
-    // Restore perms so tempdir cleanup works.
-    fs::set_permissions(&locked, fs::Permissions::from_mode(0o755)).unwrap();
-
-    let err = result.unwrap_err();
+    let err = find_workspace_root(&inside).unwrap_err();
     // The exact error kind for a PermissionDenied-during-canonicalize
     // varies across Linux/macOS; accept either CanonicalizeFailed
     // (the desired path) or NotFound (some kernels surface EACCES on a
@@ -338,4 +468,66 @@ fn content_declares_workspace_ignores_literal_multiline_string() {
 fn content_declares_workspace_detects_bare_workspace() {
     let content = "[workspace]\nmembers = [\"crates/*\"]\n";
     assert!(content_declares_workspace(content));
+}
+
+/// SEC-11 / TASK-1781: a trailing comment on the table header is ordinary,
+/// valid TOML. Missing it made the walk climb past the real workspace root
+/// into attacker-plantable ancestors.
+#[test]
+fn content_declares_workspace_accepts_trailing_comment() {
+    for content in [
+        "[workspace] # the workspace root\nmembers = []\n",
+        "[workspace]# no space before the comment\n",
+        "[workspace.package]   # shared metadata\nversion = \"1.0.0\"\n",
+        "  [workspace]\t# indented header with a tab-separated comment\n",
+    ] {
+        assert!(
+            content_declares_workspace(content),
+            "should detect workspace in: {content:?}"
+        );
+    }
+}
+
+/// SEC-11 / TASK-1781: quoted bare keys are valid TOML table keys.
+#[test]
+fn content_declares_workspace_accepts_quoted_key() {
+    for content in [
+        "[\"workspace\"]\nmembers = []\n",
+        "[ \"workspace\" ]\nmembers = []\n",
+        "['workspace']\nmembers = []\n",
+        "[ 'workspace' . package ] # shared\nversion = \"1.0.0\"\n",
+        "[\"workspace\".package]\nversion = \"1.0.0\"\n",
+    ] {
+        assert!(
+            content_declares_workspace(content),
+            "should detect workspace in: {content:?}"
+        );
+    }
+}
+
+/// SEC-11 / TASK-1781: the accept-side widening must not weaken the existing
+/// false-positive guarantees.
+#[test]
+fn content_declares_workspace_rejects_non_headers() {
+    for content in [
+        // A `#`-commented header line is not a header.
+        "# [workspace]\n[package]\nname = \"x\"\n",
+        // `[workspace]` inside a triple-quoted basic string.
+        "[package]\nname = \"x\"\ndesc = \"\"\"\n[workspace]\n\"\"\"\n",
+        // `[workspace]` inside a triple-quoted literal string.
+        "[package]\nname = 'x'\ndoc = '''\n[workspace]\n'''\n",
+        // A different table whose name merely starts with `workspace`.
+        "[workspaces]\nmembers = []\n",
+        // An array-of-tables, not a `[workspace]` table.
+        "[[workspace]]\n",
+        // A quoted key that is not `workspace`.
+        "[\"workspace-ish\"]\n",
+        // An unterminated header is not a header.
+        "[workspace\nmembers = []\n",
+    ] {
+        assert!(
+            !content_declares_workspace(content),
+            "should NOT detect workspace in: {content:?}"
+        );
+    }
 }

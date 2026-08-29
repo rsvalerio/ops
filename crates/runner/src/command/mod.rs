@@ -15,6 +15,8 @@
 //! - [`sequential`] — `run_plan` / `run_plan_raw` / `run_raw` orchestration.
 //! - [`parallel`] — bounded mpsc channel, fail-fast cancellation, `JoinSet`
 //!   collection.
+//! - [`process_group`] — process-group ownership so cancellation reaches a
+//!   step's whole descendant tree, not just its direct child.
 //! - [`secret_patterns`] — env-value secret heuristics.
 //!
 //! ## Command Resolution Priority
@@ -34,6 +36,7 @@ mod builtins;
 mod events;
 mod exec;
 mod parallel;
+mod process_group;
 mod resolve;
 mod results;
 mod secret_patterns;

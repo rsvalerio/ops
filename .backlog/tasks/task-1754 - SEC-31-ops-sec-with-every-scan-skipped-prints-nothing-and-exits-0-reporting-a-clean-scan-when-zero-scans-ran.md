@@ -3,11 +3,11 @@ id: TASK-1754
 title: >-
   SEC-31: ops sec with every scan skipped prints nothing and exits 0, reporting
   a clean scan when zero scans ran
-status: To Do
+status: Done
 assignee:
   - TASK-1982
 created_date: '2026-08-27 11:16'
-updated_date: '2026-08-28 14:08'
+updated_date: '2026-08-28 19:23'
 labels:
   - code-review-rust
   - security
@@ -55,8 +55,8 @@ if names.is_empty() {
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 run_sec_to's execute branch handles an empty selected set explicitly instead of falling through the loop into SUCCESS
-- [ ] #2 The empty-selection outcome is visible to the operator: a line naming that zero scans ran and why (the skip reasons from the plan), on the same writer the scan lines use
-- [ ] #3 The exit code for an all-skipped run is decided deliberately and documented in the sec_cmd module doc and in the 'ops sec' clap help — either non-zero (fail closed, consistent with merge_plan's refusal) or 0 with the explicit no-scans line
-- [ ] #4 A unit test drives run_sec_to with every scan in --skip and asserts both the emitted message and the chosen exit code
+- [x] #1 run_sec_to's execute branch handles an empty selected set explicitly instead of falling through the loop into SUCCESS
+- [x] #2 The empty-selection outcome is visible to the operator: a line naming that zero scans ran and why (the skip reasons from the plan), on the same writer the scan lines use
+- [x] #3 The exit code for an all-skipped run is decided deliberately and documented in the sec_cmd module doc and in the 'ops sec' clap help — either non-zero (fail closed, consistent with merge_plan's refusal) or 0 with the explicit no-scans line
+- [x] #4 A unit test drives run_sec_to with every scan in --skip and asserts both the emitted message and the chosen exit code
 <!-- AC:END -->

@@ -3,11 +3,11 @@ id: TASK-1737
 title: >-
   TEST-31: README-documented ops subcommands have no spawned-binary test; the
   pre-commit exit-code contract is untested at any level
-status: To Do
+status: Done
 assignee:
   - TASK-1982
 created_date: '2026-08-27 11:12'
-updated_date: '2026-08-28 14:08'
+updated_date: '2026-08-28 19:26'
 labels:
   - code-review-rust
   - test-quality
@@ -47,10 +47,10 @@ Neither helper is referenced by any test in the crate (`grep -rn run_text_fixer\
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 tests/integration.rs spawns 'ops trailing-whitespace' (and its 'tw' alias) in a temp dir containing a file with trailing whitespace and asserts the process exits non-zero AND the file was rewritten; a second case with a clean file asserts exit 0
-- [ ] #2 The same change/no-change exit-code pair is covered as spawned commands for 'ops end-of-file-fixer' (and 'eof'), 'ops check-json', and 'ops check-yaml'
-- [ ] #3 tests/integration.rs covers 'ops sec --dry-run' as a spawned command, asserting the plan lines and exit 0 without requiring trivy on PATH, and asserting the trivy-missing note when trivy is absent
-- [ ] #4 tests/integration.rs covers 'ops extension list' and 'ops extension show <name>' as spawned commands, asserting on the rendered header rather than only on success()
-- [ ] #5 'ops new-command' and 'ops import-makefile' are covered as spawned commands for their non-TTY refusal path: stderr names the command and the interactive-terminal requirement, and the exit code is non-zero
-- [ ] #6 Every new test goes through the existing ops() helper so HOME/XDG_CONFIG_HOME isolation and OPS_* clearing are inherited
+- [x] #1 tests/integration.rs spawns 'ops trailing-whitespace' (and its 'tw' alias) in a temp dir containing a file with trailing whitespace and asserts the process exits non-zero AND the file was rewritten; a second case with a clean file asserts exit 0
+- [x] #2 The same change/no-change exit-code pair is covered as spawned commands for 'ops end-of-file-fixer' (and 'eof'), 'ops check-json', and 'ops check-yaml'
+- [x] #3 tests/integration.rs covers 'ops sec --dry-run' as a spawned command, asserting the plan lines and exit 0 without requiring trivy on PATH, and asserting the trivy-missing note when trivy is absent
+- [x] #4 tests/integration.rs covers 'ops extension list' and 'ops extension show <name>' as spawned commands, asserting on the rendered header rather than only on success()
+- [x] #5 'ops new-command' and 'ops import-makefile' are covered as spawned commands for their non-TTY refusal path: stderr names the command and the interactive-terminal requirement, and the exit code is non-zero
+- [x] #6 Every new test goes through the existing ops() helper so HOME/XDG_CONFIG_HOME isolation and OPS_* clearing are inherited
 <!-- AC:END -->

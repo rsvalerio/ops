@@ -1,11 +1,11 @@
 ---
 id: TASK-1776
 title: 'TEST-5: RustDepsProvider and the identity metrics module have zero tests'
-status: To Do
+status: Done
 assignee:
   - TASK-1993
 created_date: '2026-08-27 11:22'
-updated_date: '2026-08-28 14:12'
+updated_date: '2026-08-28 20:09'
 labels:
   - code-review-rust
   - test-quality
@@ -41,8 +41,14 @@ The tooling for these tests already exists in the crate's dev-dependencies and i
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 RustDepsProvider::provide has tests for all three paths: no DuckDb in context, query_crate_deps failure (asserting the query_or_warn warn fires via TracingBuf), and a successful multi-crate result mapped into UnitDeps
-- [ ] #2 RustDepsProvider::name is asserted to equal PROVIDER_NAME
-- [ ] #3 query_identity_metrics has a test for the all-None fallback when no DuckDb is present
-- [ ] #4 The lines_count > 0 guard in query_coverage_and_languages is covered by tests for both a zero-line project (coverage_percent is None) and a non-zero project
+- [x] #1 RustDepsProvider::provide has tests for all three paths: no DuckDb in context, query_crate_deps failure (asserting the query_or_warn warn fires via TracingBuf), and a successful multi-crate result mapped into UnitDeps
+- [x] #2 RustDepsProvider::name is asserted to equal PROVIDER_NAME
+- [x] #3 query_identity_metrics has a test for the all-None fallback when no DuckDb is present
+- [x] #4 The lines_count > 0 guard in query_coverage_and_languages is covered by tests for both a zero-line project (coverage_percent is None) and a non-zero project
 <!-- AC:END -->
+
+## Implementation Notes
+
+<!-- SECTION:NOTES:BEGIN -->
+deps_provider gains four tests (name, no-DuckDb default, forced query failure asserting the query_or_warn warn via TracingBuf, and a successful multi-crate mapping that also pins dev-dependency exclusion). identity/metrics gains four (all-None fallback with no DuckDb, both sides of the lines_count > 0 guard via query_coverage_and_languages, and the whole-metrics path with an attached in-memory DuckDb).
+<!-- SECTION:NOTES:END -->

@@ -3,12 +3,13 @@
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex, OnceLock};
 
+use ops_about::lru::{next_lru_tick, LruVictimQueue};
 use ops_core::project_identity::{CoverageStats, ProjectCoverage, UnitCoverage};
 use ops_duckdb::sql::{query_crate_coverage, query_or_warn, query_project_coverage, CrateCoverage};
 use ops_duckdb::DuckDb;
 use ops_extension::{Context, DataProvider, DataProviderError};
 
-use crate::query::{load_workspace_manifest, log_manifest_load_failure};
+use crate::manifest::{load_workspace_manifest, log_manifest_load_failure};
 use crate::units::resolve_crate_display_name;
 
 pub const PROVIDER_NAME: &str = "project_coverage";
@@ -32,11 +33,126 @@ pub const PROVIDER_NAME: &str = "project_coverage";
 /// (None on query failure) so a hard failure is also memoized — the warn
 /// fires exactly once per run regardless of how many providers consume the
 /// value.
+///
+/// # PERF-16 / TASK-1764: cache contract
+///
+/// - **Key**: `DuckDb::id()`, a monotonic per-instance counter. A key is never
+///   reused, so an entry outlives the `DuckDb` it describes.
+/// - **Value**: `Arc<OnceLock<Option<CrateCoverage>>>` — the memoized project
+///   total, or the memoized `None` fallback for a failed query.
+/// - **Maximum size**: [`MAX_COVERAGE_CACHE_ENTRIES`], enforced on insert with
+///   LRU eviction, mirroring the `manifest_cache` policy. Without a cap this
+///   map grew one slot per `DuckDb` ever opened, forever: harmless in the
+///   single-shot `ops about` CLI, an unbounded leak in the daemon / CI-worker
+///   host shape that opens a handle per project or per refresh, and every
+///   leaked entry describes an instance that is already gone.
+/// - **Invalidation**: none within the life of a `DuckDb` handle. This is
+///   deliberate and is the memoization's whole point (one query, one warn per
+///   run), but it means coverage data re-ingested behind a *live* handle keeps
+///   serving the pre-ingest number. A caller that re-ingests and needs the new
+///   figure must open a fresh `DuckDb`, which mints a fresh key.
 type CoverageSlot = Arc<OnceLock<Option<CrateCoverage>>>;
 
-fn project_coverage_cache() -> &'static Mutex<HashMap<u64, CoverageSlot>> {
-    static CACHE: OnceLock<Mutex<HashMap<u64, CoverageSlot>>> = OnceLock::new();
-    CACHE.get_or_init(|| Mutex::new(HashMap::new()))
+/// PERF-16 / TASK-1764: soft cap on the memoization map. A single `ops about`
+/// run touches exactly one `DuckDb`; the headroom exists so a host that
+/// interleaves a handful of projects still hits the cache while an unbounded
+/// producer cannot grow the map without limit.
+const MAX_COVERAGE_CACHE_ENTRIES: usize = 16;
+
+/// Slack added to the victim-queue compaction threshold.
+///
+/// PERF-16 / TASK-1723: mirrors the typed-manifest cache in
+/// [`crate::manifest_cache`]. Without it a cache holding a single project
+/// would compact on every other access.
+const COVERAGE_VICTIM_QUEUE_SLACK: usize = 16;
+
+struct CoverageCacheEntry {
+    slot: CoverageSlot,
+    last_accessed: u64,
+}
+
+struct ProjectCoverageCache {
+    map: HashMap<u64, CoverageCacheEntry>,
+    victim_queue: LruVictimQueue<u64>,
+}
+
+impl ProjectCoverageCache {
+    fn new() -> Self {
+        Self {
+            map: HashMap::new(),
+            victim_queue: LruVictimQueue::new(),
+        }
+    }
+
+    /// Return the slot for `key`, inserting one and evicting the
+    /// least-recently-used entry if the cap would otherwise be exceeded.
+    fn slot_for(&mut self, key: u64) -> CoverageSlot {
+        let tick = next_lru_tick();
+        if let Some(entry) = self.map.get_mut(&key) {
+            entry.last_accessed = tick;
+            let slot = Arc::clone(&entry.slot);
+            self.record_access(key, tick);
+            return slot;
+        }
+        if self.map.len() >= MAX_COVERAGE_CACHE_ENTRIES {
+            self.evict_lru();
+        }
+        let slot: CoverageSlot = Arc::new(OnceLock::new());
+        self.map.insert(
+            key,
+            CoverageCacheEntry {
+                slot: Arc::clone(&slot),
+                last_accessed: tick,
+            },
+        );
+        self.record_access(key, tick);
+        slot
+    }
+
+    /// Stamp an access against `key` and keep the victim queue bounded.
+    ///
+    /// PERF-16 / TASK-1723: same leak as the typed-manifest cache — every
+    /// hit pushes a stamp, but the only drain ([`Self::evict_lru`]) runs
+    /// solely at the cap. A process that stays below
+    /// [`MAX_COVERAGE_CACHE_ENTRIES`] (every CLI run: one project) never
+    /// drained the queue at all, so it grew by one `(u64, u64)` per
+    /// `cached_query_project_coverage` call for the process lifetime.
+    ///
+    /// Compaction leaves exactly one stamp per live entry, so at least
+    /// `map.len() + COVERAGE_VICTIM_QUEUE_SLACK` further pushes must land
+    /// before it can trigger again: amortised `O(1)` per access. It drops
+    /// only stamps `pop_lru` would already have skipped as stale, so
+    /// eviction ordering is unchanged.
+    ///
+    /// Must be called *after* the map holds `key` at `tick`, or the
+    /// freshness check would compact away the stamp just pushed.
+    fn record_access(&mut self, key: u64, tick: u64) {
+        let Self { map, victim_queue } = self;
+        victim_queue.push(tick, key);
+        let threshold = map
+            .len()
+            .saturating_mul(2)
+            .saturating_add(COVERAGE_VICTIM_QUEUE_SLACK);
+        if victim_queue.len() > threshold {
+            victim_queue
+                .retain_fresh(|key, tick| map.get(key).is_some_and(|e| e.last_accessed == tick));
+        }
+    }
+
+    fn evict_lru(&mut self) {
+        let map = &mut self.map;
+        if let Some(victim) = self
+            .victim_queue
+            .pop_lru(|key, tick| map.get(key).is_some_and(|e| e.last_accessed == tick))
+        {
+            map.remove(&victim);
+        }
+    }
+}
+
+fn project_coverage_cache() -> &'static Mutex<ProjectCoverageCache> {
+    static CACHE: OnceLock<Mutex<ProjectCoverageCache>> = OnceLock::new();
+    CACHE.get_or_init(|| Mutex::new(ProjectCoverageCache::new()))
 }
 
 /// Run `query_project_coverage` at most once per `DuckDb` per process.
@@ -55,17 +171,11 @@ fn project_coverage_cache() -> &'static Mutex<HashMap<u64, CoverageSlot>> {
 /// "warn fires exactly once" contract advertised by DUP-1 / TASK-1079
 /// silently degraded to "warn fires once per concurrent first-caller".
 pub fn cached_query_project_coverage(db: &DuckDb) -> Option<CrateCoverage> {
-    let key = db.id();
-
     let slot: CoverageSlot = {
         let mut guard = project_coverage_cache()
             .lock()
             .unwrap_or_else(std::sync::PoisonError::into_inner);
-        Arc::clone(
-            guard
-                .entry(key)
-                .or_insert_with(|| Arc::new(OnceLock::new())),
-        )
+        guard.slot_for(db.id())
     };
 
     slot.get_or_init(|| {
@@ -87,7 +197,6 @@ impl DataProvider for RustCoverageProvider {
     }
 
     fn provide(&self, ctx: &mut Context) -> Result<serde_json::Value, DataProviderError> {
-        let cwd = ctx.working_directory.clone();
         let manifest = match load_workspace_manifest(ctx) {
             Ok(m) => Some(m),
             Err(e) => {
@@ -111,72 +220,37 @@ impl DataProvider for RustCoverageProvider {
         // so the parallel call from `identity::metrics` reuses this result
         // (and any warn it already logged) instead of re-querying DuckDB
         // and double-warning per `ops about`.
-        let project_total = cached_query_project_coverage(db);
-        let Some(p) = project_total else {
+        let Some(p) = cached_query_project_coverage(db) else {
             return Ok(serde_json::to_value(ProjectCoverage::default())?);
         };
         let total = CoverageStats::new(p.lines_percent, p.lines_covered, p.lines_count);
 
-        let units = if let Some(manifest) = manifest {
-            // ERR-1 / TASK-1076: read the resolved-members sibling on
-            // `LoadedManifest`. The cached `manifest.workspace.members` now
-            // preserves the original glob spec verbatim.
-            let members: &[String] = manifest.resolved_members();
-            if members.is_empty() {
-                Vec::new()
-            } else {
-                // READ-5 / TASK-0986: short-circuit when the workspace cwd is
+        let units = match manifest.as_ref() {
+            // ERR-1 / TASK-1076: `resolved_members()` is the post-glob-expansion
+            // list; the cached manifest preserves the original spec verbatim.
+            Some(manifest) if !manifest.resolved_members().is_empty() => {
+                // CL-3 / TASK-1762: join and key on the *resolved* workspace
+                // root, not `ctx.working_directory` — running from a member
+                // crate must not silently produce a blank per-crate table.
+                let root = manifest.workspace_root();
+                // READ-5 / TASK-0986: short-circuit when the workspace root is
                 // not valid UTF-8 instead of piping a U+FFFD-replaced string
                 // into the SQL key. The lossy collapse would silently match
                 // an unrelated workspace's coverage rows. Sister policy to
-                // TASK-0946 (workspace member relpaths in query.rs).
-                let Some(cwd_str) = cwd.to_str() else {
+                // TASK-0946 (workspace member relpaths in members.rs).
+                let Some(root_str) = root.to_str() else {
                     tracing::warn!(
-                        cwd = ?cwd.display(),
-                        "non-UTF-8 cwd; skipping per-crate coverage to avoid lossy SQL key collapse"
+                        workspace_root = ?root.display(),
+                        "non-UTF-8 workspace root; skipping per-crate coverage to avoid lossy SQL key collapse"
                     );
                     return Ok(serde_json::to_value(ProjectCoverage::new(
                         total,
                         Vec::new(),
                     ))?);
                 };
-                let member_strs: Vec<&str> = members.iter().map(String::as_str).collect();
-                let per_crate = query_or_warn(
-                    "query_crate_coverage",
-                    "per-crate coverage will be blank",
-                    std::collections::HashMap::<String, ops_duckdb::sql::CrateCoverage>::new(),
-                    || query_crate_coverage(db, &member_strs, cwd_str),
-                );
-                // PERF-1 (TASK-0798): resolve display names up front in one
-                // pass over members with coverage rows, so each member's
-                // Cargo.toml is read at most once per provide() call.
-                let mut display_names: std::collections::HashMap<&str, String> =
-                    std::collections::HashMap::with_capacity(per_crate.len());
-                for member in members {
-                    if per_crate.contains_key(member.as_str()) {
-                        display_names
-                            .insert(member.as_str(), resolve_crate_display_name(member, &cwd));
-                    }
-                }
-                members
-                    .iter()
-                    .filter_map(|member| {
-                        let cov = per_crate.get(member)?;
-                        let unit_name = display_names.remove(member.as_str())?;
-                        Some(UnitCoverage::new(
-                            unit_name,
-                            member.clone(),
-                            CoverageStats::new(
-                                cov.lines_percent,
-                                cov.lines_covered,
-                                cov.lines_count,
-                            ),
-                        ))
-                    })
-                    .collect()
+                per_crate_units(db, manifest.resolved_members(), root, root_str)
             }
-        } else {
-            Vec::new()
+            _ => Vec::new(),
         };
 
         let coverage = ProjectCoverage::new(total, units);
@@ -184,12 +258,71 @@ impl DataProvider for RustCoverageProvider {
     }
 }
 
+/// Query per-crate coverage and pair each covered member with its display name.
+fn per_crate_units(
+    db: &DuckDb,
+    members: &[String],
+    workspace_root: &std::path::Path,
+    workspace_root_str: &str,
+) -> Vec<UnitCoverage> {
+    let member_strs: Vec<&str> = members.iter().map(String::as_str).collect();
+    let per_crate = query_or_warn(
+        "query_crate_coverage",
+        "per-crate coverage will be blank",
+        HashMap::<String, CrateCoverage>::new(),
+        || query_crate_coverage(db, &member_strs, workspace_root_str),
+    );
+    // PERF-1 (TASK-0798): resolve display names up front in one pass over
+    // members with coverage rows, so each member's Cargo.toml is read at most
+    // once per provide() call.
+    let mut display_names: HashMap<&str, String> = HashMap::with_capacity(per_crate.len());
+    for member in members {
+        if per_crate.contains_key(member.as_str()) {
+            display_names.insert(
+                member.as_str(),
+                resolve_crate_display_name(member, workspace_root),
+            );
+        }
+    }
+    members
+        .iter()
+        .filter_map(|member| {
+            let cov = per_crate.get(member)?;
+            let unit_name = display_names.remove(member.as_str())?;
+            Some(UnitCoverage::new(
+                unit_name,
+                member.clone(),
+                CoverageStats::new(cov.lines_percent, cov.lines_covered, cov.lines_count),
+            ))
+        })
+        .collect()
+}
+
 #[cfg(test)]
 mod cache_tests {
-    use super::cached_query_project_coverage;
+    use super::{
+        cached_query_project_coverage, project_coverage_cache, ProjectCoverageCache,
+        COVERAGE_VICTIM_QUEUE_SLACK, MAX_COVERAGE_CACHE_ENTRIES,
+    };
     use ops_about::test_support::TracingBuf;
     use ops_duckdb::DuckDb;
     use std::sync::Arc;
+
+    fn cache_len() -> usize {
+        project_coverage_cache()
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+            .map
+            .len()
+    }
+
+    fn contains(key: u64) -> bool {
+        project_coverage_cache()
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+            .map
+            .contains_key(&key)
+    }
 
     /// DUP-1 / TASK-1079: the identity-metrics and coverage providers used
     /// to dispatch their own `query_project_coverage` against the same
@@ -339,16 +472,7 @@ mod cache_tests {
     ///
     /// TEST-1 / TASK-1571: drive the contract through
     /// `cached_query_project_coverage` itself (the cache aliasing API)
-    /// rather than asserting on `DuckDb::id`. The previous shape only
-    /// checked `assert_ne!(a.id(), b.id())` and would have passed even
-    /// if the cache regressed to a pointer-address key — the very ABA
-    /// hazard the test name advertises. Now we:
-    ///   1. prime the cache against `a`,
-    ///   2. drop `a`,
-    ///   3. allocate `b` (potentially at the same address),
-    ///   4. assert `b`'s lookup does NOT surface `a`'s primed payload —
-    ///      `b` either has no entry or has its own freshly-computed
-    ///      value, but never aliases `a`'s.
+    /// rather than asserting on `DuckDb::id`.
     #[test]
     #[serial_test::serial(project_coverage_cache)]
     fn distinct_db_instances_do_not_alias_cache_via_aba() {
@@ -361,13 +485,10 @@ mod cache_tests {
             let a = DuckDb::open_in_memory().expect("open a");
             let id = a.id();
             let _primed = cached_query_project_coverage(&a);
-            // Confirm the slot exists under id `a` after priming.
-            let guard = super::project_coverage_cache()
-                .lock()
-                .unwrap_or_else(std::sync::PoisonError::into_inner);
-            let primed = guard.contains_key(&id);
-            drop(guard);
-            assert!(primed, "priming must insert a slot for instance a's id");
+            assert!(
+                contains(id),
+                "priming must insert a slot for instance a's id"
+            );
             id
         };
         // After `a` drops, a fresh instance must mint a new id even if
@@ -380,54 +501,154 @@ mod cache_tests {
             "ABA-resistant id allocator: post-drop reallocation must not reuse a's id"
         );
         let _b_payload = cached_query_project_coverage(&b);
-        // `b`'s lookup must have created its own slot under `b_id`.
-        // The slot under `a_id` may still exist (the cache is keyed by
-        // id, not by liveness) — the contract is that `b` never reads
-        // from it.
-        let guard = super::project_coverage_cache()
-            .lock()
-            .unwrap_or_else(std::sync::PoisonError::into_inner);
-        let has_b_slot = guard.contains_key(&b_id);
-        drop(guard);
         assert!(
-            has_b_slot,
+            contains(b_id),
             "b's lookup must populate a slot under its own id"
         );
-        assert_ne!(
-            a_id, b_id,
-            "ABA-resistant cache contract: b's slot is keyed by a distinct id"
+    }
+
+    /// PERF-16 / TASK-1764 AC #3: the memoization map is bounded. Every
+    /// `DuckDb` a process opens mints a fresh monotonic id, so without a cap
+    /// this map grew one permanent slot per instance — an unbounded leak in a
+    /// daemon or CI worker that opens a handle per project or per refresh.
+    #[test]
+    #[serial_test::serial(project_coverage_cache)]
+    fn project_coverage_cache_stays_bounded_across_many_db_instances() {
+        // Each instance is dropped immediately; the point is that the cache
+        // must not retain a slot for every id it has ever seen.
+        for _ in 0..(MAX_COVERAGE_CACHE_ENTRIES * 3) {
+            let db = DuckDb::open_in_memory().expect("open in-memory db");
+            let _ = cached_query_project_coverage(&db);
+        }
+        let len = cache_len();
+        assert!(
+            len <= MAX_COVERAGE_CACHE_ENTRIES,
+            "cache size {len} must stay within MAX_COVERAGE_CACHE_ENTRIES = {MAX_COVERAGE_CACHE_ENTRIES}"
+        );
+    }
+
+    /// PERF-16 / TASK-1723: the *map* was bounded by the test above, but the
+    /// LRU victim queue was not. Its only drain runs at the cap, so a process
+    /// staying below the cap — every CLI run, which memoizes exactly one
+    /// project — pushed one stamp per `slot_for` call and never dropped any.
+    /// Drive the cache directly (no global, no `DuckDb`) and pin that the queue
+    /// stays proportional to the live entry count, not to the call count.
+    #[test]
+    fn repeated_hits_below_cap_keep_the_victim_queue_bounded() {
+        let mut cache = ProjectCoverageCache::new();
+        const KEYS: u64 = 3;
+        const PASSES: usize = 500;
+        for _ in 0..PASSES {
+            for key in 0..KEYS {
+                let _ = cache.slot_for(key);
+            }
+        }
+
+        let map_len = cache.map.len();
+        assert_eq!(map_len, usize::try_from(KEYS).unwrap());
+        assert!(
+            map_len < MAX_COVERAGE_CACHE_ENTRIES,
+            "the test must stay below the cap or it stops covering the leak"
+        );
+        // Without compaction this is KEYS * PASSES == 1500 stamps.
+        let bound = map_len
+            .saturating_mul(2)
+            .saturating_add(COVERAGE_VICTIM_QUEUE_SLACK);
+        let queue_len = cache.victim_queue.len();
+        assert!(
+            queue_len <= bound,
+            "victim queue holds {queue_len} stamps after {} accesses of {map_len} keys; \
+             expected at most {bound} — it is growing with the access count again",
+            usize::try_from(KEYS).unwrap().saturating_mul(PASSES)
         );
     }
 }
 
 #[cfg(all(test, unix))]
 mod tests {
+    use super::RustCoverageProvider;
+    use ops_about::test_support::TracingBuf;
+    use ops_duckdb::DuckDb;
+    use ops_extension::{Context, DataProvider};
     use std::ffi::OsStr;
     use std::os::unix::ffi::OsStrExt;
-    use std::path::Path;
+    use std::sync::Arc;
 
-    /// READ-5 / TASK-0986: a non-UTF-8 cwd must NOT collapse to a
-    /// U+FFFD-replaced SQL key. The provider's short-circuit relies on
-    /// `Path::to_str()` returning `None` for non-UTF-8 input — pin that
-    /// invariant so a future refactor that swaps in `to_string_lossy`
-    /// can't silently re-introduce the lossy-collapse.
+    /// READ-5 / TASK-0986 + TEST-25 / TASK-1773: a non-UTF-8 workspace root
+    /// must NOT collapse to a U+FFFD-replaced SQL key — the lossy key would
+    /// silently match an unrelated workspace's coverage rows.
+    ///
+    /// This drives `RustCoverageProvider::provide` itself and asserts on the
+    /// provider's observable behaviour (project total present, per-crate table
+    /// blank, warn emitted). Replacing the `to_str()` short-circuit with
+    /// `to_string_lossy()` removes the warn and makes this fail. The previous
+    /// shape asserted only that `Path::to_str()` returns `None` for invalid
+    /// UTF-8 — a `std` guarantee that stays green through exactly that
+    /// regression.
     #[test]
-    fn non_utf8_cwd_path_to_str_returns_none() {
-        // Construct a non-UTF-8 path: 0x80 is a continuation byte with no
-        // leading byte, so it's invalid UTF-8.
-        let bytes = b"/tmp/non\xC3\x28-utf8";
-        let p = Path::new(OsStr::from_bytes(bytes));
-        assert!(
-            p.to_str().is_none(),
-            "non-UTF-8 path must not pass `to_str()`; got: {:?}",
-            p.to_str()
+    #[serial_test::serial(typed_manifest_cache, project_coverage_cache)]
+    fn non_utf8_workspace_root_skips_per_crate_coverage_with_warn() {
+        let dir = tempfile::tempdir().expect("tempdir");
+        // 0xC3 0x28 is an invalid UTF-8 sequence.
+        let mut bytes = dir.path().as_os_str().as_bytes().to_vec();
+        bytes.extend_from_slice(b"/ws-\xC3\x28");
+        let root = std::path::PathBuf::from(OsStr::from_bytes(&bytes));
+        assert!(root.to_str().is_none(), "test premise: root is not UTF-8");
+
+        std::fs::create_dir_all(root.join("crates/foo")).expect("create ws");
+        std::fs::write(
+            root.join("crates/foo/Cargo.toml"),
+            "[package]\nname=\"foo\"\nversion=\"0.1.0\"\n",
+        )
+        .unwrap();
+        std::fs::write(
+            root.join("Cargo.toml"),
+            "[workspace]\nmembers = [\"crates/*\"]\n",
+        )
+        .unwrap();
+
+        let db = DuckDb::open_in_memory().expect("open in-memory db");
+        {
+            let conn = db.lock().expect("lock");
+            conn.execute_batch(
+                "CREATE TABLE coverage_files (\
+                    filename VARCHAR, \
+                    lines_count BIGINT, \
+                    lines_covered BIGINT, \
+                    lines_percent DOUBLE\
+                 ); \
+                 INSERT INTO coverage_files VALUES ('crates/foo/src/lib.rs', 10, 5, 50.0);",
+            )
+            .expect("seed coverage_files");
+        }
+
+        let mut ctx = Context::test_context(root);
+        ctx.attach_db(Arc::new(db));
+
+        let buf = TracingBuf::default();
+        let subscriber = tracing_subscriber::fmt()
+            .with_writer(buf.clone())
+            .with_max_level(tracing::Level::WARN)
+            .with_ansi(false)
+            .finish();
+        let value = tracing::subscriber::with_default(subscriber, || {
+            RustCoverageProvider.provide(&mut ctx).expect("provide")
+        });
+
+        assert_eq!(
+            value.get("total").and_then(|t| t.get("lines_count")),
+            Some(&serde_json::json!(10)),
+            "the project total must still be reported, got: {value}"
         );
-        // Confirm that `to_string_lossy` would have produced a U+FFFD
-        // replacement key — the very behaviour the short-circuit avoids.
-        let lossy = p.to_string_lossy();
+        assert_eq!(
+            value.get("units").and_then(|u| u.as_array()).map(Vec::len),
+            Some(0),
+            "per-crate coverage must be skipped for a non-UTF-8 root, got: {value}"
+        );
+        let logs = buf.captured();
         assert!(
-            lossy.contains('\u{FFFD}'),
-            "expected lossy conversion to produce U+FFFD: {lossy}"
+            logs.contains("non-UTF-8 workspace root"),
+            "the short-circuit must leave a breadcrumb, got: {logs}"
         );
     }
 }

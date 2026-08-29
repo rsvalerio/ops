@@ -74,12 +74,16 @@ fn render_report_emits_title_rows_details_and_footer() {
     assert!(joined.contains("Clean Section"));
     assert!(joined.contains("None"));
 
-    // Warning row + verbatim detail line.
+    // Warning row + verbatim detail line. CL-3: the detail text itself is
+    // verbatim (no dotted separator, no reflow), but it carries the same left
+    // margin as the title and the rows — otherwise it hangs a column left of
+    // the row it belongs to.
     assert!(joined.contains("\u{26a0}"));
     assert!(joined.contains("1 warning"));
+    let expected_detail = format!("{}      note line", theme.left_pad_str());
     assert!(
-        lines.iter().any(|l| l == "      note line"),
-        "detail line must be emitted verbatim, no separator: {lines:?}"
+        lines.contains(&expected_detail),
+        "detail line must be emitted verbatim behind the theme's left pad: {lines:?}"
     );
 
     // Footer: 2 checks, 1 warning.
@@ -177,5 +181,99 @@ fn render_summary_text_matches_render_summary_done_case() {
         let via_summary = theme.render_summary(true, 1.5);
         let via_text = theme.render_summary_text("Done in 1.50s");
         assert_eq!(via_summary, via_text);
+    }
+}
+
+/// READ-6 / TASK-1973 AC#3: a report row label that already carries an SGR
+/// sequence must not change the geometry. The layout used to measure the
+/// label prefix with the ANSI-blind `display_width` and the assembled line
+/// with the ANSI-aware `visible_width`, so the two halves of the same line
+/// disagreed by exactly the escape's byte length and the frame bent.
+#[test]
+fn boxed_report_row_with_sgr_label_matches_border_width() {
+    use crate::style::visible_width;
+    let theme = ConfigurableTheme::new(ThemeConfig {
+        layout_kind: LayoutKind::Boxed,
+        left_pad: 0,
+        ..ThemeConfig::compact()
+    });
+    let cols: u16 = 70;
+
+    let mut plain = Report::new("Health");
+    plain.push(ReportRow::new(ReportStatus::Ok, "Advisories", "None"));
+    let mut styled = Report::new("Health");
+    styled.push(ReportRow::new(
+        ReportStatus::Ok,
+        "\x1b[1;31mAdvisories\x1b[0m",
+        "None",
+    ));
+
+    let plain_lines = theme.render_report(&plain, cols);
+    let styled_lines = theme.render_report(&styled, cols);
+    assert_eq!(plain_lines.len(), styled_lines.len());
+    for (p, s) in plain_lines.iter().zip(styled_lines.iter()) {
+        assert_eq!(
+            visible_width(p),
+            visible_width(s),
+            "an SGR-carrying label must not change the geometry: {p:?} vs {s:?}"
+        );
+    }
+    // And the framed lines are still exactly the border width.
+    for line in styled_lines.iter().skip(1) {
+        assert_eq!(visible_width(line), usize::from(cols), "{line:?}");
+    }
+}
+
+/// SEC-21 / TASK-1965 (extended): the report title and each row's label and
+/// result are producer-supplied text on the same footing as the detail lines,
+/// so a captured tool output carrying ESC or a control byte must not reach the
+/// terminal raw. Sanitisation happens *before* `render_slot` measures and
+/// truncates, so the layout math sees the same string that is emitted.
+#[test]
+fn report_title_label_and_result_are_sanitised() {
+    for layout in [LayoutKind::Flat, LayoutKind::Boxed] {
+        let theme = ConfigurableTheme::new(ThemeConfig {
+            layout_kind: layout,
+            left_pad: 0,
+            ..ThemeConfig::compact()
+        });
+        let mut report = Report::new("Health\u{1b}[2J");
+        report.push(ReportRow::new(
+            ReportStatus::Ok,
+            "Advisories\u{1b}[31m",
+            "None\u{7}",
+        ));
+
+        let lines = theme.render_report(&report, 200);
+        let joined = lines.join("\n");
+        // Assert the exact raw payloads are gone rather than that no ESC
+        // appears anywhere: sanitising renders the title escape as the
+        // literal text `\x1b[2J`, so an "any ESC" check collapses to "the
+        // theme emitted no SGR of its own" and would fail whenever this
+        // process renders with colour on — a reason unrelated to sanitising.
+        assert!(
+            !joined.contains("\u{1b}[2J"),
+            "raw ESC from the title must not survive: {joined:?}"
+        );
+        assert!(
+            !joined.contains("\u{1b}[31m"),
+            "raw ESC from the label must not survive: {joined:?}"
+        );
+        assert!(
+            !joined.contains('\u{7}'),
+            "raw control byte from the result must not survive: {joined:?}"
+        );
+        assert!(
+            joined.contains("\\x1b[2J"),
+            "title ESC must be escaped: {joined:?}"
+        );
+        assert!(
+            joined.contains("\\x1b[31m"),
+            "label ESC must be escaped: {joined:?}"
+        );
+        assert!(
+            joined.contains("\\x07"),
+            "result control byte must be escaped: {joined:?}"
+        );
     }
 }

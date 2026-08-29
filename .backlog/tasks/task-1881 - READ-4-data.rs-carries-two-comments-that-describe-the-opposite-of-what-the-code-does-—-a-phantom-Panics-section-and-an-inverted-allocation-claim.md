@@ -3,11 +3,11 @@ id: TASK-1881
 title: >-
   READ-4: data.rs carries two comments that describe the opposite of what the
   code does — a phantom # Panics section and an inverted allocation claim
-status: To Do
+status: Done
 assignee:
   - TASK-1985
 created_date: '2026-08-27 15:33'
-updated_date: '2026-08-28 14:09'
+updated_date: '2026-08-28 19:26'
 labels:
   - code-review-rust
   - readability
@@ -67,3 +67,11 @@ priority: low
 - [ ] #2 The PATTERN-3 comment on DataRegistry::register describes the actual cost profile: one probe on the happy path, a key clone on the duplicate path
 - [ ] #3 The equivalent comment on CommandRegistry::insert is checked against its code and corrected if it makes the same inverted claim
 <!-- AC:END -->
+
+## Implementation Notes
+
+<!-- SECTION:NOTES:BEGIN -->
+AC#1: the phantom `# Panics` section is gone from Context::get_or_provide. The invariant it described no longer exists at all — TASK-1865 moved the in_flight marker into DataRegistry::provide, so get_or_provide neither inserts nor takes it and the `take(...).unwrap_or_else(...)` line it commented on is deleted.
+AC#2: the PATTERN-3 comment on DataRegistry::register now states the real cost profile — one hash probe instead of two on the happy path, at the cost of cloning the key already in the map on the duplicate path, because `entry` consumed the incoming name.
+AC#3: checked CommandRegistry::insert and it made the same inverted claim ("leaving the input id untouched ... without a heap copy on the duplicate path"): `entry(id)` consumes the input and the audit push is a clone. Corrected to: one probe instead of three, and the duplicate path still pays a key clone.
+<!-- SECTION:NOTES:END -->

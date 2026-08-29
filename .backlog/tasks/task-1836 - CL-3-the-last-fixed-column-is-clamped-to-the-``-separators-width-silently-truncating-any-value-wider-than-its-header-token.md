@@ -3,11 +3,11 @@ id: TASK-1836
 title: >-
   CL-3: the last fixed column is clamped to the `====` separator's width,
   silently truncating any value wider than its header token
-status: To Do
+status: Done
 assignee:
   - TASK-1997
 created_date: '2026-08-27 15:22'
-updated_date: '2026-08-28 14:13'
+updated_date: '2026-08-28 20:30'
 labels:
   - code-review-rust
   - idioms-correctness
@@ -55,9 +55,9 @@ The `note` column escapes this only because `slice_note` (`:233-244`) deliberate
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 separator_columns (or its callers) no longer bound the final column by the separator row's length; the last fixed column reads to the end of the data row like slice_note already does
-- [ ] #2 A test drives parse_upgrade_table over a 5-column table whose new req value is wider than the 'new req' header token (e.g. 1.10.100) and asserts new_req round-trips in full
-- [ ] #3 A test covers the same case with a 6-column table (note present) to confirm the note column still captures multi-word text and the new req column is not widened into the note
-- [ ] #4 Existing table_tests fixtures (parse_upgrade_table_basic, _with_notes, _multi_word_note, _non_ascii_row_does_not_panic) still pass unchanged
-- [ ] #5 The invariant the column geometry relies on is stated in a comment on separator_columns so the next reader does not have to rediscover that the = run is header-token-width, not column-width
+- [x] #1 separator_columns (or its callers) no longer bound the final column by the separator row's length; the last fixed column reads to the end of the data row like slice_note already does
+- [x] #2 A test drives parse_upgrade_table over a 5-column table whose new req value is wider than the 'new req' header token (e.g. 1.10.100) and asserts new_req round-trips in full
+- [x] #3 A test covers the same case with a 6-column table (note present) to confirm the note column still captures multi-word text and the new req column is not widened into the note
+- [x] #4 Existing table_tests fixtures (parse_upgrade_table_basic, _with_notes, _multi_word_note, _non_ascii_row_does_not_panic) still pass unchanged
+- [x] #5 The invariant the column geometry relies on is stated in a comment on separator_columns so the next reader does not have to rediscover that the = run is header-token-width, not column-width
 <!-- AC:END -->

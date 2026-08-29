@@ -31,8 +31,15 @@ const DETAIL_INDENT: &str = "      ";
 /// ERR-2 / TASK-0602: any cargo-deny severity outside the known set classifies
 /// into [`SeverityClass::Unknown`], rendering with a red `?` icon plus a
 /// one-shot `tracing::warn!` so schema drift is observable instead of hiding.
+///
+/// DUP-3 / TASK-1821: this is also the crate's *only* definition of which
+/// cargo-deny severity strings exist and which of them are benign. The
+/// `has_issues` gate (`lib.rs`) classifies through
+/// [`SeverityClass::classify`] rather than re-deriving the same partition
+/// from `&str`, so the exit code and the rendered status can no longer
+/// disagree: a new severity is one arm here, not two arms in two modules.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-enum SeverityClass {
+pub enum SeverityClass {
     Error,
     Warning,
     Info,
@@ -40,7 +47,7 @@ enum SeverityClass {
 }
 
 impl SeverityClass {
-    fn classify(severity: &str) -> Self {
+    pub fn classify(severity: &str) -> Self {
         match severity {
             "error" => Self::Error,
             "warning" => Self::Warning,
@@ -82,7 +89,7 @@ impl SeverityClass {
     /// Map to the report status that drives the row icon + color.
     /// Unknown severities are treated as errors (fail-loud), mirroring the
     /// `has_issues` gate's fail-closed posture.
-    const fn report_status(self) -> ReportStatus {
+    pub const fn report_status(self) -> ReportStatus {
         match self {
             Self::Error | Self::Unknown => ReportStatus::Error,
             Self::Warning => ReportStatus::Warning,

@@ -3,11 +3,11 @@ id: TASK-1877
 title: >-
   TEST-5: the impl_extension! factory arms that emit the linkme registration —
   the crate's whole auto-discovery mechanism — are never expanded by any test
-status: To Do
+status: Done
 assignee:
   - TASK-1985
 created_date: '2026-08-27 15:32'
-updated_date: '2026-08-28 14:09'
+updated_date: '2026-08-28 19:25'
 labels:
   - code-review-rust
   - test-quality
@@ -53,3 +53,15 @@ The same gap covers the rest of the crate's macro and public surface:
 - [ ] #4 Context::clear_provider_results, Context::from_cwd_arc, CommandRegistry::insert's return value, CommandRegistry::take_duplicate_inserts on the direct path, IntoIterator for &CommandRegistry and ExtensionInfo::new each have at least one test
 - [ ] #5 The duckdb-feature surface (DuckDbHandle blanket impl and the documented downcast) is exercised under a feature-enabled test run
 <!-- AC:END -->
+
+## Implementation Notes
+
+<!-- SECTION:NOTES:BEGIN -->
+AC#1: two test-only extensions (FactoryFullExt, FactoryShortExt) expand both `factory:` arms; both_factory_arms_register_into_the_extension_registry walks EXTENSION_REGISTRY, probes every factory and asserts the expected (config_name, Extension::name()) pairs appear. factory_arms_decline_when_prerequisites_are_unmet covers the None branch.
+AC#2: test_datasource_extension! is invoked in mod test_datasource_extension_macro.
+AC#3: command_registry_clone_copies_data_and_resets_the_audit_trail pins the hand-written Clone (data copied, audit trail reset) plus CommandRegistry::insert's return value.
+AC#4: clear_provider_results_drops_cached_values, context_accessors_report_the_constructed_values (from_cwd_arc + Arc sharing), command_registry_ref_into_iter_yields_insertion_order, extension_info_new_defaults_every_optional_field, and the direct insert/take_duplicate_inserts path in the Clone test.
+AC#5: mod duckdb_feature (cfg(feature = "duckdb"), run by the workspace --all-features gate) covers the DuckDbHandle blanket impl, the documented downcast and Context::attach_db/db().
+
+Finding while writing AC#5: the documented downcast does NOT work through an Arc<dyn DuckDbHandle> receiver. The blanket impl covers every 'static + Send + Sync type, including Arc<dyn DuckDbHandle> itself, so method resolution matches the smart pointer before it derefs and as_any() returns the erased Arc. ops_duckdb::downcast_duckdb calls h.as_any() on a &Arc<...> and therefore always returns None. The behaviour is pinned here by as_any_on_an_arc_receiver_erases_the_arc_not_the_handle, the DuckDbHandle rustdoc example is corrected to reborrow as &dyn DuckDbHandle first, and the production bug is filed separately as a Triage task (out of this wave's scope: fixing it flips DB-backed query paths that currently fall back silently).
+<!-- SECTION:NOTES:END -->

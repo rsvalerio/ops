@@ -822,3 +822,215 @@ theme = "classic"
         .failure()
         .stderr(predicate::str::contains("invalid.toml\": TOML parse error"));
 }
+
+// -- Pre-commit contract: fixers and checkers (TEST-31 / TASK-1737) --
+//
+// The README states the contract explicitly: these commands exit non-zero when
+// they change (or reject) a file, so a git pre-commit hook fails the commit.
+// That mapping lives in `subcommands.rs::run_text_fixer` /
+// `run_config_checker` and had no test at any level: a regression that
+// inverted the branch would make every `ops tw` / `ops eof` / `ops check-json`
+// hook pass silently while files were rewritten under the committer.
+
+/// Run a fixer/checker as a spawned process in `dir` and return
+/// (success, stdout).
+fn ops_in(dir: &Path, args: &[&str]) -> assert_cmd::assert::Assert {
+    ops().args(args).current_dir(dir).assert()
+}
+
+#[test]
+fn cli_trailing_whitespace_rewrites_and_exits_non_zero() {
+    let dir = temp_dir();
+    let file = dir.path().join("dirty.txt");
+    std::fs::write(&file, "a  \nb\n").expect("write fixture");
+
+    ops_in(dir.path(), &["trailing-whitespace"])
+        .failure()
+        .stdout(predicate::str::contains("dirty.txt"))
+        .stdout(predicate::str::contains("1 changed"));
+    assert_eq!(
+        std::fs::read_to_string(&file).expect("read back"),
+        "a\nb\n",
+        "the file must actually be rewritten"
+    );
+
+    // Second run: nothing left to fix, so the pre-commit hook passes.
+    ops_in(dir.path(), &["trailing-whitespace"])
+        .success()
+        .stdout(predicate::str::contains("0 changed"));
+}
+
+#[test]
+fn cli_trailing_whitespace_tw_alias_honours_the_same_contract() {
+    let dir = temp_dir();
+    std::fs::write(dir.path().join("dirty.txt"), "a  \n").expect("write fixture");
+    ops_in(dir.path(), &["tw"])
+        .failure()
+        .stdout(predicate::str::contains("trailing-whitespace"));
+    ops_in(dir.path(), &["tw"]).success();
+}
+
+#[test]
+fn cli_end_of_file_fixer_rewrites_and_exits_non_zero() {
+    let dir = temp_dir();
+    let file = dir.path().join("no-newline.txt");
+    std::fs::write(&file, "x").expect("write fixture");
+
+    ops_in(dir.path(), &["end-of-file-fixer"])
+        .failure()
+        .stdout(predicate::str::contains("no-newline.txt"))
+        .stdout(predicate::str::contains("1 changed"));
+    assert_eq!(
+        std::fs::read_to_string(&file).expect("read back"),
+        "x\n",
+        "the missing trailing newline must actually be added"
+    );
+
+    ops_in(dir.path(), &["end-of-file-fixer"])
+        .success()
+        .stdout(predicate::str::contains("0 changed"));
+}
+
+#[test]
+fn cli_end_of_file_fixer_eof_alias_honours_the_same_contract() {
+    let dir = temp_dir();
+    std::fs::write(dir.path().join("no-newline.txt"), "x").expect("write fixture");
+    ops_in(dir.path(), &["eof"])
+        .failure()
+        .stdout(predicate::str::contains("end-of-file-fixer"));
+    ops_in(dir.path(), &["eof"]).success();
+}
+
+#[test]
+fn cli_check_json_fails_on_malformed_and_passes_on_valid() {
+    let dir = temp_dir();
+    std::fs::write(dir.path().join("bad.json"), "{bad").expect("write fixture");
+    ops_in(dir.path(), &["check-json"])
+        .failure()
+        .stdout(predicate::str::contains("bad.json"))
+        .stdout(predicate::str::contains("1 failed"));
+
+    std::fs::remove_file(dir.path().join("bad.json")).expect("remove fixture");
+    std::fs::write(dir.path().join("good.json"), "{\"a\": 1}\n").expect("write fixture");
+    ops_in(dir.path(), &["check-json"])
+        .success()
+        .stdout(predicate::str::contains("0 failed"));
+}
+
+#[test]
+fn cli_check_yaml_fails_on_malformed_and_passes_on_valid() {
+    let dir = temp_dir();
+    std::fs::write(dir.path().join("bad.yaml"), "a: [1\n").expect("write fixture");
+    ops_in(dir.path(), &["check-yaml"])
+        .failure()
+        .stdout(predicate::str::contains("bad.yaml"))
+        .stdout(predicate::str::contains("1 failed"));
+
+    std::fs::remove_file(dir.path().join("bad.yaml")).expect("remove fixture");
+    std::fs::write(dir.path().join("good.yaml"), "a: 1\n").expect("write fixture");
+    ops_in(dir.path(), &["check-yaml"])
+        .success()
+        .stdout(predicate::str::contains("0 failed"));
+}
+
+// -- `ops sec` (TEST-31 / TASK-1737) --
+
+#[test]
+fn cli_sec_dry_run_prints_the_plan_without_requiring_trivy() {
+    let dir = temp_dir();
+    // An empty PATH makes the "is trivy installed" probe fail deterministically,
+    // so the preview is proven not to depend on Trivy being present.
+    let empty = temp_dir();
+    ops()
+        .args(["sec", "--dry-run"])
+        .env("PATH", empty.path())
+        .current_dir(dir.path())
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("ops sec — scan plan:"))
+        .stdout(predicate::str::contains("[run ] secrets"))
+        .stdout(predicate::str::contains("[skip] vulnerabilities"))
+        .stdout(predicate::str::contains("[skip] misconfiguration"))
+        // The heads-up keeps the preview honest about a live run.
+        .stderr(predicate::str::contains("trivy not found on PATH"));
+}
+
+#[test]
+fn cli_sec_with_every_scan_skipped_fails_closed() {
+    // SEC-31: exiting 0 here would report a clean scan for a gate that never
+    // ran. Reaches the empty-selection branch before the Trivy probe, so an
+    // empty PATH must not change the outcome.
+    let dir = temp_dir();
+    let empty = temp_dir();
+    ops()
+        .args([
+            "sec",
+            "--skip",
+            "secrets",
+            "--skip",
+            "vuln",
+            "--skip",
+            "misconfig",
+        ])
+        .env("PATH", empty.path())
+        .current_dir(dir.path())
+        .assert()
+        .failure()
+        .stdout(predicate::str::contains("no scans ran"))
+        .stdout(predicate::str::contains("skipped (--skip)"));
+}
+
+// -- `ops extension` (TEST-31 / TASK-1737) --
+
+#[test]
+fn cli_extension_list_renders_the_extension_table() {
+    let dir = temp_dir();
+    ops_in(dir.path(), &["extension", "list"])
+        .success()
+        .stdout(predicate::str::contains("Generic extensions:"))
+        .stdout(predicate::str::contains("Name"))
+        .stdout(predicate::str::contains("Description"))
+        .stdout(predicate::str::contains("text-fixers"));
+}
+
+#[test]
+fn cli_extension_show_renders_the_object_header() {
+    let dir = temp_dir();
+    ops_in(dir.path(), &["extension", "show", "text-fixers"])
+        .success()
+        .stdout(predicate::str::contains("EXTENSION: text-fixers"))
+        .stdout(predicate::str::contains("Shortname:"))
+        .stdout(predicate::str::contains("Commands:"));
+}
+
+#[test]
+fn cli_extension_show_unknown_name_fails_and_lists_the_alternatives() {
+    let dir = temp_dir();
+    ops_in(dir.path(), &["extension", "show", "no-such-extension"])
+        .failure()
+        .stderr(predicate::str::contains("extension not found"))
+        .stderr(predicate::str::contains("Available:"));
+}
+
+// -- Interactive commands refuse without a terminal (TEST-31 / TASK-1737) --
+//
+// A spawned process has piped stdio, so these exercise the real non-TTY gate.
+
+#[test]
+fn cli_new_command_without_a_terminal_refuses() {
+    let dir = temp_dir();
+    ops_in(dir.path(), &["new-command"])
+        .failure()
+        .stderr(predicate::str::contains("new-command"))
+        .stderr(predicate::str::contains("requires an interactive terminal"));
+}
+
+#[test]
+fn cli_import_makefile_without_a_terminal_refuses() {
+    let dir = temp_dir();
+    std::fs::write(dir.path().join("Makefile"), "build:\n\techo hi\n").expect("write Makefile");
+    ops_in(dir.path(), &["import-makefile"])
+        .failure()
+        .stderr(predicate::str::contains("import-makefile"))
+        .stderr(predicate::str::contains("requires an interactive terminal"));
+}

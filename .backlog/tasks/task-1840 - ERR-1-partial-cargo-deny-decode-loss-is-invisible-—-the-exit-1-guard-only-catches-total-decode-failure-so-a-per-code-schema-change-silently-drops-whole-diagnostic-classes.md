@@ -4,11 +4,11 @@ title: >-
   ERR-1: partial cargo-deny decode loss is invisible — the exit-1 guard only
   catches total decode failure, so a per-code schema change silently drops whole
   diagnostic classes
-status: To Do
+status: Done
 assignee:
   - TASK-1997
 created_date: '2026-08-27 15:23'
-updated_date: '2026-08-28 14:13'
+updated_date: '2026-08-28 20:33'
 labels:
   - code-review-rust
   - idioms-correctness
@@ -50,10 +50,10 @@ The parser already tracks exactly the counter needed to close this. `parse/upgra
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 parse_deny_output tracks how many lines were candidate diagnostics versus how many became entries, mirroring UpgradeParseDiagnostics in parse/upgrade.rs
-- [ ] #2 interpret_deny_result fails closed when diagnostics were seen but a non-trivial share of them could not be decoded or classified, not only when the decoded total is zero
-- [ ] #3 The bail message distinguishes partial decode loss from the existing zero-diagnostics (TASK-0958) and empty-stderr (TASK-0612) cases and reports the seen/decoded counts
-- [ ] #4 decode_diagnostic logs a tracing breadcrumb when it drops a diagnostic for a missing code field, matching the other two drop paths
-- [ ] #5 A test drives interpret_deny_result(Some(1), <stderr with one decodable ban plus several advisory lines carrying an unrecognised code>) and asserts it errs instead of returning a report with an empty advisories section
-- [ ] #6 parse_deny_no_code_field_skipped and the other existing deny/tests.rs cases still pass, updated only where they pinned the silent-drop behaviour
+- [x] #1 parse_deny_output tracks how many lines were candidate diagnostics versus how many became entries, mirroring UpgradeParseDiagnostics in parse/upgrade.rs
+- [x] #2 interpret_deny_result fails closed when diagnostics were seen but a non-trivial share of them could not be decoded or classified, not only when the decoded total is zero
+- [x] #3 The bail message distinguishes partial decode loss from the existing zero-diagnostics (TASK-0958) and empty-stderr (TASK-0612) cases and reports the seen/decoded counts
+- [x] #4 decode_diagnostic logs a tracing breadcrumb when it drops a diagnostic for a missing code field, matching the other two drop paths
+- [x] #5 A test drives interpret_deny_result(Some(1), <stderr with one decodable ban plus several advisory lines carrying an unrecognised code>) and asserts it errs instead of returning a report with an empty advisories section
+- [x] #6 parse_deny_no_code_field_skipped and the other existing deny/tests.rs cases still pass, updated only where they pinned the silent-drop behaviour
 <!-- AC:END -->

@@ -3,11 +3,11 @@ id: TASK-1748
 title: >-
   ASYNC-6: ops sec spawns trivy with Command::output() — no timeout and no
   output cap, while ops_core::subprocess::run_with_timeout provides both
-status: To Do
+status: Done
 assignee:
   - TASK-1982
 created_date: '2026-08-27 11:14'
-updated_date: '2026-08-28 14:08'
+updated_date: '2026-08-28 19:23'
 labels:
   - code-review-rust
   - idioms
@@ -46,9 +46,9 @@ This crate does not need to hand-roll either bound. `ops-core` is already a depe
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 run_trivy goes through ops_core::subprocess::run_with_timeout (or an equivalent bounded wait) instead of Command::output(), passing a label that names the scan
-- [ ] #2 A per-scan timeout is defined as a named constant with a comment justifying the value, and is overridable by the operator (config key or env var) since a first-run vulnerability-DB download is legitimately slow
-- [ ] #3 A timeout is reported distinctly from a scan failure: the line ends with the failure marker and the message says the scan timed out after N seconds and names the escape hatch, rather than surfacing a bare RunError
-- [ ] #4 A timed-out scan makes the aggregated ops sec exit code non-zero (fail closed), matching the findings path
-- [ ] #5 A unit test drives the timeout branch with a short deadline against a blocking stand-in program and asserts both the message and the non-zero aggregate exit code
+- [x] #1 run_trivy goes through ops_core::subprocess::run_with_timeout (or an equivalent bounded wait) instead of Command::output(), passing a label that names the scan
+- [x] #2 A per-scan timeout is defined as a named constant with a comment justifying the value, and is overridable by the operator (config key or env var) since a first-run vulnerability-DB download is legitimately slow
+- [x] #3 A timeout is reported distinctly from a scan failure: the line ends with the failure marker and the message says the scan timed out after N seconds and names the escape hatch, rather than surfacing a bare RunError
+- [x] #4 A timed-out scan makes the aggregated ops sec exit code non-zero (fail closed), matching the findings path
+- [x] #5 A unit test drives the timeout branch with a short deadline against a blocking stand-in program and asserts both the message and the non-zero aggregate exit code
 <!-- AC:END -->

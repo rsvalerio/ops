@@ -130,7 +130,7 @@ ops_extension::impl_extension! {
     stack: Some(ops_extension::Stack::Rust),
     data_provider_name: Some(DATA_PROVIDER_NAME),
     register_data_providers: |_self, registry| {
-        registry.register(DATA_PROVIDER_NAME, Box::new(MetadataProvider));
+        let _ = registry.register(DATA_PROVIDER_NAME, Box::new(MetadataProvider));
     },
     factory: METADATA_FACTORY = |_, _| {
         Some((NAME, Box::new(MetadataExtension)))
@@ -319,7 +319,7 @@ fn provide_from_db(db: &DuckDb, ctx: &Context) -> Result<serde_json::Value, anyh
 
 fn provide_via_cargo_metadata(ctx: &Context) -> Result<serde_json::Value, anyhow::Error> {
     use anyhow::Context as _;
-    let output = run_cargo_metadata(&ctx.working_directory)?;
+    let output = run_cargo_metadata(ctx.working_directory())?;
     check_metadata_output(&output)?;
     // ERR-4 (TASK-0938): attribute parse failures to the cargo-metadata
     // pipeline so operators see "parsing cargo metadata stdout" in the

@@ -33,7 +33,7 @@ pub fn run_import_makefile(
     workspace_root: &Path,
     file: Option<PathBuf>,
 ) -> anyhow::Result<ExitCode> {
-    run_import_makefile_with_tty_check(workspace_root, file, crate::tty::is_stdout_tty)
+    run_import_makefile_with_tty_check(workspace_root, file, crate::tty::is_prompt_tty)
 }
 
 fn run_import_makefile_with_tty_check<F>(
@@ -132,18 +132,15 @@ fn prompt_target_selection(importable: &[MakeTarget]) -> anyhow::Result<Option<V
         .collect();
     // Preselect everything — unchecking is cheaper than re-checking a long list.
     let all: Vec<usize> = (0..options.len()).collect();
-    let selected = match inquire::MultiSelect::new("Select Makefile targets to import:", options)
-        .with_default(&all)
-        .with_help_message("space to toggle, enter to confirm, esc to cancel")
-        .prompt()
-    {
-        Ok(selected) => selected,
-        Err(
-            inquire::InquireError::OperationCanceled | inquire::InquireError::OperationInterrupted,
-        ) => return Ok(None),
-        Err(e) => {
-            return Err(anyhow::Error::new(e).context("target selection prompt failed"));
-        }
+    let Some(selected) = crate::prompt::classify_prompt_result(
+        inquire::MultiSelect::new("Select Makefile targets to import:", options)
+            .with_default(&all)
+            .with_help_message("space to toggle, enter to confirm, esc to cancel")
+            .prompt(),
+        "target selection",
+    )?
+    else {
+        return Ok(None);
     };
     // Every option handed to the prompt was cloned out of `importable`, so
     // the lookup below always hits (docs/clippy.md layer 3).
@@ -758,5 +755,38 @@ clean: ## Remove build artifacts
         assert!(out.contains("ops build"));
         assert!(out.contains("ops release"));
         assert!(out.ends_with('\n'));
+    }
+
+    /// TASK-1746: Esc / Ctrl-C at the target picker is a user cancel. This
+    /// command handles it itself (prints `Cancelled; .ops.toml left
+    /// untouched.` and returns `SIGINT_EXIT`), so the shared classifier must
+    /// hand it back as `Ok(None)` rather than an error.
+    #[test]
+    fn target_selection_cancel_is_ok_none() {
+        for err in [
+            inquire::InquireError::OperationCanceled,
+            inquire::InquireError::OperationInterrupted,
+        ] {
+            let out = crate::prompt::classify_prompt_result(
+                Err::<Vec<SelectOption>, _>(err),
+                "target selection",
+            )
+            .expect("cancel must not propagate as an error");
+            assert!(out.is_none(), "cancel must map to None");
+        }
+    }
+
+    /// A non-cancel prompt failure still names the prompt source.
+    #[test]
+    fn target_selection_real_error_names_the_prompt() {
+        let err = crate::prompt::classify_prompt_result(
+            Err::<Vec<SelectOption>, _>(inquire::InquireError::NotTTY),
+            "target selection",
+        )
+        .expect_err("real prompt errors must propagate");
+        assert!(
+            format!("{err:#}").contains("target selection prompt failed"),
+            "got: {err:#}"
+        );
     }
 }

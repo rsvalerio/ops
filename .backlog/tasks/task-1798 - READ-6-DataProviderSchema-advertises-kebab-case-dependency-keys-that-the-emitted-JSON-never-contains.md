@@ -3,11 +3,11 @@ id: TASK-1798
 title: >-
   READ-6: DataProviderSchema advertises kebab-case dependency keys that the
   emitted JSON never contains
-status: To Do
+status: Done
 assignee:
   - TASK-1994
 created_date: '2026-08-27 11:25'
-updated_date: '2026-08-28 14:12'
+updated_date: '2026-08-28 20:19'
 labels:
   - code-review-rust
   - api-design
@@ -48,9 +48,28 @@ The gap is invisible to the suite because the only schema test, `provider_schema
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 Every field name in CargoTomlProvider::schema() is a key that actually appears in the JSON returned by DataProvider::provide for a manifest that populates it
-- [ ] #2 dev-dependencies / build-dependencies resolve consistently in both directions (serialization and deserialization), whichever spelling is chosen
-- [ ] #3 The Package.version / edition / license / description / repository / authors schema entries describe the untagged InheritableField shape, not a bare String
-- [ ] #4 A test serializes a manifest exercising all documented sections and asserts every schema field name is present in the resulting serde_json::Value, replacing the current name-list-only assertion in src/tests/provider.rs:96
-- [ ] #5 Existing consumers (extensions-rust/about, extensions-rust/create-review-tasks) still round-trip the provider output
+- [x] #1 Every field name in CargoTomlProvider::schema() is a key that actually appears in the JSON returned by DataProvider::provide for a manifest that populates it
+- [x] #2 dev-dependencies / build-dependencies resolve consistently in both directions (serialization and deserialization), whichever spelling is chosen
+- [x] #3 The Package.version / edition / license / description / repository / authors schema entries describe the untagged InheritableField shape, not a bare String
+- [x] #4 A test serializes a manifest exercising all documented sections and asserts every schema field name is present in the resulting serde_json::Value, replacing the current name-list-only assertion in src/tests/provider.rs:96
+- [x] #5 Existing consumers (extensions-rust/about, extensions-rust/create-review-tasks) still round-trip the provider output
 <!-- AC:END -->
+
+## Implementation Notes
+
+<!-- SECTION:NOTES:BEGIN -->
+Landed in wave TASK-1994. Fixed in the direction the description prefers: the wire
+format now matches Cargo's own spelling and the published schema.
+
+- `dev_dependencies` / `build_dependencies` use `#[serde(rename = "...")]` (both
+  directions) with `alias` keeping the snake_case spelling readable, so the JSON key is
+  `dev-dependencies` and old payloads still deserialise.
+- The `Package.version/edition/license/description/repository/authors` entries now
+  describe the untagged `InheritableField` shape (string | {"workspace": true} | null).
+- The `DepSpec` pseudo-field was removed from `fields` and folded into the schema
+  description: it named a type, not a key, so it could never satisfy AC #1.
+- AC #4: `provider_schema_names_match_serialized_manifest` resolves every schema field
+  name as a path into the JSON `provide()` returns for a fully populated manifest and
+  fails if any is missing or null, replacing the name-list-only assertion.
+  `provider_dependency_sections_round_trip_in_both_spellings` covers AC #2 and AC #5.
+<!-- SECTION:NOTES:END -->

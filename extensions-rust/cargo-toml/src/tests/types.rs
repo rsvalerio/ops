@@ -41,34 +41,34 @@ default-run = "full-crate"
     assert_eq!(pkg.name, "full-crate");
     assert_eq!(
         pkg.version,
-        crate::types::InheritableField::Value("1.2.3".to_string())
+        crate::InheritableField::Value("1.2.3".to_string())
     );
     assert_eq!(
         pkg.edition,
-        crate::types::InheritableField::Value("2021".to_string())
+        crate::InheritableField::Value("2021".to_string())
     );
     assert_eq!(
         pkg.rust_version,
-        crate::types::InheritableField::Value("1.70".to_string())
+        crate::InheritableField::Value("1.70".to_string())
     );
     assert_eq!(
         pkg.authors,
-        crate::types::InheritableField::Value(vec![
+        crate::InheritableField::Value(vec![
             "Alice <alice@example.com>".to_string(),
             "Bob".to_string()
         ])
     );
     assert_eq!(
         pkg.description,
-        crate::types::InheritableField::Value("A fully specified crate".to_string())
+        crate::InheritableField::Value("A fully specified crate".to_string())
     );
     assert_eq!(
         pkg.license,
-        crate::types::InheritableField::Value("MIT OR Apache-2.0".to_string())
+        crate::InheritableField::Value("MIT OR Apache-2.0".to_string())
     );
     assert_eq!(
         pkg.keywords,
-        crate::types::InheritableField::Value(vec!["example".to_string(), "test".to_string()])
+        crate::InheritableField::Value(vec!["example".to_string(), "test".to_string()])
     );
 }
 

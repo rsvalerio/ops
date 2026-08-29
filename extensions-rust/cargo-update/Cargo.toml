@@ -15,7 +15,13 @@ anyhow = { workspace = true }
 tracing = { workspace = true }
 
 [dev-dependencies]
-tracing-subscriber = { workspace = true }
+# DUP-3 / TASK-1794: the tracing-capture harness and the control-character
+# assertions live in `ops_about::test_support`; this crate no longer keeps a
+# private copy of either.
+ops-about = { workspace = true, features = ["test-support"] }
+# TEST-9 / TASK-1803: the parser is a byte-oriented scanner over untrusted
+# subprocess output with eight example-based regression fixes behind it.
+proptest = { workspace = true }
 
 [lints]
 workspace = true

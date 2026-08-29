@@ -113,3 +113,50 @@ async fn run_sequential_composite() {
         2
     );
 }
+
+/// PERF-16 / TASK-1923: pins the retention contract documented on
+/// `DEFAULT_OUTPUT_BYTE_CAP` — captured output is retained *per step for the
+/// whole plan*, so the bound is `steps × 2 × cap`, not
+/// `min(steps, OPS_MAX_PARALLEL) × 2 × cap`.
+///
+/// The plan below is sequential (`OPS_MAX_PARALLEL` is irrelevant to it, and
+/// only one step is ever in flight), yet the retained bytes grow linearly
+/// with the number of steps: every `StepResult` still carries its own
+/// capture when the plan returns. That is exactly the property the old doc
+/// denied, and the property an operator dialing `OPS_MAX_PARALLEL` down
+/// cannot change.
+#[tokio::test]
+async fn retained_capture_bytes_scale_with_plan_length() {
+    const STEPS: usize = 8;
+    let line = "retained";
+    let mut commands = HashMap::new();
+    let plan: Vec<CommandId> = (0..STEPS)
+        .map(|i| {
+            let id = format!("step{i}");
+            commands.insert(id.clone(), CommandSpec::Exec(echo_cmd(line)));
+            CommandId::from(id)
+        })
+        .collect();
+    let runner = test_runner(commands);
+    let results = runner.run_plan(&plan, true, &mut |_| {}).await;
+
+    assert_eq!(results.len(), STEPS);
+    assert!(results.iter().all(|r| r.success));
+    let retained: usize = results
+        .iter()
+        .map(|r| r.stdout.len() + r.stderr.len())
+        .sum();
+    // Every step keeps its own capture: `echo` writes the line plus a
+    // newline, and nothing releases it before the plan returns.
+    assert_eq!(
+        retained,
+        STEPS * (line.len() + 1),
+        "each step must still hold its own capture when the plan returns"
+    );
+    // ... and the documented plan-length bound holds over it.
+    let cap = crate::command::results::output_byte_cap();
+    assert!(
+        retained <= STEPS * 2 * cap,
+        "retention must stay within the documented steps x 2 x cap bound"
+    );
+}

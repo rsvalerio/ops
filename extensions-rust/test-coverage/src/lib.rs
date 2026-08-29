@@ -62,7 +62,7 @@ ops_extension::impl_extension! {
     types: ExtensionType::DATASOURCE,
     data_provider_name: Some(DATA_PROVIDER_NAME),
     register_data_providers: |_self, registry| {
-        registry.register(DATA_PROVIDER_NAME, Box::new(provider::CoverageProvider));
+        let _ = registry.register(DATA_PROVIDER_NAME, Box::new(provider::CoverageProvider));
     },
     factory: COVERAGE_FACTORY = |_, _| {
         Some((NAME, Box::new(CoverageExtension)))

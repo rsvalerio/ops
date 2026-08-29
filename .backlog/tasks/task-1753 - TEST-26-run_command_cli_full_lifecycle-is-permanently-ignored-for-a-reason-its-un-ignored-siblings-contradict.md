@@ -3,11 +3,11 @@ id: TASK-1753
 title: >-
   TEST-26: run_command_cli_full_lifecycle is permanently #[ignore]d for a reason
   its un-ignored siblings contradict
-status: To Do
+status: Done
 assignee:
   - TASK-1982
 created_date: '2026-08-27 11:15'
-updated_date: '2026-08-28 14:08'
+updated_date: '2026-08-28 19:20'
 labels:
   - code-review-rust
   - test-quality
@@ -46,7 +46,7 @@ Note also that TASK-1664 ("CI Test job runs only ignored tests") is closed, so t
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 run_command_cli_full_lifecycle either runs by default (the #[ignore] and its stale justification removed) or its ignore reason is rewritten to a fact that actually distinguishes it from run_command_returns_success_for_valid_command
-- [ ] #2 If it stays ignored, the reason names a concrete blocker and a tracking task id, and the RunnerEvent emission assertions are relocated into a test that does run by default
-- [ ] #3 Either way, PlanStarted / StepFinished / RunFinished{success} emission from the CLI run path is asserted by at least one test that executes in the default 'ops next' run
+- [x] #1 run_command_cli_full_lifecycle either runs by default (the #[ignore] and its stale justification removed) or its ignore reason is rewritten to a fact that actually distinguishes it from run_command_returns_success_for_valid_command
+- [x] #2 If it stays ignored, the reason names a concrete blocker and a tracking task id, and the RunnerEvent emission assertions are relocated into a test that does run by default
+- [x] #3 Either way, PlanStarted / StepFinished / RunFinished{success} emission from the CLI run path is asserted by at least one test that executes in the default 'ops next' run
 <!-- AC:END -->

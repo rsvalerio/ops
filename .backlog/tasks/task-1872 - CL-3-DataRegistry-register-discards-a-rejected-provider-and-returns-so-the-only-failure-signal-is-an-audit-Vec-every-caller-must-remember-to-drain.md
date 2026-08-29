@@ -3,11 +3,11 @@ id: TASK-1872
 title: >-
   CL-3: DataRegistry::register discards a rejected provider and returns (), so
   the only failure signal is an audit Vec every caller must remember to drain
-status: To Do
+status: Done
 assignee:
   - TASK-1985
 created_date: '2026-08-27 15:31'
-updated_date: '2026-08-28 14:09'
+updated_date: '2026-08-28 19:24'
 labels:
   - code-review-rust
   - api-design
@@ -54,3 +54,9 @@ The asymmetry with the sibling registry compounds it (READ-6, consistent pattern
 - [ ] #3 A test asserts the return value identifies the rejected provider on a duplicate and is the no-op variant on a fresh insert
 - [ ] #4 The first-write-wins vs last-write-wins policy split between DataRegistry and CommandRegistry is documented once, in one place, rather than duplicated in both rustdoc blocks
 <!-- AC:END -->
+
+## Implementation Notes
+
+<!-- SECTION:NOTES:BEGIN -->
+DataRegistry::register now returns Option<Box<dyn DataProvider>> (Some = the rejected incoming provider) and is #[must_use] with a message naming the action (AC#1). All 39 call sites across the workspace acknowledge it with `let _ =`; the CLI wiring path in registration.rs carries a comment explaining why the discard is correct there, and take_duplicate_inserts still feeds the aggregated warning (AC#2). Test register_returns_none_on_fresh_insert_and_the_rejected_provider_on_duplicate (AC#3). The first-write-wins vs last-write-wins split is now documented once in the new ops_extension::registry_duplicate_policy doc module; both methods link to it instead of restating it (AC#4).
+<!-- SECTION:NOTES:END -->

@@ -43,18 +43,20 @@ fn display_cmd_for_composite_returns_child_list() {
 /// - Event emission
 /// - Result aggregation
 ///
-/// It is ignored because it:
-/// - Spawns real subprocesses
-/// - Writes to stderr (visible in test output)
-/// - Requires `echo` to be available
+/// TEST-26 (TASK-1753): this used to be `#[ignore]`d "spawns real
+/// subprocesses; writes to stderr; requires `echo`". None of those
+/// distinguishes it from tests that run by default beside it —
+/// `run_command_returns_success_for_valid_command` spawns `echo` through the
+/// same runner, `run_command_returns_failure_for_failing_command` spawns
+/// `false`, and `cli_run_echo_reports_resolved_command_and_timing_in_stderr`
+/// in `tests/integration.rs` spawns the whole binary and asserts on its
+/// stderr. Since this is the *only* assertion that the CLI run path emits
+/// `PlanStarted` / `StepFinished` / `RunFinished { success }`, ignoring it
+/// meant that emission was covered by nothing in `ops next` / `ops qa-next`.
 ///
-/// **Re-enable criteria:**
-/// - Run with `cargo test -- --ignored` in environments with echo available
-/// - Or mock subprocess execution using a trait-based approach
-///
-/// **Tracking:** Run periodically in CI to validate full integration.
+/// `with_temp_config` serialises on `CWD_MUTEX`, so running by default does
+/// not race the other cwd-dependent tests.
 #[tokio::test(flavor = "multi_thread")]
-#[ignore = "spawns real subprocesses; run with --ignored. Validates full CLI lifecycle."]
 async fn run_command_cli_full_lifecycle() {
     let (_dir, _guard) = crate::test_utils::with_temp_config(
         r#"
@@ -627,8 +629,9 @@ mod run_command_dry_run_tests {
 
         let key = "OPS_TEST_DRY_RUN_NON_UTF8";
         let bad: OsString = OsString::from_vec(vec![0xff, 0xfe]);
-        // SAFETY: serialised by #[serial_test::serial] to avoid env races.
-        unsafe { std::env::set_var(key, &bad) };
+        // TEST-23: RAII, so the var is restored even if the assertions below
+        // panic. Env races are additionally excluded by #[serial_test::serial].
+        let _guard = crate::test_utils::EnvVarGuard::set(key, &bad);
 
         let config = TestConfigBuilder::new()
             .exec("leaks_env", "echo", &[format!("${key}").as_str()])
@@ -636,8 +639,6 @@ mod run_command_dry_run_tests {
         let runner = ops_runner::command::CommandRunner::new(config, PathBuf::from("."));
         let mut buf = Vec::new();
         let result = run_command_dry_run_to(&runner, "leaks_env", &mut buf);
-        // SAFETY: serialised by #[serial_test::serial].
-        unsafe { std::env::remove_var(key) };
         let err = result.expect_err("dry-run must propagate non-UTF-8 env failure");
         let msg = format!("{err:#}");
         assert!(
@@ -1105,5 +1106,85 @@ mod dry_run_override_warnings_tests {
             msgs[0].contains("--verbose is ignored under --dry-run"),
             "verbose override message missing: got {msgs:?}"
         );
+    }
+}
+
+// -- CONC-14 / TASK-1932: signal shutdown path --
+
+mod signal_shutdown_tests {
+    use crate::run_cmd::{exit_code_for_signal, run_until_signal, PlanOutcome};
+    #[cfg(unix)]
+    use crate::run_cmd::{SIGINT_SIGNO, SIGTERM_SIGNO};
+
+    /// The shell convention: 128 + signo. 130 for SIGINT (matching the
+    /// existing `SIGINT_EXIT` constant), 143 for SIGTERM.
+    ///
+    /// The signal-number constants only exist on Unix, where the shutdown
+    /// handlers that read them are compiled.
+    #[cfg(unix)]
+    #[test]
+    fn signal_exit_codes_follow_the_128_plus_signo_convention() {
+        assert_eq!(exit_code_for_signal(SIGINT_SIGNO), crate::SIGINT_EXIT);
+        assert_eq!(exit_code_for_signal(SIGINT_SIGNO), 130);
+        assert_eq!(exit_code_for_signal(SIGTERM_SIGNO), 143);
+    }
+
+    /// A plan that finishes on its own is not disturbed by the race.
+    #[test]
+    #[serial_test::serial]
+    fn plan_completes_normally_when_no_signal_arrives() {
+        let rt = tokio::runtime::Builder::new_current_thread()
+            .enable_all()
+            .build()
+            .unwrap();
+        let outcome = rt.block_on(run_until_signal(async { 7_u32 }));
+        assert!(matches!(outcome, PlanOutcome::Completed(7)));
+    }
+
+    /// TASK-1932 AC #5: a real `SIGTERM` delivered mid-plan must cut the run
+    /// short and report SIGTERM, rather than terminating the process with no
+    /// destructor run. Sending the signal to ourselves is safe here because
+    /// `run_until_signal` installs tokio's handler before the plan starts,
+    /// so the default "terminate the process" disposition is already
+    /// replaced by the time the signal lands.
+    ///
+    /// The plan future below never completes on its own; the only way this
+    /// test can return is through the signal arm. Dropping that future is
+    /// exactly what cancels in-flight children in production.
+    ///
+    /// `#[serial]` (here and on the sibling `run_until_signal` test): the
+    /// signal below is delivered to the *process*, and `run_until_signal`
+    /// installs process-global handlers. Under an in-process, thread-per-test
+    /// harness a concurrently running test could otherwise observe — or
+    /// swallow — a SIGTERM that is not addressed to it.
+    #[cfg(unix)]
+    #[test]
+    #[serial_test::serial]
+    fn sigterm_interrupts_the_plan_and_reports_sigterm() {
+        let rt = tokio::runtime::Builder::new_multi_thread()
+            .worker_threads(2)
+            .enable_all()
+            .build()
+            .unwrap();
+        let outcome = rt.block_on(run_until_signal(async {
+            // TEST-9: raise the signal from inside the plan future rather
+            // than from a spawned task on a timer. `run_until_signal`
+            // installs both handlers before it first polls the plan, so by
+            // the time this line runs the default "terminate the process"
+            // disposition is already replaced — no sleep, and no race
+            // between handler installation and delivery.
+            //
+            // SAFETY: `kill` with a valid signal number targeting our own
+            // pid; it touches no memory and cannot alias.
+            unsafe { libc::kill(libc::getpid(), libc::SIGTERM) };
+            std::future::pending::<()>().await;
+        }));
+        match outcome {
+            PlanOutcome::Interrupted(signo) => {
+                assert_eq!(signo, SIGTERM_SIGNO);
+                assert_eq!(exit_code_for_signal(signo), 143);
+            }
+            PlanOutcome::Completed(()) => panic!("the plan future can only end via the signal"),
+        }
     }
 }

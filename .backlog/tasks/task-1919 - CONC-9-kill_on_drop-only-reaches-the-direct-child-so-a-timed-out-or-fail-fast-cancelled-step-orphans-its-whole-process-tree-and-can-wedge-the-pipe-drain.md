@@ -4,11 +4,11 @@ title: >-
   CONC-9: kill_on_drop only reaches the direct child, so a timed-out or
   fail-fast-cancelled step orphans its whole process tree and can wedge the pipe
   drain
-status: To Do
+status: Done
 assignee:
   - TASK-1986
 created_date: '2026-08-27 15:44'
-updated_date: '2026-08-28 14:10'
+updated_date: '2026-08-28 19:02'
 labels:
   - code-review-rust
   - concurrency
@@ -42,9 +42,15 @@ The fix is to own the tree: `std::os::unix::process::CommandExt::process_group(0
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 each spawn becomes its own process-group leader (process_group(0) on unix) so the runner can address the whole tree
-- [ ] #2 timeout and fail-fast cancellation signal the process group (SIGTERM, then SIGKILL after a bounded grace period) instead of relying solely on kill_on_drop of the direct child
-- [ ] #3 spawn_capped cannot block indefinitely in read_capped after child.wait() returns: the post-exit drain is bounded (deadline or explicit pipe close) so a grandchild holding the inherited pipe fd cannot hang the step
-- [ ] #4 a regression test spawns a step whose child forks a longer-lived grandchild (e.g. sh -c 'sleep 30 & echo started'), cancels via timeout or fail_fast, and asserts both that the step returns promptly and that the grandchild is no longer running
-- [ ] #5 the non-unix build path is documented or feature-gated; kill_on_drop remains the fallback where process groups are unavailable
+- [x] #1 each spawn becomes its own process-group leader (process_group(0) on unix) so the runner can address the whole tree
+- [x] #2 timeout and fail-fast cancellation signal the process group (SIGTERM, then SIGKILL after a bounded grace period) instead of relying solely on kill_on_drop of the direct child
+- [x] #3 spawn_capped cannot block indefinitely in read_capped after child.wait() returns: the post-exit drain is bounded (deadline or explicit pipe close) so a grandchild holding the inherited pipe fd cannot hang the step
+- [x] #4 a regression test spawns a step whose child forks a longer-lived grandchild (e.g. sh -c 'sleep 30 & echo started'), cancels via timeout or fail_fast, and asserts both that the step returns promptly and that the grandchild is no longer running
+- [x] #5 the non-unix build path is documented or feature-gated; kill_on_drop remains the fallback where process groups are unavailable
 <!-- AC:END -->
+
+## Implementation Notes
+
+<!-- SECTION:NOTES:BEGIN -->
+New crates/runner/src/command/process_group.rs: configure_process_group() sets process_group(0) on captured spawns (raw/--raw deliberately stays in the runner group so the tty still delivers Ctrl-C), and ChildGroup is an armed RAII guard whose Drop killpg(SIGTERM)s the group and escalates to SIGKILL after GROUP_TERM_GRACE (2s) from a detached thread — the only carrier that survives an aborted task/shutting-down runtime. Both drop-driven cancel paths (tokio timeout, JoinSet::abort_all) therefore reach the whole tree. spawn_capped now bounds the post-exit drain: POST_EXIT_DRAIN_GRACE (5s) then killpg(SIGKILL) to release the inherited pipe, then POST_KILL_DRAIN_GRACE (2s) before giving up with a TimedOut io::Error. Guard is disarmed after a normal fully-drained completion so deliberately backgrounded daemons are not killed. Non-unix: every entry point is a no-op and kill_on_drop stays the mechanism (documented in the module docs and at the kill_on_drop call site). Tests: timed_out_step_kills_the_whole_process_group (grandchild pid recorded to a file, asserted gone) and post_exit_drain_is_bounded_when_a_grandchild_holds_the_pipe (passes in 5.0s — the deadline path).
+<!-- SECTION:NOTES:END -->

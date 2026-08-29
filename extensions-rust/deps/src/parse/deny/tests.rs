@@ -104,6 +104,194 @@ fn interpret_deny_result_parses_diagnostics_on_exit_code_1() {
     assert_eq!(result.advisories[0].id, "RUSTSEC-2024-0375");
 }
 
+// -- OWN-1 / TASK-1848: resolve_package is a read, not a consume --
+
+/// Resolving the package twice — or resolving and then re-reading the
+/// advisory / graph the answer came from — must yield the same name. The
+/// `&mut` version hollowed out whatever it read, so the second call returned
+/// `<no package>` for a diagnostic that had one, plus a false TASK-0597
+/// "no package name" warning.
+#[test]
+fn resolve_package_is_idempotent_and_leaves_the_diagnostic_intact() {
+    let advisory_backed = DecodedDiagnostic {
+        code: "vulnerability".to_string(),
+        severity: "error".to_string(),
+        message: "vulnerable".to_string(),
+        advisory: Some(DenyAdvisory {
+            id: "RUSTSEC-2024-0099".to_string(),
+            package: Some("vuln-pkg".to_string()),
+            title: Some("vuln title".to_string()),
+        }),
+        graphs: None,
+    };
+    assert_eq!(resolve_package(&advisory_backed), "vuln-pkg");
+    assert_eq!(
+        resolve_package(&advisory_backed),
+        "vuln-pkg",
+        "a second resolve must not fall through to the <no package> sentinel"
+    );
+    assert_eq!(
+        advisory_backed
+            .advisory
+            .as_ref()
+            .and_then(|a| a.package.as_deref()),
+        Some("vuln-pkg"),
+        "resolve_package must leave the advisory readable for push_diagnostic"
+    );
+
+    let graph_backed = DecodedDiagnostic {
+        code: "banned".to_string(),
+        severity: "error".to_string(),
+        message: "crate is banned".to_string(),
+        advisory: None,
+        graphs: Some(vec![DenyGraph {
+            krate: Some(DenyKrate {
+                name: "bad-crate".to_string(),
+            }),
+        }]),
+    };
+    assert_eq!(resolve_package(&graph_backed), "bad-crate");
+    assert_eq!(
+        resolve_package(&graph_backed),
+        "bad-crate",
+        "the graphs[0].krate fallback must survive a first resolve too"
+    );
+    assert_eq!(
+        graph_backed
+            .graphs
+            .as_ref()
+            .and_then(|g| g.first())
+            .and_then(|g| g.krate.as_ref())
+            .map(|k| k.name.as_str()),
+        Some("bad-crate"),
+        "resolve_package must not empty krate.name"
+    );
+}
+
+// -- ERR-1 / TASK-1840: partial decode loss --
+
+/// The exit-1 guard only caught *total* decode failure, so a per-code schema
+/// change that took out one class passed straight through: every advisory
+/// falls into `classify_code`'s `None` arm, a single unrelated ban still
+/// decodes, `is_empty()` stays false on that one vector, and `ops deps`
+/// renders "Advisories: None" in green while an unpatched RUSTSEC advisory
+/// sits in the tree.
+#[test]
+fn interpret_deny_result_errs_on_partial_decode_loss() {
+    let stderr = r#"{"type":"diagnostic","fields":{"severity":"warning","message":"duplicate","code":"duplicate","graphs":[{"Krate":{"name":"baz","version":"2.0.0"}}]}}
+{"type":"diagnostic","fields":{"severity":"error","message":"vuln","code":"security-vulnerability","advisory":{"id":"RUSTSEC-2024-0001","package":"a","title":"t"}}}
+{"type":"diagnostic","fields":{"severity":"error","message":"vuln","code":"security-vulnerability","advisory":{"id":"RUSTSEC-2024-0002","package":"b","title":"t"}}}
+{"type":"diagnostic","fields":{"severity":"error","message":"vuln","code":"security-vulnerability","advisory":{"id":"RUSTSEC-2024-0003","package":"c","title":"t"}}}"#;
+
+    let err = interpret_deny_result(Some(1), stderr)
+        .expect_err("a class-wide decode loss must not report the surviving subset as complete");
+    let msg = err.to_string();
+    assert!(
+        msg.contains("4 diagnostic line(s)") && msg.contains("3 dropped"),
+        "error must report the seen/decoded counts; got: {msg}"
+    );
+    // Distinguishable from the TASK-0958 zero-diagnostics and TASK-0612
+    // empty-stderr cases, both of which describe a stream with nothing in it.
+    assert!(
+        !msg.contains("zero diagnostics") && !msg.contains("no diagnostics"),
+        "partial loss must not read as the total-loss cases; got: {msg}"
+    );
+}
+
+/// The tolerance is a *share*, not zero: one unrecognised code among many
+/// findings is ordinary forward drift (cargo-deny adding a category) and
+/// must not fail the gate, or every upstream release breaks `ops deps`.
+#[test]
+fn interpret_deny_result_tolerates_a_single_unknown_code_among_many() {
+    let known = (0..9)
+        .map(|i| {
+            format!(
+                r#"{{"type":"diagnostic","fields":{{"severity":"error","message":"m","code":"banned","graphs":[{{"Krate":{{"name":"pkg-{i}","version":"1.0.0"}}}}]}}}}"#
+            )
+        })
+        .collect::<Vec<_>>()
+        .join("\n");
+    let stderr = format!(
+        "{known}\n{}",
+        r#"{"type":"diagnostic","fields":{"severity":"warning","message":"new","code":"hypothetical-new-category","graphs":[]}}"#
+    );
+
+    let result =
+        interpret_deny_result(Some(1), &stderr).expect("1-in-10 unknown codes must stay tolerated");
+    assert_eq!(result.bans.len(), 9);
+}
+
+/// `log` and `summary` envelopes are not findings, so they must not count
+/// toward the candidate denominator — otherwise a normal run with a couple
+/// of findings and a chatty log stream would look like a mass drop.
+#[test]
+fn interpret_deny_result_log_envelopes_do_not_inflate_the_candidate_count() {
+    let stderr = r#"{"type":"log","fields":{"timestamp":"2024-01-01","level":"INFO","message":"checking"}}
+{"type":"log","fields":{"timestamp":"2024-01-01","level":"INFO","message":"fetching"}}
+{"type":"diagnostic","fields":{"severity":"error","message":"crate is banned","code":"banned","graphs":[{"Krate":{"name":"bad","version":"0.1.0"}}]}}
+{"type":"summary","fields":{"bans":{"errors":1}}}"#;
+
+    let result = interpret_deny_result(Some(1), stderr)
+        .expect("log/summary envelopes must not be counted as dropped diagnostics");
+    assert_eq!(result.bans.len(), 1);
+}
+
+/// ERR-1 / TASK-1840: a diagnostic envelope whose `fields` no longer match
+/// `DiagnosticFields` is still cargo-deny claiming a finding, so it must be
+/// counted as a candidate and therefore as a *drop*.
+///
+/// Before the two-stage decode, the whole line failed `serde_json::from_str`
+/// and fell into the malformed-JSON arm, which counts nothing: three
+/// broken advisories plus one surviving ban produced
+/// `candidates == 1, dropped == 0` and the gate stayed green while an entire
+/// class had disappeared.
+#[test]
+fn interpret_deny_result_counts_diagnostics_whose_fields_fail_to_decode() {
+    let stderr = r#"{"type":"diagnostic","fields":{"severity":"error","message":"crate is banned","code":"banned","graphs":[{"Krate":{"name":"bad","version":"0.1.0"}}]}}
+{"type":"diagnostic","fields":{"severity":["error"],"message":"vuln","code":"security-vulnerability"}}
+{"type":"diagnostic","fields":"not-an-object"}
+{"type":"diagnostic"}"#;
+
+    let err = interpret_deny_result(Some(1), stderr)
+        .expect_err("recognised diagnostic envelopes with undecodable fields must count as drops");
+    let msg = err.to_string();
+    assert!(
+        msg.contains("4 diagnostic line(s)") && msg.contains("3 dropped"),
+        "every `type=diagnostic` envelope must reach the denominator; got: {msg}"
+    );
+}
+
+/// A line that is not JSON at all, and a non-diagnostic envelope, still must
+/// not reach the denominator — otherwise a chatty run looks like a mass drop.
+#[test]
+fn interpret_deny_result_malformed_non_diagnostic_lines_are_not_candidates() {
+    let stderr = r#"this is not json at all
+{"type":"log","fields":"not-an-object"}
+{"type":"diagnostic","fields":{"severity":"error","message":"crate is banned","code":"banned","graphs":[{"Krate":{"name":"bad","version":"0.1.0"}}]}}"#;
+
+    let result = interpret_deny_result(Some(1), stderr)
+        .expect("non-diagnostic noise must not be counted as dropped diagnostics");
+    assert_eq!(result.bans.len(), 1);
+}
+
+/// ERR-1 / TASK-1840 AC#4: the missing-`code` drop path was the only one in
+/// the crate with no tracing breadcrumb.
+#[test]
+#[serial_test::serial]
+fn parse_deny_missing_code_logs_a_breadcrumb() {
+    let stderr = r#"{"type":"diagnostic","fields":{"severity":"error","message":"something","graphs":[{"Krate":{"name":"pkg","version":"1.0.0"}}]}}"#;
+
+    let (result, logged) =
+        crate::test_support::with_captured_logs(tracing::Level::DEBUG, false, || {
+            parse_deny_output(stderr)
+        });
+    assert!(result.advisories.is_empty());
+    assert!(
+        logged.contains("TASK-1840") && logged.contains("code"),
+        "expected a missing-code breadcrumb; got: {logged}"
+    );
+}
+
 // -- Deny output parser tests --
 
 #[test]

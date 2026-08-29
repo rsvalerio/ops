@@ -3,11 +3,11 @@ id: TASK-1773
 title: >-
   TEST-25: three tests assert only std library behaviour and exercise no code
   from this crate
-status: To Do
+status: Done
 assignee:
   - TASK-1993
 created_date: '2026-08-27 11:22'
-updated_date: '2026-08-28 14:12'
+updated_date: '2026-08-28 20:09'
 labels:
   - code-review-rust
   - test-quality
@@ -42,8 +42,14 @@ Candidates verified individually at the line numbers above; no other test in the
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 Each of the three tests invokes a function defined in this crate and asserts on its observable output (captured tracing log or provider return value), not on std Path/Debug behaviour
-- [ ] #2 Changing the tracing field formatter from ? to % at units.rs:196 or query.rs:607 makes the corresponding test fail
-- [ ] #3 Replacing the to_str() short-circuit in RustCoverageProvider::provide with to_string_lossy() makes the coverage_provider test fail
-- [ ] #4 The two byte-identical control-character tests in units.rs and query.rs are deduplicated or given genuinely distinct subjects (TEST-12)
+- [x] #1 Each of the three tests invokes a function defined in this crate and asserts on its observable output (captured tracing log or provider return value), not on std Path/Debug behaviour
+- [x] #2 Changing the tracing field formatter from ? to % at units.rs:196 or query.rs:607 makes the corresponding test fail
+- [x] #3 Replacing the to_str() short-circuit in RustCoverageProvider::provide with to_string_lossy() makes the coverage_provider test fail
+- [x] #4 The two byte-identical control-character tests in units.rs and query.rs are deduplicated or given genuinely distinct subjects (TEST-12)
 <!-- AC:END -->
+
+## Implementation Notes
+
+<!-- SECTION:NOTES:BEGIN -->
+All three framework-only tests replaced with tests that drive this crate and assert on captured output. (1) units::tests::crate_metadata_breadcrumbs_debug_escape_control_characters drives read_crate_metadata over control-character paths and asserts on the captured debug (read failure) and warn (parse failure) lines. (2) members::tests::glob_prefix_warn_debug_escapes_control_characters drives expand_member_glob with an unreadable prefix - a genuinely distinct subject from (1), satisfying AC #4 without deleting coverage. (3) coverage_provider::tests::non_utf8_workspace_root_skips_per_crate_coverage_with_warn drives RustCoverageProvider::provide with a non-UTF-8 workspace root and an attached in-memory DuckDb, asserting the project total is still reported, the per-crate table is blank, and the short-circuit warn fired. All three verified by mutation: ? -> % on the units and members breadcrumbs, and to_str() -> to_string_lossy() in the coverage provider, each fail the corresponding test. AC #2 note: the units breadcrumb line moved during the FN-1 extraction and the query.rs one now lives in members.rs; both formatters are covered.
+<!-- SECTION:NOTES:END -->

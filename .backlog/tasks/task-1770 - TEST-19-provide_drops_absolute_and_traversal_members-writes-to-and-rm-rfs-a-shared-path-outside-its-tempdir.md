@@ -3,11 +3,11 @@ id: TASK-1770
 title: >-
   TEST-19: provide_drops_absolute_and_traversal_members writes to and rm -rf's a
   shared path outside its tempdir
-status: To Do
+status: Done
 assignee:
   - TASK-1993
 created_date: '2026-08-27 11:21'
-updated_date: '2026-08-28 14:12'
+updated_date: '2026-08-28 20:09'
 labels:
   - code-review-rust
   - test-quality
@@ -50,8 +50,14 @@ The test's intent is sound — plant a hostile manifest where `../escape` would 
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 The hostile 'escape' directory is created inside the test's own tempfile::tempdir() (e.g. tmpdir/ws as the workspace root and tmpdir/escape as its sibling), not at tempdir.parent()
-- [ ] #2 The manual Cleanup Drop guard and its std::fs::remove_dir_all call are removed; cleanup is handled by TempDir's own Drop
-- [ ] #3 The test passes when two instances of the test binary run concurrently
-- [ ] #4 The test still fails if the SEC-14 absolute/parent-dir member filter is removed — verify by temporarily disabling member_path_is_workspace_safe and confirming a non-empty unit list is produced
+- [x] #1 The hostile 'escape' directory is created inside the test's own tempfile::tempdir() (e.g. tmpdir/ws as the workspace root and tmpdir/escape as its sibling), not at tempdir.parent()
+- [x] #2 The manual Cleanup Drop guard and its std::fs::remove_dir_all call are removed; cleanup is handled by TempDir's own Drop
+- [x] #3 The test passes when two instances of the test binary run concurrently
+- [x] #4 The test still fails if the SEC-14 absolute/parent-dir member filter is removed — verify by temporarily disabling member_path_is_workspace_safe and confirming a non-empty unit list is produced
 <!-- AC:END -->
+
+## Implementation Notes
+
+<!-- SECTION:NOTES:BEGIN -->
+The workspace is now tmpdir/ws and the hostile manifest tmpdir/escape, both inside the test tempdir, so ../escape still resolves to the planted manifest while nothing is created or deleted outside the tempdir random path. The Cleanup Drop guard and its remove_dir_all are gone; TempDir::drop is the only cleanup. AC #3: the test no longer touches any shared path, so concurrent test binaries cannot interact. AC #4 verified by mutation - forcing member_path_is_workspace_safe to return true makes provide_drops_absolute_and_traversal_members fail.
+<!-- SECTION:NOTES:END -->

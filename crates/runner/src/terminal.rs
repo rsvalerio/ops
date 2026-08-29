@@ -14,6 +14,23 @@ use std::io::IsTerminal;
 ///
 /// On non-TTY stderr or if termios operations fail, the guard is a no-op.
 ///
+/// # Which termination paths run this guard's `Drop` (CONC-14 / TASK-1932)
+///
+/// | Path | `Drop` runs? |
+/// |---|---|
+/// | Normal return / early `return` / `?` | yes |
+/// | Panic (unwinding) | yes |
+/// | `SIGINT` (Ctrl-C) or `SIGTERM` during a run | **only via the CLI's shutdown path** |
+/// | `panic = "abort"`, `SIGKILL`, `std::process::exit` | no |
+///
+/// A signal does not run destructors. `ops` therefore does not rely on
+/// `Drop` alone for the interruption users actually perform: the CLI races
+/// the plan against `SIGTERM`/`SIGINT` (`run_cmd::run_until_signal`) and
+/// drops this guard on that path before returning `128 + signo`, so a
+/// Ctrl-C'd run still leaves the terminal with `ECHO` restored. Anything
+/// that bypasses unwinding entirely (`SIGKILL`, an abort) is outside what
+/// any RAII guard can cover — the shell's own `reset` is the remedy there.
+///
 /// TEST-5: Platform-specific terminal control via libc termios. Tested manually;
 /// unit tests would require a PTY or mock which exceeds the complexity budget
 /// for ~60 lines of platform-specific code.

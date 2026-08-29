@@ -3,11 +3,11 @@ id: TASK-1755
 title: >-
   SEC-11: pick_url has no URL-scheme allowlist — javascript:/data:/file: reach
   the rendered homepage and repository fields
-status: To Do
+status: Done
 assignee:
   - TASK-1992
 created_date: '2026-08-27 11:17'
-updated_date: '2026-08-28 14:11'
+updated_date: '2026-08-28 20:04'
 labels:
   - code-review-rust
   - security
@@ -41,9 +41,30 @@ The crate already accepted the "manifest URLs are attacker-controlled" premise f
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 pick_url rejects any [project.urls] value whose scheme is not on an explicit allowlist (at minimum https, http; git/ssh forms only if normalised to https first)
-- [ ] #2 A scheme-less relative value (e.g. "example.com/x") is either rejected or explicitly normalised — it must not fall through unvalidated
-- [ ] #3 Rejection drops the field to None (matching the SEC-2 / TASK-1207 drop-not-strip policy) rather than emitting a partial URL
-- [ ] #4 Tests cover javascript:, data:, file: and vbscript: for both the homepage and repository slots, asserting the field is None
-- [ ] #5 The allowlist policy is stated in a doc comment referencing the SEC-2 sibling policy
+- [x] #1 pick_url rejects any [project.urls] value whose scheme is not on an explicit allowlist (at minimum https, http; git/ssh forms only if normalised to https first)
+- [x] #2 A scheme-less relative value (e.g. "example.com/x") is either rejected or explicitly normalised — it must not fall through unvalidated
+- [x] #3 Rejection drops the field to None (matching the SEC-2 / TASK-1207 drop-not-strip policy) rather than emitting a partial URL
+- [x] #4 Tests cover javascript:, data:, file: and vbscript: for both the homepage and repository slots, asserting the field is None
+- [x] #5 The allowlist policy is stated in a doc comment referencing the SEC-2 sibling policy
 <!-- AC:END -->
+
+## Implementation Notes
+
+<!-- SECTION:NOTES:BEGIN -->
+Added `ops_about::text_util::has_allowed_url_scheme` (next to `trim_nonempty`,
+as the finding suggested) and applied it in `pick_url` after the existing
+trim + control-char filters, so a rejected value drops the field to `None`.
+Allowlist is `https://` / `http://`, ASCII-case-insensitive per RFC 3986 §3.1;
+scheme-less values are rejected rather than guessed at. The Python provider
+performs no git/ssh rewriting, so there is no normalise-to-https branch here.
+
+Tests: `non_allowlisted_url_schemes_drop_the_homepage_and_repository` covers
+javascript:, data:, file: and vbscript: for both the homepage and repository
+slots; `scheme_less_homepage_is_rejected` covers the scheme-less case;
+`has_allowed_url_scheme_*` in `extensions/about/src/text_util.rs` pin the
+helper directly. Policy documented on the helper and at the `pick_url` call
+site, both referencing the SEC-2 / TASK-1207 drop-not-strip sibling.
+
+The node side (TASK-1722, already Done) now routes its own allowlist check
+through the same helper, so the policy has one definition across stacks.
+<!-- SECTION:NOTES:END -->

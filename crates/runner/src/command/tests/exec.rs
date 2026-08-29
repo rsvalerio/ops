@@ -175,6 +175,136 @@ mod exec_unit_tests {
         );
     }
 
+    /// ASYNC-6 / TASK-1918: the captured path must hand the child a *null*
+    /// stdin, so a step that reads stdin terminates immediately instead of
+    /// blocking on `read(0)` forever (`timeout_secs` is opt-in, so nothing
+    /// else bounds it).
+    ///
+    /// The command is deliberately pre-configured with `Stdio::piped()`
+    /// stdin — a pipe whose write end this process holds and never writes
+    /// to, i.e. a stdin that never yields EOF on its own. `spawn_capped`
+    /// must override it. Pre-fix, `spawn_capped` set only stdout/stderr, the
+    /// piped stdin survived, and `read x` parked forever; the outer
+    /// `timeout` below is the assertion, not a convenience.
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn spawn_capped_gives_child_null_stdin_so_reader_cannot_hang() {
+        use tokio::time::{timeout, Duration};
+        let mut cmd = tokio::process::Command::new("sh");
+        cmd.arg("-c").arg("read x; echo \"read returned $?\"");
+        cmd.stdin(std::process::Stdio::piped());
+        cmd.kill_on_drop(true);
+        let output = timeout(
+            Duration::from_secs(5),
+            crate::command::exec::spawn_capped_for_test(&mut cmd, 1024),
+        )
+        .await
+        .expect("captured step must not block on stdin")
+        .expect("spawn_capped");
+        // `read` hits EOF straight away and reports failure; the step
+        // completes rather than wedging.
+        assert!(
+            output.stdout.contains("read returned"),
+            "child should have run past its stdin read, got {:?}",
+            output.stdout
+        );
+    }
+
+    /// CONC-9 / TASK-1919: a timed-out step must take its whole process
+    /// *tree* with it, not just the direct child.
+    ///
+    /// The step forks a long-lived grandchild and records its pid, then
+    /// blocks past the 1s timeout. Pre-fix, `kill_on_drop` `SIGKILL`ed the
+    /// `sh` leader alone and the `sleep` survived the runner that spawned
+    /// it — the "cancelled step leaves a compiler fleet pinning the machine"
+    /// failure. With the child spawned as its own process-group leader, the
+    /// cancellation path signals the group and the grandchild goes too.
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn timed_out_step_kills_the_whole_process_group() {
+        let dir = tempfile::tempdir().unwrap();
+        let pid_file = dir.path().join("grandchild.pid");
+        let script = format!(
+            "sleep 30 & echo $! > {}; sleep 30",
+            pid_file.to_str().unwrap()
+        );
+        let runner = test_runner(HashMap::new());
+        let mut spec = exec_spec("sh", &["-c", &script]);
+        spec.timeout_secs = Some(1);
+        let spec = Arc::new(spec);
+
+        let started = std::time::Instant::now();
+        let result = runner.run_exec("tree", &spec, &mut |_| {}).await;
+        assert!(!result.success, "step should have timed out");
+        assert!(
+            started.elapsed() < Duration::from_secs(10),
+            "timed-out step should return promptly, took {:?}",
+            started.elapsed()
+        );
+
+        let pid: i32 = std::fs::read_to_string(&pid_file)
+            .expect("grandchild pid file")
+            .trim()
+            .parse()
+            .expect("grandchild pid");
+        // The group teardown is SIGTERM-then-SIGKILL, and the signal is
+        // delivered from a destructor on the cancellation path, so poll
+        // rather than assuming the grandchild is already reaped.
+        let mut alive = true;
+        for _ in 0..100 {
+            // SAFETY: `kill` with signal 0 performs the permission and
+            // existence check only — it delivers nothing and touches no
+            // memory.
+            if unsafe { libc::kill(pid, 0) } != 0 {
+                alive = false;
+                break;
+            }
+            tokio::time::sleep(Duration::from_millis(100)).await;
+        }
+        if alive {
+            // Do not leak a 30s sleep into the rest of the test run.
+            // SAFETY: as above; `pid` is the recorded grandchild.
+            unsafe { libc::kill(pid, libc::SIGKILL) };
+        }
+        assert!(
+            !alive,
+            "grandchild {pid} survived cancellation of its parent step"
+        );
+    }
+
+    /// CONC-9 / TASK-1919: `child.wait()` returning does not close the
+    /// capture pipes. Here the leader exits at once while a backgrounded
+    /// grandchild keeps the inherited write end open, so `read_capped` never
+    /// sees EOF. Pre-fix the step hung forever (and, with `timeout_secs`
+    /// unset by default, hung the whole plan on a child that had already
+    /// exited). The post-exit drain is now bounded: the deadline expires,
+    /// the process group is killed, the pipes close, and the step completes
+    /// with the output the leader did produce.
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn post_exit_drain_is_bounded_when_a_grandchild_holds_the_pipe() {
+        use tokio::time::{timeout, Duration as TokioDuration};
+        let mut cmd = tokio::process::Command::new("sh");
+        // The grandchild must outlive the outer timeout by a wide margin: if
+        // its sleep were the same magnitude, the test would also pass when the
+        // drain is unbounded and the grandchild simply exits on its own.
+        cmd.arg("-c").arg("sleep 300 & echo done");
+        cmd.kill_on_drop(true);
+        let output = timeout(
+            TokioDuration::from_secs(30),
+            crate::command::exec::spawn_capped_for_test(&mut cmd, 1024),
+        )
+        .await
+        .expect("post-exit drain must be bounded")
+        .expect("spawn_capped");
+        assert!(output.success);
+        assert!(
+            output.stdout.contains("done"),
+            "the leader's own output must survive the bounded drain, got {:?}",
+            output.stdout
+        );
+    }
+
     #[test]
     fn emit_step_completion_success() {
         let mut events: Vec<RunnerEvent> = Vec::new();

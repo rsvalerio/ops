@@ -382,7 +382,7 @@ mod tests {
 
         let config = Arc::new(Config::empty());
         let mut ctx = Context::new(config, std::path::PathBuf::from("/tmp"));
-        ctx.db = Some(db);
+        ctx.attach_db(db);
 
         let registry = DataRegistry::new();
         assert!(query_rust_loc_stats(&mut ctx, &registry).is_none());

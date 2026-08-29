@@ -126,7 +126,7 @@ invocation (`ops run verify qa`) expands each independently, so they may differ.
 | `ops about [setup\|code\|loc\|coverage\|dependencies\|crates\|modules]` | Project identity card and subpages (`--refresh` re-collects) |
 | `ops run-before-commit [install]` | Pre-commit hook runner (`--changed-only` skips when nothing is staged) |
 | `ops run-before-push [install]` | Pre-push hook runner (skips a delete-only or empty push) |
-| `ops sec` | Security scans via Trivy — secrets always, vulnerability/misconfig auto-selected by file types (`--skip`/`--force` to override) |
+| `ops sec` | Security scans via Trivy — secrets always, vulnerability/misconfig auto-selected by file types (`--skip`/`--force` to override). Fails closed: non-zero on findings, on a scan timeout, and when `--skip` leaves no scan to run. Each scan is bounded by a 10-minute timeout, overridable with `OPS_SEC_TIMEOUT_SECS=<seconds>` |
 | `ops trailing-whitespace` (`tw`) | Strip trailing whitespace in place; non-zero when files changed (pre-commit contract) |
 | `ops end-of-file-fixer` (`eof`) | Ensure files end with exactly one newline; non-zero when files changed |
 | `ops check-json` / `check-yaml` | Verify every JSON/YAML file parses (`--tracked` limits to git files; `--allow-json5` for JSON5) |

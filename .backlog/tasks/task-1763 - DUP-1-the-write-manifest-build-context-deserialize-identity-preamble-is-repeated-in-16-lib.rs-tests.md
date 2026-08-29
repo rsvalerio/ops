@@ -3,11 +3,11 @@ id: TASK-1763
 title: >-
   DUP-1: the write-manifest / build-context / deserialize-identity preamble is
   repeated in 16 lib.rs tests
-status: To Do
+status: Done
 assignee:
   - TASK-1992
 created_date: '2026-08-27 11:20'
-updated_date: '2026-08-28 14:11'
+updated_date: '2026-08-28 20:05'
 labels:
   - code-review-rust
   - duplication
@@ -43,8 +43,31 @@ Counted with `grep -c "Context::test_context"` → 16, and `grep -c "tempfile::t
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 A test helper takes a pyproject.toml body and returns the deserialized ProjectIdentity, and every applicable test uses it
-- [ ] #2 The two tests needing extra files (uv.lock, .git/config) are covered by a helper variant rather than reverting to the inline form
-- [ ] #3 Manifest bodies use one consistent literal style
-- [ ] #4 The test suite passes with no change in what is asserted
+- [x] #1 A test helper takes a pyproject.toml body and returns the deserialized ProjectIdentity, and every applicable test uses it
+- [x] #2 The two tests needing extra files (uv.lock, .git/config) are covered by a helper variant rather than reverting to the inline form
+- [x] #3 Manifest bodies use one consistent literal style
+- [x] #4 The test suite passes with no change in what is asserted
 <!-- AC:END -->
+
+## Implementation Notes
+
+<!-- SECTION:NOTES:BEGIN -->
+Three helpers now carry the preamble: `identity_from(toml)` for the common
+case, `identity_from_with_files(toml, &[(rel_path, content)])` for the
+`uv.lock` and `.git/config` cases, and `identity_at(root)` underneath both so
+the no-manifest test shares the deserialise step without writing a manifest.
+Fixture writes route through `ops_about::test_support::write_file`
+(DUP-1 / TASK-1736).
+
+Every test that writes a manifest now uses a helper. The only remaining
+`tempfile::tempdir()` call sites are the four that need the root path itself
+(the no-manifest fallback, and the three warn-capturing tests, which must run
+`provide` inside the subscriber scope).
+
+AC#3: all manifest bodies are raw strings now; the three concatenated
+line-continuation literals were converted. TOML still parses the backslash
+escapes inside those basic strings, so the control-character fixtures are
+unchanged.
+
+45 tests pass, with no change to what any pre-existing test asserts.
+<!-- SECTION:NOTES:END -->

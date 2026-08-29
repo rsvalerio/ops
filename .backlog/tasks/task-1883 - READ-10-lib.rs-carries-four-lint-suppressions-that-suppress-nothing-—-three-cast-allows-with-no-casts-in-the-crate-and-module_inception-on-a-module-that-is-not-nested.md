@@ -4,11 +4,11 @@ title: >-
   READ-10: lib.rs carries four lint suppressions that suppress nothing — three
   cast allows with no casts in the crate, and module_inception on a module that
   is not nested
-status: To Do
+status: Done
 assignee:
   - TASK-1985
 created_date: '2026-08-27 15:33'
-updated_date: '2026-08-28 14:09'
+updated_date: '2026-08-28 19:26'
 labels:
   - code-review-rust
   - readability
@@ -57,3 +57,10 @@ Verified: `cargo clippy -p ops-extension --all-targets --all-features` is clean,
 - [ ] #2 clippy::unwrap_used is removed from the crate-root cfg_attr block in favour of the workspace-level allow-unwrap-in-tests setting in clippy.toml, and the block is deleted if it ends up empty
 - [ ] #3 cargo clippy -p ops-extension --all-targets --all-features remains clean with no warnings after the removals
 <!-- AC:END -->
+
+## Implementation Notes
+
+<!-- SECTION:NOTES:BEGIN -->
+AC#1 + AC#2: the whole `#![cfg_attr(test, allow(...))]` block and the `#[allow(clippy::module_inception)]` on `mod macros` are removed from crates/extension/src/lib.rs; the block ended up empty so it was deleted entirely rather than left with one entry.
+AC#3: cargo clippy --workspace --all-features --all-targets -- -D warnings is clean with the removals in place, including the ~700 lines of new test code this wave added to crates/extension/src/tests.rs (which uses .unwrap() freely — covered by allow-unwrap-in-tests in clippy.toml, exactly as the finding predicted).
+<!-- SECTION:NOTES:END -->

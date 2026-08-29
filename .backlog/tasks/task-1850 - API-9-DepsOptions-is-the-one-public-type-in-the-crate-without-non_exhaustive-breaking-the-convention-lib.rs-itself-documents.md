@@ -3,11 +3,11 @@ id: TASK-1850
 title: >-
   API-9: DepsOptions is the one public type in the crate without
   #[non_exhaustive], breaking the convention lib.rs itself documents
-status: To Do
+status: Done
 assignee:
   - TASK-1997
 created_date: '2026-08-27 15:25'
-updated_date: '2026-08-28 14:13'
+updated_date: '2026-08-28 20:42'
 labels:
   - code-review-rust
   - structure-readability
@@ -42,8 +42,14 @@ This is a small change, but it is worth doing as part of the same pass rather th
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 DepsOptions carries #[non_exhaustive], matching every other public type this crate exports
-- [ ] #2 A constructor (or Default plus struct-update syntax) is provided so callers outside the crate can still build the value
-- [ ] #3 crates/cli/src/subcommands.rs is updated to the new construction form and still compiles
-- [ ] #4 The refresh field carries a doc comment stating what it does
+- [x] #1 DepsOptions carries #[non_exhaustive], matching every other public type this crate exports
+- [x] #2 A constructor (or Default plus struct-update syntax) is provided so callers outside the crate can still build the value
+- [x] #3 crates/cli/src/subcommands.rs is updated to the new construction form and still compiles
+- [x] #4 The refresh field carries a doc comment stating what it does
 <!-- AC:END -->
+
+## Implementation Notes
+
+<!-- SECTION:NOTES:BEGIN -->
+Applied in the same pass as TASK-1827/TASK-1845, whose new run_deps tests needed the constructor: DepsOptions gains #[non_exhaustive], derives Debug/Clone/Default, documents the refresh field, and adds a const `new(refresh)`. crates/cli/src/subcommands.rs:63 now builds it with DepsOptions::new(refresh).
+<!-- SECTION:NOTES:END -->

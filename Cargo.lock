@@ -1715,6 +1715,7 @@ dependencies = [
  "clap",
  "indexmap",
  "inquire",
+ "libc",
  "ops-about",
  "ops-about-go",
  "ops-about-java",
@@ -1817,17 +1818,16 @@ dependencies = [
 name = "ops-about-python"
 version = "0.44.0"
 dependencies = [
- "anyhow",
  "linkme",
  "ops-about",
  "ops-core",
  "ops-extension",
- "ops-git",
  "serde",
  "serde_json",
  "tempfile",
  "toml 1.1.4+spec-1.1.0",
  "tracing",
+ "tracing-subscriber",
 ]
 
 [[package]]
@@ -1889,12 +1889,13 @@ version = "0.44.0"
 dependencies = [
  "anyhow",
  "linkme",
+ "ops-about",
  "ops-core",
  "ops-extension",
+ "proptest",
  "serde",
  "serde_json",
  "tracing",
- "tracing-subscriber",
 ]
 
 [[package]]

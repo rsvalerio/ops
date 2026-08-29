@@ -42,6 +42,11 @@ pub fn run_about(
             // that pretended to avoid cloning while still calling `to_vec`.
             // A direct `clone()` on the (typically small) config Vec is
             // honest about the allocation cost.
+            // `is_stdout_tty`, not `is_prompt_tty`: this flag decides whether
+            // the about card — written to stdout below — is colourized, so the
+            // stream being tested is the one being rendered to. Prompt gates
+            // use `is_prompt_tty` instead, because `inquire` renders to stderr
+            // and reads stdin.
             let opts = ops_about::AboutOptions::new(
                 refresh,
                 config.about.fields.clone(),
@@ -55,7 +60,7 @@ pub fn run_about(
 #[cfg(feature = "stack-rust")]
 pub fn run_deps(config: &Config, refresh: bool) -> anyhow::Result<()> {
     let (_cwd, registry) = cli_data_context(config)?;
-    let opts = ops_deps::DepsOptions { refresh };
+    let opts = ops_deps::DepsOptions::new(refresh);
     ops_deps::run_deps(&registry, &opts)
 }
 
@@ -88,29 +93,6 @@ pub fn run_extension(config: &Config, action: ExtensionAction) -> anyhow::Result
     }
 }
 
-/// Classify an `inquire::Confirm` prompt result so that a user-initiated
-/// cancel (Ctrl-C / Esc) is distinguishable from a real failure. Returns
-/// `Ok(Some(answer))` for a real choice, `Ok(None)` for an explicit cancel,
-/// and `Err` for any other inquire failure.
-///
-/// The real-error branch attaches an anyhow context naming the prompt
-/// source so a `NotTTY` / IO failure tells the user which prompt was in
-/// flight rather than surfacing a bare `inquire: <variant>` line.
-fn classify_confirm_result(
-    res: Result<bool, inquire::InquireError>,
-    prompt_source: &str,
-) -> anyhow::Result<Option<bool>> {
-    match res {
-        Ok(b) => Ok(Some(b)),
-        Err(
-            inquire::InquireError::OperationCanceled | inquire::InquireError::OperationInterrupted,
-        ) => Ok(None),
-        Err(e) => {
-            Err(anyhow::Error::new(e)).with_context(|| format!("{prompt_source} prompt failed"))
-        }
-    }
-}
-
 /// Treat empty, `0`, `false`, `no`, `off`, and `n` (case-insensitive,
 /// surrounding whitespace trimmed) as off for boolean opt-in env vars like
 /// `OPS_NONINTERACTIVE` and `CI`. Anything else present is on. Aligns with
@@ -133,10 +115,11 @@ fn env_flag_enabled(name: &str) -> bool {
 /// Non-interactive policy lifted out of `prompt_hook_install`
 /// so the surrounding helper covers only the Confirm prompt + dispatch.
 /// Returns `Some(ExitCode)` when the caller must bail without prompting
-/// (CI, `OPS_NONINTERACTIVE`, or stdout is not a TTY); `None` to proceed.
+/// (CI, `OPS_NONINTERACTIVE`, or no terminal to render/answer a prompt on);
+/// `None` to proceed.
 fn noninteractive_install_blocked(hook_name: &str) -> Option<ExitCode> {
     let noninteractive = env_flag_enabled("OPS_NONINTERACTIVE") || env_flag_enabled("CI");
-    if noninteractive || !crate::tty::is_stdout_tty() {
+    if noninteractive || !crate::tty::is_prompt_tty() {
         ops_core::ui::note(format!("run `ops {hook_name} install` to set it up."));
         return Some(ExitCode::FAILURE);
     }
@@ -163,7 +146,7 @@ fn prompt_hook_install(config: &Config, hook: &HookOps) -> anyhow::Result<ExitCo
         return Ok(code);
     }
     let prompt_label = format!("Run `ops {hook_name} install` now?");
-    let Some(answer) = classify_confirm_result(
+    let Some(answer) = crate::prompt::classify_prompt_result(
         inquire::Confirm::new(&prompt_label)
             .with_default(true)
             .prompt(),
@@ -387,6 +370,7 @@ pub fn run_check_yaml(tracked: bool) -> anyhow::Result<ExitCode> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::test_utils::EnvVarGuard;
 
     /// A typical `ops <cmd>` flow must load `.ops.toml` at most once.
     /// Previously `run()` loaded it via `load_config_or_default("early")`
@@ -396,35 +380,32 @@ mod tests {
     /// contract: handler-side helpers take `&Config` and never re-invoke
     /// `load_config`.
     ///
-    /// A cancelled install prompt must not surface as an
-    /// anyhow error. `main` formats anyhow errors with the `ops: error:`
-    /// prefix; returning `Ok(None)` from `classify_confirm_result` lets the
-    /// caller convert cancellation into a clean exit code without that
-    /// decoration.
+    /// A cancelled install prompt must not surface as an anyhow error.
+    /// `main` formats anyhow errors with the `ops: error:` prefix; returning
+    /// `Ok(None)` from the shared classifier lets `prompt_hook_install`
+    /// convert cancellation into a clean 130 exit without that decoration.
     #[test]
-    fn classify_confirm_result_cancel_is_ok_none() {
-        let out = classify_confirm_result(
-            Err(inquire::InquireError::OperationCanceled),
-            "install confirm",
-        )
-        .expect("cancel must not propagate as error");
-        assert!(out.is_none(), "cancel must map to None, not a bool answer");
-
-        let out = classify_confirm_result(
-            Err(inquire::InquireError::OperationInterrupted),
-            "install confirm",
-        )
-        .expect("interrupt must not propagate as error");
-        assert!(out.is_none(), "interrupt must map to None");
+    fn hook_install_confirm_cancel_is_ok_none() {
+        for err in [
+            inquire::InquireError::OperationCanceled,
+            inquire::InquireError::OperationInterrupted,
+        ] {
+            let out = crate::prompt::classify_prompt_result(
+                Err::<bool, _>(err),
+                "`ops run-before-commit install` confirm",
+            )
+            .expect("cancel must not propagate as error");
+            assert!(out.is_none(), "cancel must map to None, not a bool answer");
+        }
     }
 
     /// A non-cancel inquire error must reach `main`
     /// wrapped with context naming the prompt source, so the user sees
     /// which prompt failed instead of a bare `inquire: <variant>` line.
     #[test]
-    fn classify_confirm_result_real_error_propagates() {
-        let res = classify_confirm_result(
-            Err(inquire::InquireError::NotTTY),
+    fn hook_install_confirm_real_error_propagates() {
+        let res = crate::prompt::classify_prompt_result(
+            Err::<bool, _>(inquire::InquireError::NotTTY),
             "`ops run-before-commit install` confirm",
         );
         let err = res.expect_err("real prompt errors must propagate as Err");
@@ -436,13 +417,13 @@ mod tests {
     }
 
     #[test]
-    fn classify_confirm_result_answer_passes_through() {
+    fn hook_install_confirm_answer_passes_through() {
         assert_eq!(
-            classify_confirm_result(Ok(true), "x").expect("ok"),
+            crate::prompt::classify_prompt_result(Ok(true), "x").expect("ok"),
             Some(true)
         );
         assert_eq!(
-            classify_confirm_result(Ok(false), "x").expect("ok"),
+            crate::prompt::classify_prompt_result(Ok(false), "x").expect("ok"),
             Some(false)
         );
     }
@@ -456,24 +437,27 @@ mod tests {
         // `no`, `off`, `n` join the canonical falsy set
         // so the bash/systemd convention does not silently flip operators
         // into the opposite state.
+        // Guarded: the 18 assertions below are fallible, and a trailing
+        // `remove_var` would be skipped by the first one that fires.
+        let guard = EnvVarGuard::unset("OPS_NONINTERACTIVE_TEST");
         for falsy in [
             "", "0", "false", "FALSE", "False", "  0  ", "no", "NO", "No", "  no  ", "off", "OFF",
             "n", "N",
         ] {
-            std::env::set_var("OPS_NONINTERACTIVE_TEST", falsy);
+            guard.set_value(falsy);
             assert!(
                 !env_flag_enabled("OPS_NONINTERACTIVE_TEST"),
                 "{falsy:?} must be treated as off"
             );
         }
         for truthy in ["1", "true", "yes", "anything"] {
-            std::env::set_var("OPS_NONINTERACTIVE_TEST", truthy);
+            guard.set_value(truthy);
             assert!(
                 env_flag_enabled("OPS_NONINTERACTIVE_TEST"),
                 "{truthy:?} must be treated as on"
             );
         }
-        std::env::remove_var("OPS_NONINTERACTIVE_TEST");
+        guard.unset_value();
         assert!(!env_flag_enabled("OPS_NONINTERACTIVE_TEST"));
     }
 
@@ -558,37 +542,6 @@ program = "true"
         );
     }
 
-    /// RAII helper: remove an env var for the scope of a test and restore
-    /// the original value on drop. Local to this test module so the broader
-    /// `test_utils` surface does not grow another env-guard variant.
-    struct EnvVarGuard {
-        name: &'static str,
-        original: Option<std::ffi::OsString>,
-    }
-
-    impl EnvVarGuard {
-        fn unset(name: &'static str) -> Self {
-            let original = std::env::var_os(name);
-            std::env::remove_var(name);
-            Self { name, original }
-        }
-
-        fn set(name: &'static str, value: &str) -> Self {
-            let original = std::env::var_os(name);
-            std::env::set_var(name, value);
-            Self { name, original }
-        }
-    }
-
-    impl Drop for EnvVarGuard {
-        fn drop(&mut self) {
-            match self.original.take() {
-                Some(v) => std::env::set_var(self.name, v),
-                None => std::env::remove_var(self.name),
-            }
-        }
-    }
-
     /// `--changed-only` against a hook with no preflight
     /// predicate must fail loudly. The legacy behaviour silently no-op'd,
     /// hiding the misuse from any scripted caller.
@@ -657,7 +610,7 @@ program = "true"
         let _skip_guard = EnvVarGuard::unset("SKIP_OPS_RUN_BEFORE_PUSH");
         let _refs_guard = EnvVarGuard::set(
             ops_run_before_push::REF_UPDATES_ENV_VAR,
-            &format!("refs/heads/main {OID_A} refs/heads/main {OID_B}\n"),
+            format!("refs/heads/main {OID_A} refs/heads/main {OID_B}\n"),
         );
 
         let config = ops_core::config::load_config_or_default("test-push-gate");
@@ -684,11 +637,13 @@ program = "false"
     #[test]
     #[serial_test::serial]
     fn prompt_hook_install_noninteractive_reports_failure() {
-        std::env::set_var("OPS_NONINTERACTIVE", "1");
+        // Guarded: `expect` below is exactly the failure this test exists to
+        // catch, and a trailing `remove_var` would never run when it fires —
+        // leaking OPS_NONINTERACTIVE=1 into every later test in the binary.
+        let _guard = EnvVarGuard::set("OPS_NONINTERACTIVE", "1");
         let cfg = Config::default();
         let code = prompt_hook_install(&cfg, &pre_hook_cmd::COMMIT_OPS)
             .expect("noninteractive bail must not error");
-        std::env::remove_var("OPS_NONINTERACTIVE");
         // ExitCode is opaque — compare its Debug form against FAILURE.
         assert_eq!(format!("{code:?}"), format!("{:?}", ExitCode::FAILURE));
     }

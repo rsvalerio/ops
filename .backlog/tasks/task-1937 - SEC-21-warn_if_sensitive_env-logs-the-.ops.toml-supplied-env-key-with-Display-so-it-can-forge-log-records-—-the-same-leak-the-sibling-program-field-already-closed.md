@@ -4,11 +4,11 @@ title: >-
   SEC-21: warn_if_sensitive_env logs the .ops.toml-supplied env key with
   Display, so it can forge log records — the same leak the sibling program field
   already closed
-status: To Do
+status: Done
 assignee:
   - TASK-1986
 created_date: '2026-08-27 15:47'
-updated_date: '2026-08-28 14:10'
+updated_date: '2026-08-28 19:29'
 labels:
   - code-review-rust
   - security
@@ -53,7 +53,13 @@ Severity is bounded by the trust model documented at the top of `exec.rs` (a loc
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 both warn! sites in warn_if_sensitive_env render the env key with the Debug (?) formatter, matching the SEC-21 / TASK-1127 policy applied to program and to tap paths
-- [ ] #2 a unit test pins the escape for a key containing a newline and an ANSI escape, mirroring program_field_debug_escapes_control_characters in exec.rs
-- [ ] #3 a sweep confirms no other .ops.toml-derived string in this crate still reaches a tracing field via Display
+- [x] #1 both warn! sites in warn_if_sensitive_env render the env key with the Debug (?) formatter, matching the SEC-21 / TASK-1127 policy applied to program and to tap paths
+- [x] #2 a unit test pins the escape for a key containing a newline and an ANSI escape, mirroring program_field_debug_escapes_control_characters in exec.rs
+- [x] #3 a sweep confirms no other .ops.toml-derived string in this crate still reaches a tracing field via Display
 <!-- AC:END -->
+
+## Implementation Notes
+
+<!-- SECTION:NOTES:BEGIN -->
+Both warn! sites in warn_if_sensitive_env now render the env key with the Debug (?) formatter, matching the SEC-21 / TASK-1127 policy on program and TASK-0940 on tap paths; the value remains length-only. New unit test env_key_field_debug_escapes_control_characters mirrors program_field_debug_escapes_control_characters and also asserts the Display rendering it replaced would NOT have escaped. AC #3 sweep: grep of every `= %` tracing field in ops-runner found more .ops.toml-derived strings. Fixed in-wave: apply_escape_policy in build.rs logged spec_cwd and the derived joined path via Path::display() under `%` on the SEC-004 escape warning (same file scope as TASK-1940, same security-log class) — now Debug-formatted. Filed TASK-2020 (Triage) for the remainder: command ids and aliases in resolve.rs / mod.rs / exec.rs / parallel.rs, which sit outside this wave file scope and need the ?id.as_str() form to avoid changing the field shape to CommandId("x").
+<!-- SECTION:NOTES:END -->

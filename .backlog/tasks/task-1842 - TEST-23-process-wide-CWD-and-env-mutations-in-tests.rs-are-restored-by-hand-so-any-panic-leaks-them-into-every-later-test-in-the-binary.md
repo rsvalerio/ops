@@ -3,11 +3,11 @@ id: TASK-1842
 title: >-
   TEST-23: process-wide CWD and env mutations in tests.rs are restored by hand,
   so any panic leaks them into every later test in the binary
-status: To Do
+status: Done
 assignee:
   - TASK-1997
 created_date: '2026-08-27 15:23'
-updated_date: '2026-08-28 14:13'
+updated_date: '2026-08-28 20:34'
 labels:
   - code-review-rust
   - test-quality
@@ -55,10 +55,10 @@ Both restores should move into a scope guard whose `Drop` runs on the unwind pat
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 build_user_context_loads_stack_from_local_ops_toml restores the previous working directory through a Drop guard, so an early panic cannot leave the process in the deleted tempdir
-- [ ] #2 check_tool_in_times_out_on_hung_probe restores/removes CARGO and OPS_SUBPROCESS_TIMEOUT_SECS through a Drop guard covering the unwind path, including when check_tool_in itself panics
-- [ ] #3 The guard restores the prior value of each env var (including 'was unset') rather than unconditionally removing it
-- [ ] #4 Assertions can move back above the cleanup code, since cleanup no longer depends on reaching the end of the test body
-- [ ] #5 The remaining unsafe env blocks carry a SAFETY comment that covers restore-on-unwind, not only the serial/concurrency argument
-- [ ] #6 Both tests still pass and still carry their #[serial] attributes
+- [x] #1 build_user_context_loads_stack_from_local_ops_toml restores the previous working directory through a Drop guard, so an early panic cannot leave the process in the deleted tempdir
+- [x] #2 check_tool_in_times_out_on_hung_probe restores/removes CARGO and OPS_SUBPROCESS_TIMEOUT_SECS through a Drop guard covering the unwind path, including when check_tool_in itself panics
+- [x] #3 The guard restores the prior value of each env var (including 'was unset') rather than unconditionally removing it
+- [x] #4 Assertions can move back above the cleanup code, since cleanup no longer depends on reaching the end of the test body
+- [x] #5 The remaining unsafe env blocks carry a SAFETY comment that covers restore-on-unwind, not only the serial/concurrency argument
+- [x] #6 Both tests still pass and still carry their #[serial] attributes
 <!-- AC:END -->

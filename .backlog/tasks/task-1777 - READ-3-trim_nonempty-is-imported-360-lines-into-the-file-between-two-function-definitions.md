@@ -3,11 +3,11 @@ id: TASK-1777
 title: >-
   READ-3: trim_nonempty is imported 360 lines into the file, between two
   function definitions
-status: To Do
+status: Done
 assignee:
   - TASK-1992
 created_date: '2026-08-27 11:22'
-updated_date: '2026-08-28 14:11'
+updated_date: '2026-08-28 20:05'
 labels:
   - code-review-rust
   - readability
@@ -40,7 +40,18 @@ The rationale comment is worth keeping — it just belongs on the import in the 
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 The trim_nonempty import moves into the header import block at the top of lib.rs
-- [ ] #2 The DUP-3 / TASK-1258 rationale comment is preserved alongside it
-- [ ] #3 No use statement remains in the module body between function definitions
+- [x] #1 The trim_nonempty import moves into the header import block at the top of lib.rs
+- [x] #2 The DUP-3 / TASK-1258 rationale comment is preserved alongside it
+- [x] #3 No use statement remains in the module body between function definitions
 <!-- AC:END -->
+
+## Implementation Notes
+
+<!-- SECTION:NOTES:BEGIN -->
+The mid-file `use ops_about::text_util::trim_nonempty;` is gone; the header
+import block now carries
+`use ops_about::text_util::{contains_control_chars, has_allowed_url_scheme, trim_nonempty};`
+with the DUP-3 / TASK-1258 rationale (plus the TASK-1758 / TASK-1755 notes for
+the two new symbols) as a comment directly above it. No `use` statement
+remains in the module body.
+<!-- SECTION:NOTES:END -->

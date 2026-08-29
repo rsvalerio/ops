@@ -43,11 +43,21 @@ pub struct CargoToml {
     pub dependencies: BTreeMap<String, DepSpec>,
 
     /// Dev dependencies from `[dev-dependencies]`.
-    #[serde(default, alias = "dev-dependencies")]
+    ///
+    /// READ-6 / TASK-1798: `rename`, not `alias`, so the *serialised* key is
+    /// `dev-dependencies` too — the spelling Cargo uses and the one
+    /// `CargoTomlProvider::schema` publishes. With `alias` the JSON emitted
+    /// by `DataProvider::provide` carried the Rust name, so a consumer
+    /// reading the documented key silently got nothing. The `snake_case`
+    /// spelling stays accepted on the read side via `alias`.
+    #[serde(default, rename = "dev-dependencies", alias = "dev_dependencies")]
     pub dev_dependencies: BTreeMap<String, DepSpec>,
 
     /// Build dependencies from `[build-dependencies]`.
-    #[serde(default, alias = "build-dependencies")]
+    ///
+    /// See [`CargoToml::dev_dependencies`] for why this is `rename` rather
+    /// than `alias` (READ-6 / TASK-1798).
+    #[serde(default, rename = "build-dependencies", alias = "build_dependencies")]
     pub build_dependencies: BTreeMap<String, DepSpec>,
 
     /// Feature definitions from `[features]`.
@@ -164,35 +174,68 @@ pub struct Package {
 }
 
 /// A field that can be inherited from workspace.
-#[derive(Debug, Clone, Deserialize, Serialize, PartialEq, Eq)]
+///
+/// # Absence is a state, not a sentinel (ERR-6 / TASK-1793)
+///
+/// The `Default` for this type is [`InheritableField::Absent`], **not**
+/// `Value(T::default())`. Every `#[serde(default)]` field on [`Package`]
+/// therefore parses to `Absent` when the key is missing, which keeps
+/// "the manifest omitted `version`" distinguishable from `version = ""`.
+///
+/// Before TASK-1793 the default was `Value(T::default())`, so
+/// [`CargoToml::package_version`] returned `Some("")` for an absent key and
+/// `as_str()` returned `Some("")` for every unset string field. That is
+/// truthy in an `Option`-based fallback chain, so consumers resolving
+/// `[package]` first and `[workspace.package]` second (notably
+/// `extensions-rust/about`'s identity resolver) never reached the
+/// workspace fallback for a field the member omitted entirely — they
+/// reported an empty value instead of the inherited one.
+///
+/// `Absent` serialises as `null` and deserialises back from it, so the
+/// provider's JSON round-trip preserves the distinction.
+#[derive(Debug, Clone, Deserialize, Serialize, PartialEq, Eq, Default)]
 #[serde(untagged)]
 pub enum InheritableField<T> {
     /// Direct value.
     Value(T),
     /// Inherited from workspace: `field = { workspace = true }`
     Inherited { workspace: bool },
+    /// The key is not present in the manifest at all.
+    ///
+    /// Declared last so untagged deserialisation only falls back to it once
+    /// `Value` and `Inherited` have both been ruled out.
+    #[default]
+    Absent,
 }
 
 impl<T> InheritableField<T> {
     /// Returns the value if this is a direct value, otherwise None.
+    #[must_use]
     pub const fn value(&self) -> Option<&T> {
         match self {
             Self::Value(v) => Some(v),
-            Self::Inherited { .. } => None,
+            Self::Inherited { .. } | Self::Absent => None,
         }
+    }
+
+    /// Returns `true` when the manifest did not declare this field at all.
+    ///
+    /// Distinct from a declared-but-empty value (`version = ""`) and from an
+    /// unresolved `{ workspace = true }` reference.
+    #[must_use]
+    pub const fn is_absent(&self) -> bool {
+        matches!(self, Self::Absent)
     }
 }
 
 impl InheritableField<String> {
     /// Returns the string value as &str if present.
+    ///
+    /// `None` covers both "inherited but unresolved" and "absent"; use
+    /// [`InheritableField::is_absent`] to tell them apart.
+    #[must_use]
     pub fn as_str(&self) -> Option<&str> {
         self.value().map(std::string::String::as_str)
-    }
-}
-
-impl<T: Default> Default for InheritableField<T> {
-    fn default() -> Self {
-        Self::Value(T::default())
     }
 }
 

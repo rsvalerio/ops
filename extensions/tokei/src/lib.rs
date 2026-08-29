@@ -48,7 +48,7 @@ ops_extension::impl_extension! {
     types: ExtensionType::DATASOURCE,
     data_provider_name: Some(DATA_PROVIDER_NAME),
     register_data_providers: |_self, registry| {
-        registry.register(DATA_PROVIDER_NAME, Box::new(TokeiProvider));
+        let _ = registry.register(DATA_PROVIDER_NAME, Box::new(TokeiProvider));
     },
     factory: TOKEI_FACTORY = |_, _| {
         Some((NAME, Box::new(TokeiExtension)))
@@ -64,7 +64,7 @@ impl DataProvider for TokeiProvider {
 
     fn provide(&self, ctx: &mut Context) -> Result<serde_json::Value, DataProviderError> {
         ops_duckdb::try_provide_from_db(ctx, provide_from_db, |ctx| {
-            collect_tokei(&ctx.working_directory)
+            collect_tokei(ctx.working_directory())
         })
     }
 

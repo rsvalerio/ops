@@ -7,19 +7,26 @@
 //! target and a documented boundary, separate from the serde model and
 //! the parse orchestrator in [`super::package_json`].
 
-/// Detect ASCII / Unicode control characters (C0: U+0000..U+001F, DEL U+007F,
-/// plus the broader `char::is_control` set covering C1 etc.) in a repository
-/// URL body. SEC-2 / TASK-1165: previously these were silently filtered, so
-/// `"github:owner/repo\nINJECT"` became `"https://github.com/owner/repoINJECT"`
-/// — a clickable URL pointing at an attacker-named repo. The defence against
-/// log-injection succeeded but the rendered URL was still attacker-chosen.
-/// We now treat any control byte as evidence of tampering and the caller
-/// drops the field entirely (returns an empty `String` from
-/// [`normalize_repo_url`]), so the About card surfaces no link at all rather
-/// than a silently rewritten one.
-fn contains_control_chars(raw: &str) -> bool {
-    raw.chars().any(|c| c.is_control() || c == '\u{007f}')
-}
+// SEC-2 / TASK-1165: a repository URL body carrying any control byte is
+// treated as evidence of tampering and the caller drops the field entirely
+// (returns an empty `String` from [`normalize_repo_url`]), so the About card
+// surfaces no link at all rather than a silently rewritten one. Previously
+// these were filtered, so `"github:owner/repo\nINJECT"` became
+// `"https://github.com/owner/repoINJECT"` — a clickable URL pointing at an
+// attacker-named repo.
+//
+// DUP-3 / TASK-1758: the predicate itself is shared with the Python provider
+// via `ops_about::text_util`, so the sanitisation boundary has one definition
+// across stacks instead of two copies that can drift apart silently.
+use ops_about::text_util::contains_control_chars;
+
+// SEC-11 / TASK-1722: whatever the rewrite branches produce is finally checked
+// against an `http(s)` scheme allowlist, so `javascript:`, `data:`,
+// `vbscript:`, `file:` and their `git+`-prefixed twins cannot reach the
+// rendered About card. DUP-3 / TASK-1758: the allowlist itself is shared with
+// the Python provider via `ops_about::text_util`, so the policy has one
+// definition across stacks.
+use ops_about::text_util::has_allowed_url_scheme;
 
 /// Normalise a `repository` URL value: turn npm shorthand
 /// (`github:owner/repo`), git+ssh, ssh scp form, git+https, and the bare
@@ -63,7 +70,7 @@ fn contains_control_chars(raw: &str) -> bool {
 /// authorities (TASK-1256).
 pub fn normalize_repo_url(raw: &str) -> std::borrow::Cow<'_, str> {
     let normalized = normalize_repo_url_shape(raw);
-    if normalized.starts_with("https://") || normalized.starts_with("http://") {
+    if has_allowed_url_scheme(&normalized) {
         normalized
     } else {
         std::borrow::Cow::Borrowed("")

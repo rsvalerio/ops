@@ -17,8 +17,8 @@ impl DataIngestor for TokeiIngestor {
     }
 
     fn collect(&self, ctx: &Context, data_dir: &Path) -> DbResult<()> {
-        let json = super::collect_tokei(&ctx.working_directory).map_err(external_err)?;
-        PIPELINE.collect_sidecar(data_dir, &json, &ctx.working_directory)
+        let json = super::collect_tokei(ctx.working_directory()).map_err(external_err)?;
+        PIPELINE.collect_sidecar(data_dir, &json, ctx.working_directory())
     }
 
     fn load(&self, data_dir: &Path, db: &DuckDb) -> DbResult<LoadResult> {

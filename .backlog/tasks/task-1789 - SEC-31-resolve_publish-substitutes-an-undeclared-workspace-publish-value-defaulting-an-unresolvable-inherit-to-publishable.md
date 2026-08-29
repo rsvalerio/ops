@@ -3,11 +3,11 @@ id: TASK-1789
 title: >-
   SEC-31: resolve_publish substitutes an undeclared workspace publish value,
   defaulting an unresolvable inherit to publishable
-status: To Do
+status: Done
 assignee:
   - TASK-1994
 created_date: '2026-08-27 11:23'
-updated_date: '2026-08-28 14:12'
+updated_date: '2026-08-28 20:18'
 labels:
   - code-review-rust
   - security
@@ -46,9 +46,9 @@ Note the asymmetry is invisible in the current suite: `resolve_package_inheritan
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 resolve_publish leaves the field as PublishSpec::Inherited when the workspace value is PublishSpec::None (i.e. the workspace never declared publish), matching resolve_string_field/resolve_vec_field/resolve_readme
-- [ ] #2 After resolve_package_inheritance on a manifest with 'publish = { workspace = true }' and a [workspace.package] table lacking a publish key, is_publishable() returns None, not Some(true)
-- [ ] #3 The existing behaviour is preserved when the workspace does declare publish (Bool or Registries), including publish = false
-- [ ] #4 A test in src/tests/inheritance.rs covers the undeclared-workspace-publish case, mirroring resolve_package_inheritance_missing_ws_value_stays_inherited
-- [ ] #5 The doc comment on resolve_publish states the fail-closed rule
+- [x] #1 resolve_publish leaves the field as PublishSpec::Inherited when the workspace value is PublishSpec::None (i.e. the workspace never declared publish), matching resolve_string_field/resolve_vec_field/resolve_readme
+- [x] #2 After resolve_package_inheritance on a manifest with 'publish = { workspace = true }' and a [workspace.package] table lacking a publish key, is_publishable() returns None, not Some(true)
+- [x] #3 The existing behaviour is preserved when the workspace does declare publish (Bool or Registries), including publish = false
+- [x] #4 A test in src/tests/inheritance.rs covers the undeclared-workspace-publish case, mirroring resolve_package_inheritance_missing_ws_value_stays_inherited
+- [x] #5 The doc comment on resolve_publish states the fail-closed rule
 <!-- AC:END -->

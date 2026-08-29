@@ -44,6 +44,61 @@ pub fn trim_nonempty(value: Option<String>) -> Option<String> {
         .filter(|s| !s.is_empty())
 }
 
+/// Detect ASCII / Unicode control characters in an attacker-controllable text
+/// value (manifest URLs, repository fields, package metadata).
+///
+/// `char::is_control` matches the whole Unicode `Cc` category — C0
+/// (`U+0000..=U+001F`), DEL (`U+007F`) **and** C1 (`U+0080..=U+009F`) — so it
+/// is the complete test on its own; no separate DEL clause is required.
+///
+/// SEC-2 / TASK-1165 / TASK-1207: any control byte in such a value is treated
+/// as evidence of tampering and the caller drops the field entirely rather
+/// than stripping it. Stripping silently concatenates the attacker-controlled
+/// tail (`https://demo.dev\nINJECT` → `https://demo.devINJECT`) into a
+/// clickable URL; dropping surfaces the field as missing.
+///
+/// DUP-3 / TASK-1758: about-node and about-python each carried a verbatim copy
+/// of this predicate for the same policy. Lifting it here keeps the
+/// sanitisation boundary pinned at one source location, so a tightening lands
+/// for every stack at once.
+#[must_use]
+pub fn contains_control_chars(raw: &str) -> bool {
+    raw.chars().any(char::is_control)
+}
+
+/// URL schemes an About-card link may carry.
+///
+/// Deliberately minimal: these are the only two schemes that render as a safe
+/// clickable link across the terminal (OSC 8 auto-linkification), markdown,
+/// HTML and JSON surfaces the About card feeds.
+const ALLOWED_URL_SCHEMES: [&str; 2] = ["https://", "http://"];
+
+/// Whether `raw` carries an allowlisted URL scheme (`https://` or `http://`).
+///
+/// SEC-11 / TASK-1755 / TASK-1722: manifest URL fields are untrusted input —
+/// `ops about` is routinely run against third-party checkouts. Without an
+/// allowlist, `javascript:fetch(…)`, `data:text/html;base64,…`, `vbscript:x`
+/// and `file:///etc/shadow` reach the rendered homepage / repository fields
+/// and become clickable XSS or local-file-exfiltration links in any markdown
+/// or HTML surface.
+///
+/// Scheme-less values (`example.com/x`, `//host/x`) are rejected too: guessing
+/// a scheme for them would fabricate a link the manifest never declared.
+/// Callers drop the field to `None` on rejection, extending the SEC-2 /
+/// TASK-1207 drop-not-strip policy to the scheme axis — a partial or rewritten
+/// URL is never emitted.
+///
+/// Scheme comparison is ASCII-case-insensitive, per RFC 3986 §3.1.
+#[must_use]
+pub fn has_allowed_url_scheme(raw: &str) -> bool {
+    let trimmed = raw.trim_start();
+    ALLOWED_URL_SCHEMES.iter().any(|scheme| {
+        trimmed
+            .get(..scheme.len())
+            .is_some_and(|head| head.eq_ignore_ascii_case(scheme))
+    })
+}
+
 #[must_use]
 pub fn char_display_width(c: char) -> usize {
     unicode_width::UnicodeWidthChar::width(c).unwrap_or(0)
@@ -271,6 +326,51 @@ pub fn pad_header(left: &str, right: &str, target_content_width: usize) -> Strin
 mod tests {
     use super::*;
     use ops_core::output::display_width;
+
+    /// DUP-3 / TASK-1758: the per-provider copies of this predicate carried a
+    /// redundant `|| c == '\u{007f}'` clause, implying `char::is_control` had
+    /// a gap at DEL. It does not — `Cc` spans C0, DEL and C1 — so dropping
+    /// the clause must not change behaviour at any of those three points.
+    #[test]
+    fn contains_control_chars_covers_c0_del_and_c1() {
+        assert!(contains_control_chars("https://demo.dev\nINJECT"));
+        assert!(contains_control_chars("https://demo.dev\u{1b}[31m"));
+        assert!(
+            contains_control_chars("https://demo.dev\u{007f}"),
+            "DEL must still be rejected without the explicit clause"
+        );
+        assert!(
+            contains_control_chars("https://demo.dev\u{0085}"),
+            "C1 (NEL) must be rejected"
+        );
+        assert!(!contains_control_chars("https://demo.dev/owner/repo"));
+    }
+
+    /// SEC-11 / TASK-1755: only `http(s)` reach a rendered About link.
+    #[test]
+    fn has_allowed_url_scheme_allowlists_only_http_and_https() {
+        assert!(has_allowed_url_scheme("https://demo.dev"));
+        assert!(has_allowed_url_scheme("http://demo.dev"));
+        assert!(has_allowed_url_scheme("HTTPS://demo.dev"));
+        assert!(!has_allowed_url_scheme(
+            "javascript:fetch('https://evil.tld')"
+        ));
+        assert!(!has_allowed_url_scheme("data:text/html;base64,AAAA"));
+        assert!(!has_allowed_url_scheme("file:///etc/shadow"));
+        assert!(!has_allowed_url_scheme("vbscript:x"));
+        assert!(!has_allowed_url_scheme("ftp://demo.dev"));
+    }
+
+    /// A scheme-less value must be rejected rather than guessed at.
+    #[test]
+    fn has_allowed_url_scheme_rejects_scheme_less_and_short_values() {
+        assert!(!has_allowed_url_scheme("example.com/x"));
+        assert!(!has_allowed_url_scheme("//example.com/x"));
+        assert!(!has_allowed_url_scheme(""));
+        assert!(!has_allowed_url_scheme("http"));
+        // Multi-byte prefix shorter than the scheme must not panic on slicing.
+        assert!(!has_allowed_url_scheme("é"));
+    }
 
     #[test]
     fn truncate_to_width_short_string() {

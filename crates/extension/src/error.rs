@@ -79,19 +79,56 @@ pub enum DataProviderError {
     /// The wrapped [`SharedError`] preserves the full source chain;
     /// `std::error::Error::source()` walks through to the originating cause.
     /// Use this variant to surface real failures (log + re-raise rather
-    /// than swallow). `{0:#}` makes every display path — plain `to_string()`
-    /// and `format!("{e:#}")` alike — render the whole chain down to the
-    /// root cause (parity with `DbError::External`); without it the anyhow
-    /// alternate flag cannot propagate through thiserror's nested display,
-    /// and operator logs lost everything past the outermost context.
+    /// than swallow).
+    ///
+    /// # Why the message interpolates its own `#[source]`
+    ///
+    /// ERR-9 / TASK-1889: setting the message and the source to the same
+    /// value makes chain-walking printers render each link twice, which is
+    /// the textbook shape to avoid. It is kept deliberately, and the
+    /// re-derivation was done against the display paths this type actually
+    /// reaches in this workspace:
+    ///
+    /// | Path | Callers | Rendering |
+    /// |---|---|---|
+    /// | `{e:#}` in `tracing::warn!` | `extensions/about/src/providers.rs` (`warm_providers`), `extensions/about/src/lib.rs` (six enrichment sites) | needs the whole chain in one line |
+    /// | `{e}` / `to_string()` | this crate's tests; any operator log that forgets the `#` | needs the whole chain in one line |
+    /// | `{e:?}` via `anyhow::Error` | `extensions/create-review-tasks/src/lib.rs` (`fetch_review_targets`), `providers::load_or_default` | walks `source()` itself |
+    ///
+    /// The first two are the majority and they are the constraint: thiserror
+    /// generates `write!(f, "…: {}", self.0)` for a plain `{0}`, which does
+    /// **not** propagate the alternate flag to `SharedError`'s
+    /// chain-walking Display — so dropping the `#` loses everything past the
+    /// outermost context on every `{e:#}` and `{e}` site above. An
+    /// alternate-aware `SharedError` (`error.rs`) does not change that: the
+    /// flag never reaches it. The cost of keeping `{0:#}` is that
+    /// `anyhow`'s `{:?}` repeats the chain under `Caused by:`. Duplication in
+    /// one debug-formatted report is cheaper than a lost root cause in every
+    /// operator warning, so `{0:#}` stays. `tests.rs` pins the rendering of
+    /// all three paths.
     #[error("data computation failed: {0:#}")]
     ComputationFailed(#[source] SharedError),
+    /// ERR-2 / TASK-1887: a computation failure described only by a message.
+    ///
+    /// [`DataProviderError::computation_failed`] used to build a
+    /// `std::io::Error` purely as a container for its string, which put a
+    /// false claim into the error chain: the value was indistinguishable —
+    /// by type and by `ErrorKind` — from a real filesystem or process
+    /// failure, so a caller doing
+    /// `err.source().and_then(|s| s.downcast_ref::<std::io::Error>())` got a
+    /// hit for an error that never touched a file descriptor. This variant
+    /// carries the message directly, with no source at all. Its `Display`
+    /// output matches [`DataProviderError::ComputationFailed`]'s, so the
+    /// change is invisible to log readers.
+    #[error("data computation failed: {0}")]
+    ComputationMessage(String),
     /// Returned when a provider produced a value whose JSON shape could not
     /// be parsed back into the caller-expected struct (typically via
     /// `serde_json::from_value(...)`), or when constructing a JSON value
     /// itself failed.
     /// Mirrors [`DataProviderError::ComputationFailed`]'s `{0:#}` chain
-    /// rendering so serialization root causes stay visible in logs too.
+    /// rendering — see that variant for the ERR-9 / TASK-1889 re-derivation
+    /// — so serialization root causes stay visible in logs too.
     #[error("data serialization error: {0:#}")]
     Serialization(#[source] SharedError),
     /// SEC-38 / TASK-0744: returned when [`crate::Context::get_or_provide`]
@@ -113,9 +150,15 @@ impl DataProviderError {
     }
 
     /// Create a computation failure from a string message.
+    ///
+    /// ERR-2 / TASK-1887: produces [`DataProviderError::ComputationMessage`],
+    /// which holds the message and nothing else. Reach for
+    /// [`DataProviderError::computation_error`] instead whenever a real
+    /// source error is available — that is what preserves a chain worth
+    /// walking.
+    #[must_use]
     pub fn computation_failed(msg: impl Into<String>) -> Self {
-        let msg = msg.into();
-        Self::ComputationFailed(SharedError(Arc::new(std::io::Error::other(msg))))
+        Self::ComputationMessage(msg.into())
     }
 
     /// Create a computation failure from a source error, preserving the error chain.

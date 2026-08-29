@@ -3,11 +3,11 @@ id: TASK-1760
 title: >-
   ARCH-11: ops-about-python declares anyhow and ops-git but never references
   either
-status: To Do
+status: Done
 assignee:
   - TASK-1992
 created_date: '2026-08-27 11:19'
-updated_date: '2026-08-28 14:11'
+updated_date: '2026-08-28 20:05'
 labels:
   - code-review-rust
   - architecture
@@ -36,7 +36,28 @@ Verified with `grep -rn "anyhow\|ops_git" extensions-python/about/src/` — no m
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 anyhow and ops-git are removed from extensions-python/about/Cargo.toml
-- [ ] #2 cargo build --all-targets and the full test suite pass unchanged
-- [ ] #3 The remaining extensions-*/about/Cargo.toml files are checked for the same two unused entries
+- [x] #1 anyhow and ops-git are removed from extensions-python/about/Cargo.toml
+- [x] #2 cargo build --all-targets and the full test suite pass unchanged
+- [x] #3 The remaining extensions-*/about/Cargo.toml files are checked for the same two unused entries
 <!-- AC:END -->
+
+## Implementation Notes
+
+<!-- SECTION:NOTES:BEGIN -->
+`anyhow` and `ops-git` removed from `extensions-python/about/Cargo.toml`;
+`Cargo.lock` updated. Full workspace `ops verify` (fmt, clippy -D warnings,
+build --all-features --all-targets) passes, as does the crate's test suite.
+
+`tracing-subscriber` was *added* as a dev-dependency in the same file — it is
+genuinely used, by the TASK-1756 / TASK-1757 warn-capture tests, matching
+`extensions-rust/about` and `extensions-terraform/about`.
+
+AC#3 sweep of the remaining `extensions-*/about/Cargo.toml`
+(grep for `anyhow` / `ops_git` under each crate's `src/`):
+- extensions-go, extensions-java — already clean (TASK-1738, TASK-1749 Done).
+- extensions-rust/about — both genuinely used (query.rs, identity/resolver.rs).
+- extensions/about — both genuinely used.
+- extensions-node/about — `anyhow` unused; already tracked by TASK-2013.
+- extensions-terraform/about — both unused; already tracked by TASK-1786.
+No new task filed: every remaining offender is already in the backlog.
+<!-- SECTION:NOTES:END -->

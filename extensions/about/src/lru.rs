@@ -63,8 +63,46 @@ impl<K: Ord> LruVictimQueue<K> {
 
     /// Stamp a fresh `(tick, key)` access. The previous stamp is left in the
     /// heap and discarded as stale on the next eviction sweep.
+    ///
+    /// PERF-16 / TASK-1723: pushing alone never shrinks the queue, and the
+    /// eviction sweep only runs when the caller's map is at its cap. A cache
+    /// that stamps on every access therefore grows this heap without bound
+    /// for as long as it sits *below* the cap. Callers must pair `push` with
+    /// [`Self::retain_fresh`], triggered off [`Self::len`], to keep the queue
+    /// proportional to the live entry count.
     pub fn push(&mut self, tick: u64, key: K) {
         self.heap.push(Reverse((tick, key)));
+    }
+
+    /// Number of queued stamps, **including** stale ones. This is the
+    /// queue's memory footprint, not the live entry count — the caller's
+    /// authoritative map owns that.
+    #[must_use]
+    pub fn len(&self) -> usize {
+        self.heap.len()
+    }
+
+    /// Whether the queue holds no stamps at all, stale ones included.
+    #[must_use]
+    pub fn is_empty(&self) -> bool {
+        self.heap.is_empty()
+    }
+
+    /// Drop every stamp the caller no longer considers current, leaving one
+    /// entry per live key.
+    ///
+    /// `is_fresh` carries the same contract as in [`Self::pop_lru`]: it
+    /// returns `true` when the `(key, tick)` pair still matches the caller's
+    /// authoritative record. Runs in `O(n)` over the queue (a `retain` plus
+    /// one `O(n)` heapify), so trigger it on a growth threshold rather than
+    /// on every push.
+    pub fn retain_fresh<F>(&mut self, mut is_fresh: F)
+    where
+        F: FnMut(&K, u64) -> bool,
+    {
+        let mut stamps = std::mem::take(&mut self.heap).into_vec();
+        stamps.retain(|Reverse((tick, key))| is_fresh(key, *tick));
+        self.heap = BinaryHeap::from(stamps);
     }
 
     /// Pop the least-recently-used key. `is_fresh(&key, tick)` returns
@@ -122,6 +160,40 @@ mod tests {
             _ => false,
         });
         assert_eq!(popped, Some("b"), "smallest fresh tick wins, stale skipped");
+    }
+
+    /// PERF-16 / TASK-1723: compaction must drop every stale stamp, keep the
+    /// queue at one entry per live key, and leave pop order intact.
+    #[test]
+    fn retain_fresh_drops_stale_stamps_and_preserves_order() {
+        let mut q = LruVictimQueue::<&'static str>::new();
+        // Three keys, each re-stamped twice: six pushes, three live stamps.
+        for (tick, key) in [(1, "a"), (2, "b"), (3, "c"), (4, "b"), (5, "a"), (6, "c")] {
+            q.push(tick, key);
+        }
+        assert_eq!(q.len(), 6);
+
+        // Authoritative state: a@5, b@4, c@6.
+        let live = |k: &&'static str, t: u64| matches!((*k, t), ("a", 5) | ("b", 4) | ("c", 6));
+        q.retain_fresh(live);
+        assert_eq!(q.len(), 3, "one stamp per live key survives compaction");
+        assert!(!q.is_empty());
+
+        // Min-heap order still holds after the rebuild: b@4, a@5, c@6.
+        assert_eq!(q.pop_lru(live), Some("b"));
+        assert_eq!(q.pop_lru(live), Some("a"));
+        assert_eq!(q.pop_lru(live), Some("c"));
+        assert!(q.is_empty());
+    }
+
+    #[test]
+    fn retain_fresh_can_empty_the_queue() {
+        let mut q = LruVictimQueue::<&'static str>::new();
+        q.push(1, "a");
+        q.push(2, "b");
+        q.retain_fresh(|_, _| false);
+        assert!(q.is_empty());
+        assert_eq!(q.len(), 0);
     }
 
     #[test]

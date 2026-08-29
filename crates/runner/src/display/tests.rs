@@ -252,8 +252,8 @@ fn step_stderr_captures_output() {
         .get("cmd")
         .expect("should capture stderr");
     assert_eq!(captured.len(), 2);
-    assert_eq!(captured[0].as_str(), "stderr line 1");
-    assert_eq!(captured[1].as_str(), "stderr line 2");
+    assert_eq!(&*captured[0], "stderr line 1");
+    assert_eq!(&*captured[1], "stderr line 2");
 }
 
 #[test]
@@ -331,8 +331,9 @@ mod edge_case_tests {
 
     #[test]
     fn extract_stderr_tail_extracts_correct_count() {
-        let lines: Vec<crate::command::OutputLine> =
-            (1..=10).map(|i| format!("line {i}").into()).collect();
+        let lines: Vec<Box<str>> = (1..=10)
+            .map(|i| Box::from(format!("line {i}").as_str()))
+            .collect();
         let tail = ErrorDetailRenderer::extract_stderr_tail(&lines, DEFAULT_STDERR_TAIL_LINES);
         assert_eq!(tail.len(), DEFAULT_STDERR_TAIL_LINES);
         assert_eq!(tail[0], "line 6");
@@ -341,7 +342,7 @@ mod edge_case_tests {
 
     #[test]
     fn extract_stderr_tail_handles_fewer_lines() {
-        let lines: Vec<crate::command::OutputLine> = vec!["a".into(), "b".into()];
+        let lines: Vec<Box<str>> = vec![Box::from("a"), Box::from("b")];
         let tail = ErrorDetailRenderer::extract_stderr_tail(&lines, DEFAULT_STDERR_TAIL_LINES);
         assert_eq!(tail.len(), 2);
         assert_eq!(tail[0], "a");
@@ -350,15 +351,16 @@ mod edge_case_tests {
 
     #[test]
     fn extract_stderr_tail_handles_empty() {
-        let lines: Vec<crate::command::OutputLine> = vec![];
+        let lines: Vec<Box<str>> = vec![];
         let tail = ErrorDetailRenderer::extract_stderr_tail(&lines, DEFAULT_STDERR_TAIL_LINES);
         assert!(tail.is_empty());
     }
 
     #[test]
     fn extract_stderr_tail_unlimited_returns_all() {
-        let lines: Vec<crate::command::OutputLine> =
-            (1..=100).map(|i| format!("line {i}").into()).collect();
+        let lines: Vec<Box<str>> = (1..=100)
+            .map(|i| Box::from(format!("line {i}").as_str()))
+            .collect();
         let tail = ErrorDetailRenderer::extract_stderr_tail(&lines, usize::MAX);
         assert_eq!(tail.len(), 100);
     }

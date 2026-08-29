@@ -3,11 +3,11 @@ id: TASK-1793
 title: >-
   ERR-6: InheritableField::default() uses an empty-string sentinel, making an
   absent [package] version indistinguishable from version = ""
-status: To Do
+status: Done
 assignee:
   - TASK-1994
 created_date: '2026-08-27 11:24'
-updated_date: '2026-08-28 14:12'
+updated_date: '2026-08-28 20:19'
 labels:
   - code-review-rust
   - api-design
@@ -46,8 +46,32 @@ Two fix shapes, either acceptable: (a) drop `#[serde(default)]` and make the fie
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 A [package] table with no version key is distinguishable from 'version = ""' through the public API (package_version() / Package::version)
-- [ ] #2 The same distinction holds for the other #[serde(default)] InheritableString fields: edition, rust_version, description, documentation, homepage, repository, license
-- [ ] #3 extensions-rust/about identity resolution falls back to [workspace.package] for a field the member omits entirely; a regression test covers version and description
-- [ ] #4 src/tests/parse_edge.rs:49 (parse_with_missing_required_version) and src/tests/inheritance.rs:351 (inheritable_field_default) are updated to pin the new contract rather than the empty-string sentinel
+- [x] #1 A [package] table with no version key is distinguishable from 'version = ""' through the public API (package_version() / Package::version)
+- [x] #2 The same distinction holds for the other #[serde(default)] InheritableString fields: edition, rust_version, description, documentation, homepage, repository, license
+- [x] #3 extensions-rust/about identity resolution falls back to [workspace.package] for a field the member omits entirely; a regression test covers version and description
+- [x] #4 src/tests/parse_edge.rs:49 (parse_with_missing_required_version) and src/tests/inheritance.rs:351 (inheritable_field_default) are updated to pin the new contract rather than the empty-string sentinel
 <!-- AC:END -->
+
+## Implementation Notes
+
+<!-- SECTION:NOTES:BEGIN -->
+Landed in wave TASK-1994. Fix shape (b) from the description: added an
+`InheritableField::Absent` variant and made it the `Default`, so `#[serde(default)]`
+absence is a state rather than `Value(T::default())`. Chosen over shape (a)
+(`Option<InheritableString>`) because it leaves every call site's `.as_str()` /
+`.value()` unchanged while still making absence observable.
+
+- `Absent` is declared last so untagged deserialisation only reaches it after `Value`
+  and `Inherited` are ruled out; it serialises as `null` and deserialises back, so the
+  provider's typed -> JSON -> typed round-trip preserves the distinction
+  (`inheritable_field_absent_round_trips_through_json`).
+- AC #3: `about`'s identity resolver now reaches its `[workspace.package]` fallback for
+  a field the member omits entirely — covered by
+  `resolve_field_falls_back_to_workspace_when_package_omits_the_key` (version and
+  description) with `resolve_field_declared_empty_string_beats_workspace` as the guard
+  rail. No production change was needed in `about`: the sentinel was the whole bug.
+- AC #4: `parse_with_missing_required_version` and `inheritable_field_default` (renamed
+  `inheritable_field_default_is_absent`) now pin the new contract, plus
+  `parse_with_empty_version_is_not_absent` and
+  `parse_absent_inheritable_string_fields_are_all_absent` for AC #2's field sweep.
+<!-- SECTION:NOTES:END -->

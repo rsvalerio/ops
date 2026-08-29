@@ -3,11 +3,11 @@ id: TASK-1967
 title: >-
   SEC-11: the ANSI grammar only recognises 7-bit ESC forms, so 8-bit C1
   introducers and bare C0 bytes survive strip_ansi and measure as zero columns
-status: To Do
+status: Done
 assignee:
   - TASK-1987
 created_date: '2026-08-27 15:53'
-updated_date: '2026-08-28 14:10'
+updated_date: '2026-08-28 19:01'
 labels:
   - code-review-rust
   - security

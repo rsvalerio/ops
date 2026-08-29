@@ -3,11 +3,11 @@ id: TASK-1803
 title: >-
   TEST-9: the parser has eight regression-fixed bugs and no property test,
   despite proptest already being a workspace dependency
-status: To Do
+status: Done
 assignee:
   - TASK-1995
 created_date: '2026-08-27 11:26'
-updated_date: '2026-08-28 14:12'
+updated_date: '2026-08-28 20:27'
 labels:
   - code-review-rust
   - test-quality
@@ -62,9 +62,15 @@ last bug.
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 proptest is added as a dev-dependency via the workspace entry
-- [ ] #2 A property test asserts parse_update_output never panics on arbitrary byte input
-- [ ] #3 A property test asserts strip_ansi is the identity on escape-free input (including non-ASCII) and leaves no CSI sequence in its output
-- [ ] #4 A property test asserts entries.len() equals update_count + add_count + remove_count for arbitrary input
-- [ ] #5 A generated-line round-trip property covers the verb/version/trailing-token shapes currently pinned one literal at a time
+- [x] #1 proptest is added as a dev-dependency via the workspace entry
+- [x] #2 A property test asserts parse_update_output never panics on arbitrary byte input
+- [x] #3 A property test asserts strip_ansi is the identity on escape-free input (including non-ASCII) and leaves no CSI sequence in its output
+- [x] #4 A property test asserts entries.len() equals update_count + add_count + remove_count for arbitrary input
+- [x] #5 A generated-line round-trip property covers the verb/version/trailing-token shapes currently pinned one literal at a time
 <!-- AC:END -->
+
+## Implementation Notes
+
+<!-- SECTION:NOTES:BEGIN -->
+TASK-1995: proptest added as a workspace dev-dependency; a `properties` module pins five properties — arbitrary bytes never panic and keep the counts invariant, the counts invariant over generated line-shaped input, strip_ansi identity on escape-free (including non-ASCII) input, complete-CSI removal preserving every visible chunk, and a verb/version round-trip across all four verbs.
+<!-- SECTION:NOTES:END -->

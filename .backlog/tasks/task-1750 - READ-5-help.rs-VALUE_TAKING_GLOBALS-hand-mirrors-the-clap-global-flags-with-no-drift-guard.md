@@ -3,11 +3,11 @@ id: TASK-1750
 title: >-
   READ-5: help.rs VALUE_TAKING_GLOBALS hand-mirrors the clap global flags with
   no drift guard
-status: To Do
+status: Done
 assignee:
   - TASK-1982
 created_date: '2026-08-27 11:14'
-updated_date: '2026-08-28 14:08'
+updated_date: '2026-08-28 19:13'
 labels:
   - code-review-rust
   - readability
@@ -46,8 +46,8 @@ clap can answer this directly: `Cli::command()` exposes `get_arguments()`, `Arg:
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 The set of value-taking global flags consumed by is_toplevel_help is derived from Cli::command() (global args whose num_args is non-zero) rather than transcribed, OR a test asserts the hardcoded list is exactly equal to that derived set
-- [ ] #2 If the list stays hardcoded, the reconciling test fails loudly when a new value-taking global is added to args.rs and not to help.rs, and its failure message names the missing flag
-- [ ] #3 Short-flag spellings of value-taking globals are covered as well as long ones, or the test asserts none exist
-- [ ] #4 The existing --tap top-level-help tests continue to pass unchanged
+- [x] #1 The set of value-taking global flags consumed by is_toplevel_help is derived from Cli::command() (global args whose num_args is non-zero) rather than transcribed, OR a test asserts the hardcoded list is exactly equal to that derived set
+- [x] #2 If the list stays hardcoded, the reconciling test fails loudly when a new value-taking global is added to args.rs and not to help.rs, and its failure message names the missing flag
+- [x] #3 Short-flag spellings of value-taking globals are covered as well as long ones, or the test asserts none exist
+- [x] #4 The existing --tap top-level-help tests continue to pass unchanged
 <!-- AC:END -->

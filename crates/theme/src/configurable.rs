@@ -1,39 +1,44 @@
 //! TOML-configurable theme implementation.
+//!
+//! # Width measurement
+//!
+//! READ-6 / TASK-1973: **every** string measured in this module's
+//! render/layout pipeline is measured with [`visible_width`], the ANSI-aware
+//! helper. The module previously mixed it with `ops_core::output::display_width`
+//! (a bare `UnicodeWidthStr::width` with no ANSI grammar), so a label, title
+//! or icon carrying an escape sequence got two different widths depending on
+//! which half of a line was being computed, and the two halves disagreed by
+//! exactly the escape's byte length. Those values are not hypothetical:
+//! report labels and results come from tool output, and the icon glyphs and
+//! `plan_header_prefix` come from user TOML. Consistency here is what keeps
+//! the boxed frame straight, and it is the precondition for the truncation
+//! policy below.
+//!
+//! # Truncation policy
+//!
+//! CL-3 / TASK-1969: no rendered line may exceed the column budget it was
+//! given. The budget is spent in this order — chrome (indent, icon column,
+//! the space after it), the trailing slot, [`MIN_SEP_GLYPHS`] separator
+//! columns — and the **label** absorbs whatever is left, truncated through
+//! [`truncate_to_width`] (which marks the cut with an ellipsis). Each frame
+//! wrapper (`wrap_step_line`, `wrap_box_content`, the error-block right pad)
+//! independently clamps its content to its own interior budget, so the
+//! closing bar always lands in the same column as the borders. A budget of
+//! `0` columns means "unknown"; nothing is clamped in that case.
 
-use ops_core::output::{display_width, ErrorDetail, StepLine, StepStatus, ALL_STATUSES};
-use ops_core::report::{Report, ReportStatus};
+use ops_core::output::{StepLine, StepStatus, ALL_STATUSES};
 
-use super::render::render_error_block;
-use super::step_line_theme::{format_duration, BoxSnapshot, SlotLine, StepPrefixParts};
-use super::style::{apply_with_prefix, precompute_sgr_prefix, visible_width};
+use super::step_line_theme::{format_duration, SlotLine, StepPrefixParts};
+use super::style::{apply_with_prefix, precompute_sgr_prefix, truncate_to_width, visible_width};
 use super::{PlanHeaderStyle, ThemeConfig};
-use ops_core::config::theme_types::LayoutKind;
 
-/// Columns reserved by the boxed frame on a step line: `│ X  … │` = 7 cells.
-///
-/// Layout breakdown (left-to-right):
-/// `│` (1) + ` ` (1) + progress cell `X` (1) + `  ` (2) + … + ` ` (1) + `│` (1) = 7.
-///
-/// The two frame bars are at column 1 and column `columns` — that is, each
-/// `BOX_STEP_RESERVE`-based subtraction that uses `- 2` is subtracting exactly
-/// those two bars. Keep the constants named so derived offsets don't look
-/// like bare arithmetic.
-const BOX_STEP_RESERVE: u16 = 7;
+mod boxed;
+mod config_access;
+mod report;
 
-/// Number of vertical frame bars consumed by the boxed layout (left `│`
-/// and right `│`). Subtracted from `BOX_STEP_RESERVE` when computing the
-/// indent that aligns error-block glyphs under the step label column.
-const BOX_FRAME_BARS: usize = 2;
-
-/// FN-1 / TASK-1192: columns the rail prefix occupies *after* the rail
-/// glyph itself when computing the boxed error-block gutter offset.
-///
-/// The rail glyph (`config.error_block.rail`) is rendered immediately
-/// after the left frame; the boxed layout then reserves three additional
-/// columns before the error icon: the post-rail space, the step-cell
-/// alignment column, and the inter-column gutter. Naming the constant
-/// keeps the offset traceable instead of looking like a bare `+ 3`.
-const BOX_RAIL_PREFIX_PADDING: usize = 3;
+/// Minimum separator run, in terminal columns, between the label and the
+/// trailing slot.
+const MIN_SEP_GLYPHS: usize = 3;
 
 /// A theme backed by a [`ThemeConfig`].
 ///
@@ -61,12 +66,45 @@ pub struct ConfigurableTheme {
     /// TASK-1035: precomputed `" ".repeat(config.left_pad)` so the per-step
     /// render path doesn't allocate a fresh padding string on every call.
     left_pad_str: String,
+    /// PERF-3 / TASK-1975: the widest [`ALL_STATUSES`] icon, in columns.
+    /// Derived only from `config`, which is moved in here and never mutated,
+    /// so it is constant for the theme's lifetime — but it was measured
+    /// afresh on every rendered row (and again per error block) before being
+    /// hoisted into the same precomputed block as the SGR prefixes.
+    icon_column_width: usize,
+    /// READ-5 / TASK-1971: columns the spinner cell occupies on a running
+    /// row — the widest glyph in `config.tick_chars`, not a literal `1`.
+    /// An emoji tick set is two columns wide and would otherwise push the
+    /// running row's icon column one cell right of every completed row.
+    spinner_reserve_cols: usize,
+    /// READ-5 / TASK-1971: display columns of `config.separator_char`. The
+    /// separator budget is computed in columns, so a full-width separator
+    /// glyph must yield half as many repetitions rather than a line twice
+    /// as wide as its budget.
+    separator_char_cols: usize,
 }
 
 impl ConfigurableTheme {
     #[must_use]
     pub fn new(config: ThemeConfig) -> Self {
         let left_pad_str = " ".repeat(config.left_pad);
+        let icon_column_width = ALL_STATUSES
+            .iter()
+            .map(|s| visible_width(config.status_icon(*s)))
+            .max()
+            .unwrap_or(0);
+        // A zero-width tick or separator glyph would make the column budget
+        // meaningless (and divide by zero below), so both floor at one cell.
+        let spinner_reserve_cols = config
+            .tick_chars
+            .chars()
+            .map(|c| visible_width(c.encode_utf8(&mut [0u8; 4])))
+            .max()
+            .unwrap_or(1)
+            .max(1);
+        let separator_char_cols =
+            visible_width(config.separator_char.encode_utf8(&mut [0u8; 4])).max(1);
+        warn_on_running_template_overhead(&config, spinner_reserve_cols);
         Self {
             header_prefix: precompute_sgr_prefix(&config.header_color),
             summary_prefix: precompute_sgr_prefix(&config.summary_color),
@@ -79,97 +117,21 @@ impl ConfigurableTheme {
             report_error_prefix: precompute_sgr_prefix(&config.report.color_error),
             report_title_prefix: precompute_sgr_prefix(&config.report.title_color),
             left_pad_str,
+            icon_column_width,
+            spinner_reserve_cols,
+            separator_char_cols,
             config,
         }
     }
 
+    /// Width of the icon column: the widest [`ALL_STATUSES`] glyph.
+    ///
+    /// PERF-3 / TASK-1975: computed once in [`Self::new`] and stored, like
+    /// the SGR prefixes and `left_pad_str` beside it. The signature is
+    /// unchanged, so callers on the per-row render path are unaffected.
     #[must_use]
-    pub const fn left_pad(&self) -> usize {
-        self.config.left_pad
-    }
-
-    #[must_use]
-    pub fn left_pad_str(&self) -> &str {
-        &self.left_pad_str
-    }
-
-    #[must_use]
-    pub fn status_icon(&self, status: StepStatus) -> &str {
-        self.config.status_icon(status)
-    }
-
-    #[must_use]
-    pub const fn separator_char(&self) -> char {
-        self.config.separator_char
-    }
-
-    #[must_use]
-    pub fn step_indent(&self) -> &str {
-        &self.config.step_indent
-    }
-
-    #[must_use]
-    pub fn summary_prefix(&self) -> &str {
-        &self.config.summary_prefix
-    }
-
-    #[must_use]
-    pub fn running_template(&self) -> &str {
-        &self.config.running_template
-    }
-
-    #[must_use]
-    pub fn tick_chars(&self) -> &str {
-        &self.config.tick_chars
-    }
-
-    #[must_use]
-    pub const fn running_template_overhead(&self) -> usize {
-        self.config.running_template_overhead
-    }
-
-    #[must_use]
-    pub fn header_color(&self) -> &str {
-        &self.config.header_color
-    }
-
-    #[must_use]
-    pub fn label_color(&self) -> &str {
-        &self.config.label_color
-    }
-
-    #[must_use]
-    pub fn separator_color(&self) -> &str {
-        &self.config.separator_color
-    }
-
-    #[must_use]
-    pub fn duration_color(&self) -> &str {
-        &self.config.duration_color
-    }
-
-    #[must_use]
-    pub fn summary_color(&self) -> &str {
-        &self.config.summary_color
-    }
-
-    #[must_use]
-    pub fn plan_header_prefix(&self) -> &str {
-        &self.config.plan_header_prefix
-    }
-
-    #[must_use]
-    pub fn format_elapsed(&self, secs: f64) -> String {
-        format_duration(secs)
-    }
-
-    #[must_use]
-    pub fn icon_column_width(&self) -> usize {
-        ALL_STATUSES
-            .iter()
-            .map(|s| display_width(self.status_icon(*s)))
-            .max()
-            .unwrap_or(0)
+    pub const fn icon_column_width(&self) -> usize {
+        self.icon_column_width
     }
 
     #[must_use]
@@ -204,151 +166,6 @@ impl ConfigurableTheme {
         }
     }
 
-    #[must_use]
-    pub fn render_error_detail(&self, detail: &ErrorDetail, columns: u16) -> Vec<String> {
-        let lines = render_error_block(
-            detail,
-            self.icon_column_width(),
-            &self.config.error_block,
-            self.left_pad(),
-        );
-        if !matches!(self.config.layout_kind, LayoutKind::Boxed) {
-            return lines;
-        }
-        let extra_indent = self.boxed_error_indent_columns();
-        let inject = " ".repeat(extra_indent);
-        let pad = self.left_pad_str();
-        let prefix_with_rail = format!("{}{}", pad, self.config.error_block.rail);
-
-        let outer = usize::from(columns);
-        let right_target = outer.saturating_sub(self.left_pad()).saturating_sub(2);
-        lines
-            .into_iter()
-            .map(|line| {
-                let reindented = inject_gutter_indent(&line, &prefix_with_rail, &inject);
-                right_pad_with_border(&reindented, right_target)
-            })
-            .collect()
-    }
-
-    /// FN-1 / TASK-1192: columns of extra indent to inject after the rail
-    /// glyph so boxed-layout `top`/`mid`/`bottom` lines align under the
-    /// step icon column.
-    ///
-    /// Subtract the two frame bars (`│ … │`) from `BOX_STEP_RESERVE` so
-    /// `target_gutter` covers only the interior (cell + spacing + step
-    /// indent) that the error glyph must line up with, then back off by
-    /// the rail width plus the named [`BOX_RAIL_PREFIX_PADDING`] columns
-    /// the rail prefix already occupies.
-    fn boxed_error_indent_columns(&self) -> usize {
-        let rail_width = display_width(&self.config.error_block.rail);
-        let target_gutter = usize::from(BOX_STEP_RESERVE)
-            .saturating_sub(BOX_FRAME_BARS)
-            .saturating_add(display_width(self.step_indent()));
-        target_gutter.saturating_sub(rail_width.saturating_add(BOX_RAIL_PREFIX_PADDING))
-    }
-
-    #[must_use]
-    pub const fn step_column_reserve(&self) -> u16 {
-        match self.config.layout_kind {
-            LayoutKind::Boxed => BOX_STEP_RESERVE,
-            LayoutKind::Flat => 0,
-        }
-    }
-
-    #[must_use]
-    pub fn box_top_border(&self, snap: BoxSnapshot<'_>) -> Option<String> {
-        if !matches!(self.config.layout_kind, LayoutKind::Boxed) {
-            return None;
-        }
-        let title = format!(
-            " {}Running: {} ",
-            self.config.plan_header_prefix,
-            snap.command_ids.join(", ")
-        );
-        Some(build_horizontal_border(BorderArgs {
-            title: &title,
-            left_corner: "╭─",
-            right_corner: "╮",
-            columns: snap.columns,
-            left_pad: self.left_pad(),
-            title_prefix: self.header_prefix.as_deref(),
-        }))
-    }
-
-    #[must_use]
-    pub fn box_bottom_border(&self, snap: BoxSnapshot<'_>) -> Option<String> {
-        if !matches!(self.config.layout_kind, LayoutKind::Boxed) {
-            return None;
-        }
-        // CL-3 / TASK-0771: when a run did not fully succeed, surface the
-        // failed/skipped breakdown rather than a single "Done N/M" line — the
-        // legacy label conflated terminal-step count with success count.
-        let elapsed = format_duration(snap.elapsed_secs);
-        let title = if snap.success {
-            format!(" Done {}/{} in {} ", snap.completed, snap.total, elapsed)
-        } else {
-            let succeeded = snap
-                .completed
-                .saturating_sub(snap.failed)
-                .saturating_sub(snap.skipped);
-            format!(
-                " {} succeeded, {} skipped, {} failed of {} in {} ",
-                succeeded, snap.skipped, snap.failed, snap.total, elapsed
-            )
-        };
-        Some(build_horizontal_border(BorderArgs {
-            title: &title,
-            left_corner: "╰─",
-            right_corner: "╯",
-            columns: snap.columns,
-            left_pad: self.left_pad(),
-            title_prefix: self.summary_prefix.as_deref(),
-        }))
-    }
-
-    #[must_use]
-    pub fn wrap_step_line(&self, inner: &str, progress_cell: &str, columns: u16) -> String {
-        if !matches!(self.config.layout_kind, LayoutKind::Boxed) {
-            return inner.to_string();
-        }
-        let pad = self.left_pad_str();
-        // Inner visual budget: columns - 2*left_pad - BOX_STEP_RESERVE.
-        let outer = usize::from(columns);
-        // Frame overhead = outer margin on both sides + the boxed step reserve.
-        // `2 * left_pad` accounts for the left and right outer-pad columns; the
-        // reserve itself already includes the two vertical `│` bars.
-        let frame_overhead = self
-            .left_pad()
-            .saturating_mul(2)
-            .saturating_add(usize::from(BOX_STEP_RESERVE));
-        let inner_budget = outer.saturating_sub(frame_overhead);
-        let inner_visible = visible_width(inner);
-        let right_pad = inner_budget.saturating_sub(inner_visible);
-        // PERF-3 / TASK-1130: push directly into the result buffer instead of
-        // allocating an intermediate `" ".repeat(right_pad)` String per step.
-        let mut out = String::with_capacity(
-            pad.len()
-                .saturating_add(inner.len())
-                .saturating_add(right_pad)
-                .saturating_add("│   │".len())
-                .saturating_add(progress_cell.len())
-                .saturating_add(2),
-        );
-        out.push_str(pad);
-        out.push('│');
-        out.push(' ');
-        out.push_str(progress_cell);
-        out.push_str("  ");
-        out.push_str(inner);
-        for _ in 0..right_pad {
-            out.push(' ');
-        }
-        out.push(' ');
-        out.push('│');
-        out
-    }
-
     /// DUP-5 / TASK-0354: shared layout for the left portion of a step line.
     /// Both [`render`](Self::render) and [`render_prefix`](Self::render_prefix)
     /// need exactly the same indent / icon / padding triple, and the two
@@ -368,10 +185,12 @@ impl ConfigurableTheme {
     /// glyphs (✓ ⚠ ✘ ℹ, width 1) line up under the same column as step icons.
     #[must_use]
     pub fn icon_prefix_parts<'a>(&'a self, icon: &'a str, is_running: bool) -> StepPrefixParts<'a> {
-        let icon_width = display_width(icon);
+        let icon_width = visible_width(icon);
         let max_icon_width = self.icon_column_width();
+        // READ-5 / TASK-1971: the running row's spinner cell is as wide as
+        // the widest configured tick glyph, not a hardcoded single column.
         let (indent, spinner_cols) = if is_running {
-            ("", 1usize)
+            ("", self.spinner_reserve_cols)
         } else {
             (self.step_indent(), 0usize)
         };
@@ -414,21 +233,30 @@ impl ConfigurableTheme {
 
         // Fixed costs inside `line_budget`: the label prefix, the duration
         // (when present), and one leading space before the separator.
-        let prefix_width = display_width(prefix);
+        let prefix_width = visible_width(prefix);
         let leading_space = 1usize;
         let fixed_inside = prefix_width
-            .saturating_add(display_width(duration_str))
+            .saturating_add(visible_width(duration_str))
             .saturating_add(leading_space);
 
         let space_for_sep = line_budget.saturating_sub(fixed_inside);
-        const MIN_SEP_GLYPHS: usize = 3;
-        let sep_count = space_for_sep.max(MIN_SEP_GLYPHS);
+        // Columns the separator run may occupy, including its leading space.
+        let sep_cols = space_for_sep.max(MIN_SEP_GLYPHS);
         let sep = self.separator_char();
 
         // PERF-3 / TASK-1130: build the leading-space + repeated-sep + optional
         // trailing-space directly into a single String, avoiding the intermediate
         // `sep.to_string().repeat(n)` allocation per step render.
-        let dots_count = sep_count.saturating_sub(1);
+        //
+        // READ-5 / TASK-1971: `sep_cols` is a column budget, so the number of
+        // glyphs is that budget divided by the glyph's *display width*. A
+        // full-width separator (U+FF0E, U+3002, …) configured in `.ops.toml`
+        // therefore yields half as many repetitions and the same total width,
+        // instead of a line twice as wide as the budget it was derived from.
+        let dots_count = sep_cols
+            .saturating_sub(1)
+            .checked_div(self.separator_char_cols)
+            .unwrap_or(0);
         let trailing_space = duration_str.is_empty();
         let sep_len = sep.len_utf8();
         let mut out = String::with_capacity(
@@ -479,20 +307,26 @@ impl ConfigurableTheme {
     #[must_use]
     pub fn render_slot(&self, slot: &SlotLine<'_>, columns: u16) -> String {
         let parts = self.icon_prefix_parts(slot.icon, slot.is_running);
-        let plain_prefix = format!("{}{}{} {}", parts.indent, parts.icon, parts.pad, slot.label);
-        let plain_separator = self.render_separator(
-            &plain_prefix,
-            slot.trailing,
-            usize::from(columns),
-            slot.is_running,
-        );
+        let budget = usize::from(columns);
+        let template_overhead = if slot.is_running {
+            self.running_template_overhead()
+        } else {
+            0
+        };
+        // CL-3 / TASK-1969: spend the budget on chrome, the trailing slot and
+        // the minimum separator run first; the label gets the remainder and is
+        // truncated to it. See the module-level truncation policy.
+        let label = truncate_to_width(slot.label, self.label_budget(&parts, slot, budget));
+        let plain_prefix = format!("{}{}{} {}", parts.indent, parts.icon, parts.pad, label);
+        let plain_separator =
+            self.render_separator(&plain_prefix, slot.trailing, budget, slot.is_running);
         let pad = if slot.is_running {
             ""
         } else {
             self.left_pad_str()
         };
 
-        let colored_label = apply_with_prefix(slot.label, self.label_prefix.as_deref());
+        let colored_label = apply_with_prefix(&label, self.label_prefix.as_deref());
         let colored_prefix = format!(
             "{}{}{} {}",
             parts.indent, parts.icon, parts.pad, colored_label
@@ -500,12 +334,55 @@ impl ConfigurableTheme {
         let colored_separator =
             apply_with_prefix(&plain_separator, self.separator_prefix.as_deref());
 
-        if slot.trailing.is_empty() {
+        let line = if slot.trailing.is_empty() {
             format!("{pad}{colored_prefix}{colored_separator}")
         } else {
             let colored_trailing = apply_with_prefix(slot.trailing, slot.trailing_prefix);
             format!("{pad}{colored_prefix}{colored_separator} {colored_trailing}")
+        };
+        if budget == 0 {
+            return line;
         }
+        // Belt and braces: the label budget above already makes the line fit,
+        // but a trailing slot wider than the whole budget (a report result
+        // string, say) has no label left to give back — clamp regardless so
+        // the invariant "a rendered line fits its budget" holds for every
+        // input, not only the ones the arithmetic anticipated.
+        truncate_to_width(&line, budget.saturating_sub(template_overhead)).into_owned()
+    }
+
+    /// Columns available to the label in [`render_slot`], after the chrome,
+    /// the trailing slot and the minimum separator run are reserved.
+    fn label_budget(
+        &self,
+        parts: &StepPrefixParts<'_>,
+        slot: &SlotLine<'_>,
+        budget: usize,
+    ) -> usize {
+        if budget == 0 {
+            // No budget given: measure nothing, clamp nothing. `usize::MAX`
+            // keeps the label intact while still routing it through the
+            // control-character stripping in `truncate_to_width`.
+            return usize::MAX;
+        }
+        let template_overhead = if slot.is_running {
+            self.running_template_overhead()
+        } else {
+            0
+        };
+        // The space between the icon column and the label, plus the space
+        // that precedes the trailing slot (or the separator's own trailing
+        // space when there is none).
+        let spaces = 2usize;
+        let reserved = template_overhead
+            .saturating_add(self.left_pad())
+            .saturating_add(visible_width(parts.indent))
+            .saturating_add(visible_width(parts.icon))
+            .saturating_add(parts.pad.len())
+            .saturating_add(visible_width(slot.trailing))
+            .saturating_add(spaces)
+            .saturating_add(MIN_SEP_GLYPHS);
+        budget.saturating_sub(reserved)
     }
 
     // TASK-0747: render_summary uses precomputed SGR prefix. Split so report
@@ -529,188 +406,44 @@ impl ConfigurableTheme {
             colored
         )
     }
-
-    /// Icon glyph for a [`ReportStatus`], from the theme's `[report]` block.
-    #[must_use]
-    pub fn report_icon(&self, status: ReportStatus) -> &str {
-        self.config.report.icon(status)
-    }
-
-    /// Precomputed SGR prefix for a [`ReportStatus`] result slot.
-    fn report_prefix(&self, status: ReportStatus) -> Option<&str> {
-        match status {
-            ReportStatus::Ok => self.report_ok_prefix.as_deref(),
-            ReportStatus::Info => self.report_info_prefix.as_deref(),
-            ReportStatus::Warning => self.report_warning_prefix.as_deref(),
-            ReportStatus::Error => self.report_error_prefix.as_deref(),
-            // `ReportStatus` is `#[non_exhaustive]`; an unknown future severity
-            // renders its result slot uncolored rather than failing to build.
-            _ => None,
-        }
-    }
-
-    /// Render a [`Report`] (title, status rows, footer) through the shared
-    /// step-line machinery so "command output" commands match the runner's
-    /// themed look. Each row becomes a [`SlotLine`] whose icon/color come from
-    /// the `[report]` block and whose trailing slot is the result string;
-    /// per-row `details` are emitted verbatim (no dotted separator).
-    ///
-    /// Honors the active layout: flat themes render a bare title + rows +
-    /// summary; boxed themes draw the same enclosing frame the runner uses,
-    /// with the report title in the top border and the footer in the bottom.
-    #[must_use]
-    pub fn render_report(&self, report: &Report, columns: u16) -> Vec<String> {
-        if matches!(self.config.layout_kind, LayoutKind::Boxed) {
-            return self.render_report_boxed(report, columns);
-        }
-
-        let pad = self.left_pad_str();
-        let mut out = Vec::with_capacity(report.rows.len().saturating_mul(2).saturating_add(4));
-        out.push(String::new());
-        let title = apply_with_prefix(&report.title, self.report_title_prefix.as_deref());
-        out.push(format!("{pad}{title}"));
-        out.push(String::new());
-        for row in &report.rows {
-            out.push(self.render_slot(&self.report_slot(row), columns));
-            for detail in &row.details {
-                out.push(detail.clone());
-            }
-        }
-        // Blank line before the summary, matching the runner's flat layout
-        // (`✓ … 5.97s` ⏎ blank ⏎ ` Done …`).
-        out.push(String::new());
-        out.push(self.render_summary_text(&report.footer_text()));
-        out
-    }
-
-    /// Boxed-layout report: top border with the title, each row wrapped in the
-    /// `│ … │` frame (reserving the box columns exactly as the runner's
-    /// `render_and_wrap_step` does — render at the reduced budget, then wrap),
-    /// detail lines wrapped as continuation content, and a bottom border
-    /// carrying the footer summary.
-    fn render_report_boxed(&self, report: &Report, columns: u16) -> Vec<String> {
-        let mut out = Vec::with_capacity(report.rows.len().saturating_mul(2).saturating_add(4));
-        let reserve = self.step_column_reserve();
-        let effective = columns.saturating_sub(reserve);
-
-        out.push(String::new());
-        out.push(build_horizontal_border(BorderArgs {
-            title: &format!(" {} ", report.title),
-            left_corner: "╭─",
-            right_corner: "╮",
-            columns,
-            left_pad: self.left_pad(),
-            title_prefix: self.report_title_prefix.as_deref(),
-        }));
-        for row in &report.rows {
-            let inner = self.render_slot(&self.report_slot(row), effective);
-            // All report rows are terminal; use the runner's "done" cell so the
-            // left progress column reads as a solid bar.
-            out.push(self.wrap_step_line(&inner, "█", columns));
-            for detail in &row.details {
-                out.push(self.wrap_box_content(detail, columns));
-            }
-        }
-        out.push(build_horizontal_border(BorderArgs {
-            title: &format!(" {} ", report.footer_text()),
-            left_corner: "╰─",
-            right_corner: "╯",
-            columns,
-            left_pad: self.left_pad(),
-            title_prefix: self.summary_prefix.as_deref(),
-        }));
-        out
-    }
-
-    /// Build the [`SlotLine`] for a report row (icon/color from the `[report]`
-    /// block, trailing = the result string). Shared by the flat and boxed paths.
-    fn report_slot<'a>(&'a self, row: &'a ops_core::report::ReportRow) -> SlotLine<'a> {
-        SlotLine {
-            icon: self.report_icon(row.status),
-            label: &row.label,
-            trailing: &row.result,
-            trailing_prefix: self.report_prefix(row.status),
-            is_running: false,
-        }
-    }
-
-    /// Wrap an already-formatted content line in the boxed `│ … │` frame,
-    /// right-padding so the closing bar aligns with [`wrap_step_line`]'s. Used
-    /// for report detail/continuation lines, which carry their own indentation
-    /// and so don't take the progress-cell column.
-    fn wrap_box_content(&self, inner: &str, columns: u16) -> String {
-        let pad = self.left_pad_str();
-        // Interior between the two `│` bars, minus the leading and trailing
-        // interior spaces — the content area whose right edge must line up with
-        // the right bar that `wrap_step_line` emits at `columns - left_pad`.
-        let content_area = usize::from(columns)
-            .saturating_sub(self.left_pad().saturating_mul(2))
-            .saturating_sub(4);
-        let right_pad = content_area.saturating_sub(visible_width(inner));
-        format!("{pad}│ {inner}{} │", " ".repeat(right_pad))
-    }
 }
 
-/// Insert `indent` spaces immediately after the rail prefix on an error-block
-/// line so the `top`/`mid`/`bottom` glyphs line up under the step label column.
-/// Lines without a rail (empty `rail_prefix`) or that don't start with it are
-/// returned unchanged.
-fn inject_gutter_indent(line: &str, rail_prefix: &str, indent: &str) -> String {
-    if rail_prefix.is_empty() || !line.starts_with(rail_prefix) {
-        return line.to_string();
-    }
-    let (head, tail) = line.split_at(rail_prefix.len());
-    format!("{head}{indent}{tail}")
-}
-
-/// Right-pad `line` with spaces up to `right_target` visible columns and
-/// append the closing ` │` frame border.
-fn right_pad_with_border(line: &str, right_target: usize) -> String {
-    let visible = visible_width(line);
-    let fill = right_target.saturating_sub(visible);
-    let spaces = " ".repeat(fill);
-    format!("{line}{spaces} │")
-}
-
-/// Inputs to [`build_horizontal_border`]. Grouping these as a struct keeps
-/// callers legible and avoids the positional-arg smell that
-/// `#[allow(clippy::too_many_arguments)]` would otherwise paper over.
-#[derive(Clone, Copy)]
-struct BorderArgs<'a> {
-    title: &'a str,
-    left_corner: &'a str,
-    right_corner: &'a str,
-    columns: u16,
-    left_pad: usize,
-    title_prefix: Option<&'a str>,
-}
-
-/// Render a horizontal border like `╭─ title ────...───╮`.
+/// READ-5 / TASK-1971: validate `running_template_overhead` against the
+/// template it is supposed to describe, and surface a mismatch instead of
+/// silently mis-budgeting every running row.
 ///
-/// Pads the title with `─` fill to reach `columns`, honoring `left_pad` on the
-/// outer margin. `title_prefix` is the precomputed SGR prefix applied only to
-/// the inline title text so the border itself stays dim/plain.
-fn build_horizontal_border(args: BorderArgs<'_>) -> String {
-    let BorderArgs {
-        title,
-        left_corner,
-        right_corner,
-        columns,
-        left_pad,
-        title_prefix,
-    } = args;
-    let pad = " ".repeat(left_pad);
-    let outer = usize::from(columns);
-    let inner = outer.saturating_sub(left_pad.saturating_mul(2));
-    let corner_l_w = display_width(left_corner);
-    let corner_r_w = display_width(right_corner);
-    let title_w = display_width(title);
-    let fill = inner.saturating_sub(
-        corner_l_w
-            .saturating_add(corner_r_w)
-            .saturating_add(title_w),
-    );
-    let fill_str = "─".repeat(fill);
-    let colored_title = apply_with_prefix(title, title_prefix);
-    format!("{pad}{left_corner}{colored_title}{fill_str}{right_corner}")
+/// The field is a hand-maintained column count that a theme author must keep
+/// consistent with `running_template` by eye; nothing derived it and
+/// `render_separator` subtracts it from the budget as fact. The literal
+/// (non-placeholder) text of the template plus the widest spinner glyph is a
+/// *lower bound* on that overhead — the `{elapsed}` placeholder adds more at
+/// render time, so a larger configured value is legitimate. A configured
+/// value below the bound is not: the separator then over-runs the terminal
+/// width on every running row.
+fn warn_on_running_template_overhead(config: &ThemeConfig, spinner_cols: usize) {
+    let minimum = template_literal_width(&config.running_template).saturating_add(spinner_cols);
+    if config.running_template_overhead < minimum {
+        ops_core::ui::warn(format!(
+            "theme running_template_overhead is {} but the template's literal text and spinner \
+             glyph already occupy {minimum} columns; running step lines will over-run the \
+             terminal width",
+            config.running_template_overhead
+        ));
+    }
+}
+
+/// Display columns of the literal text in an `indicatif` template — that is,
+/// everything outside a `{…}` placeholder.
+fn template_literal_width(template: &str) -> usize {
+    let mut literal = String::with_capacity(template.len());
+    let mut depth = 0usize;
+    for ch in template.chars() {
+        match ch {
+            '{' => depth = depth.saturating_add(1),
+            '}' => depth = depth.saturating_sub(1),
+            c if depth == 0 => literal.push(c),
+            _ => {}
+        }
+    }
+    visible_width(&literal)
 }

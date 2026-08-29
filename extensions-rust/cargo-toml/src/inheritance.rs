@@ -137,8 +137,25 @@ pub fn resolve_readme(field: &mut Option<ReadmeSpec>, ws_value: Option<&ReadmeSp
 }
 
 /// Resolve `publish = { workspace = true }` against the workspace's `publish`.
+///
+/// **Fail-closed rule (SEC-31 / TASK-1789).** `WorkspacePackage::publish` is
+/// `#[serde(default)]` over [`PublishSpec`], whose default is
+/// [`PublishSpec::None`] — "no `publish` key", which
+/// [`PublishSpec::is_publishable`] maps to `Some(true)`. An undeclared
+/// workspace `publish` is therefore indistinguishable from an explicit
+/// "publishable to any registry", and substituting it would rewrite the
+/// member's unresolved `Inherited` into an open default — the exact signal
+/// loss TASK-1196 introduced `Option<bool>` to prevent (cargo itself hard-
+/// errors on this manifest shape).
+///
+/// So, like [`resolve_string_field`] / [`resolve_vec_field`] /
+/// [`resolve_readme`], this resolver substitutes only when the workspace
+/// actually declared the field; otherwise the member field stays
+/// `Inherited` and `is_publishable()` keeps returning `None`.
 pub fn resolve_publish(field: &mut PublishSpec, ws_value: &PublishSpec) {
-    if matches!(field, PublishSpec::Inherited { workspace: true }) {
+    if matches!(field, PublishSpec::Inherited { workspace: true })
+        && !matches!(ws_value, PublishSpec::None)
+    {
         *field = ws_value.clone();
     }
 }
@@ -191,21 +208,25 @@ fn resolve_dep_from_workspace(
     Ok(DepSpec::Detailed(resolved))
 }
 
+/// Resolve a member dep against a workspace dep given as a bare version
+/// string. Only the four fields this resolver actually decides are listed;
+/// everything else — the source fields the doc comment on
+/// [`resolve_dep_from_workspace`] says are deliberately discarded, plus
+/// `workspace`, `package` and `target` — falls through to
+/// [`DetailedDepSpec::default`].
+///
+/// DUP-7 / TASK-1804: restating the nine default fields here made
+/// `DetailedDepSpec` exhaustively constructed in three places, so a new
+/// cargo dependency key had to be given a value three times with no single
+/// place stating the default.
 fn resolve_from_simple_dep(version: &str, local: &DepSpec) -> DetailedDepSpec {
     let (local_features, local_optional, local_default_features) = extract_local_overrides(local);
     DetailedDepSpec {
         version: Some(version.to_string()),
-        path: None,
-        git: None,
-        branch: None,
-        tag: None,
-        rev: None,
         features: local_features,
         optional: local_optional,
         default_features: local_default_features,
-        workspace: None,
-        package: None,
-        target: None,
+        ..DetailedDepSpec::default()
     }
 }
 
@@ -229,6 +250,12 @@ fn resolve_from_simple_dep(version: &str, local: &DepSpec) -> DetailedDepSpec {
 /// from cargo's actual precedence (e.g. cargo > 1.71's edge cases) are not
 /// modeled because the resolver consumes manifests for reporting, not for
 /// build-graph fidelity.
+///
+/// DUP-7 / TASK-1804: unlike [`resolve_from_simple_dep`], this constructor
+/// stays exhaustive on purpose. Every field except `workspace` is *copied
+/// from the workspace spec*, so the exhaustive literal is the compile-time
+/// guard that a newly added cargo dependency key is consciously propagated
+/// here rather than silently defaulted away by a `..Default::default()`.
 fn resolve_from_detailed_dep(ws: &DetailedDepSpec, local: &DepSpec) -> DetailedDepSpec {
     let (local_features, local_optional, local_default_features) = extract_local_overrides(local);
     DetailedDepSpec {
@@ -289,10 +316,11 @@ mod tests {
     fn resolve_string_field_workspace_false_is_ignored() {
         let mut field: InheritableString = InheritableField::Inherited { workspace: false };
         resolve_string_field(&mut field, Some(&"1.0.0".to_string()));
-        match field {
-            InheritableField::Inherited { workspace } => assert!(!workspace),
-            InheritableField::Value(_) => panic!("workspace=false should not pull in a value"),
-        }
+        assert_eq!(
+            field,
+            InheritableField::Inherited { workspace: false },
+            "workspace=false should not pull in a value"
+        );
     }
 
     /// TASK-0961: when the workspace did not declare `keywords` (parsed as an
@@ -302,29 +330,32 @@ mod tests {
     fn resolve_vec_field_empty_ws_leaves_inherited_unchanged() {
         let mut field: InheritableVec = InheritableField::Inherited { workspace: true };
         resolve_vec_field(&mut field, &[]);
-        match field {
-            InheritableField::Inherited { workspace } => assert!(workspace),
-            InheritableField::Value(v) => panic!("empty ws should not substitute, got {v:?}"),
-        }
+        assert_eq!(
+            field,
+            InheritableField::Inherited { workspace: true },
+            "an empty workspace vec should not substitute"
+        );
     }
 
     #[test]
     fn resolve_vec_field_non_empty_ws_substitutes() {
         let mut field: InheritableVec = InheritableField::Inherited { workspace: true };
         resolve_vec_field(&mut field, &["cli".to_string(), "tool".to_string()]);
-        match field {
-            InheritableField::Value(v) => assert_eq!(v, vec!["cli", "tool"]),
-            InheritableField::Inherited { .. } => panic!("non-empty ws should substitute"),
-        }
+        assert_eq!(
+            field,
+            InheritableField::Value(vec!["cli".to_string(), "tool".to_string()]),
+            "a non-empty workspace vec should substitute"
+        );
     }
 
     #[test]
     fn resolve_string_field_workspace_true_substitutes() {
         let mut field: InheritableString = InheritableField::Inherited { workspace: true };
         resolve_string_field(&mut field, Some(&"1.0.0".to_string()));
-        match field {
-            InheritableField::Value(v) => assert_eq!(v, "1.0.0"),
-            InheritableField::Inherited { .. } => panic!("workspace=true should substitute"),
-        }
+        assert_eq!(
+            field,
+            InheritableField::Value("1.0.0".to_string()),
+            "workspace=true should substitute"
+        );
     }
 }

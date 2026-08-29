@@ -18,11 +18,29 @@
 //! `--dry-run` (the global flag) prints the resolved plan — both the scans that
 //! *will* run and the ones that *won't*, each with the reason — without
 //! requiring `trivy` to be installed. That is the "check what to run" preview.
+//!
+//! # Exit code
+//!
+//! `ops sec` is the terminal step of `ops qa`, so its exit code is what a CI
+//! gate or pre-push hook keys off. It **fails closed**:
+//!
+//! - non-zero when any scan reports findings, errors, or times out;
+//! - non-zero when *zero* scans ran (SEC-31 / TASK-1754). An all-skipped run
+//!   used to print nothing and exit 0, which is indistinguishable — to every
+//!   automated consumer — from "all scans ran and found nothing". A silently
+//!   inert security gate reporting healthy is the fail-open shape, so the
+//!   empty selection is reported explicitly and treated as a failure.
+//!   `--dry-run` remains the way to preview a plan without running anything.
+//!
+//! Each `trivy` invocation is bounded by [`DEFAULT_SCAN_TIMEOUT`], overridable
+//! via the [`SCAN_TIMEOUT_ENV`] environment variable.
 
 use std::path::{Path, PathBuf};
-use std::process::{Command, ExitCode};
+use std::process::{Command, ExitCode, Output};
+use std::time::Duration;
 
 use anyhow::Context as _;
+use ops_core::subprocess::{run_with_timeout, RunError};
 
 /// Directories never worth walking for detection. Mirrors the text-fixer
 /// discovery deny-list so detection stays fast on large trees and does not
@@ -342,15 +360,59 @@ const TRIVY_MISSING_HELP: &str = "trivy not found on PATH. `ops sec` requires Tr
      Install it: https://trivy.dev/latest/getting-started/installation/ \
      (e.g. `brew install trivy`).";
 
+/// Wall-clock budget for a single `trivy` invocation.
+///
+/// ASYNC-6 / SEC-33 (TASK-1748): `Command::output()` waits forever and buffers
+/// the whole report in memory. `ops sec` is the terminal step of `ops qa`, so
+/// an unbounded wait here is a hung CI job or a hung pre-push hook with no
+/// diagnostic beyond a half-written `scanning vulnerabilities ` line.
+///
+/// Ten minutes is deliberately generous: a cold `trivy fs --scanners vuln`
+/// downloads and unpacks the vulnerability DB from a remote registry, which
+/// legitimately takes minutes on a slow link, while a warm scan is seconds.
+/// The budget exists to bound a *hang* — an unreachable registry, a
+/// captive-portal proxy, a stalled TLS handshake — not to police a slow but
+/// progressing scan. Operators on a slower link raise it via
+/// [`SCAN_TIMEOUT_ENV`].
+const DEFAULT_SCAN_TIMEOUT: Duration = Duration::from_secs(600);
+
+/// Environment variable overriding [`DEFAULT_SCAN_TIMEOUT`], in whole seconds.
+/// A missing, unparsable, or zero value falls back to the default with a
+/// warning rather than silently arming a zero-second deadline.
+const SCAN_TIMEOUT_ENV: &str = "OPS_SEC_TIMEOUT_SECS";
+
+/// Resolve the per-scan timeout from [`SCAN_TIMEOUT_ENV`], falling back to
+/// [`DEFAULT_SCAN_TIMEOUT`].
+fn scan_timeout() -> Duration {
+    let Some(raw) = std::env::var_os(SCAN_TIMEOUT_ENV) else {
+        return DEFAULT_SCAN_TIMEOUT;
+    };
+    match raw.to_string_lossy().trim().parse::<u64>() {
+        Ok(secs) if secs > 0 => Duration::from_secs(secs),
+        _ => {
+            ops_core::ui::warn(format!(
+                "ignoring {SCAN_TIMEOUT_ENV}={}: expected a positive whole number of seconds; \
+                 using {}s",
+                raw.to_string_lossy(),
+                DEFAULT_SCAN_TIMEOUT.as_secs()
+            ));
+            DEFAULT_SCAN_TIMEOUT
+        }
+    }
+}
+
 /// Spawn `trivy <args> <root>`, capturing its output rather than inheriting
 /// stdio. Capturing lets the caller stay silent on a clean scan and only print
 /// Trivy's report when something is actually found.
-fn run_trivy(root: &Path, scan: Scan) -> anyhow::Result<std::process::Output> {
-    Command::new("trivy")
-        .args(scan.trivy_args())
-        .arg(root)
-        .output()
-        .with_context(|| format!("failed to run `trivy` for the {} scan", scan.label()))
+///
+/// Goes through `ops_core::subprocess::run_with_timeout` rather than
+/// `Command::output()` so the wait has a deadline and each captured stream has
+/// a byte cap — the workspace's established answer for spawning a callee whose
+/// runtime and output volume we do not control.
+fn run_trivy(root: &Path, scan: Scan, timeout: Duration) -> Result<Output, RunError> {
+    let mut cmd = Command::new("trivy");
+    cmd.args(scan.trivy_args()).arg(root);
+    run_with_timeout(&mut cmd, timeout, &format!("trivy {} scan", scan.label()))
 }
 
 /// Run one scan and report it on a single quiet line: `scanning <scan> ✓` when
@@ -359,10 +421,46 @@ fn run_trivy(root: &Path, scan: Scan) -> anyhow::Result<std::process::Output> {
 /// to `w`, stderr (logs/errors) to the process stderr. Returns whether the scan
 /// was clean.
 fn run_scan(root: &Path, scan: Scan, w: &mut dyn std::io::Write) -> anyhow::Result<bool> {
+    let timeout = scan_timeout();
+    report_scan(scan, timeout, w, || run_trivy(root, scan, timeout))
+}
+
+/// Render one scan's outcome. Split from [`run_scan`] so tests can drive the
+/// timeout branch against a blocking stand-in program instead of Trivy.
+fn report_scan(
+    scan: Scan,
+    timeout: Duration,
+    w: &mut dyn std::io::Write,
+    run: impl FnOnce() -> Result<Output, RunError>,
+) -> anyhow::Result<bool> {
     use std::io::Write as _;
     write!(w, "scanning {} ", scan.label())?;
     w.flush()?;
-    let output = run_trivy(root, scan)?;
+    let output = match run() {
+        Ok(output) => output,
+        // A timeout is reported as a scan outcome, not as a command failure:
+        // the line still closes with the failure marker, the operator is told
+        // what timed out and how to raise the budget, and the run keeps going
+        // so the remaining scans still report. Fails closed via `Ok(false)`.
+        Err(RunError::Timeout(_)) => {
+            writeln!(w, "✗")?;
+            writeln!(
+                w,
+                "  the {} scan timed out after {}s \
+                 (raise it with {SCAN_TIMEOUT_ENV}=<seconds>)",
+                scan.label(),
+                timeout.as_secs()
+            )?;
+            w.flush()?;
+            return Ok(false);
+        }
+        Err(e) => {
+            writeln!(w, "✗")?;
+            w.flush()?;
+            return Err(anyhow::Error::new(e))
+                .with_context(|| format!("failed to run `trivy` for the {} scan", scan.label()));
+        }
+    };
     if output.status.success() {
         writeln!(w, "✓")?;
         return Ok(true);
@@ -420,6 +518,18 @@ fn run_sec_to(
         return Ok(ExitCode::SUCCESS);
     }
 
+    // SEC-31 (TASK-1754): zero scans selected must not fall through the loop
+    // into SUCCESS. `run_cmd/plan.rs::merge_plan` refuses the same shape for
+    // the same reason — "executed zero steps, reported success" masks an
+    // upstream filtering bug — and here the blast radius is a security gate
+    // that reports healthy without scanning anything. Checked before the
+    // `trivy` probe so an all-skipped run says what is actually wrong rather
+    // than complaining about a tool it would never have spawned.
+    if selected.is_empty() {
+        write_no_scans_ran(w, &plan).context("failed to write empty-plan report")?;
+        return Ok(ExitCode::FAILURE);
+    }
+
     if !trivy_on_path() {
         anyhow::bail!(TRIVY_MISSING_HELP);
     }
@@ -439,6 +549,22 @@ fn run_sec_to(
     } else {
         ExitCode::FAILURE
     })
+}
+
+/// Report an all-skipped run on the same writer the scan lines use, naming
+/// every scan and why it was dropped, so the operator can see the state that
+/// produced the non-zero exit.
+fn write_no_scans_ran(w: &mut dyn std::io::Write, plan: &[PlanEntry]) -> std::io::Result<()> {
+    writeln!(w, "ops sec: no scans ran — every scan was skipped:")?;
+    for entry in plan {
+        writeln!(w, "  [skip] {:<16} ({})", entry.scan.label(), entry.reason)?;
+    }
+    writeln!(
+        w,
+        "Refusing to report a clean scan when nothing was scanned. \
+         Use `--dry-run` to preview a plan without running Trivy."
+    )?;
+    w.flush()
 }
 
 #[cfg(test)]
@@ -627,5 +753,162 @@ mod tests {
         let dir = tempfile::tempdir().unwrap();
         let plan = build_plan(dir.path(), &[], &[]);
         assert_eq!(plan.len(), Scan::ALL.len());
+    }
+
+    /// ASYNC-6 (TASK-1748): a scan that outruns its deadline must be reported
+    /// as a timed-out scan — failure marker, the elapsed budget, and the
+    /// escape hatch — not as a bare `RunError`, and it must fail closed.
+    #[cfg(unix)]
+    #[test]
+    fn timed_out_scan_reports_the_timeout_and_fails_closed() {
+        let timeout = Duration::from_millis(150);
+        let mut buf: Vec<u8> = Vec::new();
+        let clean = report_scan(Scan::Vuln, timeout, &mut buf, || {
+            // Stand-in for a `trivy` blocked on an unreachable DB registry.
+            let mut cmd = Command::new("sleep");
+            cmd.arg("30");
+            run_with_timeout(&mut cmd, timeout, "blocking stand-in")
+        })
+        .expect("a timeout is a scan outcome, not a command error");
+
+        assert!(!clean, "a timed-out scan must not count as clean");
+        let out = String::from_utf8(buf).expect("utf-8");
+        assert!(
+            out.contains('✗'),
+            "line must end with the failure marker: {out}"
+        );
+        assert!(
+            out.contains("timed out after 0s") || out.contains("timed out after"),
+            "message must say the scan timed out: {out}"
+        );
+        assert!(
+            out.contains(SCAN_TIMEOUT_ENV),
+            "message must name the escape hatch: {out}"
+        );
+    }
+
+    /// AC#4: the non-zero outcome of a timed-out scan reaches the aggregate.
+    /// `report_scan` returning `false` is exactly what `run_sec_to`'s loop
+    /// turns into `ExitCode::FAILURE`, so pin the mapping directly.
+    #[cfg(unix)]
+    #[test]
+    fn a_timed_out_scan_makes_the_aggregate_exit_code_non_zero() {
+        let timeout = Duration::from_millis(150);
+        let mut buf: Vec<u8> = Vec::new();
+        let clean = report_scan(Scan::Vuln, timeout, &mut buf, || {
+            let mut cmd = Command::new("sleep");
+            cmd.arg("30");
+            run_with_timeout(&mut cmd, timeout, "blocking stand-in")
+        })
+        .expect("timeout must not error");
+        let aggregate = if clean {
+            ExitCode::SUCCESS
+        } else {
+            ExitCode::FAILURE
+        };
+        assert_eq!(format!("{aggregate:?}"), format!("{:?}", ExitCode::FAILURE));
+    }
+
+    /// A clean scan still reports `✓` and counts as clean.
+    #[test]
+    fn clean_scan_reports_the_success_marker() {
+        let mut buf: Vec<u8> = Vec::new();
+        let clean = report_scan(Scan::Secret, Duration::from_secs(1), &mut buf, || {
+            let mut cmd = Command::new(if cfg!(windows) { "cmd" } else { "true" });
+            if cfg!(windows) {
+                cmd.args(["/C", "exit", "0"]);
+            }
+            run_with_timeout(&mut cmd, Duration::from_secs(10), "clean stand-in")
+        })
+        .expect("a clean scan must not error");
+        assert!(clean);
+        assert!(String::from_utf8(buf).unwrap().contains('✓'));
+    }
+
+    /// A spawn failure is still a hard error naming the scan, not a silent
+    /// "unclean scan".
+    #[test]
+    fn spawn_failure_propagates_naming_the_scan() {
+        let mut buf: Vec<u8> = Vec::new();
+        let err = report_scan(Scan::Misconfig, Duration::from_secs(1), &mut buf, || {
+            let mut cmd = Command::new("ops-no-such-program-for-tests");
+            run_with_timeout(&mut cmd, Duration::from_secs(1), "missing stand-in")
+        })
+        .expect_err("a spawn failure must propagate");
+        assert!(
+            format!("{err:#}").contains("misconfiguration"),
+            "error must name the scan: {err:#}"
+        );
+    }
+
+    #[test]
+    #[serial_test::serial]
+    fn scan_timeout_defaults_and_honours_the_env_override() {
+        let guard = crate::test_utils::EnvVarGuard::unset(SCAN_TIMEOUT_ENV);
+        assert_eq!(scan_timeout(), DEFAULT_SCAN_TIMEOUT);
+        guard.set_value("42");
+        assert_eq!(scan_timeout(), Duration::from_secs(42));
+        // Nonsense and zero fall back rather than arming a 0s deadline.
+        for bad in ["0", "-1", "abc", ""] {
+            guard.set_value(bad);
+            assert_eq!(scan_timeout(), DEFAULT_SCAN_TIMEOUT, "input: {bad:?}");
+        }
+    }
+
+    /// SEC-31 (TASK-1754): `--skip` on every scan must not exit 0 with no
+    /// output — that is indistinguishable from "everything ran and was clean".
+    #[test]
+    fn all_scans_skipped_reports_zero_scans_and_fails_closed() {
+        let dir = tempfile::tempdir().unwrap();
+        touch(dir.path(), "Cargo.lock");
+        touch(dir.path(), "Dockerfile");
+        let mut buf: Vec<u8> = Vec::new();
+        let code = run_sec_to(
+            dir.path(),
+            false,
+            &[Scan::Secret, Scan::Vuln, Scan::Misconfig],
+            &[],
+            &mut buf,
+        )
+        .expect("an all-skipped run must not error");
+
+        assert_eq!(
+            format!("{code:?}"),
+            format!("{:?}", ExitCode::FAILURE),
+            "an all-skipped run must fail closed"
+        );
+        let out = String::from_utf8(buf).unwrap();
+        assert!(
+            out.contains("no scans ran"),
+            "must say zero scans ran: {out}"
+        );
+        for scan in Scan::ALL {
+            assert!(
+                out.contains(scan.label()),
+                "must list {} and its skip reason: {out}",
+                scan.label()
+            );
+        }
+        assert!(
+            out.contains("skipped (--skip)"),
+            "must carry the skip reasons from the plan: {out}"
+        );
+    }
+
+    /// The `--dry-run` preview is unaffected: it still exits 0 for an
+    /// all-skipped plan, because previewing a plan is not a scan.
+    #[test]
+    fn dry_run_of_an_all_skipped_plan_still_succeeds() {
+        let dir = tempfile::tempdir().unwrap();
+        let mut buf: Vec<u8> = Vec::new();
+        let code = run_sec_to(
+            dir.path(),
+            true,
+            &[Scan::Secret, Scan::Vuln, Scan::Misconfig],
+            &[],
+            &mut buf,
+        )
+        .expect("dry-run must not error");
+        assert_eq!(format!("{code:?}"), format!("{:?}", ExitCode::SUCCESS));
     }
 }

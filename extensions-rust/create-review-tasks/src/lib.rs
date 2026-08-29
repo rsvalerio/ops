@@ -32,7 +32,7 @@ ops_extension::impl_extension! {
     data_provider_name: Some(DATA_PROVIDER_NAME),
     register_commands: |_self, _registry| {},
     register_data_providers: |_self, registry| {
-        registry.register(
+        let _ = registry.register(
             DATA_PROVIDER_NAME,
             Box::new(provider::RustReviewTargetsProvider),
         );

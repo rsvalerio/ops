@@ -41,8 +41,16 @@ pub fn warn_if_sensitive_env(key: &str, value: &str) {
     let key_bytes = key.as_bytes();
     for pattern in warn_patterns() {
         if ascii_contains_ignore_case(key_bytes, pattern.as_bytes()) {
+            // SEC-21 / TASK-1937: format `key` via Debug. The key comes
+            // straight from a command's `env` table in `.ops.toml`
+            // (`build_command_with` passes it through unfiltered), so under
+            // Display an embedded newline plus a crafted prefix forges what
+            // reads as an extra log record, and an embedded `\u{1b}[`
+            // repaints the operator's terminal. This is the same policy
+            // TASK-1127 applied to the sibling `program` field and
+            // TASK-0940 to tap paths.
             tracing::warn!(
-                key = %key,
+                key = ?key,
                 "SEC-002: env variable name suggests sensitive data; use OS environment instead of config"
             );
             return;
@@ -50,8 +58,11 @@ pub fn warn_if_sensitive_env(key: &str, value: &str) {
     }
 
     if looks_like_secret_value(value) {
+        // SEC-21 / TASK-1937: Debug-formatted for the same reason as
+        // above. The *value* is already safe — only its length is logged,
+        // never its content.
         tracing::warn!(
-            key = %key,
+            key = ?key,
             value_len = value.len(),
             "SEC-002: env variable value looks like a secret (long random-looking string); use OS environment instead of config"
         );
@@ -394,6 +405,31 @@ mod tests {
         // byte cannot equal an ASCII pattern byte under ASCII case fold).
         let non_ascii = "héllo_secret".as_bytes();
         assert!(ascii_contains_ignore_case(non_ascii, b"secret"));
+    }
+
+    /// SEC-21 / TASK-1937: mirrors `program_field_debug_escapes_control_characters`
+    /// in `exec.rs`. The env key reaches `warn_if_sensitive_env` straight
+    /// from a command's `env` table in `.ops.toml`, so it must be rendered
+    /// through the Debug formatter — under Display an embedded newline plus
+    /// a crafted prefix forges what reads as a second log record, and an
+    /// ANSI escape repaints the operator's terminal.
+    #[test]
+    fn env_key_field_debug_escapes_control_characters() {
+        let key = "TOKEN\nWARN forged log line\u{1b}[31mred\u{1b}[0m";
+        // The key still trips the sensitive-name heuristic, i.e. this is a
+        // key that really does reach the warn site.
+        assert!(warn_patterns().any(|p| ascii_contains_ignore_case(key.as_bytes(), p.as_bytes())));
+        // What the `key = ?key` field renders.
+        let rendered = format!("{key:?}");
+        assert!(!rendered.contains('\n'), "raw newline survived: {rendered}");
+        assert!(
+            !rendered.contains('\u{1b}'),
+            "raw ANSI survived: {rendered}"
+        );
+        assert!(rendered.contains("\\n"));
+        assert!(rendered.contains("\\u{1b}"));
+        // Sanity: the Display rendering this replaced would not have escaped.
+        assert!(key.contains('\n'));
     }
 
     #[test]

@@ -3,11 +3,11 @@ id: TASK-1778
 title: >-
   PATTERN-1: cargo's `Downgrading` lockfile verb is silently dropped — no entry,
   no count, no drift warn
-status: To Do
+status: Done
 assignee:
   - TASK-1995
 created_date: '2026-08-27 11:22'
-updated_date: '2026-08-28 14:12'
+updated_date: '2026-08-28 20:25'
 labels:
   - code-review-rust
   - correctness
@@ -73,9 +73,15 @@ same reason — today it is silently ignored rather than deliberately ignored.
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 ACTION_PREFIXES recognises cargo's Downgrading verb and parse_action_line maps it to a distinct UpdateAction variant (or, if downgrades are deliberately out of scope, the line is filtered explicitly and the decision is documented at the table)
-- [ ] #2 A Downgrading line either produces an entry with a dedicated count field or is explicitly filtered — it must not be dropped with no entry AND no log record
-- [ ] #3 starts_with_known_verb covers every verb cargo's lockfile-change printer emits, so an unhandled shape of a known verb still reaches the format-drift warn
-- [ ] #4 The verbose-only Unchanged verb is added to the explicit noise-skip list alongside Locking/warning:/note: rather than falling through unrecognised
-- [ ] #5 A test feeds a Downgrading line (and an Unchanged line) through parse_update_output and pins the chosen behaviour, including the log record
+- [x] #1 ACTION_PREFIXES recognises cargo's Downgrading verb and parse_action_line maps it to a distinct UpdateAction variant (or, if downgrades are deliberately out of scope, the line is filtered explicitly and the decision is documented at the table)
+- [x] #2 A Downgrading line either produces an entry with a dedicated count field or is explicitly filtered — it must not be dropped with no entry AND no log record
+- [x] #3 starts_with_known_verb covers every verb cargo's lockfile-change printer emits, so an unhandled shape of a known verb still reaches the format-drift warn
+- [x] #4 The verbose-only Unchanged verb is added to the explicit noise-skip list alongside Locking/warning:/note: rather than falling through unrecognised
+- [x] #5 A test feeds a Downgrading line (and an Unchanged line) through parse_update_output and pins the chosen behaviour, including the log record
 <!-- AC:END -->
+
+## Implementation Notes
+
+<!-- SECTION:NOTES:BEGIN -->
+TASK-1995: ACTION_PREFIXES gained `Downgrading` -> new `UpdateAction::Downgrade` (arrow shape), `CargoUpdateResult.downgrade_count` (serde default for cached payloads), `Unchanged` added to the explicit noise-skip list, schema field added. starts_with_known_verb now derives from the shared match_verb, so every table verb reaches the drift warn.
+<!-- SECTION:NOTES:END -->

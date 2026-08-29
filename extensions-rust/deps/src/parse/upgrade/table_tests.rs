@@ -98,11 +98,14 @@ serde  1.0.100 1.0.228    1.0.228 1.0.228
     assert_eq!(entries[0].name, "serde");
 }
 
-/// ERR-1 / TASK-1026: when stdout carries body content but no `====`
-/// separator row was detected (the header drifted hard enough that we
+/// ERR-1 / TASK-1026, TASK-1817: when stdout carries body content but no
+/// `====` separator row was detected (the header drifted hard enough that we
 /// can't even line up columns), the parser must emit a `tracing::warn`
-/// breadcrumb instead of silently returning an empty Vec. We use the
-/// `tracing` test subscriber to assert the warn fires.
+/// breadcrumb. This pins only the breadcrumb — the *fail-closed* contract
+/// lives one level up and is pinned by
+/// `exit_code_tests::interpret_upgrade_output_bails_on_missing_separator`,
+/// which superseded this test's former "warn, return empty, score green"
+/// assertion.
 #[test]
 fn parse_upgrade_table_warns_on_missing_separator() {
     // Hypothetical drifted format: no `====` row and an unrecognised header.
@@ -118,7 +121,7 @@ tokio    1.35.0          1.38.0
         });
     assert!(
         entries.is_empty(),
-        "unparseable table must yield no entries"
+        "no column geometry means no entries can be sliced"
     );
     assert!(
         logged.contains("TASK-1026") && logged.contains("separator"),
@@ -246,6 +249,44 @@ tokio  1.35.0  1.38.0     1.38.0  1.38.0
     assert_eq!(entries.len(), 2);
     assert_eq!(entries[0].name, "serde");
     assert_eq!(entries[1].name, "tokio");
+}
+
+/// CL-3 / TASK-1836: cargo-edit sizes the `=` run to the *header token's*
+/// length, so `new req` gets a 7-wide separator while values like
+/// `1.10.100` are 8 chars. The last fixed column used to be clamped to the
+/// separator row's total length, silently decoding `1.10.100` as `1.10.10`
+/// — a version that does not exist, printed as an ordinary answer and
+/// persisted into the cached `DepsReport`.
+#[test]
+fn parse_upgrade_table_last_column_wider_than_its_header_token() {
+    let stdout = "\
+name   old req compatible latest  new req
+====   ======= ========== ======  =======
+serde  1.0.100 1.0.228    1.0.228 1.10.100
+";
+    let entries = parse_upgrade_table(stdout);
+    assert_eq!(entries.len(), 1);
+    assert_eq!(
+        entries[0].new_req, "1.10.100",
+        "the last fixed column must read to the end of the data row"
+    );
+    assert!(entries[0].note.is_none());
+}
+
+/// CL-3 / TASK-1836 AC#3: with a `note` column present, `new req` is an
+/// *interior* column and must still stop at the note's start — the widened
+/// last-column rule must not let it swallow the note text.
+#[test]
+fn parse_upgrade_table_note_column_bounds_the_new_req_column() {
+    let stdout = "\
+name   old req compatible latest  new req note
+====   ======= ========== ======  ======= ====
+clap   3.0.0   3.2.25     4.6.0   3.2.25  pinned by parent
+";
+    let entries = parse_upgrade_table(stdout);
+    assert_eq!(entries.len(), 1);
+    assert_eq!(entries[0].new_req, "3.2.25");
+    assert_eq!(entries[0].note.as_deref(), Some("pinned by parent"));
 }
 
 #[test]

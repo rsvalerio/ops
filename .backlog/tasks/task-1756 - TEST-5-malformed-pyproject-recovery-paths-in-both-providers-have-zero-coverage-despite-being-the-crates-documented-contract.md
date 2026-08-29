@@ -3,11 +3,11 @@ id: TASK-1756
 title: >-
   TEST-5: malformed-pyproject recovery paths in both providers have zero
   coverage despite being the crate's documented contract
-status: To Do
+status: Done
 assignee:
   - TASK-1992
 created_date: '2026-08-27 11:18'
-updated_date: '2026-08-28 14:11'
+updated_date: '2026-08-28 20:04'
 labels:
   - code-review-rust
   - test-quality
@@ -41,8 +41,30 @@ Also uncovered on the same axis: `units.rs` `collect_units` never sees a *member
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 A test writes a syntactically invalid pyproject.toml and asserts PythonIdentityProvider::provide still succeeds with the directory-name fallback identity (no version, no stack_detail)
-- [ ] #2 A test writes a syntactically invalid root pyproject.toml and asserts collect_units returns an empty Vec
-- [ ] #3 A test writes a valid root manifest with a workspace member whose own pyproject.toml is invalid, and asserts the unit still appears with the format_unit_name directory fallback
-- [ ] #4 At least one of the above asserts the tracing warn is actually emitted (via ops_about::test_support), including the manifest path and the recovery field
+- [x] #1 A test writes a syntactically invalid pyproject.toml and asserts PythonIdentityProvider::provide still succeeds with the directory-name fallback identity (no version, no stack_detail)
+- [x] #2 A test writes a syntactically invalid root pyproject.toml and asserts collect_units returns an empty Vec
+- [x] #3 A test writes a valid root manifest with a workspace member whose own pyproject.toml is invalid, and asserts the unit still appears with the format_unit_name directory fallback
+- [x] #4 At least one of the above asserts the tracing warn is actually emitted (via ops_about::test_support), including the manifest path and the recovery field
 <!-- AC:END -->
+
+## Implementation Notes
+
+<!-- SECTION:NOTES:BEGIN -->
+Four tests added, all asserting fallback *and* the warn:
+- `invalid_pyproject_falls_back_to_directory_name_and_warns` (lib.rs) — writes
+  a syntactically invalid manifest, asserts the directory-name fallback (name
+  is not "demo", no version, no stack_detail) and asserts the captured warn
+  carries both `pyproject.toml` and `recovery="default-identity"`.
+- `invalid_root_pyproject_yields_no_units` (units.rs) — empty `Vec`.
+- `invalid_member_pyproject_falls_back_to_the_directory_name` (units.rs) —
+  valid root, unparseable member manifest; the unit still appears with the
+  `format_unit_name` directory fallback and no version.
+- `non_string_workspace_glob_entry_does_not_zero_the_unit_list` (units.rs),
+  filed under TASK-1774, exercises the same recovery axis.
+
+Warn capture goes through `ops_about::test_support::TracingBuf`, wrapped in a
+local `capture_warns` helper that first calls `test_support::count_warnings`
+to pin the global dispatcher — without it `tracing` caches
+`Interest::never()` for a callsite first hit by a parallel test and the
+capture comes back empty at random.
+<!-- SECTION:NOTES:END -->

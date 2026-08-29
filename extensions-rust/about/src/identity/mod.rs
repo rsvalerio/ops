@@ -11,7 +11,7 @@ use ops_about::identity::{build_identity_value, ParsedManifest};
 use ops_core::project_identity::{base_about_fields, insert_homepage_field, AboutFieldDef};
 use ops_extension::{Context, DataProvider, DataProviderError};
 
-use crate::query::load_workspace_manifest;
+use crate::manifest::load_workspace_manifest;
 use metrics::query_identity_metrics;
 use resolver::resolve_identity_fields;
 
@@ -46,10 +46,14 @@ impl DataProvider for RustIdentityProvider {
 
     fn provide(&self, ctx: &mut Context) -> Result<serde_json::Value, DataProviderError> {
         let manifest = load_workspace_manifest(ctx)?;
-        let cwd = ctx.working_directory.clone();
+        let cwd = ctx.working_directory_arc().clone();
 
-        let pkg = manifest.package.as_ref();
-        let ws_pkg = manifest.workspace.as_ref().and_then(|w| w.package.as_ref());
+        // OWN-12 / TASK-1767: named accessors, not `Deref` into the raw
+        // `CargoToml`. The manifest's `[workspace].members` still holds the
+        // unexpanded glob spec, and the type no longer puts it one field
+        // access away from the resolved list.
+        let pkg = manifest.package();
+        let ws_pkg = manifest.workspace_package();
         let fields = resolve_identity_fields(pkg, ws_pkg, &cwd);
         let metrics = query_identity_metrics(ctx);
 
@@ -67,14 +71,10 @@ impl DataProvider for RustIdentityProvider {
                 m.module_label = "crates";
                 // ERR-1 / TASK-1076: count the resolved members (post glob
                 // expansion) rather than the raw `[workspace].members` spec,
-                // which may be a single `["crates/*"]` glob entry. The cached
-                // manifest preserves the original spec verbatim, so the
-                // resolved-members sibling on `LoadedManifest` is the only
-                // place to read the expanded count.
+                // which may be a single `["crates/*"]` glob entry.
                 m.module_count = manifest
-                    .workspace
-                    .as_ref()
-                    .map(|_| manifest.resolved_members().len());
+                    .declares_workspace()
+                    .then(|| manifest.resolved_members().len());
                 m.loc = metrics.loc;
                 m.file_count = metrics.file_count;
                 m.msrv = fields.msrv;

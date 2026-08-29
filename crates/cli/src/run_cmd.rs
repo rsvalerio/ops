@@ -18,6 +18,7 @@ use ops_runner::display::{DisplayOptions, ProgressDisplay};
 use ops_runner::terminal::EchoGuard;
 
 use crate::registry::{as_ext_refs, builtin_extensions, register_extension_commands};
+use crate::{ExitCodeOverride, SIGINT_EXIT};
 
 use dry_run::run_command_dry_run;
 use plan::{build_display_map, log_step_results, merge_plan};
@@ -196,10 +197,21 @@ fn run_commands_raw(
     verbose: bool,
 ) -> anyhow::Result<Vec<StepResult>> {
     emit_raw_warnings(plan.any_parallel, tap.is_some(), verbose);
-    let results: Vec<StepResult> =
-        run_with_runtime(async { Ok(runner.run_plan_raw(plan.leaf_ids, plan.fail_fast).await) })?;
-    log_step_results(&results);
-    Ok(results)
+    // CONC-14 / TASK-1932: raw mode has no EchoGuard to restore, but a
+    // SIGTERM still has to cancel the plan rather than leave its children
+    // behind. Ctrl-C additionally reaches raw children through the tty
+    // (they deliberately stay in the runner's process group); `SIGTERM`
+    // does not, and this is what covers it.
+    let outcome = run_with_runtime(async {
+        Ok(run_until_signal(runner.run_plan_raw(plan.leaf_ids, plan.fail_fast)).await)
+    })?;
+    match outcome {
+        PlanOutcome::Completed(results) => {
+            log_step_results(&results);
+            Ok(results)
+        }
+        PlanOutcome::Interrupted(signo) => Err(interrupted_error(signo)),
+    }
 }
 
 /// Messages emitted when `--dry-run` is combined with
@@ -278,6 +290,109 @@ fn emit_raw_warnings(any_parallel: bool, has_tap: bool, verbose: bool) {
     }
 }
 
+/// CONC-14 / TASK-1932: outcome of a plan raced against the shutdown
+/// signals.
+enum PlanOutcome<T> {
+    Completed(T),
+    /// The run was cut short by `signo`; the plan future has been dropped.
+    Interrupted(i32),
+}
+
+/// Run `plan` until it finishes or the process is asked to stop.
+///
+/// # Why this exists
+///
+/// Both of the runner's cleanup mechanisms are `Drop`-based — `EchoGuard`
+/// restores the terminal's `ECHO` bit in its destructor, and a running child
+/// is torn down when its spawn future is dropped (CONC-9 / TASK-1919 signals
+/// the child's whole process group from there). `Drop` does not run when the
+/// process is terminated by a signal, so before this existed a `SIGTERM` (a
+/// cancelled CI job, a `kill`, a container stop) killed `ops` outright:
+/// every in-flight child survived the runner that spawned it, and a Ctrl-C'd
+/// interactive run could leave the user in a shell with `ECHO` cleared.
+///
+/// Racing the plan against the signals converts both into ordinary
+/// cancellation: the losing `select!` branch **drops the plan future**,
+/// which cancels the `JoinSet` and runs the runner's own kill path, and the
+/// caller then drops the `EchoGuard` and returns a `128 + signo` exit code
+/// the way a shell expects.
+///
+/// `SignalKind::interrupt()` is the same signal `tokio::signal::ctrl_c()`
+/// listens for on unix; it is used directly so the signal number is
+/// available for the exit code.
+///
+/// ## Manual verification (TASK-1932 AC #5)
+///
+/// ```text
+/// $ ops build &            # a plan with a long step
+/// $ kill -TERM %1          # or Ctrl-C in the foreground
+/// $ pgrep -P 1 -f rustc    # no orphaned descendants remain
+/// $ echo $?                # 143 for SIGTERM, 130 for SIGINT
+/// ```
+async fn run_until_signal<F, T>(plan: F) -> PlanOutcome<T>
+where
+    F: std::future::Future<Output = T>,
+{
+    #[cfg(unix)]
+    {
+        use tokio::signal::unix::{signal, SignalKind};
+        // A failure to register (no runtime signal driver, a sandbox that
+        // blocks it) must not take the run down with it: fall back to the
+        // pre-TASK-1932 behaviour of simply awaiting the plan.
+        let handlers = signal(SignalKind::terminate()).and_then(|term| {
+            let int = signal(SignalKind::interrupt())?;
+            Ok((term, int))
+        });
+        let (mut term, mut interrupt) = match handlers {
+            Ok(h) => h,
+            Err(e) => {
+                tracing::warn!(
+                    error = %e,
+                    "could not install the SIGTERM/SIGINT shutdown handler; \
+                     children will not be cleaned up if this run is signalled"
+                );
+                return PlanOutcome::Completed(plan.await);
+            }
+        };
+        tokio::select! {
+            value = plan => PlanOutcome::Completed(value),
+            _ = term.recv() => PlanOutcome::Interrupted(SIGTERM_SIGNO),
+            _ = interrupt.recv() => PlanOutcome::Interrupted(SIGINT_SIGNO),
+        }
+    }
+    #[cfg(not(unix))]
+    {
+        PlanOutcome::Completed(plan.await)
+    }
+}
+
+/// POSIX signal numbers, spelled out so this file does not need `libc`.
+///
+/// Both are read only from the `#[cfg(unix)]` arm of [`run_until_signal`],
+/// so they are compiled for Unix only — otherwise a non-Unix build carries
+/// two constants nothing can reference and warns as dead code.
+#[cfg(unix)]
+const SIGINT_SIGNO: i32 = 2;
+#[cfg(unix)]
+const SIGTERM_SIGNO: i32 = 15;
+
+/// Map a shutdown signal to the shell convention of `128 + signo`
+/// (130 for SIGINT, 143 for SIGTERM).
+fn exit_code_for_signal(signo: i32) -> u8 {
+    u8::try_from(signo)
+        .ok()
+        .and_then(|s: u8| s.checked_add(128))
+        .unwrap_or(SIGINT_EXIT)
+}
+
+/// Turn an interrupted run into the error `main` renders, carrying the
+/// `128 + signo` exit code through the existing [`ExitCodeOverride`]
+/// channel rather than collapsing to a generic failure.
+fn interrupted_error(signo: i32) -> anyhow::Error {
+    anyhow::anyhow!("run interrupted by signal {signo}; in-flight commands were cancelled")
+        .context(ExitCodeOverride(exit_code_for_signal(signo)))
+}
+
 fn run_commands_with_display(
     runner: &ops_runner::command::CommandRunner,
     plan: PlanShape<'_>,
@@ -303,24 +418,37 @@ fn run_commands_with_display(
     } else {
         RuntimeKind::Sequential
     };
-    let results: Vec<StepResult> = run_with_runtime_kind(kind, async {
-        Ok(if plan.any_parallel {
-            runner
-                .run_plan_parallel(plan.leaf_ids, plan.fail_fast, &mut |event| {
-                    display.handle_event(event);
-                })
-                .await
-        } else {
-            runner
-                .run_plan(plan.leaf_ids, plan.fail_fast, &mut |event| {
-                    display.handle_event(event);
-                })
-                .await
+    // CONC-14 / TASK-1932: the plan runs *inside* the signal race, so a
+    // SIGTERM/SIGINT drops it and the runner's own cancellation path
+    // (process-group teardown, CONC-9 / TASK-1919) runs.
+    let outcome = run_with_runtime_kind(kind, async {
+        Ok(run_until_signal(async {
+            if plan.any_parallel {
+                runner
+                    .run_plan_parallel(plan.leaf_ids, plan.fail_fast, &mut |event| {
+                        display.handle_event(event);
+                    })
+                    .await
+            } else {
+                runner
+                    .run_plan(plan.leaf_ids, plan.fail_fast, &mut |event| {
+                        display.handle_event(event);
+                    })
+                    .await
+            }
         })
+        .await)
     })?;
+    // Restore the terminal on *both* paths — on the signal path this is the
+    // destructor that would otherwise never have run.
     drop(echo_guard);
-    log_step_results(&results);
-    Ok(results)
+    match outcome {
+        PlanOutcome::Completed(results) => {
+            log_step_results(&results);
+            Ok(results)
+        }
+        PlanOutcome::Interrupted(signo) => Err(interrupted_error(signo)),
+    }
 }
 
 fn summarize(results: &[StepResult]) -> ExitCode {

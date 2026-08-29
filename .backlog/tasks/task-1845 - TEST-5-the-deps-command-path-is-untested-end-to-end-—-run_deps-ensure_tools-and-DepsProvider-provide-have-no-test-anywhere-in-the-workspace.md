@@ -3,11 +3,11 @@ id: TASK-1845
 title: >-
   TEST-5: the deps command path is untested end to end — run_deps, ensure_tools
   and DepsProvider::provide have no test anywhere in the workspace
-status: To Do
+status: Done
 assignee:
   - TASK-1997
 created_date: '2026-08-27 15:24'
-updated_date: '2026-08-28 14:13'
+updated_date: '2026-08-28 20:35'
 labels:
   - code-review-rust
   - test-quality
@@ -39,10 +39,16 @@ Note TASK-1827 asks for one narrow `run_deps` test (stale cached payload → err
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 A test drives run_deps with a DataRegistry carrying a stub provider that yields a clean DepsReport, and asserts it returns Ok
-- [ ] #2 A test drives run_deps with a stub provider yielding a report containing an actionable advisory, and asserts it returns Err so the non-zero exit contract is pinned
-- [ ] #3 A test asserts opts.refresh propagates to ctx.refresh and reaches the provider lookup
-- [ ] #4 A test covers DepsProvider::provide producing JSON that run_deps can deserialize back into a DepsReport, closing the provider-to-consumer round trip
-- [ ] #5 A test covers ensure_tools reporting a missing tool with the "cargo install <crate>" hint, driven through a fake CARGO env var as check_tool_in_times_out_on_hung_probe already does
-- [ ] #6 The tests do not require real cargo-edit or cargo-deny installations and do not reach the network
+- [x] #1 A test drives run_deps with a DataRegistry carrying a stub provider that yields a clean DepsReport, and asserts it returns Ok
+- [x] #2 A test drives run_deps with a stub provider yielding a report containing an actionable advisory, and asserts it returns Err so the non-zero exit contract is pinned
+- [x] #3 A test asserts opts.refresh propagates to ctx.refresh and reaches the provider lookup
+- [x] #4 A test covers DepsProvider::provide producing JSON that run_deps can deserialize back into a DepsReport, closing the provider-to-consumer round trip
+- [x] #5 A test covers ensure_tools reporting a missing tool with the "cargo install <crate>" hint, driven through a fake CARGO env var as check_tool_in_times_out_on_hung_probe already does
+- [x] #6 The tests do not require real cargo-edit or cargo-deny installations and do not reach the network
 <!-- AC:END -->
+
+## Implementation Notes
+
+<!-- SECTION:NOTES:BEGIN -->
+Implemented in the same pass as TASK-1827: `tests.rs::command_path_tests` drives `run_deps` (clean Ok, actionable-advisory Err, refresh propagation, stale-cache decode error, missing-provider error), `ensure_tools` (install hint) and `DepsProvider::provide` (JSON round-trips back into a DepsReport). The seam is a fake `$CARGO` shell script plus a stub provider registered under DATA_PROVIDER_NAME — no real cargo-edit/cargo-deny and no network.
+<!-- SECTION:NOTES:END -->

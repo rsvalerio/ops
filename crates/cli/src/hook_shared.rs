@@ -9,7 +9,6 @@ use ops_core::config::{CommandSpec, Config};
 use ops_core::stack::Stack;
 
 use crate::tty::SelectOption;
-use crate::{ExitCodeOverride, SIGINT_EXIT};
 
 /// Optional pre-flight predicate paired with the message used when it returns
 /// `Ok(false)`. Lifted out of `HookOps` to satisfy `clippy::type_complexity`.
@@ -144,28 +143,16 @@ pub fn run_hook_install(
                 Vec::new()
             } else {
                 let prompt = format!("Select commands to run in {} hook:", ops.hook_name);
-                match inquire::MultiSelect::new(&prompt, options).prompt() {
-                    Ok(selections) => selections.into_iter().map(|o| o.name).collect(),
-                    // Ctrl-C / Esc at the selection prompt is the user
-                    // cancelling — bubble a SIGINT exit via the
-                    // `ExitCodeOverride` sentinel instead of a generic
-                    // anyhow chain.
-                    Err(
-                        inquire::InquireError::OperationCanceled
-                        | inquire::InquireError::OperationInterrupted,
-                    ) => {
-                        return Err(anyhow::anyhow!("{} install cancelled", ops.hook_name)
-                            .context(ExitCodeOverride(SIGINT_EXIT)));
-                    }
-                    Err(e) => {
-                        return Err(anyhow::Error::new(e)).with_context(|| {
-                            format!(
-                                "command selection prompt for {} install failed",
-                                ops.hook_name
-                            )
-                        });
-                    }
-                }
+                // Ctrl-C / Esc at the selection prompt is the user
+                // cancelling, not a failure: the shared helper turns it into
+                // a SIGINT exit with no `ops: error:` frame.
+                crate::prompt::require_answer(
+                    inquire::MultiSelect::new(&prompt, options).prompt(),
+                    &format!("command selection for {} install", ops.hook_name),
+                )?
+                .into_iter()
+                .map(|o| o.name)
+                .collect()
             }
         }
     };
@@ -396,5 +383,30 @@ mod tests {
             gather_available_commands(&config, Some(Stack::Rust), &empty, "run-before-commit");
         let build = options.iter().find(|o| o.name == "build").unwrap();
         assert!(build.description.contains("Custom build"));
+    }
+
+    /// TASK-1746: Esc / Ctrl-C at this command's picker is a user cancel —
+    /// it must reach `main` as the shared cancellation error (exit 130, no
+    /// `ops: error:` frame), not as a plain anyhow failure exiting 1.
+    #[test]
+    fn hook_install_selection_cancel_exits_130_without_an_error_frame() {
+        for err in [
+            inquire::InquireError::OperationCanceled,
+            inquire::InquireError::OperationInterrupted,
+        ] {
+            let err = crate::prompt::require_answer(
+                Err::<Vec<crate::tty::SelectOption>, _>(err),
+                "command selection for run-before-commit install",
+            )
+            .expect_err("a cancelled prompt must not yield an answer");
+            assert_eq!(
+                crate::extract_exit_code_override(&err),
+                Some(crate::SIGINT_EXIT)
+            );
+            assert_eq!(
+                crate::prompt::cancellation_of(&err).map(ToString::to_string),
+                Some("command selection for run-before-commit install cancelled".to_string()),
+            );
+        }
     }
 }

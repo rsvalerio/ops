@@ -18,8 +18,8 @@ impl DataIngestor for CoverageIngestor {
     }
 
     fn collect(&self, ctx: &Context, data_dir: &Path) -> DbResult<()> {
-        let records = collect_coverage(&ctx.working_directory).map_err(external_err)?;
-        PIPELINE.collect_sidecar(data_dir, &records, &ctx.working_directory)
+        let records = collect_coverage(ctx.working_directory()).map_err(external_err)?;
+        PIPELINE.collect_sidecar(data_dir, &records, ctx.working_directory())
     }
 
     fn load(&self, data_dir: &Path, db: &DuckDb) -> DbResult<LoadResult> {

@@ -3,11 +3,11 @@ id: TASK-1797
 title: >-
   DUP-1: the verb + whitespace-boundary check is implemented twice, in
   starts_with_known_verb and parse_action_line
-status: To Do
+status: Done
 assignee:
   - TASK-1995
 created_date: '2026-08-27 11:24'
-updated_date: '2026-08-28 14:12'
+updated_date: '2026-08-28 20:27'
 labels:
   - code-review-rust
   - duplication
@@ -60,7 +60,13 @@ one comment, no drift surface.
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 The verb + whitespace-boundary match exists in exactly one function, and both starts_with_known_verb and parse_action_line consume it
-- [ ] #2 The PATTERN-1/TASK-1030 rationale comment appears once, next to the single implementation
-- [ ] #3 Existing tests (verb_prefix_requires_whitespace_boundary and the drift-warn tests) still pass unchanged
+- [x] #1 The verb + whitespace-boundary match exists in exactly one function, and both starts_with_known_verb and parse_action_line consume it
+- [x] #2 The PATTERN-1/TASK-1030 rationale comment appears once, next to the single implementation
+- [x] #3 Existing tests (verb_prefix_requires_whitespace_boundary and the drift-warn tests) still pass unchanged
 <!-- AC:END -->
+
+## Implementation Notes
+
+<!-- SECTION:NOTES:BEGIN -->
+TASK-1995: `match_verb` is the single verb + whitespace-boundary definition, returning the action, the version shape and the trimmed remainder; `starts_with_known_verb` and `parse_action_line` both consume it, and the PATTERN-1/TASK-1030 rationale appears once. Covered by the new match_verb_is_the_single_boundary_definition test; verb_prefix_requires_whitespace_boundary and the drift-warn tests pass unchanged.
+<!-- SECTION:NOTES:END -->

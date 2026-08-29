@@ -51,6 +51,7 @@ mod import_makefile_cmd;
 mod init_cmd;
 mod new_command_cmd;
 mod pre_hook_cmd;
+mod prompt;
 mod registry;
 mod row;
 mod run_cmd;
@@ -122,7 +123,14 @@ fn main() -> ExitCode {
     match run() {
         Ok(code) => code,
         Err(e) => {
-            ops_core::ui::error(format!("{e:#}"));
+            // A cancelled prompt is not a failure: render it as a note and
+            // exit SIGINT_EXIT, so a wrapper script can tell "the user backed
+            // out" from "the command broke". See `prompt::PromptCancelled`.
+            if let Some(cancel) = prompt::cancellation_of(&e) {
+                ops_core::ui::note(cancel.to_string());
+            } else {
+                ops_core::ui::error(format!("{e:#}"));
+            }
             exit_code_for_error(&e)
         }
     }

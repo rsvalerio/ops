@@ -72,9 +72,28 @@ mod types;
 mod workspace_root;
 
 pub use inheritance::InheritanceError;
+// ARCH-4 / TASK-1795: this block is the crate's whole public surface, and
+// every item below is here by an explicit decision.
+//
+// `InheritableField` / `InheritableString` / `InheritableVec` are new here:
+// they are the declared types of eleven public `Package` fields, so without a
+// re-export a consumer could read `p.version.as_str()` but could not write the
+// type in a signature, match on `Value` vs `Inherited`, or construct a
+// `Package`. That is the `unnameable_types` shape, and it is why
+// `extensions-rust/about` expresses the Value/Inherited distinction through
+// accessors rather than a match.
+//
+// The items deliberately *not* re-exported are the inheritance resolvers
+// (`resolve_string_field`, `resolve_vec_field`, `resolve_optional_string`,
+// `resolve_readme`, `resolve_publish`), and `workspace_root`'s
+// `content_declares_workspace`, `strict_candidate_action` and
+// `CandidateAction`. They live in private modules, so `pub` there means
+// crate-internal; the absence of a line below is the decision, and
+// `clippy::redundant_pub_crate` (nursery, enabled workspace-wide) is what
+// keeps them spelled `pub` rather than `pub(crate)`.
 pub use types::{
-    CargoToml, DepSpec, DetailedDepSpec, Package, ParseError, PublishSpec, ReadmeSpec, Workspace,
-    WorkspacePackage,
+    CargoToml, DepSpec, DetailedDepSpec, InheritableField, InheritableString, InheritableVec,
+    Package, ParseError, PublishSpec, ReadmeSpec, Workspace, WorkspacePackage,
 };
 pub use workspace_root::{
     find_workspace_root, find_workspace_root_strict, find_workspace_root_strict_with_depth,
@@ -147,7 +166,7 @@ ops_extension::impl_extension! {
             .root
             .as_ref()
             .map_or_else(CargoTomlProvider::new, |p| CargoTomlProvider::with_root(p.clone()));
-        registry.register(DATA_PROVIDER_NAME, Box::new(provider));
+        let _ = registry.register(DATA_PROVIDER_NAME, Box::new(provider));
     },
     factory: CARGO_TOML_FACTORY = |_, _| {
         Some((NAME, Box::new(CargoTomlExtension::new())))
@@ -215,7 +234,7 @@ impl CargoTomlProvider {
     /// cannot be read (including exceeding the SEC-33 byte cap), or the manifest
     /// fails to parse or resolve its workspace inheritance.
     pub fn provide_typed(&self, ctx: &mut Context) -> Result<CargoToml, DataProviderError> {
-        let root = self.resolve_root(&ctx.working_directory)?;
+        let root = self.resolve_root(ctx.working_directory())?;
         let cargo_toml = root.join("Cargo.toml");
 
         // SEC-33 (TASK-0926): byte-cap the manifest read so an adversarial
@@ -246,10 +265,19 @@ impl DataProvider for CargoTomlProvider {
         Ok(serde_json::to_value(&manifest)?)
     }
 
+    /// READ-6 / TASK-1798: every name below is a key that actually appears in
+    /// the JSON [`DataProvider::provide`] returns — dotted names denote the
+    /// path into that JSON (`Package.version` → `["package"]["version"]`).
+    /// `provider_schema_names_match_serialized_manifest` holds the two sides
+    /// together; before it, the schema advertised `dev-dependencies` while
+    /// serde emitted `dev_dependencies`, and typed the untagged
+    /// [`InheritableField`] fields as bare strings.
     fn schema(&self) -> DataProviderSchema {
         use ops_extension::data_field;
         DataProviderSchema::new(
-            "Cargo.toml manifest data (parsed from workspace root)",
+            "Cargo.toml manifest data (parsed from workspace root). A DepSpec \
+             value is either a version string (\"1.0\") or a detailed table \
+             with version/path/git/features/optional/default-features.",
             vec![
                 data_field!(
                     "package",
@@ -273,26 +301,41 @@ impl DataProvider for CargoTomlProvider {
                     "Build dependencies"
                 ),
                 data_field!("Package.name", "String", "Package name"),
-                data_field!("Package.version", "String", "Package version"),
-                data_field!("Package.edition", "String", "Rust edition (e.g., 2021)"),
-                data_field!("Package.license", "Option<String>", "License identifier"),
+                data_field!(
+                    "Package.version",
+                    "InheritableField<String>",
+                    "Package version: a string, {\"workspace\": true} when unresolved, or null when the key is absent"
+                ),
+                data_field!(
+                    "Package.edition",
+                    "InheritableField<String>",
+                    "Rust edition (e.g., 2021); string, {\"workspace\": true}, or null"
+                ),
+                data_field!(
+                    "Package.license",
+                    "InheritableField<String>",
+                    "License identifier; string, {\"workspace\": true}, or null"
+                ),
                 data_field!(
                     "Package.description",
-                    "Option<String>",
-                    "Package description"
+                    "InheritableField<String>",
+                    "Package description; string, {\"workspace\": true}, or null"
                 ),
-                data_field!("Package.repository", "Option<String>", "Repository URL"),
-                data_field!("Package.authors", "Vec<String>", "Package authors"),
+                data_field!(
+                    "Package.repository",
+                    "InheritableField<String>",
+                    "Repository URL; string, {\"workspace\": true}, or null"
+                ),
+                data_field!(
+                    "Package.authors",
+                    "InheritableField<Vec<String>>",
+                    "Package authors; array of strings, {\"workspace\": true}, or null"
+                ),
                 data_field!("Workspace.members", "Vec<String>", "Workspace member paths"),
                 data_field!(
                     "Workspace.dependencies",
                     "Map<String, DepSpec>",
                     "Shared workspace dependencies"
-                ),
-                data_field!(
-                    "DepSpec",
-                    "String | DetailedDepSpec",
-                    "Simple version string or detailed spec with features"
                 ),
             ],
         )
