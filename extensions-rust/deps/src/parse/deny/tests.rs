@@ -236,6 +236,44 @@ fn interpret_deny_result_log_envelopes_do_not_inflate_the_candidate_count() {
     assert_eq!(result.bans.len(), 1);
 }
 
+/// ERR-1 / TASK-1840: a diagnostic envelope whose `fields` no longer match
+/// `DiagnosticFields` is still cargo-deny claiming a finding, so it must be
+/// counted as a candidate and therefore as a *drop*.
+///
+/// Before the two-stage decode, the whole line failed `serde_json::from_str`
+/// and fell into the malformed-JSON arm, which counts nothing: three
+/// broken advisories plus one surviving ban produced
+/// `candidates == 1, dropped == 0` and the gate stayed green while an entire
+/// class had disappeared.
+#[test]
+fn interpret_deny_result_counts_diagnostics_whose_fields_fail_to_decode() {
+    let stderr = r#"{"type":"diagnostic","fields":{"severity":"error","message":"crate is banned","code":"banned","graphs":[{"Krate":{"name":"bad","version":"0.1.0"}}]}}
+{"type":"diagnostic","fields":{"severity":["error"],"message":"vuln","code":"security-vulnerability"}}
+{"type":"diagnostic","fields":"not-an-object"}
+{"type":"diagnostic"}"#;
+
+    let err = interpret_deny_result(Some(1), stderr)
+        .expect_err("recognised diagnostic envelopes with undecodable fields must count as drops");
+    let msg = err.to_string();
+    assert!(
+        msg.contains("4 diagnostic line(s)") && msg.contains("3 dropped"),
+        "every `type=diagnostic` envelope must reach the denominator; got: {msg}"
+    );
+}
+
+/// A line that is not JSON at all, and a non-diagnostic envelope, still must
+/// not reach the denominator — otherwise a chatty run looks like a mass drop.
+#[test]
+fn interpret_deny_result_malformed_non_diagnostic_lines_are_not_candidates() {
+    let stderr = r#"this is not json at all
+{"type":"log","fields":"not-an-object"}
+{"type":"diagnostic","fields":{"severity":"error","message":"crate is banned","code":"banned","graphs":[{"Krate":{"name":"bad","version":"0.1.0"}}]}}"#;
+
+    let result = interpret_deny_result(Some(1), stderr)
+        .expect("non-diagnostic noise must not be counted as dropped diagnostics");
+    assert_eq!(result.bans.len(), 1);
+}
+
 /// ERR-1 / TASK-1840 AC#4: the missing-`code` drop path was the only one in
 /// the crate with no tracing breadcrumb.
 #[test]

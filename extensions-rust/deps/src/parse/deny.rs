@@ -206,11 +206,17 @@ fn check_partial_decode_loss(diag: &DenyParseDiagnostics, stderr: &str) -> anyho
 }
 
 /// JSON structures for cargo deny output (newline-delimited JSON on stderr).
+///
+/// ERR-1 / TASK-1840: the envelope is deliberately decoded on its own, with
+/// `fields` left as an undecoded `Value`. Recognising a line as a diagnostic
+/// must not depend on this crate agreeing with cargo-deny about the *shape*
+/// of `fields` — that is exactly the schema drift the candidate counter
+/// exists to expose.
 #[derive(Deserialize)]
 struct DenyLine {
     #[serde(rename = "type")]
     line_type: String,
-    fields: DiagnosticFields,
+    fields: Option<serde_json::Value>,
 }
 
 #[derive(Deserialize)]
@@ -271,8 +277,33 @@ fn decode_diagnostic(trimmed: &str, diag: &mut DenyParseDiagnostics) -> Option<D
     }
     // One increment per line of an in-memory string, whose length is bounded
     // by `isize::MAX`, so `saturating_add` equals `+= 1` exactly.
+    //
+    // ERR-1 / TASK-1840: count the candidate as soon as the *envelope* says
+    // `type == "diagnostic"`, before `fields` is decoded. Decoding the whole
+    // line in one step meant a diagnostic whose `fields` no longer matched
+    // `DiagnosticFields` — a renamed key, a scalar where an object is
+    // expected — fell into the malformed-JSON arm above and was dropped
+    // without ever being counted, so the drop-rate guard the counter feeds
+    // stayed silent through precisely the schema drift it watches for.
     diag.candidate_diagnostics = diag.candidate_diagnostics.saturating_add(1);
-    let fields = deny_line.fields;
+    let Some(raw_fields) = deny_line.fields else {
+        tracing::debug!(
+            line = %truncate_for_log(trimmed),
+            "TASK-1840: skipping cargo-deny diagnostic with no `fields` object (possible schema drift)"
+        );
+        return None;
+    };
+    let fields: DiagnosticFields = match serde_json::from_value(raw_fields) {
+        Ok(f) => f,
+        Err(e) => {
+            tracing::debug!(
+                error = %e,
+                line = %truncate_for_log(trimmed),
+                "TASK-1840: skipping cargo-deny diagnostic whose `fields` failed to decode (possible schema drift)"
+            );
+            return None;
+        }
+    };
     let Some(code) = fields.code else {
         // ERR-1 / TASK-1840 AC#4: this was the only drop path in the crate
         // with no tracing breadcrumb, so a schema change that moved `code`
