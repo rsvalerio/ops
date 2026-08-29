@@ -2,6 +2,70 @@
 All notable changes to this project will be documented in this file. See [conventional commits](https://www.conventionalcommits.org/) for commit guidelines.
 
 - - -
+## [v0.45.2](https://github.com/rsvalerio/ops/compare/a21aa06a3213053b807a6deeea2ae3d2c263406a..v0.45.2) - 2026-08-29
+#### 🐛 Bug Fixes
+- (**about**) size the about-card emoji column by measured display width - ([e555e04](https://github.com/rsvalerio/ops/commit/e555e04a25c4b45ff1795f7b4f41a32f68a9281c)) - [@rsvalerio](https://github.com/rsvalerio)
+- (**config**) run alias hygiene and theme bounds on the real load path - ([bf8de5f](https://github.com/rsvalerio/ops/commit/bf8de5fea6de196e0cc89bc602a3e02a5ee202a9)) - [@rsvalerio](https://github.com/rsvalerio)
+- (**config**) screen the exec env map for control characters and '=' - ([4fde825](https://github.com/rsvalerio/ops/commit/4fde825cb1545979cd650d399e66c726a7194785)) - [@rsvalerio](https://github.com/rsvalerio)
+- (**config**) stop a symlinked global config aborting the layered load - ([b471095](https://github.com/rsvalerio/ops/commit/b471095a17cc0f8d12f24a5652ebfe34c225a752)) - [@rsvalerio](https://github.com/rsvalerio)
+- (**config-checkers**) report walk errors in the summary line - ([9bcfde5](https://github.com/rsvalerio/ops/commit/9bcfde5bacacd931286cb6b213ace0032bdcf277)) - [@rsvalerio](https://github.com/rsvalerio), Claude Opus 5 (1M context)
+- (**config-checkers**) fail the run when the discovery walk lost candidates - ([4124ca2](https://github.com/rsvalerio/ops/commit/4124ca2f4be6f340d255250d9e3e097ae9cf2d8b)) - [@rsvalerio](https://github.com/rsvalerio), Claude Opus 5 (1M context)
+- (**core**) open intermediate walk components O_PATH on Linux - ([fd9a870](https://github.com/rsvalerio/ops/commit/fd9a870d59a924d39f25c947452b3acd79966aa2)) - [@rsvalerio](https://github.com/rsvalerio), Claude Opus 5 (1M context)
+- (**core**) refuse symlinked components and non-regular files when opening manifests - ([2368767](https://github.com/rsvalerio/ops/commit/2368767737336fff851860e4811f8d92e4d87991)) - [@rsvalerio](https://github.com/rsvalerio)
+- (**expand**) surface a non-UTF-8 TMPDIR and make the runner fallback fail closed - ([636f731](https://github.com/rsvalerio/ops/commit/636f73165e5d333c68e19016dcd14a1d7b8e45b5)) - [@rsvalerio](https://github.com/rsvalerio)
+- (**git**) cap and sanitise the .git/HEAD read, honour header comments, Debug-format logged values - ([3180d2c](https://github.com/rsvalerio/ops/commit/3180d2c56270adf10068e8a56c263a6a49f22bcd)) - [@rsvalerio](https://github.com/rsvalerio)
+- (**git**) gate single-colon schemes, bound host/owner/repo length, canonicalise host case - ([e014de0](https://github.com/rsvalerio/ops/commit/e014de0b4ef307ca25a8171a856b0e777fd643a0)) - [@rsvalerio](https://github.com/rsvalerio)
+- (**hook-common**) cap the gitdir back-reference read - ([7698db9](https://github.com/rsvalerio/ops/commit/7698db9d22d6e582b844eb455bc718299aca4d36)) - [@rsvalerio](https://github.com/rsvalerio), Claude Opus 5 (1M context)
+- (**hook-common**) resolve external --separate-git-dir pointers - ([424fdce](https://github.com/rsvalerio/ops/commit/424fdced20783fcd7f77cb5ac4f8298c9bee3201)) - [@rsvalerio](https://github.com/rsvalerio), Claude Opus 5 (1M context)
+- (**hook-common**) count every staged change kind, not just ACMR - ([03f26e1](https://github.com/rsvalerio/ops/commit/03f26e1b23aab099b65bdb4b7f3667dc8879c51f)) - [@rsvalerio](https://github.com/rsvalerio)
+- (**hook-common**) name the .ops.toml path and key when commands is not a table - ([1fa60bd](https://github.com/rsvalerio/ops/commit/1fa60bd6055745c16f16bc89b0d1f5e8f1ae5d5f)) - [@rsvalerio](https://github.com/rsvalerio)
+- (**hook-common**) escape attacker-influenced values in git_state logs - ([362f26e](https://github.com/rsvalerio/ops/commit/362f26e8b50e7a7d32a2a17e1708951b20e5c2fe)) - [@rsvalerio](https://github.com/rsvalerio)
+- (**hook-common**) validate absolute gitdir pointers before resolving them - ([16d2bf4](https://github.com/rsvalerio/ops/commit/16d2bf43d70d806c68666e2afef9759843e362d2)) - [@rsvalerio](https://github.com/rsvalerio)
+- (**hook-common**) never leave a truncated hook at the hook path - ([a21aa06](https://github.com/rsvalerio/ops/commit/a21aa06a3213053b807a6deeea2ae3d2c263406a)) - [@rsvalerio](https://github.com/rsvalerio)
+- (**output**) keep buffer order in the error tail past the inline range cap - ([ae35e35](https://github.com/rsvalerio/ops/commit/ae35e355dd10d74c88d6f0f1e70375703051725a)) - [@rsvalerio](https://github.com/rsvalerio)
+- (**run-before-commit**) honour the bypass before probing for ops - ([9d3e532](https://github.com/rsvalerio/ops/commit/9d3e532a3585af9e97ae16a16a9672be014d0ffe)) - [@rsvalerio](https://github.com/rsvalerio)
+- (**run-before-commit**) install a POSIX hook that finds ops and arms the preflight - ([48ddf89](https://github.com/rsvalerio/ops/commit/48ddf89569fcdc73c0abcd5c6d404a9512c857b8)) - [@rsvalerio](https://github.com/rsvalerio)
+- (**stack**) log a breadcrumb when the extension probe's read_dir fails - ([34e3025](https://github.com/rsvalerio/ops/commit/34e3025123c48f4700f9ef23594a52c96a0beb62)) - [@rsvalerio](https://github.com/rsvalerio)
+- (**text**) check the byte cap before validating UTF-8 - ([ee73535](https://github.com/rsvalerio/ops/commit/ee7353529baf9f4069b7f70109911a06e1d8bd0f)) - [@rsvalerio](https://github.com/rsvalerio)
+- (**text-fixers**) record discovery walk errors in FixerReport - ([9dd2407](https://github.com/rsvalerio/ops/commit/9dd240746db2313411073b96e67b4bb7807b5a73)) - [@rsvalerio](https://github.com/rsvalerio), Claude Opus 5 (1M context)
+- (**text-fixers**) pin git's locale when probing tracked files - ([6936ddc](https://github.com/rsvalerio/ops/commit/6936ddc8c69897e0ce7fb6e80781ef932b98ee11)) - [@rsvalerio](https://github.com/rsvalerio), Claude Opus 5 (1M context)
+- (**text-fixers**) count a file whose rewrite fails once, not twice - ([6843e7c](https://github.com/rsvalerio/ops/commit/6843e7c385a1854f2a04e0e3283b300ad5416060)) - [@rsvalerio](https://github.com/rsvalerio), Claude Opus 5 (1M context)
+- (**text-fixers**) rewrite files atomically and account for every candidate - ([50ddf42](https://github.com/rsvalerio/ops/commit/50ddf42c2b6e1436a598fd9e12f61832dafb1c59)) - [@rsvalerio](https://github.com/rsvalerio)
+- (**text-fixers**) stop fix_trailing inventing a newline after a bare CR - ([1a19e95](https://github.com/rsvalerio/ops/commit/1a19e957b437f0a5f0c677a9409c446e7a1cee25)) - [@rsvalerio](https://github.com/rsvalerio)
+- (**ui**) escape C1 controls and Unicode bidi overrides in sanitised output - ([4856170](https://github.com/rsvalerio/ops/commit/4856170c29aac08e635e70ad2685ad14275c12d9)) - [@rsvalerio](https://github.com/rsvalerio)
+#### 📚 Documentation
+- (**config**) name the stack defaults in the first precedence layer - ([bd76813](https://github.com/rsvalerio/ops/commit/bd76813368f832e031ab132aad18cda00bd5f115)) - [@rsvalerio](https://github.com/rsvalerio), Claude Opus 5 (1M context)
+- (**config**) state all five config layers and the OPS__ env prefix - ([c18c34b](https://github.com/rsvalerio/ops/commit/c18c34bdba9ec736827906635741a879b65e21b5)) - [@rsvalerio](https://github.com/rsvalerio)
+- (**core**) correct the env-var prefix to OPS__* in the config layer list - ([5bfcd73](https://github.com/rsvalerio/ops/commit/5bfcd730e0f8ab9ca3daf28604daa7eff9aa779e)) - [@rsvalerio](https://github.com/rsvalerio), Claude Opus 5 (1M context)
+- (**git**) stop the git_info schema promising a normalized https remote_url - ([868cc14](https://github.com/rsvalerio/ops/commit/868cc14d5e83b4c6fa6f9c16f963090e228e5100)) - [@rsvalerio](https://github.com/rsvalerio)
+- (**hook-common**) correct the skip-value contract on HookConfig::skip_env_var - ([4616e3e](https://github.com/rsvalerio/ops/commit/4616e3ef7fd0c8608b74b82b2290d6e08bbf1e36)) - [@rsvalerio](https://github.com/rsvalerio)
+#### 🧪 Testing
+- (**config**) reset the global-config cache when the isolation guard drops - ([b5588c7](https://github.com/rsvalerio/ops/commit/b5588c7963737d80d3a66ad8cc9ede4c7b8b3c53)) - [@rsvalerio](https://github.com/rsvalerio), Claude Opus 5 (1M context)
+- (**config**) drive the composite memo-hit depth re-check directly - ([e95ef46](https://github.com/rsvalerio/ops/commit/e95ef468c6b508a0cae749df2f33affaa6c56980)) - [@rsvalerio](https://github.com/rsvalerio), Claude Opus 5 (1M context)
+- (**config-checkers**) pin the symlink guard at its new discovery layer - ([c827fca](https://github.com/rsvalerio/ops/commit/c827fca70cf51eac5d4e19a66a03d6ac3e759974)) - [@rsvalerio](https://github.com/rsvalerio)
+- (**core**) reset the global-config resolver cache after the validate tests - ([b088419](https://github.com/rsvalerio/ops/commit/b0884195a9a760a3b246b3ecfbd3046ea98bafc8)) - [@rsvalerio](https://github.com/rsvalerio), Claude Opus 5 (1M context)
+- (**hook-common**) skip the unwritable-hooks-dir test under root - ([c0674c9](https://github.com/rsvalerio/ops/commit/c0674c9ac7979fef378b92c31aa7911abb7eabfe)) - [@rsvalerio](https://github.com/rsvalerio), Claude Opus 5 (1M context)
+- (**hook-common**) add a CwdGuard so hook crates can test cwd-reading entry points - ([0455901](https://github.com/rsvalerio/ops/commit/0455901841fa9e877444f00a5ab09149d8765fff)) - [@rsvalerio](https://github.com/rsvalerio)
+- (**hook-common**) pin the should_skip truthy/falsy env matrix - ([6dc0a72](https://github.com/rsvalerio/ops/commit/6dc0a72d238b0b180ec5246eae56839f1f455438)) - [@rsvalerio](https://github.com/rsvalerio)
+- (**run-before-commit**) serialize every git-spawning has_staged_files test - ([820a8e4](https://github.com/rsvalerio/ops/commit/820a8e41e9c8218c136bde9926fdbc8d37106e8a)) - [@rsvalerio](https://github.com/rsvalerio), Claude Opus 5 (1M context)
+- (**table**) count the shared TTY probe at its call site so the memoisation test can fail - ([9fc07a0](https://github.com/rsvalerio/ops/commit/9fc07a08ca8d698a8d382e1f2e3cba6f2fed2827)) - [@rsvalerio](https://github.com/rsvalerio)
+- (**text-fixers**) guard the downgrade fixture on git being available - ([9eabbb0](https://github.com/rsvalerio/ops/commit/9eabbb06aa641d1668c6e6211b0288b9c1718ca7)) - [@rsvalerio](https://github.com/rsvalerio), Claude Opus 5 (1M context)
+- (**text-fixers**) guard the not-a-repository fixture on git being present - ([16a31fb](https://github.com/rsvalerio/ops/commit/16a31fb4f402ea700c5f0e623ae39bb1d878b252)) - [@rsvalerio](https://github.com/rsvalerio), Claude Opus 5 (1M context)
+#### 🔧 Build System
+- (**deps**) inherit config and strum from workspace.dependencies - ([2cadb4f](https://github.com/rsvalerio/ops/commit/2cadb4fa2a0e614b01eda87b6390147b55c9e8e0)) - [@rsvalerio](https://github.com/rsvalerio)
+#### ⚙️ Miscellaneous
+- (**backlog**) record the .ops.toml symlink symptom on TASK-2038 - ([fcbbefa](https://github.com/rsvalerio/ops/commit/fcbbefafc4f3ed51cd367da0d961767bad12b1dc)) - [@rsvalerio](https://github.com/rsvalerio), Claude Opus 5 (1M context)
+- (**backlog**) close TASK-2037 and record TASK-2035 verification - ([4fcefcc](https://github.com/rsvalerio/ops/commit/4fcefcc8fa0ad9c308da6ac16f1c3cc2052cf172)) - [@rsvalerio](https://github.com/rsvalerio), Claude Opus 5 (1M context)
+- (**backlog**) record TASK-2037 non-reproduction on the quiesced branch - ([a112219](https://github.com/rsvalerio/ops/commit/a11221905bd0b78d54749c394e407312ac534ba3)) - [@rsvalerio](https://github.com/rsvalerio)
+- (**backlog**) close code-review wave 150 - ([9cc9844](https://github.com/rsvalerio/ops/commit/9cc98447401aaee24680dacebc042ac93a6f6375)) - [@rsvalerio](https://github.com/rsvalerio)
+- (**backlog**) close code-review wave 149 - ([3c4174f](https://github.com/rsvalerio/ops/commit/3c4174fc1bdf2c59c4b4df47b6ae9565569fc55f)) - [@rsvalerio](https://github.com/rsvalerio)
+- (**backlog**) close code-review wave 177 - ([f154830](https://github.com/rsvalerio/ops/commit/f15483073269a34a2af12a1aed2d9e24f5135f09)) - [@rsvalerio](https://github.com/rsvalerio)
+- (**backlog**) close code-review wave 173 - ([6eed4e3](https://github.com/rsvalerio/ops/commit/6eed4e3c91de5d97ccb6e89f4fddac9343af2c8e)) - [@rsvalerio](https://github.com/rsvalerio)
+- (**backlog**) close code-review wave 175 - ([73af3be](https://github.com/rsvalerio/ops/commit/73af3befae3a7247b5f3cbc758e55868919bf5e2)) - [@rsvalerio](https://github.com/rsvalerio)
+- (**backlog**) close code-review wave 174 - ([ff4e364](https://github.com/rsvalerio/ops/commit/ff4e364e5929d72adbd5341d44e71db487589727)) - [@rsvalerio](https://github.com/rsvalerio)
+
+- - -
+
 ## [v0.45.1](https://github.com/rsvalerio/ops/compare/7c85c9941eeef79a57b251a22c35be4d0df4b3e5..v0.45.1) - 2026-08-29
 #### 🐛 Bug Fixes
 - (**about**) return an empty string from truncate_to_width at zero width - ([cc8464d](https://github.com/rsvalerio/ops/commit/cc8464da22ab08ea5f9ecd8e3402f8f1a87ad876)) - [@rsvalerio](https://github.com/rsvalerio), Claude Opus 5 (1M context)
