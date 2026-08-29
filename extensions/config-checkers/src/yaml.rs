@@ -17,9 +17,10 @@
 //! [`MAX_EXPANDED_NODES`], so a bomb is reported as a normal
 //! [`CheckError::Parse`] failure against the file that contains it.
 //!
-//! Accept/reject behaviour is unchanged: `Yaml::load_from_str` surfaces only
-//! the parser's own `ScanError`s, so the same inputs fail with the same
-//! messages.
+//! Parser errors are reported exactly as before: only the parser's own
+//! `ScanError`s reach the caller, with the same messages. The two limits
+//! above are new rejections, though — input past [`MAX_NESTING_DEPTH`] or
+//! [`MAX_EXPANDED_NODES`] now fails where the loader path accepted it.
 
 use std::collections::HashMap;
 
