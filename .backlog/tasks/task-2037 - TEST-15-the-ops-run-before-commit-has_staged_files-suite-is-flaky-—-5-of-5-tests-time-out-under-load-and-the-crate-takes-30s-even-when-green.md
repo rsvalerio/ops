@@ -6,6 +6,7 @@ title: >-
 status: Triage
 assignee: []
 created_date: '2026-08-29 00:05'
+updated_date: '2026-08-29 00:44'
 labels:
   - code-review-rust
   - testing
@@ -71,3 +72,9 @@ workspace test run even when it passes.
 - [ ] #2 The root cause is identified as either a too-tight probe timeout, a shared-cwd race between the tests, or a real hang in the bounded-wait probe — and named in the fix
 - [ ] #3 The crate's test wall-clock no longer sits at the timeout budget on a passing run
 <!-- AC:END -->
+
+## Implementation Notes
+
+<!-- SECTION:NOTES:BEGIN -->
+Orchestrator follow-up (2026-08-29, end of code-review run 2026-08-28): did NOT reproduce on the quiesced part3 integration branch. `cargo nextest run -p ops-run-before-commit --all-features` green 3/3 standalone; `cargo nextest run --workspace --all-features` green 2871/2871 with has_staged_files passing. The original observation was made while four wave runners were building concurrently, and every failure was pinned at exactly 30.0s -- the env timeout -- which is consistent with CPU starvation under load rather than a code defect. Keeping the task open but the severity is likely overstated: the real question is whether the suite's 30s timeout is too tight to survive a loaded machine, not whether has_staged_files is broken.
+<!-- SECTION:NOTES:END -->
