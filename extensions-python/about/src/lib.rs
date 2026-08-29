@@ -414,12 +414,16 @@ fn normalize_urls(
     for (k, v) in urls {
         let norm = normalize_url_key(k);
         if let Some((first_key, first_url)) = out.get(&norm) {
-            // SEC-21: every field but `normalized_key` is verbatim
+            // SEC-21: every field here derives from verbatim
             // `pyproject.toml` text — an untrusted key or URL carrying a
             // newline or an SGR sequence could otherwise forge a log record.
-            // Debug-format them so they arrive quoted and escaped.
+            // Debug-format them all so they arrive quoted and escaped.
+            // `normalized_key` is no exception: `normalize_url_key` only
+            // trims the *ends*, lowercases, and maps `-` to a space, so an
+            // interior newline or ESC survives normalisation untouched and
+            // Display-formatting it would reopen the same hole.
             tracing::warn!(
-                normalized_key = %norm,
+                normalized_key = ?norm,
                 first_key = ?first_key,
                 first_url = ?first_url,
                 duplicate_key = ?k,
@@ -1000,6 +1004,35 @@ Documentation = "https://docs.x"
         assert!(
             logs.contains("recovery=\"keep-first\""),
             "warn must state the recovery: {logs}"
+        );
+    }
+
+    /// SEC-21: `normalize_url_key` only trims the *ends* of the key, so an
+    /// interior newline or ESC survives into `norm`. The collision warn must
+    /// therefore Debug-format `normalized_key` too — Display-formatting it
+    /// would let a hostile `[project.urls]` key forge a log record.
+    #[test]
+    fn colliding_url_keys_escape_control_chars_in_the_normalized_key() {
+        let mut urls = std::collections::BTreeMap::new();
+        // Both collapse to "home\n\u{1b}[31m page" under `normalize_url_key`.
+        urls.insert(
+            "Home\n\u{1b}[31m-Page".to_string(),
+            "https://first.dev".to_string(),
+        );
+        urls.insert(
+            "home\n\u{1b}[31m page".to_string(),
+            "https://second.dev".to_string(),
+        );
+
+        let (_, logs) = capture_warns(|| normalize_urls(&urls));
+
+        assert!(
+            logs.contains("normalized_key="),
+            "the collision warn must fire: {logs}"
+        );
+        assert!(
+            logs.contains("normalized_key=\"home\\n\\u{1b}[31m page\""),
+            "normalized_key must arrive Debug-escaped: {logs}"
         );
     }
 
