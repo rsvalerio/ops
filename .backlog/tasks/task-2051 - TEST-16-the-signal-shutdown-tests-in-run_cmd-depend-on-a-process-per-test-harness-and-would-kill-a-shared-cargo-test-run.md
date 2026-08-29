@@ -3,11 +3,11 @@ id: TASK-2051
 title: >-
   TEST-16: the signal-shutdown tests in run_cmd depend on a process-per-test
   harness and would kill a shared cargo test run
-status: To Do
+status: Done
 assignee:
   - TASK-2062
 created_date: '2026-08-29 12:54'
-updated_date: '2026-08-29 17:27'
+updated_date: '2026-08-29 17:43'
 labels:
   - code-review-rust
   - tests
@@ -33,5 +33,11 @@ Under `cargo nextest` — the project's declared harness — each test runs in i
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 the signal-shutdown tests either no longer mutate process-global signal dispositions in a way that affects sibling tests, or the process-per-test requirement is enforced/documented so a plain cargo test run cannot silently kill the harness
+- [x] #1 the signal-shutdown tests either no longer mutate process-global signal dispositions in a way that affects sibling tests, or the process-per-test requirement is enforced/documented so a plain cargo test run cannot silently kill the harness
 <!-- AC:END -->
+
+## Implementation Notes
+
+<!-- SECTION:NOTES:BEGIN -->
+Fixed in code-review wave TASK-2062. The two signalling tests in run_cmd::tests::signal_shutdown_tests were collapsed into one, sigterm_interrupts_the_plan_and_restores_default_dispositions, which asserts both TASK-1932 AC #5 (SIGTERM cuts the plan short and reports SIGTERM/143) and CONC-14 / TASK-2023 (SIGINT and SIGTERM are back on SIG_DFL afterwards). Exactly one test in the process now raises a signal, and it leaves the dispositions exactly where the process started, so no sibling test is affected and the undeclared process-per-test dependency is gone rather than merely documented. Verified by running the module under a plain in-process cargo test -p ops --all-features signal_shutdown_tests: 3 passed, no killed harness. The merged test doc comment records why the two assertions must share one test (tokio registers each OS handler behind a Once, so the SIG_DFL reset is not undoable in-process).
+<!-- SECTION:NOTES:END -->
