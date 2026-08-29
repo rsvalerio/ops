@@ -3,9 +3,11 @@ id: TASK-2026
 title: >-
   SEC-25: find_workspace_root_strict's off-chain rejection is a tautology on
   canonical paths, so the hardened variant adds no defence
-status: Triage
-assignee: []
+status: To Do
+assignee:
+  - TASK-2041
 created_date: '2026-08-28 20:16'
+updated_date: '2026-08-29 11:35'
 labels:
   - code-review-rust
   - security

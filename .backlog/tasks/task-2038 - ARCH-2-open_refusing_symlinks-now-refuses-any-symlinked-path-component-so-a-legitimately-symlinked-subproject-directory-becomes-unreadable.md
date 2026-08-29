@@ -3,10 +3,11 @@ id: TASK-2038
 title: >-
   ARCH-2: open_refusing_symlinks now refuses any symlinked path component, so a
   legitimately symlinked subproject directory becomes unreadable
-status: Triage
-assignee: []
+status: To Do
+assignee:
+  - TASK-2041
 created_date: '2026-08-29 00:35'
-updated_date: '2026-08-29 10:06'
+updated_date: '2026-08-29 11:35'
 labels:
   - code-review-rust
   - architecture

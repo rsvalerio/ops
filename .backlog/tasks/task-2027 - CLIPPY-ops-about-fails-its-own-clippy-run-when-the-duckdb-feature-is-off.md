@@ -1,9 +1,11 @@
 ---
 id: TASK-2027
 title: 'CLIPPY: ops-about fails its own clippy run when the duckdb feature is off'
-status: Triage
-assignee: []
+status: To Do
+assignee:
+  - TASK-2049
 created_date: '2026-08-28 20:25'
+updated_date: '2026-08-29 11:36'
 labels:
   - code-review-rust
   - readability

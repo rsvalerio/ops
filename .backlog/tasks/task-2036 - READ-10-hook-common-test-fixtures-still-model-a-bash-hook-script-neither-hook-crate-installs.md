@@ -3,9 +3,11 @@ id: TASK-2036
 title: >-
   READ-10: hook-common test fixtures still model a bash hook script neither hook
   crate installs
-status: Triage
-assignee: []
+status: To Do
+assignee:
+  - TASK-2045
 created_date: '2026-08-28 23:24'
+updated_date: '2026-08-29 11:35'
 labels:
   - code-review-rust
   - tests

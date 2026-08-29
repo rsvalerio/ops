@@ -3,9 +3,11 @@ id: TASK-2034
 title: >-
   DRY-1: two CwdGuard implementations — crates/cli's mutex-serialised one and
   the new ops-hook-common test-helper copy
-status: Triage
-assignee: []
+status: To Do
+assignee:
+  - TASK-2045
 created_date: '2026-08-28 23:14'
+updated_date: '2026-08-29 11:35'
 labels:
   - code-review-rust
   - duplication

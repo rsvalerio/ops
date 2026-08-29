@@ -3,9 +3,11 @@ id: TASK-2020
 title: >-
   SEC-21: .ops.toml-derived command ids and aliases still reach tracing fields
   via Display in ops-runner
-status: Triage
-assignee: []
+status: To Do
+assignee:
+  - TASK-2043
 created_date: '2026-08-28 19:28'
+updated_date: '2026-08-29 11:35'
 labels:
   - code-review-rust
   - security

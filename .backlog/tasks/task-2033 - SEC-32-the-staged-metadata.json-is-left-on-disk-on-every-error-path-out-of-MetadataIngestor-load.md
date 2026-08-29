@@ -3,9 +3,11 @@ id: TASK-2033
 title: >-
   SEC-32: the staged metadata.json is left on disk on every error path out of
   MetadataIngestor::load
-status: Triage
-assignee: []
+status: To Do
+assignee:
+  - TASK-2042
 created_date: '2026-08-28 21:59'
+updated_date: '2026-08-29 11:35'
 labels:
   - code-review-rust
   - security

@@ -3,9 +3,11 @@ id: TASK-2022
 title: >-
   CONC-9: the post-exit capture drain deadline is a hardcoded 5s with no
   operator knob
-status: Triage
-assignee: []
+status: To Do
+assignee:
+  - TASK-2043
 created_date: '2026-08-28 19:42'
+updated_date: '2026-08-29 11:35'
 labels:
   - code-review-rust
   - concurrency

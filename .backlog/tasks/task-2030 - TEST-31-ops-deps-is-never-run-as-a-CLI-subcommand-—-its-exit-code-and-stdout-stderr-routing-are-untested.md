@@ -3,9 +3,11 @@ id: TASK-2030
 title: >-
   TEST-31: ops deps is never run as a CLI subcommand — its exit code and
   stdout/stderr routing are untested
-status: Triage
-assignee: []
+status: To Do
+assignee:
+  - TASK-2046
 created_date: '2026-08-28 20:52'
+updated_date: '2026-08-29 11:35'
 labels:
   - code-review-rust
   - test-quality

@@ -3,9 +3,11 @@ id: TASK-2017
 title: >-
   SEC-33: DataProvider::provide is synchronous and uninterruptible — a slow
   filesystem-walking provider stalls the CLI with no upper bound
-status: Triage
-assignee: []
+status: To Do
+assignee:
+  - TASK-2047
 created_date: '2026-08-28 15:58'
+updated_date: '2026-08-29 11:35'
 labels:
   - code-review-rust
   - security

@@ -3,9 +3,11 @@ id: TASK-2031
 title: >-
   PATTERN-1: the terraform HCL scanner does not understand heredocs, so a
   heredoc body's braces and comment markers are read as structure
-status: Triage
-assignee: []
+status: To Do
+assignee:
+  - TASK-2050
 created_date: '2026-08-28 21:26'
+updated_date: '2026-08-29 11:36'
 labels:
   - code-review-rust
   - idioms-correctness

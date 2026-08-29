@@ -3,9 +3,11 @@ id: TASK-2023
 title: >-
   CONC-14: after the shutdown path fires, a second Ctrl-C cannot force-quit a
   wedged teardown
-status: Triage
-assignee: []
+status: To Do
+assignee:
+  - TASK-2043
 created_date: '2026-08-28 19:42'
+updated_date: '2026-08-29 11:35'
 labels:
   - code-review-rust
   - concurrency

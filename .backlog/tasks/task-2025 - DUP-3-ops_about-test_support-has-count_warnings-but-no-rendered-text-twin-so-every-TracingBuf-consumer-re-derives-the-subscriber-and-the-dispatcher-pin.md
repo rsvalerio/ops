@@ -3,10 +3,11 @@ id: TASK-2025
 title: >-
   DUP-3: ops_about::test_support has count_warnings but no rendered-text twin,
   so every TracingBuf consumer re-derives the subscriber and the dispatcher pin
-status: Triage
-assignee: []
+status: To Do
+assignee:
+  - TASK-2045
 created_date: '2026-08-28 20:11'
-updated_date: '2026-08-28 20:27'
+updated_date: '2026-08-29 11:35'
 labels:
   - code-review-rust
   - duplication

@@ -3,9 +3,11 @@ id: TASK-2028
 title: >-
   PERF-1: load_workspace_manifest now runs a canonicalizing ancestor walk on
   every call, including cache hits
-status: Triage
-assignee: []
+status: To Do
+assignee:
+  - TASK-2048
 created_date: '2026-08-28 20:27'
+updated_date: '2026-08-29 11:35'
 labels:
   - code-review-rust
   - performance

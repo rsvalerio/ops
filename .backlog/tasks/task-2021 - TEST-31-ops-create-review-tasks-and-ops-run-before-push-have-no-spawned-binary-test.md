@@ -3,9 +3,11 @@ id: TASK-2021
 title: >-
   TEST-31: ops create-review-tasks and ops run-before-push have no
   spawned-binary test
-status: Triage
-assignee: []
+status: To Do
+assignee:
+  - TASK-2046
 created_date: '2026-08-28 19:37'
+updated_date: '2026-08-29 11:35'
 labels:
   - code-review-rust
   - test-quality

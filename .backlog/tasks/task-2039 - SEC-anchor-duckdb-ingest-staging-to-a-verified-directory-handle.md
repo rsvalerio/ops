@@ -1,9 +1,11 @@
 ---
 id: TASK-2039
 title: 'SEC: anchor duckdb ingest staging to a verified directory handle'
-status: Triage
-assignee: []
+status: To Do
+assignee:
+  - TASK-2041
 created_date: '2026-08-29 06:35'
+updated_date: '2026-08-29 11:35'
 labels:
   - security
   - duckdb

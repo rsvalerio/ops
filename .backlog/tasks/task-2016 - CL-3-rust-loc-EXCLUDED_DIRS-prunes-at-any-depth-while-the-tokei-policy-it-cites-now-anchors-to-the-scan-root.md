@@ -3,9 +3,11 @@ id: TASK-2016
 title: >-
   CL-3: rust-loc EXCLUDED_DIRS prunes at any depth while the tokei policy it
   cites now anchors to the scan root
-status: Triage
-assignee: []
+status: To Do
+assignee:
+  - TASK-2050
 created_date: '2026-08-28 15:56'
+updated_date: '2026-08-29 11:36'
 labels:
   - code-review-rust
   - cognitive-load

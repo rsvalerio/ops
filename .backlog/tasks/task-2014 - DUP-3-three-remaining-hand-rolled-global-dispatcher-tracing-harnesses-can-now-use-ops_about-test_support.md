@@ -3,9 +3,11 @@ id: TASK-2014
 title: >-
   DUP-3: three remaining hand-rolled global-dispatcher tracing harnesses can now
   use ops_about::test_support
-status: Triage
-assignee: []
+status: To Do
+assignee:
+  - TASK-2045
 created_date: '2026-08-28 15:33'
+updated_date: '2026-08-29 11:35'
 labels:
   - code-review-rust
   - duplication

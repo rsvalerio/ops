@@ -3,10 +3,11 @@ id: TASK-2035
 title: >-
   SEC-14: the gitdir anchor degenerates to / for a shallow pointer parent,
   making containment vacuous
-status: Triage
-assignee: []
+status: To Do
+assignee:
+  - TASK-2041
 created_date: '2026-08-28 23:17'
-updated_date: '2026-08-29 06:55'
+updated_date: '2026-08-29 11:35'
 labels:
   - code-review-rust
   - security

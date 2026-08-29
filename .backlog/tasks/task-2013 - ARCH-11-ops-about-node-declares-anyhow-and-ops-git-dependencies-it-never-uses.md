@@ -1,9 +1,11 @@
 ---
 id: TASK-2013
 title: 'ARCH-11: ops-about-node declares anyhow and ops-git dependencies it never uses'
-status: Triage
-assignee: []
+status: To Do
+assignee:
+  - TASK-2049
 created_date: '2026-08-28 15:32'
+updated_date: '2026-08-29 11:35'
 labels:
   - code-review-rust
   - architecture

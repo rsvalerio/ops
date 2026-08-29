@@ -3,9 +3,11 @@ id: TASK-2029
 title: >-
   CL-3: ensure_tools probes cargo in Path::new(".") instead of the context's
   working directory
-status: Triage
-assignee: []
+status: To Do
+assignee:
+  - TASK-2050
 created_date: '2026-08-28 20:51'
+updated_date: '2026-08-29 11:36'
 labels:
   - code-review-rust
   - idioms-correctness

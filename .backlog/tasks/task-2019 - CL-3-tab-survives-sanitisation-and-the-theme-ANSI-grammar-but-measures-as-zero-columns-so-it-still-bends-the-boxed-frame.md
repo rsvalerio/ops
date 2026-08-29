@@ -3,9 +3,11 @@ id: TASK-2019
 title: >-
   CL-3: tab survives sanitisation and the theme ANSI grammar but measures as
   zero columns, so it still bends the boxed frame
-status: Triage
-assignee: []
+status: To Do
+assignee:
+  - TASK-2044
 created_date: '2026-08-28 19:28'
+updated_date: '2026-08-29 11:35'
 labels:
   - code-review-rust
   - security

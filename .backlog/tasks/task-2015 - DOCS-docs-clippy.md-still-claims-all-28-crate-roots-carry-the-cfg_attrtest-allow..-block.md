@@ -3,9 +3,11 @@ id: TASK-2015
 title: >-
   DOCS: docs/clippy.md still claims all 28 crate roots carry the cfg_attr(test,
   allow(..)) block
-status: Triage
-assignee: []
+status: To Do
+assignee:
+  - TASK-2049
 created_date: '2026-08-28 15:56'
+updated_date: '2026-08-29 11:35'
 labels:
   - code-review-rust
   - documentation

@@ -3,9 +3,11 @@ id: TASK-2018
 title: >-
   SEC-38: ops_duckdb::downcast_duckdb calls as_any() on an Arc receiver, so
   get_db and try_provide_from_db never find the DuckDb handle
-status: Triage
-assignee: []
+status: To Do
+assignee:
+  - TASK-2042
 created_date: '2026-08-28 19:28'
+updated_date: '2026-08-29 11:35'
 labels:
   - code-review-rust
   - correctness

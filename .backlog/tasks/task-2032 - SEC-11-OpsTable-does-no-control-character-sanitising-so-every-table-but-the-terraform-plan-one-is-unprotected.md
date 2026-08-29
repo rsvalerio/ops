@@ -3,9 +3,11 @@ id: TASK-2032
 title: >-
   SEC-11: OpsTable does no control-character sanitising, so every table but the
   terraform plan one is unprotected
-status: Triage
-assignee: []
+status: To Do
+assignee:
+  - TASK-2044
 created_date: '2026-08-28 21:30'
+updated_date: '2026-08-29 11:35'
 labels:
   - code-review-rust
   - security

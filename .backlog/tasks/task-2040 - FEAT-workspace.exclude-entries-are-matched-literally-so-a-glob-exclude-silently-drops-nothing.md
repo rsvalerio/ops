@@ -3,9 +3,11 @@ id: TASK-2040
 title: >-
   FEAT: workspace.exclude entries are matched literally, so a glob exclude
   silently drops nothing
-status: Triage
-assignee: []
+status: To Do
+assignee:
+  - TASK-2048
 created_date: '2026-08-29 06:53'
+updated_date: '2026-08-29 11:35'
 labels:
   - code-review-rust
 dependencies: []

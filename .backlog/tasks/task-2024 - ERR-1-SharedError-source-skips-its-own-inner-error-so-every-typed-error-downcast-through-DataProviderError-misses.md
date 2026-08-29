@@ -3,9 +3,11 @@ id: TASK-2024
 title: >-
   ERR-1: SharedError::source() skips its own inner error, so every typed-error
   downcast through DataProviderError misses
-status: Triage
-assignee: []
+status: To Do
+assignee:
+  - TASK-2047
 created_date: '2026-08-28 20:07'
+updated_date: '2026-08-29 11:35'
 labels:
   - code-review-rust
   - error-handling
