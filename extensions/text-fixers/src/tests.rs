@@ -407,6 +407,9 @@ fn tracked_mode_end_to_end_fixes_only_tracked_files() {
 fn a_tracked_run_outside_a_repository_announces_the_downgrade() {
     let dir = tempfile::tempdir().unwrap();
     let root = dir.path();
+    if !crate::test_support::git_available() {
+        return; // No git at all: the downgrade reason is GitUnavailable, not NotARepository.
+    }
     if crate::test_support::is_inside_repo(root) {
         return; // TMPDIR lives inside a repository; the fixture is void.
     }
