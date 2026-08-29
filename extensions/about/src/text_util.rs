@@ -141,6 +141,15 @@ pub fn pad_to_width_plain(s: &str, width: usize) -> String {
 /// unaffected — every ASCII `char` is its own one-column cluster.
 #[must_use]
 pub fn truncate_to_width(s: &str, max_width: usize) -> String {
+    // READ-6: a zero-column budget has room for nothing at all — not even the
+    // ellipsis. Without this guard the loop below compares against
+    // `max_width.saturating_sub(1)` == 0, so the first cluster trips the cut
+    // and the function returns a one-column `…` for a zero-column request,
+    // overflowing exactly the caller that asked for no room. An empty `s`
+    // already returned `""`; this makes the answer uniform.
+    if max_width == 0 {
+        return String::new();
+    }
     let mut result = String::new();
     let mut width: usize = 0;
 
@@ -413,6 +422,23 @@ mod tests {
     #[test]
     fn truncate_to_width_empty() {
         assert_eq!(truncate_to_width("", 10), "");
+    }
+
+    /// A zero-column budget must yield zero columns. The ellipsis is one
+    /// column wide, so emitting it here would overflow the very caller that
+    /// asked for no room at all.
+    #[test]
+    fn truncate_to_width_zero_max_emits_nothing() {
+        for s in [
+            "",
+            "a",
+            "hello",
+            "\u{1f468}\u{200d}\u{1f469}\u{200d}\u{1f467}",
+        ] {
+            let out = truncate_to_width(s, 0);
+            assert_eq!(out, "", "truncate_to_width({s:?}, 0) produced {out:?}");
+            assert_eq!(display_width(&out), 0);
+        }
     }
 
     #[test]
