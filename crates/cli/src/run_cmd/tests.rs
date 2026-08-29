@@ -1112,12 +1112,16 @@ mod dry_run_override_warnings_tests {
 // -- CONC-14 / TASK-1932: signal shutdown path --
 
 mod signal_shutdown_tests {
-    use crate::run_cmd::{
-        exit_code_for_signal, run_until_signal, PlanOutcome, SIGINT_SIGNO, SIGTERM_SIGNO,
-    };
+    use crate::run_cmd::{exit_code_for_signal, run_until_signal, PlanOutcome};
+    #[cfg(unix)]
+    use crate::run_cmd::{SIGINT_SIGNO, SIGTERM_SIGNO};
 
     /// The shell convention: 128 + signo. 130 for SIGINT (matching the
     /// existing `SIGINT_EXIT` constant), 143 for SIGTERM.
+    ///
+    /// The signal-number constants only exist on Unix, where the shutdown
+    /// handlers that read them are compiled.
+    #[cfg(unix)]
     #[test]
     fn signal_exit_codes_follow_the_128_plus_signo_convention() {
         assert_eq!(exit_code_for_signal(SIGINT_SIGNO), crate::SIGINT_EXIT);
@@ -1154,21 +1158,19 @@ mod signal_shutdown_tests {
             .enable_all()
             .build()
             .unwrap();
-        let outcome = rt.block_on(async {
-            let signaller = tokio::spawn(async {
-                // Give `run_until_signal` time to install its handlers.
-                tokio::time::sleep(std::time::Duration::from_millis(200)).await;
-                // SAFETY: `kill` with a valid signal number targeting our
-                // own pid; it touches no memory and cannot alias.
-                unsafe { libc::kill(libc::getpid(), libc::SIGTERM) };
-            });
-            let outcome = run_until_signal(async {
-                std::future::pending::<()>().await;
-            })
-            .await;
-            signaller.await.unwrap();
-            outcome
-        });
+        let outcome = rt.block_on(run_until_signal(async {
+            // TEST-9: raise the signal from inside the plan future rather
+            // than from a spawned task on a timer. `run_until_signal`
+            // installs both handlers before it first polls the plan, so by
+            // the time this line runs the default "terminate the process"
+            // disposition is already replaced — no sleep, and no race
+            // between handler installation and delivery.
+            //
+            // SAFETY: `kill` with a valid signal number targeting our own
+            // pid; it touches no memory and cannot alias.
+            unsafe { libc::kill(libc::getpid(), libc::SIGTERM) };
+            std::future::pending::<()>().await;
+        }));
         match outcome {
             PlanOutcome::Interrupted(signo) => {
                 assert_eq!(signo, SIGTERM_SIGNO);

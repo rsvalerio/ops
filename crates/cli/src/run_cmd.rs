@@ -367,7 +367,13 @@ where
 }
 
 /// POSIX signal numbers, spelled out so this file does not need `libc`.
+///
+/// Both are read only from the `#[cfg(unix)]` arm of [`run_until_signal`],
+/// so they are compiled for Unix only — otherwise a non-Unix build carries
+/// two constants nothing can reference and warns as dead code.
+#[cfg(unix)]
 const SIGINT_SIGNO: i32 = 2;
+#[cfg(unix)]
 const SIGTERM_SIGNO: i32 = 15;
 
 /// Map a shutdown signal to the shell convention of `128 + signo`
