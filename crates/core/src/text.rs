@@ -133,56 +133,251 @@ pub fn manifest_max_bytes() -> u64 {
     )
 }
 
-/// Open `path` for reading while atomically refusing to follow symlinks.
+/// Open `path` for reading, enforcing that the opened object is a **regular
+/// file reached without traversing a symlink at any component**.
 ///
-/// SEC-25 (TASK-1442 / TASK-1461 / TASK-1468): `ops` is invoked on
-/// third-party repos; an adversarial repo can plant
+/// # Boundary enforced
+///
+/// On Unix the resolution is performed one component at a time with
+/// `openat(2)` from the previously opened directory descriptor, each step
+/// carrying `O_NOFOLLOW`, so the guarantee is:
+///
+/// 1. **No component of `path` is a symlink** — not just the final one.
+/// 2. Every intermediate component is a **directory**, and the final one is a
+///    **regular file**; FIFOs, sockets, and character / block devices are
+///    refused.
+/// 3. The walk cannot be raced: each component is resolved relative to a
+///    descriptor already proven to be a symlink-free directory, so a swap
+///    between two steps cannot redirect a later one outside the chain
+///    (`..` and `/` are resolved by the kernel and are never symlinks).
+///
+/// SEC-25 (TASK-1442 / TASK-1461 / TASK-1468) and SEC-14 (TASK-1810): `ops`
+/// is invoked on third-party repos; an adversarial repo can plant
 /// `package.json -> /etc/passwd` (or `.ops.toml -> /etc/shadow`) and leak
-/// privileged file contents through diagnostics. Refusing symlinks at the
-/// kernel level via `O_NOFOLLOW` on Unix closes the TOCTOU race between a
-/// `symlink_metadata` probe and `File::open` (which follows symlinks).
+/// privileged file contents through diagnostics. A bare `O_NOFOLLOW` guards
+/// only the last component, so `members = ["evil"]` plus a symlink
+/// `evil -> /etc` still reached `/etc/Cargo.toml`. The component walk closes
+/// that one directory level up.
 ///
-/// On Unix the open fails with `ELOOP` when the final path component is a
-/// symlink; that is remapped to `ErrorKind::InvalidInput` with a stable
-/// `refusing to follow symlink at <path>` message so SEC-25 tests pin a
-/// single surface across libc variants (Linux returns `ELOOP`; some BSDs
-/// return `EMLINK`). On non-Unix targets the helper falls back to a
-/// `symlink_metadata` probe — TOCTOU-prone but acceptable since the
-/// adversarial-repo threat model is exercised on Unix.
+/// SEC-33 (TASK-1853): the final open also carries `O_NONBLOCK` and the
+/// descriptor's type is checked with `fstat(2)` **before** any read, so a
+/// `mkfifo go.mod` in a hostile checkout cannot wedge `ops` inside `open(2)`
+/// waiting for a writer. `O_NONBLOCK` is cleared once the type check passes,
+/// so the subsequent read keeps ordinary blocking semantics.
+///
+/// # Errors
+///
+/// A refused symlink and a refused non-regular file both surface as
+/// [`std::io::ErrorKind::InvalidInput`] with a stable message
+/// (`refusing to follow symlink at <path>` / `refusing to open non-regular
+/// file at <path>`), so tests pin a single surface across libc variants
+/// (Linux returns `ELOOP`; some BSDs return `EMLINK`). A directory at the
+/// final component keeps the platform `IsADirectory` surface. Every other
+/// failure propagates verbatim.
+///
+/// On non-Unix targets the helper falls back to a `symlink_metadata` probe of
+/// the final component only: it does **not** enforce (1) or (3), and the gap
+/// between the probe and the open is TOCTOU-prone. That is acceptable because
+/// the adversarial-repo threat model is exercised on Unix.
 pub(crate) fn open_refusing_symlinks(path: &Path) -> std::io::Result<std::fs::File> {
     #[cfg(unix)]
     {
-        use std::os::unix::fs::OpenOptionsExt;
-        match std::fs::OpenOptions::new()
-            .read(true)
-            .custom_flags(libc::O_NOFOLLOW)
-            .open(path)
-        {
-            Ok(f) => Ok(f),
-            Err(e) if is_symlink_refusal(&e) => Err(std::io::Error::new(
-                std::io::ErrorKind::InvalidInput,
-                format!("refusing to follow symlink at {:?}", path.display()),
-            )),
-            Err(e) => Err(e),
-        }
+        unix_open::open_regular_no_symlink(path)
     }
     #[cfg(not(unix))]
     {
         if let Ok(meta) = std::fs::symlink_metadata(path) {
             if meta.file_type().is_symlink() {
-                return Err(std::io::Error::new(
-                    std::io::ErrorKind::InvalidInput,
-                    format!("refusing to follow symlink at {:?}", path.display()),
-                ));
+                return Err(refused_symlink(path));
+            }
+            if !meta.file_type().is_file() && !meta.file_type().is_dir() {
+                return Err(refused_non_regular(path));
             }
         }
         std::fs::File::open(path)
     }
 }
 
+/// Stable `InvalidInput` surface for a refused symlink. Shared by the Unix
+/// walk and the non-Unix fallback so both spell the message identically.
+fn refused_symlink(path: &Path) -> std::io::Error {
+    std::io::Error::new(
+        std::io::ErrorKind::InvalidInput,
+        format!("refusing to follow symlink at {:?}", path.display()),
+    )
+}
+
+/// Stable `InvalidInput` surface for a refused FIFO / socket / device.
+fn refused_non_regular(path: &Path) -> std::io::Error {
+    std::io::Error::new(
+        std::io::ErrorKind::InvalidInput,
+        format!("refusing to open non-regular file at {:?}", path.display()),
+    )
+}
+
+/// SEC-14 / TASK-1810 + SEC-33 / TASK-1853: component-by-component `openat`
+/// walk backing [`open_refusing_symlinks`] on Unix.
 #[cfg(unix)]
-fn is_symlink_refusal(e: &std::io::Error) -> bool {
-    matches!(e.raw_os_error(), Some(libc::ELOOP | libc::EMLINK))
+mod unix_open {
+    use std::ffi::{CStr, CString};
+    use std::io;
+    use std::os::unix::ffi::OsStrExt as _;
+    use std::os::unix::io::{AsRawFd, FromRawFd as _, IntoRawFd as _, OwnedFd};
+    use std::path::{Component, Path};
+
+    /// Flags shared by every step of the walk.
+    ///
+    /// * `O_NOFOLLOW` — the component must not be a symlink.
+    /// * `O_NONBLOCK` — a FIFO planted at any component cannot block the
+    ///   `open(2)` itself (SEC-33); cleared on the final descriptor once the
+    ///   type check has passed.
+    /// * `O_CLOEXEC` — the intermediate descriptors must not leak into the
+    ///   subprocesses `ops` spawns.
+    ///
+    /// `O_DIRECTORY` is deliberately **not** set on intermediate components:
+    /// combined with `O_NOFOLLOW` it makes Linux report a symlink as
+    /// `ENOTDIR`, which is indistinguishable from "a plain file in the middle
+    /// of the path". Opening without it yields an unambiguous `ELOOP`, and the
+    /// `fstat` below enforces the directory requirement instead.
+    const WALK_FLAGS: libc::c_int =
+        libc::O_RDONLY | libc::O_NOFOLLOW | libc::O_NONBLOCK | libc::O_CLOEXEC;
+
+    /// `openat(2)` relative to `dir` (or the process cwd when `dir` is
+    /// `None`), returning an owned descriptor.
+    fn openat(dir: Option<&OwnedFd>, name: &CStr, flags: libc::c_int) -> io::Result<OwnedFd> {
+        let dirfd = dir.map_or(libc::AT_FDCWD, AsRawFd::as_raw_fd);
+        // SAFETY: `dirfd` is either `AT_FDCWD` or a descriptor owned by the
+        // live `OwnedFd` borrowed for this call, and `name` is a
+        // NUL-terminated C string that outlives the call. `openat` returns a
+        // fresh descriptor or -1.
+        let raw = unsafe { libc::openat(dirfd, name.as_ptr(), flags) };
+        if raw < 0 {
+            return Err(io::Error::last_os_error());
+        }
+        // SAFETY: `raw` is a fresh, non-negative descriptor returned by
+        // `openat` and not owned by anything else.
+        Ok(unsafe { OwnedFd::from_raw_fd(raw) })
+    }
+
+    /// `st_mode & S_IFMT` for an open descriptor.
+    fn file_type_bits(fd: &OwnedFd) -> io::Result<libc::mode_t> {
+        let mut stat = std::mem::MaybeUninit::<libc::stat>::uninit();
+        // SAFETY: `fd` is a live descriptor and `stat` is a valid, properly
+        // aligned, writable `libc::stat` slot for the duration of the call.
+        let ret = unsafe { libc::fstat(fd.as_raw_fd(), stat.as_mut_ptr()) };
+        if ret < 0 {
+            return Err(io::Error::last_os_error());
+        }
+        // SAFETY: `fstat` returned 0, so it fully initialised `stat`.
+        let stat = unsafe { stat.assume_init() };
+        Ok(stat.st_mode & libc::S_IFMT)
+    }
+
+    /// Drop `O_NONBLOCK` from an open descriptor so the caller's reads keep
+    /// ordinary blocking semantics. A no-op for regular files on every
+    /// mainstream kernel, but the flag is not part of the contract callers
+    /// expect from a `std::fs::File`.
+    fn clear_nonblock(fd: &OwnedFd) -> io::Result<()> {
+        // SAFETY: `fd` is a live descriptor; `F_GETFL` / `F_SETFL` take no
+        // pointer arguments.
+        let flags = unsafe { libc::fcntl(fd.as_raw_fd(), libc::F_GETFL) };
+        if flags < 0 {
+            return Err(io::Error::last_os_error());
+        }
+        // SAFETY: as above; `F_SETFL` takes an `int` argument.
+        let ret = unsafe { libc::fcntl(fd.as_raw_fd(), libc::F_SETFL, flags & !libc::O_NONBLOCK) };
+        if ret < 0 {
+            return Err(io::Error::last_os_error());
+        }
+        Ok(())
+    }
+
+    fn is_symlink_refusal(e: &io::Error) -> bool {
+        matches!(e.raw_os_error(), Some(libc::ELOOP | libc::EMLINK))
+    }
+
+    fn to_cstring(bytes: &[u8], path: &Path) -> io::Result<CString> {
+        CString::new(bytes).map_err(|_| {
+            io::Error::new(
+                io::ErrorKind::InvalidInput,
+                format!(
+                    "path component contains an interior NUL at {:?}",
+                    path.display()
+                ),
+            )
+        })
+    }
+
+    /// Open one intermediate component and prove it is a directory.
+    fn open_dir_component(cur: Option<&OwnedFd>, name: &CStr, path: &Path) -> io::Result<OwnedFd> {
+        let fd = openat(cur, name, WALK_FLAGS).map_err(|e| {
+            if is_symlink_refusal(&e) {
+                super::refused_symlink(path)
+            } else {
+                e
+            }
+        })?;
+        if file_type_bits(&fd)? == libc::S_IFDIR {
+            Ok(fd)
+        } else {
+            Err(io::Error::from_raw_os_error(libc::ENOTDIR))
+        }
+    }
+
+    /// Walk `path` component by component, refusing a symlink at any step,
+    /// and return the final component as a regular-file handle.
+    pub(super) fn open_regular_no_symlink(path: &Path) -> io::Result<std::fs::File> {
+        let components: Vec<Component<'_>> = path.components().collect();
+        let Some((last, prefix)) = components.split_last() else {
+            // An empty path never names a file; report it the way `open(2)`
+            // would rather than inventing a new surface.
+            return Err(io::Error::from_raw_os_error(libc::ENOENT));
+        };
+        let mut cur: Option<OwnedFd> = None;
+        for component in prefix {
+            let name: &[u8] = match component {
+                Component::RootDir => b"/",
+                // `..` and `.` are entries the kernel resolves; neither can be
+                // a symlink, so the walk stays anchored.
+                Component::ParentDir => b"..",
+                Component::CurDir => continue,
+                Component::Normal(name) => name.as_bytes(),
+                // Unreachable on Unix (`Prefix` is a Windows drive/UNC form),
+                // but refusing beats silently skipping an unmodelled segment.
+                Component::Prefix(_) => {
+                    return Err(io::Error::new(
+                        io::ErrorKind::InvalidInput,
+                        format!("unsupported path prefix at {:?}", path.display()),
+                    ))
+                }
+            };
+            let c_name = to_cstring(name, path)?;
+            cur = Some(open_dir_component(cur.as_ref(), &c_name, path)?);
+        }
+        let Component::Normal(final_name) = last else {
+            // `/`, `.`, or `..` as the whole path: a directory, never a
+            // manifest. Keep the platform surface callers already classify.
+            return Err(io::Error::from_raw_os_error(libc::EISDIR));
+        };
+        let c_name = to_cstring(final_name.as_bytes(), path)?;
+        let fd = openat(cur.as_ref(), &c_name, WALK_FLAGS).map_err(|e| {
+            if is_symlink_refusal(&e) {
+                super::refused_symlink(path)
+            } else {
+                e
+            }
+        })?;
+        // SEC-33 / TASK-1853: type-check before the caller reads a byte.
+        match file_type_bits(&fd)? {
+            libc::S_IFREG => {}
+            libc::S_IFDIR => return Err(io::Error::from_raw_os_error(libc::EISDIR)),
+            _ => return Err(super::refused_non_regular(path)),
+        }
+        clear_nonblock(&fd)?;
+        // SAFETY: `into_raw_fd` transfers sole ownership of the descriptor to
+        // the `File`, which closes it exactly once on drop.
+        Ok(unsafe { std::fs::File::from_raw_fd(fd.into_raw_fd()) })
+    }
 }
 
 /// Read `path` to a `String`, capped at [`manifest_max_bytes`] bytes.
@@ -588,6 +783,83 @@ mod tests {
         );
         assert!(
             err.to_string().contains("manifest.toml"),
+            "error should name the offending path, got {err}"
+        );
+    }
+
+    /// SEC-14 / TASK-1810: a symlink at an *intermediate* component must be
+    /// refused too. `O_NOFOLLOW` alone only guards the final component, so a
+    /// hostile repo shipping `members = ["evil"]` plus `evil -> /etc` used to
+    /// reach `/etc/Cargo.toml`.
+    #[cfg(unix)]
+    #[test]
+    fn read_capped_to_string_refuses_symlinked_intermediate_directory() {
+        let root = tempfile::tempdir().unwrap();
+        let outside = tempfile::tempdir().unwrap();
+        std::fs::write(outside.path().join("Cargo.toml"), b"secret").unwrap();
+        let link = root.path().join("link");
+        std::os::unix::fs::symlink(outside.path(), &link).unwrap();
+
+        let err = read_capped_to_string_with(&link.join("Cargo.toml"), 1024)
+            .expect_err("a symlinked intermediate component must be rejected");
+        assert_eq!(err.kind(), std::io::ErrorKind::InvalidInput);
+        assert!(
+            err.to_string().contains("symlink"),
+            "error should mention symlink, got {err}"
+        );
+    }
+
+    /// SEC-14 / TASK-1810: the walk must still read an ordinary nested file —
+    /// the refusal is for symlinked components, not for depth.
+    #[cfg(unix)]
+    #[test]
+    fn read_capped_to_string_reads_through_real_nested_directories() {
+        let root = tempfile::tempdir().unwrap();
+        let nested = root.path().join("a").join("b");
+        std::fs::create_dir_all(&nested).unwrap();
+        std::fs::write(nested.join("Cargo.toml"), b"[package]").unwrap();
+
+        let got = read_capped_to_string_with(&nested.join("Cargo.toml"), 1024)
+            .expect("a symlink-free nested path must be readable");
+        assert_eq!(got, "[package]");
+    }
+
+    /// SEC-33 / TASK-1853: a FIFO planted at a manifest path must be refused,
+    /// not opened. `open(2)` on a FIFO without `O_NONBLOCK` blocks until a
+    /// writer appears, which wedged `ops` with no error and no diagnostic —
+    /// every downstream byte-cap defence lives *after* the open.
+    ///
+    /// The call runs on a helper thread with a wall-clock budget so a
+    /// regression fails the test instead of hanging the suite.
+    #[cfg(unix)]
+    #[test]
+    fn read_capped_to_string_refuses_fifo_without_blocking() {
+        let dir = tempfile::tempdir().unwrap();
+        let fifo = dir.path().join("go.mod");
+        let c_path = std::ffi::CString::new(fifo.as_os_str().as_encoded_bytes()).unwrap();
+        // SAFETY: `c_path` is a NUL-terminated path inside a temp dir that
+        // outlives the call; `mkfifo` takes no other pointer arguments.
+        let ret = unsafe { libc::mkfifo(c_path.as_ptr(), 0o600) };
+        assert_eq!(ret, 0, "mkfifo failed: {}", std::io::Error::last_os_error());
+
+        let (tx, rx) = std::sync::mpsc::channel();
+        let probe = fifo;
+        let handle = std::thread::spawn(move || {
+            let _ = tx.send(read_capped_to_string_with(&probe, 1024).map(|_| ()));
+        });
+        let outcome = rx
+            .recv_timeout(std::time::Duration::from_secs(10))
+            .expect("read_capped_to_string blocked on a FIFO instead of refusing it");
+        handle.join().unwrap();
+
+        let err = outcome.expect_err("a FIFO must be refused");
+        assert_eq!(err.kind(), std::io::ErrorKind::InvalidInput);
+        assert!(
+            err.to_string().contains("non-regular"),
+            "error should name the refusal reason, got {err}"
+        );
+        assert!(
+            err.to_string().contains("go.mod"),
             "error should name the offending path, got {err}"
         );
     }
