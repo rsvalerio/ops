@@ -1131,6 +1131,7 @@ mod signal_shutdown_tests {
 
     /// A plan that finishes on its own is not disturbed by the race.
     #[test]
+    #[serial_test::serial]
     fn plan_completes_normally_when_no_signal_arrives() {
         let rt = tokio::runtime::Builder::new_current_thread()
             .enable_all()
@@ -1150,8 +1151,15 @@ mod signal_shutdown_tests {
     /// The plan future below never completes on its own; the only way this
     /// test can return is through the signal arm. Dropping that future is
     /// exactly what cancels in-flight children in production.
+    ///
+    /// `#[serial]` (here and on the sibling `run_until_signal` test): the
+    /// signal below is delivered to the *process*, and `run_until_signal`
+    /// installs process-global handlers. Under an in-process, thread-per-test
+    /// harness a concurrently running test could otherwise observe — or
+    /// swallow — a SIGTERM that is not addressed to it.
     #[cfg(unix)]
     #[test]
+    #[serial_test::serial]
     fn sigterm_interrupts_the_plan_and_reports_sigterm() {
         let rt = tokio::runtime::Builder::new_multi_thread()
             .worker_threads(2)
