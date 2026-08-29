@@ -246,9 +246,22 @@ fn report_title_label_and_result_are_sanitised() {
 
         let lines = theme.render_report(&report, 200);
         let joined = lines.join("\n");
+        // Assert the exact raw payloads are gone rather than that no ESC
+        // appears anywhere: sanitising renders the title escape as the
+        // literal text `\x1b[2J`, so an "any ESC" check collapses to "the
+        // theme emitted no SGR of its own" and would fail whenever this
+        // process renders with colour on — a reason unrelated to sanitising.
         assert!(
-            !joined.contains('\u{1b}') || !joined.contains("[2J"),
+            !joined.contains("\u{1b}[2J"),
             "raw ESC from the title must not survive: {joined:?}"
+        );
+        assert!(
+            !joined.contains("\u{1b}[31m"),
+            "raw ESC from the label must not survive: {joined:?}"
+        );
+        assert!(
+            !joined.contains('\u{7}'),
+            "raw control byte from the result must not survive: {joined:?}"
         );
         assert!(
             joined.contains("\\x1b[2J"),
