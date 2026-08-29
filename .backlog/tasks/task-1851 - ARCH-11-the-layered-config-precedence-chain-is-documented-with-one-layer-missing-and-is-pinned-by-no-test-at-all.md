@@ -3,11 +3,11 @@ id: TASK-1851
 title: >-
   ARCH-11: the layered-config precedence chain is documented with one layer
   missing and is pinned by no test at all
-status: To Do
+status: Done
 assignee:
   - TASK-1983
 created_date: '2026-08-27 15:25'
-updated_date: '2026-08-28 14:09'
+updated_date: '2026-08-28 23:53'
 labels:
   - code-review-rust
   - architecture
@@ -69,8 +69,32 @@ The same gap means reordering the four merge calls at loader/mod.rs:213-227 — 
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 The module doc at config/mod.rs states all five layers in their real precedence order, including .ops.d between .ops.toml and env vars
-- [ ] #2 A test sets an OPS__ variable and asserts through the real load path that the value actually overrides the file layer, so a config-rs prefix-separator change fails the suite instead of silently no-opping
-- [ ] #3 A test asserts .ops.d/*.toml overrides a conflicting key in .ops.toml
-- [ ] #4 A test asserts the env layer overrides a conflicting key set in .ops.d
+- [x] #1 The module doc at config/mod.rs states all five layers in their real precedence order, including .ops.d between .ops.toml and env vars
+- [x] #2 A test sets an OPS__ variable and asserts through the real load path that the value actually overrides the file layer, so a config-rs prefix-separator change fails the suite instead of silently no-opping
+- [x] #3 A test asserts .ops.d/*.toml overrides a conflicting key in .ops.toml
+- [x] #4 A test asserts the env layer overrides a conflicting key set in .ops.d
 <!-- AC:END -->
+
+## Implementation Notes
+
+<!-- SECTION:NOTES:BEGIN -->
+AC #1: `crates/core/src/config/mod.rs` now lists all five layers in real
+precedence order with `.ops.d` as layer 4, above `.ops.toml`. The two
+out-of-crate repeats named in the description were also corrected in the same
+change, since nothing else was going to pick them up: `README.md:71` gained the
+missing `.ops.d` layer, and `docs/components.md:286` gained `.ops.d` *and* had
+its wrong env prefix fixed (`CARGO_OPS_*` -> `OPS__*`).
+
+AC #2-#4: three new `#[serial]` tests in `config::loader::tests`, all going
+through `load_config_at` with `XDG_CONFIG_HOME` isolated so they never observe
+the developer's real global config:
+
+- `env_layer_overrides_the_local_ops_toml` — sets `OPS__OUTPUT__THEME` and
+  asserts it wins. This is the one that turns a future `config-rs`
+  prefix-separator change from a silent no-op into a suite failure.
+- `conf_d_layer_overrides_the_local_ops_toml`
+- `env_layer_overrides_conf_d`
+
+Together they pin the ordering of the four merge calls in `load_config_at`, so
+reordering them now fails the suite.
+<!-- SECTION:NOTES:END -->

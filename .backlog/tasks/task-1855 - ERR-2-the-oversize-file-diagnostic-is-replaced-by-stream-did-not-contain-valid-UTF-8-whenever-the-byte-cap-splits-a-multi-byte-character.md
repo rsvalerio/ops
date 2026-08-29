@@ -3,11 +3,11 @@ id: TASK-1855
 title: >-
   ERR-2: the oversize-file diagnostic is replaced by 'stream did not contain
   valid UTF-8' whenever the byte cap splits a multi-byte character
-status: To Do
+status: Done
 assignee:
   - TASK-1983
 created_date: '2026-08-27 15:28'
-updated_date: '2026-08-28 14:09'
+updated_date: '2026-08-28 23:53'
 labels:
   - code-review-rust
   - error-handling
@@ -68,7 +68,13 @@ Neither file has a test at the multi-byte cap boundary — the existing cases (`
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 The size check runs before UTF-8 validation in both read_capped_to_string_with and read_capped_toml_file_with, so an oversized file always reports the cap message and the override env var
-- [ ] #2 A file that is genuinely invalid UTF-8 and under the cap still reports the UTF-8 error, unchanged
-- [ ] #3 Both files gain a regression test whose content places a multi-byte character across the cap boundary and asserts the error names the cap and the override env var
+- [x] #1 The size check runs before UTF-8 validation in both read_capped_to_string_with and read_capped_toml_file_with, so an oversized file always reports the cap message and the override env var
+- [x] #2 A file that is genuinely invalid UTF-8 and under the cap still reports the UTF-8 error, unchanged
+- [x] #3 Both files gain a regression test whose content places a multi-byte character across the cap boundary and asserts the error names the cap and the override env var
 <!-- AC:END -->
+
+## Implementation Notes
+
+<!-- SECTION:NOTES:BEGIN -->
+Both readers now `take(cap + 1).read_to_end` into a `Vec<u8>`, check the byte count against the cap, and only then `String::from_utf8` — so an oversized file always reports the cap and the override env var, and an under-cap file that is genuinely invalid UTF-8 still errors with `InvalidData` (`text.rs`) / the same read context (`loader/mod.rs`). Four new tests, two per file: `..._oversize_multibyte_boundary_reports_cap` (cap 4, content `"aaa€"` so the window ends mid-sequence) and `..._under_cap_invalid_utf8_still_errors`.
+<!-- SECTION:NOTES:END -->

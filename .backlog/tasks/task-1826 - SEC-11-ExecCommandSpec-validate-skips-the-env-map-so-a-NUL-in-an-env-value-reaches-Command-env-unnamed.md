@@ -3,11 +3,11 @@ id: TASK-1826
 title: >-
   SEC-11: ExecCommandSpec::validate skips the env map, so a NUL in an env value
   reaches Command::env unnamed
-status: To Do
+status: Done
 assignee:
   - TASK-1983
 created_date: '2026-08-27 11:33'
-updated_date: '2026-08-28 14:08'
+updated_date: '2026-08-28 23:52'
 labels:
   - code-review-rust
   - security
@@ -39,7 +39,13 @@ Keys have a second problem values do not: an env key containing `=` or a newline
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 validate iterates self.env and applies check_control_chars to every value, with the field name rendered as env[<key>] so the error names the offending variable
-- [ ] #2 validate rejects an env key containing '=' or any control character, with an error naming the command and the key
-- [ ] #3 Tests cover a NUL in an env value and an '=' in an env key, asserting the error message contains both the command name and the key
+- [x] #1 validate iterates self.env and applies check_control_chars to every value, with the field name rendered as env[<key>] so the error names the offending variable
+- [x] #2 validate rejects an env key containing '=' or any control character, with an error naming the command and the key
+- [x] #3 Tests cover a NUL in an env value and an '=' in an env key, asserting the error message contains both the command name and the key
 <!-- AC:END -->
+
+## Implementation Notes
+
+<!-- SECTION:NOTES:BEGIN -->
+Added `ExecCommandSpec::validate_env`, called from `validate`. Applies `check_control_chars` to every env value (field rendered as `env[<key>]`) and to every key (`env key "<key>"`), and rejects `=` in a key. Keys are visited in sorted order so the diagnostic is deterministic despite `HashMap`. Tests: `exec_spec_validate_rejects_nul_in_env_value`, `..._rejects_control_char_in_env_key`, `..._rejects_equals_in_env_key`, `..._accepts_plain_env`.
+<!-- SECTION:NOTES:END -->

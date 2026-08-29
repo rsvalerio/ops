@@ -3,11 +3,11 @@ id: TASK-1847
 title: >-
   SEC-14: a symlinked global config aborts the entire layered load, silently
   discarding the repo's own .ops.toml
-status: To Do
+status: Done
 assignee:
   - TASK-1983
 created_date: '2026-08-27 15:24'
-updated_date: '2026-08-28 14:09'
+updated_date: '2026-08-28 23:53'
 labels:
   - code-review-rust
   - security
@@ -72,8 +72,35 @@ Fix direction: scope the refusal to workspace-relative config paths, or (weaker 
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 A symlinked ~/.config/ops/config.toml no longer aborts the load; the repo's .ops.toml and .ops.d are still read and merged
-- [ ] #2 The symlink refusal is still enforced for workspace-relative config paths (.ops.toml, .ops.d/*.toml), with the existing SEC-25 tests unchanged
-- [ ] #3 The distinction between the two trust boundaries is documented where open_refusing_symlinks is called, so the next reader does not re-widen the policy
-- [ ] #4 A regression test symlinks the global config to a real file and asserts a repo .ops.toml command is present in the loaded Config
+- [x] #1 A symlinked ~/.config/ops/config.toml no longer aborts the load; the repo's .ops.toml and .ops.d are still read and merged
+- [x] #2 The symlink refusal is still enforced for workspace-relative config paths (.ops.toml, .ops.d/*.toml), with the existing SEC-25 tests unchanged
+- [x] #3 The distinction between the two trust boundaries is documented where open_refusing_symlinks is called, so the next reader does not re-widen the policy
+- [x] #4 A regression test symlinks the global config to a real file and asserts a repo .ops.toml command is present in the loaded Config
 <!-- AC:END -->
+
+## Implementation Notes
+
+<!-- SECTION:NOTES:BEGIN -->
+Fixed by **scoping** the refusal rather than by skip-with-warn, so a
+dotfile-managed global config actually loads instead of merely not breaking the
+other layers.
+
+- New `SymlinkPolicy { Refuse, Follow }` in `crates/core/src/config/loader/mod.rs`,
+  with the two-trust-boundaries reasoning documented on the enum (AC #3): the
+  workspace paths are repo-supplied and attacker-controlled; `$HOME` is the
+  user's own and is not a privilege boundary, and a symlink there is the normal
+  state under GNU Stow / chezmoi / nix home-manager.
+- `read_capped_toml_file` / `read_capped_toml_file_with` / `read_config_file`
+  keep `Refuse` (AC #2 — the SEC-25 tests are unchanged and still pass).
+- `read_config_file_following_symlinks` is `pub(super)` and used only by
+  `global::load_global_config_at`, with the same reasoning restated at the call
+  site so the next reader does not re-widen the policy.
+- The `OPS_TOML_MAX_BYTES` cap applies under both policies, so following a link
+  in `$HOME` cannot be turned into an unbounded read.
+
+AC #4: `symlinked_global_config_still_loads_the_local_layers` symlinks the
+global config to a real file and asserts both that the repo's `.ops.toml`
+command is present *and* that the symlinked global config was followed.
+`merge_conf_d_refuses_symlink_to_a_real_file` pins the other side — the
+relaxation must not leak into `.ops.d`.
+<!-- SECTION:NOTES:END -->

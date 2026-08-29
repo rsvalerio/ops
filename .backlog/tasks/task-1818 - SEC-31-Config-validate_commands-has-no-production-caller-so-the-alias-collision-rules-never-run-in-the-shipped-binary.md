@@ -3,11 +3,11 @@ id: TASK-1818
 title: >-
   SEC-31: Config::validate_commands has no production caller, so the
   alias-collision rules never run in the shipped binary
-status: To Do
+status: Done
 assignee:
   - TASK-1983
 created_date: '2026-08-27 11:33'
-updated_date: '2026-08-28 14:08'
+updated_date: '2026-08-28 23:52'
 labels:
   - code-review-rust
   - security
@@ -40,8 +40,39 @@ The binary does not have that behaviour. A `.ops.toml` where two commands declar
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 load_config_at (or a single documented setup path every CLI entry point traverses) invokes validate_commands with the stack-default plus extension-registered command ids as externals
-- [ ] #2 A test asserts that a .ops.toml declaring the same alias on two commands fails through the real load entry point, not only through a direct validate_commands call
-- [ ] #3 A test asserts that an alias shadowing an existing command name fails through the same real entry point
-- [ ] #4 If the checks must stay opt-in because externals are unknown at load time, the doc comments at root.rs:88-103 and root.rs:121-129 are corrected to say so, and the two alias rules are relocated to a path that does run before dispatch
+- [x] #1 load_config_at (or a single documented setup path every CLI entry point traverses) invokes validate_commands with the stack-default plus extension-registered command ids as externals
+- [x] #2 A test asserts that a .ops.toml declaring the same alias on two commands fails through the real load entry point, not only through a direct validate_commands call
+- [x] #3 A test asserts that an alias shadowing an existing command name fails through the same real entry point
+- [x] #4 If the checks must stay opt-in because externals are unknown at load time, the doc comments at root.rs:88-103 and root.rs:121-129 are corrected to say so, and the two alias rules are relocated to a path that does run before dispatch
 <!-- AC:END -->
+
+## Implementation Notes
+
+<!-- SECTION:NOTES:BEGIN -->
+Resolved via AC #4 (the task's own documented alternative), because AC #1 is not
+implementable as literally written: `load_config_at` lives in `ops-core` and has
+no access to the stack defaults or the extension command registry, so it cannot
+supply `externals` to `validate_commands`.
+
+What landed instead — the two alias-hygiene rules were **relocated to a path
+that does run before dispatch**:
+
+- Extracted the alias block out of `validate_commands` into a new
+  `Config::validate_aliases(&self, known)` (crates/core/src/config/root.rs).
+- `Config::validate` — the one validation `load_config_at` performs on every
+  `ops` invocation — now calls it with `known` narrowed to the config's own
+  command names. Narrowing only makes the collides-with-a-command-name rule miss
+  *external* names; it can never false-positive, and the duplicate-alias rule
+  does not depend on `known` at all.
+- `validate_commands` still calls it with the wider `known` including
+  `externals`, so its existing tests are unchanged.
+- The doc comments at the old root.rs:88-103 / 121-129 sites were rewritten:
+  `Config::validate` now states exactly what it does and does not cover, and why
+  composite reference/cycle/depth checks stay out (re-caught by the runner's
+  `expand_inner`) while alias hygiene must run here (duplicated nowhere).
+
+AC #2 and AC #3 are covered by new tests going through the real entry point
+(`load_config_at`), not a direct `validate_commands` call:
+`load_config_rejects_duplicate_alias_across_commands` and
+`load_config_rejects_alias_shadowing_a_command_name`.
+<!-- SECTION:NOTES:END -->

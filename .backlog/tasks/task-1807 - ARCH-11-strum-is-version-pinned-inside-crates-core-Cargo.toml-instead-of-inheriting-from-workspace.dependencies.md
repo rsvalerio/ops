@@ -3,11 +3,11 @@ id: TASK-1807
 title: >-
   ARCH-11: strum is version-pinned inside crates/core/Cargo.toml instead of
   inheriting from [workspace.dependencies]
-status: To Do
+status: Done
 assignee:
   - TASK-1983
 created_date: '2026-08-27 11:30'
-updated_date: '2026-08-28 14:08'
+updated_date: '2026-08-28 23:51'
 labels:
   - code-review-rust
   - architecture
@@ -38,7 +38,13 @@ strum = { version = "0.28", features = ["derive"] }
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 strum (with its derive feature) is declared once in the root [workspace.dependencies] table and crates/core/Cargo.toml inherits it with { workspace = true }
-- [ ] #2 No third-party dependency in crates/core/Cargo.toml carries an inline version string after the change
-- [ ] #3 cargo build --all-targets --workspace and cargo clippy --all-targets --workspace -- -D warnings pass, and Cargo.lock shows no version change for strum
+- [x] #1 strum (with its derive feature) is declared once in the root [workspace.dependencies] table and crates/core/Cargo.toml inherits it with { workspace = true }
+- [x] #2 No third-party dependency in crates/core/Cargo.toml carries an inline version string after the change
+- [x] #3 cargo build --all-targets --workspace and cargo clippy --all-targets --workspace -- -D warnings pass, and Cargo.lock shows no version change for strum
 <!-- AC:END -->
+
+## Implementation Notes
+
+<!-- SECTION:NOTES:BEGIN -->
+Both `config` and `strum` moved to the root `[workspace.dependencies]`; `crates/core/Cargo.toml` now inherits both with `{ workspace = true }` and carries no inline version string for any third-party dependency. `Cargo.lock` is unchanged (no version moved). `ops verify` clean.
+<!-- SECTION:NOTES:END -->
