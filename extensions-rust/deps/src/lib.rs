@@ -88,17 +88,19 @@ const REQUIRED_CARGO_TOOLS: &[CargoTool] = &[
 ];
 
 /// Default timeout for the `cargo <sub> --version` probe spawned by
-/// `check_tool`. ASYNC-6 (TASK-0791): a wedged registry probe, broken sccache
+/// `check_tool_in`. ASYNC-6 (TASK-0791): a wedged registry probe, broken sccache
 /// shim, or sibling cargo holding `target/` lock could otherwise stall the
 /// probe indefinitely. Routed through `run_cargo` so it inherits
 /// `OPS_SUBPROCESS_TIMEOUT_SECS` overrides plus the `$CARGO` resolution that
 /// keeps nested invocations on the parent toolchain.
 const CARGO_TOOL_PROBE_TIMEOUT: Duration = Duration::from_secs(30);
 
-fn check_tool(tool: &CargoTool) -> anyhow::Result<()> {
-    check_tool_in(tool, std::path::Path::new("."))
-}
-
+/// Probe for one tool by running its `--version` in `working_dir`.
+///
+/// CL-3 / TASK-2029: the directory is always the caller's, never
+/// `Path::new(".")`. A probe resolved against the process CWD agrees with
+/// the directory the command actually operates on only by coincidence — see
+/// [`ensure_tools`].
 pub(crate) fn check_tool_in(tool: &CargoTool, working_dir: &std::path::Path) -> anyhow::Result<()> {
     match run_cargo(
         tool.probe_args,
@@ -125,13 +127,25 @@ pub(crate) fn check_tool_in(tool: &CargoTool, working_dir: &std::path::Path) -> 
     }
 }
 
+/// Probe every tool in `REQUIRED_CARGO_TOOLS` from `working_dir`.
+///
+/// CL-3 / TASK-2029: `working_dir` is the directory the command operates on,
+/// passed in rather than taken from the process CWD. Cargo resolves its
+/// workspace, its `.cargo/config.toml` and its toolchain override from the
+/// directory it is spawned in, so a probe run somewhere else answers a
+/// question about a different workspace. `DepsProvider::provide` already
+/// routes `run_cargo_upgrade_dry_run` and `run_cargo_deny` through
+/// `ctx.working_directory()`; this makes the probe agree with them by
+/// construction instead of by the coincidence that `ops deps` is normally
+/// invoked from the directory it reports on.
+///
 /// # Errors
 ///
 /// If any tool in `REQUIRED_CARGO_TOOLS` is not installed, naming the tool
 /// and the command that installs it.
-pub fn ensure_tools() -> anyhow::Result<()> {
+pub fn ensure_tools(working_dir: &std::path::Path) -> anyhow::Result<()> {
     for tool in REQUIRED_CARGO_TOOLS {
-        check_tool(tool)?;
+        check_tool_in(tool, working_dir)?;
     }
     Ok(())
 }
@@ -196,8 +210,6 @@ pub fn run_deps(
     data_registry: &ops_extension::DataRegistry,
     opts: &DepsOptions,
 ) -> anyhow::Result<()> {
-    ensure_tools()?;
-
     // ERR-4 / TASK-0405: route through the same config-loading path as
     // sibling subcommands (`run_about`, `run_extension_show`). Previously
     // this constructed `Config::empty()`, so any `[deps]`/global settings
@@ -210,6 +222,13 @@ pub fn run_deps(
     if opts.refresh {
         ctx = ctx.with_refresh();
     }
+
+    // CL-3 / TASK-2029: probe the tools in the *context's* directory, so the
+    // probe and the collection calls in `DepsProvider::provide` are answered
+    // by the same cargo workspace. The context is therefore built first; it
+    // only reads `.ops.toml` and never runs cargo, so nothing between here
+    // and the previous position of this call needs the tools present.
+    ensure_tools(ctx.working_directory())?;
 
     // Resolve the theme + column width from the same config the runner commands
     // use, BEFORE `get_or_provide` borrows `ctx` mutably. `ops deps` now renders

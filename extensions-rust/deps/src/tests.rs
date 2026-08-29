@@ -224,15 +224,20 @@ mod command_path_tests {
     /// TEST-5 / TASK-1845 AC#5: `ensure_tools` reports a missing tool with
     /// the `cargo install <crate>` hint. A non-zero probe exit is what
     /// "not installed" looks like to `check_tool_in`.
+    ///
+    /// CL-3 / TASK-2029 AC#3: no `CwdGuard` here — the probe directory is an
+    /// argument now, so the test points `ensure_tools` at a tempdir without
+    /// chdir-ing the whole process. `#[serial]` remains only for the
+    /// process-global `$CARGO` override.
     #[cfg(unix)]
     #[test]
     #[serial]
     fn ensure_tools_reports_the_missing_tool_with_an_install_hint() {
         let dir = tempfile::tempdir().expect("tempdir");
         let _cargo = EnvVarGuard::set("CARGO", fake_cargo(dir.path(), "exit 101"));
-        let _cwd = CwdGuard::set(dir.path());
 
-        let err = ensure_tools().expect_err("a failing probe must report the tool as missing");
+        let err =
+            ensure_tools(dir.path()).expect_err("a failing probe must report the tool as missing");
         let msg = err.to_string();
         assert!(
             msg.contains("cargo upgrade is not installed"),
@@ -241,6 +246,39 @@ mod command_path_tests {
         assert!(
             msg.contains("cargo install cargo-edit"),
             "must carry the install hint: {msg}"
+        );
+    }
+
+    /// CL-3 / TASK-2029 AC#1: the probe is spawned in the directory the
+    /// caller named, not in the process CWD. Asserting on the *name* matters
+    /// because the old `Path::new(".")` passed this test's shape whenever the
+    /// two happened to coincide; here they deliberately do not — the process
+    /// stays in the crate directory while the probe is pointed at a tempdir.
+    #[cfg(unix)]
+    #[test]
+    #[serial]
+    fn ensure_tools_probes_in_the_directory_it_is_given() {
+        let dir = tempfile::tempdir().expect("tempdir");
+        let probe_dir = dir.path().canonicalize().expect("canonicalize tempdir");
+        let record = dir.path().join("probe-cwd");
+        let _cargo = EnvVarGuard::set(
+            "CARGO",
+            fake_cargo(
+                dir.path(),
+                &format!("pwd >> '{}'\nexit 0", record.display()),
+            ),
+        );
+
+        ensure_tools(&probe_dir).expect("probes exiting 0 report every tool as installed");
+
+        let logged = std::fs::read_to_string(&record).expect("the probe must have run");
+        assert!(
+            logged.lines().count() == REQUIRED_CARGO_TOOLS.len()
+                && logged
+                    .lines()
+                    .all(|line| std::path::Path::new(line) == probe_dir),
+            "every probe must run in {}; got: {logged}",
+            probe_dir.display()
         );
     }
 

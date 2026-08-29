@@ -78,8 +78,9 @@ impl Drop for EnvVarGuard {
 /// The leak this prevents is worse than it looks: the directory a test
 /// chdirs into is a `tempfile::TempDir` deleted on drop, so a skipped
 /// restore leaves the *whole test binary* running in a deleted directory,
-/// and every later test touching a relative path (e.g. `check_tool`'s
-/// hardcoded `Path::new(".")`) fails for unrelated reasons.
+/// and every later test touching a relative path (e.g. `run_deps`, whose
+/// `build_user_context` resolves `std::env::current_dir`) fails for
+/// unrelated reasons.
 pub struct CwdGuard {
     prev: PathBuf,
 }
