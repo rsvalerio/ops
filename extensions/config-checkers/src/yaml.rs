@@ -31,12 +31,22 @@ use crate::error::{CheckError, LimitExceeded};
 /// the two checkers agree on what "too deep" means.
 pub const MAX_NESTING_DEPTH: u64 = 128;
 
-/// Maximum number of nodes the document would hold once every alias is
+/// Maximum number of nodes the **stream** would hold once every alias is
 /// expanded.
 ///
 /// Sized above what the per-file byte cap can produce without aliases (a
 /// 16 MiB document needs at least two bytes per node) so only genuine alias
 /// amplification trips it.
+///
+/// The budget is *stream-wide*, not per document: [`ExpansionBudget`] is
+/// created once per `check_yaml` call and nothing about it is reset at
+/// `DocumentEnd`, so the documents of a multi-document stream share one
+/// allowance. That is deliberate. The resource this cap protects — the
+/// memory a loader would need — is a property of the whole file, and a
+/// per-document reset would let an attacker multiply the ceiling by the
+/// number of `---` separators they care to type, which costs four bytes
+/// each. Since the cap sits far above what any honest 16 MiB file reaches,
+/// sharing it across documents costs real inputs nothing.
 pub const MAX_EXPANDED_NODES: u64 = 20_000_000;
 
 /// `saphyr` numbers anchors from 1; 0 means "this node has no anchor".
@@ -66,9 +76,16 @@ pub fn check_yaml(bytes: &[u8]) -> Result<(), CheckError> {
 ///
 /// Every node counts as one, and an alias counts as whatever its anchor
 /// expands to — which is exactly the product a nested-anchor bomb grows.
+///
+/// One budget covers the whole stream. `DocumentEnd` clears nothing:
+/// `level_cost` keeps accumulating and `anchors` keeps its entries across
+/// `---` boundaries, so the documents of a multi-document file share the
+/// single [`MAX_EXPANDED_NODES`] allowance rather than each getting a fresh
+/// one. See that constant for why.
 #[derive(Default)]
 struct ExpansionBudget {
-    /// Expanded node count accumulated at the current nesting level.
+    /// Expanded node count accumulated at the current nesting level, and —
+    /// at the top level — across every document in the stream.
     level_cost: u64,
     /// For each open collection: its anchor id, and the enclosing level's
     /// cost, restored when the collection closes.
