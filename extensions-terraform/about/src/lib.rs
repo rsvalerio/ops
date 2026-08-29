@@ -569,18 +569,29 @@ fn count_local_modules(root: &Path) -> Option<usize> {
 }
 
 /// Whether a `modules/` child is a directory holding terraform sources.
+///
+/// Uses `fs::metadata` (which follows symlinks) rather than
+/// `DirEntry::file_type` (which does not): a `modules/` entry that is a
+/// symlink to a real module directory is a normal terraform layout —
+/// shared modules vendored once and linked per stack — and `file_type`
+/// reported it as `Symlink`, not `Dir`, so the count silently omitted it.
+/// This function only *counts* modules for the about report; it never opens
+/// or writes anything under the target, and `contains_terraform_source`
+/// likewise only lists names, so following the link grants no capability an
+/// operator running `ops about` in their own checkout did not already have.
 fn is_module_dir(entry: &std::fs::DirEntry) -> bool {
-    match entry.file_type() {
-        Ok(t) if !t.is_dir() => return false,
+    match std::fs::metadata(entry.path()) {
+        Ok(m) if !m.is_dir() => return false,
         Ok(_) => {}
         Err(e) if e.kind() == std::io::ErrorKind::NotFound => return false,
         Err(e) => {
             // ERR-1 / TASK-1772: an unreadable entry is an IO failure, not
-            // evidence that it is not a module.
+            // evidence that it is not a module. A dangling symlink resolves
+            // to `NotFound` above and is simply not a module.
             tracing::warn!(
                 entry = ?entry.path().display(),
                 error = %e,
-                "failed to determine file type under modules/"
+                "failed to stat entry under modules/"
             );
             return false;
         }
@@ -1325,5 +1336,36 @@ terraform {
         write(&modules.join("docs").join("README.md"), "");
         std::fs::create_dir_all(modules.join("empty")).unwrap();
         assert_eq!(count_local_modules(dir.path()), Some(4));
+    }
+
+    /// Vendoring a shared module once and symlinking it into each stack's
+    /// `modules/` is a normal terraform layout. `DirEntry::file_type` does
+    /// not follow symlinks, so such an entry reported `Symlink` and was
+    /// dropped from the count; `fs::metadata` resolves it. A dangling link
+    /// resolves to `NotFound` and is still not a module.
+    #[cfg(unix)]
+    #[test]
+    fn count_local_modules_follows_symlinked_module_dirs() {
+        let dir = tempfile::tempdir().unwrap();
+        let modules = dir.path().join("modules");
+        write(&modules.join("real").join("main.tf"), "");
+
+        let vendored = dir.path().join("vendored").join("shared");
+        write(&vendored.join("main.tf"), "");
+        std::os::unix::fs::symlink(&vendored, modules.join("linked")).unwrap();
+
+        // A symlink to a directory with no terraform sources is followed and
+        // then rejected on its contents, not on its link-ness.
+        let empty = dir.path().join("vendored").join("no-sources");
+        std::fs::create_dir_all(&empty).unwrap();
+        std::os::unix::fs::symlink(&empty, modules.join("linked-empty")).unwrap();
+
+        std::os::unix::fs::symlink(
+            dir.path().join("vendored").join("missing"),
+            modules.join("dangling"),
+        )
+        .unwrap();
+
+        assert_eq!(count_local_modules(dir.path()), Some(2));
     }
 }
