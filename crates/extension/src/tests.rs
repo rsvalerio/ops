@@ -1518,6 +1518,16 @@ mod duckdb_feature {
     /// `as_any()` returns the `Arc` erased rather than the handle. Pinned
     /// because the trait's own "Downcast contract" example reads
     /// `handle.as_any()` and callers copy it verbatim.
+    ///
+    /// SEC-38 / TASK-2018: this holds *because this module imports
+    /// `DuckDbHandle`*. The blanket impl is only a method-resolution candidate
+    /// where the trait is in scope, so a module that never names it sees
+    /// `handle.as_any()` fall through the deref chain to the trait object's own
+    /// method and downcast correctly — which is exactly how the misresolution
+    /// stayed invisible in `ops_duckdb::downcast_duckdb`. Do not read this test
+    /// as "an `Arc` receiver always fails"; read it as "an `Arc` receiver fails
+    /// the moment anyone adds the import". The reborrow is the only shape that
+    /// is correct in both modules.
     #[test]
     fn as_any_on_an_arc_receiver_erases_the_arc_not_the_handle() {
         let handle: Arc<dyn DuckDbHandle> = Arc::new(FakeDb(7));
