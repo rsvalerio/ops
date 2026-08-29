@@ -49,6 +49,13 @@ ops_extension::impl_extension! {
 ///    TASK-1905).
 const HOOK_SCRIPT: &str = r#"#!/bin/sh
 # Installed by `ops run-before-commit install`.
+# The bypass is honoured before the probe below: that probe's own diagnostic
+# advertises this variable, so it has to work in exactly the situation the
+# diagnostic describes -- ops missing from PATH. Matched with shell builtins
+# only, for the same reason. Value list mirrors `ops_hook_common::should_skip`.
+case "${SKIP_OPS_RUN_BEFORE_COMMIT:-}" in
+    1 | [Tt][Rr][Uu][Ee] | [Yy][Ee][Ss] | [Oo][Nn]) exit 0 ;;
+esac
 if ! command -v ops >/dev/null 2>&1; then
     echo "pre-commit: cannot find the 'ops' binary on PATH (hook: .git/hooks/pre-commit)." >&2
     echo "pre-commit: add ops to PATH (e.g. ~/.cargo/bin) and rerun \`ops run-before-commit install\`, or bypass with SKIP_OPS_RUN_BEFORE_COMMIT=1." >&2
@@ -222,6 +229,42 @@ mod tests {
             stderr.contains(SKIP_ENV_VAR),
             "must name the bypass, got: {stderr}"
         );
+    }
+
+    /// The missing-ops diagnostic names [`SKIP_ENV_VAR`] as the escape hatch,
+    /// so the escape hatch must fire before the probe that prints it —
+    /// otherwise the only advice a stuck user gets is advice that does not
+    /// work. Driven with `ops` off PATH, which is the situation in question.
+    #[cfg(unix)]
+    #[test]
+    fn hook_script_honours_the_bypass_when_ops_is_missing() {
+        let dir = tempfile::tempdir().expect("tempdir");
+        let script = dir.path().join("pre-commit");
+        std::fs::write(&script, HOOK_SCRIPT).unwrap();
+
+        for value in ["1", "true", "TRUE", "Yes", "on"] {
+            let out = std::process::Command::new("/bin/sh")
+                .arg(&script)
+                .env("PATH", "/usr/bin:/bin")
+                .env(SKIP_ENV_VAR, value)
+                .output()
+                .unwrap();
+            assert_eq!(
+                out.status.code(),
+                Some(0),
+                "{value:?} must skip cleanly, stderr was: {}",
+                String::from_utf8_lossy(&out.stderr)
+            );
+        }
+
+        // A value `should_skip` rejects must still reach the probe and fail.
+        let out = std::process::Command::new("/bin/sh")
+            .arg(&script)
+            .env("PATH", "/usr/bin:/bin")
+            .env(SKIP_ENV_VAR, "maybe")
+            .output()
+            .unwrap();
+        assert_eq!(out.status.code(), Some(1));
     }
 
     // -- should_skip --
