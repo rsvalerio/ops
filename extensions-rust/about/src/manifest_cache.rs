@@ -91,6 +91,15 @@ use crate::manifest::LoadedManifest;
 /// least-recently-used entry (LRU) so steady-state hits remain warm.
 pub const MAX_TYPED_MANIFEST_CACHE_ENTRIES: usize = 64;
 
+/// Slack added to the victim-queue compaction threshold.
+///
+/// PERF-16 / TASK-1723: without it a cache holding a single root would
+/// compact on every other access. Sixteen stale stamps is a few hundred
+/// bytes and buys amortisation for the small-root-count shape the CLI
+/// actually runs. Matches the sibling raw-text cache in
+/// `extensions/about/src/manifest_cache.rs`, per the lockstep contract.
+const VICTIM_QUEUE_SLACK: usize = 16;
+
 /// CONC-2 / TASK-1198: cache freshness key. Pairs the file's mtime with
 /// its byte length so two writes within the same mtime tick (HFS+, FAT,
 /// NFS with old `actimeo` all expose second-resolution mtime) cannot
@@ -138,6 +147,43 @@ impl TypedManifestCache {
         Self {
             map: HashMap::new(),
             victim_queue: LruVictimQueue::new(),
+        }
+    }
+
+    /// Stamp an access against `key` and keep the victim queue bounded.
+    ///
+    /// PERF-16 / TASK-1723: every probe hit and every insert pushes a fresh
+    /// `(tick, key)` stamp, but the only drain ([`Self::evict_lru`]) runs
+    /// solely once the map is at [`MAX_TYPED_MANIFEST_CACHE_ENTRIES`]. Below
+    /// the cap — the overwhelmingly common case, since a single `ops about`
+    /// run touches one root and every provider hits it — the queue was never
+    /// drained at all and grew by one `(u64, Arc<PathBuf>)` per access
+    /// forever. A long-running embedder re-probing a handful of roots kept a
+    /// tiny map behind a queue that grew linearly with its uptime.
+    ///
+    /// Compacting once the queue passes `2 * map.len() + VICTIM_QUEUE_SLACK`
+    /// bounds it at that multiple of the live entry count while staying
+    /// amortised `O(1)` per access: compaction leaves exactly one stamp per
+    /// live entry, so at least `map.len() + VICTIM_QUEUE_SLACK` further
+    /// pushes must land before it can trigger again, and each compaction is
+    /// `O(queue len)`.
+    ///
+    /// Call this *after* the map has been updated — the freshness check reads
+    /// `map[key].last_accessed`, so a pre-update call would compact away the
+    /// stamp it just pushed. Compaction preserves eviction ordering: it drops
+    /// only stamps `pop_lru` would already have skipped as stale.
+    fn record_access(&mut self, key: Arc<PathBuf>, tick: u64) {
+        let Self { map, victim_queue } = self;
+        victim_queue.push(tick, key);
+        let threshold = map
+            .len()
+            .saturating_mul(2)
+            .saturating_add(VICTIM_QUEUE_SLACK);
+        if victim_queue.len() > threshold {
+            victim_queue.retain_fresh(|key, tick| {
+                map.get(key.as_ref())
+                    .is_some_and(|e| e.last_accessed == tick)
+            });
         }
     }
 
@@ -191,11 +237,16 @@ impl TypedManifestCache {
         // PERF-3 / TASK-1572: the queue holds the `Arc<PathBuf>` already shared
         // with the entry, so the per-hit refresh is an `Arc::clone` (atomic
         // bump) instead of a `PathBuf` clone.
+        //
+        // PERF-16 / TASK-1723: route the push through `record_access`, which
+        // compacts the queue on a growth threshold. Pushing directly here
+        // leaked one stamp per hit for every process that never reached the
+        // cap — which is every CLI run.
         let tick = next_lru_tick();
         entry.last_accessed = tick;
         let key = Arc::clone(&entry.key);
         let loaded = entry.loaded.clone();
-        self.victim_queue.push(tick, key);
+        self.record_access(key, tick);
         Some(loaded)
     }
 
@@ -223,16 +274,19 @@ impl TypedManifestCache {
         // (the map needs its own owned `PathBuf` slot).
         let key_arc: Arc<PathBuf> = Arc::new(root.to_path_buf());
         let tick = next_lru_tick();
-        self.victim_queue.push(tick, Arc::clone(&key_arc));
         self.map.insert(
             root.to_path_buf(),
             TypedManifestEntry {
                 freshness,
                 loaded: loaded.clone(),
                 last_accessed: tick,
-                key: key_arc,
+                key: Arc::clone(&key_arc),
             },
         );
+        // PERF-16 / TASK-1723: stamp after the map update — `record_access`
+        // validates stamps against `map[key].last_accessed`, so compacting
+        // before the entry exists would discard the stamp just pushed.
+        self.record_access(key_arc, tick);
     }
 }
 
@@ -351,6 +405,54 @@ mod tests {
         lock_typed_manifest_cache(typed_manifest_cache())
             .map
             .contains_key(root)
+    }
+
+    fn victim_queue_len() -> usize {
+        lock_typed_manifest_cache(typed_manifest_cache())
+            .victim_queue
+            .len()
+    }
+
+    /// PERF-16 / TASK-1723: `probe` stamps a fresh `(tick, root)` pair on
+    /// every cache hit, but the only drain (`evict_lru`) runs solely once the
+    /// map reaches `MAX_TYPED_MANIFEST_CACHE_ENTRIES`. A process below the
+    /// cap — every `ops about` run, which touches one root from several
+    /// providers — therefore grew the victim queue by one stamp per probe and
+    /// never dropped one. Hammer a single root and pin that the queue stays
+    /// proportional to the live entry count, not to the probe count.
+    #[serial_test::serial(typed_manifest_cache)]
+    #[test]
+    fn repeated_hits_below_cap_keep_the_victim_queue_bounded() {
+        let dir = tempfile::tempdir().expect("tempdir");
+        std::fs::write(
+            dir.path().join("Cargo.toml"),
+            "[package]\nname=\"x\"\nversion=\"0.1.0\"\n",
+        )
+        .unwrap();
+        clear_cache();
+
+        const PROBES: usize = 500;
+        let mut ctx = Context::test_context(dir.path().to_path_buf());
+        for _ in 0..PROBES {
+            let _ = load_workspace_manifest(&mut ctx).expect("load");
+        }
+
+        let map_len = cache_len();
+        let queue_len = victim_queue_len();
+        assert_eq!(map_len, 1, "one root, so one live entry");
+        assert!(
+            map_len < MAX_TYPED_MANIFEST_CACHE_ENTRIES,
+            "the test must stay below the cap or it stops covering the leak"
+        );
+        // Without compaction this is PROBES == 500 stamps.
+        let bound = map_len.saturating_mul(2).saturating_add(VICTIM_QUEUE_SLACK);
+        assert!(
+            queue_len <= bound,
+            "victim queue holds {queue_len} stamps after {PROBES} probes of {map_len} root(s); \
+             expected at most {bound} — it is growing with the probe count again"
+        );
+
+        clear_cache();
     }
 
     #[serial_test::serial(typed_manifest_cache)]
