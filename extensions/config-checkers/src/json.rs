@@ -78,11 +78,38 @@ enum Scan {
 /// JSON containing either is rejected by `serde_json` regardless, and
 /// skipping a region can only ever *lower* the measured depth, never invent
 /// one.
+/// Length of the JSON5 line terminator at `i`, if one starts there.
+///
+/// JSON5 ends a `//` comment at LF, CR, U+2028 or U+2029 — not LF alone.
+/// Recognising only LF strands the scanner inside the comment for the rest
+/// of the input, so it measures depth 0 for a document the real parser still
+/// nests, and the guard this scan exists to arm waves it through
+/// (SEC-33 / TASK-1809).
+///
+/// U+2028 and U+2029 encode as `E2 80 A8` / `E2 80 A9`; every byte is
+/// non-ASCII, so matching them cannot collide with the ASCII structure bytes
+/// the rest of the scan keys on.
+fn line_terminator_len(bytes: &[u8], i: usize) -> Option<usize> {
+    match bytes.get(i) {
+        Some(b'\n' | b'\r') => Some(1),
+        Some(0xE2)
+            if bytes.get(i.saturating_add(1)) == Some(&0x80)
+                && matches!(bytes.get(i.saturating_add(2)), Some(0xA8 | 0xA9)) =>
+        {
+            Some(3)
+        }
+        _ => None,
+    }
+}
+
 fn exceeds_depth_limit(bytes: &[u8], limit: u64) -> bool {
     let mut state = Scan::Structure;
     let mut depth: u64 = 0;
-    let mut bytes = bytes.iter().copied().peekable();
-    while let Some(b) = bytes.next() {
+    let mut i: usize = 0;
+    while let Some(&b) = bytes.get(i) {
+        // Width of the token just recognised; multi-byte tokens (`//`, `\"`,
+        // `*/`, U+2028) set their own.
+        let mut step: usize = 1;
         match state {
             Scan::Structure => match b {
                 b'[' | b'{' => {
@@ -93,13 +120,13 @@ fn exceeds_depth_limit(bytes: &[u8], limit: u64) -> bool {
                 }
                 b']' | b'}' => depth = depth.saturating_sub(1),
                 b'"' | b'\'' => state = Scan::Str(b),
-                b'/' => match bytes.peek() {
+                b'/' => match bytes.get(i.saturating_add(1)) {
                     Some(b'/') => {
-                        bytes.next();
+                        step = 2;
                         state = Scan::LineComment;
                     }
                     Some(b'*') => {
-                        bytes.next();
+                        step = 2;
                         state = Scan::BlockComment;
                     }
                     _ => {}
@@ -108,24 +135,26 @@ fn exceeds_depth_limit(bytes: &[u8], limit: u64) -> bool {
             },
             Scan::Str(quote) => {
                 if b == b'\\' {
-                    // Consume the escaped byte so `"\""` does not close early.
-                    bytes.next();
+                    // Step over the escaped byte so `"\""` does not close early.
+                    step = 2;
                 } else if b == quote {
                     state = Scan::Structure;
                 }
             }
             Scan::LineComment => {
-                if b == b'\n' {
+                if let Some(width) = line_terminator_len(bytes, i) {
+                    step = width;
                     state = Scan::Structure;
                 }
             }
             Scan::BlockComment => {
-                if b == b'*' && bytes.peek() == Some(&b'/') {
-                    bytes.next();
+                if b == b'*' && bytes.get(i.saturating_add(1)) == Some(&b'/') {
+                    step = 2;
                     state = Scan::Structure;
                 }
             }
         }
+        i = i.saturating_add(step);
     }
     false
 }
@@ -203,6 +232,29 @@ mod tests {
 
         let commented = format!("{{ /* {inner} */ a: 1 }}");
         assert!(check_json(commented.as_bytes(), true).is_ok());
+    }
+
+    /// SEC-33 regression: JSON5 ends a line comment at CR, U+2028 and U+2029
+    /// as well as LF. A scanner that knows only LF stays inside the comment
+    /// for the rest of the input, measures depth 0, and hands the nested
+    /// document straight to the parser this guard exists to protect.
+    #[test]
+    fn every_json5_line_terminator_closes_a_line_comment() {
+        let deep = "[".repeat(usize::try_from(MAX_NESTING_DEPTH).unwrap() + 1);
+        for (name, terminator) in [
+            ("LF", "\n"),
+            ("CR", "\r"),
+            ("U+2028", "\u{2028}"),
+            ("U+2029", "\u{2029}"),
+        ] {
+            let source = format!("// comment{terminator}{deep}");
+            let err = check_json(source.as_bytes(), true).unwrap_err();
+            assert_eq!(
+                err.to_string(),
+                "input exceeds the nesting depth limit of 128",
+                "{name} must close the comment so the guard sees the nesting"
+            );
+        }
     }
 
     #[test]
