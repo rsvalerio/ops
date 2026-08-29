@@ -260,8 +260,38 @@ type BlockStack = Vec<Option<String>>;
 /// reading them as structure.
 struct ScanState {
     stack: BlockStack,
-    /// `Some(terminator)` while the scanner is inside a heredoc body.
-    heredoc: Option<String>,
+    /// `Some(open)` while the scanner is inside a heredoc body.
+    heredoc: Option<Heredoc>,
+}
+
+/// An open heredoc body: the terminator that closes it, and whether the
+/// `<<-` spelling was used.
+///
+/// HCL only allows the terminator of a `<<-` heredoc to be indented; for the
+/// plain `<<` spelling it must start the line. Tracking which spelling opened
+/// the body is what lets [`Heredoc::closes`] apply the right rule, so a body
+/// line that merely *looks* like an indented terminator no longer ends an
+/// ordinary heredoc early.
+#[derive(Debug, Clone)]
+struct Heredoc {
+    terminator: String,
+    indented: bool,
+}
+
+impl Heredoc {
+    /// Does `line` close this heredoc?
+    ///
+    /// Trailing whitespace is ignored for both spellings so a CRLF file and a
+    /// trailing space behave the same; leading whitespace is tolerated only
+    /// for `<<-`.
+    fn closes(&self, line: &str) -> bool {
+        let candidate = if self.indented {
+            line.trim()
+        } else {
+            line.trim_end()
+        };
+        candidate == self.terminator
+    }
 }
 
 impl ScanState {
@@ -298,13 +328,13 @@ enum LineScan {
 /// popped a level the file never opened, and with the TASK-1765 balance check
 /// in place that silently dropped the whole file.
 fn scan_line(line: &str, state: &mut ScanState) -> LineScan {
-    if let Some(terminator) = state.heredoc.as_deref() {
-        // HCL only allows an indented terminator after `<<-`, but accepting a
-        // trimmed match for both spellings costs nothing here: the scanner
-        // reads no heredoc *values*, so ending a body one line early on
-        // malformed input is not a correctness risk, while failing to end it
-        // would swallow the rest of the file.
-        if line.trim() == terminator {
+    if let Some(open) = state.heredoc.as_ref() {
+        // The opener's spelling decides whether an indented terminator counts
+        // (`<<-`) or only one that starts the line (`<<`). Matching HCL here
+        // matters because a body line whose *trimmed* text happens to equal
+        // the terminator would otherwise end an ordinary heredoc early, and
+        // the rest of that body would then be read as structure.
+        if open.closes(line) {
             state.heredoc = None;
         }
         return LineScan::Continue;
@@ -331,12 +361,15 @@ fn scan_line(line: &str, state: &mut ScanState) -> LineScan {
                 // `<<EOT` / `<<-EOT`: the body starts on the next line, and
                 // HCL allows nothing after the opener on this one, so the
                 // rest of the line holds no structure to track.
-                if let Some(terminator) = line
+                if let Some((terminator, indented)) = line
                     .get(after_brace..)
                     .and_then(|rest| rest.strip_prefix('<'))
                     .and_then(heredoc_terminator)
                 {
-                    state.heredoc = Some(terminator.to_owned());
+                    state.heredoc = Some(Heredoc {
+                        terminator: terminator.to_owned(),
+                        indented,
+                    });
                     return LineScan::Continue;
                 }
             }
@@ -364,22 +397,30 @@ fn scan_line(line: &str, state: &mut ScanState) -> LineScan {
 }
 
 /// Is `c` valid as the first character of a heredoc terminator?
-const fn is_heredoc_ident_start(c: char) -> bool {
-    c.is_ascii_alphabetic() || c == '_'
+///
+/// HCL identifiers are Unicode (`UAX #31` plus `-`), so `<<終端` is a legal
+/// opener. `char::is_alphabetic` is used as the `ID_Start` approximation rather
+/// than pulling in a `unicode-ident` dependency for one scanner: it accepts
+/// every identifier HCL does, and over-accepting here only means recognising
+/// a heredoc the parser would have rejected anyway.
+fn is_heredoc_ident_start(c: char) -> bool {
+    c.is_alphabetic() || c == '_'
 }
 
 /// Is `c` valid inside a heredoc terminator, after the first character?
-const fn is_heredoc_ident_char(c: char) -> bool {
-    c.is_ascii_alphanumeric() || c == '_' || c == '-'
+fn is_heredoc_ident_char(c: char) -> bool {
+    c.is_alphanumeric() || c == '_' || c == '-'
 }
 
 /// The terminator of a heredoc opener, given the text following its `<<`.
 ///
-/// Accepts the `-` of the indent-stripping `<<-EOT` spelling. Returns `None`
-/// when what follows is not an identifier, so an ordinary comparison never
-/// opens a phantom heredoc. This is the single statement of the rule; both
-/// [`scan_line`] and [`strip_comments`] recognise openers with it.
-fn heredoc_terminator(after_marker: &str) -> Option<&str> {
+/// Returns the terminator and whether the indent-stripping `<<-EOT` spelling
+/// was used, or `None` when what follows is not an identifier, so an ordinary
+/// comparison never opens a phantom heredoc. This is the single statement of
+/// the rule; both [`scan_line`] and [`strip_comments`] recognise openers with
+/// it.
+fn heredoc_terminator(after_marker: &str) -> Option<(&str, bool)> {
+    let indented = after_marker.starts_with('-');
     let rest = after_marker.strip_prefix('-').unwrap_or(after_marker);
     let mut end = 0usize;
     for (idx, ch) in rest.char_indices() {
@@ -391,13 +432,14 @@ fn heredoc_terminator(after_marker: &str) -> Option<&str> {
         if !ok {
             break;
         }
-        // Terminator characters are ASCII, so this stays on a char boundary.
-        end = idx.saturating_add(1);
+        // Advance by the character's own width so a multi-byte identifier
+        // char leaves `end` on a char boundary.
+        end = idx.saturating_add(ch.len_utf8());
     }
     if end == 0 {
         None
     } else {
-        rest.get(..end)
+        rest.get(..end).map(|term| (term, indented))
     }
 }
 
@@ -547,18 +589,18 @@ fn strip_comments(content: &str) -> Cow<'_, str> {
     // current line; it becomes `heredoc` once the newline that begins the body
     // has been emitted. `body_line` accumulates the current body line so the
     // terminator can be recognised on it.
-    let mut pending: Option<String> = None;
-    let mut heredoc: Option<String> = None;
+    let mut pending: Option<Heredoc> = None;
+    let mut heredoc: Option<Heredoc> = None;
     let mut body_line = String::new();
     while let Some(c) = chars.next() {
         if pending.is_some() && out.ends_with('\n') {
             heredoc = pending.take();
             body_line.clear();
         }
-        if let Some(terminator) = heredoc.as_deref() {
+        if let Some(open) = heredoc.as_ref() {
             out.push(c);
             if c == '\n' {
-                if body_line.trim() == terminator {
+                if open.closes(&body_line) {
                     heredoc = None;
                 }
                 body_line.clear();
@@ -600,7 +642,8 @@ fn strip_comments(content: &str) -> Cow<'_, str> {
                 out.push('<');
                 let _ = chars.next();
                 out.push('<');
-                if chars.peek() == Some(&'-') {
+                let indented = chars.peek() == Some(&'-');
+                if indented {
                     let _ = chars.next();
                     out.push('-');
                 }
@@ -619,7 +662,10 @@ fn strip_comments(content: &str) -> Cow<'_, str> {
                     let _ = chars.next();
                 }
                 if !terminator.is_empty() {
-                    pending = Some(terminator);
+                    pending = Some(Heredoc {
+                        terminator,
+                        indented,
+                    });
                 }
             }
             _ => out.push(c),
@@ -1422,6 +1468,88 @@ terraform {
         assert_eq!(
             extract_required_version(content),
             Some(">= 1.9".to_string())
+        );
+    }
+
+    /// HCL identifiers are Unicode, so `<<終端` opens a heredoc like any other.
+    /// Pre-fix the ASCII-only ident test rejected the opener, the body was
+    /// read as structure, and its `{` / `}` / `#` unbalanced the file.
+    #[test]
+    fn extract_required_version_after_a_unicode_heredoc_terminator() {
+        let content = concat!(
+            "locals {\n",
+            "  script = <<終端\n",
+            "# not an HCL comment\n",
+            "if [ -f x ]; then }\n",
+            "終端\n",
+            "}\n",
+            "terraform {\n",
+            "  required_version = \">= 1.7\"\n",
+            "}\n",
+        );
+        assert_eq!(
+            extract_required_version(content),
+            Some(">= 1.7".to_string())
+        );
+    }
+
+    /// An *indented* line equal to the terminator does not close a plain `<<`
+    /// heredoc — only `<<-` permits that. Pre-fix both spellings matched on a
+    /// trimmed line, so this body ended four lines early and the shell `}`
+    /// after it popped a block the file never opened.
+    #[test]
+    fn a_plain_heredoc_is_not_closed_by_an_indented_terminator() {
+        let content = concat!(
+            "locals {\n",
+            "  script = <<EOT\n",
+            "  EOT\n",
+            "if [ -f x ]; then }\n",
+            "EOT\n",
+            "}\n",
+            "terraform {\n",
+            "  required_version = \">= 1.8\"\n",
+            "}\n",
+        );
+        assert_eq!(
+            extract_required_version(content),
+            Some(">= 1.8".to_string())
+        );
+    }
+
+    /// The `<<-` half of the same rule still accepts the indented terminator
+    /// it exists for.
+    #[test]
+    fn an_indented_heredoc_is_closed_by_an_indented_terminator() {
+        let content = concat!(
+            "locals {\n",
+            "  script = <<-EOT\n",
+            "    echo hi }\n",
+            "  EOT\n",
+            "}\n",
+            "terraform {\n",
+            "  required_version = \">= 1.9\"\n",
+            "}\n",
+        );
+        assert_eq!(
+            extract_required_version(content),
+            Some(">= 1.9".to_string())
+        );
+    }
+
+    /// `strip_comments` applies the same spelling rule, so a `#` line after an
+    /// indented look-alike terminator inside a plain heredoc stays verbatim.
+    #[test]
+    fn strip_comments_keeps_a_plain_heredoc_open_past_an_indented_terminator() {
+        let content = concat!(
+            "x = <<EOT\n",
+            "  EOT\n",
+            "# still inside the body\n",
+            "EOT\n",
+        );
+        let stripped = strip_comments(content);
+        assert!(
+            stripped.contains("# still inside the body"),
+            "body must survive intact; got: {stripped}"
         );
     }
 
