@@ -3,7 +3,13 @@
 //! Resolution order — five layers, lowest precedence first; each one overrides
 //! everything before it:
 //!
-//! 1. the embedded internal default (`.default.ops.toml`),
+//! 1. the base defaults — the embedded internal config (`.default.ops.toml`,
+//!    merged first by `loader::load_config_at`) plus the detected stack's
+//!    default commands. The stack defaults are not merged into the `Config`
+//!    at all: the runner keeps them in a separate store and consults it only
+//!    after `config.commands` misses (`runner::command::resolve`), so they
+//!    behave as the lowest-precedence source of commands: a command defined
+//!    by any layer below shadows the stack default of the same name,
 //! 2. the global config (`~/.config/ops/config.toml`),
 //! 3. the workspace's `.ops.toml`,
 //! 4. the workspace's `.ops.d/*.toml` fragments, merged in sorted filename order,
