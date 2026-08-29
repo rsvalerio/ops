@@ -187,6 +187,13 @@ fn post_exit_drain_grace() -> Duration {
 
 /// Second, short deadline applied after the orphan holding the pipes has
 /// been `SIGKILL`ed: the read side should observe EOF essentially at once.
+///
+/// CONC-9 / TASK-2022: deliberately *not* operator-tunable, unlike
+/// [`DEFAULT_POST_EXIT_DRAIN_GRACE_SECS`]. This is not a wait on a workload
+/// — the process holding the write end has already been `SIGKILL`ed, so the
+/// only thing outstanding is the kernel closing its descriptors. There is no
+/// legitimate configuration in which that needs longer, and a knob here
+/// would only offer a way to lengthen the already-failed path.
 const POST_KILL_DRAIN_GRACE: Duration = Duration::from_secs(2);
 
 /// Await both drain tasks by id, recording each into its own slot.
