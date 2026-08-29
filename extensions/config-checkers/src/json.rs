@@ -65,19 +65,6 @@ enum Scan {
     BlockComment,
 }
 
-/// Whether `bytes` nests brackets or braces deeper than `limit`.
-///
-/// Byte-oriented and iterative on purpose: it must not itself recurse, and
-/// it must be able to run before the input is known to be UTF-8. Multi-byte
-/// UTF-8 sequences never contain ASCII bytes, so scanning bytes cannot
-/// mistake a continuation byte for punctuation.
-///
-/// String and comment regions are skipped so a `[` inside a quoted value or
-/// a JSON5 comment does not count. Single quotes and comments are only
-/// meaningful in JSON5, but honouring them in both modes is safe: strict
-/// JSON containing either is rejected by `serde_json` regardless, and
-/// skipping a region can only ever *lower* the measured depth, never invent
-/// one.
 /// Length of the JSON5 line terminator at `i`, if one starts there.
 ///
 /// JSON5 ends a `//` comment at LF, CR, U+2028 or U+2029 — not LF alone.
@@ -102,6 +89,19 @@ fn line_terminator_len(bytes: &[u8], i: usize) -> Option<usize> {
     }
 }
 
+/// Whether `bytes` nests brackets or braces deeper than `limit`.
+///
+/// Byte-oriented and iterative on purpose: it must not itself recurse, and
+/// it must be able to run before the input is known to be UTF-8. Multi-byte
+/// UTF-8 sequences never contain ASCII bytes, so scanning bytes cannot
+/// mistake a continuation byte for punctuation.
+///
+/// String and comment regions are skipped so a `[` inside a quoted value or
+/// a JSON5 comment does not count. Single quotes and comments are only
+/// meaningful in JSON5, but honouring them in both modes is safe: strict
+/// JSON containing either is rejected by `serde_json` regardless, and
+/// skipping a region can only ever *lower* the measured depth, never invent
+/// one.
 fn exceeds_depth_limit(bytes: &[u8], limit: u64) -> bool {
     let mut state = Scan::Structure;
     let mut depth: u64 = 0;

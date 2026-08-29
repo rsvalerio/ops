@@ -12,7 +12,7 @@
 //!
 //! Walking events instead means nothing is ever materialised: memory is
 //! O(depth + anchors) regardless of what the document would expand to. On
-//! top of that, [`ExpansionBudget`] computes the expanded node count the
+//! top of that, an internal expansion budget computes the expanded node count the
 //! loader *would* have produced and rejects the document past
 //! [`MAX_EXPANDED_NODES`], so a bomb is reported as a normal
 //! [`CheckError::Parse`] failure against the file that contains it.
@@ -38,7 +38,7 @@ pub const MAX_NESTING_DEPTH: u64 = 128;
 /// 16 MiB document needs at least two bytes per node) so only genuine alias
 /// amplification trips it.
 ///
-/// The budget is *stream-wide*, not per document: [`ExpansionBudget`] is
+/// The budget is *stream-wide*, not per document: the internal budget is
 /// created once per `check_yaml` call and nothing about it is reset at
 /// `DocumentEnd`, so the documents of a multi-document stream share one
 /// allowance. That is deliberate. The resource this cap protects — the
