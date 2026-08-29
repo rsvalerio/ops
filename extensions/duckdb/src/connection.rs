@@ -250,6 +250,7 @@ mod tests {
     fn resolve_path_relative() {
         let config = DataConfig {
             path: Some(PathBuf::from(".ops-data/project.duckdb")),
+            ..DataConfig::default()
         };
         let root = Path::new("/home/proj");
         let path = DuckDb::resolve_path(&config, root);
@@ -260,6 +261,7 @@ mod tests {
     fn resolve_path_absolute() {
         let config = DataConfig {
             path: Some(PathBuf::from("/absolute/shared.duckdb")),
+            ..DataConfig::default()
         };
         let root = Path::new("/home/proj");
         let path = DuckDb::resolve_path(&config, root);

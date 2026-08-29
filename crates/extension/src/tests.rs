@@ -1,5 +1,5 @@
 use super::*;
-use ops_core::config::{CommandId, CommandSpec, ExecCommandSpec};
+use ops_core::config::{CommandId, CommandSpec, Config, ExecCommandSpec};
 use std::path::PathBuf;
 use std::sync::Arc;
 
@@ -2069,4 +2069,199 @@ fn source_fix_leaves_the_alternate_display_unchanged() {
         e.to_string(),
         "data computation failed: outer context: root cause"
     );
+}
+
+// ---------------------------------------------------------------------------
+// CONC-9 / TASK-2056 — the dispatch budget is operator-configurable
+// ---------------------------------------------------------------------------
+
+fn context_with_budget_secs(secs: Option<u64>) -> Context {
+    let mut config = Config::empty();
+    config.data.provider_budget_secs = secs;
+    Context::new(Arc::new(config), PathBuf::from("."))
+}
+
+/// AC #2: the constructor every wiring path goes through resolves the budget
+/// from config, so no call site has to remember to apply it.
+#[test]
+fn an_unconfigured_context_gets_the_compiled_in_default_budget() {
+    assert_eq!(
+        context_with_budget_secs(None).provider_budget(),
+        Some(DEFAULT_PROVIDER_BUDGET)
+    );
+}
+
+/// The operator on a slow filesystem tightening the bound — the case the
+/// hardcoded constant could not serve, since it must stay generous enough for
+/// the slowest in-tree provider.
+#[test]
+fn a_configured_budget_replaces_the_default() {
+    assert_eq!(
+        context_with_budget_secs(Some(90)).provider_budget(),
+        Some(std::time::Duration::from_secs(90))
+    );
+}
+
+/// `0` is the documented opt-out, not a zero-length budget. Read literally it
+/// would time every dispatch out instantly, turning a knob meant to remove the
+/// bound into one that fails every provider.
+#[test]
+fn a_zero_budget_means_unbounded_not_instantly_expired() {
+    let registry = registry_with("slow", Box::new(SlowProvider::new("slow", true)));
+    let mut ctx = context_with_budget_secs(Some(0));
+    assert_eq!(ctx.provider_budget(), None);
+    let v = registry
+        .provide("slow", &mut ctx)
+        .expect("a zero budget opts out of the bound rather than expiring at once");
+    assert_eq!(v, serde_json::json!({ "finished": true }));
+}
+
+/// The programmatic override still wins over config: a caller that knows its
+/// own tolerance is not overruled by the project file.
+#[test]
+fn with_provider_budget_overrides_the_configured_value() {
+    let ctx = context_with_budget_secs(Some(90))
+        .with_provider_budget(Some(std::time::Duration::from_secs(5)));
+    assert_eq!(
+        ctx.provider_budget(),
+        Some(std::time::Duration::from_secs(5))
+    );
+}
+
+// ---------------------------------------------------------------------------
+// SEC-33 / TASK-2052 — a detached deadline, and a typed timeout through anyhow
+// ---------------------------------------------------------------------------
+
+/// The walkers poll through a detached [`Deadline`] because their work happens
+/// where a `&Context` cannot go. It must build the same error the context
+/// would, naming the same owner.
+#[test]
+fn a_detached_deadline_reports_the_same_timeout_as_the_context() {
+    /// What the provider observed, recorded rather than asserted in place:
+    /// `provide` returns `Result`, so a panic inside it would be reported as
+    /// a failed dispatch rather than a failed assertion.
+    #[derive(Debug, Default, Clone, Copy)]
+    struct Observed {
+        expired_at_entry: bool,
+        expired_after_sleep: bool,
+        handle_matches_context: bool,
+        expires_at_matches: bool,
+    }
+
+    struct Detaching(Arc<std::sync::Mutex<Observed>>);
+    impl DataProvider for Detaching {
+        fn name(&self) -> &'static str {
+            "detaching"
+        }
+        fn provide(&self, ctx: &mut Context) -> Result<serde_json::Value, DataProviderError> {
+            let Some(deadline) = ctx.deadline_handle() else {
+                return Err(DataProviderError::computation_failed(
+                    "a bounded dispatch must install a deadline",
+                ));
+            };
+            let mut seen = Observed {
+                expired_at_entry: deadline.is_expired(),
+                expires_at_matches: Some(deadline.expires_at()) == ctx.deadline(),
+                ..Observed::default()
+            };
+            std::thread::sleep(std::time::Duration::from_millis(40));
+            seen.expired_after_sleep = deadline.is_expired();
+            // A worker thread would report through the handle; the error must
+            // match what `check_deadline` produces on the context itself.
+            let from_handle = deadline.check().expect_err("the budget has been spent");
+            let from_ctx = ctx.check_deadline().expect_err("the budget has been spent");
+            seen.handle_matches_context = from_handle.to_string() == from_ctx.to_string();
+            *self
+                .0
+                .lock()
+                .unwrap_or_else(std::sync::PoisonError::into_inner) = seen;
+            Err(from_handle)
+        }
+    }
+
+    let observed = Arc::new(std::sync::Mutex::new(Observed::default()));
+    let registry = registry_with("detaching", Box::new(Detaching(Arc::clone(&observed))));
+    let mut ctx = test_context().with_provider_budget(Some(std::time::Duration::from_millis(20)));
+    match registry.provide("detaching", &mut ctx) {
+        Err(DataProviderError::TimedOut { provider, .. }) => assert_eq!(provider, "detaching"),
+        other => panic!("expected TimedOut naming the budget owner, got {other:?}"),
+    }
+
+    let seen = *observed
+        .lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner);
+    assert!(
+        !seen.expired_at_entry,
+        "a fresh dispatch must not hand the walker an already-spent deadline"
+    );
+    assert!(
+        seen.expires_at_matches,
+        "the handle must carry the context's own expiry"
+    );
+    assert!(
+        seen.expired_after_sleep,
+        "the handle must observe the budget running out"
+    );
+    assert!(
+        seen.handle_matches_context,
+        "a detached deadline must report the same failure the context would"
+    );
+}
+
+/// The walkers are `anyhow`-typed free functions, so their timeout can only
+/// travel boxed. It must arrive as `TimedOut`, not as an opaque computation
+/// failure — otherwise a caller cannot tell a stall from a broken provider.
+#[test]
+fn a_timeout_boxed_into_anyhow_arrives_back_as_timed_out() {
+    let original = DataProviderError::TimedOut {
+        provider: "walker".to_owned(),
+        budget: std::time::Duration::from_secs(3),
+    };
+    let boxed = anyhow::Error::new(original);
+    match DataProviderError::from(boxed) {
+        DataProviderError::TimedOut { provider, budget } => {
+            assert_eq!(provider, "walker");
+            assert_eq!(budget, std::time::Duration::from_secs(3));
+        }
+        other => panic!("expected the typed timeout to survive the round trip, got {other:?}"),
+    }
+}
+
+/// `anyhow`'s downcast searches the whole cause chain, so a
+/// `.context(..)`-wrapped `DataProviderError` is recovered too — and the added
+/// wording is dropped, because no variant has a field to hold it. Pinned
+/// because it is the documented cost of the conversion, not an accident: a
+/// provider that wants extra wording returns
+/// `DataProviderError::computation_failed` rather than re-wrapping the crate's
+/// own error type in `anyhow`.
+#[test]
+fn context_added_on_top_of_a_typed_error_is_dropped_by_the_downcast() {
+    let boxed = anyhow::Error::new(DataProviderError::TimedOut {
+        provider: "walker".to_owned(),
+        budget: std::time::Duration::from_secs(3),
+    })
+    .context("scanning the workspace");
+    let converted = DataProviderError::from(boxed);
+    assert!(
+        matches!(converted, DataProviderError::TimedOut { ref provider, .. } if provider == "walker"),
+        "the typed variant must still be recovered: {converted:?}"
+    );
+    assert!(
+        !converted.to_string().contains("scanning the workspace"),
+        "and the added context is gone, which is why it must not be added"
+    );
+}
+
+/// An unrelated `anyhow` error is untouched by the downcast: it still becomes
+/// a computation failure with its chain intact.
+#[test]
+fn an_unrelated_anyhow_error_still_becomes_a_computation_failure() {
+    let boxed = anyhow::anyhow!("disk on fire").context("reading Cargo.toml");
+    let converted = DataProviderError::from(boxed);
+    assert!(
+        matches!(converted, DataProviderError::ComputationFailed(_)),
+        "got {converted:?}"
+    );
+    let rendered = format!("{converted:#}");
+    assert!(rendered.contains("reading Cargo.toml"), "{rendered}");
 }

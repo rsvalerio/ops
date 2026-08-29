@@ -1,11 +1,11 @@
 ---
 id: TASK-2061
 title: code-review-plan-wave190
-status: To Do
+status: Done
 assignee:
   - code-review-wave
 created_date: '2026-08-29 17:26'
-updated_date: '2026-08-29 17:27'
+updated_date: '2026-08-29 18:33'
 labels:
   - code-review-wave
 dependencies:
@@ -35,4 +35,6 @@ code-review-plan-wave190
 
 <!-- SECTION:NOTES:BEGIN -->
 Overlaps: TASK-2064 / wave193 (extensions-rust/about/src/members.rs)
+
+Branch: code-review/TASK-2061
 <!-- SECTION:NOTES:END -->

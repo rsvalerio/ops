@@ -115,10 +115,8 @@ serde    1.0.100         1.0.228
 tokio    1.35.0          1.38.0
 ";
 
-    let (entries, logged) =
-        crate::test_support::with_captured_logs(tracing::Level::WARN, false, || {
-            parse_upgrade_table(stdout)
-        });
+    let (logged, entries) =
+        crate::test_support::capture_tracing(tracing::Level::WARN, || parse_upgrade_table(stdout));
     assert!(
         entries.is_empty(),
         "no column geometry means no entries can be sliced"

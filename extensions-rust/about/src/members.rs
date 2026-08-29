@@ -15,7 +15,6 @@
 //! by `deps_provider` where dependency graph data is unavoidable.
 
 use ops_cargo_toml::CargoToml;
-use std::collections::HashSet;
 use std::path::Path;
 
 /// Resolve `[workspace].members` globs to concrete member paths, honoring
@@ -99,9 +98,18 @@ pub fn resolved_workspace_members(manifest: &CargoToml, workspace_root: &Path) -
 /// member, so `read_dir`-ing it would add IO and a second family of
 /// unreadable-path failure modes without telling us anything the resolved list
 /// does not already say.
+///
+/// FEAT / TASK-2055: literal entries match by *path segment*, not by string
+/// equality, and a leading `./` on either side is ignored. Cargo excludes a
+/// path together with everything under it — `exclude = ["crates/foo"]` also
+/// drops a member listed as `crates/foo/bar` — and accepts a `./` prefix in
+/// both lists.
 struct ExcludeSet<'a> {
-    /// Entries with no expandable `*`: matched verbatim, as before.
-    literals: HashSet<&'a str>,
+    /// Entries with no expandable `*`: matched as a path prefix, so the entry
+    /// excludes itself and every member nested beneath it. Stored as a `Vec`
+    /// rather than a set because matching is no longer an equality test and
+    /// exclude lists are a handful of entries.
+    literals: Vec<&'a str>,
     /// The text before the `*` of a single-`*` pattern. A member matches when
     /// it extends the prefix by exactly one path segment, which is what the
     /// `read_dir(prefix)` expansion means for `members` — so `crates/*`
@@ -114,12 +122,12 @@ struct ExcludeSet<'a> {
 
 impl<'a> ExcludeSet<'a> {
     fn from_entries(entries: &'a [String]) -> Self {
-        let mut literals = HashSet::new();
+        let mut literals = Vec::new();
         let mut prefixes = Vec::new();
         for entry in entries {
             match entry.split_once('*') {
                 Some((prefix, after_star)) if !is_unsupported_glob(entry, after_star) => {
-                    prefixes.push(prefix);
+                    prefixes.push(strip_dot_prefix(prefix));
                 }
                 // A shape we cannot expand (`**`, `?`, `[…]`, `{…}`) is kept
                 // as a literal — the pre-TASK-2040 behaviour — and announced,
@@ -132,7 +140,7 @@ impl<'a> ExcludeSet<'a> {
                         pattern = ?entry,
                         "workspace exclude glob shape not supported by ops about; matching it literally"
                     );
-                    literals.insert(entry.as_str());
+                    literals.push(entry.as_str());
                 }
                 None => {
                     if contains_unsupported_glob_meta(entry) {
@@ -141,7 +149,7 @@ impl<'a> ExcludeSet<'a> {
                             "workspace exclude glob shape not supported by ops about; matching it literally"
                         );
                     }
-                    literals.insert(entry.as_str());
+                    literals.push(entry.as_str());
                 }
             }
         }
@@ -151,7 +159,12 @@ impl<'a> ExcludeSet<'a> {
     /// Whether `member` — a resolved, workspace-relative member path — is
     /// excluded.
     fn excludes(&self, member: &str) -> bool {
-        if self.literals.contains(member) {
+        let member = strip_dot_prefix(member);
+        if self
+            .literals
+            .iter()
+            .any(|entry| path_is_at_or_under(entry, member))
+        {
             return true;
         }
         self.prefixes.iter().any(|prefix| {
@@ -160,6 +173,47 @@ impl<'a> ExcludeSet<'a> {
                 .is_some_and(|rest| !rest.is_empty() && !rest.contains(std::path::is_separator))
         })
     }
+}
+
+/// FEAT / TASK-2055: drop any leading `./` segments so `./crates/foo` and
+/// `crates/foo` compare equal. Cargo accepts either spelling in both
+/// `[workspace].members` and `[workspace].exclude`, and this module compares
+/// the two lists as strings, so an unnormalised `./` on one side alone used to
+/// silently defeat the match.
+fn strip_dot_prefix(path: &str) -> &str {
+    let mut rest = path;
+    while let Some(after_dot) = rest.strip_prefix('.') {
+        let Some(after_separator) = after_dot.strip_prefix(std::path::is_separator) else {
+            // `.hidden` or a bare `.` — not a `./` segment, leave it alone.
+            break;
+        };
+        rest = after_separator.trim_start_matches(std::path::is_separator);
+    }
+    rest
+}
+
+/// Split a workspace-relative path into its meaningful segments, discarding
+/// empty ones (repeated or trailing separators) and `.` segments.
+fn path_segments(path: &str) -> impl Iterator<Item = &str> {
+    path.split(std::path::is_separator)
+        .filter(|segment| !segment.is_empty() && *segment != ".")
+}
+
+/// FEAT / TASK-2055: whether `path` *is* `ancestor` or is nested beneath it,
+/// compared segment by segment. `cargo` excludes a listed path together with
+/// everything under it, so `crates/foo` must also drop `crates/foo/bar` —
+/// while never letting a partial segment match (`crates/foo` does not drop
+/// `crates/foobar`, which whole-string prefix matching would).
+///
+/// An `ancestor` with no segments at all (`""`, `"."`, `"/"`) matches nothing:
+/// treating it as the root would silently exclude the entire workspace.
+fn path_is_at_or_under(ancestor: &str, path: &str) -> bool {
+    let mut ancestor_segments = path_segments(ancestor).peekable();
+    if ancestor_segments.peek().is_none() {
+        return false;
+    }
+    let mut candidate = path_segments(path);
+    ancestor_segments.all(|segment| candidate.next() == Some(segment))
 }
 
 /// FN-1 / TASK-1156: classified shape of one `[workspace].members` entry,
@@ -372,20 +426,13 @@ mod tests {
     fn glob_prefix_warn_debug_escapes_control_characters() {
         let dir = tempfile::tempdir().expect("tempdir");
         let member = "a\nb\u{1b}[31mc/*";
-        let buf = ops_about::test_support::TracingBuf::default();
-        let subscriber = tracing_subscriber::fmt()
-            .with_writer(buf.clone())
-            .with_max_level(tracing::Level::WARN)
-            .with_ansi(false)
-            .finish();
-
         // The parent does not exist, so `read_dir` fails and the warn fires.
-        let expanded = tracing::subscriber::with_default(subscriber, || {
-            expand_member_glob(member, &dir.path().join("a\nb\u{1b}[31mc"), dir.path())
-        });
+        let (logs, expanded) =
+            ops_about::test_support::capture_tracing(tracing::Level::WARN, || {
+                expand_member_glob(member, &dir.path().join("a\nb\u{1b}[31mc"), dir.path())
+            });
         assert!(expanded.is_empty(), "unreadable prefix expands to nothing");
 
-        let logs = buf.captured();
         assert!(
             logs.contains("workspace glob prefix unreadable"),
             "expected the unreadable-prefix warn, got: {logs}"
@@ -632,38 +679,104 @@ mod tests {
         assert!(!set.excludes("crates"));
     }
 
+    /// FEAT / TASK-2055 AC #1: Cargo excludes a literal path *and everything
+    /// under it*, so `exclude = ["crates/foo"]` must also drop a member listed
+    /// as `crates/foo/bar`. Whole-segment comparison is what makes that safe:
+    /// a sibling whose name merely starts with the entry (`crates/foobar`)
+    /// stays a member.
+    #[test]
+    fn literal_exclude_drops_nested_members() {
+        let exclude = vec!["crates/foo".to_string()];
+        let set = ExcludeSet::from_entries(&exclude);
+
+        assert!(set.excludes("crates/foo"), "the entry itself");
+        assert!(set.excludes("crates/foo/bar"), "a member nested one level");
+        assert!(set.excludes("crates/foo/bar/baz"), "and deeper");
+        assert!(
+            !set.excludes("crates/foobar"),
+            "a partial segment is a different crate"
+        );
+        assert!(!set.excludes("crates"), "an ancestor is not excluded");
+        assert!(!set.excludes("other/foo"));
+    }
+
+    /// FEAT / TASK-2055 AC #1, end to end: the nested member must be gone from
+    /// the resolved list `module_count` and the `ProjectUnit` providers read,
+    /// not merely from `ExcludeSet::excludes`.
+    #[test]
+    fn nested_member_under_literal_exclude_is_resolved_away() {
+        let manifest = manifest_with_members_and_exclude(
+            &["crates/core", "crates/foo", "crates/foo/bar"],
+            &["crates/foo"],
+        );
+        assert_eq!(
+            resolved_workspace_members(&manifest, std::path::Path::new("/nonexistent")),
+            vec!["crates/core".to_string()],
+        );
+    }
+
+    /// FEAT / TASK-2055 AC #2: Cargo accepts a `./` prefix in both `members`
+    /// and `exclude`, so a leading `./` on either side must not defeat the
+    /// match — including for glob entries, which match by string prefix.
+    #[test]
+    fn leading_dot_slash_does_not_prevent_a_match() {
+        let literal = vec!["./crates/foo".to_string()];
+        let set = ExcludeSet::from_entries(&literal);
+        assert!(set.excludes("crates/foo"), "dotted entry, plain member");
+        assert!(set.excludes("./crates/foo"), "dotted on both sides");
+        assert!(set.excludes("./crates/foo/bar"), "and nested");
+
+        let plain = vec!["crates/foo".to_string()];
+        let set = ExcludeSet::from_entries(&plain);
+        assert!(set.excludes("./crates/foo"), "plain entry, dotted member");
+
+        let glob = vec!["./crates/*".to_string()];
+        let set = ExcludeSet::from_entries(&glob);
+        assert!(set.excludes("crates/foo"), "dotted glob entry");
+        assert!(set.excludes("./crates/foo"), "dotted on both sides");
+        assert!(!set.excludes("./crates/foo/nested"), "still one segment");
+    }
+
+    /// An exclude entry that normalises away to nothing (`.`, `./`, an empty
+    /// string) must exclude *nothing*. Read as "the workspace root" it would
+    /// silently drop every member.
+    #[test]
+    fn an_empty_exclude_entry_excludes_nothing() {
+        for entry in ["", ".", "./", "/"] {
+            let exclude = vec![entry.to_string()];
+            let set = ExcludeSet::from_entries(&exclude);
+            assert!(
+                !set.excludes("crates/foo"),
+                "exclude entry {entry:?} must not drop every member"
+            );
+        }
+    }
+
     /// An exclude shape the expander cannot interpret (`**`, `?`, `[…]`,
     /// `{…}`) keeps the pre-TASK-2040 literal behaviour and says so, instead
     /// of being silently reinterpreted as a prefix that would over-exclude.
     #[test]
     fn unsupported_exclude_shapes_stay_literal_and_warn() {
-        let buf = ops_about::test_support::TracingBuf::default();
-        let subscriber = tracing_subscriber::fmt()
-            .with_writer(buf.clone())
-            .with_max_level(tracing::Level::WARN)
-            .with_ansi(false)
-            .finish();
-
         let exclude = vec![
             "crates/**".to_string(),
             "crates/{core,cli}".to_string(),
             "crates/foo?".to_string(),
         ];
-        let excluded_literally = tracing::subscriber::with_default(subscriber, || {
-            let set = ExcludeSet::from_entries(&exclude);
-            (
-                set.excludes("crates/**"),
-                set.excludes("crates/core"),
-                set.excludes("crates/foo"),
-            )
-        });
+        let (logs, excluded_literally) =
+            ops_about::test_support::capture_tracing(tracing::Level::WARN, || {
+                let set = ExcludeSet::from_entries(&exclude);
+                (
+                    set.excludes("crates/**"),
+                    set.excludes("crates/core"),
+                    set.excludes("crates/foo"),
+                )
+            });
 
         assert_eq!(
             excluded_literally,
             (true, false, false),
             "unsupported shapes must match literally, never as a prefix"
         );
-        let logs = buf.captured();
         assert_eq!(
             logs.matches("workspace exclude glob shape not supported")
                 .count(),

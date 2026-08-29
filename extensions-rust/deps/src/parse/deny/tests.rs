@@ -281,10 +281,8 @@ fn interpret_deny_result_malformed_non_diagnostic_lines_are_not_candidates() {
 fn parse_deny_missing_code_logs_a_breadcrumb() {
     let stderr = r#"{"type":"diagnostic","fields":{"severity":"error","message":"something","graphs":[{"Krate":{"name":"pkg","version":"1.0.0"}}]}}"#;
 
-    let (result, logged) =
-        crate::test_support::with_captured_logs(tracing::Level::DEBUG, false, || {
-            parse_deny_output(stderr)
-        });
+    let (logged, result) =
+        crate::test_support::capture_tracing(tracing::Level::DEBUG, || parse_deny_output(stderr));
     assert!(result.advisories.is_empty());
     assert!(
         logged.contains("TASK-1840") && logged.contains("code"),
@@ -533,10 +531,8 @@ fn parse_deny_output_skips_malformed_json_with_tracing() {
     // shape. Both should be skipped; both should log.
     let stderr = "{not json\n{\"type\":\"diagnostic\",\"fields\":42}\n";
 
-    let (result, logged) =
-        crate::test_support::with_captured_logs(tracing::Level::DEBUG, false, || {
-            parse_deny_output(stderr)
-        });
+    let (logged, result) =
+        crate::test_support::capture_tracing(tracing::Level::DEBUG, || parse_deny_output(stderr));
     assert!(result.advisories.is_empty());
     assert!(logged.contains("ERR-1"), "missing ERR-1 marker: {logged}");
     assert!(

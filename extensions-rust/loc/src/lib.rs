@@ -21,12 +21,14 @@ pub use ingestor::RustLocIngestor;
 
 use std::io::{BufRead as _, BufReader};
 use std::path::Path;
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Mutex, PoisonError};
 
 use ignore::{DirEntry, WalkBuilder, WalkState};
 use ops_duckdb::DuckDb;
 use ops_extension::{
-    Context, DataField, DataProvider, DataProviderError, DataProviderSchema, ExtensionType,
+    Context, DataField, DataProvider, DataProviderError, DataProviderSchema, Deadline,
+    ExtensionType,
 };
 
 use counter::{count_source, region_from_path, FileCounts, Region};
@@ -63,7 +65,7 @@ impl DataProvider for RustLocProvider {
 
     fn provide(&self, ctx: &mut Context) -> Result<serde_json::Value, DataProviderError> {
         ops_duckdb::try_provide_from_db(ctx, provide_from_db, |ctx| {
-            collect_rust_loc(ctx.working_directory())
+            collect_rust_loc(ctx.working_directory(), ctx.deadline_handle().as_ref())
         })
     }
 
@@ -141,28 +143,48 @@ pub const MAX_SOURCE_BYTES: u64 = 4 * 1024 * 1024;
 ///
 /// # Errors
 ///
-/// None today: every failure mode above is warned and skipped, per the
-/// degradation policy just described, and the only exit builds a
+/// `DataProviderError::TimedOut`, boxed into `anyhow`, when `deadline` is
+/// supplied and expires mid-walk — between entries, or part-way through the
+/// streaming count of an over-cap file — the cancellation check foreseen by the
+/// previous revision of this section (SEC-33 / TASK-2052). Nothing else:
+/// every other failure mode above is warned and skipped, per the degradation
+/// policy just described, and the only successful exit builds a
 /// `serde_json::Value::Array` from an already-materialised `Vec`, which
-/// cannot fail. The `Result` is kept because
-/// `ops_duckdb::try_provide_from_db` and `DataIngestor::collect` both
-/// require a fallible closure, and because a future cancellation check
-/// or hard resource limit would legitimately use it. Do not convert the
-/// warn-and-skip branches into `?` to make this section true — the
-/// partial-count policy is deliberate.
-pub fn collect_rust_loc(working_dir: &Path) -> Result<serde_json::Value, anyhow::Error> {
+/// cannot fail. Do not convert the warn-and-skip branches into `?` — the
+/// partial-count policy is deliberate, and it is precisely *because* a short
+/// count is otherwise indistinguishable from a complete one that an expired
+/// deadline aborts instead of returning the rows it happened to reach.
+pub fn collect_rust_loc(
+    working_dir: &Path,
+    deadline: Option<&Deadline>,
+) -> Result<serde_json::Value, anyhow::Error> {
     // Counting is CPU-bound, per-file independent, and shares no mutable
     // state: proc-macro2's `span-locations` source map is a thread-local
     // and `invalidate_current_thread_spans` only touches the calling
     // thread's copy, so each worker simply keeps its own. The only shared
     // state is the row sink, locked once per file.
     let records = Mutex::new(Vec::new());
+    // SEC-33 / TASK-2052: the walk runs on `ignore`'s worker threads, which
+    // cannot borrow the `&mut Context` the dispatch holds — hence the detached
+    // `Deadline`, which is `Send + Sync` and builds the same error
+    // `Context::check_deadline` would. Each worker checks before paying for an
+    // entry and answers `Quit`, which stops *every* worker rather than only
+    // its own; the flag then carries the outcome past the walk, since a
+    // `WalkState` is not a value `run` returns.
+    let timed_out = AtomicBool::new(false);
 
     WalkBuilder::new(working_dir)
         .filter_entry(|entry| !is_excluded_dir(entry))
         .build_parallel()
         .run(|| {
             Box::new(|entry| {
+                if deadline.is_some_and(Deadline::is_expired) {
+                    // `Relaxed` is enough: nothing is published alongside this
+                    // flag, and the only read happens after `run` returns,
+                    // which joins every worker and is itself the barrier.
+                    timed_out.store(true, Ordering::Relaxed);
+                    return WalkState::Quit;
+                }
                 let entry = match entry {
                     Ok(entry) => entry,
                     Err(error) => {
@@ -170,13 +192,30 @@ pub fn collect_rust_loc(working_dir: &Path) -> Result<serde_json::Value, anyhow:
                         return WalkState::Continue;
                     }
                 };
-                if let Some((relative, counts)) = count_entry(&entry, working_dir) {
-                    let mut sink = records.lock().unwrap_or_else(PoisonError::into_inner);
-                    push_records(&mut sink, &relative, &counts);
+                match count_entry(&entry, working_dir, deadline) {
+                    EntryCount::Counted(relative, counts) => {
+                        let mut sink = records.lock().unwrap_or_else(PoisonError::into_inner);
+                        push_records(&mut sink, &relative, &counts);
+                    }
+                    EntryCount::Skipped => {}
+                    EntryCount::TimedOut => {
+                        timed_out.store(true, Ordering::Relaxed);
+                        return WalkState::Quit;
+                    }
                 }
                 WalkState::Continue
             })
         });
+
+    if timed_out.load(Ordering::Relaxed) {
+        // Report through the deadline itself rather than a locally built
+        // error, so the failure keeps naming the provider that owns the
+        // budget. `Quit` is only ever set with a deadline present, and the
+        // deadline cannot un-expire, so this branch always yields an error.
+        if let Some(deadline) = deadline {
+            deadline.check()?;
+        }
+    }
 
     let mut records = records.into_inner().unwrap_or_else(PoisonError::into_inner);
     // Workers finish in arbitrary order. Sorting keeps the JSON sidecar
@@ -194,17 +233,29 @@ fn row_key(row: &serde_json::Value) -> (&str, &str) {
     )
 }
 
-/// Classify one walk entry, or `None` if it is not a `.rs` file or
-/// could not be read.
+/// What classifying one walk entry produced.
+enum EntryCount {
+    /// The file's counts, keyed by its workspace-relative path.
+    Counted(String, FileCounts),
+    /// Not a `.rs` file, or not readable — the latter warned, per the
+    /// degradation policy on [`collect_rust_loc`].
+    Skipped,
+    /// The deadline expired part-way through counting this file, so the
+    /// walk must stop rather than finish it.
+    TimedOut,
+}
+
+/// Classify one walk entry.
 ///
-/// Every skip warns, per the degradation policy on [`collect_rust_loc`].
-fn count_entry(entry: &DirEntry, working_dir: &Path) -> Option<(String, FileCounts)> {
+/// Every skip of a readable-looking file warns, per the degradation policy
+/// on [`collect_rust_loc`].
+fn count_entry(entry: &DirEntry, working_dir: &Path, deadline: Option<&Deadline>) -> EntryCount {
     if !entry.file_type().is_some_and(|ft| ft.is_file()) {
-        return None;
+        return EntryCount::Skipped;
     }
     let path = entry.path();
     if path.extension().is_none_or(|ext| ext != "rs") {
-        return None;
+        return EntryCount::Skipped;
     }
 
     let relative = relativize_path(path, working_dir);
@@ -219,7 +270,7 @@ fn count_entry(entry: &DirEntry, working_dir: &Path) -> Option<(String, FileCoun
         Ok(metadata) => metadata.len(),
         Err(error) => {
             tracing::warn!(path = ?path, %error, "rust-loc: skipping file with unreadable metadata");
-            return None;
+            return EntryCount::Skipped;
         }
     };
 
@@ -230,11 +281,12 @@ fn count_entry(entry: &DirEntry, working_dir: &Path) -> Option<(String, FileCoun
             max_bytes = MAX_SOURCE_BYTES,
             "rust-loc: file over the size cap; counting blank vs non-blank only"
         );
-        match count_streaming(path, region) {
-            Ok(counts) => counts,
+        match count_streaming(path, region, deadline) {
+            Ok(Some(counts)) => counts,
+            Ok(None) => return EntryCount::TimedOut,
             Err(error) => {
                 tracing::warn!(path = ?path, %error, "rust-loc: skipping unreadable file");
-                return None;
+                return EntryCount::Skipped;
             }
         }
     } else {
@@ -249,12 +301,12 @@ fn count_entry(entry: &DirEntry, working_dir: &Path) -> Option<(String, FileCoun
             }
             Err(error) => {
                 tracing::warn!(path = ?path, %error, "rust-loc: skipping unreadable file");
-                return None;
+                return EntryCount::Skipped;
             }
         }
     };
 
-    Some((relative, counts))
+    EntryCount::Counted(relative, counts)
 }
 
 /// Count an over-cap file without holding it in memory.
@@ -263,7 +315,19 @@ fn count_entry(entry: &DirEntry, working_dir: &Path) -> Option<(String, FileCoun
 /// line at a time. Reads bytes rather than `str` so that invalid UTF-8
 /// in a machine-written file still yields a count, and treats an
 /// all-ASCII-whitespace line as blank.
-fn count_streaming(path: &Path, region: Region) -> std::io::Result<FileCounts> {
+///
+/// Returns `Ok(None)` once `deadline` has expired. Nothing bounds the size of
+/// a file on this path — it is here precisely because it is over the cap — so
+/// the per-entry check in [`collect_rust_loc`] is not enough on its own: one
+/// multi-gigabyte file admitted just before the budget ran out would otherwise
+/// scan to EOF long after it. Polling once per buffer refill bounds the
+/// overrun by a single `fill_buf`, and the partial counts are dropped, since
+/// the walk they belong to aborts.
+fn count_streaming(
+    path: &Path,
+    region: Region,
+    deadline: Option<&Deadline>,
+) -> std::io::Result<Option<FileCounts>> {
     let mut reader = BufReader::new(std::fs::File::open(path)?);
     let mut counts = FileCounts::default();
     // Blank-vs-non-blank state for the line currently being scanned, carried
@@ -275,6 +339,9 @@ fn count_streaming(path: &Path, region: Region) -> std::io::Result<FileCounts> {
     // Scan `BufReader`'s own buffer in place. Nothing beyond that fixed
     // capacity is ever held, which is the whole point of this path.
     loop {
+        if deadline.is_some_and(Deadline::is_expired) {
+            return Ok(None);
+        }
         let consumed = {
             let chunk = reader.fill_buf()?;
             if chunk.is_empty() {
@@ -302,7 +369,7 @@ fn count_streaming(path: &Path, region: Region) -> std::io::Result<FileCounts> {
         counts.add_fallback_line(region, blank);
     }
 
-    Ok(counts)
+    Ok(Some(counts))
 }
 
 /// Is this entry a build/VCS directory to prune?

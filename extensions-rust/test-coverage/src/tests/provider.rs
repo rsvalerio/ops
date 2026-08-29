@@ -34,7 +34,7 @@ fn coverage_provider_schema_has_fields() {
 
 #[test]
 fn query_coverage_files_round_trip() {
-    let (_data_dir, db) = setup_loaded_db();
+    let (_data_dir, _dir, db) = setup_loaded_db();
     let rows = query_coverage_files(&db).expect("query");
     let arr = rows.as_array().unwrap();
     assert_eq!(arr.len(), 2);

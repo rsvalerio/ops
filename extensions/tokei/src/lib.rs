@@ -28,7 +28,8 @@ use anyhow::Context as _;
 use ignore::{DirEntry, WalkBuilder};
 use ops_duckdb::DuckDb;
 use ops_extension::{
-    Context, DataField, DataProvider, DataProviderError, DataProviderSchema, ExtensionType,
+    Context, DataField, DataProvider, DataProviderError, DataProviderSchema, Deadline,
+    ExtensionType,
 };
 use std::path::Path;
 use tokei::{Config as TokeiConfig, LanguageType, Languages};
@@ -64,7 +65,7 @@ impl DataProvider for TokeiProvider {
 
     fn provide(&self, ctx: &mut Context) -> Result<serde_json::Value, DataProviderError> {
         ops_duckdb::try_provide_from_db(ctx, provide_from_db, |ctx| {
-            collect_tokei(ctx.working_directory())
+            collect_tokei(ctx.working_directory(), ctx.deadline_handle().as_ref())
         })
     }
 
@@ -205,7 +206,16 @@ pub(crate) struct TokeiScan {
 /// Failures *below* the root are not errors: an unreadable file or subtree is
 /// counted in [`TokeiScan::skipped_unreadable`] and the scan continues, since
 /// a partial count with a warning beats no count at all.
-pub(crate) fn scan_tokei(working_dir: &Path, limits: ScanLimits) -> anyhow::Result<TokeiScan> {
+///
+/// Also `DataProviderError::TimedOut`, boxed into `anyhow`, if `deadline` is
+/// supplied and expires mid-walk. That one *is* fatal: the scan is abandoned
+/// rather than reported as a short count, because a truncated statistic
+/// indistinguishable from a real one is worse than no statistic.
+pub(crate) fn scan_tokei(
+    working_dir: &Path,
+    limits: ScanLimits,
+    deadline: Option<&Deadline>,
+) -> anyhow::Result<TokeiScan> {
     let metadata = std::fs::metadata(working_dir)
         .with_context(|| format!("tokei: cannot read scan root {}", working_dir.display()))?;
     anyhow::ensure!(
@@ -226,6 +236,16 @@ pub(crate) fn scan_tokei(working_dir: &Path, limits: ScanLimits) -> anyhow::Resu
         .build();
 
     for entry in walker {
+        // SEC-33 / TASK-2052: the cooperative cancellation point. `ScanLimits`
+        // caps how much of a tree is walked, but a cap is not a clock: 50k
+        // entries on a wedged network mount can outlast any budget, and the
+        // dispatch bound would otherwise only *report* that after the fact.
+        // Checked per directory entry rather than per counted file, because
+        // the cheap-looking half of the walk (`read_dir`, a `stat`) is exactly
+        // the half that blocks on such a mount.
+        if let Some(deadline) = deadline {
+            deadline.check()?;
+        }
         let entry = match entry {
             Ok(entry) => entry,
             Err(error) => {
@@ -329,11 +349,15 @@ fn is_pruned_dir(entry: &DirEntry) -> bool {
 ///
 /// # Errors
 ///
-/// If `working_dir` does not exist, cannot be stat'd, or is not a directory.
-/// A directory that genuinely holds no recognised source returns `Ok([])`,
-/// which is therefore distinguishable from an unreadable root.
-pub fn collect_tokei(working_dir: &Path) -> Result<serde_json::Value, anyhow::Error> {
-    let scan = scan_tokei(working_dir, ScanLimits::DEFAULT)?;
+/// If `working_dir` does not exist, cannot be stat'd, or is not a directory,
+/// or if `deadline` expires mid-walk. A directory that genuinely holds no
+/// recognised source returns `Ok([])`, which is therefore distinguishable
+/// from an unreadable root.
+pub fn collect_tokei(
+    working_dir: &Path,
+    deadline: Option<&Deadline>,
+) -> Result<serde_json::Value, anyhow::Error> {
+    let scan = scan_tokei(working_dir, ScanLimits::DEFAULT, deadline)?;
     if scan.skipped_oversize > 0 || scan.skipped_unreadable > 0 || scan.truncated {
         tracing::warn!(
             skipped_oversize = scan.skipped_oversize,

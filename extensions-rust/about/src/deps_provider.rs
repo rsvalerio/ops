@@ -42,7 +42,7 @@ impl DataProvider for RustDepsProvider {
 #[cfg(test)]
 mod tests {
     use super::{RustDepsProvider, PROVIDER_NAME};
-    use ops_about::test_support::TracingBuf;
+    use ops_about::test_support::capture_tracing;
     use ops_duckdb::DuckDb;
     use ops_extension::{Context, DataProvider};
     use std::sync::Arc;
@@ -60,16 +60,10 @@ mod tests {
         if let Some(db) = db {
             ctx.attach_db(Arc::new(db));
         }
-        let buf = TracingBuf::default();
-        let subscriber = tracing_subscriber::fmt()
-            .with_writer(buf.clone())
-            .with_max_level(tracing::Level::WARN)
-            .with_ansi(false)
-            .finish();
-        let value = tracing::subscriber::with_default(subscriber, || {
+        let (logs, value) = capture_tracing(tracing::Level::WARN, || {
             RustDepsProvider.provide(&mut ctx).expect("provide")
         });
-        (value, buf.captured())
+        (value, logs)
     }
 
     /// TEST-5 / TASK-1776 AC #1: no `DuckDB` in the context serialises a

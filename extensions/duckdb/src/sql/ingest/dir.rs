@@ -60,24 +60,26 @@ pub fn data_dir_for_db(db_path: &Path) -> DbResult<PathBuf> {
 /// co-tenant guarantee this function makes is about the leaf ingest dir
 /// only.
 ///
-/// # SEC / TASK-2039: closing the verify-then-write TOCTOU window
+/// # SEC / TASK-2039 + TASK-2054: closing the verify-then-write TOCTOU window
 ///
 /// Everything above verifies the ingest dir through an **open handle** and
-/// then drops it. `provide_via_ingestor` afterwards hands the plain `&Path`
-/// to [`crate::Ingestor::collect`] and [`crate::Ingestor::load`], which
-/// reopen `data_dir` by path, and `sidecar.rs` joins onto it by path too. A
-/// principal who can create names in the ingest dir's **parent** can
-/// therefore swap the verified directory for a symlink between the check and
-/// each staged write, and the JSON the database later trusts on load lands
-/// wherever they point.
+/// then drops it, so on its own it leaves a window: a principal who can create
+/// names in the ingest dir's **parent** could swap the verified directory for
+/// a symlink between the check and each staged write, and the JSON the
+/// database later trusts on load would land wherever they point.
 ///
-/// Of the two options weighed on TASK-2039 — threading a verified `Dir`-like
-/// handle (`cap-std` / `*at` syscalls) through the `Ingestor` trait and
-/// `sidecar.rs`, versus removing the swap *capability* — this takes the
-/// second: [`harden_ingest_parent`] makes the staging parent unwritable to
-/// every principal but its owner, so no one else can create or rename a name
-/// inside it and the window has nothing to exploit. That keeps the
-/// `Ingestor` trait's `&Path` signature and every implementation unchanged.
+/// TASK-2039 weighed two answers and took the cheaper one: [`harden_ingest_parent`]
+/// removes the swap *capability*, making the staging parent unwritable to
+/// every principal but its owner. TASK-2054 then added the structural half it
+/// deferred — [`IngestDir`] keeps the verified descriptor open and every
+/// staged write, read, rename and unlink resolves against it via `*at(2)`, so
+/// the pipeline no longer re-resolves the directory by name at all.
+///
+/// The two are complementary, not redundant. Parent hardening is what stops an
+/// attacker planting a name *before* [`IngestDir::open`] takes the handle; the
+/// anchor is what covers the cases hardening cannot — a shared-writable but
+/// sticky staging parent, and an attacker running as the same uid, whom no
+/// directory mode binds.
 ///
 /// The parent is tightened by clearing the group/other **write** bits only
 /// (`0o775` → `0o755`), not stamped to `0o700`: `target/ops` is conventionally
@@ -310,6 +312,375 @@ fn harden_existing_ingest_dir(data_dir: &Path) -> std::io::Result<()> {
     handle.set_permissions(std::fs::Permissions::from_mode(0o700))
 }
 
+/// SEC-25 / TASK-2054: a **verified, anchored handle** on the ingest staging
+/// directory.
+///
+/// # Why this type exists
+///
+/// [`create_ingest_dir`] verifies the staging directory through an open handle
+/// and then drops it. Before this type existed, `provide_via_ingestor` handed
+/// the plain `&Path` on to [`crate::DataIngestor::collect`] /
+/// [`crate::DataIngestor::load`] and `sidecar.rs` joined onto it by name, so
+/// **every staged write re-resolved the directory by path**. TASK-2039 shrank
+/// that window by removing the swap *capability* (see
+/// [`harden_ingest_parent`]), but two cases stayed open: a shared-writable but
+/// *sticky* staging parent, where the reopen is still by name, and an attacker
+/// running as the **same uid**, whom no directory mode binds.
+///
+/// `IngestDir` closes the structural half. It owns a directory descriptor that
+/// was confirmed — by `(dev, ino)` against the `lstat` taken during
+/// verification — to be the directory that was hardened, and every staged
+/// write, read, rename and unlink goes through `*at(2)` syscalls anchored on
+/// that descriptor. Replacing the *name* after the handle is open redirects
+/// nothing: the kernel resolves the staged entry relative to the inode we hold,
+/// not to the path we were given.
+///
+/// # What is still resolved by path, and why that is sound
+///
+/// [`IngestDir::path`] still exists and still hands out a `&Path`, for exactly
+/// two uses:
+///
+/// * `DuckDB`'s `read_json_auto('<path>')` — the embedded engine takes a path
+///   string and has no descriptor-passing API, so the *read* of the staged JSON
+///   is unavoidably by name.
+/// * the `data_sources` provenance row and log breadcrumbs, which record a name
+///   for a human to find later.
+///
+/// Neither is a *write*. The finding this type answers is that a swapped
+/// directory captures the data ops stages; a swapped directory on the read side
+/// can at worst feed `DuckDB` attacker-chosen JSON, which the workspace-sidecar
+/// and checksum checks already treat as untrusted input.
+///
+/// # Platform
+///
+/// The anchoring is Unix-only, matching the split the rest of this module
+/// already makes: there is no portable `*at` family, so non-Unix targets keep
+/// the by-name behaviour together with the symlink/reparse-point rejection in
+/// [`reject_untrusted_ingest_dir`].
+#[derive(Debug)]
+pub struct IngestDir {
+    path: PathBuf,
+    /// The verified directory descriptor every anchored operation resolves
+    /// against. Held open for the whole staging lifetime on purpose — dropping
+    /// it is what reopened the window in the first place.
+    #[cfg(unix)]
+    handle: std::fs::File,
+}
+
+impl IngestDir {
+    /// Create (and harden) the ingest directory, then open a verified handle on
+    /// it.
+    ///
+    /// The directory is created and hardened by [`create_ingest_dir`], opened
+    /// with `O_DIRECTORY | O_NOFOLLOW`, and the opened inode is checked against
+    /// a fresh `lstat` so the descriptor is provably the directory that was
+    /// just hardened rather than a name that changed underneath us.
+    ///
+    /// # Errors
+    ///
+    /// [`DbError::Io`] if the directory cannot be created, hardened, or opened,
+    /// or if the name no longer refers to the directory that was verified.
+    pub fn open(data_dir: &Path) -> DbResult<Self> {
+        create_ingest_dir(data_dir).map_err(DbError::Io)?;
+        Self::open_verified(data_dir).map_err(DbError::Io)
+    }
+
+    #[cfg(unix)]
+    fn open_verified(data_dir: &Path) -> std::io::Result<Self> {
+        use std::io::{Error, ErrorKind};
+        use std::os::unix::fs::{MetadataExt, OpenOptionsExt};
+
+        let lstat = std::fs::symlink_metadata(data_dir)?;
+        let handle = std::fs::OpenOptions::new()
+            .read(true)
+            .custom_flags(libc::O_DIRECTORY | libc::O_NOFOLLOW | libc::O_CLOEXEC)
+            .open(data_dir)?;
+        let opened = handle.metadata()?;
+        if !opened.is_dir() || opened.dev() != lstat.dev() || opened.ino() != lstat.ino() {
+            return Err(Error::new(
+                ErrorKind::InvalidInput,
+                format!(
+                    "ingest dir {} changed identity between inspection and open",
+                    data_dir.display()
+                ),
+            ));
+        }
+        Ok(Self {
+            path: data_dir.to_path_buf(),
+            handle,
+        })
+    }
+
+    #[cfg(not(unix))]
+    fn open_verified(data_dir: &Path) -> std::io::Result<Self> {
+        use std::io::{Error, ErrorKind};
+
+        // No `*at` family to anchor on; keep the rejection half so a reparse
+        // point at `data_dir` is still refused (same split as
+        // `create_ingest_dir`).
+        if reject_untrusted_ingest_dir(data_dir)?.is_none() {
+            return Err(Error::new(
+                ErrorKind::NotFound,
+                format!(
+                    "ingest dir {} vanished before it could be opened",
+                    data_dir.display()
+                ),
+            ));
+        }
+        Ok(Self {
+            path: data_dir.to_path_buf(),
+        })
+    }
+
+    /// The directory's path, for `DuckDB`'s path-only `read_json_auto`, the
+    /// `data_sources` provenance row, and log breadcrumbs.
+    ///
+    /// Never use this to open a file for writing — that is precisely the
+    /// re-resolution this type exists to remove. Use [`IngestDir::write_atomic`],
+    /// [`IngestDir::open_read`], [`IngestDir::rename`], or
+    /// [`IngestDir::remove_file`].
+    #[must_use]
+    pub fn path(&self) -> &Path {
+        &self.path
+    }
+
+    /// The path a staged entry *would* have, for `read_json_auto` and
+    /// provenance. Carries the same "reads and labels only" contract as
+    /// [`IngestDir::path`].
+    #[must_use]
+    pub fn entry_path(&self, name: &str) -> PathBuf {
+        self.path.join(name)
+    }
+
+    /// Reject a staged entry name that is not a single path component.
+    ///
+    /// Anchoring is worth nothing if the name itself can escape the directory:
+    /// `openat(fd, "../elsewhere")` resolves out of the anchor exactly as a
+    /// path join would.
+    fn check_name(name: &str) -> std::io::Result<()> {
+        use std::io::{Error, ErrorKind};
+        let is_component = !name.is_empty()
+            && name != "."
+            && name != ".."
+            && !name.contains('/')
+            && !name.contains('\0');
+        if is_component {
+            Ok(())
+        } else {
+            Err(Error::new(
+                ErrorKind::InvalidInput,
+                format!("staged entry name {name:?} is not a single path component"),
+            ))
+        }
+    }
+
+    /// Atomically stage `bytes` as `name` inside the anchored directory.
+    ///
+    /// The `ops_core::config::atomic_write` contract (sibling temp → fsync →
+    /// rename → parent fsync) with every step anchored: the temp is created
+    /// with `openat(O_CREAT | O_EXCL | O_NOFOLLOW)` on the verified descriptor
+    /// and published with `renameat` on that same descriptor, so neither the
+    /// temp nor the destination can be redirected by a name swap.
+    ///
+    /// # Errors
+    ///
+    /// [`DbError::Io`] if `name` is not a single path component, or if any of
+    /// the create / write / fsync / rename steps fails.
+    pub fn write_atomic(&self, name: &str, bytes: &[u8]) -> DbResult<()> {
+        self.write_atomic_io(name, bytes).map_err(DbError::Io)
+    }
+
+    #[cfg(unix)]
+    fn write_atomic_io(&self, name: &str, bytes: &[u8]) -> std::io::Result<()> {
+        use std::io::Write;
+
+        Self::check_name(name)?;
+        let tmp_name = Self::tmp_name(name);
+        let mut tmp = self.create_exclusive(&tmp_name)?;
+
+        let published = tmp
+            .write_all(bytes)
+            .and_then(|()| tmp.sync_all())
+            .and_then(|()| {
+                drop(tmp);
+                self.rename_io(&tmp_name, name)
+            });
+        if published.is_err() {
+            // Best-effort: a leaked temp is disk hygiene, not a correctness
+            // problem, and the original error is the one worth reporting.
+            drop(self.remove_file_io(&tmp_name));
+            return published;
+        }
+        // Persist the directory entry itself, matching `atomic_write`'s
+        // `sync_parent_dir`. Best-effort there, best-effort here: filesystems
+        // that reject `fsync` on a directory must not fail an otherwise
+        // successful stage.
+        drop(self.handle.sync_all());
+        Ok(())
+    }
+
+    #[cfg(not(unix))]
+    fn write_atomic_io(&self, name: &str, bytes: &[u8]) -> std::io::Result<()> {
+        Self::check_name(name)?;
+        ops_core::config::atomic_write(&self.entry_path(name), bytes)
+    }
+
+    /// Unique-per-process temp basename for the sibling-temp write. Mirrors
+    /// `ops_core::config::edit::build_tmp_basename`'s shape (leading dot,
+    /// `.tmp.` infix) so the existing "no leftover temp" assertions and any
+    /// operator cleanup script recognise it.
+    #[cfg(unix)]
+    fn tmp_name(name: &str) -> String {
+        use std::sync::atomic::{AtomicU64, Ordering};
+        static COUNTER: AtomicU64 = AtomicU64::new(0);
+        let seq = COUNTER.fetch_add(1, Ordering::Relaxed);
+        let pid = std::process::id();
+        format!(".{name}.tmp.{pid}.{seq}")
+    }
+
+    /// `openat(O_CREAT | O_EXCL | O_WRONLY | O_NOFOLLOW)` on the anchor.
+    #[cfg(unix)]
+    fn create_exclusive(&self, name: &str) -> std::io::Result<std::fs::File> {
+        // 0o600: the ingest dir is already 0o700, but a staged file that
+        // outlives a crash must not become group/world readable if the
+        // directory mode is later loosened.
+        const TMP_MODE: libc::c_uint = 0o600;
+        self.openat(
+            name,
+            libc::O_WRONLY | libc::O_CREAT | libc::O_EXCL | libc::O_NOFOLLOW | libc::O_CLOEXEC,
+            TMP_MODE,
+        )
+    }
+
+    /// Open a staged entry for reading, anchored on the verified descriptor.
+    ///
+    /// `O_NOFOLLOW` refuses a symlink planted at `name` rather than reading
+    /// through it.
+    ///
+    /// # Errors
+    ///
+    /// [`DbError::Io`] if `name` is not a single path component or the entry
+    /// cannot be opened.
+    pub fn open_read(&self, name: &str) -> DbResult<std::fs::File> {
+        self.open_read_io(name).map_err(DbError::Io)
+    }
+
+    #[cfg(unix)]
+    fn open_read_io(&self, name: &str) -> std::io::Result<std::fs::File> {
+        Self::check_name(name)?;
+        self.openat(name, libc::O_RDONLY | libc::O_NOFOLLOW | libc::O_CLOEXEC, 0)
+    }
+
+    #[cfg(not(unix))]
+    fn open_read_io(&self, name: &str) -> std::io::Result<std::fs::File> {
+        Self::check_name(name)?;
+        std::fs::File::open(self.entry_path(name))
+    }
+
+    #[cfg(unix)]
+    fn openat(
+        &self,
+        name: &str,
+        flags: libc::c_int,
+        mode: libc::c_uint,
+    ) -> std::io::Result<std::fs::File> {
+        use std::os::unix::io::{AsRawFd, FromRawFd};
+
+        let cname = std::ffi::CString::new(name)?;
+        // SAFETY: `self.handle` is an open directory descriptor that outlives
+        // this call (borrowed for `&self`), `cname` is a NUL-terminated C
+        // string that outlives the call, and the variadic `mode` argument is
+        // supplied because `flags` may contain `O_CREAT`. `openat` returns a
+        // fresh descriptor or -1; nothing is dereferenced.
+        let fd = unsafe { libc::openat(self.handle.as_raw_fd(), cname.as_ptr(), flags, mode) };
+        if fd < 0 {
+            return Err(std::io::Error::last_os_error());
+        }
+        // SAFETY: `fd` was just returned by a successful `openat`, is not -1,
+        // and is not owned by anything else, so `File` may take exclusive
+        // ownership of it.
+        Ok(unsafe { std::fs::File::from_raw_fd(fd) })
+    }
+
+    /// Rename a staged entry within the anchored directory.
+    ///
+    /// # Errors
+    ///
+    /// [`DbError::Io`] if either name is not a single path component or the
+    /// rename fails.
+    pub fn rename(&self, from: &str, to: &str) -> DbResult<()> {
+        self.rename_io(from, to).map_err(DbError::Io)
+    }
+
+    #[cfg(unix)]
+    fn rename_io(&self, from: &str, to: &str) -> std::io::Result<()> {
+        use std::os::unix::io::AsRawFd;
+
+        Self::check_name(from)?;
+        Self::check_name(to)?;
+        let cfrom = std::ffi::CString::new(from)?;
+        let cto = std::ffi::CString::new(to)?;
+        let fd = self.handle.as_raw_fd();
+        // SAFETY: `fd` is an open directory descriptor borrowed for the call,
+        // and both C strings are NUL-terminated and outlive it. `renameat`
+        // returns 0 or -1 and dereferences nothing we own.
+        let rc = unsafe { libc::renameat(fd, cfrom.as_ptr(), fd, cto.as_ptr()) };
+        if rc < 0 {
+            return Err(std::io::Error::last_os_error());
+        }
+        Ok(())
+    }
+
+    #[cfg(not(unix))]
+    fn rename_io(&self, from: &str, to: &str) -> std::io::Result<()> {
+        Self::check_name(from)?;
+        Self::check_name(to)?;
+        std::fs::rename(self.entry_path(from), self.entry_path(to))
+    }
+
+    /// Unlink a staged entry, anchored on the verified descriptor.
+    ///
+    /// # Errors
+    ///
+    /// [`DbError::Io`] if `name` is not a single path component or the unlink
+    /// fails (a missing entry surfaces as [`std::io::ErrorKind::NotFound`], as
+    /// with `std::fs::remove_file`).
+    pub fn remove_file(&self, name: &str) -> DbResult<()> {
+        self.remove_file_io(name).map_err(DbError::Io)
+    }
+
+    #[cfg(unix)]
+    fn remove_file_io(&self, name: &str) -> std::io::Result<()> {
+        use std::os::unix::io::AsRawFd;
+
+        Self::check_name(name)?;
+        let cname = std::ffi::CString::new(name)?;
+        // SAFETY: the descriptor is open and borrowed for the call, `cname` is
+        // NUL-terminated and outlives it, and the flag argument is 0 (unlink a
+        // non-directory). `unlinkat` returns 0 or -1.
+        let rc = unsafe { libc::unlinkat(self.handle.as_raw_fd(), cname.as_ptr(), 0) };
+        if rc < 0 {
+            return Err(std::io::Error::last_os_error());
+        }
+        Ok(())
+    }
+
+    #[cfg(not(unix))]
+    fn remove_file_io(&self, name: &str) -> std::io::Result<()> {
+        Self::check_name(name)?;
+        std::fs::remove_file(self.entry_path(name))
+    }
+
+    /// SHA-256 of a staged entry, read through the anchor.
+    ///
+    /// # Errors
+    ///
+    /// [`DbError::Io`] if the entry cannot be opened or read.
+    pub fn checksum(&self, name: &str) -> DbResult<String> {
+        checksum_reader(self.open_read(name)?)
+    }
+}
+
 /// Default DB path for a workspace root (using default `DataConfig`).
 #[must_use]
 pub fn default_db_path(workspace_root: &Path) -> PathBuf {
@@ -342,10 +713,16 @@ pub const fn external_err(e: anyhow::Error) -> DbError {
 ///
 /// [`DbError::Io`] if `path` cannot be opened or read.
 pub fn checksum_file(path: &Path) -> DbResult<String> {
+    checksum_reader(std::fs::File::open(path).map_err(DbError::Io)?)
+}
+
+/// Streaming SHA-256 core shared by [`checksum_file`] and the anchored
+/// [`IngestDir::checksum`], so the two cannot drift on chunk size or on how an
+/// over-long read is handled.
+fn checksum_reader<R: std::io::Read>(source: R) -> DbResult<String> {
     use sha2::{Digest, Sha256};
     use std::io::{BufReader, Read};
-    let file = std::fs::File::open(path).map_err(DbError::Io)?;
-    let mut reader = BufReader::with_capacity(64 * 1024, file);
+    let mut reader = BufReader::with_capacity(64 * 1024, source);
     let mut hasher = Sha256::new();
     let mut buf = vec![0u8; 64 * 1024];
     loop {
@@ -715,6 +1092,130 @@ mod tests {
         let dir = tempfile::tempdir().expect("tempdir");
         let result = checksum_file(&dir.path().join("nonexistent.json"));
         assert!(result.is_err(), "should fail for missing file");
+    }
+
+    /// SEC-25 / TASK-2054 (the finding's second acceptance criterion): once the
+    /// ingest dir is verified and its handle held, **replacing the directory's
+    /// name cannot redirect a staged write** — and nothing here depends on the
+    /// staging parent's mode.
+    ///
+    /// The attack this models is the same-uid one that no directory mode binds
+    /// (a compromised build script, another tool in the same session): the test
+    /// process itself performs the swap, renaming the verified dir aside and
+    /// putting an attacker-controlled directory at the very path the pipeline
+    /// was given. The parent stays writable throughout, so the pre-existing
+    /// `harden_ingest_parent` defence is deliberately not what is being
+    /// exercised.
+    #[cfg(unix)]
+    #[test]
+    fn staged_write_is_not_redirected_by_swapping_the_ingest_dir_name() {
+        let tmp = tempfile::tempdir().expect("tempdir");
+        let staging = tmp.path().join("data.duckdb.ingest");
+        let dir = IngestDir::open(&staging).expect("open verified ingest dir");
+
+        // Swap: move the verified directory aside and plant an attacker-owned
+        // one under the name every by-path write would resolve.
+        let moved_aside = tmp.path().join("real-ingest-dir");
+        std::fs::rename(&staging, &moved_aside).expect("move the verified dir aside");
+        let attacker = tmp.path().join("attacker-dir");
+        std::fs::create_dir(&attacker).expect("create attacker dir");
+        std::os::unix::fs::symlink(&attacker, &staging).expect("plant symlink at the ingest path");
+
+        dir.write_atomic("staged.json", b"secret")
+            .expect("staged write through the anchor");
+
+        assert_eq!(
+            std::fs::read(moved_aside.join("staged.json")).expect("read from the verified dir"),
+            b"secret",
+            "the staged write must land in the directory that was verified"
+        );
+        assert!(
+            !attacker.join("staged.json").exists(),
+            "the staged write must not follow the swapped name into the attacker's directory"
+        );
+        // And the anchored read path agrees: it still sees the file it wrote,
+        // not whatever the swapped name now resolves to.
+        assert_eq!(
+            dir.checksum("staged.json")
+                .expect("checksum through the anchor"),
+            checksum_file(&moved_aside.join("staged.json")).expect("checksum by path"),
+        );
+    }
+
+    /// SEC-25 / TASK-2054: anchoring is worthless if the *entry name* can walk
+    /// out of the directory, so a name that is not a single path component is
+    /// refused before it reaches `openat`.
+    #[test]
+    fn anchored_entry_names_must_be_single_path_components() {
+        let tmp = tempfile::tempdir().expect("tempdir");
+        let dir = IngestDir::open(&tmp.path().join("data.duckdb.ingest")).expect("open");
+        for bad in ["..", ".", "", "../escape.json", "sub/escape.json"] {
+            let err = dir
+                .write_atomic(bad, b"x")
+                .expect_err("escaping entry name must be refused");
+            match err {
+                DbError::Io(e) => assert_eq!(
+                    e.kind(),
+                    std::io::ErrorKind::InvalidInput,
+                    "expected InvalidInput for {bad:?}, got {e:?}"
+                ),
+                other => panic!("expected DbError::Io for {bad:?}, got {other:?}"),
+            }
+        }
+    }
+
+    /// SEC-25 / TASK-2054: `IngestDir::open` refuses a symlink at the ingest
+    /// path outright, so the anchor is never taken on an attacker-chosen
+    /// directory in the first place.
+    #[cfg(unix)]
+    #[test]
+    fn opening_a_symlinked_ingest_dir_is_refused() {
+        let tmp = tempfile::tempdir().expect("tempdir");
+        let elsewhere = tmp.path().join("elsewhere");
+        std::fs::create_dir(&elsewhere).expect("create target");
+        let staging = tmp.path().join("data.duckdb.ingest");
+        std::os::unix::fs::symlink(&elsewhere, &staging).expect("plant symlink");
+
+        let err = IngestDir::open(&staging).expect_err("a symlinked ingest dir must be refused");
+        assert!(
+            matches!(err, DbError::Io(_)),
+            "expected DbError::Io, got {err:?}"
+        );
+    }
+
+    /// SEC-25 / TASK-2054: the anchored rename/unlink pair used by
+    /// `cleanup_artifacts` round-trips, and the write is atomic (no `.tmp.`
+    /// sibling survives a successful stage).
+    #[test]
+    fn anchored_write_rename_and_unlink_round_trip() {
+        let tmp = tempfile::tempdir().expect("tempdir");
+        let dir = IngestDir::open(&tmp.path().join("data.duckdb.ingest")).expect("open");
+        dir.write_atomic("data.json", b"payload").expect("write");
+
+        let leftover = std::fs::read_dir(dir.path())
+            .expect("readdir")
+            .filter_map(Result::ok)
+            .map(|e| e.file_name().to_string_lossy().into_owned())
+            .find(|name| name.contains(".tmp."));
+        assert!(
+            leftover.is_none(),
+            "anchored write left a temp: {leftover:?}"
+        );
+
+        dir.rename("data.json", "data.json.done").expect("rename");
+        assert!(!dir.entry_path("data.json").exists());
+        assert!(dir.entry_path("data.json.done").exists());
+
+        dir.remove_file("data.json.done").expect("unlink");
+        assert!(!dir.entry_path("data.json.done").exists());
+
+        let err = dir
+            .remove_file("data.json.done")
+            .expect_err("a second unlink must report NotFound");
+        match err {
+            DbError::Io(e) => assert_eq!(e.kind(), std::io::ErrorKind::NotFound),
+            other => panic!("expected DbError::Io, got {other:?}"),
+        }
     }
 
     #[test]

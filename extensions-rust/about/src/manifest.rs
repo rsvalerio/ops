@@ -605,14 +605,9 @@ mod tests {
             "the typed NotFound marker must be reachable through the chain: {err:#}"
         );
 
-        let buf = ops_about::test_support::TracingBuf::default();
-        let subscriber = tracing_subscriber::fmt()
-            .with_writer(buf.clone())
-            .with_max_level(tracing::Level::DEBUG)
-            .with_ansi(false)
-            .finish();
-        tracing::subscriber::with_default(subscriber, || log_manifest_load_failure(&err));
-        let logs = buf.captured();
+        let (logs, ()) = ops_about::test_support::capture_tracing(tracing::Level::DEBUG, || {
+            log_manifest_load_failure(&err);
+        });
 
         assert!(
             logs.contains("Cargo.toml not found"),

@@ -1,9 +1,9 @@
 //! `provide_via_ingestor` orchestrator: per-table mutex, refresh, poison recovery.
 
 use crate::sql::validation::quoted_ident;
-use crate::{DbError, DuckDb};
+use crate::DuckDb;
 
-use super::dir::{create_ingest_dir, data_dir_for_db};
+use super::dir::{data_dir_for_db, IngestDir};
 use super::sql::table_has_data;
 
 // CONC-2 / TASK-1143: thread-local set of `&'static str` table names that
@@ -124,16 +124,21 @@ where
         // sentinel and litter the process working directory.
         let data_dir = data_dir_for_db(db.path())
             .with_context(|| format!("provide_via_ingestor({table_name}): ingest data dir"))?;
-        create_ingest_dir(&data_dir)
-            .map_err(DbError::Io)
+        // SEC-25 / TASK-2054: create, harden and *verify* the staging directory
+        // once, then keep the descriptor open for the whole collect→load
+        // cycle. Every staged write below resolves against this handle, so the
+        // directory the pipeline writes into is provably the one that was
+        // verified — the previous shape verified it, dropped the handle, and
+        // then handed the bare path on to be resolved again at every write.
+        let dir = IngestDir::open(&data_dir)
             .with_context(|| format!("provide_via_ingestor({table_name}): create ingest dir"))?;
         ingestor
-            .collect(ctx, &data_dir)
+            .collect(ctx, &dir)
             .with_context(|| format!("provide_via_ingestor({table_name}): ingestor collect"))?;
         crate::init_schema(db)
             .with_context(|| format!("provide_via_ingestor({table_name}): init_schema"))?;
         let _load_result = ingestor
-            .load(&data_dir, db)
+            .load(&dir, db)
             .with_context(|| format!("provide_via_ingestor({table_name}): ingestor load"))?;
     }
 
@@ -155,8 +160,9 @@ pub(super) fn drop_table_if_exists(db: &DuckDb, table_name: &str) -> Result<(), 
 mod tests {
     use super::*;
     use crate::sql::ingest::sql::create_table_from_json_sql;
+    use crate::DbError;
     use crate::{init_schema, DbResult};
-    use std::path::{Path, PathBuf};
+    use std::path::PathBuf;
     use std::sync::Arc;
 
     // --- drop_table_if_exists validation (SEC-12) ---
@@ -204,14 +210,13 @@ mod tests {
             fn name(&self) -> &'static str {
                 "counting"
             }
-            fn collect(&self, _ctx: &ops_extension::Context, data_dir: &Path) -> DbResult<()> {
+            fn collect(&self, _ctx: &ops_extension::Context, dir: &IngestDir) -> DbResult<()> {
                 COLLECT_COUNT.fetch_add(1, Ordering::SeqCst);
-                let path = data_dir.join("counting.json");
-                std::fs::write(&path, "[{\"id\": 1}]").map_err(DbError::Io)?;
+                dir.write_atomic("counting.json", b"[{\"id\": 1}]")?;
                 Ok(())
             }
-            fn load(&self, data_dir: &Path, db: &DuckDb) -> DbResult<crate::LoadResult> {
-                let json_path = data_dir.join("counting.json");
+            fn load(&self, dir: &IngestDir, db: &DuckDb) -> DbResult<crate::LoadResult> {
+                let json_path = dir.entry_path("counting.json");
                 let create_sql = create_table_from_json_sql("counting_test", &json_path, None)?;
                 let conn = db.lock()?;
                 conn.execute(create_sql.as_str(), [])
@@ -269,13 +274,12 @@ mod tests {
             fn name(&self) -> &'static str {
                 "trivial"
             }
-            fn collect(&self, _ctx: &ops_extension::Context, data_dir: &Path) -> DbResult<()> {
-                let path = data_dir.join("trivial.json");
-                std::fs::write(&path, "[{\"id\":1}]").map_err(DbError::Io)?;
+            fn collect(&self, _ctx: &ops_extension::Context, dir: &IngestDir) -> DbResult<()> {
+                dir.write_atomic("trivial.json", b"[{\"id\":1}]")?;
                 Ok(())
             }
-            fn load(&self, data_dir: &Path, db: &DuckDb) -> DbResult<crate::LoadResult> {
-                let json_path = data_dir.join("trivial.json");
+            fn load(&self, dir: &IngestDir, db: &DuckDb) -> DbResult<crate::LoadResult> {
+                let json_path = dir.entry_path("trivial.json");
                 let create_sql = create_table_from_json_sql("trivial_table", &json_path, None)?;
                 let conn = db.lock()?;
                 conn.execute(create_sql.as_str(), [])
@@ -338,17 +342,16 @@ mod tests {
             // The panic *is* the behaviour under test: this mock stands in for
             // an ingestor that blows up mid-collect.
             #[allow(clippy::panic_in_result_fn)]
-            fn collect(&self, _ctx: &ops_extension::Context, data_dir: &Path) -> DbResult<()> {
+            fn collect(&self, _ctx: &ops_extension::Context, dir: &IngestDir) -> DbResult<()> {
                 assert!(
                     !self.should_panic.swap(false, Ordering::SeqCst),
                     "simulated transient ingest panic"
                 );
-                let path = data_dir.join("panicky.json");
-                std::fs::write(&path, "[{\"id\":1}]").map_err(DbError::Io)?;
+                dir.write_atomic("panicky.json", b"[{\"id\":1}]")?;
                 Ok(())
             }
-            fn load(&self, data_dir: &Path, db: &DuckDb) -> DbResult<crate::LoadResult> {
-                let json_path = data_dir.join("panicky.json");
+            fn load(&self, dir: &IngestDir, db: &DuckDb) -> DbResult<crate::LoadResult> {
+                let json_path = dir.entry_path("panicky.json");
                 let create_sql = create_table_from_json_sql("panicky_table", &json_path, None)?;
                 let conn = db.lock()?;
                 conn.execute(create_sql.as_str(), [])
@@ -426,17 +429,16 @@ mod tests {
             // The panic *is* the behaviour under test: this mock stands in for
             // an ingestor that blows up mid-collect.
             #[allow(clippy::panic_in_result_fn)]
-            fn collect(&self, _ctx: &ops_extension::Context, data_dir: &Path) -> DbResult<()> {
+            fn collect(&self, _ctx: &ops_extension::Context, dir: &IngestDir) -> DbResult<()> {
                 assert!(
                     !self.should_panic.swap(false, Ordering::SeqCst),
                     "simulated transient ingest panic"
                 );
-                let path = data_dir.join("panicky_warn.json");
-                std::fs::write(&path, "[{\"id\":1}]").map_err(DbError::Io)?;
+                dir.write_atomic("panicky_warn.json", b"[{\"id\":1}]")?;
                 Ok(())
             }
-            fn load(&self, data_dir: &Path, db: &DuckDb) -> DbResult<crate::LoadResult> {
-                let json_path = data_dir.join("panicky_warn.json");
+            fn load(&self, dir: &IngestDir, db: &DuckDb) -> DbResult<crate::LoadResult> {
+                let json_path = dir.entry_path("panicky_warn.json");
                 let create_sql =
                     create_table_from_json_sql("panicky_warn_table", &json_path, None)?;
                 let conn = db.lock()?;
@@ -510,13 +512,12 @@ mod tests {
             fn name(&self) -> &'static str {
                 "race"
             }
-            fn collect(&self, _ctx: &ops_extension::Context, data_dir: &Path) -> DbResult<()> {
-                let path = data_dir.join("race.json");
-                std::fs::write(&path, "[{\"id\":1}]").map_err(DbError::Io)?;
+            fn collect(&self, _ctx: &ops_extension::Context, dir: &IngestDir) -> DbResult<()> {
+                dir.write_atomic("race.json", b"[{\"id\":1}]")?;
                 Ok(())
             }
-            fn load(&self, data_dir: &Path, db: &DuckDb) -> DbResult<crate::LoadResult> {
-                let json_path = data_dir.join("race.json");
+            fn load(&self, dir: &IngestDir, db: &DuckDb) -> DbResult<crate::LoadResult> {
+                let json_path = dir.entry_path("race.json");
                 let create_sql = create_table_from_json_sql("race_table", &json_path, None)?;
                 let conn = db.lock()?;
                 conn.execute(create_sql.as_str(), [])
@@ -624,7 +625,7 @@ mod tests {
             fn name(&self) -> &'static str {
                 "failing"
             }
-            fn collect(&self, _ctx: &ops_extension::Context, _data_dir: &Path) -> DbResult<()> {
+            fn collect(&self, _ctx: &ops_extension::Context, _dir: &IngestDir) -> DbResult<()> {
                 Err(DbError::Io(std::io::Error::other(
                     "simulated collect failure",
                 )))
@@ -635,7 +636,7 @@ mod tests {
             // assertions below and pass. `allow-panic-in-tests` does not cover
             // `panic_in_result_fn`, so the exception is spelled here.
             #[allow(clippy::panic_in_result_fn)]
-            fn load(&self, _data_dir: &Path, _db: &DuckDb) -> DbResult<crate::LoadResult> {
+            fn load(&self, _dir: &IngestDir, _db: &DuckDb) -> DbResult<crate::LoadResult> {
                 panic!("load must not run: collect failed first")
             }
         }
@@ -680,11 +681,11 @@ mod tests {
             }
             // Reaching either method means the sentinel guard did not fire.
             #[allow(clippy::panic_in_result_fn)]
-            fn collect(&self, _ctx: &ops_extension::Context, _data_dir: &Path) -> DbResult<()> {
+            fn collect(&self, _ctx: &ops_extension::Context, _dir: &IngestDir) -> DbResult<()> {
                 panic!("collect must not run for an in-memory database")
             }
             #[allow(clippy::panic_in_result_fn)]
-            fn load(&self, _data_dir: &Path, _db: &DuckDb) -> DbResult<crate::LoadResult> {
+            fn load(&self, _dir: &IngestDir, _db: &DuckDb) -> DbResult<crate::LoadResult> {
                 panic!("load must not run for an in-memory database")
             }
         }

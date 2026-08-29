@@ -39,13 +39,68 @@ pub const DEFAULT_PROVIDER_BUDGET: Duration = Duration::from_mins(20);
 /// Held by [`Context`] for the duration of the outermost
 /// [`DataRegistry::provide`] call and inherited by every provider that one
 /// composes, so a provider graph cannot multiply its budget by nesting.
+///
+/// SEC-33 / TASK-2052: public and detachable ([`Context::deadline_handle`])
+/// because the providers that most need to poll it are tree walkers whose
+/// walk lives in a free function — sometimes, as in `rust-loc`, one that runs
+/// on worker threads that cannot borrow `&Context` at all. A `Deadline` is
+/// `Clone + Send + Sync` and carries everything [`Deadline::check`] needs to
+/// build the same error [`Context::check_deadline`] would, so threading it
+/// into a walker does not weaken the failure an operator sees.
 #[derive(Debug, Clone)]
-struct ProviderDeadline {
+pub struct Deadline {
     /// The provider that owns the budget — the outermost one, which is the
     /// one an operator asked for and the one worth naming in the failure.
     provider: String,
     budget: Duration,
     expires_at: Instant,
+}
+
+impl Deadline {
+    /// When this dispatch's budget runs out.
+    #[must_use]
+    pub const fn expires_at(&self) -> Instant {
+        self.expires_at
+    }
+
+    /// Whether the budget has already run out.
+    #[must_use]
+    pub fn is_expired(&self) -> bool {
+        Instant::now() >= self.expires_at
+    }
+
+    /// The cooperative cancellation point, for code that holds a detached
+    /// deadline rather than a `&Context`.
+    ///
+    /// # Errors
+    ///
+    /// [`DataProviderError::TimedOut`], naming the provider that owns the
+    /// budget, once the deadline has passed.
+    pub fn check(&self) -> Result<(), DataProviderError> {
+        if self.is_expired() {
+            return Err(DataProviderError::TimedOut {
+                provider: self.provider.clone(),
+                budget: self.budget,
+            });
+        }
+        Ok(())
+    }
+}
+
+/// CONC-9 / TASK-2056: resolve the dispatch budget an operator configured,
+/// falling back to [`DEFAULT_PROVIDER_BUDGET`].
+///
+/// `[data] provider_budget_secs = 0` is the documented opt-out and maps to
+/// `None` (unbounded), which is the one value that must not be confused with
+/// "unset": a zero-length budget would time every dispatch out instantly, so
+/// reading it literally would turn a knob meant to *remove* the bound into
+/// one that makes every provider fail.
+const fn configured_provider_budget(config: &Config) -> Option<Duration> {
+    match config.data.provider_budget_secs {
+        None => Some(DEFAULT_PROVIDER_BUDGET),
+        Some(0) => None,
+        Some(secs) => Some(Duration::from_secs(secs)),
+    }
 }
 
 /// Describes a field provided by a data provider.
@@ -165,6 +220,34 @@ impl DataProviderSchema {
 /// `Debug` output is exactly what should not reach a log. Implementers who
 /// want a representation may derive `Debug` on their own type; nothing here
 /// prevents it.
+///
+/// # Why [`DataProvider::provide`] stays synchronous and on the caller's thread
+///
+/// SEC-33 / TASK-2052 asked this explicitly, so the answer is recorded here
+/// rather than left implicit in the shape of the trait. **Decision: it stays
+/// synchronous, and the bound stays cooperative.** Both alternatives were
+/// considered and rejected:
+///
+/// - *Make the trait `async`.* It is a breaking change for every in-tree and
+///   out-of-tree implementer, and it pulls an async runtime into
+///   `ops-extension`, which today has none. What it buys is nothing on its
+///   own: the tree walkers are CPU- and syscall-bound, not `await`-bound, so
+///   they would still need exactly the per-entry `check_deadline` this task
+///   adds in order to yield. Async moves the cancellation point; it does not
+///   create one.
+/// - *Run the dispatch on a worker thread and time-out the join.* This bounds
+///   the *caller* but not the *work*: a thread blocked in `readdir` on a
+///   wedged mount cannot be cancelled in Rust, so the stalled thread is
+///   leaked, still holding the provider's resources, and the process cannot
+///   exit while it lives. It converts a visible stall into an invisible one,
+///   and would make the fix a lie.
+///
+/// So the residual risk the finding names — a provider already blocked in a
+/// syscall — is accepted rather than solved. It is bounded in practice by the
+/// per-entry check (the walk stops at the *next* entry) and reported by
+/// [`DataRegistry::provide`], which refuses to return a value produced after
+/// the deadline. Revisit only if a provider appears whose single unit of work
+/// can itself outlast a budget.
 pub trait DataProvider: Send + Sync {
     /// Returns the unique name of this data provider.
     ///
@@ -616,7 +699,7 @@ pub struct Context {
     /// installed by [`DataRegistry::provide`] for the outermost provider and
     /// cleared by the same call. `None` outside a dispatch, or when the
     /// budget is `None`.
-    deadline: Option<ProviderDeadline>,
+    deadline: Option<Deadline>,
     #[cfg(feature = "duckdb")]
     db: Option<Arc<dyn DuckDbHandle>>,
 }
@@ -634,13 +717,14 @@ impl Context {
     /// parallel-exec path in TASK-0462.
     #[must_use]
     pub fn from_cwd_arc(config: Arc<Config>, working_directory: Arc<PathBuf>) -> Self {
+        let provider_budget = configured_provider_budget(&config);
         Self {
             config,
             data_cache: HashMap::new(),
             in_flight: HashSet::new(),
             working_directory,
             refresh: false,
-            provider_budget: Some(DEFAULT_PROVIDER_BUDGET),
+            provider_budget,
             deadline: None,
             #[cfg(feature = "duckdb")]
             db: None,
@@ -789,6 +873,28 @@ impl Context {
         self.deadline.as_ref().map(|d| d.expires_at)
     }
 
+    /// SEC-33 / TASK-2052: a detached, `Send + Sync` copy of the in-flight
+    /// deadline, for a provider whose work happens somewhere a `&Context`
+    /// cannot go — a free walker function, or `rust-loc`'s parallel walk,
+    /// whose per-entry closure runs on `ignore`'s worker threads.
+    ///
+    /// Prefer [`Context::check_deadline`] wherever the context itself is in
+    /// scope; this exists so that handing the budget to those places does not
+    /// degrade the error into an untyped one.
+    #[must_use]
+    pub fn deadline_handle(&self) -> Option<Deadline> {
+        self.deadline.clone()
+    }
+
+    /// CONC-9 / TASK-2056: the budget a dispatch started on this context gets,
+    /// or `None` when it is explicitly unbounded. Resolved from
+    /// `[data] provider_budget_secs` at construction and overridable with
+    /// [`Context::with_provider_budget`].
+    #[must_use]
+    pub const fn provider_budget(&self) -> Option<Duration> {
+        self.provider_budget
+    }
+
     /// SEC-33 / TASK-2017: the cooperative cancellation point providers are
     /// required to honour.
     ///
@@ -811,13 +917,7 @@ impl Context {
     /// budget, once the deadline has passed. Returns `Ok(())` when the
     /// dispatch is unbounded or no deadline is installed.
     pub fn check_deadline(&self) -> Result<(), DataProviderError> {
-        match &self.deadline {
-            Some(d) if Instant::now() >= d.expires_at => Err(DataProviderError::TimedOut {
-                provider: d.provider.clone(),
-                budget: d.budget,
-            }),
-            _ => Ok(()),
-        }
+        self.deadline.as_ref().map_or(Ok(()), Deadline::check)
     }
 
     /// SEC-33 / TASK-2017: install the deadline for a dispatch of `provider`
@@ -841,7 +941,7 @@ impl Context {
         let Some(expires_at) = Instant::now().checked_add(budget) else {
             return false;
         };
-        self.deadline = Some(ProviderDeadline {
+        self.deadline = Some(Deadline {
             provider: provider.to_string(),
             budget,
             expires_at,

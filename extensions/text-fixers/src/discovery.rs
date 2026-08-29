@@ -195,6 +195,20 @@ fn retain_regular_files(files: &mut Vec<PathBuf>) {
 /// Per-entry errors used to be dropped by a bare `.flatten()`. An unreadable
 /// directory then contributed zero files in silence, which on a gate reads as
 /// "nothing to fix here".
+///
+/// # No dispatch deadline here
+///
+/// SEC-33 / TASK-2052 grouped this walk with the ones in `tokei` and
+/// `rust-loc` and asked all three to poll `Context::check_deadline`. The other
+/// two are `DataProvider`s: they run inside `DataRegistry::provide`, which
+/// installs the budget on a `Context`. This walk is not — no `Context` reaches
+/// it, and none exists to reach it: the fixers are exec commands the operator
+/// invoked directly, on the foreground thread of a run they can interrupt,
+/// with nothing composing them and no cached value a late return could
+/// poison. Adding a private timeout here would be inventing a bound the
+/// provider budget is not, in a place where the operator already is the
+/// timeout. Revisit only if a fixer ever becomes reachable through provider
+/// dispatch.
 // Returns `io::Result` to match `discover`'s signature and the tracked-file
 // walker it alternates with.
 #[allow(clippy::unnecessary_wraps)]

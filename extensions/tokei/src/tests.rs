@@ -160,7 +160,7 @@ fn collect_tokei_excludes_target_and_git() {
             .expect("write noise");
     }
 
-    let value = super::collect_tokei(dir.path()).expect("collect");
+    let value = super::collect_tokei(dir.path(), None).expect("collect");
     let arr = value.as_array().expect("array");
 
     let files: Vec<String> = arr
@@ -188,7 +188,7 @@ fn collect_tokei_counts_build_dir_nested_under_src() {
     std::fs::create_dir_all(dir.path().join("build")).expect("mkdir build");
     std::fs::write(dir.path().join("build/out.rs"), "fn artifact() {}\n").expect("write artifact");
 
-    let value = super::collect_tokei(dir.path()).expect("collect");
+    let value = super::collect_tokei(dir.path(), None).expect("collect");
     let files: Vec<String> = value
         .as_array()
         .expect("array")
@@ -214,7 +214,7 @@ fn collect_tokei_counts_file_named_like_an_excluded_dir() {
     let dir = tempfile::tempdir().expect("tempdir");
     std::fs::write(dir.path().join("build"), "#!/bin/sh\necho hi\n").expect("write script");
 
-    let value = super::collect_tokei(dir.path()).expect("collect");
+    let value = super::collect_tokei(dir.path(), None).expect("collect");
     let files: Vec<String> = value
         .as_array()
         .expect("array")
@@ -237,7 +237,7 @@ fn scan_tokei_skips_files_over_the_byte_cap() {
         file_bytes: 32,
         ..super::ScanLimits::DEFAULT
     };
-    let scan = super::scan_tokei(dir.path(), limits).expect("scan");
+    let scan = super::scan_tokei(dir.path(), limits, None).expect("scan");
 
     assert_eq!(scan.skipped_oversize, 1);
     assert_eq!(scan.records.len(), 1);
@@ -256,7 +256,7 @@ fn scan_tokei_truncates_at_the_file_cap() {
         files: 2,
         ..super::ScanLimits::DEFAULT
     };
-    let scan = super::scan_tokei(dir.path(), limits).expect("scan");
+    let scan = super::scan_tokei(dir.path(), limits, None).expect("scan");
 
     assert_eq!(scan.records.len(), 2, "cap must bound what is materialised");
     assert!(scan.truncated, "a truncated result must say so");
@@ -281,7 +281,7 @@ fn unsupported_files_do_not_consume_the_file_cap() {
         files: 2,
         ..super::ScanLimits::DEFAULT
     };
-    let scan = super::scan_tokei(dir.path(), limits).expect("scan");
+    let scan = super::scan_tokei(dir.path(), limits, None).expect("scan");
 
     assert_eq!(
         scan.records.len(),
@@ -307,7 +307,7 @@ fn scan_tokei_honours_the_depth_cap() {
         depth: 1,
         ..super::ScanLimits::DEFAULT
     };
-    let scan = super::scan_tokei(dir.path(), limits).expect("scan");
+    let scan = super::scan_tokei(dir.path(), limits, None).expect("scan");
 
     assert_eq!(scan.records.len(), 1);
     assert_eq!(scan.records[0]["file"], "top.rs");
@@ -319,7 +319,7 @@ fn scan_tokei_honours_the_depth_cap() {
 fn collect_tokei_errors_on_missing_directory() {
     let dir = tempfile::tempdir().expect("tempdir");
     let missing = dir.path().join("does-not-exist");
-    let err = super::collect_tokei(&missing)
+    let err = super::collect_tokei(&missing, None)
         .expect_err("a nonexistent root must not read as an empty project");
     assert!(
         err.to_string().contains("cannot read scan root"),
@@ -332,7 +332,8 @@ fn collect_tokei_errors_when_root_is_a_file() {
     let dir = tempfile::tempdir().expect("tempdir");
     let file = dir.path().join("lib.rs");
     std::fs::write(&file, "fn a() {}\n").expect("write source");
-    let err = super::collect_tokei(&file).expect_err("a file root is not a scannable directory");
+    let err =
+        super::collect_tokei(&file, None).expect_err("a file root is not a scannable directory");
     assert!(
         err.to_string().contains("is not a directory"),
         "error should name the failure, got: {err}"
@@ -356,7 +357,7 @@ fn scan_tokei_counts_unreadable_files() {
         return;
     }
 
-    let scan = super::scan_tokei(dir.path(), super::ScanLimits::DEFAULT).expect("scan");
+    let scan = super::scan_tokei(dir.path(), super::ScanLimits::DEFAULT, None).expect("scan");
     assert!(scan.records.is_empty());
     assert_eq!(
         scan.skipped_unreadable, 1,
@@ -475,7 +476,7 @@ fn flatten_tokei_strips_workspace_prefix() {
 #[ignore = "scans CARGO_MANIFEST_DIR; non-deterministic and slow (TEST-17)"]
 fn collect_tokei_on_real_project() {
     let manifest_dir = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"));
-    let result = collect_tokei(&manifest_dir).expect("collect_tokei should succeed");
+    let result = collect_tokei(&manifest_dir, None).expect("collect_tokei should succeed");
     assert!(result.is_array());
     assert!(!result.as_array().unwrap().is_empty());
 }
@@ -486,7 +487,8 @@ fn collect_tokei_on_real_project() {
 #[test]
 fn collect_tokei_on_empty_dir() {
     let dir = tempfile::tempdir().expect("tempdir");
-    let result = collect_tokei(dir.path()).expect("collect_tokei should succeed on empty dir");
+    let result =
+        collect_tokei(dir.path(), None).expect("collect_tokei should succeed on empty dir");
     assert!(result.is_array());
     assert!(result.as_array().unwrap().is_empty());
 }
@@ -498,6 +500,10 @@ fn collect_tokei_on_empty_dir() {
 fn tokei_collect_and_load_cycle() {
     let manifest_dir = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"));
     let data_dir = tempfile::tempdir().expect("tempdir");
+    // SEC-25 / TASK-2054: ingestors stage through a verified anchor, so the
+    // test drives the same handle `provide_via_ingestor` builds.
+    let dir =
+        ops_duckdb::IngestDir::open(&data_dir.path().join("ingest")).expect("open ingest dir");
     let db = DuckDb::open_in_memory().expect("open in-memory db");
 
     let ctx = Context::test_context(manifest_dir);
@@ -505,15 +511,13 @@ fn tokei_collect_and_load_cycle() {
     // Collect
     let ingestor = TokeiIngestor;
     ingestor
-        .collect(&ctx, data_dir.path())
+        .collect(&ctx, &dir)
         .expect("collect should succeed");
-    assert!(data_dir.path().join("tokei_files.json").exists());
-    assert!(data_dir.path().join("tokei_workspace.txt").exists());
+    assert!(dir.entry_path("tokei_files.json").exists());
+    assert!(dir.entry_path("tokei_workspace.txt").exists());
 
     // Load
-    let load_result = ingestor
-        .load(data_dir.path(), &db)
-        .expect("load should succeed");
+    let load_result = ingestor.load(&dir, &db).expect("load should succeed");
     assert!(load_result.record_count > 0);
 
     // Verify data in DuckDB
@@ -531,7 +535,7 @@ fn tokei_collect_and_load_cycle() {
     assert!(lang_count > 0, "should have language aggregations");
 
     // Verify staged files cleaned up
-    assert!(!data_dir.path().join("tokei_files.json").exists());
+    assert!(!dir.entry_path("tokei_files.json").exists());
 }
 
 #[test]
@@ -551,10 +555,14 @@ fn tokei_files_has_data_returns_false_for_empty_db() {
 #[test]
 fn ingestor_load_errors_when_json_missing() {
     let data_dir = tempfile::tempdir().expect("tempdir");
+    // SEC-25 / TASK-2054: ingestors stage through a verified anchor, so the
+    // test drives the same handle `provide_via_ingestor` builds.
+    let dir =
+        ops_duckdb::IngestDir::open(&data_dir.path().join("ingest")).expect("open ingest dir");
     let db = DuckDb::open_in_memory().expect("open in-memory db");
     init_schema(&db).expect("init schema");
     let ingestor = TokeiIngestor;
-    let err = ingestor.load(data_dir.path(), &db).unwrap_err();
+    let err = ingestor.load(&dir, &db).unwrap_err();
     let msg = err.to_string().to_lowercase();
     assert!(
         msg.contains("not found") || msg.contains("no such file") || msg.contains("os error 2"),
@@ -566,6 +574,10 @@ fn ingestor_load_errors_when_json_missing() {
 fn load_tokei_succeeds_after_collect() {
     let project = fixture_project();
     let data_dir = tempfile::tempdir().expect("tempdir");
+    // SEC-25 / TASK-2054: ingestors stage through a verified anchor, so the
+    // test drives the same handle `provide_via_ingestor` builds.
+    let dir =
+        ops_duckdb::IngestDir::open(&data_dir.path().join("ingest")).expect("open ingest dir");
     let db = DuckDb::open_in_memory().expect("open in-memory db");
     init_schema(&db).expect("init schema");
 
@@ -573,11 +585,11 @@ fn load_tokei_succeeds_after_collect() {
     let ctx = Context::test_context(project.path().to_path_buf());
     let ingestor = TokeiIngestor;
     ingestor
-        .collect(&ctx, data_dir.path())
+        .collect(&ctx, &dir)
         .expect("collect should succeed");
 
     let load_result = ingestor
-        .load(data_dir.path(), &db)
+        .load(&dir, &db)
         .expect("ingestor.load should succeed");
     assert_eq!(
         load_result.record_count,
@@ -603,12 +615,16 @@ fn load_tokei_succeeds_after_collect() {
 fn query_tokei_files_returns_json_array() {
     let project = fixture_project();
     let data_dir = tempfile::tempdir().expect("tempdir");
+    // SEC-25 / TASK-2054: ingestors stage through a verified anchor, so the
+    // test drives the same handle `provide_via_ingestor` builds.
+    let dir =
+        ops_duckdb::IngestDir::open(&data_dir.path().join("ingest")).expect("open ingest dir");
     let db = DuckDb::open_in_memory().expect("open in-memory db");
 
     let ctx = Context::test_context(project.path().to_path_buf());
     let ingestor = TokeiIngestor;
-    ingestor.collect(&ctx, data_dir.path()).expect("collect");
-    let _ = ingestor.load(data_dir.path(), &db).expect("load");
+    ingestor.collect(&ctx, &dir).expect("collect");
+    let _ = ingestor.load(&dir, &db).expect("load");
 
     let result = query_tokei_files(&db).expect("query should succeed");
     let arr = result.as_array().expect("should be array");
@@ -629,17 +645,21 @@ fn query_tokei_files_returns_json_array() {
 
 #[test]
 fn tokei_ingestor_collect_empty_dir() {
-    let dir = tempfile::tempdir().expect("tempdir");
+    let workspace = tempfile::tempdir().expect("tempdir");
     let data_dir = tempfile::tempdir().expect("data tempdir");
-    let ctx = Context::test_context(dir.path().to_path_buf());
+    // SEC-25 / TASK-2054: ingestors stage through a verified anchor, so the
+    // test drives the same handle `provide_via_ingestor` builds.
+    let dir =
+        ops_duckdb::IngestDir::open(&data_dir.path().join("ingest")).expect("open ingest dir");
+    let ctx = Context::test_context(workspace.path().to_path_buf());
 
     let ingestor = TokeiIngestor;
     ingestor
-        .collect(&ctx, data_dir.path())
+        .collect(&ctx, &dir)
         .expect("collect on empty dir should succeed");
 
     // JSON file should exist even for empty dir (empty array)
-    let json_path = data_dir.path().join("tokei_files.json");
+    let json_path = dir.entry_path("tokei_files.json");
     assert!(json_path.exists(), "json file should be created");
     let content = std::fs::read_to_string(&json_path).expect("read json");
     let parsed: serde_json::Value = serde_json::from_str(&content).expect("parse json");
@@ -650,10 +670,14 @@ fn tokei_ingestor_collect_empty_dir() {
 #[test]
 fn tokei_ingestor_load_without_collect_fails() {
     let data_dir = tempfile::tempdir().expect("tempdir");
+    // SEC-25 / TASK-2054: ingestors stage through a verified anchor, so the
+    // test drives the same handle `provide_via_ingestor` builds.
+    let dir =
+        ops_duckdb::IngestDir::open(&data_dir.path().join("ingest")).expect("open ingest dir");
     let db = DuckDb::open_in_memory().expect("open in-memory db");
 
     let ingestor = TokeiIngestor;
-    let result = ingestor.load(data_dir.path(), &db);
+    let result = ingestor.load(&dir, &db);
     assert!(result.is_err(), "load without prior collect should fail");
 }
 
@@ -696,15 +720,19 @@ fn flatten_tokei_with_unrelated_prefix_keeps_full_path() {
 fn tokei_files_create_sql_with_real_json() {
     let project = fixture_project();
     let data_dir = tempfile::tempdir().expect("tempdir");
+    // SEC-25 / TASK-2054: ingestors stage through a verified anchor, so the
+    // test drives the same handle `provide_via_ingestor` builds.
+    let dir =
+        ops_duckdb::IngestDir::open(&data_dir.path().join("ingest")).expect("open ingest dir");
 
     // Collect from the canned fixture to get a valid JSON file. The
     // assertions concern only the generated SQL, so there is nothing here a
     // workspace scan would add (TEST-18, TASK-1977).
     let ctx = Context::test_context(project.path().to_path_buf());
     let ingestor = TokeiIngestor;
-    ingestor.collect(&ctx, data_dir.path()).expect("collect");
+    ingestor.collect(&ctx, &dir).expect("collect");
 
-    let json_path = data_dir.path().join("tokei_files.json");
+    let json_path = dir.entry_path("tokei_files.json");
     let sql = views::tokei_files_create_sql(&json_path)
         .expect("should generate SQL")
         .to_string();
@@ -724,12 +752,16 @@ fn tokei_files_create_sql_with_real_json() {
 fn tokei_languages_view_aggregates_correctly() {
     let project = fixture_project();
     let data_dir = tempfile::tempdir().expect("tempdir");
+    // SEC-25 / TASK-2054: ingestors stage through a verified anchor, so the
+    // test drives the same handle `provide_via_ingestor` builds.
+    let dir =
+        ops_duckdb::IngestDir::open(&data_dir.path().join("ingest")).expect("open ingest dir");
     let db = DuckDb::open_in_memory().expect("open in-memory db");
 
     let ctx = Context::test_context(project.path().to_path_buf());
     let ingestor = TokeiIngestor;
-    ingestor.collect(&ctx, data_dir.path()).expect("collect");
-    let _ = ingestor.load(data_dir.path(), &db).expect("load");
+    ingestor.collect(&ctx, &dir).expect("collect");
+    let _ = ingestor.load(&dir, &db).expect("load");
 
     let conn = db.lock().expect("lock");
 
@@ -793,4 +825,56 @@ fn relativize_path_replaces_invalid_utf8_with_replacement_char() {
         rendered.starts_with("bad") && rendered.ends_with("name"),
         "stripped + lossy result: {rendered:?}"
     );
+}
+
+// -- SEC-33 / TASK-2052: the walk honours the dispatch deadline --
+
+/// AC #2: with a budget already spent, the provider must abort *during* the
+/// walk rather than run it to completion and be told afterwards.
+///
+/// Driven through `DataRegistry::provide`, which is what installs the
+/// deadline, so this pins the whole path an operator's dispatch takes — not
+/// just `scan_tokei`'s parameter. The control run below shows the same tree
+/// scans cleanly, so the failure is the deadline and not the fixture.
+#[test]
+fn a_spent_budget_aborts_the_tokei_walk_with_a_typed_timeout() {
+    let dir = fixture_project();
+    let mut registry = ops_extension::DataRegistry::new();
+    let _ = registry.register(DATA_PROVIDER_NAME, Box::new(TokeiProvider));
+
+    // One nanosecond is spent by the time the first entry is examined, so the
+    // check fires on the first iteration.
+    let mut ctx = Context::test_context(dir.path().to_path_buf())
+        .with_provider_budget(Some(std::time::Duration::from_nanos(1)));
+    match registry.provide(DATA_PROVIDER_NAME, &mut ctx) {
+        Err(DataProviderError::TimedOut { provider, .. }) => {
+            assert_eq!(provider, DATA_PROVIDER_NAME);
+        }
+        other => panic!("expected a typed TimedOut from the walk, got {other:?}"),
+    }
+
+    let mut ctx = Context::test_context(dir.path().to_path_buf());
+    let value = registry
+        .provide(DATA_PROVIDER_NAME, &mut ctx)
+        .expect("the same tree must scan cleanly without a spent budget");
+    assert_eq!(
+        value.as_array().map(Vec::len),
+        Some(FIXTURE_FILE_COUNT),
+        "the control run must produce the whole fixture"
+    );
+}
+
+/// A deadline that has not expired must not perturb the scan: the per-entry
+/// check is a cancellation point, not a filter.
+#[test]
+fn a_live_budget_leaves_the_tokei_scan_intact() {
+    let dir = fixture_project();
+    let mut registry = ops_extension::DataRegistry::new();
+    let _ = registry.register(DATA_PROVIDER_NAME, Box::new(TokeiProvider));
+    let mut ctx = Context::test_context(dir.path().to_path_buf())
+        .with_provider_budget(Some(std::time::Duration::from_secs(600)));
+    let value = registry
+        .provide(DATA_PROVIDER_NAME, &mut ctx)
+        .expect("a live budget must not fail the scan");
+    assert_eq!(value.as_array().map(Vec::len), Some(FIXTURE_FILE_COUNT));
 }

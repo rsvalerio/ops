@@ -428,7 +428,7 @@ mod tests {
         {
             let _guard = EnvGuard::set(
                 REF_UPDATES_ENV_VAR,
-                &format!("(delete) {ZERO} refs/heads/old {SHA1_A}\n"),
+                format!("(delete) {ZERO} refs/heads/old {SHA1_A}\n"),
             );
             assert_eq!(push_refs(), PushRefs::DeleteOnly);
             assert_eq!(skip_reason(), Some("delete-only push"));

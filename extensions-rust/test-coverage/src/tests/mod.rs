@@ -30,8 +30,7 @@ mod wiring;
 
 use crate::ingestor::CoverageIngestor;
 use crate::parse::flatten_coverage_json;
-use ops_duckdb::{DataIngestor, DuckDb};
-use std::path::Path;
+use ops_duckdb::{DataIngestor, DuckDb, IngestDir};
 
 /// Two-file coverage fixture shared by the flatten, ingest, provider, and
 /// view tests. `src/lib.rs` deliberately carries different counts from
@@ -64,13 +63,22 @@ pub fn sample_coverage_json() -> serde_json::Value {
     })
 }
 
-pub fn write_coverage_fixture(data_dir: &Path) {
+/// SEC-25 / TASK-2054: the fixture is staged through the verified anchor, the
+/// same way `CoverageIngestor::collect` stages it in production.
+pub fn write_coverage_fixture(dir: &IngestDir) {
     let raw = sample_coverage_json();
     let flat = flatten_coverage_json(&raw).expect("flatten");
     let json_bytes = serde_json::to_vec_pretty(&flat).expect("serialize");
-    std::fs::write(data_dir.join("coverage_files.json"), &json_bytes).expect("write");
-    std::fs::write(data_dir.join("coverage_workspace.txt"), "/test/workspace")
+    dir.write_atomic("coverage_files.json", &json_bytes)
+        .expect("write");
+    dir.write_atomic("coverage_workspace.txt", b"/test/workspace")
         .expect("write workspace");
+}
+
+/// Open a verified ingest anchor inside `tmp`, mirroring what
+/// `provide_via_ingestor` builds before it calls an ingestor.
+pub fn ingest_anchor(tmp: &tempfile::TempDir) -> IngestDir {
+    IngestDir::open(&tmp.path().join("data.duckdb.ingest")).expect("open ingest dir")
 }
 
 /// DUP-3 / TASK-1562: collapses the 5-line `tempdir + open_in_memory +
@@ -78,13 +86,14 @@ pub fn write_coverage_fixture(data_dir: &Path) {
 /// five `DuckDB` integration tests. Returns the tempdir (kept alive so the
 /// sidecar paths remain valid for the lifetime of the test) and the
 /// loaded `DuckDb` handle.
-pub fn setup_loaded_db() -> (tempfile::TempDir, DuckDb) {
+pub fn setup_loaded_db() -> (tempfile::TempDir, IngestDir, DuckDb) {
     let data_dir = tempfile::tempdir().expect("tempdir");
+    let dir = ingest_anchor(&data_dir);
     let db = DuckDb::open_in_memory().expect("open in-memory db");
-    write_coverage_fixture(data_dir.path());
+    write_coverage_fixture(&dir);
     let ingestor = CoverageIngestor;
-    let _ = ingestor
-        .load(data_dir.path(), &db)
-        .expect("load should succeed");
-    (data_dir, db)
+    let _ = ingestor.load(&dir, &db).expect("load should succeed");
+    // The tempdir is returned alongside the anchor so the staging directory
+    // outlives the descriptor for the whole test.
+    (data_dir, dir, db)
 }

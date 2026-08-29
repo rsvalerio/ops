@@ -102,7 +102,8 @@ fn is_hard_failure(err: &anyhow::Error) -> bool {
 pub use ingest::{
     checksum_file, create_table_from_json_sql, data_dir_for_db, default_db_path, external_err,
     provide_via_ingestor, query_rows_to_json, read_workspace_sidecar, remove_workspace_sidecar,
-    sidecar_path, table_has_data, write_workspace_sidecar, CreateTableSql, CreateViewSql,
+    sidecar_name, table_has_data, write_workspace_sidecar, CreateTableSql, CreateViewSql,
+    IngestDir,
 };
 pub use query::{
     query_crate_coverage, query_crate_dep_counts, query_crate_deps, query_crate_file_count,

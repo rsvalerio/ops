@@ -429,20 +429,14 @@ mod tests {
         // TOML string escapes, not Rust `Debug` ones: `\u001B` is the ESC.
         let (_dir, root) = scratch_workspace(r#""a\nb\u001B31mc""#, &[(member, None)]);
 
-        let buf = ops_about::test_support::TracingBuf::default();
-        let subscriber = tracing_subscriber::fmt()
-            .with_writer(buf.clone())
-            .with_max_level(tracing::Level::WARN)
-            .with_ansi(false)
-            .finish();
-        let value = tracing::subscriber::with_default(subscriber, || provide(&root))
-            .expect("provide must fall back, not fail");
+        let (logs, value) =
+            ops_about::test_support::capture_tracing(tracing::Level::WARN, || provide(&root));
+        let value = value.expect("provide must fall back, not fail");
         assert_eq!(
             value["targets"][0]["path"], member,
             "the member with the hostile name must be the one that fell back"
         );
 
-        let logs = buf.captured();
         assert!(
             logs.contains("falling back to display name"),
             "the fallback breadcrumb must have been emitted, got: {logs:?}"

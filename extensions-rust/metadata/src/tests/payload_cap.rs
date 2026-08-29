@@ -172,20 +172,14 @@ mod max_bytes_env {
         resolve_metadata_max_bytes, METADATA_MAX_BYTES_CEILING, METADATA_MAX_BYTES_DEFAULT,
         METADATA_MAX_BYTES_ENV,
     };
-    use ops_about::test_support::TracingBuf;
+    use ops_about::test_support::capture_tracing;
 
     /// Resolve `raw` while capturing WARN-level output, so each rejected
     /// value can be checked for the diagnostic AC #1 requires.
     fn resolve_capturing_warns(raw: Option<&str>) -> (u64, String) {
-        let buf = TracingBuf::default();
-        let subscriber = tracing_subscriber::fmt()
-            .with_writer(buf.clone())
-            .with_max_level(tracing::Level::WARN)
-            .with_ansi(false)
-            .finish();
-        let resolved =
-            tracing::subscriber::with_default(subscriber, || resolve_metadata_max_bytes(raw));
-        (resolved, buf.captured())
+        let (logs, resolved) =
+            capture_tracing(tracing::Level::WARN, || resolve_metadata_max_bytes(raw));
+        (resolved, logs)
     }
 
     #[test]

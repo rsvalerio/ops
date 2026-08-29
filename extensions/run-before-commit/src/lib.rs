@@ -688,7 +688,7 @@ mod tests {
 
         // `dir` first so the fake `git` shadows the real one; the system bin
         // directories follow because the fake script itself needs `sleep`.
-        let _path = EnvGuard::set("PATH", &format!("{}:/usr/bin:/bin", dir.path().display()));
+        let _path = EnvGuard::set("PATH", format!("{}:/usr/bin:/bin", dir.path().display()));
         let _timeout = EnvGuard::set(TIMEOUT_ENV_VAR, "1");
         let _cwd = CwdGuard::new(dir.path()).expect("CwdGuard");
 

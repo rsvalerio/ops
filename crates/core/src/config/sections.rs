@@ -38,7 +38,7 @@ impl AboutConfig {
     }
 }
 
-/// Data storage settings (`DuckDB` path).
+/// Data storage settings (`DuckDB` path, provider dispatch budget).
 #[derive(Debug, Clone, Default, Deserialize, Serialize)]
 #[serde(deny_unknown_fields)]
 pub struct DataConfig {
@@ -46,11 +46,27 @@ pub struct DataConfig {
     /// Absolute paths are used as-is; relative paths resolve from workspace root.
     /// Default (when None): .ops/data.duckdb (stack-dependent)
     pub path: Option<PathBuf>,
+    /// CONC-9 / TASK-2056: wall-clock budget, in whole seconds, for one data
+    /// provider dispatch.
+    ///
+    /// `None` (the default) means `ops_extension::DEFAULT_PROVIDER_BUDGET`.
+    /// `0` opts out of the bound entirely, for the operator running a
+    /// genuinely long provider (a full-workspace `cargo llvm-cov` through the
+    /// coverage providers) who would rather wait than be handed a `TimedOut`.
+    /// Any other value replaces the default, which is what lets an operator on
+    /// a slow network filesystem *tighten* it: the compiled-in constant has to
+    /// be generous enough for the slowest in-tree provider, and is therefore
+    /// loose for the tree-walking ones the bound was introduced for.
+    ///
+    /// Read by `ops_extension::Context::from_cwd_arc`, so every construction
+    /// path honours it without separate wiring.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub provider_budget_secs: Option<u64>,
 }
 
 impl DataConfig {
     pub(crate) const fn is_default(&self) -> bool {
-        self.path.is_none()
+        self.path.is_none() && self.provider_budget_secs.is_none()
     }
 }
 

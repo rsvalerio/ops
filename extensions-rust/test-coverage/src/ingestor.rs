@@ -3,9 +3,8 @@
 use crate::parse::collect_coverage;
 use crate::views;
 use ops_duckdb::sql::external_err;
-use ops_duckdb::{DataIngestor, DbResult, DuckDb, LoadResult, SidecarIngestorConfig};
+use ops_duckdb::{DataIngestor, DbResult, DuckDb, IngestDir, LoadResult, SidecarIngestorConfig};
 use ops_extension::Context;
-use std::path::Path;
 
 const PIPELINE: SidecarIngestorConfig =
     SidecarIngestorConfig::new("coverage", "coverage_files.json", "coverage_files");
@@ -17,16 +16,16 @@ impl DataIngestor for CoverageIngestor {
         PIPELINE.name
     }
 
-    fn collect(&self, ctx: &Context, data_dir: &Path) -> DbResult<()> {
+    fn collect(&self, ctx: &Context, dir: &IngestDir) -> DbResult<()> {
         let records = collect_coverage(ctx.working_directory()).map_err(external_err)?;
-        PIPELINE.collect_sidecar(data_dir, &records, ctx.working_directory())
+        PIPELINE.collect_sidecar(dir, &records, ctx.working_directory())
     }
 
-    fn load(&self, data_dir: &Path, db: &DuckDb) -> DbResult<LoadResult> {
-        let json_path = data_dir.join(PIPELINE.json_filename);
+    fn load(&self, dir: &IngestDir, db: &DuckDb) -> DbResult<LoadResult> {
+        let json_path = dir.entry_path(PIPELINE.json_filename);
         let create_sql = views::coverage_files_create_sql(&json_path)?;
         let view_sql = views::coverage_summary_view_sql();
-        PIPELINE.load_with_sidecar(db, data_dir, &create_sql, &view_sql)
+        PIPELINE.load_with_sidecar(db, dir, &create_sql, &view_sql)
     }
 }
 
@@ -48,7 +47,10 @@ mod tests {
         let missing = dir.path().join("does-not-exist");
         let ctx = ops_extension::Context::test_context(missing);
         let data_dir = tempfile::tempdir().unwrap();
-        let result = ingestor.collect(&ctx, data_dir.path());
+        // SEC-25 / TASK-2054: stage through the same verified anchor
+        // `provide_via_ingestor` builds.
+        let dir = IngestDir::open(&data_dir.path().join("ingest")).expect("anchor");
+        let result = ingestor.collect(&ctx, &dir);
         assert!(result.is_err());
     }
 
@@ -64,6 +66,9 @@ mod tests {
     #[test]
     fn coverage_load_with_sample_data() {
         let data_dir = tempfile::tempdir().unwrap();
+        // SEC-25 / TASK-2054: stage through the same verified anchor
+        // `provide_via_ingestor` builds.
+        let dir = IngestDir::open(&data_dir.path().join("ingest")).expect("anchor");
         let working_dir = tempfile::tempdir().unwrap();
 
         // Write sample coverage JSON
@@ -86,24 +91,18 @@ mod tests {
                 "branches_percent": 80.0
             }
         ]);
-        let json_path = data_dir.path().join(PIPELINE.json_filename);
-        std::fs::write(
-            &json_path,
-            serde_json::to_vec_pretty(&coverage_json).unwrap(),
+        dir.write_atomic(
+            PIPELINE.json_filename,
+            &serde_json::to_vec_pretty(&coverage_json).unwrap(),
         )
         .unwrap();
 
         // Write workspace sidecar
-        ops_duckdb::sql::write_workspace_sidecar(
-            data_dir.path(),
-            PIPELINE.name,
-            working_dir.path(),
-        )
-        .unwrap();
+        ops_duckdb::sql::write_workspace_sidecar(&dir, PIPELINE.name, working_dir.path()).unwrap();
 
         let db = DuckDb::open_in_memory().expect("open in-memory db");
         let ingestor = CoverageIngestor;
-        let result = ingestor.load(data_dir.path(), &db);
+        let result = ingestor.load(&dir, &db);
         assert!(result.is_ok());
         let load_result = result.unwrap();
         assert_eq!(load_result.source_name, "coverage");
@@ -122,6 +121,6 @@ mod tests {
         assert_eq!(lines_count, 100);
 
         // Verify JSON file was cleaned up
-        assert!(!json_path.exists());
+        assert!(!dir.entry_path(PIPELINE.json_filename).exists());
     }
 }

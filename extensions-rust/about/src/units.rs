@@ -278,7 +278,7 @@ pub fn resolve_crate_display_name(member: &str, workspace_root: &Path) -> String
 #[cfg(test)]
 mod tests {
     use super::*;
-    use ops_about::test_support::TracingBuf;
+    use ops_about::test_support::capture_tracing;
 
     /// ERR-7 (TASK-0977) / TEST-25 (TASK-1773): `read_crate_metadata`'s
     /// breadcrumbs must Debug-format the manifest path so an
@@ -309,18 +309,11 @@ mod tests {
         let malformed = malformed_dir.join("Cargo.toml");
         std::fs::write(&malformed, "[package\nname = \"unterminated\n").unwrap();
 
-        let buf = TracingBuf::default();
-        let subscriber = tracing_subscriber::fmt()
-            .with_writer(buf.clone())
-            .with_max_level(tracing::Level::DEBUG)
-            .with_ansi(false)
-            .finish();
-        tracing::subscriber::with_default(subscriber, || {
+        let (logs, ()) = capture_tracing(tracing::Level::DEBUG, || {
             assert!(read_crate_metadata(&as_dir).name.is_none());
             assert!(read_crate_metadata(&malformed).name.is_none());
         });
 
-        let logs = buf.captured();
         assert!(
             logs.contains("failed to read crate manifest"),
             "expected the read-failure debug breadcrumb, got: {logs}"

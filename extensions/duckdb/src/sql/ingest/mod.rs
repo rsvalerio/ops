@@ -9,10 +9,10 @@ pub(super) mod orchestrator;
 pub(super) mod sidecar;
 pub(super) mod sql;
 
-pub use dir::{checksum_file, data_dir_for_db, default_db_path, external_err};
+pub use dir::{checksum_file, data_dir_for_db, default_db_path, external_err, IngestDir};
 pub use orchestrator::provide_via_ingestor;
 pub use sidecar::{
-    read_workspace_sidecar, remove_workspace_sidecar, sidecar_path, write_workspace_sidecar,
+    read_workspace_sidecar, remove_workspace_sidecar, sidecar_name, write_workspace_sidecar,
     MAX_SIDECAR_BYTES,
 };
 pub use sql::{

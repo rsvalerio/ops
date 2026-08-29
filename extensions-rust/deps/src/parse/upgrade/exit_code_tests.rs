@@ -76,10 +76,9 @@ fn interpret_upgrade_output_bails_on_unrecognised_header_with_separator() {
                    ======= =========== ========= ======  ====== ====\n\
                    serde   1.0.100     1.0.228   1.0.228 1.0.228\n";
 
-    let (result, logged) =
-        crate::test_support::with_captured_logs(tracing::Level::WARN, false, || {
-            crate::parse::interpret_upgrade_output(Some(0), stdout, b"")
-        });
+    let (logged, result) = crate::test_support::capture_tracing(tracing::Level::WARN, || {
+        crate::parse::interpret_upgrade_output(Some(0), stdout, b"")
+    });
 
     let err = result
         .expect_err("renamed header with separator must bail, not silently parse as authoritative");
@@ -166,10 +165,9 @@ fn interpret_upgrade_output_bails_on_missing_separator() {
                    serde  1.0.100 1.0.228    1.0.228 1.0.228\n\
                    tokio  1.35.0  1.38.0     1.38.0  1.38.0\n";
 
-    let (result, logged) =
-        crate::test_support::with_captured_logs(tracing::Level::WARN, false, || {
-            crate::parse::interpret_upgrade_output(Some(0), stdout, b"")
-        });
+    let (logged, result) = crate::test_support::capture_tracing(tracing::Level::WARN, || {
+        crate::parse::interpret_upgrade_output(Some(0), stdout, b"")
+    });
 
     let err = result.expect_err("missing separator must bail, not score as `no upgrades`");
     let msg = err.to_string();

@@ -108,6 +108,17 @@ jobs:
       - uses: mozilla-actions/sccache-action@7d986dd989559c6ecdb630a3fd2557667be217ad # v0.0.9
       - name: cargo clippy --all --all-features -- -D warnings
         run: cargo clippy --all --all-features -- -D warnings
+      # ARCH-11 / TASK-2053: the step above never compiles a single
+      # `#[cfg(not(feature = ...))]` arm, so a lint that fires only in the
+      # feature-off build is invisible to it. TASK-2027 is the worked example:
+      # two `clippy::missing_const_for_fn` errors sat on the `duckdb`-off
+      # `enrich_from_db` stubs in ops-about and only surfaced when someone ran
+      # `cargo clippy -p ops-about`. `-D clippy::nursery` is workspace policy,
+      # so such a regression lands on whoever next lints a subset of crates.
+      # The default-feature sweep is the other half of the matrix; locally it
+      # is `ops clippy-default`, wired into `run-before-push`.
+      - name: cargo clippy --workspace --all-targets -- -D warnings (default features)
+        run: cargo clippy --workspace --all-targets -- -D warnings
 
   build:
     name: Build

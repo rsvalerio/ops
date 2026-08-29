@@ -265,9 +265,36 @@ impl DataProviderError {
     }
 }
 
+/// ERR-3 / TASK-2052: unwrap a `DataProviderError` that merely travelled
+/// inside an `anyhow::Error` instead of re-wrapping it as
+/// [`DataProviderError::ComputationFailed`].
+///
+/// Several provider entry points are `anyhow`-typed free functions —
+/// `collect_tokei`, `collect_rust_loc`, everything reached through
+/// `ops_duckdb::try_provide_from_db`'s fallback closure — so a deadline check
+/// inside one of them can only propagate its [`DataProviderError::TimedOut`]
+/// by boxing it into `anyhow`. Without this downcast the round trip degraded a
+/// *typed* timeout into an opaque computation failure: the message survived,
+/// but nothing could match on the variant, so a caller could no longer tell a
+/// stall from a broken provider.
+///
+/// **`anyhow::Error::downcast` searches the whole cause chain**, so this also
+/// unwraps a `DataProviderError` that picked up `.context(..)` on the way out
+/// — and that context is then dropped, since the variants carry no free-text
+/// field to hold it. That is deliberate but narrow: do not `.context(..)` a
+/// `DataProviderError` you intend to send back through this conversion.
+/// Nothing in-tree does; the crate's own error type is the *outer* one
+/// everywhere, and a provider that wants to add wording should return
+/// [`DataProviderError::computation_failed`] with it instead. The alternative
+/// — matching only an unwrapped error, which anyhow cannot express — would
+/// leave the common case (a walker's bare `?`) opaque in order to protect a
+/// layering mistake.
 impl From<anyhow::Error> for DataProviderError {
     fn from(err: anyhow::Error) -> Self {
-        Self::ComputationFailed(SharedError::from(err))
+        match err.downcast::<Self>() {
+            Ok(typed) => typed,
+            Err(other) => Self::ComputationFailed(SharedError::from(other)),
+        }
     }
 }
 

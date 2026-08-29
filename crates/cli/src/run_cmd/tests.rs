@@ -1141,26 +1141,62 @@ mod signal_shutdown_tests {
         assert!(matches!(outcome, PlanOutcome::Completed(7)));
     }
 
-    /// TASK-1932 AC #5: a real `SIGTERM` delivered mid-plan must cut the run
-    /// short and report SIGTERM, rather than terminating the process with no
-    /// destructor run. Sending the signal to ourselves is safe here because
-    /// `run_until_signal` installs tokio's handler before the plan starts,
-    /// so the default "terminate the process" disposition is already
-    /// replaced by the time the signal lands.
+    /// TASK-1932 AC #5 and CONC-14 / TASK-2023, asserted by a **single**
+    /// test on purpose (TEST-16 / TASK-2051).
+    ///
+    /// What it covers:
+    /// 1. a real `SIGTERM` delivered mid-plan cuts the run short and reports
+    ///    SIGTERM, rather than terminating the process with no destructor
+    ///    run;
+    /// 2. once the shutdown path has been entered, both shutdown signals are
+    ///    back on their default disposition, so a second Ctrl-C during a slow
+    ///    or wedged teardown kills the process (`128 + signo`) instead of
+    ///    being swallowed by a tokio stream nobody reads any more.
+    ///
+    /// **Why the two assertions share one test.** Raising `SIGTERM` at our
+    /// own pid is only safe while a handler is installed, and (2) is the
+    /// assertion that the shutdown path puts `SIGINT`/`SIGTERM` *back* on
+    /// `SIG_DFL`. That reset is process-global and not undoable in-process:
+    /// tokio registers each OS handler behind a `Once`, so a later
+    /// `signal(SignalKind::terminate())` will not reinstall one it has
+    /// already registered. Two separate signalling tests would therefore
+    /// depend on a process-per-test harness — under `cargo nextest` (what
+    /// this project runs) they pass, but under a plain in-process `cargo
+    /// test` whichever ran second would find the disposition already at
+    /// `SIG_DFL` and its `kill` would terminate the whole test binary, with
+    /// no useful diagnostic. `#[serial]` orders nothing, so that failure
+    /// would be intermittent and would look like a harness crash.
+    ///
+    /// Collapsing them means exactly one test in the process ever raises a
+    /// signal, and it leaves the dispositions where the process started —
+    /// so no sibling test is affected under either harness.
     ///
     /// The plan future below never completes on its own; the only way this
     /// test can return is through the signal arm. Dropping that future is
     /// exactly what cancels in-flight children in production.
     ///
-    /// `#[serial]` (here and on the sibling `run_until_signal` test): the
-    /// signal below is delivered to the *process*, and `run_until_signal`
-    /// installs process-global handlers. Under an in-process, thread-per-test
-    /// harness a concurrently running test could otherwise observe — or
-    /// swallow — a SIGTERM that is not addressed to it.
+    /// `#[serial]` is still required: the signal is delivered to the
+    /// *process*, and `run_until_signal` installs process-global handlers,
+    /// so under an in-process, thread-per-test harness a concurrently
+    /// running test could observe — or swallow — a SIGTERM not addressed
+    /// to it.
     #[cfg(unix)]
     #[test]
     #[serial_test::serial]
-    fn sigterm_interrupts_the_plan_and_reports_sigterm() {
+    fn sigterm_interrupts_the_plan_and_restores_default_dispositions() {
+        /// Read the currently installed handler for `signo`.
+        fn disposition(signo: i32) -> libc::sighandler_t {
+            let mut current = std::mem::MaybeUninit::<libc::sigaction>::uninit();
+            // SAFETY: a null `act` makes `sigaction` a pure query; `oldact`
+            // points at properly aligned, writable storage owned by this
+            // frame for the whole call, and the kernel fully initialises it
+            // on success.
+            let rc = unsafe { libc::sigaction(signo, std::ptr::null(), current.as_mut_ptr()) };
+            assert_eq!(rc, 0, "sigaction query failed for signal {signo}");
+            // SAFETY: `sigaction` returned 0, so `current` is initialised.
+            unsafe { current.assume_init() }.sa_sigaction
+        }
+
         let rt = tokio::runtime::Builder::new_multi_thread()
             .worker_threads(2)
             .enable_all()
@@ -1186,51 +1222,6 @@ mod signal_shutdown_tests {
             }
             PlanOutcome::Completed(()) => panic!("the plan future can only end via the signal"),
         }
-    }
-
-    /// CONC-14 / TASK-2023: once the shutdown path has been entered, the two
-    /// shutdown signals must be back on their default disposition, so a
-    /// second Ctrl-C during a slow or wedged teardown kills the process
-    /// (`128 + signo`) instead of being swallowed by a tokio stream nobody
-    /// reads any more.
-    ///
-    /// The reset is process-global and, by design, not undoable in-process:
-    /// tokio installs each OS handler behind a `Once`, so it will not
-    /// reinstall one it already registered. This test therefore relies on
-    /// the project's process-per-test harness (`cargo nextest`), the same
-    /// assumption the sibling SIGTERM test makes when it signals its own pid.
-    #[cfg(unix)]
-    #[test]
-    #[serial_test::serial]
-    fn shutdown_path_restores_default_signal_dispositions() {
-        /// Read the currently installed handler for `signo`.
-        fn disposition(signo: i32) -> libc::sighandler_t {
-            let mut current = std::mem::MaybeUninit::<libc::sigaction>::uninit();
-            // SAFETY: a null `act` makes `sigaction` a pure query; `oldact`
-            // points at properly aligned, writable storage owned by this
-            // frame for the whole call, and the kernel fully initialises it
-            // on success.
-            let rc = unsafe { libc::sigaction(signo, std::ptr::null(), current.as_mut_ptr()) };
-            assert_eq!(rc, 0, "sigaction query failed for signal {signo}");
-            // SAFETY: `sigaction` returned 0, so `current` is initialised.
-            unsafe { current.assume_init() }.sa_sigaction
-        }
-
-        let rt = tokio::runtime::Builder::new_multi_thread()
-            .worker_threads(2)
-            .enable_all()
-            .build()
-            .unwrap();
-        let outcome = rt.block_on(run_until_signal(async {
-            // SAFETY: `kill` with a valid signal number targeting our own
-            // pid; it touches no memory and cannot alias.
-            unsafe { libc::kill(libc::getpid(), libc::SIGTERM) };
-            std::future::pending::<()>().await;
-        }));
-        assert!(
-            matches!(outcome, PlanOutcome::Interrupted(SIGTERM_SIGNO)),
-            "the plan future can only end via the signal"
-        );
 
         for signo in [libc::SIGINT, libc::SIGTERM] {
             assert_eq!(
