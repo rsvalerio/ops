@@ -193,7 +193,7 @@ fn reject_untrusted_ingest_dir(data_dir: &Path) -> std::io::Result<Option<std::f
 #[cfg(unix)]
 fn harden_ingest_parent(parent: &Path) -> std::io::Result<()> {
     use std::io::{Error, ErrorKind};
-    use std::os::unix::fs::PermissionsExt;
+    use std::os::unix::fs::{MetadataExt, PermissionsExt};
 
     /// Write permission for group and other: the ability to create, rename,
     /// or unlink names inside the directory.
@@ -220,10 +220,25 @@ fn harden_ingest_parent(parent: &Path) -> std::io::Result<()> {
         return Ok(());
     }
     if mode & STICKY != 0 {
+        // The sticky bit binds every principal *except* the directory's own
+        // owner, who can clear it, chmod the directory, or replace it
+        // wholesale. Accepting on the bit alone would therefore trust an
+        // attacker-owned `0o1777` directory exactly as much as `/tmp`.
+        let owner = meta.uid();
+        if !is_trusted_parent_owner(owner) {
+            return Err(Error::new(
+                ErrorKind::PermissionDenied,
+                format!(
+                    "ingest staging parent {} is shared-writable and sticky but owned by uid {owner}, which can clear the sticky bit or replace the directory",
+                    parent.display(),
+                ),
+            ));
+        }
         tracing::debug!(
             parent = ?parent.display(),
             mode = format!("{mode:o}"),
-            "SEC / TASK-2039: ingest staging parent is shared-writable but sticky; names cannot be swapped by other principals"
+            owner,
+            "SEC / TASK-2039: ingest staging parent is shared-writable but sticky and trusted-owned; names cannot be swapped by other principals"
         );
         return Ok(());
     }
@@ -238,6 +253,20 @@ fn harden_ingest_parent(parent: &Path) -> std::io::Result<()> {
                 ),
             )
         })
+}
+
+/// May `owner` be trusted to hold a shared-writable staging parent?
+///
+/// Only the superuser and ourselves. `/tmp` — root-owned and sticky — is the
+/// shape this accepts; a co-tenant's own `0o1777` directory is the shape it
+/// must not, because its owner is not bound by the sticky bit they set.
+#[cfg(unix)]
+fn is_trusted_parent_owner(owner: u32) -> bool {
+    // SAFETY: `geteuid` takes no arguments, dereferences nothing, and is
+    // defined to always succeed, so there are no preconditions to uphold and
+    // no error case to handle.
+    let euid = unsafe { libc::geteuid() };
+    owner == 0 || owner == euid
 }
 
 /// Stamp `0o700` on an ingest dir that already exists on disk, refusing to
@@ -458,6 +487,34 @@ mod tests {
         assert_eq!(
             mode, 0o1777,
             "a sticky shared parent must keep its mode; got {mode:o}"
+        );
+    }
+
+    /// SEC / TASK-2039: the sticky bit is only worth trusting when the
+    /// directory's *owner* is. An owner who is neither root nor us can clear
+    /// the bit at will, so the exemption must not extend to them.
+    #[cfg(unix)]
+    #[test]
+    fn only_root_and_ourselves_are_trusted_with_a_sticky_shared_parent() {
+        use std::os::unix::fs::MetadataExt;
+        let tmp = tempfile::tempdir().expect("tempdir");
+        let ours = std::fs::metadata(tmp.path()).expect("meta").uid();
+
+        assert!(
+            is_trusted_parent_owner(0),
+            "root-owned /tmp must be accepted"
+        );
+        assert!(
+            is_trusted_parent_owner(ours),
+            "a parent we own ourselves must be accepted"
+        );
+
+        // Any uid that is neither root nor ours. `u32::MAX` is `nobody` on
+        // most systems and is never the caller here.
+        let stranger = if ours == u32::MAX { 12345 } else { u32::MAX };
+        assert!(
+            !is_trusted_parent_owner(stranger),
+            "a sticky parent owned by uid {stranger} must be refused"
         );
     }
 
