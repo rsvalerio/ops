@@ -1,11 +1,11 @@
 ---
 id: TASK-2013
 title: 'ARCH-11: ops-about-node declares anyhow and ops-git dependencies it never uses'
-status: To Do
+status: Done
 assignee:
   - TASK-2049
 created_date: '2026-08-28 15:32'
-updated_date: '2026-08-29 11:35'
+updated_date: '2026-08-29 12:48'
 labels:
   - code-review-rust
   - architecture
@@ -46,7 +46,7 @@ node copy is the remaining one.
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 anyhow and ops-git are removed from extensions-node/about/Cargo.toml and the crate still builds (cargo build -p ops-about-node --all-targets)
-- [ ] #2 linkme is retained, with a short comment recording that impl_extension! requires it in the calling crate
-- [ ] #3 cargo clippy --all-targets --workspace -- -D warnings and cargo nextest run -p ops-about-node pass
+- [x] #1 anyhow and ops-git are removed from extensions-node/about/Cargo.toml and the crate still builds (cargo build -p ops-about-node --all-targets)
+- [x] #2 linkme is retained, with a short comment recording that impl_extension! requires it in the calling crate
+- [x] #3 cargo clippy --all-targets --workspace -- -D warnings and cargo nextest run -p ops-about-node pass
 <!-- AC:END -->
