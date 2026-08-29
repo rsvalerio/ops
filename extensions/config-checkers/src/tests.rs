@@ -260,6 +260,23 @@ fn tracked_symlink_to_a_character_device_is_never_a_candidate() {
     assert!(!out.contains("evil.json"), "out was {out:?}");
 }
 
+/// A walk error means the traversal silently omitted candidates, so the run
+/// cannot honestly report "clean". Before this, the error was printed to the
+/// writer and dropped: `failed()` stayed false and the CLI exited 0 over
+/// directories it never read.
+#[test]
+fn walk_errors_make_the_report_fail() {
+    let report = CheckerReport {
+        walk_errors: vec!["IO error for operation on /x: permission denied".to_string()],
+        ..CheckerReport::default()
+    };
+    assert!(
+        report.failed(),
+        "a traversal that lost candidates must not report success"
+    );
+    assert!(!CheckerReport::default().failed());
+}
+
 #[test]
 fn write_summary_reports_each_counter_in_its_own_slot() {
     let report = CheckerReport {
@@ -277,6 +294,7 @@ fn write_summary_reports_each_counter_in_its_own_slot() {
             },
         ],
         files_skipped: 3,
+        walk_errors: Vec::new(),
     };
 
     let mut buf = Vec::new();

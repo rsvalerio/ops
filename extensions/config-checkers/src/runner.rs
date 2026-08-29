@@ -87,13 +87,16 @@ where
         )
         .with_context(|| format!("{label}: writing the discovery fallback notice failed"))?;
     }
+    let mut report = CheckerReport::default();
     for error in &discovered.walk_errors {
         // A directory the walk could not traverse hides an unknown number of
         // candidates; a checker that reports "clean" over them is fail-open.
+        // Printing the notice is not enough — the error has to reach the
+        // report so `CheckerReport::failed` can drive a non-zero exit.
         writeln!(writer, "{label}: walk error: {error}")
             .with_context(|| format!("{label}: writing the walk-error notice failed"))?;
     }
-    let mut report = CheckerReport::default();
+    report.walk_errors = discovered.walk_errors;
 
     // The counters below tally entries of `discovered.files`, an in-memory
     // `Vec` produced by one discovery walk, so their totals are bounded by its

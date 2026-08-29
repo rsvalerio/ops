@@ -42,13 +42,23 @@ pub struct CheckerReport {
     /// reached them. Counted separately from `files_scanned` so callers can
     /// distinguish "validated and OK" from "not validated at all".
     pub files_skipped: usize,
+    /// Directories the discovery walk could not traverse. Each one hides an
+    /// unknown number of candidates, so a run that carries any of these did
+    /// not see the whole tree and must not report "clean" — see
+    /// [`CheckerReport::failed`].
+    pub walk_errors: Vec<String>,
 }
 
 impl CheckerReport {
     /// Whether the run should be treated as a failure by the caller.
+    ///
+    /// A walk error counts: the checker validated every candidate it was
+    /// given, but traversal silently omitted candidates it never learned
+    /// about. Exiting 0 there is fail-open — the CLI would report a clean
+    /// tree over directories it could not read.
     #[must_use]
     pub const fn failed(&self) -> bool {
-        !self.files_failed.is_empty()
+        !self.files_failed.is_empty() || !self.walk_errors.is_empty()
     }
 }
 
