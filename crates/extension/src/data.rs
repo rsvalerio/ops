@@ -7,6 +7,39 @@ use ops_core::project_identity::AboutFieldDef;
 use std::collections::{HashMap, HashSet};
 use std::path::PathBuf;
 use std::sync::Arc;
+use std::time::{Duration, Instant};
+
+/// SEC-33 / TASK-2017: default wall-clock budget for one provider dispatch.
+///
+/// [`DataProvider::provide`] is synchronous, so this is a *cooperative*
+/// bound, not a preemptive one: it is enforced by
+/// [`Context::check_deadline`] inside providers that poll it and, for
+/// providers that do not, by [`DataRegistry::provide`] refusing to return a
+/// value produced after the deadline. It exists so that no provider dispatch
+/// is unbounded by construction; it cannot interrupt a thread already blocked
+/// in a syscall.
+///
+/// The value is deliberately generous. Providers here range from a
+/// sub-millisecond `Cargo.toml` read to `cargo llvm-cov` over a whole
+/// workspace, and a budget tight enough to be interesting for the first would
+/// turn the second into a spurious failure. Ten minutes is an *upper bound on
+/// a stall*, not a latency target. Callers that know their own tolerance
+/// narrow it with [`Context::with_provider_budget`].
+pub const DEFAULT_PROVIDER_BUDGET: Duration = Duration::from_secs(600);
+
+/// The budget installed for the provider dispatch currently in flight.
+///
+/// Held by [`Context`] for the duration of the outermost
+/// [`DataRegistry::provide`] call and inherited by every provider that one
+/// composes, so a provider graph cannot multiply its budget by nesting.
+#[derive(Debug, Clone)]
+struct ProviderDeadline {
+    /// The provider that owns the budget — the outermost one, which is the
+    /// one an operator asked for and the one worth naming in the failure.
+    provider: String,
+    budget: Duration,
+    expires_at: Instant,
+}
 
 /// Describes a field provided by a data provider.
 ///
@@ -157,6 +190,19 @@ pub trait DataProvider: Send + Sync {
     ///   Implementations that compose other providers should propagate this
     ///   variant rather than swallowing it, so the cycle surfaces at the
     ///   originating call site.
+    /// - [`DataProviderError::TimedOut`] (SEC-33 / TASK-2017) when the
+    ///   dispatch outlives the budget on the context.
+    ///
+    /// # Honouring the deadline
+    ///
+    /// This method is synchronous and runs on the caller's thread, so nothing
+    /// can interrupt it. An implementation whose cost scales with the
+    /// operator's tree — a directory walk, a per-file read, a loop over
+    /// external commands — must therefore call
+    /// [`Context::check_deadline`] once per unit of work and propagate the
+    /// error with `?`. Implementations that do not are still bounded at the
+    /// dispatch point, but only after the fact: the caller gets `TimedOut`
+    /// instead of a late value, and the stall itself still happened.
     fn provide(&self, ctx: &mut Context) -> Result<serde_json::Value, DataProviderError>;
 
     /// Returns a schema describing what data this provider exposes.
@@ -357,11 +403,28 @@ impl DataRegistry {
     /// The marker is cleared on both the success and the failure path so a
     /// provider that fails does not poison later requests for the same key.
     ///
+    /// SEC-33 / TASK-2017: the wall-clock bound lives here too, for the same
+    /// reason the re-entrancy guard does — it is the one place both public
+    /// entry points cross, so no provider can acquire an unbounded dispatch
+    /// by being reached through the other one, and no new provider has to
+    /// remember to opt in.
+    ///
+    /// The bound is cooperative. A synchronous `provide` running on this
+    /// thread cannot be preempted, so the deadline installed on `ctx` is what
+    /// providers doing long chunked work poll via
+    /// [`Context::check_deadline`]. For providers that do not poll, this
+    /// function still refuses to return a value produced after the deadline:
+    /// an over-budget `Ok` becomes [`DataProviderError::TimedOut`] rather
+    /// than a silent late success, which is what keeps the overrun visible in
+    /// an operator log instead of only in the wall clock. What it cannot do
+    /// is shorten the stall itself — see TASK-2052.
+    ///
     /// # Errors
     ///
     /// [`DataProviderError::NotFound`] if no provider is registered under
     /// `name`, [`DataProviderError::Cycle`] if a provider for `name` is
-    /// already executing on `ctx`, or whatever error the provider itself
+    /// already executing on `ctx`, [`DataProviderError::TimedOut`] if the
+    /// dispatch ran past its budget, or whatever error the provider itself
     /// returns.
     pub fn provide(
         &self,
@@ -373,9 +436,20 @@ impl DataRegistry {
             .get(name)
             .ok_or_else(|| DataProviderError::not_found(name))?;
         ctx.enter_provider(name)?;
+        let owns_deadline = ctx.begin_deadline(name);
         let result = provider.provide(ctx);
+        // Read the overrun before clearing: the deadline is gone afterwards.
+        let overrun = ctx.overrun();
+        ctx.clear_deadline_if_owned(owns_deadline);
         ctx.exit_provider(name);
-        result
+        match (result, overrun) {
+            // A provider that polled `check_deadline` already returned the
+            // timeout, naming the same budget owner; keep its error rather
+            // than rebuilding an identical one.
+            (Err(err @ DataProviderError::TimedOut { .. }), _) => Err(err),
+            (_, Some(timed_out)) => Err(timed_out),
+            (result, None) => result,
+        }
     }
 }
 
@@ -524,6 +598,14 @@ pub struct Context {
     working_directory: Arc<PathBuf>,
     /// When true, data providers should re-collect data instead of using cached/persisted results.
     refresh: bool,
+    /// SEC-33 / TASK-2017: wall-clock budget applied to a provider dispatch
+    /// started on this context. `None` means explicitly unbounded.
+    provider_budget: Option<Duration>,
+    /// SEC-33 / TASK-2017: the deadline of the dispatch currently in flight,
+    /// installed by [`DataRegistry::provide`] for the outermost provider and
+    /// cleared by the same call. `None` outside a dispatch, or when the
+    /// budget is `None`.
+    deadline: Option<ProviderDeadline>,
     #[cfg(feature = "duckdb")]
     db: Option<Arc<dyn DuckDbHandle>>,
 }
@@ -547,6 +629,8 @@ impl Context {
             in_flight: HashSet::new(),
             working_directory,
             refresh: false,
+            provider_budget: Some(DEFAULT_PROVIDER_BUDGET),
+            deadline: None,
             #[cfg(feature = "duckdb")]
             db: None,
         }
@@ -666,6 +750,110 @@ impl Context {
     pub const fn with_refresh(mut self) -> Self {
         self.refresh = true;
         self
+    }
+
+    /// SEC-33 / TASK-2017: override the wall-clock budget a provider dispatch
+    /// started on this context gets, or pass `None` to opt out of the bound
+    /// entirely.
+    ///
+    /// Defaults to [`DEFAULT_PROVIDER_BUDGET`]. Like `refresh`, it is set at
+    /// construction time rather than exposed as a mutator: a provider that
+    /// widened its own budget mid-traversal would be granting itself the
+    /// exemption the bound exists to deny.
+    #[must_use]
+    pub const fn with_provider_budget(mut self, budget: Option<Duration>) -> Self {
+        self.provider_budget = budget;
+        self
+    }
+
+    /// SEC-33 / TASK-2017: the deadline of the dispatch currently in flight,
+    /// if any.
+    ///
+    /// Providers that hand work to something with its own timeout knob (an
+    /// external command, a database statement) can use this to size that
+    /// timeout so the inner wait cannot outlive the outer budget. Providers
+    /// that merely loop should call [`Context::check_deadline`] instead.
+    #[must_use]
+    pub fn deadline(&self) -> Option<Instant> {
+        self.deadline.as_ref().map(|d| d.expires_at)
+    }
+
+    /// SEC-33 / TASK-2017: the cooperative cancellation point providers are
+    /// required to honour.
+    ///
+    /// `DataProvider::provide` is synchronous and runs on the caller's
+    /// thread, so nothing can preempt it; a provider doing work proportional
+    /// to the size of the operator's tree (a directory walk, a per-file read,
+    /// a loop over external commands) must therefore poll this itself, once
+    /// per unit of work, and propagate the error with `?`:
+    ///
+    /// ```ignore
+    /// for entry in walker {
+    ///     ctx.check_deadline()?;
+    ///     // … per-entry work
+    /// }
+    /// ```
+    ///
+    /// # Errors
+    ///
+    /// [`DataProviderError::TimedOut`], naming the provider that owns the
+    /// budget, once the deadline has passed. Returns `Ok(())` when the
+    /// dispatch is unbounded or no deadline is installed.
+    pub fn check_deadline(&self) -> Result<(), DataProviderError> {
+        match &self.deadline {
+            Some(d) if Instant::now() >= d.expires_at => Err(DataProviderError::TimedOut {
+                provider: d.provider.clone(),
+                budget: d.budget,
+            }),
+            _ => Ok(()),
+        }
+    }
+
+    /// SEC-33 / TASK-2017: install the deadline for a dispatch of `provider`
+    /// if this is the outermost one, and report whether it was installed.
+    ///
+    /// Nested dispatches inherit the outermost deadline rather than starting
+    /// a fresh one: the budget bounds the traversal an operator asked for,
+    /// and a provider that composes ten others must not get eleven budgets.
+    /// The caller passes the returned flag back to
+    /// [`Context::clear_deadline_if_owned`] so only the installer clears it.
+    pub(crate) fn begin_deadline(&mut self, provider: &str) -> bool {
+        if self.deadline.is_some() {
+            return false;
+        }
+        let Some(budget) = self.provider_budget else {
+            return false;
+        };
+        // A budget large enough to overflow the monotonic clock is a request
+        // for no bound at all; install nothing rather than panicking on the
+        // addition or wrapping into an instantly-expired deadline.
+        let Some(expires_at) = Instant::now().checked_add(budget) else {
+            return false;
+        };
+        self.deadline = Some(ProviderDeadline {
+            provider: provider.to_string(),
+            budget,
+            expires_at,
+        });
+        true
+    }
+
+    /// Counterpart to [`Context::begin_deadline`]; a no-op unless this call
+    /// installed the deadline. Called on both the success and the failure
+    /// path so a failed dispatch does not leave a stale deadline behind to
+    /// fail the next one.
+    pub(crate) fn clear_deadline_if_owned(&mut self, owned: bool) {
+        if owned {
+            self.deadline = None;
+        }
+    }
+
+    /// SEC-33 / TASK-2017: the `TimedOut` error for the in-flight dispatch,
+    /// if its deadline has passed. Used by [`DataRegistry::provide`] to
+    /// enforce the bound on providers that never poll
+    /// [`Context::check_deadline`].
+    pub(crate) fn overrun(&self) -> Option<DataProviderError> {
+        self.check_deadline().err()
     }
 
     /// Get cached value or compute via provider and cache.

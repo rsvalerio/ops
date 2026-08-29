@@ -7,24 +7,83 @@ use std::sync::Arc;
 /// EFF-002: `Arc` enables `Clone` on `DataProviderError` without discarding the
 /// original error's cause chain and Display output.
 #[derive(Debug, Clone)]
-pub struct SharedError(pub(crate) Arc<dyn std::error::Error + Send + Sync>);
+pub struct SharedError(Inner);
+
+/// ERR-1 / TASK-2024: an `anyhow::Error` is kept as itself rather than
+/// flattened into `Arc<dyn Error>`.
+///
+/// `anyhow::Error` converts into `Box<dyn Error + Send + Sync>` by boxing its
+/// own internal `ErrorImpl<E>` wrapper, not the `E` it was built from. That
+/// box renders and chains correctly, but it is a *different concrete type*, so
+/// `downcast_ref::<E>()` on it — and on every link a chain walk reaches
+/// through it — misses. Storing the `anyhow::Error` lets `source()` hand out
+/// `AsRef::<dyn Error>::as_ref`, which is the original `E` erased and is
+/// downcastable, so typed-error classification through `DataProviderError`
+/// works for the anyhow-built errors that make up most of this workspace's
+/// provider failures.
+#[derive(Debug, Clone)]
+enum Inner {
+    Std(Arc<dyn std::error::Error + Send + Sync>),
+    Anyhow(Arc<anyhow::Error>),
+}
+
+impl SharedError {
+    /// Wrap a concrete error. Use [`SharedError::from`] for an
+    /// `anyhow::Error`, which needs the representation above.
+    pub(crate) fn new(err: impl std::error::Error + Send + Sync + 'static) -> Self {
+        Self(Inner::Std(Arc::new(err)))
+    }
+
+    /// EFF-002: whether two handles share one allocation — the observable
+    /// signal that `Clone` reuses the wrapped error instead of rewrapping it.
+    /// Test-facing; the representation is private.
+    #[cfg(test)]
+    pub(crate) fn shares_allocation_with(&self, other: &Self) -> bool {
+        match (&self.0, &other.0) {
+            (Inner::Std(a), Inner::Std(b)) => Arc::ptr_eq(a, b),
+            (Inner::Anyhow(a), Inner::Anyhow(b)) => Arc::ptr_eq(a, b),
+            _ => false,
+        }
+    }
+
+    /// The wrapped error erased to `&dyn Error` — the first link of the chain
+    /// and what [`std::error::Error::source`] hands out.
+    fn as_error(&self) -> &(dyn std::error::Error + 'static) {
+        match &self.0 {
+            Inner::Std(e) => &**e,
+            // `anyhow::Error: AsRef<dyn Error + Send + Sync>` yields the
+            // originating error itself, not anyhow's wrapper.
+            Inner::Anyhow(e) => e.as_ref().as_ref(),
+        }
+    }
+}
 
 impl std::fmt::Display for SharedError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        self.0.fmt(f)?;
+        // The anyhow representation already renders its own chain under `{:#}`
+        // with exactly the `: `-joined shape the manual walk below produces,
+        // so it is delegated wholesale rather than walked a second time —
+        // walking it here would print its first link twice.
+        if let Inner::Anyhow(err) = &self.0 {
+            return if f.alternate() {
+                write!(f, "{err:#}")
+            } else {
+                write!(f, "{err}")
+            };
+        }
+        let inner = self.as_error();
+        std::fmt::Display::fmt(inner, f)?;
         // anyhow-style alternate rendering: `{:#}` walks the source chain so
         // the root cause (e.g. "cargo llvm-cov exited with status 101: …")
         // reaches operator logs. Plain `{}` keeps the top-level message only.
         // Without this, callers formatting `DataProviderError` with `{e:#}`
         // saw just the outermost context — thiserror's nested `{0}` does not
-        // propagate the alternate flag, and the conversion to
-        // `Box<dyn Error>` in `From<anyhow::Error>` flattens anyhow's own
-        // alternate-aware Display to its top context. Note the chain may
-        // repeat a link whose Display already embeds its own sources
-        // (e.g. `DbError::External` renders via `{0:#}`); duplication is
-        // cosmetic, lost root causes are not.
+        // propagate the alternate flag. Note the chain may repeat a link whose
+        // Display already embeds its own sources (e.g. `DbError::External`
+        // renders via `{0:#}`); duplication is cosmetic, lost root causes are
+        // not.
         if f.alternate() {
-            let mut source = self.0.source();
+            let mut source = inner.source();
             while let Some(err) = source {
                 write!(f, ": {err}")?;
                 source = err.source();
@@ -35,23 +94,42 @@ impl std::fmt::Display for SharedError {
 }
 
 impl std::error::Error for SharedError {
+    /// ERR-1 / TASK-2024: yields the **wrapped error itself**, not the wrapped
+    /// error's own source.
+    ///
+    /// This used to return `self.0.source()`, which skipped a link: the error
+    /// this type exists to preserve never appeared in the chain at all. Every
+    /// caller doing the standard typed-error classification —
+    /// `err.source().and_then(|s| s.downcast_ref::<T>())`, or a walk over
+    /// `source()` — therefore missed on the one object it was looking for.
+    /// `extensions-rust/about`'s `is_manifest_missing` is the concrete
+    /// casualty: it looks for `FindWorkspaceRootError::NotFound` to tell "this
+    /// is not a Rust project" from "the manifest failed to read", and returned
+    /// `false` for both, so every non-Rust directory produced a `warn`.
+    ///
+    /// The mirror-image `Display` impl above already printed the wrapped error
+    /// as its first link and then walked *that* error's sources, so it stays
+    /// as it was: fixing `source()` neither duplicates nor drops anything in
+    /// `{:#}` output, it only makes a chain walk see what the message was
+    /// showing all along.
     fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
-        self.0.source()
+        Some(self.as_error())
     }
 }
 
 impl From<anyhow::Error> for SharedError {
     fn from(err: anyhow::Error) -> Self {
-        // anyhow::Error → Box<dyn Error + Send + Sync> preserves the full source chain
-        // via anyhow's std Into impl.
-        let boxed: Box<dyn std::error::Error + Send + Sync> = err.into();
-        Self(Arc::from(boxed))
+        // ERR-1 / TASK-2024: deliberately *not* `Box<dyn Error>`. That
+        // conversion hands back anyhow's own `ErrorImpl<E>` wrapper, which
+        // renders correctly but makes the originating `E` undowncastable, so
+        // every typed-error classification downstream missed. See `Inner`.
+        Self(Inner::Anyhow(Arc::new(err)))
     }
 }
 
 impl From<serde_json::Error> for SharedError {
     fn from(err: serde_json::Error) -> Self {
-        Self(Arc::new(err))
+        Self::new(err)
     }
 }
 
@@ -131,6 +209,26 @@ pub enum DataProviderError {
     /// — so serialization root causes stay visible in logs too.
     #[error("data serialization error: {0:#}")]
     Serialization(#[source] SharedError),
+    /// SEC-33 / TASK-2017: returned when a dispatched provider ran past the
+    /// wall-clock budget carried by the [`crate::Context`].
+    ///
+    /// The budget is installed by [`crate::DataRegistry::provide`] for the
+    /// outermost provider of a traversal and inherited by everything that
+    /// provider composes, so the bound covers the whole dispatch rather than
+    /// resetting at each level. Providers doing long, chunkable work
+    /// (directory walks, repeated external commands) poll
+    /// [`crate::Context::check_deadline`] and return this variant themselves;
+    /// providers that never poll still surface it, because the dispatch point
+    /// converts an over-budget return into this variant instead of handing
+    /// the caller a value produced after the deadline. Either way the failure
+    /// names the provider, so an operator log identifies which one stalled.
+    #[error("data provider timed out: {provider} exceeded its {budget:?} budget")]
+    TimedOut {
+        /// The provider that owned the budget that was exceeded.
+        provider: String,
+        /// The wall-clock budget it was given.
+        budget: std::time::Duration,
+    },
     /// SEC-38 / TASK-0744: returned when [`crate::Context::get_or_provide`]
     /// detects a re-entrant request for a key whose provider is still
     /// in-flight on the same context. A misconfigured or hostile extension
@@ -163,7 +261,7 @@ impl DataProviderError {
 
     /// Create a computation failure from a source error, preserving the error chain.
     pub fn computation_error(err: impl std::error::Error + Send + Sync + 'static) -> Self {
-        Self::ComputationFailed(SharedError(Arc::new(err)))
+        Self::ComputationFailed(SharedError::new(err))
     }
 }
 
