@@ -28,6 +28,13 @@ const MAX_GITDIR_PARENT_TRAVERSAL: usize = 2;
 /// holding the absolute path of the worktree's own `.git` pointer file.
 const GITDIR_BACKREFERENCE: &str = "gitdir";
 
+/// SEC-33: byte cap for the back-reference file read.
+///
+/// The file git writes holds a single absolute path, so 64 KiB is orders of
+/// magnitude above any legitimate content while keeping a hostile (or
+/// device-backed) `gitdir` file from being slurped into memory unbounded.
+const MAX_GITDIR_BACKREFERENCE_BYTES: u64 = 64 * 1024;
+
 /// Find the `.git` directory by walking up from the given path.
 ///
 /// Handles three cases:
@@ -286,10 +293,38 @@ fn is_separate_git_dir(dir: &Path) -> bool {
     dir.join("HEAD").is_file() && dir.join("objects").is_dir() && dir.join("refs").is_dir()
 }
 
+/// Read at most `cap` bytes of `path` as UTF-8, mirroring the bounded-read
+/// posture of `MAX_GIT_CONFIG_BYTES` in `ops-git`.
+///
+/// Returns `None` for every failure mode the callers already treat as "no
+/// usable content": unreadable, over the cap, or not valid UTF-8.
+fn read_capped_to_string(path: &Path, cap: u64) -> Option<String> {
+    use std::io::Read as _;
+
+    let mut file = std::fs::File::open(path).ok()?;
+    let mut bytes = Vec::new();
+    // Read one byte past the cap so an oversize file is distinguishable from
+    // one that lands exactly on it.
+    let limit = cap.saturating_add(1);
+    (&mut file).take(limit).read_to_end(&mut bytes).ok()?;
+    if u64::try_from(bytes.len()).unwrap_or(u64::MAX) > cap {
+        tracing::debug!(
+            path = ?path.display(),
+            cap,
+            "file exceeds byte cap; refusing to parse",
+        );
+        return None;
+    }
+    String::from_utf8(bytes).ok()
+}
+
 /// True when `gitdir/gitdir` names `pointer` — the reverse link `git worktree
 /// add` writes alongside the forward `gitdir:` pointer.
 fn has_gitdir_backreference(gitdir: &Path, pointer: &Path) -> bool {
-    let Ok(recorded) = std::fs::read_to_string(gitdir.join(GITDIR_BACKREFERENCE)) else {
+    let Some(recorded) = read_capped_to_string(
+        &gitdir.join(GITDIR_BACKREFERENCE),
+        MAX_GITDIR_BACKREFERENCE_BYTES,
+    ) else {
         return false;
     };
     let Some(canonical_pointer) = canonicalize_gitdir_target(pointer) else {
