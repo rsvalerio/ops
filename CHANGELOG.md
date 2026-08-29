@@ -2,6 +2,52 @@
 All notable changes to this project will be documented in this file. See [conventional commits](https://www.conventionalcommits.org/) for commit guidelines.
 
 - - -
+## [v0.45.1](https://github.com/rsvalerio/ops/compare/7c85c9941eeef79a57b251a22c35be4d0df4b3e5..v0.45.1) - 2026-08-29
+#### 🐛 Bug Fixes
+- (**about**) return an empty string from truncate_to_width at zero width - ([cc8464d](https://github.com/rsvalerio/ops/commit/cc8464da22ab08ea5f9ecd8e3402f8f1a87ad876)) - [@rsvalerio](https://github.com/rsvalerio), Claude Opus 5 (1M context)
+- (**about**) name the provider, target type and field path on payload errors - ([bb7fcdf](https://github.com/rsvalerio/ops/commit/bb7fcdf310b7c07a056eb321591bc75f623aea86)) - [@rsvalerio](https://github.com/rsvalerio)
+- (**about**) reject absolute workspace members and split resolve_member_globs - ([5f36374](https://github.com/rsvalerio/ops/commit/5f3637487bc4fe24a9cd5e1a1552b346233f1540)) - [@rsvalerio](https://github.com/rsvalerio)
+- (**about**) truncate by grapheme cluster instead of summing char widths - ([b2ead19](https://github.com/rsvalerio/ops/commit/b2ead19fb13a3bce3c475c088a33dd6202670ece)) - [@rsvalerio](https://github.com/rsvalerio)
+- (**about-terraform**) count symlinked module directories - ([0601127](https://github.com/rsvalerio/ops/commit/06011277565d5080c10a759bf721fcde863d7d51)) - [@rsvalerio](https://github.com/rsvalerio), Claude Opus 5 (1M context)
+- (**about-terraform**) track HCL braces and comments per token, not per line - ([7cb8373](https://github.com/rsvalerio/ops/commit/7cb83734b2eb18eb81c0aa3f911c74b227bd436f)) - [@rsvalerio](https://github.com/rsvalerio)
+- (**config-checkers**) close JSON5 line comments at CR and U+2028/9 - ([4ca6619](https://github.com/rsvalerio/ops/commit/4ca6619485f9fafccb7cc78de75fa126f5f7fc26)) - [@rsvalerio](https://github.com/rsvalerio)
+- (**config-checkers**) bound untrusted input and cap the read itself - ([f1512ea](https://github.com/rsvalerio/ops/commit/f1512eaf6c45253b7c104e949c08c04b13ff5ac7)) - [@rsvalerio](https://github.com/rsvalerio)
+- (**duckdb**) reject an untrusted pre-existing ingest dir on every platform - ([5abb675](https://github.com/rsvalerio/ops/commit/5abb675d80b69513aa6bf1a45aaab9735f738ccd)) - [@rsvalerio](https://github.com/rsvalerio), Claude Opus 5 (1M context)
+- (**duckdb**) refuse symlinked and in-memory ingest directories - ([627190f](https://github.com/rsvalerio/ops/commit/627190f2e81f1e977ce674d88b62c36112e6c949)) - [@rsvalerio](https://github.com/rsvalerio)
+- (**duckdb**) make sql::validation crate-private and walk past nested DbError - ([c641ac5](https://github.com/rsvalerio/ops/commit/c641ac5a073bd7559c2fc4c8190146eff04b44a6)) - [@rsvalerio](https://github.com/rsvalerio)
+- (**duckdb**) gate load_with_sidecar DDL behind validated SQL newtypes - ([6c97245](https://github.com/rsvalerio/ops/commit/6c9724598910e797d7fb5588bc2dc483480e7158)) - [@rsvalerio](https://github.com/rsvalerio)
+- (**metadata**) call CreateTableSql::as_str in the payload-cap ceiling test - ([23c1db3](https://github.com/rsvalerio/ops/commit/23c1db3026cb1a546157da9b9c532da0b36f998b)) - [@rsvalerio](https://github.com/rsvalerio)
+- (**metadata**) bound OPS_METADATA_MAX_BYTES and pin the cap-guard SQL cost - ([115ddbb](https://github.com/rsvalerio/ops/commit/115ddbba26737e3ddc4a26a5026a1f608481724d)) - [@rsvalerio](https://github.com/rsvalerio)
+- (**metadata**) reject a non-singleton metadata_raw and name every ingest path - ([72b8fb7](https://github.com/rsvalerio/ops/commit/72b8fb7e67e3495999e7cda19dcc0a3d278f3b04)) - [@rsvalerio](https://github.com/rsvalerio)
+- (**tfplan**) strip bidi and zero-width characters from table cells - ([7349661](https://github.com/rsvalerio/ops/commit/73496615ec15f8f6e9d2a91772947f5c59705a6d)) - [@rsvalerio](https://github.com/rsvalerio), Claude Opus 5 (1M context)
+- (**tfplan**) harden a partial plan artifact before reading the exit status - ([472d6f0](https://github.com/rsvalerio/ops/commit/472d6f044517ca86ac3dd986bb47964529147663)) - [@rsvalerio](https://github.com/rsvalerio), Claude Opus 5 (1M context)
+- (**tfplan**) clean up plan artifacts on every path and bound the terraform ingress - ([bec482a](https://github.com/rsvalerio/ops/commit/bec482ae4727aaf3814f9e50813825dc248753b3)) - [@rsvalerio](https://github.com/rsvalerio)
+- (**tfplan**) sanitise plan text and stop unreadable outputs rendering as no-op - ([5c394d5](https://github.com/rsvalerio/ops/commit/5c394d5dd8289538a308dc777c457c7fcdffec2c)) - [@rsvalerio](https://github.com/rsvalerio)
+#### ⚡ Performance
+- (**about**) bound the manifest cache victim queue below the eviction cap - ([80a9822](https://github.com/rsvalerio/ops/commit/80a98221b0760179d0c6f2c65f8af606d4491140)) - [@rsvalerio](https://github.com/rsvalerio)
+#### 📚 Documentation
+- (**config-checkers**) correct the stale accept/reject claim in the yaml header - ([4813b0e](https://github.com/rsvalerio/ops/commit/4813b0e33a82b2b9e4ddacd8051190b1cdb1a954)) - [@rsvalerio](https://github.com/rsvalerio)
+- (**config-checkers**) reattach the scanner doc and drop private doc links - ([303e57f](https://github.com/rsvalerio/ops/commit/303e57f750c9e90667f4dc76f6960d84f253d1bb)) - [@rsvalerio](https://github.com/rsvalerio)
+- (**config-checkers**) state that the YAML expansion budget is stream-wide - ([eda4e7d](https://github.com/rsvalerio/ops/commit/eda4e7d120d7e9d75bedcbf95da1cd88d748e74f)) - [@rsvalerio](https://github.com/rsvalerio), Claude Opus 5 (1M context)
+#### 🧪 Testing
+- (**about**) drive every run_about_* entry point through a shared subpage context - ([9944831](https://github.com/rsvalerio/ops/commit/99448311a9ec9a519dc8550e77d5fe41a90fae4a)) - [@rsvalerio](https://github.com/rsvalerio)
+- (**metadata**) match on a reference to err in the wiring assertion - ([0b3da31](https://github.com/rsvalerio/ops/commit/0b3da31b3d00a8b846023827340ead7a93e22516)) - [@rsvalerio](https://github.com/rsvalerio), Claude Opus 5 (1M context)
+- (**metadata**) replace provider assertions that cannot fail - ([7a02c42](https://github.com/rsvalerio/ops/commit/7a02c42cbea21d74e71d0620444020984a770644)) - [@rsvalerio](https://github.com/rsvalerio)
+#### 🔧 Build System
+- (**about-terraform**) drop unused anyhow and ops-git, add ops-about test-support - ([7c85c99](https://github.com/rsvalerio/ops/commit/7c85c9941eeef79a57b251a22c35be4d0df4b3e5)) - [@rsvalerio](https://github.com/rsvalerio)
+#### 🚜 Refactoring
+- (**metadata**) remove the unconsumed typed accessor layer - ([b4b5105](https://github.com/rsvalerio/ops/commit/b4b51053ed638a4f702bd7dca3162e2f0b2e9958)) - [@rsvalerio](https://github.com/rsvalerio)
+#### ⚙️ Miscellaneous
+- (**backlog**) close code-review wave 172 - ([5ea65bc](https://github.com/rsvalerio/ops/commit/5ea65bcf4ecbd0e0c6479be9c5078f9010827451)) - [@rsvalerio](https://github.com/rsvalerio)
+- (**backlog**) close code-review wave 170 - ([fb981db](https://github.com/rsvalerio/ops/commit/fb981dbc3cefb5f26503442c6aff1418588bc542)) - [@rsvalerio](https://github.com/rsvalerio)
+- (**backlog**) close code-review wave 165 - ([19dd7da](https://github.com/rsvalerio/ops/commit/19dd7dafff066a5077417e85726ee7c71a608f0e)) - [@rsvalerio](https://github.com/rsvalerio)
+- (**backlog**) close code-review wave 169 - ([7d1c0f8](https://github.com/rsvalerio/ops/commit/7d1c0f8b6e4833b4c75588eb6502b65746f744c1)) - [@rsvalerio](https://github.com/rsvalerio)
+- (**backlog**) close code-review wave 168 - ([ec11002](https://github.com/rsvalerio/ops/commit/ec11002821ea3cf02c67a6748403c73892fa062b)) - [@rsvalerio](https://github.com/rsvalerio)
+- (**backlog**) close code-review wave 167 - ([136939b](https://github.com/rsvalerio/ops/commit/136939bad4598fa5820a1eb36145f81bf2c621f9)) - [@rsvalerio](https://github.com/rsvalerio)
+- (**duckdb**) drop blanket lint allows, fix stale docs, test public entry points - ([a4f024a](https://github.com/rsvalerio/ops/commit/a4f024a630c4375ddebbfab4e1eed3b3ca2cce2b)) - [@rsvalerio](https://github.com/rsvalerio)
+
+- - -
+
 ## [v0.45.0](https://github.com/rsvalerio/ops/compare/115b413bc26f89fdb1866f309e66d20c8b6f315b..v0.45.0) - 2026-08-29
 #### 🚀 Features
 - (**cli**) cancel the run on SIGTERM/SIGINT instead of orphaning children - ([57ea02b](https://github.com/rsvalerio/ops/commit/57ea02b3e6a5512923c6e31f57f49ea39aa71d73)) - [@rsvalerio](https://github.com/rsvalerio)
