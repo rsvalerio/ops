@@ -3,11 +3,11 @@ id: TASK-1859
 title: >-
   ERR-7: is_hard_failure stops at the first DbError, so a MutexPoisoned nested
   under DbError::External logs at warn instead of error
-status: To Do
+status: Done
 assignee:
   - TASK-2006
 created_date: '2026-08-27 15:29'
-updated_date: '2026-08-28 14:16'
+updated_date: '2026-08-28 22:04'
 labels:
   - code-review-rust
   - error-handling
@@ -42,7 +42,7 @@ The first-match-wins shape is also fragile in the other direction: any future `D
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 is_hard_failure continues walking the source chain past a non-hard DbError instead of returning on the first downcast
-- [ ] #2 A test asserts is_hard_failure(DbError::External(anyhow!(DbError::MutexPoisoned(..)).into())) is true
-- [ ] #3 A test asserts the same for a Timeout nested under External, and that a fully-soft nested chain still returns false
+- [x] #1 is_hard_failure continues walking the source chain past a non-hard DbError instead of returning on the first downcast
+- [x] #2 A test asserts is_hard_failure(DbError::External(anyhow!(DbError::MutexPoisoned(..)).into())) is true
+- [x] #3 A test asserts the same for a Timeout nested under External, and that a fully-soft nested chain still returns false
 <!-- AC:END -->

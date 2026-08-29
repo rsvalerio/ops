@@ -3,11 +3,11 @@ id: TASK-1788
 title: >-
   DUP-1: write() test helper in ops-about-terraform is a verbatim copy of the
   one in three sibling about crates
-status: To Do
+status: Done
 assignee:
   - TASK-2001
 created_date: '2026-08-27 11:23'
-updated_date: '2026-08-28 14:14'
+updated_date: '2026-08-28 21:24'
 labels:
   - code-review-rust
   - duplication
@@ -42,6 +42,6 @@ byte-for-byte identical to the copies in `extensions-node/about/src/lib.rs`, `ex
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 The crate's test module uses a shared write() helper (preferably ops_about::test_support) instead of a local copy
-- [ ] #2 cargo test -p ops-about-terraform passes unchanged
+- [x] #1 The crate's test module uses a shared write() helper (preferably ops_about::test_support) instead of a local copy
+- [x] #2 cargo test -p ops-about-terraform passes unchanged
 <!-- AC:END -->

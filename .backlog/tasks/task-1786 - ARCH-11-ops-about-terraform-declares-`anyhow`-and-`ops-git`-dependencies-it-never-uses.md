@@ -3,11 +3,11 @@ id: TASK-1786
 title: >-
   ARCH-11: ops-about-terraform declares `anyhow` and `ops-git` dependencies it
   never uses
-status: To Do
+status: Done
 assignee:
   - TASK-2001
 created_date: '2026-08-27 11:23'
-updated_date: '2026-08-28 14:14'
+updated_date: '2026-08-28 21:24'
 labels:
   - code-review-rust
   - structure-readability
@@ -33,7 +33,7 @@ The git-remote repository fallback the crate relies on is implemented inside `op
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 anyhow and ops-git are removed from extensions-terraform/about/Cargo.toml [dependencies] after confirming they are unused
-- [ ] #2 linkme is retained (required by the impl_extension macro expansion)
-- [ ] #3 cargo build -p ops-about-terraform and cargo test -p ops-about-terraform pass
+- [x] #1 anyhow and ops-git are removed from extensions-terraform/about/Cargo.toml [dependencies] after confirming they are unused
+- [x] #2 linkme is retained (required by the impl_extension macro expansion)
+- [x] #3 cargo build -p ops-about-terraform and cargo test -p ops-about-terraform pass
 <!-- AC:END -->

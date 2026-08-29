@@ -3,11 +3,11 @@ id: TASK-1772
 title: >-
   ERR-1: find_required_version's .flatten() silently drops per-entry read_dir
   errors, contradicting the module's own IO policy
-status: To Do
+status: Done
 assignee:
   - TASK-2001
 created_date: '2026-08-27 11:21'
-updated_date: '2026-08-28 14:14'
+updated_date: '2026-08-28 21:24'
 labels:
   - code-review-rust
   - idioms-correctness
@@ -41,7 +41,7 @@ Two smaller variants of the same swallow remain inside `count_local_modules` its
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 find_required_version logs a tracing::warn! for each failed read_dir entry instead of dropping it via .flatten()
-- [ ] #2 count_local_modules warns on non-NotFound errors from file_type() and the main.tf existence probe rather than treating them as "not a module"
-- [ ] #3 A test asserts the warn path for count_local_modules on a non-NotFound modules/ failure, mirroring find_required_version_warns_when_versions_tf_is_a_directory
+- [x] #1 find_required_version logs a tracing::warn! for each failed read_dir entry instead of dropping it via .flatten()
+- [x] #2 count_local_modules warns on non-NotFound errors from file_type() and the main.tf existence probe rather than treating them as "not a module"
+- [x] #3 A test asserts the warn path for count_local_modules on a non-NotFound modules/ failure, mirroring find_required_version_warns_when_versions_tf_is_a_directory
 <!-- AC:END -->

@@ -3,11 +3,11 @@ id: TASK-1811
 title: >-
   SEC-25: the metadata size gate is advisory — --tracked follows a symlinked
   device and fs::read is unbounded
-status: To Do
+status: Done
 assignee:
   - TASK-2004
 created_date: '2026-08-27 11:32'
-updated_date: '2026-08-28 14:15'
+updated_date: '2026-08-28 22:25'
 labels:
   - code-review-rust
   - security
@@ -55,8 +55,36 @@ Two ways past it, both reachable:
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 run_checker rejects non-regular files (devices, FIFOs, directories) before reading them, so a tracked symlink to /dev/zero or a FIFO can neither hang nor exhaust memory
-- [ ] #2 The byte cap is enforced on the read itself (bounded reader / Read::take) rather than only on a prior metadata() call, closing the TOCTOU window
-- [ ] #3 The file is opened once and its metadata taken from the handle, not resolved twice by path
-- [ ] #4 A regression test covers a non-regular tracked entry (unix-gated symlink to a character device or FIFO) and asserts the checker neither hangs nor allocates unboundedly
+- [x] #1 run_checker rejects non-regular files (devices, FIFOs, directories) before reading them, so a tracked symlink to /dev/zero or a FIFO can neither hang nor exhaust memory
+- [x] #2 The byte cap is enforced on the read itself (bounded reader / Read::take) rather than only on a prior metadata() call, closing the TOCTOU window
+- [x] #3 The file is opened once and its metadata taken from the handle, not resolved twice by path
+- [x] #4 A regression test covers a non-regular tracked entry (unix-gated symlink to a character device or FIFO) and asserts the checker neither hangs nor allocates unboundedly
 <!-- AC:END -->
+
+## Implementation Notes
+
+<!-- SECTION:NOTES:BEGIN -->
+Fixed in wave TASK-2004, in the new `runner.rs`.
+
+`open_regular_file` opens the path once and takes the authoritative type and
+size from the *handle*; `read_bounded` then reads through
+`file.take(max_bytes + 1)` and re-checks the byte count actually read, so the
+cap is a property of the read and the metadata/read TOCTOU window is closed.
+Non-regular files are skipped, not read. A path that has vanished between
+discovery and read is skipped rather than failed (see TASK-1813).
+
+AC#3 — substitution recorded. One stat by path survives, deliberately, *before*
+`File::open`: opening a FIFO blocks in `open(2)` until a writer appears, so a
+tracked symlink to one would hang the checker before any handle-based check
+could run — which AC#1/#4 forbid. That stat authorises nothing; it is a
+liveness guard only, and both the type and the size decisions that gate the
+read come from the open handle. Doing it single-resolution would need
+`O_NONBLOCK` via `custom_flags`, i.e. a `libc` dependency the workspace (and
+TASK-1833, in this same wave) explicitly avoids.
+
+AC#4: `tests::tracked_symlink_to_a_character_device_is_skipped_not_read` stages
+a symlink to `/dev/zero` in a scratch git repo and asserts it is skipped with
+"not a regular file", scanned 0 / skipped 1. A FIFO is not constructed
+separately — `mkfifo` needs the same `libc` dep — but it takes the identical
+`!md.is_file()` branch, one step earlier.
+<!-- SECTION:NOTES:END -->

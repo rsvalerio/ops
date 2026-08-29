@@ -3,11 +3,11 @@ id: TASK-1796
 title: >-
   PATTERN-1: count_local_modules requires main.tf, undercounting local modules
   that use any other .tf entry file
-status: To Do
+status: Done
 assignee:
   - TASK-2001
 created_date: '2026-08-27 11:24'
-updated_date: '2026-08-28 14:14'
+updated_date: '2026-08-28 21:24'
 labels:
   - code-review-rust
   - idioms-correctness
@@ -43,8 +43,8 @@ Because the function returns `None` when the count is zero (`:417-421`), a proje
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 A modules/<name>/ directory containing any .tf file is counted, not only one containing main.tf
-- [ ] #2 The .tf extension check is ASCII-case-insensitive, consistent with find_required_version
-- [ ] #3 Directories with no .tf file at all are still excluded, and the existing count_local_modules tests still pass
-- [ ] #4 The function doc comment no longer claims the modules/*/main.tf rule
+- [x] #1 A modules/<name>/ directory containing any .tf file is counted, not only one containing main.tf
+- [x] #2 The .tf extension check is ASCII-case-insensitive, consistent with find_required_version
+- [x] #3 Directories with no .tf file at all are still excluded, and the existing count_local_modules tests still pass
+- [x] #4 The function doc comment no longer claims the modules/*/main.tf rule
 <!-- AC:END -->

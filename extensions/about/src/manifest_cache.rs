@@ -30,6 +30,25 @@
 //! [`crate::lru`]. Both caches still own their own value type and cap, but
 //! the eviction *policy shape* lives in one source location so a future
 //! tweak cannot drift between them.
+//!
+//! # Freshness policy
+//!
+//! PERF-16 / TASK-1723: the cache has **no TTL and no automatic
+//! invalidation**, by design. An entry is read once and its `Arc<str>` is
+//! pinned until the entry is evicted at the cap or the process exits; no
+//! mtime is recorded and none is re-checked. That is correct for the CLI,
+//! where a process is one command and a manifest cannot change underneath
+//! it, and it is what makes the `Arc::ptr_eq` dedup contract (PERF-3 /
+//! TASK-0854) hold.
+//!
+//! The consequence falls on the long-running embedders named above: an
+//! LSP-style host or watcher that keeps one process alive across edits to a
+//! `package.json` keeps being handed the pre-edit text indefinitely.
+//! [`ArcTextCache::invalidate`] is the remedy — such a host should call it
+//! for a root when it observes a write to that root's manifest. Adding an
+//! mtime check to `read` instead was rejected deliberately: it puts a `stat`
+//! on the hot path of every cache hit for a staleness window only daemon
+//! hosts can observe, and only they know when their own edits land.
 
 use crate::lru::{next_lru_tick, LruVictimQueue};
 use std::collections::HashMap;
@@ -83,6 +102,40 @@ impl CacheMap {
         self.map.len()
     }
 
+    /// Stamp an access against `path` and keep the victim queue bounded.
+    ///
+    /// PERF-16 / TASK-1723: every `read` — hit *and* insert — stamps a fresh
+    /// `(tick, path)` pair, but the only drain ([`Self::evict_lru`]) runs
+    /// solely once the map is at [`CACHE_MAX_ENTRIES`]. Below the cap, which
+    /// is the overwhelmingly common case, the queue was never drained at all
+    /// and grew by one `(u64, PathBuf)` per read forever. A long-running
+    /// embedder — the LSP-style hosts and watchers this module's docs name —
+    /// re-reading three manifests in a loop kept a three-entry map behind a
+    /// queue that grew linearly with its uptime.
+    ///
+    /// Compacting once the queue passes `2 * map.len() + VICTIM_QUEUE_SLACK`
+    /// bounds it at that multiple of the live entry count while staying
+    /// amortised `O(1)` per access: compaction leaves exactly one stamp per
+    /// live entry, so at least `map.len() + VICTIM_QUEUE_SLACK` further
+    /// pushes must land before it can trigger again, and each compaction is
+    /// `O(queue len)`.
+    ///
+    /// Call this *after* the map has been updated — the freshness check reads
+    /// `map[path].last_accessed`, so a pre-update call would compact away the
+    /// stamp it just pushed.
+    fn record_access(&mut self, path: PathBuf, tick: u64) {
+        let Self { map, victim_queue } = self;
+        victim_queue.push(tick, path);
+        let threshold = map
+            .len()
+            .saturating_mul(2)
+            .saturating_add(VICTIM_QUEUE_SLACK);
+        if victim_queue.len() > threshold {
+            victim_queue
+                .retain_fresh(|path, tick| map.get(path).is_some_and(|e| e.last_accessed == tick));
+        }
+    }
+
     /// Pop the LRU victim. Stale heap heads (whose tick no longer matches
     /// the live `map[path].last_accessed`) are skipped by the shared
     /// [`LruVictimQueue`].
@@ -124,6 +177,14 @@ impl CacheMap {
         victim
     }
 }
+
+/// Slack added to the victim-queue compaction threshold.
+///
+/// PERF-16 / TASK-1723: without it a cache holding a single root would
+/// compact on every other read. Sixteen stale stamps is a few hundred bytes
+/// and buys amortisation for the small-root-count shape the CLI actually
+/// runs.
+const VICTIM_QUEUE_SLACK: usize = 16;
 
 /// Hard cap on cached manifests.
 ///
@@ -194,10 +255,15 @@ impl ArcTextCache {
                 // PERF-1 / TASK-1240: push the fresh tick onto the victim
                 // heap as well; the older `(prev_tick, path)` entry stays
                 // and is discarded as stale during eviction.
+                //
+                // PERF-16 / TASK-1723: go through `record_access`, which
+                // compacts the queue on a growth threshold. Pushing directly
+                // here leaked one stamp per hit for every process that never
+                // reached the cap.
                 let tick = next_lru_tick();
                 entry.last_accessed = tick;
                 let arc = Arc::clone(&entry.text);
-                guard.victim_queue.push(tick, path.clone());
+                guard.record_access(path.clone(), tick);
                 // CONC-1: release the outer mutex before leaving the
                 // get-or-insert block; the slot Arc carries everything the
                 // read path still needs.
@@ -234,7 +300,7 @@ impl ArcTextCache {
                         last_accessed: tick,
                     },
                 );
-                guard.victim_queue.push(tick, path.clone());
+                guard.record_access(path.clone(), tick);
                 debug_assert!(
                     guard.len() <= CACHE_MAX_ENTRIES
                         || guard.map.values().any(|e| e.text.get().is_none()),
@@ -254,6 +320,38 @@ impl ArcTextCache {
                 crate::manifest_io::read_optional_text(&path, self.filename).map(Arc::<str>::from)
             })
             .clone()
+    }
+
+    /// Drop any cached text for `<root>/<self.filename>`, so the next
+    /// [`Self::read`] re-reads the file.
+    ///
+    /// PERF-16 / TASK-1723: the explicit half of the "no TTL" policy
+    /// documented at the module level. A long-running embedder that watches
+    /// the filesystem calls this when it sees the manifest change; nothing
+    /// else invalidates an entry short of cap eviction. Returns `true` when
+    /// an entry was actually removed, so a caller can tell a real
+    /// invalidation from a no-op.
+    ///
+    /// The entry's stale stamp is left in the victim queue; it is discarded
+    /// as stale by the next eviction sweep or compaction, exactly like the
+    /// superseded stamps a re-read leaves behind.
+    ///
+    /// Callers already holding an `Arc<str>` from a previous read keep it —
+    /// invalidation affects future reads only, and the next reader gets a
+    /// fresh `Arc` that is deliberately *not* `ptr_eq` with the old one.
+    pub fn invalidate(&self, root: &Path) -> bool {
+        let Some(cache) = self.cache.get() else {
+            return false;
+        };
+        let path = root.join(self.filename);
+        let mut guard = cache.lock().unwrap_or_else(|e| {
+            tracing::warn!(
+                filename = self.filename,
+                "manifest cache mutex was poisoned by a prior panic; recovered"
+            );
+            e.into_inner()
+        });
+        guard.map.remove(&path).is_some()
     }
 
     /// Return the underlying mutex if it has been initialised. Test-only
@@ -366,6 +464,101 @@ mod tests {
         let _ = in_flight_slot.set(Some(Arc::<str>::from("now here")));
         assert_eq!(cache.evict_lru(), Some(in_flight));
         assert_eq!(cache.len(), 0);
+    }
+
+    /// PERF-16 / TASK-1723: below the cap the eviction sweep never runs, so
+    /// nothing used to drain the victim queue — it grew by one stamp per
+    /// read for the process lifetime. Hammer a handful of roots well below
+    /// `CACHE_MAX_ENTRIES` and pin that the queue stays proportional to the
+    /// live entry count rather than to the read count.
+    #[test]
+    fn repeated_reads_below_cap_keep_the_victim_queue_bounded() {
+        let cache = ArcTextCache::new("manifest.txt");
+        let dir = tempfile::tempdir().unwrap();
+
+        const ROOTS: usize = 3;
+        const PASSES: usize = 500;
+
+        let mut roots: Vec<PathBuf> = Vec::with_capacity(ROOTS);
+        for i in 0..ROOTS {
+            let root = dir.path().join(format!("root-{i}"));
+            std::fs::create_dir(&root).unwrap();
+            std::fs::write(root.join("manifest.txt"), format!("body-{i}")).unwrap();
+            roots.push(root);
+        }
+
+        for _ in 0..PASSES {
+            for root in &roots {
+                let _ = cache.read(root).expect("manifest present");
+            }
+        }
+
+        let mutex = cache.raw_mutex().expect("initialised by the reads above");
+        let guard = mutex
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
+        let map_len = guard.len();
+        let queue_len = guard.victim_queue.len();
+        // CONC-1: release the cache mutex before asserting so a failing
+        // assert panics without holding it.
+        drop(guard);
+
+        assert_eq!(map_len, ROOTS, "no eviction should have happened below cap");
+        assert!(
+            map_len < CACHE_MAX_ENTRIES,
+            "the test must stay below the cap or it stops covering the leak"
+        );
+        // The bound record_access enforces. Without compaction this is
+        // ROOTS * PASSES == 1500 stamps.
+        let bound = map_len * 2 + VICTIM_QUEUE_SLACK;
+        assert!(
+            queue_len <= bound,
+            "victim queue holds {queue_len} stamps after {} reads of {map_len} roots; \
+             expected at most {bound} — it is growing with the read count again",
+            ROOTS * PASSES
+        );
+    }
+
+    /// PERF-16 / TASK-1723: the cache has no TTL, so `invalidate` is the only
+    /// way a long-running host can pick up an edited manifest. Pin that it
+    /// forces a re-read and that it reports whether anything was dropped.
+    #[test]
+    fn invalidate_forces_a_reread_of_edited_text() {
+        let cache = ArcTextCache::new("manifest.txt");
+        let dir = tempfile::tempdir().unwrap();
+        let manifest = dir.path().join("manifest.txt");
+        std::fs::write(&manifest, "before").unwrap();
+
+        let first = cache.read(dir.path()).expect("manifest present");
+        assert_eq!(&*first, "before");
+
+        // Without invalidation the edit is invisible — the documented
+        // stale-read consequence, pinned so it cannot change silently.
+        std::fs::write(&manifest, "after").unwrap();
+        let stale = cache.read(dir.path()).expect("manifest present");
+        assert!(Arc::ptr_eq(&first, &stale), "no TTL: the old Arc is reused");
+
+        assert!(cache.invalidate(dir.path()), "an entry was cached");
+        let fresh = cache.read(dir.path()).expect("manifest present");
+        assert_eq!(&*fresh, "after");
+        assert!(!Arc::ptr_eq(&first, &fresh), "invalidation must re-read");
+
+        // Invalidating an uncached root is a no-op, not an error.
+        let other = tempfile::tempdir().unwrap();
+        assert!(!cache.invalidate(other.path()));
+    }
+
+    /// `invalidate` before the cache's `OnceLock` has ever been initialised
+    /// must not force the allocation — it has nothing to drop.
+    #[test]
+    fn invalidate_on_a_cold_cache_is_a_noop() {
+        let cache = ArcTextCache::new("manifest.txt");
+        let dir = tempfile::tempdir().unwrap();
+        assert!(!cache.invalidate(dir.path()));
+        assert!(
+            cache.raw_mutex().is_none(),
+            "a cold invalidate must not initialise the cache"
+        );
     }
 
     #[test]

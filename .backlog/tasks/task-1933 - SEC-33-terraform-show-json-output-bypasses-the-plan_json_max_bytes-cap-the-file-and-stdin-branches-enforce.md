@@ -3,11 +3,11 @@ id: TASK-1933
 title: >-
   SEC-33: terraform show -json output bypasses the plan_json_max_bytes cap the
   file and stdin branches enforce
-status: To Do
+status: Done
 assignee:
   - TASK-2002
 created_date: '2026-08-27 15:46'
-updated_date: '2026-08-28 14:15'
+updated_date: '2026-08-28 21:30'
 labels:
   - code-review-rust
   - security
@@ -40,7 +40,7 @@ Peak memory here is roughly 3x the document: the `Vec<u8>` from `output()`, the 
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 The terraform show -json branch enforces plan_json_max_bytes on the captured stdout, using the same helper as read_stdin_capped
-- [ ] #2 Captured stderr is truncated to a documented fixed byte budget before being used in an error message
-- [ ] #3 A test drives the capped read helper over an oversized reader and asserts the error names the cap and the OPS_PLAN_JSON_MAX_BYTES override
+- [x] #1 The terraform show -json branch enforces plan_json_max_bytes on the captured stdout, using the same helper as read_stdin_capped
+- [x] #2 Captured stderr is truncated to a documented fixed byte budget before being used in an error message
+- [x] #3 A test drives the capped read helper over an oversized reader and asserts the error names the cap and the OPS_PLAN_JSON_MAX_BYTES override
 <!-- AC:END -->

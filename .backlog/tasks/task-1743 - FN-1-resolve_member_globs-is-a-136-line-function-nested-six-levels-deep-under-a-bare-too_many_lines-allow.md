@@ -3,11 +3,11 @@ id: TASK-1743
 title: >-
   FN-1: resolve_member_globs is a 136-line function nested six levels deep under
   a bare too_many_lines allow
-status: To Do
+status: Done
 assignee:
   - TASK-2003
 created_date: '2026-08-27 11:13'
-updated_date: '2026-08-28 14:15'
+updated_date: '2026-08-28 21:11'
 labels:
   - code-review-rust
   - complexity
@@ -43,8 +43,14 @@ The lint suppression is the aggravating detail. Per READ-10, `#[allow]` with a s
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 resolve_member_globs is under 50 lines and reads as orchestration: validate member, expand glob, filter excludes, sort/dedup
-- [ ] #2 Member-value validation and glob-shape validation are each a named predicate or helper that can be unit-tested without touching the filesystem
-- [ ] #3 Nesting on every path is at most 4 levels
-- [ ] #4 The #[allow(clippy::too_many_lines)] is removed; if any suppression remains it is #[expect] with a written reason per docs/clippy.md
+- [x] #1 resolve_member_globs is under 50 lines and reads as orchestration: validate member, expand glob, filter excludes, sort/dedup
+- [x] #2 Member-value validation and glob-shape validation are each a named predicate or helper that can be unit-tested without touching the filesystem
+- [x] #3 Nesting on every path is at most 4 levels
+- [x] #4 The #[allow(clippy::too_many_lines)] is removed; if any suppression remains it is #[expect] with a written reason per docs/clippy.md
 <!-- AC:END -->
+
+## Implementation Notes
+
+<!-- SECTION:NOTES:BEGIN -->
+Fixed in wave TASK-2003. AC1: resolve_member_globs is now 39 lines (signature to closing brace) and reads as orchestration only — validate member, classify pattern, expand or read literal, filter excludes, sort/dedup. AC2: the two validations are pure, filesystem-free helpers: member_escape(&str) -> Option<MemberEscape> and classify_member_pattern(&str) -> MemberPattern (Literal / SegmentGlob / Unsupported). Both are unit-tested without a tempdir by member_escape_classifies_both_escapes and classify_member_pattern_covers_every_shape. AC3: max nesting is 3 (for -> match arm -> if let) in the orchestrator and 2 in expand_segment_glob; the six-level entry loop is gone. Directory enumeration is split into a Resolver struct (holding root, marker and the memoised canonical root) with expand_segment_glob and relative_path methods, plus free functions open_glob_parent (read_dir error classification) and glob_child_dir (per-entry error classification). AC4: the bare #[allow(clippy::too_many_lines)] is removed with no suppression put in its place. Also replaced the Option<Option<PathBuf>> canonical-root memo with a named RootCanonical enum (Unattempted / Resolved / Failed) — clippy::option_option fires once that memo is a struct field rather than a local, and the enum names what each state means. All 21 pre-existing workspace tests still pass, including the symlink-recovery and cached-canonicalize ones.
+<!-- SECTION:NOTES:END -->

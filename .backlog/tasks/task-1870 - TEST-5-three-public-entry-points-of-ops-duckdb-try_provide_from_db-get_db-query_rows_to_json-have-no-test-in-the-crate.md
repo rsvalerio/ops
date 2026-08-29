@@ -3,11 +3,11 @@ id: TASK-1870
 title: >-
   TEST-5: three public entry points of ops-duckdb (try_provide_from_db, get_db,
   query_rows_to_json) have no test in the crate
-status: To Do
+status: Done
 assignee:
   - TASK-2006
 created_date: '2026-08-27 15:30'
-updated_date: '2026-08-28 14:16'
+updated_date: '2026-08-28 22:16'
 labels:
   - code-review-rust
   - test-quality
@@ -36,8 +36,8 @@ The crate's own `lib.rs` test module covers `DuckDb::open*`, `init_schema`, `ups
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 try_provide_from_db has tests for both branches (ctx.db set → db_fn wins; ctx.db None → fallback_fn wins) and for error mapping into DataProviderError
-- [ ] #2 get_db has a test asserting Some for a Context carrying a DuckDb handle and None for one that does not
-- [ ] #3 query_rows_to_json has tests for a populated table, an empty result set, and a row_mapper that returns Err
-- [ ] #4 Assertions check concrete values, not just is_ok()
+- [x] #1 try_provide_from_db has tests for both branches (ctx.db set → db_fn wins; ctx.db None → fallback_fn wins) and for error mapping into DataProviderError
+- [x] #2 get_db has a test asserting Some for a Context carrying a DuckDb handle and None for one that does not
+- [x] #3 query_rows_to_json has tests for a populated table, an empty result set, and a row_mapper that returns Err
+- [x] #4 Assertions check concrete values, not just is_ok()
 <!-- AC:END -->

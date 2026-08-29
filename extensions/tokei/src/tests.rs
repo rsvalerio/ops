@@ -705,7 +705,9 @@ fn tokei_files_create_sql_with_real_json() {
     ingestor.collect(&ctx, data_dir.path()).expect("collect");
 
     let json_path = data_dir.path().join("tokei_files.json");
-    let sql = views::tokei_files_create_sql(&json_path).expect("should generate SQL");
+    let sql = views::tokei_files_create_sql(&json_path)
+        .expect("should generate SQL")
+        .to_string();
     assert!(
         sql.contains("tokei_files"),
         "SQL should reference tokei_files table"

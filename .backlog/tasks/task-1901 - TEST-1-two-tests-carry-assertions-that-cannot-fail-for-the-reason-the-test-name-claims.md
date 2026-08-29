@@ -3,11 +3,11 @@ id: TASK-1901
 title: >-
   TEST-1: two tests carry assertions that cannot fail for the reason the test
   name claims
-status: To Do
+status: Done
 assignee:
   - TASK-1999
 created_date: '2026-08-27 15:38'
-updated_date: '2026-08-28 14:14'
+updated_date: '2026-08-28 21:22'
 labels:
   - code-review-rust
   - test-quality
@@ -53,6 +53,12 @@ On any non-unix target this compiles to setup with no assertion — a test that 
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 metadata_max_bytes_is_memoised either pins the snapshot property (a post-first-call env change is ignored) or is removed with a note, following the precedent at ingestor.rs:411-418
-- [ ] #2 check_metadata_output_success moves #[cfg(unix)] onto the fn, matching its two siblings, so no target compiles a test body with zero assertions
+- [x] #1 metadata_max_bytes_is_memoised either pins the snapshot property (a post-first-call env change is ignored) or is removed with a note, following the precedent at ingestor.rs:411-418
+- [x] #2 check_metadata_output_success moves #[cfg(unix)] onto the fn, matching its two siblings, so no target compiles a test body with zero assertions
 <!-- AC:END -->
+
+## Implementation Notes
+
+<!-- SECTION:NOTES:BEGIN -->
+AC #1: metadata_max_bytes_is_memoised removed (it went with tests/accessors.rs under TASK-1898) and the removal is recorded as a note at the end of tests/payload_cap.rs, following the ingestor.rs:411-418 precedent. It is deliberately not reinstated: the snapshot property is unobservable without mutating process-global env, and TASK-1897 now covers every branch of the cap resolution through an injectable seam (tests/payload_cap.rs::max_bytes_env). AC #2: check_metadata_output_success carries #[cfg(unix)] on the fn, matching its two siblings, so no target compiles a test body with zero assertions.
+<!-- SECTION:NOTES:END -->

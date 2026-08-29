@@ -3,11 +3,11 @@ id: TASK-1927
 title: >-
   SEC-32: terraform plan artifacts are left on disk on every error path after
   the plan runs
-status: To Do
+status: Done
 assignee:
   - TASK-2002
 created_date: '2026-08-27 15:46'
-updated_date: '2026-08-28 14:14'
+updated_date: '2026-08-28 21:30'
 labels:
   - code-review-rust
   - security
@@ -37,7 +37,7 @@ The binary plan file is the full planned state: provider blocks with embedded cr
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 cleanup_artifacts runs on the error paths of run_plan_pipeline_to_with_tty as well as the success path, under the same !keep_plan && json_file.is_none() condition
-- [ ] #2 A test asserts that a plan artifact staged before an induced pipeline failure (empty JSON or unparseable JSON) is removed when keep_plan is false
-- [ ] #3 A test asserts the artifact survives the same failure when keep_plan is true
+- [x] #1 cleanup_artifacts runs on the error paths of run_plan_pipeline_to_with_tty as well as the success path, under the same !keep_plan && json_file.is_none() condition
+- [x] #2 A test asserts that a plan artifact staged before an induced pipeline failure (empty JSON or unparseable JSON) is removed when keep_plan is false
+- [x] #3 A test asserts the artifact survives the same failure when keep_plan is true
 <!-- AC:END -->

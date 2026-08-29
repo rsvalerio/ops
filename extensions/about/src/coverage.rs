@@ -8,7 +8,7 @@ use ops_core::project_identity::ProjectCoverage;
 use ops_core::style::green;
 use ops_core::table::{Color, OpsTable};
 use ops_core::text::format_number;
-use ops_extension::{Context, DataRegistry};
+use ops_extension::DataRegistry;
 
 use crate::providers::{load_or_default, warm_providers};
 use crate::text_util::tty_style;
@@ -70,9 +70,7 @@ pub fn run_about_coverage_with(
     writer: &mut dyn Write,
     is_tty: bool,
 ) -> anyhow::Result<()> {
-    let cwd = std::env::current_dir()?;
-    let config = std::sync::Arc::new(ops_core::config::Config::empty());
-    let mut ctx = Context::new(config, cwd);
+    let mut ctx = crate::providers::subpage_context("coverage")?;
 
     // Warm the providers stacks may rely on for coverage + unit metadata.
     warm_providers(
@@ -158,6 +156,22 @@ fn format_coverage_table(units: &[&ops_core::project_identity::UnitCoverage]) ->
 mod tests {
     use super::*;
     use ops_core::project_identity::{CoverageStats, UnitCoverage};
+
+    /// TEST-5 / TASK-1739: the runner's `writer` / `is_tty` seam existed with
+    /// no test behind it, leaving this user-facing empty-state string
+    /// unasserted. An empty registry makes `load_or_default` yield
+    /// `ProjectCoverage::default()`, whose zero `lines_count` drives
+    /// `format_coverage_section` to `None`.
+    #[test]
+    fn run_about_coverage_with_reports_no_data_for_an_empty_registry() {
+        let registry = DataRegistry::new();
+        let mut out: Vec<u8> = Vec::new();
+        run_about_coverage_with(&registry, &mut out, false).expect("runner must succeed");
+        assert_eq!(
+            String::from_utf8(out).unwrap(),
+            "No coverage data available.\n"
+        );
+    }
 
     #[test]
     fn coverage_icon_thresholds() {

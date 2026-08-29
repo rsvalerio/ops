@@ -3,11 +3,11 @@ id: TASK-1782
 title: >-
   PERF-3: find_required_version re-reads and re-parses the four named candidate
   .tf files during the read_dir fallback
-status: To Do
+status: Done
 assignee:
   - TASK-2001
 created_date: '2026-08-27 11:23'
-updated_date: '2026-08-28 14:14'
+updated_date: '2026-08-28 21:24'
 labels:
   - code-review-rust
   - idioms-correctness
@@ -33,7 +33,7 @@ The common case is the one that pays: a terraform project with a `main.tf` and n
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 The read_dir fallback does not re-read a .tf file already probed by the named-candidate loop
-- [ ] #2 strip_block_comments avoids allocating a full copy when the content contains no block comment
-- [ ] #3 Behaviour is unchanged: the alphabetically-first .tf carrying a constraint still wins, and the existing determinism/case-insensitivity tests pass
+- [x] #1 The read_dir fallback does not re-read a .tf file already probed by the named-candidate loop
+- [x] #2 strip_block_comments avoids allocating a full copy when the content contains no block comment
+- [x] #3 Behaviour is unchanged: the alphabetically-first .tf carrying a constraint still wins, and the existing determinism/case-insensitivity tests pass
 <!-- AC:END -->

@@ -3,11 +3,11 @@ id: TASK-1809
 title: >-
   SEC-33: --allow-json5 has no recursion limit — a 40 KB nested-array file
   overflows the stack and aborts
-status: To Do
+status: Done
 assignee:
   - TASK-2004
 created_date: '2026-08-27 11:31'
-updated_date: '2026-08-28 14:15'
+updated_date: '2026-08-28 22:24'
 labels:
   - code-review-rust
   - security
@@ -47,7 +47,27 @@ The blast radius is smaller than the YAML case only because it needs `--allow-js
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 The allow_json5 path enforces a maximum nesting depth before or during the parse, so deeply nested input returns CheckError::Parse instead of overflowing the stack
-- [ ] #2 The depth limit is consistent with the strict branch's effective limit, and both branches are documented as bounded
-- [ ] #3 A regression test feeds a deeply nested (>= 20000 levels) array to check_json with allow_json5 = true and asserts an Err is returned
+- [x] #1 The allow_json5 path enforces a maximum nesting depth before or during the parse, so deeply nested input returns CheckError::Parse instead of overflowing the stack
+- [x] #2 The depth limit is consistent with the strict branch's effective limit, and both branches are documented as bounded
+- [x] #3 A regression test feeds a deeply nested (>= 20000 levels) array to check_json with allow_json5 = true and asserts an Err is returned
 <!-- AC:END -->
+
+## Implementation Notes
+
+<!-- SECTION:NOTES:BEGIN -->
+Fixed in wave TASK-2004.
+
+`check_json` runs an iterative, byte-level `exceeds_depth_limit` pre-scan
+before either parser sees the input, so the bound applies to both branches
+(`json::MAX_NESTING_DEPTH = 128`, matching serde_json's `RECURSION_LIMIT`).
+The scanner skips string literals (both quote styles) and JSON5 comments so a
+bracket inside a value or a comment does not count; it can only ever lower the
+measured depth, never invent one. Over the limit yields
+`CheckError::Parse(LimitExceeded)` — "input exceeds the nesting depth limit of 128".
+
+AC#2: the limit is now explicit on both branches rather than inherited from
+`Value`'s recursion limit, and is documented on the constant and in the module
+docs. AC#3: `json::tests::deeply_nested_input_is_rejected_instead_of_overflowing_the_stack`
+feeds 20 000 levels through both `allow_json5 = true` and the strict branch;
+`nesting_at_the_limit_is_accepted` pins the boundary from the other side.
+<!-- SECTION:NOTES:END -->

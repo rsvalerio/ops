@@ -3,11 +3,11 @@ id: TASK-1726
 title: >-
   SEC-14: absolute-path workspace member bypasses the `..` root guard in
   resolve_member_globs
-status: To Do
+status: Done
 assignee:
   - TASK-2003
 created_date: '2026-08-27 11:11'
-updated_date: '2026-08-28 14:15'
+updated_date: '2026-08-28 21:11'
 labels:
   - code-review-rust
   - security
@@ -45,7 +45,13 @@ Impact is bounded because `[workspace].members` is operator-authored config, and
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 resolve_member_globs rejects member values that are absolute (Component::RootDir / Prefix) with the same warn-and-skip treatment as ParentDir
-- [ ] #2 A test asserts an absolute member (e.g. an OS-absolute path to a tempdir sibling holding a valid marker file) resolves to nothing while a valid relative sibling member in the same call still resolves
-- [ ] #3 The guard's doc comment states the full containment invariant it now enforces (no ParentDir and no absolute prefix)
+- [x] #1 resolve_member_globs rejects member values that are absolute (Component::RootDir / Prefix) with the same warn-and-skip treatment as ParentDir
+- [x] #2 A test asserts an absolute member (e.g. an OS-absolute path to a tempdir sibling holding a valid marker file) resolves to nothing while a valid relative sibling member in the same call still resolves
+- [x] #3 The guard's doc comment states the full containment invariant it now enforces (no ParentDir and no absolute prefix)
 <!-- AC:END -->
+
+## Implementation Notes
+
+<!-- SECTION:NOTES:BEGIN -->
+Fixed in wave TASK-2003, jointly with TASK-1743 which restructured the same function. AC1: the `..`-only guard is replaced by `member_escape(member) -> Option<MemberEscape>`, which rejects Component::ParentDir (ParentTraversal) and Component::RootDir / Component::Prefix (Absolute) with the same warn-and-skip treatment; the warn now carries an `escape` field naming which rule fired. Because the guard runs once per member before the pattern is classified, it covers all three join sites named in the description (literal root.join(member), glob root.join(prefix), and try_read_manifest). AC2: workspace::tests::absolute_member_is_rejected_sibling_still_loads (absolute path to a tempdir sibling holding a valid package.json resolves to nothing while the relative packages/foo member still loads) plus absolute_glob_member_is_rejected for the glob branch, plus the pure member_escape_classifies_both_escapes unit test. AC3: member_escape carries a "Containment invariant" doc section stating the full invariant (relative AND free of `..`), why Path::join makes the absolute form the simpler escape, and that Windows drive prefixes are covered.
+<!-- SECTION:NOTES:END -->

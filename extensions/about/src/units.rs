@@ -53,9 +53,7 @@ pub fn run_about_units_with(
     is_tty: bool,
     term_width: usize,
 ) -> anyhow::Result<()> {
-    let cwd = std::env::current_dir()?;
-    let config = std::sync::Arc::new(ops_core::config::Config::empty());
-    let mut ctx = Context::new(config, cwd);
+    let mut ctx = crate::providers::subpage_context("units")?;
 
     // Warm duckdb + tokei so the stack provider can enrich Rust-specific
     // fields (e.g. dep_count) and so we can fill loc/file_count below.
@@ -185,6 +183,91 @@ fn enrich_from_db(_ctx: &Context, _units: &mut [ProjectUnit]) {}
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// TEST-5 / TASK-1739: a `project_units` provider under test control, so
+    /// the runner can be driven past its empty branch and into the grid.
+    struct StubUnitsProvider(Vec<ProjectUnit>);
+
+    impl ops_extension::DataProvider for StubUnitsProvider {
+        fn name(&self) -> &'static str {
+            PROJECT_UNITS_PROVIDER
+        }
+        fn provide(
+            &self,
+            _ctx: &mut Context,
+        ) -> Result<serde_json::Value, ops_extension::DataProviderError> {
+            Ok(serde_json::to_value(&self.0).expect("ProjectUnit serializes"))
+        }
+    }
+
+    fn registry_with_units(count: usize) -> DataRegistry {
+        let units: Vec<ProjectUnit> = (0..count)
+            .map(|i| ProjectUnit::new(format!("unit-{i}"), format!("crates/unit-{i}")))
+            .collect();
+        let mut registry = DataRegistry::new();
+        let _ = registry.register(PROJECT_UNITS_PROVIDER, Box::new(StubUnitsProvider(units)));
+        registry
+    }
+
+    /// TEST-5 / TASK-1739: the `writer` / `is_tty` / `term_width` seams were
+    /// added by three separate tasks so this runner could be driven from a
+    /// test, and no test ever did. An empty registry makes `load_or_default`
+    /// yield `Vec::default()`, so this pins the exact user-facing empty
+    /// message that previously had no assertion behind it.
+    #[test]
+    fn run_about_units_with_reports_no_units_for_an_empty_registry() {
+        let registry = DataRegistry::new();
+        let mut out: Vec<u8> = Vec::new();
+        run_about_units_with(&registry, &mut out, false, 80).expect("runner must succeed");
+        assert_eq!(String::from_utf8(out).unwrap(), "No project units found.\n");
+    }
+
+    /// TEST-5 / TASK-1739 (ERR-1 / TASK-0784): the caller-supplied
+    /// `term_width` must decide the grid layout. Nothing pinned that, so a
+    /// refactor re-probing `get_terminal_width()` inside the runner passed
+    /// the whole suite. A narrow width fits fewer cards per row than a wide
+    /// one, so it needs more rows to render the same units.
+    #[test]
+    fn run_about_units_with_honours_the_caller_supplied_term_width() {
+        let registry = registry_with_units(6);
+
+        let mut narrow: Vec<u8> = Vec::new();
+        run_about_units_with(&registry, &mut narrow, false, 40).expect("narrow render");
+        let mut wide: Vec<u8> = Vec::new();
+        run_about_units_with(&registry, &mut wide, false, 200).expect("wide render");
+
+        let narrow = String::from_utf8(narrow).unwrap();
+        let wide = String::from_utf8(wide).unwrap();
+        assert!(narrow.contains("unit-0") && wide.contains("unit-0"));
+
+        let narrow_lines = narrow.lines().count();
+        let wide_lines = wide.lines().count();
+        assert!(
+            wide_lines < narrow_lines,
+            "term_width must drive cards-per-row: 40 cols produced {narrow_lines} lines, \
+             200 cols produced {wide_lines}"
+        );
+    }
+
+    /// TEST-5 / TASK-1739 (READ-5 / TASK-0411): the contract the `is_tty`
+    /// parameter exists for — a non-TTY writer receives zero ANSI escapes —
+    /// asserted end to end through the runner rather than through a section
+    /// formatter.
+    #[test]
+    fn run_about_units_with_emits_no_ansi_escapes_for_a_non_tty_writer() {
+        let registry = registry_with_units(3);
+        let mut out: Vec<u8> = Vec::new();
+        run_about_units_with(&registry, &mut out, false, 100).expect("runner must succeed");
+        assert!(
+            !out.contains(&0x1b),
+            "non-TTY writer must receive no ESC bytes; got {:?}",
+            String::from_utf8_lossy(&out)
+        );
+        assert!(
+            String::from_utf8_lossy(&out).contains("unit-0"),
+            "the render must not be trivially empty"
+        );
+    }
 
     /// Regression for TASK-0431: when no `DuckDB` is wired up, `enrich_from_db` is
     /// a no-op and leaves caller-supplied unit fields untouched. Codifies the

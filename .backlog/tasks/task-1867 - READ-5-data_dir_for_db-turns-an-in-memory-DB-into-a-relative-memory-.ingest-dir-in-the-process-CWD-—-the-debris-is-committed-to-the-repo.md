@@ -3,11 +3,11 @@ id: TASK-1867
 title: >-
   READ-5: data_dir_for_db turns an in-memory DB into a relative
   ':memory:.ingest' dir in the process CWD — the debris is committed to the repo
-status: To Do
+status: Done
 assignee:
   - TASK-2006
 created_date: '2026-08-27 15:30'
-updated_date: '2026-08-28 14:16'
+updated_date: '2026-08-28 22:15'
 labels:
   - code-review-rust
   - correctness
@@ -43,8 +43,8 @@ That is not hypothetical: `extensions/duckdb/:memory:.ingest/counting.json` (con
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 data_dir_for_db (or provide_via_ingestor) rejects or redirects the ':memory:' sentinel instead of deriving a relative CWD path from it — e.g. a typed error, or staging under a tempdir
-- [ ] #2 No code path can create a ':memory:.ingest' directory in the process working directory
-- [ ] #3 extensions/duckdb/:memory:.ingest/ is removed from git and a guard (gitignore entry or test) keeps it from returning
-- [ ] #4 A test drives provide_via_ingestor with an in-memory DuckDb and asserts no directory is created in the CWD
+- [x] #1 data_dir_for_db (or provide_via_ingestor) rejects or redirects the ':memory:' sentinel instead of deriving a relative CWD path from it — e.g. a typed error, or staging under a tempdir
+- [x] #2 No code path can create a ':memory:.ingest' directory in the process working directory
+- [x] #3 extensions/duckdb/:memory:.ingest/ is removed from git and a guard (gitignore entry or test) keeps it from returning
+- [x] #4 A test drives provide_via_ingestor with an in-memory DuckDb and asserts no directory is created in the CWD
 <!-- AC:END -->

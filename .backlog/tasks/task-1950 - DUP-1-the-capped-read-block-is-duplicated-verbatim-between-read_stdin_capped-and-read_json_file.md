@@ -3,11 +3,11 @@ id: TASK-1950
 title: >-
   DUP-1: the capped-read block is duplicated verbatim between read_stdin_capped
   and read_json_file
-status: To Do
+status: Done
 assignee:
   - TASK-2002
 created_date: '2026-08-27 15:49'
-updated_date: '2026-08-28 14:15'
+updated_date: '2026-08-28 21:30'
 labels:
   - code-review-rust
   - duplication
@@ -42,7 +42,7 @@ Even the explanatory comment ("`usize` is at most 64 bits on every supported tar
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 A single generic capped-read helper is used by the stdin and file branches
-- [ ] #2 The usize-widening comment exists in exactly one place
-- [ ] #3 Existing read_json_file_rejects_oversized_payload and read_stdin_rejects_oversized_payload tests still pass with their current assertions on the message wording
+- [x] #1 A single generic capped-read helper is used by the stdin and file branches
+- [x] #2 The usize-widening comment exists in exactly one place
+- [x] #3 Existing read_json_file_rejects_oversized_payload and read_stdin_rejects_oversized_payload tests still pass with their current assertions on the message wording
 <!-- AC:END -->

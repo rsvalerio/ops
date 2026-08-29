@@ -119,7 +119,11 @@ where
     let has_data = table_has_data(db, table_name)
         .with_context(|| format!("provide_via_ingestor({table_name}): table_has_data probe"))?;
     if !has_data {
-        let data_dir = data_dir_for_db(db.path());
+        // READ-5 / TASK-1867: an in-memory handle has no staging area; the
+        // pipeline used to derive the relative `:memory:.ingest` from the
+        // sentinel and litter the process working directory.
+        let data_dir = data_dir_for_db(db.path())
+            .with_context(|| format!("provide_via_ingestor({table_name}): ingest data dir"))?;
         create_ingest_dir(&data_dir)
             .map_err(DbError::Io)
             .with_context(|| format!("provide_via_ingestor({table_name}): create ingest dir"))?;
@@ -210,7 +214,7 @@ mod tests {
                 let json_path = data_dir.join("counting.json");
                 let create_sql = create_table_from_json_sql("counting_test", &json_path, None)?;
                 let conn = db.lock()?;
-                conn.execute(&create_sql, [])
+                conn.execute(create_sql.as_str(), [])
                     .map_err(|e| DbError::query_failed("counting_test create", e))?;
                 drop(conn);
                 Ok(crate::LoadResult::success("counting", 1))
@@ -274,7 +278,7 @@ mod tests {
                 let json_path = data_dir.join("trivial.json");
                 let create_sql = create_table_from_json_sql("trivial_table", &json_path, None)?;
                 let conn = db.lock()?;
-                conn.execute(&create_sql, [])
+                conn.execute(create_sql.as_str(), [])
                     .map_err(|e| DbError::query_failed("trivial create", e))?;
                 drop(conn);
                 Ok(crate::LoadResult::success("trivial", 1))
@@ -347,7 +351,7 @@ mod tests {
                 let json_path = data_dir.join("panicky.json");
                 let create_sql = create_table_from_json_sql("panicky_table", &json_path, None)?;
                 let conn = db.lock()?;
-                conn.execute(&create_sql, [])
+                conn.execute(create_sql.as_str(), [])
                     .map_err(|e| DbError::query_failed("panicky create", e))?;
                 drop(conn);
                 Ok(crate::LoadResult::success("panicky", 1))
@@ -436,7 +440,7 @@ mod tests {
                 let create_sql =
                     create_table_from_json_sql("panicky_warn_table", &json_path, None)?;
                 let conn = db.lock()?;
-                conn.execute(&create_sql, [])
+                conn.execute(create_sql.as_str(), [])
                     .map_err(|e| DbError::query_failed("panicky create", e))?;
                 drop(conn);
                 Ok(crate::LoadResult::success("panicky_warn", 1))
@@ -515,7 +519,7 @@ mod tests {
                 let json_path = data_dir.join("race.json");
                 let create_sql = create_table_from_json_sql("race_table", &json_path, None)?;
                 let conn = db.lock()?;
-                conn.execute(&create_sql, [])
+                conn.execute(create_sql.as_str(), [])
                     .map_err(|e| DbError::query_failed("race create", e))?;
                 drop(conn);
                 Ok(crate::LoadResult::success("race", 1))
@@ -658,6 +662,57 @@ mod tests {
         assert!(
             rendered.contains("ingestor collect"),
             "phase label must appear in error chain: {rendered}"
+        );
+    }
+
+    /// READ-5 / TASK-1867: driving the pipeline with an in-memory handle
+    /// must fail loudly instead of creating a relative `:memory:.ingest`
+    /// directory in the process working directory. The `counting.json`
+    /// artifact this used to leave behind was committed to the repository.
+    #[test]
+    fn provide_via_ingestor_rejects_in_memory_db_without_touching_the_cwd() {
+        use crate::DataIngestor;
+
+        struct NeverCollects;
+        impl DataIngestor for NeverCollects {
+            fn name(&self) -> &'static str {
+                "never"
+            }
+            // Reaching either method means the sentinel guard did not fire.
+            #[allow(clippy::panic_in_result_fn)]
+            fn collect(&self, _ctx: &ops_extension::Context, _data_dir: &Path) -> DbResult<()> {
+                panic!("collect must not run for an in-memory database")
+            }
+            #[allow(clippy::panic_in_result_fn)]
+            fn load(&self, _data_dir: &Path, _db: &DuckDb) -> DbResult<crate::LoadResult> {
+                panic!("load must not run for an in-memory database")
+            }
+        }
+
+        let db = DuckDb::open_in_memory().expect("in-memory db");
+        init_schema(&db).expect("init_schema");
+        let ctx = ops_extension::Context::new(
+            Arc::new(ops_core::config::Config::empty()),
+            PathBuf::from("/tmp"),
+        );
+
+        let err = provide_via_ingestor(&db, &ctx, "memory_table", &NeverCollects, |_| {
+            Ok(serde_json::Value::Null)
+        })
+        .expect_err("an in-memory database has no ingest staging area");
+
+        let rendered = format!("{err:#}");
+        assert!(
+            rendered.contains("not file-backed"),
+            "error must name the real cause: {rendered}"
+        );
+
+        // Nothing named after the sentinel may appear in the process CWD.
+        let cwd = std::env::current_dir().expect("cwd");
+        assert!(
+            !cwd.join(":memory:.ingest").exists(),
+            "the pipeline created {}/:memory:.ingest",
+            cwd.display()
         );
     }
 }

@@ -3,11 +3,11 @@ id: TASK-1745
 title: >-
   DUP-3: cwd + empty-Config + Context preamble repeated verbatim in all five
   subpage runners
-status: To Do
+status: Done
 assignee:
   - TASK-2003
 created_date: '2026-08-27 11:13'
-updated_date: '2026-08-28 14:15'
+updated_date: '2026-08-28 21:20'
 labels:
   - code-review-rust
   - duplication
@@ -51,7 +51,13 @@ A `fn subpage_context() -> anyhow::Result<Context>` in `providers.rs` collapses 
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 A single helper in providers.rs builds the subpage Context; all five run_about_*_with functions call it instead of open-coding the three lines
-- [ ] #2 The helper attaches context to the current_dir failure (ERR-4) so the error names the subcommand or at least the operation
-- [ ] #3 The choice of Config::empty() over the loaded project config is documented once, at the helper
+- [x] #1 A single helper in providers.rs builds the subpage Context; all five run_about_*_with functions call it instead of open-coding the three lines
+- [x] #2 The helper attaches context to the current_dir failure (ERR-4) so the error names the subcommand or at least the operation
+- [x] #3 The choice of Config::empty() over the loaded project config is documented once, at the helper
 <!-- AC:END -->
+
+## Implementation Notes
+
+<!-- SECTION:NOTES:BEGIN -->
+Fixed in wave TASK-2003. AC1: added providers::subpage_context(subpage) -> anyhow::Result<Context>; all five run_about_*_with functions (units, coverage, deps, code, loc) now call it instead of open-coding the cwd + Config::empty() + Context::new triple. lib.rs::run_about is deliberately left alone and the doc says why — it takes cwd as a parameter (the better shape, no process-global read) and sets refresh on the result. Dropped the now-unused `Context` import from coverage.rs and deps.rs. AC2: the helper wraps current_dir() with anyhow context "about/<subpage>: could not determine the current directory", so the failure names the subcommand instead of surfacing the same bare OS error from five sites. AC3: the Config::empty() choice is documented once at the helper — the subpages read only data providers, never configured commands, and must render in a directory with no .ops.toml, so an empty config keeps them independent of project configuration and of whether it parses. Test: providers::tests::subpage_context_uses_the_cwd_and_an_empty_config; the five runner tests added under TASK-1739 additionally drive the helper end to end.
+<!-- SECTION:NOTES:END -->

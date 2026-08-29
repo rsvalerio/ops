@@ -18,7 +18,12 @@
 
 pub mod ingest;
 pub mod query;
-pub mod validation;
+// ARCH-9 / TASK-1862: crate-private. The module doc calls `escape_sql_string`
+// and `sanitize_path_for_sql` "not safe to call alone"; a `pub mod` made them
+// reachable as `ops_duckdb::sql::validation::*` regardless of the curated
+// re-export list below, handing downstream callers a documented-as-unsafe
+// shortcut past the `TableName` / `ExtraOpts` / `quoted_ident` gates.
+pub(crate) mod validation;
 
 /// Run `query_fn` and return its `Ok` value, or log the error and return
 /// `fallback`.
@@ -70,12 +75,24 @@ where
 /// [`DbError`] variant that signals trust-broken state (`MutexPoisoned`)
 /// or a liveness failure (Timeout). Returns true → log at `error!` rather
 /// than `warn!`.
+///
+/// ERR-7 / TASK-1859: the walk does **not** stop at the first `DbError` it
+/// downcasts. [`DbError::External`] exists precisely to carry an arbitrary
+/// cause graph — it is how `collect_tokei`, `collect_coverage` and
+/// `check_metadata_output` funnel an `anyhow::Error` into `DbError` — so a
+/// hard variant routinely sits *below* a soft one. Returning on the first
+/// downcast silently reclassified every nested `MutexPoisoned` / `Timeout`
+/// as a benign `warn!`.
+///
+/// [`DbError::External`]: crate::error::DbError::External
 fn is_hard_failure(err: &anyhow::Error) -> bool {
     use crate::error::DbError;
     let mut current: Option<&(dyn std::error::Error + 'static)> = Some(err.as_ref());
     while let Some(e) = current {
-        if let Some(db) = e.downcast_ref::<DbError>() {
-            return matches!(db, DbError::MutexPoisoned(_) | DbError::Timeout { .. });
+        if let Some(DbError::MutexPoisoned(_) | DbError::Timeout { .. }) =
+            e.downcast_ref::<DbError>()
+        {
+            return true;
         }
         current = e.source();
     }
@@ -83,9 +100,9 @@ fn is_hard_failure(err: &anyhow::Error) -> bool {
 }
 
 pub use ingest::{
-    checksum_file, create_table_from_json_sql, data_dir_for_db, default_data_dir, default_db_path,
-    external_err, provide_via_ingestor, query_rows_to_json, read_workspace_sidecar,
-    remove_workspace_sidecar, sidecar_path, table_has_data, write_workspace_sidecar,
+    checksum_file, create_table_from_json_sql, data_dir_for_db, default_db_path, external_err,
+    provide_via_ingestor, query_rows_to_json, read_workspace_sidecar, remove_workspace_sidecar,
+    sidecar_path, table_has_data, write_workspace_sidecar, CreateTableSql, CreateViewSql,
 };
 pub use query::{
     query_crate_coverage, query_crate_dep_counts, query_crate_deps, query_crate_file_count,
@@ -93,8 +110,12 @@ pub use query::{
     query_project_languages, query_project_loc, query_rust_loc_file_count, query_rust_loc_summary,
     CrateCoverage, RustLocStat,
 };
-// `SqlError` and `quoted_ident` cross the crate boundary; the rest of the
-// granular validation helpers stay module-internal (ARCH-9). `quoted_ident` is
+// These four are the crate's entire public validation surface: the module
+// itself is `pub(crate)` (ARCH-9 / TASK-1862), so the granular helpers
+// (`validate_identifier`, `validate_path_chars`, `validate_no_traversal`,
+// `validate_extra_opts`, `prepare_path_for_sql`, `EXTRA_OPTS_MAX_*`) are
+// reachable inside this crate only, and the two low-level escapers are
+// private to `validation` itself. `quoted_ident` is
 // the SEC-12 defense-in-depth wrapper and is needed at every site that
 // interpolates an identifier into a hand-written SQL string (e.g.
 // `extensions/tokei/src/views::tokei_languages_view_sql`).
@@ -140,6 +161,42 @@ mod tests {
             .context("loading coverage")
             .unwrap_err();
         assert!(is_hard_failure(&err));
+    }
+
+    /// ERR-7 / TASK-1859: a `MutexPoisoned` nested under
+    /// `DbError::External` (the shape every `external_err` caller produces)
+    /// must still classify as hard — the walk continues past the soft
+    /// `External` it downcasts first.
+    #[test]
+    fn is_hard_failure_sees_mutex_poisoned_nested_under_external() {
+        let nested: anyhow::Error = DbError::MutexPoisoned("p".into()).into();
+        let err: anyhow::Error = DbError::External(nested).into();
+        assert!(is_hard_failure(&err));
+    }
+
+    /// ERR-7 / TASK-1859: same for a `Timeout` nested under `External`.
+    #[test]
+    fn is_hard_failure_sees_timeout_nested_under_external() {
+        let nested: anyhow::Error = DbError::Timeout {
+            label: "load".into(),
+            timeout_secs: 5,
+        }
+        .into();
+        let err: anyhow::Error = DbError::External(nested).into();
+        assert!(is_hard_failure(&err));
+    }
+
+    /// ERR-7 / TASK-1859: continuing the walk must not turn every nested
+    /// chain hard — a fully-soft chain still returns false.
+    #[test]
+    fn is_hard_failure_stays_false_for_a_fully_soft_nested_chain() {
+        use anyhow::Context as _;
+        let nested: anyhow::Error =
+            anyhow::Result::<()>::Err(DbError::Io(std::io::Error::other("disk full")).into())
+                .context("reading staged json")
+                .unwrap_err();
+        let err: anyhow::Error = DbError::External(nested).into();
+        assert!(!is_hard_failure(&err));
     }
 
     /// ERR-7 / TASK-0855: `query_or_warn` still falls back on hard

@@ -3,11 +3,11 @@ id: TASK-1820
 title: >-
   TEST-5: write_summary, CheckError's Display/source, and the InvalidUtf8
   variant have zero coverage
-status: To Do
+status: Done
 assignee:
   - TASK-2004
 created_date: '2026-08-27 11:33'
-updated_date: '2026-08-28 14:15'
+updated_date: '2026-08-28 22:25'
 labels:
   - code-review-rust
   - test-quality
@@ -41,8 +41,43 @@ priority: medium
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 write_summary has a test asserting its exact rendered output for a report with non-zero scanned, failed, and skipped counts
-- [ ] #2 Both InvalidUtf8 producers (check_yaml, and check_json with allow_json5) have a non-UTF-8 input test asserting the CheckError variant, not just that an error occurred
-- [ ] #3 CheckError::source() is asserted for both variants (Some for InvalidUtf8, None for Parse)
-- [ ] #4 At least one test exercises CheckerOptions with tracked_only = true
+- [x] #1 write_summary has a test asserting its exact rendered output for a report with non-zero scanned, failed, and skipped counts
+- [x] #2 Both InvalidUtf8 producers (check_yaml, and check_json with allow_json5) have a non-UTF-8 input test asserting the CheckError variant, not just that an error occurred
+- [x] #3 CheckError::source() is asserted for both variants (Some for InvalidUtf8, None for Parse)
+- [x] #4 At least one test exercises CheckerOptions with tracked_only = true
 <!-- AC:END -->
+
+## Implementation Notes
+
+<!-- SECTION:NOTES:BEGIN -->
+Fixed in wave TASK-2004.
+
+AC#1: `tests::write_summary_reports_each_counter_in_its_own_slot` asserts the
+exact rendered line for scanned 7 / failed 2 / skipped 3, which pins the
+wording, the field order and that each counter lands in its own slot. Plain
+string equality rather than `insta` — the crate has no snapshot dependency and
+the line is one deterministic sentence, so a snapshot would add a dependency
+and an accept step without adding a reviewable diff.
+
+AC#2 — substitution recorded. The asymmetry the AC asked us to pin no longer
+exists, and removing it was required by TASK-1830 in this same wave: dropping
+`serde_json::Value` for `IgnoredAny` also drops serde_json's UTF-8 validation
+of string bodies, so `check_json` now validates UTF-8 up front in *both* modes.
+`json::tests::non_utf8_input_reports_invalid_utf8_in_both_modes` asserts
+`CheckError::InvalidUtf8` for both flag values (and doubles as the regression
+guard for that relaxation); `yaml::tests::non_utf8_input_reports_invalid_utf8`
+covers the YAML producer.
+
+AC#3: `json::tests::parse_errors_keep_the_underlying_parser_error_as_their_source`
+asserts `source()` is `Some` for `Parse` and downcasts it to
+`serde_json::Error`; `yaml::tests::invalid_utf8_exposes_the_utf8_error_as_its_source`
+does the same for `InvalidUtf8`. Note `Parse` now returns `Some` rather than
+`None` — that is TASK-1824's change, landed in this wave.
+
+AC#4: three tracked-mode tests over scratch git repos
+(`tracked_only_validates_the_files_git_lists`,
+`tracked_but_deleted_file_is_skipped_rather_than_failing_the_hook`,
+`tracked_symlink_to_a_character_device_is_skipped_not_read`). Each bails out if
+git is unavailable, because `discovery::discover` would otherwise fall back to
+the walk and the assertion would pass vacuously.
+<!-- SECTION:NOTES:END -->

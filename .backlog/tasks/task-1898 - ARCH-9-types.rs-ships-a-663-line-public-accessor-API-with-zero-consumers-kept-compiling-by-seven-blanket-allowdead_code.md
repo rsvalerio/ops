@@ -3,11 +3,11 @@ id: TASK-1898
 title: >-
   ARCH-9: types.rs ships a 663-line public accessor API with zero consumers,
   kept compiling by seven blanket allow(dead_code)
-status: To Do
+status: Done
 assignee:
   - TASK-1999
 created_date: '2026-08-27 15:36'
-updated_date: '2026-08-28 14:14'
+updated_date: '2026-08-28 21:18'
 labels:
   - code-review-rust
   - structure-readability
@@ -36,7 +36,21 @@ The doc comments here are unusually careful (cache-lifetime reasoning at :112-13
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 A decision is recorded: either the typed accessor layer has a named consumer (documented in the module header) or the unconsumed surface is removed
-- [ ] #2 If kept, every #[allow(dead_code)] is removed and the crate still compiles clean under -D warnings; any attribute that turns out to be load-bearing is narrowed to the specific item and carries a reason comment per docs/clippy.md
-- [ ] #3 If kept, json_str_with_fallback and json_bool_with_fallback are made pub(crate) — they are pub in a private module and unreachable as written
+- [x] #1 A decision is recorded: either the typed accessor layer has a named consumer (documented in the module header) or the unconsumed surface is removed
+- [x] #2 If kept, every #[allow(dead_code)] is removed and the crate still compiles clean under -D warnings; any attribute that turns out to be load-bearing is narrowed to the specific item and carries a reason comment per docs/clippy.md
+- [x] #3 If kept, json_str_with_fallback and json_bool_with_fallback are made pub(crate) — they are pub in a private module and unreachable as written
 <!-- AC:END -->
+
+## Implementation Notes
+
+<!-- SECTION:NOTES:BEGIN -->
+Decision: REMOVE the unconsumed surface (AC #1's second branch), recorded in the lib.rs module header under "# No typed accessor layer (ARCH-9 / TASK-1898)".
+
+Evidence for "no consumer": ops-metadata is publish = false; the only cross-crate reference anywhere is `extern crate ops_metadata;` in crates/cli/src/main.rs (linkme factory registration, pulls in no items); a workspace grep finds no use of Metadata / Package / Dependency / Target / DependencyKind outside this crate's own tests; Metadata::from_context has zero callers; and no open backlog task plans a consumer (searched "Metadata::from_context" and "typed accessor"). AGENTS.md is explicit: "Minimum code that solves the problem. Nothing speculative."
+
+Deleted: src/types.rs (663 lines), src/tests/accessors.rs, src/tests/duplicates.rs, src/tests/edge_cases.rs (752 test lines), the view-fixture half of src/test_support.rs (pkg / PkgFixture / workspace / WsFixture / sample_metadata / test_pkg_a / test_pkg_serde, 250 lines), the `pub use types::{...}` re-export and the `mod types;` declaration. All nine #[allow(dead_code)] attributes went with the file, so AC #2 and AC #3 are satisfied by removal rather than by narrowing. The ingest fixtures (ingest_metadata / ingest_dep / write_metadata_json) stay - ingestor.rs uses them.
+
+The DataProviderSchema strings ("Iterator<Package>", "Package.name", ...) are unchanged: across this workspace those are a JSON-shape documentation convention (cf. ops-cargo-toml, ops-git), not references to nameable Rust types.
+
+ops-metadata: cargo clippy --all-targets --all-features -D warnings clean; 41 tests pass (was 86, the delta being the accessor coverage that tested serde_json::Value::get wrappers).
+<!-- SECTION:NOTES:END -->

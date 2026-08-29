@@ -1,5 +1,27 @@
 //! Metadata extension: runs `cargo metadata` and provides workspace info as JSON.
 //! `DuckDB` is the single source of truth - metadata is loaded into `metadata_raw` table.
+//!
+//! # No typed accessor layer (ARCH-9 / TASK-1898)
+//!
+//! This crate used to also export a `Metadata` / `Package` / `Dependency` /
+//! `Target` wrapper family (`types.rs`, ~660 lines plus ~750 lines of tests)
+//! offering typed accessors over the same JSON. It had **no consumers**:
+//! nothing in the workspace named any of those types, `Metadata::from_context`
+//! — the documented production entry point — was never called, and nine
+//! blanket `#[allow(dead_code)]` attributes were what kept the question open.
+//! Everything that actually ships goes through
+//! `MetadataProvider::provide` → `provide_from_db` → `query_metadata_raw`,
+//! which returns a raw `serde_json::Value`.
+//!
+//! The decision recorded here is **removed, not deferred**: `ops-metadata` is
+//! `publish = false`, its only cross-crate reference is the
+//! `extern crate ops_metadata;` in `crates/cli/src/main.rs` that exists so the
+//! `linkme` factory registers, and no backlog item plans a consumer. If a
+//! consumer ever appears, the wrappers are cheap to reintroduce against a real
+//! call site — which is also the only way their contract can be tested for
+//! something other than `serde_json::Value::get`. Until then the provider's
+//! JSON shape is documented by [`MetadataProvider::schema`], and consumers
+//! read it with `serde_json` directly.
 
 #![cfg_attr(
     test,
@@ -16,10 +38,7 @@ mod ingestor;
 pub(crate) mod test_support;
 #[cfg(test)]
 mod tests;
-mod types;
 mod views;
-
-pub use types::{Dependency, DependencyKind, Metadata, Package, Target};
 
 use ingestor::MetadataIngestor;
 use ops_core::output::format_error_tail;
@@ -56,22 +75,88 @@ pub const METADATA_MAX_BYTES_DEFAULT: u64 = 64 * 1024 * 1024;
 /// Environment variable that overrides [`METADATA_MAX_BYTES_DEFAULT`].
 pub const METADATA_MAX_BYTES_ENV: &str = "OPS_METADATA_MAX_BYTES";
 
-/// Resolved metadata payload byte cap. Non-numeric or zero values fall
-/// back to [`METADATA_MAX_BYTES_DEFAULT`].
+/// SEC-11 / TASK-1897: hard ceiling on the resolved cap.
+///
+/// ARCH-9 / TASK-1247 unified the post-ingest reader cap and the
+/// ingest-time `maximum_object_size` ceiling on this one env knob, and that
+/// unification is only sound over the range **both** consumers accept.
+/// `DuckDB` types `read_json`'s `maximum_object_size` as `UINTEGER`
+/// (32-bit), so anything above `u32::MAX` does not raise the ingest
+/// ceiling — it makes the `CREATE TABLE … read_json_auto(…)` statement fail
+/// with an option-conversion error attributed to `"metadata_raw create"`,
+/// naming nothing the operator set.
+///
+/// Verified against the pinned `DuckDB` v1.5.5 (`scripts/duckdb-pins.txt`):
+/// `maximum_object_size=4294967295` is accepted, while `=4294967296` fails
+/// with *"Type INT64 with value 4294967296 can't be cast because the value
+/// is out of range for the destination type UINT32"*.
+///
+/// Spelled as a literal because `u64::from` is not callable in a `const`
+/// initialiser and `u32::MAX as u64` would need an `as_conversions`
+/// exception (`docs/clippy.md`); the equality with `u32::MAX` is pinned by
+/// `ceiling_is_exactly_duckdb_uinteger_max` in `tests/payload_cap.rs`.
+pub const METADATA_MAX_BYTES_CEILING: u64 = 4_294_967_295;
+
+/// SEC-11 / TASK-1897: validate and bound the raw `OPS_METADATA_MAX_BYTES`
+/// value at the boundary, warning on every value that is not honoured
+/// verbatim.
+///
+/// Previously any unparseable, zero, or oversized value resolved silently to
+/// [`METADATA_MAX_BYTES_DEFAULT`]: an operator who raised the cap to work
+/// around an over-cap failure saw the identical failure with no signal that
+/// the knob had been ignored, and a value above [`METADATA_MAX_BYTES_CEILING`]
+/// broke ingest instead of raising it.
+///
+/// Split out from [`metadata_max_bytes`] so tests can drive every branch
+/// without mutating process-global env (the `OnceLock` snapshot can be
+/// initialised exactly once per process).
+pub(crate) fn resolve_metadata_max_bytes(raw: Option<&str>) -> u64 {
+    let Some(raw) = raw else {
+        return METADATA_MAX_BYTES_DEFAULT;
+    };
+    let Ok(parsed) = raw.trim().parse::<u64>() else {
+        tracing::warn!(
+            env = METADATA_MAX_BYTES_ENV,
+            value = raw,
+            default = METADATA_MAX_BYTES_DEFAULT,
+            "value is not a non-negative integer byte count; using the default cap"
+        );
+        return METADATA_MAX_BYTES_DEFAULT;
+    };
+    if parsed == 0 {
+        tracing::warn!(
+            env = METADATA_MAX_BYTES_ENV,
+            value = raw,
+            default = METADATA_MAX_BYTES_DEFAULT,
+            "a zero byte cap would reject every payload; using the default cap"
+        );
+        return METADATA_MAX_BYTES_DEFAULT;
+    }
+    if parsed > METADATA_MAX_BYTES_CEILING {
+        tracing::warn!(
+            env = METADATA_MAX_BYTES_ENV,
+            value = raw,
+            ceiling = METADATA_MAX_BYTES_CEILING,
+            "value exceeds DuckDB's UINTEGER maximum_object_size domain; clamping to the ceiling"
+        );
+        return METADATA_MAX_BYTES_CEILING;
+    }
+    parsed
+}
+
+/// Resolved metadata payload byte cap. See [`resolve_metadata_max_bytes`]
+/// for the validation and clamping policy.
 ///
 /// PERF-3 / TASK-1248: cached behind `OnceLock<u64>` to mirror the
 /// `manifest_max_bytes` / `output_byte_cap` discipline; the env knob is
 /// process-global so re-reading on every `provide_from_db` was wasted
-/// work.
+/// work. The snapshot is also the single moment a diagnostic can be
+/// emitted, which is why the warnings live in the resolver.
 pub(crate) fn metadata_max_bytes() -> u64 {
     use std::sync::OnceLock;
     static CACHED: OnceLock<u64> = OnceLock::new();
     *CACHED.get_or_init(|| {
-        std::env::var(METADATA_MAX_BYTES_ENV)
-            .ok()
-            .and_then(|v| v.parse::<u64>().ok())
-            .filter(|v| *v > 0)
-            .unwrap_or(METADATA_MAX_BYTES_DEFAULT)
+        resolve_metadata_max_bytes(std::env::var(METADATA_MAX_BYTES_ENV).ok().as_deref())
     })
 }
 
@@ -91,12 +176,23 @@ pub(crate) fn metadata_max_bytes() -> u64 {
 /// than the lockfile-mutation issue we're guarding against.
 pub(crate) fn run_cargo_metadata(working_dir: &Path) -> Result<Output, RunError> {
     run_cargo(
-        &["metadata", "--format-version", "1", "--locked"],
+        &CARGO_METADATA_ARGS,
         working_dir,
         CARGO_METADATA_TIMEOUT,
         "cargo metadata",
     )
 }
+
+/// TEST-25 / TASK-1899: the argument list [`run_cargo_metadata`] passes,
+/// named so a test can assert on the *value* the production call site uses.
+///
+/// The previous pin read `include_str!("../lib.rs")` and searched it for the
+/// literal `["metadata", "--format-version", "1", "--locked"]`. That tested
+/// the formatter: `cargo fmt` wrapping the list would fail it while
+/// `--locked` was still passed, and deleting `run_cargo_metadata` outright
+/// would keep it green so long as the literal survived anywhere in the file
+/// — a doc comment included.
+pub(crate) const CARGO_METADATA_ARGS: [&str; 4] = ["metadata", "--format-version", "1", "--locked"];
 
 /// PATTERN-1 / TASK-1099: include the numeric exit code (or `signal` for
 /// `None`) in the error string so a SIGKILL/OOM kill is distinguishable
@@ -237,6 +333,33 @@ impl DataProvider for MetadataProvider {
     }
 }
 
+/// SEC-33 / TASK-1194 + PERF-3 / TASK-1551: bound the JSON payload size
+/// **before** materialising the full row into a Rust `String`, in a single
+/// SQL round trip. The payload is replaced with `NULL` when over cap so it
+/// never crosses the FFI boundary into a Rust `String`; SEC-33's intent (no
+/// oversized Rust allocation) and the bail-with-byte-count behaviour are
+/// both preserved.
+///
+/// READ-1 / TASK-1896 — the serialisation cost, stated precisely. This SQL
+/// spells `to_json(m)::VARCHAR` three times (twice inside `octet_length`,
+/// once in the CASE's ELSE branch), but the expression is evaluated **once
+/// per row**. That is a property of `DuckDB`'s common-subexpression
+/// elimination, not of the SQL text, so it is pinned by a test rather than
+/// assumed: `cap_guard_sql_serialises_to_json_once` (`tests/payload_cap.rs`)
+/// reads the `EXPLAIN` physical plan and asserts a single `to_json`
+/// projection node. Measured on the pinned `DuckDB` v1.5.5
+/// (`scripts/duckdb-pins.txt`), the plan collapses to one
+/// `CAST(to_json(struct_pack(...)) AS VARCHAR)` PROJECTION whose output the
+/// node above references as `#0`. A hand-written
+/// `WITH j AS (SELECT to_json(m)::VARCHAR AS txt …)` CTE was measured
+/// against this shape on a 32 MiB row and was not faster — `DuckDB` inlines
+/// the CTE and the extra projection layer costs more than it saves — so the
+/// simpler form stays.
+const CAP_GUARD_SQL: &str = "SELECT octet_length(CAST(to_json(m)::VARCHAR AS BLOB)) AS bytes, \
+            CASE WHEN octet_length(CAST(to_json(m)::VARCHAR AS BLOB)) > ? \
+                 THEN NULL ELSE to_json(m)::VARCHAR END AS payload \
+     FROM metadata_raw m";
+
 fn query_metadata_raw(db: &DuckDb) -> Result<serde_json::Value, anyhow::Error> {
     query_metadata_raw_with_cap(db, metadata_max_bytes())
 }
@@ -260,23 +383,9 @@ fn query_metadata_raw_with_cap(db: &DuckDb, cap: u64) -> Result<serde_json::Valu
         count == 1,
         "metadata_raw must contain exactly one row, found {count}"
     );
-    // SEC-33 / TASK-1194 + PERF-3 / TASK-1551: bound the JSON payload size
-    // **before** materialising the full row into a Rust `String`, but in a
-    // *single* SQL round trip — the previous shape ran `to_json(m)::VARCHAR`
-    // server-side twice (once for `octet_length`, once to fetch the text),
-    // and DuckDB does not memoise between prepares. On the common
-    // under-cap path that doubled the JSON serialisation cost. The new
-    // shape uses a CASE expression: `octet_length(...)` is computed once
-    // and returned alongside the payload, but the payload is replaced with
-    // `NULL` when over cap so it never crosses the FFI boundary into a
-    // Rust `String`. SEC-33's intent (no oversized Rust allocation) and
-    // the bail-with-byte-count behaviour are both preserved.
     let (len, json_text): (i64, Option<String>) = conn
         .query_row(
-            "SELECT octet_length(CAST(to_json(m)::VARCHAR AS BLOB)) AS bytes, \
-                    CASE WHEN octet_length(CAST(to_json(m)::VARCHAR AS BLOB)) > ? \
-                         THEN NULL ELSE to_json(m)::VARCHAR END AS payload \
-             FROM metadata_raw m",
+            CAP_GUARD_SQL,
             duckdb::params![i64::try_from(cap).unwrap_or(i64::MAX)],
             |row: &duckdb::Row<'_>| Ok((row.get(0)?, row.get(1)?)),
         )

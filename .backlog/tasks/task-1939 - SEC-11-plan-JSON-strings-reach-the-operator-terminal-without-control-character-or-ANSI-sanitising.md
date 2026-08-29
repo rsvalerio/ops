@@ -3,11 +3,11 @@ id: TASK-1939
 title: >-
   SEC-11: plan JSON strings reach the operator terminal without
   control-character or ANSI sanitising
-status: To Do
+status: Done
 assignee:
   - TASK-2002
 created_date: '2026-08-27 15:47'
-updated_date: '2026-08-28 14:15'
+updated_date: '2026-08-28 21:30'
 labels:
   - code-review-rust
   - security
@@ -40,8 +40,8 @@ Cross-crate note: the sink, `ops_core::table::OpsTable::cell` / `Cell::new` (`cr
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 Resource type, name, module, mode and output names are stripped of ESC, CR and other C0/C1 control characters before rendering
-- [ ] #2 The sanitising step is applied in one place, so a newly added column cannot forget it
-- [ ] #3 A test renders a change whose name contains an escape sequence and a carriage return and asserts neither byte appears in the rendered output
-- [ ] #4 A test renders an output whose key contains an escape sequence and asserts the same
+- [x] #1 Resource type, name, module, mode and output names are stripped of ESC, CR and other C0/C1 control characters before rendering
+- [x] #2 The sanitising step is applied in one place, so a newly added column cannot forget it
+- [x] #3 A test renders a change whose name contains an escape sequence and a carriage return and asserts neither byte appears in the rendered output
+- [x] #4 A test renders an output whose key contains an escape sequence and asserts the same
 <!-- AC:END -->

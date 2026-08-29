@@ -36,7 +36,17 @@ pub fn init_schema(db: &DuckDb) -> DbResult<()> {
 /// API-5 / TASK-1626: the returned `Option<String>` is the signal callers
 /// consult to decide whether to skip reloading a data source. Dropping it
 /// silently treats "never ingested" identically to "already current".
-#[allow(dead_code)]
+// READ-10 / TASK-1873: `schema` is a private module and this helper is not
+// re-exported, so outside `cfg(test)` it genuinely has no caller. The
+// suppression is scoped to exactly that case and states why, and `expect`
+// makes it delete itself the moment a production caller appears.
+#[cfg_attr(
+    not(test),
+    expect(
+        dead_code,
+        reason = "API-5 contract helper with no production caller yet; exercised by the crate's own tests"
+    )
+)]
 #[must_use = "the Some/None distinguishes 'already ingested' from 'never ingested'; discarding it skips reload checks"]
 pub fn get_source_checksum(
     db: &DuckDb,

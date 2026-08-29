@@ -9,13 +9,15 @@ pub(super) mod orchestrator;
 pub(super) mod sidecar;
 pub(super) mod sql;
 
-pub use dir::{checksum_file, data_dir_for_db, default_data_dir, default_db_path, external_err};
+pub use dir::{checksum_file, data_dir_for_db, default_db_path, external_err};
 pub use orchestrator::provide_via_ingestor;
 pub use sidecar::{
     read_workspace_sidecar, remove_workspace_sidecar, sidecar_path, write_workspace_sidecar,
     MAX_SIDECAR_BYTES,
 };
-pub use sql::{create_table_from_json_sql, query_rows_to_json, table_has_data};
+pub use sql::{
+    create_table_from_json_sql, query_rows_to_json, table_has_data, CreateTableSql, CreateViewSql,
+};
 
 pub(super) use sql::table_exists;
 
@@ -32,8 +34,8 @@ macro_rules! test_create_sql_validation {
             let result = $create_fn(&path);
             assert!(result.is_ok());
             let sql = result.unwrap();
-            assert!(sql.contains("read_json_auto"));
-            assert!(sql.contains($file_name));
+            assert!(sql.as_str().contains("read_json_auto"));
+            assert!(sql.as_str().contains($file_name));
         }
 
         #[test]
@@ -41,7 +43,7 @@ macro_rules! test_create_sql_validation {
             let path = std::path::PathBuf::from(concat!("/home/my user/project dir/", $file_name));
             let result = $create_fn(&path);
             assert!(result.is_ok());
-            assert!(result.unwrap().contains("my user/project dir"));
+            assert!(result.unwrap().as_str().contains("my user/project dir"));
         }
 
         #[test]

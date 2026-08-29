@@ -12,8 +12,8 @@ ops_duckdb::test_create_sql_validation!(
 
 #[test]
 fn coverage_summary_view_sql_contains_aggregation() {
-    let sql = coverage_summary_view_sql();
-    assert!(sql.contains("CREATE OR REPLACE VIEW coverage_summary"));
+    let sql = coverage_summary_view_sql().to_string();
+    assert!(sql.contains("CREATE OR REPLACE VIEW \"coverage_summary\""));
     assert!(sql.contains("SUM(lines_count)"));
     assert!(sql.contains("SUM(lines_covered)"));
     assert!(sql.contains("SUM(functions_count)"));
@@ -24,7 +24,7 @@ fn coverage_summary_view_sql_contains_aggregation() {
 
 #[test]
 fn coverage_summary_view_sql_has_all_percentage_columns() {
-    let sql = coverage_summary_view_sql();
+    let sql = coverage_summary_view_sql().to_string();
     assert!(sql.contains("AS lines_percent"));
     assert!(sql.contains("AS functions_percent"));
     assert!(sql.contains("AS regions_percent"));
@@ -33,7 +33,7 @@ fn coverage_summary_view_sql_has_all_percentage_columns() {
 
 #[test]
 fn coverage_summary_view_sql_has_zero_division_guards() {
-    let sql = coverage_summary_view_sql();
+    let sql = coverage_summary_view_sql().to_string();
     // Each metric type has a CASE WHEN ... > 0 guard with ELSE 0.0
     assert_eq!(
         sql.matches("ELSE 0.0 END").count(),
@@ -44,7 +44,7 @@ fn coverage_summary_view_sql_has_zero_division_guards() {
 
 #[test]
 fn coverage_summary_view_sql_has_notcovered_columns() {
-    let sql = coverage_summary_view_sql();
+    let sql = coverage_summary_view_sql().to_string();
     assert!(sql.contains("regions_notcovered"));
     assert!(sql.contains("branches_notcovered"));
 }
@@ -53,7 +53,7 @@ fn coverage_summary_view_sql_has_notcovered_columns() {
 /// consumers get full f64 precision.
 #[test]
 fn coverage_summary_view_sql_has_no_round() {
-    let sql = coverage_summary_view_sql();
+    let sql = coverage_summary_view_sql().to_string();
     assert!(
         !sql.contains("ROUND"),
         "view should not round; let presentation layer handle precision"
@@ -64,7 +64,7 @@ fn coverage_summary_view_sql_has_no_round() {
 /// aggregate returns 0 rather than NULL.
 #[test]
 fn coverage_summary_view_sql_coalesces_every_count_column() {
-    let sql = coverage_summary_view_sql();
+    let sql = coverage_summary_view_sql().to_string();
     for col in COUNT_COLUMNS {
         assert!(
             sql.contains(&format!("COALESCE(SUM({col}), 0) AS {col}")),

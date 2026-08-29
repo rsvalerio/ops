@@ -3,11 +3,11 @@ id: TASK-1828
 title: >-
   READ-10: config-checkers lib.rs cfg_attr allows three cast lints the crate has
   no casts for
-status: To Do
+status: Done
 assignee:
   - TASK-2004
 created_date: '2026-08-27 11:34'
-updated_date: '2026-08-28 14:15'
+updated_date: '2026-08-28 22:24'
 labels:
   - code-review-rust
   - structure-readability
@@ -47,6 +47,16 @@ This is the same copied preamble flagged in TASK-1747 for `extensions-java/about
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 The three cast_* allows are removed from the crate-level cfg_attr in extensions/config-checkers/src/lib.rs
-- [ ] #2 clippy::unwrap_used stays suppressed for test builds, and cargo clippy --all-targets --workspace -- -D warnings still passes
+- [x] #1 The three cast_* allows are removed from the crate-level cfg_attr in extensions/config-checkers/src/lib.rs
+- [x] #2 clippy::unwrap_used stays suppressed for test builds, and cargo clippy --all-targets --workspace -- -D warnings still passes
 <!-- AC:END -->
+
+## Implementation Notes
+
+<!-- SECTION:NOTES:BEGIN -->
+Fixed in wave TASK-2004. The crate-level attribute is now
+`#![cfg_attr(test, allow(clippy::unwrap_used))]` with the same explanatory
+comment `extensions-rust/loc/src/lib.rs` carries; the three dead `cast_*`
+allows are gone and the crate still contains no numeric cast.
+`cargo clippy --all-targets --workspace -- -D warnings` is clean.
+<!-- SECTION:NOTES:END -->

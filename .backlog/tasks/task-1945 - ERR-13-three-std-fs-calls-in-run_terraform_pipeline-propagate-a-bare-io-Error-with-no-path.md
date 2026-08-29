@@ -3,11 +3,11 @@ id: TASK-1945
 title: >-
   ERR-13: three std::fs calls in run_terraform_pipeline propagate a bare
   io::Error with no path
-status: To Do
+status: Done
 assignee:
   - TASK-2002
 created_date: '2026-08-27 15:48'
-updated_date: '2026-08-28 14:15'
+updated_date: '2026-08-28 21:30'
 labels:
   - code-review-rust
   - error-handling
@@ -46,7 +46,7 @@ Every other filesystem and process call in this file already carries context - `
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 Both create_dir_all calls and the plan JSON write attach context naming the path involved
-- [ ] #2 The two create_dir_all messages are distinguishable from each other
-- [ ] #3 A test asserts the error message for an unwritable artifact path contains that path
+- [x] #1 Both create_dir_all calls and the plan JSON write attach context naming the path involved
+- [x] #2 The two create_dir_all messages are distinguishable from each other
+- [x] #3 A test asserts the error message for an unwritable artifact path contains that path
 <!-- AC:END -->

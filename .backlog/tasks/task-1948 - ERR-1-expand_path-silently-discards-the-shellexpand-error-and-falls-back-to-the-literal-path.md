@@ -3,11 +3,11 @@ id: TASK-1948
 title: >-
   ERR-1: expand_path silently discards the shellexpand error and falls back to
   the literal path
-status: To Do
+status: Done
 assignee:
   - TASK-2002
 created_date: '2026-08-27 15:48'
-updated_date: '2026-08-28 14:15'
+updated_date: '2026-08-28 21:30'
 labels:
   - code-review-rust
   - error-handling
@@ -42,7 +42,7 @@ That divergence is more than cosmetic here: `expand_path` also feeds `cleanup_ar
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 expand_path returns a Result and its callers propagate or explicitly log the expansion failure
-- [ ] #2 --out and --json-file report the same invalid path error for the same unexpandable input
-- [ ] #3 A test asserts an unexpandable --out value produces an error rather than a directory named after the literal variable reference
+- [x] #1 expand_path returns a Result and its callers propagate or explicitly log the expansion failure
+- [x] #2 --out and --json-file report the same invalid path error for the same unexpandable input
+- [x] #3 A test asserts an unexpandable --out value produces an error rather than a directory named after the literal variable reference
 <!-- AC:END -->

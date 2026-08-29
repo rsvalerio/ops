@@ -3,11 +3,11 @@ id: TASK-1734
 title: >-
   ERR-4: provider payload deserialization errors lose the provider name and the
   failing field path
-status: To Do
+status: Done
 assignee:
   - TASK-2003
 created_date: '2026-08-27 11:12'
-updated_date: '2026-08-28 14:15'
+updated_date: '2026-08-28 21:17'
 labels:
   - code-review-rust
   - error-handling
@@ -51,8 +51,14 @@ Two layers apply:
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 load_or_default attaches context naming the provider and the target type before propagating a deserialization failure
-- [ ] #2 resolve_identity attaches the same context for the project_identity provider
-- [ ] #3 The failing field path is reported (serde_path_to_error or equivalent) for these nested payloads
-- [ ] #4 A test registers a provider returning a payload with a wrong field type and asserts the resulting error string contains the provider name and the field path
+- [x] #1 load_or_default attaches context naming the provider and the target type before propagating a deserialization failure
+- [x] #2 resolve_identity attaches the same context for the project_identity provider
+- [x] #3 The failing field path is reported (serde_path_to_error or equivalent) for these nested payloads
+- [x] #4 A test registers a provider returning a payload with a wrong field type and asserts the resulting error string contains the provider name and the field path
 <!-- AC:END -->
+
+## Implementation Notes
+
+<!-- SECTION:NOTES:BEGIN -->
+Fixed in wave TASK-2003. Added providers::deserialize_payload<T>(provider, &Value) as the single diagnosable deserialization path. AC1: load_or_default routes through it, so the four subpages it funnels (project_coverage, project_dependencies, project_units) get context naming the provider and std::any::type_name::<T>(). AC2: lib.rs::resolve_identity calls the same helper with "project_identity" instead of open-coding ProjectIdentity::deserialize. AC3: uses serde_path_to_error::deserialize, so the message carries the concrete field path (e.g. units[1].lines_percent); a root-level mismatch is labelled `<root>` rather than the bare "." serde_path_to_error renders. The underlying serde error is preserved as the anyhow source, not replaced. AC4: providers::tests::load_or_default_error_names_provider_and_field_path registers a DriftedProvider returning a nested payload with a wrong field type and asserts the rendered error contains the provider name, the target type, the field path units[1].lines_percent, and the original "invalid type" cause; deserialize_payload_labels_a_root_level_mismatch covers the pathless case. PERF-3 / TASK-1117 borrow semantics are preserved — serde_path_to_error wraps the &Value deserializer, so no deep clone. New dependency: serde_path_to_error 0.1 (dtolnay, MIT/Apache-2.0, allowed by deny.toml, no transitive deps beyond serde), declared in [workspace.dependencies].
+<!-- SECTION:NOTES:END -->

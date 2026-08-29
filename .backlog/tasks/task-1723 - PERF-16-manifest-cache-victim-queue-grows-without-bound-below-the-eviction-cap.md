@@ -3,11 +3,11 @@ id: TASK-1723
 title: >-
   PERF-16: manifest cache victim queue grows without bound below the eviction
   cap
-status: To Do
+status: Done
 assignee:
   - TASK-2003
 created_date: '2026-08-27 11:11'
-updated_date: '2026-08-28 14:15'
+updated_date: '2026-08-28 21:07'
 labels:
   - code-review-rust
   - performance
@@ -38,7 +38,13 @@ Cross-crate note: the sibling `typed_manifest_cache` in `extensions-rust/about/s
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 victim_queue length is bounded by a function of map size (e.g. drain stale heads opportunistically on hit, or cap the heap and rebuild, or replace push-on-hit with an in-place tick update)
-- [ ] #2 A regression test warms a small number of distinct roots, performs many repeated reads well below CACHE_MAX_ENTRIES, and asserts the victim queue does not grow linearly with read count
-- [ ] #3 The cache's TTL / invalidation expectation is either implemented (mtime or explicit invalidate) or documented as 'none by design' with the stale-read consequence stated for the long-running-embedder consumers named in the module docs
+- [x] #1 victim_queue length is bounded by a function of map size (e.g. drain stale heads opportunistically on hit, or cap the heap and rebuild, or replace push-on-hit with an in-place tick update)
+- [x] #2 A regression test warms a small number of distinct roots, performs many repeated reads well below CACHE_MAX_ENTRIES, and asserts the victim queue does not grow linearly with read count
+- [x] #3 The cache's TTL / invalidation expectation is either implemented (mtime or explicit invalidate) or documented as 'none by design' with the stale-read consequence stated for the long-running-embedder consumers named in the module docs
 <!-- AC:END -->
+
+## Implementation Notes
+
+<!-- SECTION:NOTES:BEGIN -->
+Fixed in wave TASK-2003. AC1: added LruVictimQueue::{len,is_empty,retain_fresh} and CacheMap::record_access, which compacts the victim queue once it exceeds 2*map.len()+16 stale-inclusive stamps; both push sites (hit and insert) now route through it. Amortised O(1) per access. AC2: manifest_cache::tests::repeated_reads_below_cap_keep_the_victim_queue_bounded drives 1500 reads over 3 roots and asserts the queue stays within the bound; plus two lru::tests for retain_fresh. AC3: implemented the stronger option — added ArcTextCache::invalidate(root) and documented the no-TTL policy in a new "Freshness policy" module-doc section naming the stale-read consequence for the long-running embedders. Tests invalidate_forces_a_reread_of_edited_text and invalidate_on_a_cold_cache_is_a_noop pin it. Cross-crate note from the description: the two sibling caches in extensions-rust/about (coverage_provider.rs ProjectCoverageCache, manifest_cache.rs TypedManifestCache) still push-on-hit without compaction — out of this wave file scope, filed separately.
+<!-- SECTION:NOTES:END -->

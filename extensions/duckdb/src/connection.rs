@@ -7,6 +7,13 @@ use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, Mutex};
 
+/// The `DuckDB` in-memory connection string, stored as `DuckDb::path()` for
+/// handles opened via [`DuckDb::open_in_memory`].
+///
+/// READ-5 / TASK-1867: it is **not** a filesystem path. Code that derives a
+/// path from `DuckDb::path()` must reject it rather than treat it as one.
+pub const IN_MEMORY_PATH: &str = ":memory:";
+
 /// ARCH-9 / TASK-1155: process-wide monotonic counter that mints a fresh
 /// `DuckDb::id` per instance. Stable for the lifetime of the instance, and
 /// guaranteed distinct from every previously-minted id, so callers keying
@@ -36,7 +43,6 @@ fn mint_db_id() -> u64 {
 /// For typical ops usage (single command execution at a time), this is acceptable.
 pub struct DuckDb {
     conn: Mutex<duckdb::Connection>,
-    #[allow(dead_code)]
     db_path: PathBuf,
     /// ARCH-9 / TASK-1155: stable per-instance identity used by callers
     /// that key process-local caches by `DuckDb` identity. The previous
@@ -63,7 +69,11 @@ pub struct DuckDb {
     ingest_locks: Mutex<HashMap<&'static str, Arc<Mutex<()>>>>,
 }
 
-#[allow(dead_code)]
+// READ-10 / TASK-1873: no impl-wide `#[allow(dead_code)]`. Suppressing at the
+// block level hid every future unused constructor and method as well. Nothing
+// in this block is dead today; if something becomes API-surface-only, give it
+// its own `#[expect(dead_code, reason = "…")]` rather than restoring a
+// container-wide allow.
 impl DuckDb {
     /// Open (or create) a database at the given path, read-write.
     ///
@@ -120,6 +130,11 @@ impl DuckDb {
 
     /// Open an in-memory database (for tests).
     ///
+    /// READ-5 / TASK-1867: `db_path` is set to the `IN_MEMORY_PATH`
+    /// sentinel, which is a `DuckDB` connection string rather than a
+    /// filesystem path. Anything deriving a path from `path()` must reject
+    /// it — see `data_dir_for_db`.
+    ///
     /// # Errors
     ///
     /// [`DbError::DuckDb`] if the in-memory database cannot be opened.
@@ -127,7 +142,7 @@ impl DuckDb {
         let conn = duckdb::Connection::open_in_memory().map_err(DbError::DuckDb)?;
         Ok(Self {
             conn: Mutex::new(conn),
-            db_path: PathBuf::from(":memory:"),
+            db_path: PathBuf::from(IN_MEMORY_PATH),
             id: mint_db_id(),
             ingest_locks: Mutex::new(HashMap::new()),
         })

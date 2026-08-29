@@ -130,3 +130,187 @@ fn query_metadata_raw_succeeds_when_payload_within_cap() {
         .expect("under-cap payload should parse");
     assert_eq!(v["workspace_root"], "/workspace");
 }
+
+/// READ-1 / TASK-1896 AC #1 + #2: the cap-guard SQL spells
+/// `to_json(m)::VARCHAR` three times, and the comment on
+/// [`crate::CAP_GUARD_SQL`] claims it is nonetheless serialised once per
+/// row. That claim rests on `DuckDB`'s common-subexpression elimination, so
+/// pin it against the physical plan: a single `to_json` projection node
+/// means one serialisation. If a future `DuckDB` bump stops folding the
+/// repetition, this test fails and the cost claim is revisited rather than
+/// silently becoming false.
+#[test]
+fn cap_guard_sql_serialises_to_json_once() {
+    let db = ops_duckdb::DuckDb::open_in_memory().expect("open in-memory");
+    let conn = db.lock().expect("lock");
+    conn.execute_batch(
+        "CREATE TABLE metadata_raw (workspace_root VARCHAR, payload VARCHAR);
+         INSERT INTO metadata_raw VALUES ('/workspace', 'x');",
+    )
+    .expect("seed");
+    // The bind parameter is irrelevant to the plan shape; inline a literal
+    // so `EXPLAIN` needs no parameters.
+    let sql = crate::CAP_GUARD_SQL.replace('?', "1000000");
+    let plan: String = conn
+        .query_row(&format!("EXPLAIN {sql}"), [], |row| row.get(1))
+        .expect("explain the cap-guard query");
+    drop(conn);
+    let serialisations = plan.matches("to_json").count();
+    assert_eq!(
+        serialisations, 1,
+        "cap-guard SQL must serialise to_json once per row; physical plan:\n{plan}"
+    );
+}
+
+/// SEC-11 / TASK-1897: `OPS_METADATA_MAX_BYTES` validation and clamping.
+/// Driven through the injectable [`crate::resolve_metadata_max_bytes`] seam
+/// rather than by mutating process-global env, which the `OnceLock` snapshot
+/// in `metadata_max_bytes` makes untestable anyway (one initialisation per
+/// process).
+mod max_bytes_env {
+    use crate::{
+        resolve_metadata_max_bytes, METADATA_MAX_BYTES_CEILING, METADATA_MAX_BYTES_DEFAULT,
+        METADATA_MAX_BYTES_ENV,
+    };
+    use ops_about::test_support::TracingBuf;
+
+    /// Resolve `raw` while capturing WARN-level output, so each rejected
+    /// value can be checked for the diagnostic AC #1 requires.
+    fn resolve_capturing_warns(raw: Option<&str>) -> (u64, String) {
+        let buf = TracingBuf::default();
+        let subscriber = tracing_subscriber::fmt()
+            .with_writer(buf.clone())
+            .with_max_level(tracing::Level::WARN)
+            .with_ansi(false)
+            .finish();
+        let resolved =
+            tracing::subscriber::with_default(subscriber, || resolve_metadata_max_bytes(raw));
+        (resolved, buf.captured())
+    }
+
+    #[test]
+    fn unset_env_resolves_to_default_without_warning() {
+        let (resolved, logs) = resolve_capturing_warns(None);
+        assert_eq!(resolved, METADATA_MAX_BYTES_DEFAULT);
+        assert!(
+            logs.is_empty(),
+            "an unset knob is not a misconfiguration: {logs}"
+        );
+    }
+
+    #[test]
+    fn valid_value_is_honoured_verbatim_without_warning() {
+        let (resolved, logs) = resolve_capturing_warns(Some("1048576"));
+        assert_eq!(resolved, 1_048_576);
+        assert!(logs.is_empty(), "an accepted value must not warn: {logs}");
+    }
+
+    #[test]
+    fn surrounding_whitespace_is_tolerated() {
+        let (resolved, logs) = resolve_capturing_warns(Some(" 1048576\n"));
+        assert_eq!(resolved, 1_048_576);
+        assert!(
+            logs.is_empty(),
+            "a trailing newline must not silently drop the knob: {logs}"
+        );
+    }
+
+    #[test]
+    fn malformed_value_warns_and_falls_back() {
+        let (resolved, logs) = resolve_capturing_warns(Some("64MB"));
+        assert_eq!(resolved, METADATA_MAX_BYTES_DEFAULT);
+        assert!(
+            logs.contains(METADATA_MAX_BYTES_ENV),
+            "warn must name the variable: {logs}"
+        );
+        assert!(
+            logs.contains("64MB"),
+            "warn must name the offending value: {logs}"
+        );
+    }
+
+    #[test]
+    fn negative_value_warns_and_falls_back() {
+        let (resolved, logs) = resolve_capturing_warns(Some("-1"));
+        assert_eq!(resolved, METADATA_MAX_BYTES_DEFAULT);
+        assert!(
+            logs.contains(METADATA_MAX_BYTES_ENV),
+            "warn must name the variable: {logs}"
+        );
+        assert!(
+            logs.contains("-1"),
+            "warn must name the offending value: {logs}"
+        );
+    }
+
+    #[test]
+    fn zero_warns_and_falls_back() {
+        let (resolved, logs) = resolve_capturing_warns(Some("0"));
+        assert_eq!(resolved, METADATA_MAX_BYTES_DEFAULT);
+        assert!(
+            logs.contains(METADATA_MAX_BYTES_ENV),
+            "warn must name the variable: {logs}"
+        );
+        assert!(
+            logs.contains("zero byte cap"),
+            "warn must explain the rejection: {logs}"
+        );
+    }
+
+    #[test]
+    fn above_ceiling_warns_and_clamps() {
+        let (resolved, logs) = resolve_capturing_warns(Some("18446744073709551615"));
+        assert_eq!(
+            resolved, METADATA_MAX_BYTES_CEILING,
+            "an unbounded knob would silently disable the SEC-33 guard"
+        );
+        assert!(
+            logs.contains(METADATA_MAX_BYTES_ENV),
+            "warn must name the variable: {logs}"
+        );
+        assert!(
+            logs.contains("clamping"),
+            "warn must say the value was clamped: {logs}"
+        );
+    }
+
+    #[test]
+    fn ceiling_is_exactly_duckdb_uinteger_max() {
+        assert_eq!(METADATA_MAX_BYTES_CEILING, u64::from(u32::MAX));
+    }
+
+    /// SEC-11 / TASK-1897 AC #2: no value the resolver can produce may make
+    /// the ingest `CREATE TABLE … read_json_auto(…)` fail on an
+    /// option-conversion error. Execute the SQL at the ceiling — the one
+    /// value most likely to overflow `DuckDB`'s `UINTEGER` domain — against a
+    /// real connection.
+    #[test]
+    fn resolved_ceiling_is_accepted_by_duckdb_read_json() {
+        let dir = tempfile::tempdir().expect("tempdir");
+        let path = dir.path().join("metadata.json");
+        std::fs::write(&path, br#"{"workspace_root":"/workspace"}"#).expect("seed json");
+
+        let resolved = resolve_metadata_max_bytes(Some("99999999999999"));
+        assert_eq!(resolved, METADATA_MAX_BYTES_CEILING);
+
+        let sql = crate::views::metadata_raw_create_sql_with_cap(&path, resolved)
+            .expect("sql builds at the ceiling");
+        let db = ops_duckdb::DuckDb::open_in_memory().expect("open in-memory");
+        let conn = db.lock().expect("lock");
+        conn.execute(sql.as_str(), [])
+            .expect("DuckDB must accept maximum_object_size at the resolved ceiling");
+        drop(conn);
+    }
+}
+
+// TEST-1 / TASK-1901: the former `metadata_max_bytes_is_memoised` test
+// (`tests/accessors.rs`, cited as "PERF-3 / TASK-1248 AC #3") asserted that
+// two consecutive `metadata_max_bytes()` calls return the same value. A
+// deterministic parse of a process-global env var returns the same value
+// with or without the `OnceLock`, so deleting the cache left the test green
+// — a tautology, the same shape removed from `ingestor.rs` by TASK-1546. It
+// went with `tests/accessors.rs` in TASK-1898 and is deliberately not
+// reinstated: the snapshot property it should have pinned is unobservable
+// without mutating process-global env, and everything worth asserting about
+// the cap now lives in `max_bytes_env` above, which drives the same
+// resolver through an injectable seam.

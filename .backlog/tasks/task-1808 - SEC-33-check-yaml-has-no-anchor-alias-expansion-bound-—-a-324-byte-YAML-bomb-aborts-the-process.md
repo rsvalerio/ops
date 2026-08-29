@@ -3,11 +3,11 @@ id: TASK-1808
 title: >-
   SEC-33: check-yaml has no anchor/alias expansion bound — a 324-byte YAML bomb
   aborts the process
-status: To Do
+status: Done
 assignee:
   - TASK-2004
 created_date: '2026-08-27 11:31'
-updated_date: '2026-08-28 14:15'
+updated_date: '2026-08-28 22:24'
 labels:
   - code-review-rust
   - security
@@ -42,7 +42,32 @@ A **324-byte** `.yaml` file exhausts the address space. Because Rust's allocatio
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 check_yaml bounds alias/anchor expansion (event-level parse, alias rejection, or an explicit node/depth cap) so it cannot allocate unboundedly
-- [ ] #2 A regression test feeds a nested-anchor YAML bomb (a few hundred bytes) to check_yaml and asserts it returns CheckError::Parse rather than aborting
-- [ ] #3 The DEFAULT_MAX_BYTES doc comment no longer claims to defend against parser DoS it cannot bound, and points at the mechanism that does
+- [x] #1 check_yaml bounds alias/anchor expansion (event-level parse, alias rejection, or an explicit node/depth cap) so it cannot allocate unboundedly
+- [x] #2 A regression test feeds a nested-anchor YAML bomb (a few hundred bytes) to check_yaml and asserts it returns CheckError::Parse rather than aborting
+- [x] #3 The DEFAULT_MAX_BYTES doc comment no longer claims to defend against parser DoS it cannot bound, and points at the mechanism that does
 <!-- AC:END -->
+
+## Implementation Notes
+
+<!-- SECTION:NOTES:BEGIN -->
+Fixed in wave TASK-2004 (branch code-review/TASK-2004).
+
+`check_yaml` now drives `saphyr_parser::Parser` at the event level instead of
+`Yaml::load_from_str`, so no node is ever materialised and memory is
+O(depth + anchors) whatever the document would expand to. On top of that an
+`ExpansionBudget` computes the expanded node count a loader *would* produce
+(an alias costs whatever its anchor expands to) and rejects past
+`yaml::MAX_EXPANDED_NODES` (20M); nesting is capped at
+`yaml::MAX_NESTING_DEPTH` (128, matching the JSON checker).
+
+Dependency change: the crate now takes `saphyr-parser` directly and drops
+`saphyr` (which only re-exported `ScanError`/`Marker`, not `Parser`).
+Accept/reject parity holds: `Yaml::load_from_str` surfaces only the parser's
+own `ScanError`s, so the same inputs fail with the same messages.
+
+AC#2 regression test: `yaml::tests::nested_anchor_bomb_is_rejected_instead_of_aborting_the_process`
+(a <500-byte nine-level bomb) asserts `CheckError::Parse` with
+"input exceeds the expanded node count limit of 20000000".
+AC#3: `DEFAULT_MAX_BYTES`'s doc comment now says it bounds input size only and
+points at `json::MAX_NESTING_DEPTH` and `yaml::MAX_EXPANDED_NODES`.
+<!-- SECTION:NOTES:END -->

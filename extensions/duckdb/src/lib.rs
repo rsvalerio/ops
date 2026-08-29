@@ -19,13 +19,12 @@ mod ingestor;
 mod schema;
 pub mod sql;
 
-#[allow(unused_imports)]
+// READ-10 / TASK-1873: no `#[allow(unused_imports)]` here. A `pub use` in a
+// library crate is a re-export and is never "unused", so the four
+// suppressions this block used to carry silenced nothing.
 pub use connection::DuckDb;
-#[allow(unused_imports)]
 pub use error::{DbError, DbResult};
-#[allow(unused_imports)]
 pub use ingestor::{DataIngestor, LoadResult, SidecarIngestorConfig};
-#[allow(unused_imports)]
 pub use schema::{init_schema, upsert_data_source, DataSourceMetadata, SourceName, WorkspaceRoot};
 
 use ops_extension::{Context, DataProvider, DataProviderError, ExtensionType};
@@ -67,10 +66,11 @@ pub fn get_db(ctx: &Context) -> Option<&DuckDb> {
     downcast_duckdb(ctx.db())
 }
 
+// READ-10 / TASK-1873: these are `pub const`s in a library crate, i.e. part of
+// the public surface — `dead_code` never fires on them, so the two
+// suppressions they used to carry silenced nothing.
 pub const NAME: &str = "duckdb";
-#[allow(dead_code)]
 pub const DESCRIPTION: &str = "Per-project DuckDB database for data collection";
-#[allow(dead_code)]
 pub const SHORTNAME: &str = "db";
 pub const DATA_PROVIDER_NAME: &str = "duckdb";
 
@@ -204,6 +204,98 @@ mod tests {
         assert!(result.is_null());
         assert!(ctx.db().is_some(), "ctx.db() should be set after provide()");
         assert!(db_path.exists(), "database file should be created");
+    }
+
+    // --- try_provide_from_db / get_db (TEST-5 / TASK-1870) ---
+    //
+    // Both sit on the boundary between this crate and every consumer of it,
+    // and both fail *softly* — a regression shows up as a slower path or a
+    // blank about-page section, never as a red test. Pin the branch
+    // contracts.
+
+    #[test]
+    fn get_db_returns_some_for_a_context_carrying_a_duckdb_handle() {
+        let db = DuckDb::open_in_memory().expect("should open");
+        let expected_id = db.id();
+        let config = std::sync::Arc::new(ops_core::config::Config::empty());
+        let mut ctx = Context::new(config, std::path::PathBuf::from("."));
+        ctx.attach_db(std::sync::Arc::new(db));
+
+        let got = get_db(&ctx).expect("handle must downcast back to DuckDb");
+        assert_eq!(got.id(), expected_id, "must be the very handle attached");
+    }
+
+    #[test]
+    fn get_db_returns_none_without_a_handle() {
+        let config = std::sync::Arc::new(ops_core::config::Config::empty());
+        let ctx = Context::new(config, std::path::PathBuf::from("."));
+        assert!(get_db(&ctx).is_none());
+    }
+
+    #[test]
+    fn try_provide_from_db_takes_the_db_branch_when_a_handle_is_attached() {
+        let db = DuckDb::open_in_memory().expect("should open");
+        let config = std::sync::Arc::new(ops_core::config::Config::empty());
+        let mut ctx = Context::new(config, std::path::PathBuf::from("."));
+        ctx.attach_db(std::sync::Arc::new(db));
+
+        let value = try_provide_from_db(
+            &mut ctx,
+            |_db, _ctx| Ok(serde_json::json!({"from": "db"})),
+            |_ctx| panic!("fallback must not run when a handle is attached"),
+        )
+        .expect("db branch");
+        assert_eq!(value, serde_json::json!({"from": "db"}));
+    }
+
+    #[test]
+    fn try_provide_from_db_takes_the_fallback_branch_without_a_handle() {
+        let config = std::sync::Arc::new(ops_core::config::Config::empty());
+        let mut ctx = Context::new(config, std::path::PathBuf::from("."));
+
+        let value = try_provide_from_db(
+            &mut ctx,
+            |_db, _ctx| panic!("db branch must not run without a handle"),
+            |_ctx| Ok(serde_json::json!({"from": "fallback"})),
+        )
+        .expect("fallback branch");
+        assert_eq!(value, serde_json::json!({"from": "fallback"}));
+    }
+
+    #[test]
+    fn try_provide_from_db_maps_the_db_branch_error_into_data_provider_error() {
+        let db = DuckDb::open_in_memory().expect("should open");
+        let config = std::sync::Arc::new(ops_core::config::Config::empty());
+        let mut ctx = Context::new(config, std::path::PathBuf::from("."));
+        ctx.attach_db(std::sync::Arc::new(db));
+
+        let err = try_provide_from_db(
+            &mut ctx,
+            |_db, _ctx| Err(anyhow::anyhow!("db branch exploded")),
+            |_ctx| Ok(serde_json::Value::Null),
+        )
+        .expect_err("db-branch failure must propagate, not fall back");
+        assert!(
+            err.to_string().contains("db branch exploded"),
+            "cause must survive the conversion: {err}"
+        );
+    }
+
+    #[test]
+    fn try_provide_from_db_maps_the_fallback_error_into_data_provider_error() {
+        let config = std::sync::Arc::new(ops_core::config::Config::empty());
+        let mut ctx = Context::new(config, std::path::PathBuf::from("."));
+
+        let err = try_provide_from_db(
+            &mut ctx,
+            |_db, _ctx| Ok(serde_json::Value::Null),
+            |_ctx| Err(anyhow::anyhow!("fallback exploded")),
+        )
+        .expect_err("fallback failure must propagate");
+        assert!(
+            err.to_string().contains("fallback exploded"),
+            "cause must survive the conversion: {err}"
+        );
     }
 
     #[test]

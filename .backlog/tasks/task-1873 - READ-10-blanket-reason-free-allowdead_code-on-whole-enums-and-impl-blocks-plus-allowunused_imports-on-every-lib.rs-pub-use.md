@@ -3,11 +3,11 @@ id: TASK-1873
 title: >-
   READ-10: blanket reason-free #[allow(dead_code)] on whole enums and impl
   blocks, plus #[allow(unused_imports)] on every lib.rs pub use
-status: To Do
+status: Done
 assignee:
   - TASK-2006
 created_date: '2026-08-27 15:31'
-updated_date: '2026-08-28 14:16'
+updated_date: '2026-08-28 22:30'
 labels:
   - code-review-rust
   - readability
@@ -42,8 +42,8 @@ Per AGENTS.md ("grant the exception at the narrowest scope that works and write 
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 The four #[allow(unused_imports)] attributes on lib.rs pub use statements are removed and the crate still builds warning-free
-- [ ] #2 Container-level #[allow(dead_code)] on DbError, impl DuckDb and SidecarIngestorConfig is removed or narrowed to the specific items that need it, each with a reason (prefer #[expect(..., reason = "...")])
-- [ ] #3 default_data_dir is either deleted along with its re-exports or gains a caller; no allow is left standing in its place
-- [ ] #4 cargo clippy --all-targets --workspace -- -D warnings is clean afterwards
+- [x] #1 The four #[allow(unused_imports)] attributes on lib.rs pub use statements are removed and the crate still builds warning-free
+- [x] #2 Container-level #[allow(dead_code)] on DbError, impl DuckDb and SidecarIngestorConfig is removed or narrowed to the specific items that need it, each with a reason (prefer #[expect(..., reason = "...")])
+- [x] #3 default_data_dir is either deleted along with its re-exports or gains a caller; no allow is left standing in its place
+- [x] #4 cargo clippy --all-targets --workspace -- -D warnings is clean afterwards
 <!-- AC:END -->

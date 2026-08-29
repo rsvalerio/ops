@@ -3,11 +3,11 @@ id: TASK-1792
 title: >-
   TEST-5: the crate's only public API — the AboutTerraformExtension Extension
   impl and its data-provider registration — has no test
-status: To Do
+status: Done
 assignee:
   - TASK-2001
 created_date: '2026-08-27 11:24'
-updated_date: '2026-08-28 14:14'
+updated_date: '2026-08-28 21:24'
 labels:
   - code-review-rust
   - test-quality
@@ -33,7 +33,7 @@ Untested as a result: `name` / `description` / `shortname`, `types() == Extensio
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 A test asserts the Extension metadata: name, shortname, types, stack and data_provider_name
-- [ ] #2 A test asserts that register_data_providers registers a provider under "project_identity" in a DataRegistry
-- [ ] #3 cargo test -p ops-about-terraform passes
+- [x] #1 A test asserts the Extension metadata: name, shortname, types, stack and data_provider_name
+- [x] #2 A test asserts that register_data_providers registers a provider under "project_identity" in a DataRegistry
+- [x] #3 cargo test -p ops-about-terraform passes
 <!-- AC:END -->

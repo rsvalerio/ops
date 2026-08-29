@@ -1,5 +1,11 @@
 //! SQL security validation functions for path and identifier safety.
 //!
+//! ARCH-9 / TASK-1862: this module is `pub(crate)`. Only the four items
+//! re-exported from [`crate::sql`] (`SqlError`, `TableName`, `ExtraOpts`,
+//! `quoted_ident`) cross the crate boundary; the granular validators are
+//! reachable inside the crate only, so a downstream caller cannot reach for a
+//! single escaper and opt out of the defence-in-depth stack below.
+//!
 //! # Helper composition
 //!
 //! Each helper guards a different threat surface; many sites need more than one.
@@ -13,8 +19,9 @@
 //! - [`validate_no_traversal`] — for path-like strings whose semantics depend
 //!   on staying inside a specific root. Reject `..` segments before relying
 //!   on `starts_with` joins or filesystem reads.
-//! - [`escape_sql_string`] / [`sanitize_path_for_sql`] — low-level escaping
-//!   used inside [`prepare_path_for_sql`]; not safe to call alone.
+//! - `escape_sql_string` / `sanitize_path_for_sql` — low-level escaping used
+//!   inside [`prepare_path_for_sql`]; not safe to call alone, and therefore
+//!   module-private (ARCH-9 / TASK-1862).
 //! - [`prepare_path_for_sql`] — the only path helper safe to call standalone
 //!   for a value that will be string-interpolated into SQL. Combines the
 //!   three checks plus escaping.
@@ -149,7 +156,7 @@ const fn is_valid_identifier_const(s: &str) -> bool {
 ///
 /// # Errors
 ///
-/// [`SqlError::InvalidIdentifier`] if `name` fails [`validate_identifier`].
+/// [`SqlError::InvalidIdentifier`] if `name` fails `validate_identifier`.
 pub fn quoted_ident(name: &str) -> Result<String, SqlError> {
     validate_identifier(name)?;
     Ok(format!("\"{name}\""))
@@ -215,7 +222,7 @@ pub fn validate_extra_opts(opts: &str) -> Result<(), SqlError> {
 /// SEC-12 / TASK-1623: newtype wrapping a validated `extra_opts` fragment
 /// for `read_json_auto(..., {opts})`.
 ///
-/// Construction (via [`ExtraOpts::new`]) runs [`validate_extra_opts`] so the
+/// Construction (via [`ExtraOpts::new`]) runs `validate_extra_opts` so the
 /// inner `&str` is guaranteed to satisfy the SEC-12 / SEC-33 allowlist and
 /// caps before it can be interpolated. The contract: a value of this type
 /// has been validated and is safe to render verbatim into the SQL fragment
@@ -231,7 +238,7 @@ impl<'a> ExtraOpts<'a> {
     ///
     /// # Errors
     ///
-    /// [`SqlError::InvalidExtraOpts`] if `opts` fails [`validate_extra_opts`].
+    /// [`SqlError::InvalidExtraOpts`] if `opts` fails `validate_extra_opts`.
     pub fn new(opts: &'a str) -> Result<Self, SqlError> {
         validate_extra_opts(opts)?;
         Ok(Self(opts))
@@ -272,7 +279,7 @@ pub const EXTRA_OPTS_MAX_PAIRS: usize = 32;
 /// no NUL should normally reach this function, but the guard preserves
 /// the previous defense in depth).
 #[must_use = "SEC-12: the escaped return value is the only safe form for SQL interpolation; discarding it interpolates the raw input"]
-pub fn escape_sql_string(s: &str) -> String {
+fn escape_sql_string(s: &str) -> String {
     let mut escaped = String::with_capacity(s.len());
     for ch in s.chars() {
         match ch {
@@ -285,7 +292,7 @@ pub fn escape_sql_string(s: &str) -> String {
 }
 
 #[must_use = "SEC-12: the sanitized return value is the only safe form for SQL interpolation; discarding it interpolates the raw input"]
-pub fn sanitize_path_for_sql(path: &str) -> String {
+fn sanitize_path_for_sql(path: &str) -> String {
     path.replace('\0', "")
 }
 
@@ -306,7 +313,7 @@ pub fn sanitize_path_for_sql(path: &str) -> String {
 /// # Errors
 ///
 /// [`SqlError::EmptyPath`] if `path` is empty, or
-/// [`SqlError::InvalidPathChars`] if it contains a character outside the
+/// [`SqlError::InvalidPathChar`] if it contains a character outside the
 /// safe set (ASCII alphanumerics, `-`, `_`, `/`, `.`, and the platform
 /// separator).
 pub fn validate_path_chars(path: &str) -> Result<(), SqlError> {
@@ -364,7 +371,7 @@ pub fn validate_no_traversal(path: &Path) -> Result<(), SqlError> {
 /// [`SqlError::PathTraversalNotAllowed`] if `path` contains `..`,
 /// [`SqlError::InvalidUtf8Path`] if it is not valid UTF-8 (SEC-14: rejected
 /// rather than lossily converted), or [`SqlError::EmptyPath`] /
-/// [`SqlError::InvalidPathChars`] from [`validate_path_chars`].
+/// [`SqlError::InvalidPathChar`] from [`validate_path_chars`].
 pub fn prepare_path_for_sql(path: &Path) -> Result<String, SqlError> {
     validate_no_traversal(path)?;
     let path_str = path

@@ -3,11 +3,11 @@ id: TASK-1907
 title: >-
   CONC-2: MetadataIngestor::load drops and immediately re-takes the connection
   lock, splitting table creation from the read of that table
-status: To Do
+status: Done
 assignee:
   - TASK-1999
 created_date: '2026-08-27 15:39'
-updated_date: '2026-08-28 14:14'
+updated_date: '2026-08-28 21:54'
 labels:
   - code-review-rust
   - idioms-correctness
@@ -45,6 +45,12 @@ Today the gap is mostly covered by accident: `provide_via_ingestor` (`extensions
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 load() acquires the connection lock once and holds it across build_views, query_record_count and extract_workspace_root, dropping it before checksum_file/upsert_data_source as it does today
-- [ ] #2 The dependency on the orchestrator's per-table ingest mutex is either removed by the single-guard change or documented on DataIngestor::load's contract
+- [x] #1 load() acquires the connection lock once and holds it across build_views, query_record_count and extract_workspace_root, dropping it before checksum_file/upsert_data_source as it does today
+- [x] #2 The dependency on the orchestrator's per-table ingest mutex is either removed by the single-guard change or documented on DataIngestor::load's contract
 <!-- AC:END -->
+
+## Implementation Notes
+
+<!-- SECTION:NOTES:BEGIN -->
+Single `let conn = db.lock()?;` now spans build_views + query_record_count + extract_workspace_root, with the existing `drop(conn)` at the end of the critical section retained before checksum_file/upsert_data_source (AC #1). The scoping block and the redundant re-acquire are gone. AC #2: the dependency on the orchestrator per-table ingest mutex is removed by the single-guard change, and the CONC-2 comment on load() records that the atomicity is now enforced locally rather than depended on from a distance.
+<!-- SECTION:NOTES:END -->

@@ -3,11 +3,11 @@ id: TASK-1897
 title: >-
   SEC-11: OPS_METADATA_MAX_BYTES is accepted unvalidated and unbounded, then
   interpolated into DuckDB's UINTEGER maximum_object_size
-status: To Do
+status: Done
 assignee:
   - TASK-1999
 created_date: '2026-08-27 15:36'
-updated_date: '2026-08-28 14:13'
+updated_date: '2026-08-28 21:14'
 labels:
   - code-review-rust
   - security
@@ -49,8 +49,18 @@ Three distinct problems, in severity order:
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 A non-numeric, zero, or out-of-range OPS_METADATA_MAX_BYTES emits a tracing::warn! naming the variable and the offending value before falling back
-- [ ] #2 The resolved cap is bounded to a range both consumers accept, so no env value can make the CREATE TABLE statement fail on an option-conversion error
-- [ ] #3 The documented upper bound (and DuckDB's maximum_object_size type) is verified against the DuckDB version pinned in scripts/duckdb-pins.txt and recorded in the doc comment
-- [ ] #4 Tests cover a malformed value, a zero value, and an above-ceiling value via metadata_raw_create_sql_with_cap / an injectable parse helper (not by mutating process-global env)
+- [x] #1 A non-numeric, zero, or out-of-range OPS_METADATA_MAX_BYTES emits a tracing::warn! naming the variable and the offending value before falling back
+- [x] #2 The resolved cap is bounded to a range both consumers accept, so no env value can make the CREATE TABLE statement fail on an option-conversion error
+- [x] #3 The documented upper bound (and DuckDB's maximum_object_size type) is verified against the DuckDB version pinned in scripts/duckdb-pins.txt and recorded in the doc comment
+- [x] #4 Tests cover a malformed value, a zero value, and an above-ceiling value via metadata_raw_create_sql_with_cap / an injectable parse helper (not by mutating process-global env)
 <!-- AC:END -->
+
+## Implementation Notes
+
+<!-- SECTION:NOTES:BEGIN -->
+Added METADATA_MAX_BYTES_CEILING = u32::MAX and resolve_metadata_max_bytes(Option<&str>) in lib.rs; metadata_max_bytes()'s OnceLock now snapshots through it. Policy: unset -> default (silent); valid -> verbatim; surrounding whitespace trimmed; unparseable / negative -> warn(env, value) + default; zero -> warn + default; above ceiling -> warn + clamp to ceiling.
+
+AC #3 verification against the pinned DuckDB v1.5.5 (scripts/duckdb-pins.txt), probed on a live connection: read_json_auto(maximum_object_size=4294967295) is accepted; =4294967296 fails with "Type INT64 with value 4294967296 can't be cast because the value is out of range for the destination type UINT32"; =18446744073709551615 fails the same way against INT128. UINTEGER (32-bit) confirmed and recorded in the METADATA_MAX_BYTES_CEILING doc comment.
+
+Nine tests in tests/payload_cap.rs::max_bytes_env cover malformed, negative, zero, above-ceiling, whitespace, valid, unset, the ceiling constant, and an end-to-end CREATE TABLE ... read_json_auto at the resolved ceiling - all through the injectable seam, no process-global env mutation.
+<!-- SECTION:NOTES:END -->

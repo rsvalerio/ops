@@ -4,11 +4,26 @@ use crate::{DbError, DbResult, DuckDb};
 use std::path::{Path, PathBuf};
 
 /// Compute the ingest data directory from a DB path (appends `.ingest`).
-#[must_use]
-pub fn data_dir_for_db(db_path: &Path) -> PathBuf {
+///
+/// READ-5 / TASK-1867: `DuckDb::open_in_memory` stores the `DuckDB`
+/// connection string `:memory:` as its path. Appending `.ingest` to that
+/// sentinel yielded the *relative* path `:memory:.ingest`, which the ingest
+/// pipeline then created — with staged JSON inside it — in whatever the
+/// process working directory happened to be: the user's project root under
+/// `ops`, or the crate directory under `cargo test` (where the debris was
+/// once committed to this repository). An in-memory handle has no staging
+/// area, so it is rejected instead of silently redirected.
+///
+/// # Errors
+///
+/// [`DbError::NotFileBacked`] if `db_path` is the in-memory sentinel.
+pub fn data_dir_for_db(db_path: &Path) -> DbResult<PathBuf> {
+    if db_path == Path::new(crate::connection::IN_MEMORY_PATH) {
+        return Err(DbError::NotFileBacked(db_path.to_path_buf()));
+    }
     let mut path = db_path.as_os_str().to_os_string();
     path.push(".ingest");
-    PathBuf::from(path)
+    Ok(PathBuf::from(path))
 }
 
 /// Create the ingest data directory with restrictive permissions.
@@ -17,8 +32,11 @@ pub fn data_dir_for_db(db_path: &Path) -> PathBuf {
 /// JSON staging files that the database trusts on load. On Unix we create
 /// it with mode 0o700 (and re-stamp the mode when the dir pre-exists with
 /// a more permissive default umask) so a co-tenant on a multi-user system
-/// cannot tamper with staged data between collect and load. On non-Unix
-/// platforms `create_dir_all` keeps the existing semantics.
+/// cannot tamper with staged data between collect and load. Non-Unix
+/// platforms have no portable mode to stamp, so they get the rejection half
+/// only: a pre-existing symlink or reparse point at `data_dir` is refused
+/// there too (see [`reject_untrusted_ingest_dir`]), and a fresh dir is
+/// created with `create_dir_all` at the platform default.
 ///
 /// SEC-25 / TASK-1000: only the **leaf** ingest dir is hardened to 0o700.
 /// `DirBuilder::recursive(true).mode(0o700)` would also stamp every
@@ -28,6 +46,19 @@ pub fn data_dir_for_db(db_path: &Path) -> PathBuf {
 /// fresh workspaces and ones where `target/` already exists. Create the
 /// parents first at the platform-default umask, then build the leaf
 /// alone with the restrictive mode.
+///
+/// SEC-25 / TASK-1857: a pre-existing `data_dir` is *not* trusted. `mkdir`
+/// reporting `AlreadyExists` says only that the name is taken — it may be a
+/// symlink an attacker planted, in which case a path-based `chmod` would
+/// follow it and stamp 0o700 on the attacker's chosen target while every
+/// subsequent staged write landed inside it. We therefore `lstat` the path,
+/// reject anything that is not a real directory, and then do the mode stamp
+/// through an **open handle** whose `(dev, ino)` is checked against the
+/// `lstat` result, so the check and the act refer to the same inode. The
+/// intermediate parents are created with `create_dir_all` at the platform
+/// default umask (TASK-1000) and are deliberately *not* hardened; the
+/// co-tenant guarantee this function makes is about the leaf ingest dir
+/// only.
 pub(super) fn create_ingest_dir(data_dir: &Path) -> std::io::Result<()> {
     if let Some(parent) = data_dir.parent() {
         if !parent.as_os_str().is_empty() {
@@ -36,7 +67,7 @@ pub(super) fn create_ingest_dir(data_dir: &Path) -> std::io::Result<()> {
     }
     #[cfg(unix)]
     {
-        use std::os::unix::fs::{DirBuilderExt, PermissionsExt};
+        use std::os::unix::fs::DirBuilderExt;
         match std::fs::DirBuilder::new()
             .recursive(false)
             .mode(0o700)
@@ -46,26 +77,109 @@ pub(super) fn create_ingest_dir(data_dir: &Path) -> std::io::Result<()> {
             Err(e) if e.kind() == std::io::ErrorKind::AlreadyExists => {}
             Err(e) => return Err(e),
         }
-        std::fs::set_permissions(data_dir, std::fs::Permissions::from_mode(0o700))?;
-        Ok(())
+        harden_existing_ingest_dir(data_dir)
     }
     #[cfg(not(unix))]
     {
-        std::fs::create_dir_all(data_dir)
+        // SEC-25 / TASK-1857: the "a pre-existing `data_dir` is not trusted"
+        // rule is not Unix-specific. `create_dir_all` succeeds silently when
+        // the name is already taken by a symlink or a directory junction, so
+        // without this check every staged write would land wherever the
+        // reparse point points. There is no portable mode to stamp, so this
+        // branch keeps the *rejection* half of the Unix behaviour and drops
+        // only the `fchmod`.
+        match reject_untrusted_ingest_dir(data_dir) {
+            Ok(Some(_)) => Ok(()),
+            Ok(None) => std::fs::create_dir_all(data_dir),
+            Err(e) => Err(e),
+        }
     }
+}
+
+/// `lstat` `data_dir` and refuse anything that is not a real directory.
+///
+/// Returns `Ok(Some(lstat))` when the path exists and is a plain directory,
+/// `Ok(None)` when nothing is there, and an error when the name is taken by
+/// a symlink (or, on Windows, any other reparse point — `FileType::is_symlink`
+/// covers junctions too), or by a non-directory.
+///
+/// SEC-25 / TASK-1857: `mkdir` reporting `AlreadyExists` says only that the
+/// name is taken. Following whatever is there is the whole attack.
+fn reject_untrusted_ingest_dir(data_dir: &Path) -> std::io::Result<Option<std::fs::Metadata>> {
+    use std::io::{Error, ErrorKind};
+
+    let lstat = match std::fs::symlink_metadata(data_dir) {
+        Ok(m) => m,
+        Err(e) if e.kind() == ErrorKind::NotFound => return Ok(None),
+        Err(e) => return Err(e),
+    };
+    let file_type = lstat.file_type();
+    if file_type.is_symlink() {
+        return Err(Error::new(
+            ErrorKind::InvalidInput,
+            format!(
+                "ingest dir {} is a symlink; refusing to stage data through it",
+                data_dir.display()
+            ),
+        ));
+    }
+    if !file_type.is_dir() {
+        return Err(Error::new(
+            ErrorKind::InvalidInput,
+            format!(
+                "ingest dir {} exists but is not a directory",
+                data_dir.display()
+            ),
+        ));
+    }
+    Ok(Some(lstat))
+}
+
+/// Stamp `0o700` on an ingest dir that already exists on disk, refusing to
+/// act on anything that is not a real directory.
+///
+/// SEC-25 / TASK-1857: `std::fs::set_permissions` is path-based and follows
+/// symlinks, so it cannot be used here — a planted symlink would have its
+/// *target* chmodded. Instead we `lstat` the path, reject symlinks and
+/// non-directories outright, then open a handle and confirm it resolves to
+/// the very inode we inspected before applying the mode through that handle
+/// (`File::set_permissions` is `fchmod`, not `chmod`).
+#[cfg(unix)]
+fn harden_existing_ingest_dir(data_dir: &Path) -> std::io::Result<()> {
+    use std::io::{Error, ErrorKind};
+    use std::os::unix::fs::{MetadataExt, PermissionsExt};
+
+    // Shared with the non-Unix branch so the two platforms cannot drift on
+    // what counts as an untrusted pre-existing ingest dir.
+    let Some(lstat) = reject_untrusted_ingest_dir(data_dir)? else {
+        return Err(Error::new(
+            ErrorKind::NotFound,
+            format!(
+                "ingest dir {} vanished before it could be hardened",
+                data_dir.display()
+            ),
+        ));
+    };
+
+    let handle = std::fs::File::open(data_dir)?;
+    let opened = handle.metadata()?;
+    if !opened.is_dir() || opened.dev() != lstat.dev() || opened.ino() != lstat.ino() {
+        return Err(Error::new(
+            ErrorKind::InvalidInput,
+            format!(
+                "ingest dir {} changed identity between inspection and open",
+                data_dir.display()
+            ),
+        ));
+    }
+
+    handle.set_permissions(std::fs::Permissions::from_mode(0o700))
 }
 
 /// Default DB path for a workspace root (using default `DataConfig`).
 #[must_use]
 pub fn default_db_path(workspace_root: &Path) -> PathBuf {
     DuckDb::resolve_path(&ops_core::config::DataConfig::default(), workspace_root)
-}
-
-/// Default data directory for a workspace root.
-#[allow(dead_code)]
-#[must_use]
-pub fn default_data_dir(workspace_root: &Path) -> PathBuf {
-    data_dir_for_db(&default_db_path(workspace_root))
 }
 
 /// Convert a non-IO external error into [`DbError::External`].
@@ -180,13 +294,125 @@ mod tests {
         }
     }
 
+    /// SEC-25 / TASK-1857: a symlink planted at the ingest-dir path must be
+    /// rejected, and the symlink's target must keep the mode it had — the
+    /// old path-based `set_permissions` chmodded the target to 0o700.
+    #[cfg(unix)]
+    #[test]
+    fn create_ingest_dir_rejects_a_planted_symlink_and_leaves_target_mode() {
+        use std::os::unix::fs::PermissionsExt;
+        let tmp = tempfile::tempdir().expect("tempdir");
+        let target = tmp.path().join("attacker-owned");
+        std::fs::create_dir(&target).expect("target");
+        std::fs::set_permissions(&target, std::fs::Permissions::from_mode(0o755)).expect("mode");
+
+        let link = tmp.path().join("data.duckdb.ingest");
+        std::os::unix::fs::symlink(&target, &link).expect("symlink");
+
+        let err = create_ingest_dir(&link).expect_err("symlinked ingest dir must be rejected");
+        assert_eq!(err.kind(), std::io::ErrorKind::InvalidInput);
+        assert!(
+            err.to_string().contains("symlink"),
+            "error should name the symlink: {err}"
+        );
+
+        let target_mode = std::fs::metadata(&target)
+            .expect("target meta")
+            .permissions()
+            .mode()
+            & 0o777;
+        assert_eq!(
+            target_mode, 0o755,
+            "symlink target must keep its mode; got {target_mode:o}"
+        );
+        assert!(
+            std::fs::symlink_metadata(&link)
+                .expect("link meta")
+                .file_type()
+                .is_symlink(),
+            "the planted symlink must be left in place, not replaced"
+        );
+    }
+
+    /// SEC-25: the pre-existing-path policy is shared by both platform
+    /// branches, so pin it directly. The non-Unix branch of
+    /// `create_ingest_dir` cannot be exercised on this host, but it calls
+    /// exactly this function, so a regression here breaks both.
+    #[test]
+    fn reject_untrusted_ingest_dir_accepts_only_a_real_directory() {
+        let tmp = tempfile::tempdir().expect("tempdir");
+
+        let missing = tmp.path().join("absent.ingest");
+        assert!(
+            reject_untrusted_ingest_dir(&missing)
+                .expect("absent path is not an error")
+                .is_none(),
+            "an absent path must report 'nothing here', not a rejection"
+        );
+
+        let real = tmp.path().join("real.ingest");
+        std::fs::create_dir(&real).expect("mkdir");
+        assert!(reject_untrusted_ingest_dir(&real)
+            .expect("real dir accepted")
+            .is_some());
+
+        let file = tmp.path().join("file.ingest");
+        std::fs::write(&file, b"x").expect("write");
+        let err = reject_untrusted_ingest_dir(&file).expect_err("a file must be rejected");
+        assert_eq!(err.kind(), std::io::ErrorKind::InvalidInput);
+        assert!(
+            err.to_string().contains("not a directory"),
+            "error should say the path is not a directory: {err}"
+        );
+
+        #[cfg(unix)]
+        {
+            let link = tmp.path().join("link.ingest");
+            std::os::unix::fs::symlink(&real, &link).expect("symlink");
+            let err = reject_untrusted_ingest_dir(&link).expect_err("a symlink must be rejected");
+            assert_eq!(err.kind(), std::io::ErrorKind::InvalidInput);
+            assert!(
+                err.to_string().contains("symlink"),
+                "error should name the symlink: {err}"
+            );
+        }
+    }
+
+    /// SEC-25 / TASK-1857: a plain file occupying the ingest-dir path is a
+    /// hard error rather than something we chmod and write into.
+    #[cfg(unix)]
+    #[test]
+    fn create_ingest_dir_rejects_a_non_directory() {
+        let tmp = tempfile::tempdir().expect("tempdir");
+        let path = tmp.path().join("data.duckdb.ingest");
+        std::fs::write(&path, b"not a dir").expect("write");
+        let err = create_ingest_dir(&path).expect_err("file at ingest path must be rejected");
+        assert_eq!(err.kind(), std::io::ErrorKind::InvalidInput);
+        assert!(
+            err.to_string().contains("not a directory"),
+            "error should say the path is not a directory: {err}"
+        );
+    }
+
     #[test]
     fn data_dir_for_db_appends_ingest() {
         let path = PathBuf::from("/home/proj/target/ops/data.duckdb");
-        let result = data_dir_for_db(&path);
+        let result = data_dir_for_db(&path).expect("file-backed path");
         assert_eq!(
             result,
             PathBuf::from("/home/proj/target/ops/data.duckdb.ingest")
+        );
+    }
+
+    /// READ-5 / TASK-1867: the `:memory:` sentinel is a connection string,
+    /// not a path. Deriving `:memory:.ingest` from it created a junk
+    /// directory in the process working directory.
+    #[test]
+    fn data_dir_for_db_rejects_the_in_memory_sentinel() {
+        let err = data_dir_for_db(Path::new(":memory:")).expect_err("sentinel must be rejected");
+        assert!(
+            matches!(err, DbError::NotFileBacked(ref p) if p == Path::new(":memory:")),
+            "expected NotFileBacked, got: {err:?}"
         );
     }
 

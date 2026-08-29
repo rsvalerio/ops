@@ -3,11 +3,11 @@ id: TASK-1830
 title: >-
   PERF-1: check_json builds a full serde_json::Value to answer a yes/no question
   — 5x memory amplification
-status: To Do
+status: Done
 assignee:
   - TASK-2004
 created_date: '2026-08-27 15:20'
-updated_date: '2026-08-28 14:15'
+updated_date: '2026-08-28 22:25'
 labels:
   - code-review-rust
   - performance
@@ -64,7 +64,34 @@ No stack overflow at any depth (that is the good half), but the strict branch wo
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 check_json validates without materialising a serde_json::Value (serde::de::IgnoredAny or equivalent) in both the strict and allow_json5 branches
-- [ ] #2 The strict branch still rejects deeply nested input — the nesting bound is explicit rather than inherited from Value's RECURSION_LIMIT (coordinate with TASK-1809)
-- [ ] #3 Existing error messages and accept/reject behaviour are unchanged, including rejection of trailing characters after a complete document
+- [x] #1 check_json validates without materialising a serde_json::Value (serde::de::IgnoredAny or equivalent) in both the strict and allow_json5 branches
+- [x] #2 The strict branch still rejects deeply nested input — the nesting bound is explicit rather than inherited from Value's RECURSION_LIMIT (coordinate with TASK-1809)
+- [x] #3 Existing error messages and accept/reject behaviour are unchanged, including rejection of trailing characters after a complete document
 <!-- AC:END -->
+
+## Implementation Notes
+
+<!-- SECTION:NOTES:BEGIN -->
+Fixed in wave TASK-2004. Both branches now deserialize `serde::de::IgnoredAny`
+(`serde` added to the crate's dependencies), so no `serde_json::Value` tree is
+built to be dropped. AC#2: the strict branch's nesting bound is now the
+explicit `json::MAX_NESTING_DEPTH` pre-scan introduced by TASK-1809 in this
+same wave, not `Value`'s `RECURSION_LIMIT` — the two landed together as the
+task asked.
+
+AC#3 — one deviation, recorded. Accept/reject behaviour is preserved, but not
+for free: `IgnoredAny` skips over string bodies *without decoding them*, so
+`from_slice::<IgnoredAny>(b"[\"\\xff\"]")` returns `Ok` where the `Value` parse
+returned `Err("invalid unicode code point at line 1 column 4")`. Verified
+against the pinned serde_json before relying on it. Left alone, dropping the
+tree would have quietly started accepting non-UTF-8 JSON, which RFC 8259
+forbids — a silent relaxation of exactly the kind the AC exists to prevent.
+`check_json` therefore validates UTF-8 up front for both modes. The verdict on
+that input class is unchanged (still rejected); its *message* changes from
+"invalid unicode code point at line 1 column 4" to "invalid UTF-8: …", and its
+variant from `Parse` to `InvalidUtf8`, which names the actual problem.
+`json::tests::non_utf8_input_reports_invalid_utf8_in_both_modes` is the
+regression guard. Messages for every well-formed-UTF-8 input are byte-identical,
+including the trailing-characters rejection
+(`trailing_characters_after_a_complete_document_are_rejected`).
+<!-- SECTION:NOTES:END -->

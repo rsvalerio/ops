@@ -12,7 +12,19 @@
 //! A permission-denied / EIO / "is a directory" failure on `versions.tf`
 //! is therefore distinguishable from "no version declared" in the logs.
 //! The directory enumeration in [`find_required_version`] mirrors the
-//! same policy — non-NotFound `read_dir` failures are logged at `warn`.
+//! same policy — non-NotFound `read_dir` failures are logged at `warn`,
+//! and ERR-1 / TASK-1772 extends it to *per-entry* failures in both
+//! [`fallback_tf_paths`] and [`count_local_modules`], which previously
+//! dropped them through `flatten()` / `Path::exists()`.
+//!
+//! # Rendered values are untrusted
+//!
+//! SEC-11 / TASK-1775: `ops about` runs inside repositories the operator
+//! cloned but did not audit, and `stack_detail` reaches the terminal with no
+//! escaping layer in between. [`sanitize_required_version`] is the single
+//! producing-side gate: a value carrying control characters is dropped, not
+//! stripped, matching `ops_about::text_util`'s policy for manifest URL and
+//! repository fields.
 
 #![cfg_attr(
     test,
@@ -24,7 +36,8 @@
     )
 )]
 
-use std::path::Path;
+use std::borrow::Cow;
+use std::path::{Path, PathBuf};
 
 use ops_about::identity::{provide_identity_from_manifest, ParsedManifest};
 use ops_core::project_identity::{base_about_fields, AboutFieldDef};
@@ -82,13 +95,15 @@ impl DataProvider for TerraformIdentityProvider {
     }
 }
 
+/// Well-known `.tf` filenames probed before the directory walk.
+const CANDIDATE_FILES: [&str; 4] = ["versions.tf", "main.tf", "terraform.tf", "version.tf"];
+
 /// Scan `.tf` files for `required_version` in a `terraform` block.
 ///
 /// Looks for patterns like `required_version = ">= 1.5"` or
 /// `required_version = "~> 1.0"`. Only the first match is used.
 fn find_required_version(root: &Path) -> Option<String> {
-    let candidates = ["versions.tf", "main.tf", "terraform.tf", "version.tf"];
-    for candidate in candidates {
+    for candidate in CANDIDATE_FILES {
         let path = root.join(candidate);
         // ERR-1 / TASK-0851: route through the shared helper so a
         // permission-denied / EIO / "is a directory" failure surfaces as
@@ -99,43 +114,7 @@ fn find_required_version(root: &Path) -> Option<String> {
             }
         }
     }
-    // Scan all .tf files as fallback. A non-NotFound read_dir failure here
-    // also deserves a warn — same rationale as above for the per-candidate
-    // reads. NotFound on the workspace root is silent (caller falls back).
-    let entries = match std::fs::read_dir(root) {
-        Ok(e) => e,
-        Err(e) if e.kind() == std::io::ErrorKind::NotFound => return None,
-        Err(e) => {
-            tracing::warn!(
-                root = ?root.display(),
-                error = %e,
-                "failed to enumerate workspace root for .tf files"
-            );
-            return None;
-        }
-    };
-    // CL-3 / TASK-0852: read_dir ordering is platform-dependent (ext4
-    // hash order, APFS insertion-ish order, Windows alphabetical) so the
-    // first-match-wins fallback used to produce non-deterministic results
-    // across operators when multiple .tf files declared different
-    // `required_version` strings. Sort by filename so the chosen winner
-    // is the alphabetically-first .tf file containing a constraint —
-    // documented and reproducible.
-    let mut tf_paths: Vec<std::path::PathBuf> = entries
-        .flatten()
-        .map(|e| e.path())
-        // PATTERN-1 / TASK-1025: compare extension ASCII-case-insensitively
-        // so a `Custom.TF` / `Versions.Tf` file (preserved-case on macOS APFS,
-        // Windows NTFS) is found by the fallback walk, matching the targeted
-        // candidate list which already resolves case-insensitively via the FS.
-        .filter(|p| {
-            p.extension()
-                .and_then(|e| e.to_str())
-                .is_some_and(|s| s.eq_ignore_ascii_case("tf"))
-        })
-        .collect();
-    tf_paths.sort();
-    for path in tf_paths {
+    for path in fallback_tf_paths(root) {
         let kind = path.file_name().map_or_else(
             || "<unnamed>.tf".to_string(),
             |n| n.to_string_lossy().into_owned(),
@@ -149,6 +128,77 @@ fn find_required_version(root: &Path) -> Option<String> {
     None
 }
 
+/// The `.tf` files in `root` that [`find_required_version`]'s fallback walk
+/// should read, in a deterministic order.
+///
+/// CL-3 / TASK-0852: `read_dir` ordering is platform-dependent (ext4 hash
+/// order, APFS insertion-ish order, Windows alphabetical) so the
+/// first-match-wins fallback used to produce non-deterministic results across
+/// operators when several `.tf` files declared different `required_version`
+/// strings. Sorting by path makes the alphabetically-first `.tf` carrying a
+/// constraint the documented, reproducible winner.
+///
+/// ERR-1 / TASK-1772: per-entry `read_dir` failures are logged rather than
+/// dropped by `flatten()`, matching the module-level IO policy and
+/// [`count_local_modules`].
+///
+/// PERF-3 / TASK-1782: files already probed by the named-candidate loop are
+/// skipped, so the common "a `main.tf` with no constraint" project reads and
+/// parses that file once instead of twice. The comparison is exact-name: on a
+/// case-sensitive filesystem a `Main.TF` is a genuinely different file that
+/// `root.join("main.tf")` never opened.
+fn fallback_tf_paths(root: &Path) -> Vec<PathBuf> {
+    // A non-NotFound read_dir failure deserves a warn — same rationale as the
+    // per-candidate reads. NotFound on the workspace root is silent (the
+    // caller falls back).
+    let entries = match std::fs::read_dir(root) {
+        Ok(e) => e,
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => return Vec::new(),
+        Err(e) => {
+            tracing::warn!(
+                root = ?root.display(),
+                error = %e,
+                "failed to enumerate workspace root for .tf files"
+            );
+            return Vec::new();
+        }
+    };
+    let mut tf_paths: Vec<PathBuf> = entries
+        .filter_map(|res| match res {
+            Ok(entry) => Some(entry.path()),
+            Err(e) => {
+                tracing::warn!(
+                    root = ?root.display(),
+                    error = %e,
+                    "failed to read directory entry in workspace root"
+                );
+                None
+            }
+        })
+        .filter(|p| has_tf_extension(p))
+        .filter(|p| !is_named_candidate(p))
+        .collect();
+    tf_paths.sort();
+    tf_paths
+}
+
+/// PATTERN-1 / TASK-1025: compare the extension ASCII-case-insensitively so a
+/// `Custom.TF` / `Versions.Tf` file (preserved-case on macOS APFS, Windows
+/// NTFS) is found by the fallback walk, matching the targeted candidate list
+/// which already resolves case-insensitively via the filesystem.
+fn has_tf_extension(path: &Path) -> bool {
+    path.extension()
+        .and_then(|e| e.to_str())
+        .is_some_and(|s| s.eq_ignore_ascii_case("tf"))
+}
+
+/// Whether `path`'s file name is one the named-candidate loop already read.
+fn is_named_candidate(path: &Path) -> bool {
+    path.file_name()
+        .and_then(|n| n.to_str())
+        .is_some_and(|n| CANDIDATE_FILES.contains(&n))
+}
+
 /// SEC-11 / TASK-0853: cap on the rendered `required_version` string.
 /// HCL constraints in real configs are short (`~> 1.5`, `>= 1.0, < 2.0`,
 /// etc.) — well under 64 chars. An adversarial `.tf` could otherwise
@@ -156,117 +206,193 @@ fn find_required_version(root: &Path) -> Option<String> {
 /// truncate at this cap and log so the truncation is observable.
 const REQUIRED_VERSION_MAX_LEN: usize = 64;
 
-/// Extract `required_version` value from a single `.tf` file's content.
+/// Extract the `required_version` value from a single `.tf` file's content.
 ///
-/// SEC-11 / TASK-0853: HCL standardises the value as a double-quoted
-/// string. We strip a trailing `# ...` or `// ...` comment from the
-/// remainder *before* the quote check (mirroring `go_mod::strip_line_comment`)
-/// and require the value to be wrapped in matching `"`. A bare or
-/// single-quoted value is rejected — surfacing it as the rendered version
-/// would mislead the operator about what the manifest actually says.
+/// FN-1 / TASK-1779: the scan is three separable stages, each independently
+/// testable, rather than one loop body mixing all of them —
+/// [`strip_comments`] blanks every comment form, [`scan_line`] tracks block
+/// structure and locates the assignment, and [`sanitize_required_version`]
+/// applies the SEC-11 policy to the extracted string. The three correctness
+/// bugs this shape replaced (brace-stack desync, unrecognised block openers,
+/// comment-unaware stripping) all lived in the seams between those stages.
 fn extract_required_version(content: &str) -> Option<String> {
-    // PATTERN-1 / TASK-1020: HCL supports `/* … */` block comments in
-    // addition to `#` and `//`. The block-stack tracking below treats
-    // every brace and identifier literally, so a commented-out
-    // `required_version = "…"` inside `/* … */` would otherwise be
-    // extracted, and a block comment that spans body lines confuses
-    // the depth tracking. Strip block comments up front — newlines
-    // inside the comment are preserved as plain newlines so line
-    // numbers (and trailing braces on the same line as `*/`) still
-    // line up. Mirrors `strip_xml_comments` in maven/pom.rs.
-    let stripped = strip_block_comments(content);
+    // PATTERN-1 / TASK-1020 + TASK-1768 + TASK-1771: blank every comment form
+    // up front so the structural scan below never has to reason about them.
+    let stripped = strip_comments(content);
     // ERR-2 / TASK-0919: only accept `required_version = "…"` when it
-    // appears at the top level of a `terraform { … }` block. Without
-    // this, a `module`, `provider`, or custom-locals block that
-    // happens to contain a `required_version` line yields a spurious
-    // match (HCL allows that key elsewhere) and the About card
-    // advertises a stack version that is not the project's terraform
-    // constraint. We track a tiny stack of block-type names — only
-    // depth 1 with `terraform` at the bottom counts.
-    let mut block_stack: Vec<String> = Vec::new();
+    // appears at the top level of a `terraform { … }` block.
+    let mut block_stack = BlockStack::new();
     for line in stripped.lines() {
-        let trimmed = line.trim();
-        if trimmed.is_empty() || trimmed.starts_with('#') || trimmed.starts_with("//") {
-            continue;
+        match scan_line(line, &mut block_stack) {
+            LineScan::Continue => {}
+            LineScan::Found(value) => return sanitize_required_version(&value),
+            LineScan::Malformed => {
+                // PATTERN-1 / TASK-1765: a `}` with nothing to close means the
+                // braces do not balance, so every depth judgement after it
+                // would be guesswork. Refuse the file rather than render a
+                // constraint read at an unknown nesting level.
+                tracing::warn!("unbalanced closing brace in .tf content; skipping file");
+                return None;
+            }
         }
-
-        // Lines that close a block. HCL allows multiple `}` on the same
-        // line in pathological inputs; pop one per `}` we see at the
-        // start. Closing-only lines (the common case) are handled here.
-        if trimmed.starts_with('}') {
-            block_stack.pop();
-            // A line like `} else {` is not valid HCL at the structure
-            // level we care about; if anything else follows the brace we
-            // treat it as a normal line afterwards. For simplicity skip.
-            continue;
-        }
-
-        // Lines that open a block: `<ident> {` (optionally with quoted
-        // labels in between like `provider "aws" {`). Record only the
-        // leading identifier — that's enough to distinguish `terraform`
-        // from `module` / `provider` / etc.
-        if let Some(opening_ident) = block_open_ident(trimmed) {
-            block_stack.push(opening_ident.to_string());
-            continue;
-        }
-
-        // Only accept `required_version` when we're at depth 1 inside
-        // a `terraform` block. Anywhere else (top level, nested deeper,
-        // or inside a different block) the key is HCL-valid but not
-        // the terraform stack constraint we want to render.
-        let [only_block] = block_stack.as_slice() else {
-            continue;
-        };
-        if only_block != "terraform" {
-            continue;
-        }
-
-        let Some(rest) = trimmed.strip_prefix("required_version") else {
-            continue;
-        };
-        let rest = rest.trim();
-        let Some(rest) = rest.strip_prefix('=') else {
-            continue;
-        };
-        let rest = rest.trim();
-        let Some(after_open) = rest.strip_prefix('"') else {
-            continue;
-        };
-        let Some((value, after_close)) = after_open.split_once('"') else {
-            continue;
-        };
-        let after_close = after_close.trim();
-        let after_close_trimmed = strip_inline_comment(after_close).trim();
-        if !after_close_trimmed.is_empty() {
-            continue;
-        }
-        let v = value.trim();
-        if v.is_empty() {
-            continue;
-        }
-        if v.len() > REQUIRED_VERSION_MAX_LEN {
-            let truncated: String = v.chars().take(REQUIRED_VERSION_MAX_LEN).collect();
-            tracing::warn!(
-                original_len = v.len(),
-                cap = REQUIRED_VERSION_MAX_LEN,
-                "required_version value exceeds cap; truncating before rendering"
-            );
-            return Some(truncated);
-        }
-        return Some(v.to_string());
     }
     None
 }
 
-/// ERR-2 / TASK-0919: extract the leading identifier of an HCL block
-/// opener `<ident> [labels...] {`. Returns `None` for lines that aren't
-/// a block opener (assignments, comments, body lines).
-fn block_open_ident(line: &str) -> Option<&str> {
-    if !line.ends_with('{') {
+/// The HCL block nesting the scanner is currently inside.
+///
+/// PATTERN-1 / TASK-1765: an entry is `Some(ident)` for a named block opener
+/// (`terraform {`, `provider "aws" {`) and `None` for any *other* brace — an
+/// object-valued attribute (`aws = {`), a `default = { … }`, an expression.
+/// The earlier implementation pushed only named openers while popping on every
+/// `}`, so a single `aws = {` desynchronised the stack and closed the
+/// enclosing `terraform` block early. Pushing a sentinel keeps pushes and pops
+/// balanced whatever the brace was.
+type BlockStack = Vec<Option<String>>;
+
+/// Outcome of scanning one already-comment-stripped line.
+enum LineScan {
+    /// Nothing of interest; `stack` has been updated for this line's braces.
+    Continue,
+    /// A `required_version` value at the top level of a `terraform` block.
+    Found(String),
+    /// A `}` appeared with an empty stack — the input is not balanced HCL.
+    Malformed,
+}
+
+/// Walk one line, updating `stack` for every structural brace and reporting a
+/// `required_version` assignment found at the top level of `terraform { … }`.
+///
+/// PATTERN-1 / TASK-1768: braces and assignments are located per *token*, not
+/// per line, so `terraform { # comment`, `required_version = "…" }` and
+/// `locals { x = 1 }` all track correctly. Quoted strings are skipped so a
+/// brace or quote inside a value is never structural.
+fn scan_line(line: &str, stack: &mut BlockStack) -> LineScan {
+    let mut segment_start = 0usize;
+    let mut in_string = false;
+    let mut escaped = false;
+    for (idx, ch) in line.char_indices() {
+        if in_string {
+            if escaped {
+                escaped = false;
+            } else if ch == '\\' {
+                escaped = true;
+            } else if ch == '"' {
+                in_string = false;
+            }
+            continue;
+        }
+        // `{` and `}` are single-byte ASCII, so `idx + 1` is a char boundary.
+        let after_brace = idx.saturating_add(1);
+        match ch {
+            '"' => in_string = true,
+            '{' => {
+                let prefix = line.get(segment_start..idx).unwrap_or_default();
+                stack.push(block_open_ident(prefix).map(ToOwned::to_owned));
+                segment_start = after_brace;
+            }
+            '}' => {
+                if let Some(found) = required_version_here(line, segment_start, idx, stack) {
+                    return LineScan::Found(found);
+                }
+                if stack.pop().is_none() {
+                    return LineScan::Malformed;
+                }
+                segment_start = after_brace;
+            }
+            _ => {}
+        }
+    }
+    required_version_here(line, segment_start, line.len(), stack)
+        .map_or(LineScan::Continue, LineScan::Found)
+}
+
+/// The `required_version` value declared in `line[start..end]`, if that
+/// fragment is an assignment *and* `stack` says we are at the top level of a
+/// `terraform` block.
+///
+/// ERR-2 / TASK-0919: anywhere else (top level, nested deeper, or inside a
+/// `module` / `provider` block) the key is HCL-valid but is not the terraform
+/// stack constraint we want to render.
+fn required_version_here(
+    line: &str,
+    start: usize,
+    end: usize,
+    stack: &BlockStack,
+) -> Option<String> {
+    if !matches!(stack.as_slice(), [Some(name)] if name == "terraform") {
+        return None;
+    }
+    let fragment = line.get(start..end)?;
+    parse_required_version_assignment(fragment).map(ToOwned::to_owned)
+}
+
+/// Parse a `required_version = "…"` assignment out of a brace-free fragment.
+///
+/// SEC-11 / TASK-0853: HCL standardises the value as a double-quoted string,
+/// so a bare or single-quoted value is rejected — surfacing it would mislead
+/// the operator about what the manifest actually says. Comments are already
+/// blanked by [`strip_comments`], so anything left after the closing quote is
+/// genuine trailing content and disqualifies the line.
+fn parse_required_version_assignment(fragment: &str) -> Option<&str> {
+    let rest = fragment.trim().strip_prefix("required_version")?;
+    let rest = rest.trim_start().strip_prefix('=')?;
+    let rest = rest.trim_start().strip_prefix('"')?;
+    let (value, after_close) = rest.split_once('"')?;
+    if !after_close.trim().is_empty() {
+        return None;
+    }
+    let value = value.trim();
+    if value.is_empty() {
+        None
+    } else {
+        Some(value)
+    }
+}
+
+/// SEC-11 / TASK-1775 + TASK-0853: make an extracted value safe to render.
+///
+/// Control characters are *dropped*, not stripped: the value reaches the
+/// operator's terminal through `ProjectIdentity::stack_detail` with no
+/// escaping layer in between, so `required_version = "1.0\u{1b}[2Jowned"` in
+/// an unaudited checkout would clear the screen and print text the operator
+/// never authored. Stripping would silently splice the attacker-controlled
+/// tail onto the legitimate prefix; dropping surfaces the field as missing.
+/// This is the same drop-not-strip policy `ops_about::text_util` applies to
+/// manifest URL and repository fields, reusing its shared predicate.
+fn sanitize_required_version(value: &str) -> Option<String> {
+    if ops_about::text_util::contains_control_chars(value) {
+        tracing::warn!(
+            len = value.len(),
+            "required_version contains control characters; dropping the value"
+        );
+        return None;
+    }
+    if value.chars().count() > REQUIRED_VERSION_MAX_LEN {
+        let truncated: String = value.chars().take(REQUIRED_VERSION_MAX_LEN).collect();
+        tracing::warn!(
+            original_len = value.chars().count(),
+            cap = REQUIRED_VERSION_MAX_LEN,
+            "required_version value exceeds cap; truncating before rendering"
+        );
+        return Some(truncated);
+    }
+    Some(value.to_string())
+}
+
+/// ERR-2 / TASK-0919: extract the leading identifier of an HCL block opener
+/// from the text preceding its `{` — `terraform`, `provider "aws"`,
+/// `required_providers`. Returns `None` when the brace is not a named block
+/// opener, which [`scan_line`] records as an anonymous stack entry.
+fn block_open_ident(prefix: &str) -> Option<&str> {
+    let prefix = prefix.trim();
+    // An `=` before the brace means an object-valued attribute (`aws = {`),
+    // not a block opener.
+    if prefix.contains('=') {
         return None;
     }
     // Identifier = leading run of [A-Za-z_][A-Za-z0-9_-]*
-    let bytes = line.as_bytes();
+    let bytes = prefix.as_bytes();
     let mut end = 0usize;
     while let Some(&b) = bytes.get(end) {
         let ok = if end == 0 {
@@ -285,28 +411,33 @@ fn block_open_ident(line: &str) -> Option<&str> {
         return None;
     }
     // `end` counts ASCII identifier bytes from the start, so it is always a
-    // char boundary; `split_at_checked` returning `None` is unreachable and
-    // degrades to "not a block opener".
-    let (ident, rest) = line.split_at_checked(end)?;
-    // Reject lines that look like an assignment (`required_version = …`)
-    // — they may end with `{` only inside a string, which we don't try
-    // to parse here. The simple guard: a `=` between the identifier and
-    // the trailing `{` means this is not a block opener.
-    let tail = rest.strip_suffix('{').unwrap_or(rest); // exclude trailing `{`
-    if tail.contains('=') {
-        return None;
-    }
-    Some(ident)
+    // char boundary; `get` returning `None` is unreachable and degrades to
+    // "not a block opener".
+    prefix.get(..end)
 }
 
-/// PATTERN-1 / TASK-1020: replace every `/* … */` block-comment span with
-/// spaces (newlines preserved) so the downstream line-by-line scanner
-/// sees a structurally-equivalent file with the comment bodies blanked
-/// out. We deliberately do not honour `/*` introducers that appear
-/// inside a double-quoted HCL string — `required_version = "/* ignore"`
-/// must keep the literal slash-star. Unterminated `/*` runs to EOF, the
-/// same behaviour as terraform's own parser.
-fn strip_block_comments(content: &str) -> String {
+/// PATTERN-1 / TASK-1020 + TASK-1771: blank every HCL comment — `#`, `//` and
+/// `/* … */` — with spaces, preserving newlines, so the downstream scanner
+/// sees a structurally-equivalent file with the comment bodies removed.
+///
+/// All three forms are resolved in the *same* pass, outside double-quoted
+/// strings, because they interact: a `/*` inside a `# …` comment
+/// (`# see https://example.com/*note`) must not open a block comment that
+/// blanks the rest of the file, and an unbalanced `"` inside a comment
+/// (`# don't use "old style`) must not put the scanner into string state for
+/// everything that follows. Terraform's own lexer resolves `#` / `//` before
+/// `/*` for the same reason.
+///
+/// A `/*`, `#` or `//` inside a quoted HCL string stays literal —
+/// `required_version = "~> 1.5 # marker"` keeps its marker. An unterminated
+/// `/*` runs to EOF, the same behaviour as terraform's own parser.
+///
+/// PERF-3 / TASK-1782: returns [`Cow::Borrowed`] when the content carries no
+/// comment introducer at all, so the common case allocates nothing.
+fn strip_comments(content: &str) -> Cow<'_, str> {
+    if !content.contains("/*") && !content.contains('#') && !content.contains("//") {
+        return Cow::Borrowed(content);
+    }
     let mut out = String::with_capacity(content.len());
     let mut chars = content.chars().peekable();
     let mut in_string = false;
@@ -314,11 +445,10 @@ fn strip_block_comments(content: &str) -> String {
         if in_string {
             out.push(c);
             if c == '\\' {
-                if let Some(&next) = chars.peek() {
+                if let Some(next) = chars.next() {
                     // Preserve `\"` and other escapes verbatim — we only
                     // care about not exiting the string on an escaped quote.
                     out.push(next);
-                    chars.next();
                 }
                 continue;
             }
@@ -327,64 +457,82 @@ fn strip_block_comments(content: &str) -> String {
             }
             continue;
         }
-        if c == '"' {
-            in_string = true;
-            out.push('"');
-            continue;
+        match c {
+            '"' => {
+                in_string = true;
+                out.push('"');
+            }
+            '#' => blank_line_comment(&mut chars, &mut out, 1),
+            '/' if chars.peek() == Some(&'/') => {
+                chars.next();
+                blank_line_comment(&mut chars, &mut out, 2);
+            }
+            '/' if chars.peek() == Some(&'*') => {
+                chars.next();
+                blank_block_comment(&mut chars, &mut out);
+            }
+            _ => out.push(c),
         }
-        if c == '/' && chars.peek() == Some(&'*') {
-            // Consume the `*` we just peeked, then scan to the matching
-            // `*/`. Replace every char with a space — newlines kept
-            // verbatim so subsequent line-based logic stays aligned.
+    }
+    Cow::Owned(out)
+}
+
+/// Blank a `#` / `//` comment through to (and excluding) the newline, which is
+/// emitted verbatim so line-based logic downstream stays aligned.
+///
+/// `marker_len` is the width of the introducer already consumed by the caller,
+/// replaced with the same number of spaces so byte offsets do not shift.
+fn blank_line_comment(
+    chars: &mut std::iter::Peekable<std::str::Chars<'_>>,
+    out: &mut String,
+    marker_len: usize,
+) {
+    for _ in 0..marker_len {
+        out.push(' ');
+    }
+    for inner in chars.by_ref() {
+        if inner == '\n' {
+            out.push('\n');
+            return;
+        }
+        out.push(' ');
+    }
+}
+
+/// Blank a `/* … */` span, preserving newlines. The caller has already
+/// consumed the `/*`, whose two bytes are re-emitted as spaces.
+fn blank_block_comment(chars: &mut std::iter::Peekable<std::str::Chars<'_>>, out: &mut String) {
+    out.push(' ');
+    out.push(' ');
+    while let Some(inner) = chars.next() {
+        if inner == '*' && chars.peek() == Some(&'/') {
             chars.next();
             out.push(' ');
             out.push(' ');
-            while let Some(inner) = chars.next() {
-                if inner == '*' && chars.peek() == Some(&'/') {
-                    chars.next();
-                    out.push(' ');
-                    out.push(' ');
-                    break;
-                }
-                if inner == '\n' {
-                    out.push('\n');
-                } else {
-                    out.push(' ');
-                }
-            }
-            continue;
+            return;
         }
-        out.push(c);
+        if inner == '\n' {
+            out.push('\n');
+        } else {
+            out.push(' ');
+        }
     }
-    out
 }
 
-/// SEC-11 / TASK-0853: strip a trailing `# ...` or `// ...` HCL comment
-/// from a line fragment that is *already known* not to contain a quoted
-/// value (i.e. the post-closing-quote tail). Mirrors the equivalent
-/// helper in `extensions-go::go_mod::strip_line_comment`.
-fn strip_inline_comment(s: &str) -> &str {
-    let mut end = s.len();
-    if let Some(i) = s.find('#') {
-        end = end.min(i);
-    }
-    if let Some(i) = s.find("//") {
-        end = end.min(i);
-    }
-    // `end` is either `s.len()` or the byte offset of an ASCII `#` / `//`, so
-    // it is always a char boundary. The `None` arm is unreachable; keep the
-    // fragment intact rather than panicking if that ever stops holding.
-    s.get(..end).unwrap_or(s)
-}
-
-/// Count local modules under `modules/*/main.tf`.
+/// Count local modules under `modules/*/`.
 ///
-/// ERR-1 / TASK-1018: distinguish a missing `modules/` directory (the
-/// expected "no local modules" case) from a real IO failure (permission
+/// PATTERN-1 / TASK-1796: a subdirectory counts as a module when it contains
+/// at least one `.tf` (or `.tf.json`) file. Terraform's own definition is
+/// exactly that — `main.tf` is a convention, not a requirement — so the
+/// previous `modules/*/main.tf` probe reported `modules/network/network.tf`
+/// and `modules/vpc/{variables,outputs,resources}.tf` layouts as zero modules,
+/// which renders as no `modules` line at all rather than an undercount.
+///
+/// ERR-1 / TASK-1018 + TASK-1772: distinguish a missing `modules/` directory
+/// (the expected "no local modules" case) from a real IO failure (permission
 /// denied, EIO, "is not a directory") so operators see a `tracing::warn!`
-/// instead of silently rendering "no modules". Mirrors `find_required_version`.
-/// Per-entry `read_dir` failures are similarly logged rather than silently
-/// dropped via `flatten()`.
+/// instead of silently rendering "no modules". Per-entry and per-subdirectory
+/// failures are logged too, rather than folded into "not a module".
 fn count_local_modules(root: &Path) -> Option<usize> {
     let modules_dir = root.join("modules");
     let entries = match std::fs::read_dir(&modules_dir) {
@@ -411,8 +559,7 @@ fn count_local_modules(root: &Path) -> Option<usize> {
                 None
             }
         })
-        .filter(|e| e.file_type().is_ok_and(|t| t.is_dir()))
-        .filter(|e| e.path().join("main.tf").exists())
+        .filter(is_module_dir)
         .count();
     if count > 0 {
         Some(count)
@@ -421,16 +568,142 @@ fn count_local_modules(root: &Path) -> Option<usize> {
     }
 }
 
+/// Whether a `modules/` child is a directory holding terraform sources.
+///
+/// Uses `fs::metadata` (which follows symlinks) rather than
+/// `DirEntry::file_type` (which does not): a `modules/` entry that is a
+/// symlink to a real module directory is a normal terraform layout —
+/// shared modules vendored once and linked per stack — and `file_type`
+/// reported it as `Symlink`, not `Dir`, so the count silently omitted it.
+/// This function only *counts* modules for the about report; it never opens
+/// or writes anything under the target, and `contains_terraform_source`
+/// likewise only lists names, so following the link grants no capability an
+/// operator running `ops about` in their own checkout did not already have.
+fn is_module_dir(entry: &std::fs::DirEntry) -> bool {
+    match std::fs::metadata(entry.path()) {
+        Ok(m) if !m.is_dir() => return false,
+        Ok(_) => {}
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => return false,
+        Err(e) => {
+            // ERR-1 / TASK-1772: an unreadable entry is an IO failure, not
+            // evidence that it is not a module. A dangling symlink resolves
+            // to `NotFound` above and is simply not a module.
+            tracing::warn!(
+                entry = ?entry.path().display(),
+                error = %e,
+                "failed to stat entry under modules/"
+            );
+            return false;
+        }
+    }
+    contains_terraform_source(&entry.path())
+}
+
+/// Whether `dir` directly contains at least one `.tf` / `.tf.json` file.
+///
+/// One `read_dir` answers the question the old `main.tf` `exists()` probe
+/// could only approximate, and `Path::exists()` folded every non-NotFound
+/// error into `false` by contract — this reports them.
+fn contains_terraform_source(dir: &Path) -> bool {
+    let entries = match std::fs::read_dir(dir) {
+        Ok(e) => e,
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => return false,
+        Err(e) => {
+            tracing::warn!(
+                module_dir = ?dir.display(),
+                error = %e,
+                "failed to enumerate module directory"
+            );
+            return false;
+        }
+    };
+    entries
+        .filter_map(|res| match res {
+            Ok(entry) => Some(entry),
+            Err(e) => {
+                tracing::warn!(
+                    module_dir = ?dir.display(),
+                    error = %e,
+                    "failed to read directory entry in module directory"
+                );
+                None
+            }
+        })
+        .any(|entry| is_terraform_source_name(&entry.file_name()))
+}
+
+/// PATTERN-1 / TASK-1796: `.tf` and `.tf.json` (terraform's native JSON
+/// syntax), compared ASCII-case-insensitively for consistency with
+/// [`has_tf_extension`].
+fn is_terraform_source_name(name: &std::ffi::OsStr) -> bool {
+    let path = Path::new(name);
+    if has_tf_extension(path) {
+        return true;
+    }
+    // `<name>.tf.json` — terraform's native JSON syntax. `Path` exposes only
+    // the last extension, so the `.tf` half is read off the file stem.
+    let is_json = path
+        .extension()
+        .and_then(|e| e.to_str())
+        .is_some_and(|e| e.eq_ignore_ascii_case("json"));
+    is_json
+        && path
+            .file_stem()
+            .is_some_and(|stem| has_tf_extension(Path::new(stem)))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+    // DUP-1 / TASK-1788: the six-line `write` fixture helper used to be
+    // copied verbatim here and in three sibling about crates. One shared
+    // definition keeps a future tightening (error propagation, a setup
+    // message) from having to land four times.
+    use ops_about::test_support::{capture_warn, write_file as write};
     use ops_core::project_identity::ProjectIdentity;
+    use ops_extension::{DataRegistry, Extension, Stack};
 
-    fn write(path: &Path, content: &str) {
-        if let Some(parent) = path.parent() {
-            std::fs::create_dir_all(parent).unwrap();
-        }
-        std::fs::write(path, content).unwrap();
+    // TEST-5 / TASK-1792: the crate's public surface is the `Extension` impl,
+    // and nothing used to touch it — every test drove the private provider.
+    // A drift between `DATA_PROVIDER_NAME` and the registration key produces
+    // an extension that compiles, links into the `linkme` registry and
+    // silently provides nothing.
+    ops_extension::test_datasource_extension!(
+        AboutTerraformExtension,
+        name: "about-terraform",
+        data_provider: "project_identity"
+    );
+
+    /// TEST-5 / TASK-1792: the remaining half of the host contract — the
+    /// metadata the extension host dispatches on.
+    #[test]
+    fn extension_metadata_matches_contract() {
+        let ext = AboutTerraformExtension;
+        assert_eq!(ext.description(), "Terraform project identity");
+        assert_eq!(ext.shortname(), "about-terraform");
+        assert_eq!(ext.types(), ExtensionType::DATASOURCE);
+        assert_eq!(ext.stack(), Some(Stack::Terraform));
+        assert_eq!(ext.data_provider_name(), Some("project_identity"));
+    }
+
+    /// TEST-5 / TASK-1792: the registered provider must be the terraform one,
+    /// not merely *a* provider under the right key.
+    #[test]
+    fn registered_provider_is_the_terraform_identity_provider() {
+        let mut registry = DataRegistry::new();
+        AboutTerraformExtension.register_data_providers(&mut registry);
+        let provider = registry.get("project_identity").expect("provider");
+
+        let dir = tempfile::tempdir().unwrap();
+        write(
+            &dir.path().join("versions.tf"),
+            "terraform {\n  required_version = \">= 1.5\"\n}\n",
+        );
+        let mut ctx = ops_extension::Context::test_context(dir.path().to_path_buf());
+        let value = provider.provide(&mut ctx).expect("provide");
+        let id: ProjectIdentity = serde_json::from_value(value).unwrap();
+        assert_eq!(id.stack_label, "Terraform");
+        assert_eq!(id.stack_detail.as_deref(), Some("Terraform >= 1.5"));
     }
 
     #[test]
@@ -609,47 +882,36 @@ mod tests {
     /// instead of silently degrading to "no version declared".
     #[test]
     fn find_required_version_warns_when_versions_tf_is_a_directory() {
-        use std::sync::{Arc, Mutex};
-        use tracing_subscriber::fmt::MakeWriter;
-
         let dir = tempfile::tempdir().unwrap();
         // Create `versions.tf` as a directory, so read_to_string fails
         // with a non-NotFound error (IsADirectory / Other on most OSes).
         std::fs::create_dir(dir.path().join("versions.tf")).unwrap();
 
-        #[derive(Clone, Default)]
-        struct BufWriter(Arc<Mutex<Vec<u8>>>);
-        impl std::io::Write for BufWriter {
-            fn write(&mut self, b: &[u8]) -> std::io::Result<usize> {
-                self.0.lock().unwrap().extend_from_slice(b);
-                Ok(b.len())
-            }
-            fn flush(&mut self) -> std::io::Result<()> {
-                Ok(())
-            }
-        }
-        impl<'a> MakeWriter<'a> for BufWriter {
-            type Writer = Self;
-            fn make_writer(&'a self) -> Self::Writer {
-                self.clone()
-            }
-        }
-
-        let buf = BufWriter::default();
-        let captured = buf.0.clone();
-        let subscriber = tracing_subscriber::fmt()
-            .with_writer(buf)
-            .with_max_level(tracing::Level::WARN)
-            .with_ansi(false)
-            .finish();
-
-        let v = tracing::subscriber::with_default(subscriber, || find_required_version(dir.path()));
-        assert!(v.is_none(), "no required_version should be returned");
-
-        let logs = String::from_utf8(captured.lock().unwrap().clone()).unwrap();
+        // DUP-3 / TASK-1794: the shared tracing-capture harness replaces the
+        // per-crate `BufWriter` + `MakeWriter` shim this test used to inline.
+        let mut found = None;
+        let logs = capture_warn(|| found = find_required_version(dir.path()));
+        assert!(found.is_none(), "no required_version should be returned");
         assert!(
             logs.contains("failed to read manifest") && logs.contains("versions.tf"),
             "warn should name versions.tf and the read failure, got: {logs}"
+        );
+    }
+
+    /// ERR-1 / TASK-1772: the counterpart for `count_local_modules` — a
+    /// `modules` path that is a *file* fails `read_dir` with a non-NotFound
+    /// error, which must be reported rather than folded into "no modules".
+    #[test]
+    fn count_local_modules_warns_when_modules_is_a_file() {
+        let dir = tempfile::tempdir().unwrap();
+        write(&dir.path().join("modules"), "not a directory\n");
+
+        let mut count = Some(0);
+        let logs = capture_warn(|| count = count_local_modules(dir.path()));
+        assert!(count.is_none(), "a failed enumeration reports no modules");
+        assert!(
+            logs.contains("failed to enumerate modules directory"),
+            "warn should name the enumeration failure, got: {logs}"
         );
     }
 
@@ -844,6 +1106,199 @@ terraform {
         );
     }
 
+    /// PATTERN-1 / TASK-1765: the canonical terraform block — object-valued
+    /// providers in `required_providers`, then `required_version`. Each
+    /// `aws = {` opens a brace that is not a named block; pre-fix the stack
+    /// popped one level too many on its `}` and closed `terraform` early, so
+    /// this returned `None`.
+    #[test]
+    fn extract_required_version_after_object_valued_required_providers() {
+        let content = r#"terraform {
+  required_providers {
+    aws = {
+      source  = "hashicorp/aws"
+      version = "~> 5.0"
+    }
+    random = {
+      source = "hashicorp/random"
+    }
+  }
+  required_version = ">= 1.5"
+}
+"#;
+        assert_eq!(
+            extract_required_version(content),
+            Some(">= 1.5".to_string())
+        );
+    }
+
+    /// PATTERN-1 / TASK-1765: the same file with the declaration order
+    /// reversed. Both orders must work — pre-fix only this one did, which
+    /// made the bug look like flakiness.
+    #[test]
+    fn extract_required_version_before_object_valued_required_providers() {
+        let content = r#"terraform {
+  required_version = ">= 1.5"
+  required_providers {
+    aws = {
+      source = "hashicorp/aws"
+    }
+  }
+}
+"#;
+        assert_eq!(
+            extract_required_version(content),
+            Some(">= 1.5".to_string())
+        );
+    }
+
+    /// PATTERN-1 / TASK-1765: nested object-valued attributes at any depth
+    /// keep the brace stack balanced — `cloud { workspaces = { … } }` is the
+    /// other shape that used to desynchronise it.
+    #[test]
+    fn extract_required_version_after_nested_object_attributes() {
+        let content = r#"terraform {
+  cloud {
+    organization = "acme"
+    workspaces = { name = "prod" }
+  }
+  required_version = "~> 1.6"
+}
+"#;
+        assert_eq!(
+            extract_required_version(content),
+            Some("~> 1.6".to_string())
+        );
+    }
+
+    /// PATTERN-1 / TASK-1765: a `}` with nothing to close means the braces do
+    /// not balance, so no depth judgement after it is trustworthy — the file
+    /// is refused rather than yielding a constraint read at unknown nesting.
+    #[test]
+    fn extract_required_version_rejects_unbalanced_closing_brace() {
+        let content = "}\nterraform {\n  required_version = \">= 1.5\"\n}\n";
+        assert_eq!(extract_required_version(content), None);
+    }
+
+    /// PATTERN-1 / TASK-1768: a trailing `#` comment on the block opener is
+    /// ordinary human-written HCL. Pre-fix `terraform` was never pushed
+    /// because the line did not *end* with `{`, and the whole file went dark.
+    #[test]
+    fn extract_required_version_with_commented_block_opener() {
+        let content =
+            "terraform { # pinned for the shared modules\n  required_version = \">= 1.5\"\n}\n";
+        assert_eq!(
+            extract_required_version(content),
+            Some(">= 1.5".to_string())
+        );
+    }
+
+    /// PATTERN-1 / TASK-1768: the `//` spelling of the same shape.
+    #[test]
+    fn extract_required_version_with_slash_commented_block_opener() {
+        let content = "terraform { // pinned\n  required_version = \"~> 1.5\"\n}\n";
+        assert_eq!(
+            extract_required_version(content),
+            Some("~> 1.5".to_string())
+        );
+    }
+
+    /// PATTERN-1 / TASK-1768: a closing brace on the same line as the value.
+    #[test]
+    fn extract_required_version_with_same_line_closing_brace() {
+        let content = "terraform {\n  required_version = \">= 1.5\" }\n";
+        assert_eq!(
+            extract_required_version(content),
+            Some(">= 1.5".to_string())
+        );
+    }
+
+    /// PATTERN-1 / TASK-1771: a `/*` inside a `#` line comment — a URL with a
+    /// glob is enough — must not open a block comment. Pre-fix it blanked the
+    /// remainder of the file and the constraint disappeared.
+    #[test]
+    fn extract_required_version_ignores_block_marker_inside_line_comment() {
+        let content =
+            "terraform {\n  # see https://example.com/*note\n  required_version = \"~> 1.5\"\n}\n";
+        assert_eq!(
+            extract_required_version(content),
+            Some("~> 1.5".to_string())
+        );
+    }
+
+    /// PATTERN-1 / TASK-1771: an unbalanced `"` inside a line comment must not
+    /// put the scanner into string state for the rest of the file — pre-fix a
+    /// subsequent `/* … */` was then no longer stripped.
+    #[test]
+    fn extract_required_version_ignores_unbalanced_quote_in_line_comment() {
+        let content = concat!(
+            "terraform {\n",
+            "  # don't use \"old style\n",
+            "  /* required_version = \">= 99.0\" */\n",
+            "  required_version = \"~> 1.5\"\n",
+            "}\n"
+        );
+        assert_eq!(
+            extract_required_version(content),
+            Some("~> 1.5".to_string())
+        );
+    }
+
+    /// SEC-11 / TASK-1775: an ANSI escape sequence well under the 64-char cap
+    /// must never reach `stack_detail` — `ops about` runs inside repositories
+    /// the operator cloned but did not audit, and nothing between the `.tf`
+    /// file and stdout escapes it. Drop, do not strip.
+    #[test]
+    fn extract_required_version_drops_value_with_ansi_escape() {
+        let content =
+            "terraform {\n  required_version = \"1.0\u{1b}[2J\u{1b}[31mCOMPROMISED\"\n}\n";
+        assert!(content.len() < 128, "the payload fits under the cap");
+        assert_eq!(extract_required_version(content), None);
+    }
+
+    /// SEC-11 / TASK-1775: carriage return and BEL are control bytes too.
+    #[test]
+    fn extract_required_version_drops_value_with_cr_and_bel() {
+        assert_eq!(
+            extract_required_version("terraform {\n  required_version = \"1.0\rfake\u{7}\"\n}\n"),
+            None
+        );
+    }
+
+    /// SEC-11 / TASK-1775: the sanitiser must not reject ordinary constraints.
+    #[test]
+    fn extract_required_version_keeps_ordinary_constraint() {
+        assert_eq!(
+            extract_required_version("terraform {\n  required_version = \">= 1.0, < 2.0\"\n}\n"),
+            Some(">= 1.0, < 2.0".to_string())
+        );
+    }
+
+    /// PERF-3 / TASK-1782: the no-comment fast path must borrow rather than
+    /// allocate a second full copy of every `.tf` file read.
+    #[test]
+    fn strip_comments_borrows_when_no_comment_present() {
+        let content = "terraform {\n  required_version = \">= 1.5\"\n}\n";
+        assert!(matches!(strip_comments(content), Cow::Borrowed(_)));
+        assert!(matches!(
+            strip_comments("terraform { # note\n}\n"),
+            Cow::Owned(_)
+        ));
+    }
+
+    /// PERF-3 / TASK-1782: the fallback walk must not re-read a file the
+    /// named-candidate loop already opened.
+    #[test]
+    fn fallback_tf_paths_skips_named_candidates() {
+        let dir = tempfile::tempdir().unwrap();
+        for name in ["main.tf", "versions.tf", "terraform.tf", "version.tf"] {
+            write(&dir.path().join(name), "");
+        }
+        write(&dir.path().join("extra.tf"), "");
+        let paths = fallback_tf_paths(dir.path());
+        assert_eq!(paths, vec![dir.path().join("extra.tf")]);
+    }
+
     /// ERR-1 / TASK-1018: a missing `modules/` dir is the expected "no
     /// local modules" case and returns None silently.
     #[test]
@@ -852,8 +1307,8 @@ terraform {
         assert_eq!(count_local_modules(dir.path()), None);
     }
 
-    /// ERR-1 / TASK-1018: counts only subdirectories that contain a
-    /// `main.tf`. Empty dirs and stray files are ignored.
+    /// ERR-1 / TASK-1018: counts only subdirectories that hold terraform
+    /// sources. Empty dirs and stray files are ignored.
     #[test]
     fn count_local_modules_counts_module_dirs() {
         let dir = tempfile::tempdir().unwrap();
@@ -861,6 +1316,56 @@ terraform {
         write(&dir.path().join("modules").join("b").join("main.tf"), "");
         std::fs::create_dir_all(dir.path().join("modules").join("empty")).unwrap();
         write(&dir.path().join("modules").join("stray.txt"), "x");
+        assert_eq!(count_local_modules(dir.path()), Some(2));
+    }
+
+    /// PATTERN-1 / TASK-1796: `main.tf` is a terraform convention, not a
+    /// requirement — any `.tf` file makes the directory a module. Pre-fix
+    /// these layouts rendered no `modules` line at all.
+    #[test]
+    fn count_local_modules_counts_modules_without_main_tf() {
+        let dir = tempfile::tempdir().unwrap();
+        let modules = dir.path().join("modules");
+        write(&modules.join("network").join("network.tf"), "");
+        write(&modules.join("vpc").join("variables.tf"), "");
+        write(&modules.join("vpc").join("outputs.tf"), "");
+        write(&modules.join("json").join("main.tf.json"), "{}");
+        // Case-insensitive, matching find_required_version's `.TF` handling.
+        write(&modules.join("shouty").join("MAIN.TF"), "");
+        // Not a module: no terraform sources at all.
+        write(&modules.join("docs").join("README.md"), "");
+        std::fs::create_dir_all(modules.join("empty")).unwrap();
+        assert_eq!(count_local_modules(dir.path()), Some(4));
+    }
+
+    /// Vendoring a shared module once and symlinking it into each stack's
+    /// `modules/` is a normal terraform layout. `DirEntry::file_type` does
+    /// not follow symlinks, so such an entry reported `Symlink` and was
+    /// dropped from the count; `fs::metadata` resolves it. A dangling link
+    /// resolves to `NotFound` and is still not a module.
+    #[cfg(unix)]
+    #[test]
+    fn count_local_modules_follows_symlinked_module_dirs() {
+        let dir = tempfile::tempdir().unwrap();
+        let modules = dir.path().join("modules");
+        write(&modules.join("real").join("main.tf"), "");
+
+        let vendored = dir.path().join("vendored").join("shared");
+        write(&vendored.join("main.tf"), "");
+        std::os::unix::fs::symlink(&vendored, modules.join("linked")).unwrap();
+
+        // A symlink to a directory with no terraform sources is followed and
+        // then rejected on its contents, not on its link-ness.
+        let empty = dir.path().join("vendored").join("no-sources");
+        std::fs::create_dir_all(&empty).unwrap();
+        std::os::unix::fs::symlink(&empty, modules.join("linked-empty")).unwrap();
+
+        std::os::unix::fs::symlink(
+            dir.path().join("vendored").join("missing"),
+            modules.join("dangling"),
+        )
+        .unwrap();
+
         assert_eq!(count_local_modules(dir.path()), Some(2));
     }
 }

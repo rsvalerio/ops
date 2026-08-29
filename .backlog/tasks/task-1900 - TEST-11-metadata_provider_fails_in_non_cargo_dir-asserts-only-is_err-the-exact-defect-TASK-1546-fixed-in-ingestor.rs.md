@@ -3,11 +3,11 @@ id: TASK-1900
 title: >-
   TEST-11: metadata_provider_fails_in_non_cargo_dir asserts only is_err(), the
   exact defect TASK-1546 fixed in ingestor.rs
-status: To Do
+status: Done
 assignee:
   - TASK-1999
 created_date: '2026-08-27 15:37'
-updated_date: '2026-08-28 14:14'
+updated_date: '2026-08-28 21:21'
 labels:
   - code-review-rust
   - test-quality
@@ -43,6 +43,12 @@ This is the identical defect that TASK-1546 fixed one file over. `ingestor.rs:16
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 metadata_provider_fails_in_non_cargo_dir asserts the specific failure variant and message, following the DbError::External + chain-contains-'cargo metadata' pattern established at ingestor.rs:161-188
-- [ ] #2 The test fails loudly with a distinguishable message when cargo is absent from PATH or the subprocess times out, rather than passing
+- [x] #1 metadata_provider_fails_in_non_cargo_dir asserts the specific failure variant and message, following the DbError::External + chain-contains-'cargo metadata' pattern established at ingestor.rs:161-188
+- [x] #2 The test fails loudly with a distinguishable message when cargo is absent from PATH or the subprocess times out, rather than passing
 <!-- AC:END -->
+
+## Implementation Notes
+
+<!-- SECTION:NOTES:BEGIN -->
+metadata_provider_fails_in_non_cargo_dir now matches DataProviderError::ComputationFailed and asserts the rendered chain contains both "cargo metadata" (rules out a missing cargo on PATH or a DuckDB failure before cargo ran) and "Cargo.toml" (rules out a timeout or spawn error), each with a distinguishable failure message. Observed shape pinned: ComputationFailed(SharedError("cargo metadata exited with status 101: error: could not find `Cargo.toml` in <dir> or any parent directory")).
+<!-- SECTION:NOTES:END -->

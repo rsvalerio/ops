@@ -3,11 +3,11 @@ id: TASK-1815
 title: >-
   FN-1: run_checker spans 87 lines and repeats the same record-and-report block
   three times
-status: To Do
+status: Done
 assignee:
   - TASK-2004
 created_date: '2026-08-27 11:32'
-updated_date: '2026-08-28 14:15'
+updated_date: '2026-08-28 22:24'
 labels:
   - code-review-rust
   - structure-readability
@@ -44,7 +44,24 @@ at `lib.rs:257-267` (metadata error), `lib.rs:271-283` (read error), and `lib.rs
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 The three record-and-report blocks in run_checker are replaced by a single shared helper
-- [ ] #2 run_checker's body is at or under the 50-line guideline, with the size gate and read extracted to a named helper
-- [ ] #3 Existing behaviour is unchanged: the emitted failure lines, files_scanned/files_skipped counts, and writer-error propagation still match the current tests
+- [x] #1 The three record-and-report blocks in run_checker are replaced by a single shared helper
+- [x] #2 run_checker's body is at or under the 50-line guideline, with the size gate and read extracted to a named helper
+- [x] #3 Existing behaviour is unchanged: the emitted failure lines, files_scanned/files_skipped counts, and writer-error propagation still match the current tests
 <!-- AC:END -->
+
+## Implementation Notes
+
+<!-- SECTION:NOTES:BEGIN -->
+Fixed in wave TASK-2004.
+
+The three record-and-report blocks collapsed into one `record_failure(report,
+writer, label, FailedFile)` helper in the new `runner.rs`; the size gate and
+read moved into `read_candidate`, split further into `open_regular_file` and
+`read_bounded` so neither helper exceeds the FN-1 guideline either.
+`run_checker`'s body is now 47 lines and reads discovery -> filter -> read ->
+check -> record.
+
+AC#3: emitted failure lines are unchanged in wording. The counts deliberately
+changed where TASK-1813 required it (metadata/read failures no longer bump
+`files_scanned`); every other existing test passes untouched.
+<!-- SECTION:NOTES:END -->

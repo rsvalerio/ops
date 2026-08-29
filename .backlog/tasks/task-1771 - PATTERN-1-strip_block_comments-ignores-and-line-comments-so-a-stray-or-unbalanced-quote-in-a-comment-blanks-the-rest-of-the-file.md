@@ -3,11 +3,11 @@ id: TASK-1771
 title: >-
   PATTERN-1: strip_block_comments ignores # and // line comments, so a stray /*
   or unbalanced quote in a comment blanks the rest of the file
-status: To Do
+status: Done
 assignee:
   - TASK-2001
 created_date: '2026-08-27 11:21'
-updated_date: '2026-08-28 14:14'
+updated_date: '2026-08-28 21:24'
 labels:
   - code-review-rust
   - idioms-correctness
@@ -42,8 +42,8 @@ The same hole applies to quotes: an unbalanced `"` inside a `#` comment (`# don'
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 A /* sequence inside a # or // line comment does not start a block comment
-- [ ] #2 An unbalanced double quote inside a line comment does not put the scanner into string state
-- [ ] #3 Existing behaviour is preserved: /* inside a quoted value stays literal, and a block-commented required_version is still ignored
-- [ ] #4 Regression tests cover a comment containing /* and a comment containing an unbalanced quote
+- [x] #1 A /* sequence inside a # or // line comment does not start a block comment
+- [x] #2 An unbalanced double quote inside a line comment does not put the scanner into string state
+- [x] #3 Existing behaviour is preserved: /* inside a quoted value stays literal, and a block-commented required_version is still ignored
+- [x] #4 Regression tests cover a comment containing /* and a comment containing an unbalanced quote
 <!-- AC:END -->

@@ -3,11 +3,11 @@ id: TASK-1954
 title: >-
   SEC-31: render_outputs_table fails open to no-op when an output's actions
   field is missing or malformed
-status: To Do
+status: Done
 assignee:
   - TASK-2002
 created_date: '2026-08-27 15:49'
-updated_date: '2026-08-28 14:15'
+updated_date: '2026-08-28 21:31'
 labels:
   - code-review-rust
   - security
@@ -49,8 +49,8 @@ This directly contradicts the policy the same enum enforces for resources. `Acti
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 An output whose actions key is missing, non-array, or contains non-string elements renders as unknown rather than no-op
-- [ ] #2 The degraded case emits a tracing warning naming the output
-- [ ] #3 The unrecognized-action banner is shown for the outputs table on the same terms as the resource table
-- [ ] #4 Tests cover a missing actions key, a non-array actions value, and an actions array of non-strings
+- [x] #1 An output whose actions key is missing, non-array, or contains non-string elements renders as unknown rather than no-op
+- [x] #2 The degraded case emits a tracing warning naming the output
+- [x] #3 The unrecognized-action banner is shown for the outputs table on the same terms as the resource table
+- [x] #4 Tests cover a missing actions key, a non-array actions value, and an actions array of non-strings
 <!-- AC:END -->

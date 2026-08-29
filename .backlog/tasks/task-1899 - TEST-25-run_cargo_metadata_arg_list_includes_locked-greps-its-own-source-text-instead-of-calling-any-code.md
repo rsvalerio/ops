@@ -3,11 +3,11 @@ id: TASK-1899
 title: >-
   TEST-25: run_cargo_metadata_arg_list_includes_locked greps its own source text
   instead of calling any code
-status: To Do
+status: Done
 assignee:
   - TASK-1999
 created_date: '2026-08-27 15:37'
-updated_date: '2026-08-28 14:14'
+updated_date: '2026-08-28 21:19'
 labels:
   - code-review-rust
   - test-quality
@@ -40,7 +40,13 @@ The comment concedes the shape ("This is a coarse pin") and justifies it as avoi
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 The --locked assertion reads the actual argument value the production call site passes (e.g. a named const or an injected command builder), not include_str! of the source file
-- [ ] #2 Reformatting lib.rs cannot fail the test, and deleting or bypassing run_cargo_metadata does fail it
-- [ ] #3 No test in this crate asserts on include_str! of a source file
+- [x] #1 The --locked assertion reads the actual argument value the production call site passes (e.g. a named const or an injected command builder), not include_str! of the source file
+- [x] #2 Reformatting lib.rs cannot fail the test, and deleting or bypassing run_cargo_metadata does fail it
+- [x] #3 No test in this crate asserts on include_str! of a source file
 <!-- AC:END -->
+
+## Implementation Notes
+
+<!-- SECTION:NOTES:BEGIN -->
+Extracted pub(crate) const CARGO_METADATA_ARGS: [&str; 4] in lib.rs; run_cargo_metadata passes it to run_cargo. The test now asserts on that constant instead of include_str!("../lib.rs"). AC #2: reformatting lib.rs can no longer fail the test, and a call site that stops reading the const makes it dead code, which the workspace -D warnings gate rejects. AC #3: no include_str! of a source file remains in any test in this crate (only two doc-comment mentions explaining the removed pattern).
+<!-- SECTION:NOTES:END -->

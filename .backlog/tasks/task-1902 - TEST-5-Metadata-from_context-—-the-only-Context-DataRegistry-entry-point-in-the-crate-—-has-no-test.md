@@ -3,11 +3,11 @@ id: TASK-1902
 title: >-
   TEST-5: Metadata::from_context — the only Context/DataRegistry entry point in
   the crate — has no test
-status: To Do
+status: Done
 assignee:
   - TASK-1999
 created_date: '2026-08-27 15:38'
-updated_date: '2026-08-28 14:14'
+updated_date: '2026-08-28 21:22'
 labels:
   - code-review-rust
   - test-quality
@@ -37,8 +37,14 @@ Three documented behaviours are therefore unverified:
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 A test drives Metadata::from_context through a Context::test_context + DataRegistry with the metadata provider registered and asserts on the resulting workspace_root
-- [ ] #2 A test asserts Arc::ptr_eq between the inner values of two from_context calls on the same Context, pinning the no-deep-clone claim in the struct doc
-- [ ] #3 A test exercises at least one DataProviderError variant returned through from_context (e.g. the provider absent from the registry)
-- [ ] #4 If the ARCH-9 finding on types.rs resolves as 'remove the unconsumed surface', this task is closed as obsolete rather than implemented
+- [x] #1 A test drives Metadata::from_context through a Context::test_context + DataRegistry with the metadata provider registered and asserts on the resulting workspace_root
+- [x] #2 A test asserts Arc::ptr_eq between the inner values of two from_context calls on the same Context, pinning the no-deep-clone claim in the struct doc
+- [x] #3 A test exercises at least one DataProviderError variant returned through from_context (e.g. the provider absent from the registry)
+- [x] #4 If the ARCH-9 finding on types.rs resolves as 'remove the unconsumed surface', this task is closed as obsolete rather than implemented
 <!-- AC:END -->
+
+## Implementation Notes
+
+<!-- SECTION:NOTES:BEGIN -->
+Closed as obsolete under this task's own AC #4: the ARCH-9 finding (TASK-1898) resolved as "remove the unconsumed surface", so Metadata::from_context, the Arc-sharing claim, the DataProviderError contract and the cache-lifetime semantics no longer exist to be tested. src/types.rs was deleted in this wave. AC #1-#3 are satisfied vacuously by removal, not implemented.
+<!-- SECTION:NOTES:END -->

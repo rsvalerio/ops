@@ -3,11 +3,11 @@ id: TASK-1765
 title: >-
   PATTERN-1: object-valued attributes (`aws = {`) desynchronise the HCL brace
   stack, dropping required_version declared after required_providers
-status: To Do
+status: Done
 assignee:
   - TASK-2001
 created_date: '2026-08-27 11:20'
-updated_date: '2026-08-28 14:14'
+updated_date: '2026-08-28 21:24'
 labels:
   - code-review-rust
   - idioms-correctness
@@ -47,7 +47,7 @@ Verified by running the crate's own `extract_required_version` against that inpu
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 extract_required_version returns Some(">= 1.5") for a terraform block where required_providers with object-literal providers precedes required_version
-- [ ] #2 Brace tracking stays balanced for object-valued attributes (key = { ... }) at any nesting depth, including cloud/workspaces and default = { ... } shapes
-- [ ] #3 A regression test covers required_version declared both before and after a multi-line required_providers block
+- [x] #1 extract_required_version returns Some(">= 1.5") for a terraform block where required_providers with object-literal providers precedes required_version
+- [x] #2 Brace tracking stays balanced for object-valued attributes (key = { ... }) at any nesting depth, including cloud/workspaces and default = { ... } shapes
+- [x] #3 A regression test covers required_version declared both before and after a multi-line required_providers block
 <!-- AC:END -->
