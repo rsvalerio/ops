@@ -229,12 +229,14 @@ impl DataRegistry {
     /// in-extension duplicates surface as a single warning emitted from one
     /// place rather than as a bespoke panic.
     ///
-    /// API-9 / TASK-1067: when a duplicate is detected, the incoming
-    /// `Box<dyn DataProvider>` is dropped at the end of this call (the first
-    /// registration wins) and a `tracing::debug!` breadcrumb is emitted at
-    /// the drop site naming the rejected provider so that any constructor
-    /// side effects (DB handles, file descriptors) opened by the dropped
-    /// provider are at least observable in logs. The aggregated
+    /// API-9 / TASK-1067: when a duplicate is detected, the first
+    /// registration wins and the incoming `Box<dyn DataProvider>` is handed
+    /// back to the caller as `Some(provider)` rather than dropped here — it
+    /// is dropped only if the caller discards the return value. A
+    /// `tracing::debug!` breadcrumb is emitted at the rejection site naming
+    /// the rejected provider so that any constructor side effects (DB
+    /// handles, file descriptors) opened by a provider the caller then drops
+    /// are at least observable in logs. The aggregated
     /// `tracing::warn!` emitted by the CLI wiring layer via
     /// [`take_duplicate_inserts`](Self::take_duplicate_inserts) remains the
     /// aggregated user-facing signal; the debug breadcrumb here is the

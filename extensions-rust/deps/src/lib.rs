@@ -163,8 +163,12 @@ pub fn build_user_context() -> anyhow::Result<Context> {
 /// the options bag most likely to grow, and `#[non_exhaustive]` cannot be
 /// added once external exhaustive-literal construction sites exist without
 /// breaking them — so the cost of the attribute only goes up with time.
-/// Construct via [`DepsOptions::new`] or [`Default`] plus struct-update
-/// syntax.
+/// Construct via [`DepsOptions::new`] or [`DepsOptions::default`]. Note that
+/// `#[non_exhaustive]` also rules out struct-update syntax
+/// (`DepsOptions { refresh: true, ..Default::default() }`) from outside this
+/// crate — functional record update still needs a struct literal, which the
+/// attribute forbids — so `new` is the only way an external caller sets a
+/// field.
 #[derive(Debug, Clone, Default)]
 #[non_exhaustive]
 pub struct DepsOptions {
