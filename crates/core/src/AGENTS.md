@@ -10,7 +10,7 @@ Configuration is merged in this order, with later sources overriding earlier one
 2. Global config in `~/.config/ops/config.toml`.
 3. Local `.ops.toml` in the current directory.
 4. `.ops.d/*.toml` files, sorted alphabetically.
-5. Environment variables named `CARGO_OPS_*`.
+5. Environment variables named `OPS__*`.
 
 `ops init` writes a merged template: base config plus the detected stack's default
 commands. For a Rust project, the generated template should already include commands
