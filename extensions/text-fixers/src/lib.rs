@@ -28,6 +28,13 @@
 //! the summary line; the skips are named file by file too, except the routine
 //! "not text" one — see `runner::write_skip`.
 //!
+//! Discovery's own traversal errors are the third input to the exit code.
+//! A directory the walk could not enter hides an unknown number of
+//! candidates, so it lands in [`FixerReport::walk_errors`], shows as its own
+//! counter in the summary line, and makes [`FixerReport::failed`] true —
+//! reporting a clean tree over directories that were never read is
+//! fail-open.
+//!
 //! # Safety properties
 //!
 //! - Rewrites go through [`atomic::replace`]: temp file in the same directory,

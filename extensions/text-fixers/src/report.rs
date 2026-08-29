@@ -67,6 +67,11 @@ pub struct FixerReport {
     pub files_skipped: usize,
     /// Files the fixer could not read or could not write back.
     pub files_failed: Vec<FailedFile>,
+    /// Directories the discovery walk could not traverse. Each one hides an
+    /// unknown number of candidates, so a run that carries any of these did
+    /// not see the whole tree and must not report "clean" — see
+    /// [`FixerReport::failed`].
+    pub walk_errors: Vec<String>,
 }
 
 impl FixerReport {
@@ -81,9 +86,14 @@ impl FixerReport {
     /// Separate from [`changed`](Self::changed) because the two mean different
     /// things to a hook driver even though both produce a non-zero exit:
     /// "I fixed something, re-stage it" versus "I could not look".
+    ///
+    /// A walk error counts: the fixer completed every candidate it was given,
+    /// but traversal silently omitted candidates it never learned about.
+    /// Exiting 0 there is fail-open — the CLI would report a clean tree over
+    /// directories it could not read.
     #[must_use]
     pub const fn failed(&self) -> bool {
-        !self.files_failed.is_empty()
+        !self.files_failed.is_empty() || !self.walk_errors.is_empty()
     }
 }
 
@@ -100,11 +110,12 @@ impl FixerReport {
 pub fn write_summary(report: &FixerReport, label: &str, writer: &mut dyn Write) -> io::Result<()> {
     writeln!(
         writer,
-        "{label}: scanned {} file(s), {} changed, {} skipped, {} failed",
+        "{label}: scanned {} file(s), {} changed, {} skipped, {} failed, {} walk error(s)",
         report.files_scanned,
         report.files_changed.len(),
         report.files_skipped,
         report.files_failed.len(),
+        report.walk_errors.len(),
     )
 }
 
@@ -113,7 +124,7 @@ mod tests {
     use super::*;
 
     #[test]
-    fn write_summary_renders_all_four_counters() {
+    fn write_summary_renders_every_counter() {
         let report = FixerReport {
             files_scanned: 7,
             files_changed: vec![PathBuf::from("a.txt"), PathBuf::from("b.txt")],
@@ -123,12 +134,14 @@ mod tests {
                 kind: FailureKind::Read(io::ErrorKind::PermissionDenied),
                 message: "read: permission denied".to_owned(),
             }],
+            walk_errors: Vec::new(),
         };
         let mut buf = Vec::new();
         write_summary(&report, "trailing-whitespace", &mut buf).unwrap();
         assert_eq!(
             String::from_utf8(buf).unwrap(),
-            "trailing-whitespace: scanned 7 file(s), 2 changed, 3 skipped, 1 failed\n"
+            "trailing-whitespace: scanned 7 file(s), 2 changed, 3 skipped, 1 failed, 0 walk \
+             error(s)\n"
         );
     }
 
@@ -138,7 +151,34 @@ mod tests {
         write_summary(&FixerReport::default(), "end-of-file-fixer", &mut buf).unwrap();
         assert_eq!(
             String::from_utf8(buf).unwrap(),
-            "end-of-file-fixer: scanned 0 file(s), 0 changed, 0 skipped, 0 failed\n"
+            "end-of-file-fixer: scanned 0 file(s), 0 changed, 0 skipped, 0 failed, 0 walk \
+             error(s)\n"
+        );
+    }
+
+    /// A walk error means traversal silently omitted candidates, so the run
+    /// cannot honestly report "clean". Before this, the error was printed to
+    /// the writer and dropped: `failed()` stayed false and the CLI exited 0
+    /// over directories it never read.
+    #[test]
+    fn a_walk_error_alone_fails_the_run_and_shows_in_the_summary() {
+        let report = FixerReport {
+            walk_errors: vec!["IO error for operation on /x: permission denied".to_owned()],
+            ..FixerReport::default()
+        };
+        assert!(
+            report.failed(),
+            "a traversal that lost candidates must not report success"
+        );
+        assert!(!report.changed(), "a walk error is not a change");
+        assert!(!FixerReport::default().failed());
+
+        let mut buf = Vec::new();
+        write_summary(&report, "trailing-whitespace", &mut buf).unwrap();
+        assert_eq!(
+            String::from_utf8(buf).unwrap(),
+            "trailing-whitespace: scanned 0 file(s), 0 changed, 0 skipped, 0 failed, 1 walk \
+             error(s)\n"
         );
     }
 

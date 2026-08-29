@@ -427,6 +427,46 @@ fn a_tracked_run_outside_a_repository_announces_the_downgrade() {
     assert_eq!(report.files_changed, vec![PathBuf::from("untracked.txt")]);
 }
 
+/// A traversal error hides an unknown number of candidates. Printing it and
+/// dropping it left `FixerReport::failed()` false, so the CLI exited 0 over a
+/// tree it had only partly seen.
+#[test]
+#[cfg(unix)]
+fn a_walk_error_reaches_the_report_and_the_summary() {
+    let dir = tempfile::tempdir().unwrap();
+    let root = dir.path();
+    write(&root.join("clean.txt"), b"already clean\n");
+    let locked = root.join("locked");
+    std::fs::create_dir_all(&locked).unwrap();
+    write(&locked.join("hidden.txt"), b"trailing   \n");
+
+    let Some(guard) = crate::test_support::UnsearchableDir::new(&locked) else {
+        return; // running as root: the directory is searchable regardless.
+    };
+
+    let mut buf = Vec::new();
+    let report = run_trailing_whitespace(&opts(root), &mut buf).unwrap();
+    drop(guard);
+
+    assert!(
+        !report.walk_errors.is_empty(),
+        "the traversal error must be recorded, not just printed"
+    );
+    assert!(!report.changed(), "nothing was rewritten");
+    assert!(
+        report.failed(),
+        "a run that never saw part of the tree must not exit clean"
+    );
+
+    let mut summary = Vec::new();
+    write_summary(&report, "trailing-whitespace", &mut summary).unwrap();
+    let line = String::from_utf8(summary).unwrap();
+    assert!(
+        line.contains("1 walk error(s)"),
+        "the summary must carry a non-zero walk-error count: {line}"
+    );
+}
+
 #[test]
 fn extension_constants_kebab_case() {
     for n in ["trailing-whitespace", "end-of-file-fixer", NAME, SHORTNAME] {

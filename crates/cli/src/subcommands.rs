@@ -293,8 +293,9 @@ pub fn run_before_push(
 
 /// Run a text-fixer and translate its [`FixerReport`] into a process exit
 /// code: `FAILURE` when at least one file was rewritten, and also when at
-/// least one file could not be read or written back. The first half mirrors
-/// the `pre-commit-hooks` contract so a commit hook driver fails the commit on
+/// least one file could not be read or written back, or the discovery walk
+/// could not traverse part of the tree. The first half mirrors the
+/// `pre-commit-hooks` contract so a commit hook driver fails the commit on
 /// change; the second keeps "could not check" from passing as "clean", which
 /// is what a gate's exit zero is taken to mean.
 fn run_text_fixer<F>(label: &str, tracked: bool, fixer: F) -> anyhow::Result<ExitCode>

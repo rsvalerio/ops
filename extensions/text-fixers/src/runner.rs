@@ -91,12 +91,16 @@ fn run_fixer(
         )
         .with_context(|| format!("{label}: writing the discovery fallback notice failed"))?;
     }
+    let mut report = FixerReport::default();
     for error in &discovered.walk_errors {
         // An entry the walk could not traverse hides an unknown number of
         // files, and a gate that reports "clean" over them is fail-open.
+        // Printing the notice is not enough — the error has to reach the
+        // report so `FixerReport::failed` can drive a non-zero exit.
         writeln!(writer, "{label}: walk error: {error}")
             .with_context(|| format!("{label}: writing the walk-error notice failed"))?;
     }
+    report.walk_errors = discovered.walk_errors;
     if discovered.undecodable_paths > 0 {
         writeln!(
             writer,
@@ -106,7 +110,6 @@ fn run_fixer(
         .with_context(|| format!("{label}: writing the undecodable-path notice failed"))?;
     }
 
-    let mut report = FixerReport::default();
     // Every counter below tallies entries of `discovered.files`, an in-memory
     // `Vec` from one discovery pass, so the totals are bounded by its length
     // and the `saturating_add` guards can never actually saturate.
