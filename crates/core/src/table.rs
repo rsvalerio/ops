@@ -162,21 +162,35 @@ mod tests {
         assert_eq!(before, after);
     }
 
-    /// PERF-3 / TASK-1439: repeated `OpsTable::new` calls must not re-invoke
-    /// `stdout().is_terminal()`. We assert the probe counter advances by at
-    /// most one across N constructions: zero when the `OnceLock` was already
-    /// primed by another test in the same process, one when this test
-    /// happens to be the first to call it.
+    /// PERF-3 / TASK-1439 + TEST-1 / TASK-1856: `OpsTable::new` must obtain
+    /// its TTY state from the shared `style::stdout_is_terminal` cache rather
+    /// than issuing its own `stdout().is_terminal()`.
+    ///
+    /// The previous version of this test read a counter incremented *inside*
+    /// `OnceLock::get_or_init`, which caps it at 1 per process by
+    /// construction — so `after - before <= 1` held no matter what
+    /// `OpsTable::new` did, including the pre-TASK-1439 direct `isatty` call
+    /// it named as the regression. The counter now advances once per call to
+    /// the shared accessor, so a construction that bypasses the cache
+    /// contributes nothing and the assertion below fails.
+    ///
+    /// `>=` rather than `==`: other tests in this binary run in parallel
+    /// threads and legitimately consult the same accessor (every
+    /// `style::color_enabled` call does), so an exact delta would be flaky.
+    /// The direction that matters is the floor — a bypass drops the delta to
+    /// zero.
     #[test]
-    fn new_memoises_is_terminal_probe() {
-        let before = crate::style::stdout_is_terminal_probe_count();
-        for _ in 0..16 {
+    fn new_routes_tty_probe_through_shared_cache() {
+        const CONSTRUCTIONS: usize = 16;
+        let before = crate::style::stdout_tty_query_count();
+        for _ in 0..CONSTRUCTIONS {
             let _ = OpsTable::new();
         }
-        let after = crate::style::stdout_is_terminal_probe_count();
+        let after = crate::style::stdout_tty_query_count();
         assert!(
-            after - before <= 1,
-            "stdout is_terminal probed {} times across 16 constructions; expected ≤1",
+            after - before >= CONSTRUCTIONS,
+            "shared stdout TTY cache consulted {} times across {CONSTRUCTIONS} constructions; \
+             OpsTable::new must route every construction through it",
             after - before
         );
     }

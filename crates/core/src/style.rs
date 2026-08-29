@@ -51,16 +51,20 @@ pub const fn color_enabled_from(stdout_tty: bool, stderr_tty: bool, no_color: bo
 /// `OpsTable::new` and the legacy `color_enabled` resolver share this cache
 /// so the `isatty` syscall fires once per process regardless of how many
 /// tables (or styled lines) are emitted, and the two subsystems cannot
-/// disagree mid-render after a redirect. The probe counter is incremented
-/// inside `get_or_init` so a test can assert the syscall happens exactly
-/// once across N constructions.
+/// disagree mid-render after a redirect.
+///
+/// TEST-1 / TASK-1856: [`STDOUT_TTY_QUERIES`] counts calls to **this
+/// accessor**, not initialisations of the cache behind it. The counter used
+/// to live inside the `get_or_init` closure, where `OnceLock` caps it at 1 by
+/// construction — so the regression test reading it could not fail whatever
+/// its subject did. Counting at the call site makes "every TTY-gated caller
+/// routes through the shared cache" an observable property: a caller that
+/// goes straight to `std::io::stdout().is_terminal()` contributes nothing.
 #[must_use]
 pub fn stdout_is_terminal() -> bool {
+    STDOUT_TTY_QUERIES.fetch_add(1, Ordering::Relaxed);
     static STDOUT_TTY: OnceLock<bool> = OnceLock::new();
-    *STDOUT_TTY.get_or_init(|| {
-        STDOUT_PROBES.fetch_add(1, Ordering::Relaxed);
-        std::io::stdout().is_terminal()
-    })
+    *STDOUT_TTY.get_or_init(|| std::io::stdout().is_terminal())
 }
 
 /// Shared memoised `stderr().is_terminal()` probe, paired with
@@ -71,17 +75,19 @@ pub fn stderr_is_terminal() -> bool {
     *STDERR_TTY.get_or_init(|| std::io::stderr().is_terminal())
 }
 
-/// TASK-1439: probe counter for the stdout TTY cache. Incremented exactly
-/// once per process (inside the `OnceLock::get_or_init` closure). Exposed
-/// for the regression test that asserts repeated `OpsTable::new` calls do
-/// not re-invoke `is_terminal`.
-static STDOUT_PROBES: std::sync::atomic::AtomicUsize = std::sync::atomic::AtomicUsize::new(0);
+/// TEST-1 / TASK-1856: counts calls to [`stdout_is_terminal`], the shared
+/// accessor every stdout TTY gate must route through. Exposed for the
+/// regression test that asserts `OpsTable::new` consults the cache rather
+/// than issuing its own `isatty`.
+static STDOUT_TTY_QUERIES: std::sync::atomic::AtomicUsize = std::sync::atomic::AtomicUsize::new(0);
 use std::sync::atomic::Ordering;
 
+/// TEST-1 / TASK-1856: number of [`stdout_is_terminal`] calls so far in this
+/// process.
 #[must_use]
 #[doc(hidden)]
-pub fn stdout_is_terminal_probe_count() -> usize {
-    STDOUT_PROBES.load(Ordering::Relaxed)
+pub fn stdout_tty_query_count() -> usize {
+    STDOUT_TTY_QUERIES.load(Ordering::Relaxed)
 }
 
 /// True if `NO_COLOR` is set to any non-empty value (per
