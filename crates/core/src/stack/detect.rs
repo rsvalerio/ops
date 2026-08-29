@@ -97,7 +97,28 @@ pub(super) fn has_manifest_in_dir(stack: Stack, dir: &Path) -> bool {
     }
     let extensions = manifest_extensions(stack);
     if !extensions.is_empty() {
-        if let Ok(entries) = dir.read_dir() {
+        // ERR-1 / TASK-1858: the directory-level failure gets the same
+        // breadcrumb policy as `manifest_present` above and the per-entry arm
+        // below. `if let Ok(..)` dropped it, and this is where the *likely*
+        // error lands — EACCES on an unreadable directory during the ancestor
+        // walk. Terraform is the only extension-detected stack, so a silent
+        // `read_dir` failure made an unreadable directory report "no
+        // manifest", the walk moved to the parent, and the user got `Generic`
+        // with no signal at any log level.
+        let entries = match dir.read_dir() {
+            Ok(entries) => Some(entries),
+            Err(e) => {
+                tracing::debug!(
+                    parent = ?dir.display(),
+                    error = ?e,
+                    "stack manifest extension probe: read_dir failed; treating as no manifest here",
+                );
+                None
+            }
+        };
+        // Still "no manifest here" so the ancestor walk continues — this is a
+        // diagnostics fix, not a behaviour change.
+        if let Some(entries) = entries {
             // ERR-1 (TASK-0935): explicit match so a per-entry IO error
             // leaves a `tracing::debug` breadcrumb instead of silently
             // making the manifest "not found".
