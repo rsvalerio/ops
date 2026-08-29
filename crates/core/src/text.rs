@@ -179,6 +179,32 @@ pub fn manifest_max_bytes() -> u64 {
 /// the final component only: it does **not** enforce (1) or (3), and the gap
 /// between the probe and the open is TOCTOU-prone. That is acceptable because
 /// the adversarial-repo threat model is exercised on Unix.
+///
+/// # Decision: no root-anchored variant (ARCH-2 / TASK-2038)
+///
+/// Refusing a symlink at *any* component also refuses a legitimately
+/// symlinked directory above the workspace root (a monorepo that symlinks a
+/// shared subproject, an embedder that hands `ops` an unresolved root). The
+/// alternative considered was a second entry point that takes a verified
+/// workspace-root descriptor and applies the strict walk only to the suffix
+/// beneath it, permitting symlinks in the operator-controlled prefix.
+///
+/// That variant is **not** added. The same boundary is already obtainable
+/// without new API and without a second contract to keep honest: a caller
+/// canonicalizes its root once, then joins repo-supplied components onto the
+/// resolved path. The prefix is then symlink-free by construction and the
+/// strict walk applies exactly to the attacker-influenced suffix — which is
+/// what `std::env::current_dir()` already gives every cwd-derived path, and
+/// what `find_workspace_root` gives its callers. A root-anchored variant
+/// would duplicate that with a `dirfd` lifetime to manage and a second
+/// refusal surface to document, for callers that can fix the problem one
+/// `canonicalize` earlier.
+///
+/// What the decision costs is explainability, so the refusal at an
+/// intermediate component now emits a `tracing::warn!` breadcrumb naming the
+/// offending component (see `unix_open::refused_symlink_component`): a
+/// degraded about card or a failed `.ops.toml` layer is traceable to the
+/// symlink that caused it instead of surfacing as a bare `InvalidInput`.
 pub(crate) fn open_refusing_symlinks(path: &Path) -> std::io::Result<std::fs::File> {
     #[cfg(unix)]
     {
@@ -337,11 +363,33 @@ mod unix_open {
         })
     }
 
+    /// ARCH-2 / TASK-2038: the refusal surface for an **intermediate**
+    /// component, which is the one that changed behaviour when the single
+    /// `O_NOFOLLOW` open became a component walk. A symlinked directory above
+    /// the file is often benign (a monorepo symlinking a shared subproject,
+    /// an embedder passing an unresolved root), and the caller usually
+    /// degrades rather than fails — an about-card field disappears, a
+    /// `.ops.toml` layer does not load. Naming the offending component at
+    /// `warn` is what makes that degradation explainable; the returned error
+    /// is byte-for-byte the one [`super::refused_symlink`] produces, so the
+    /// documented `InvalidInput` surface is unchanged.
+    fn refused_symlink_component(path: &Path, name: &CStr, kind: &'static str) -> io::Error {
+        // ERR-7: Debug-format path and component so an attacker-controlled
+        // repo path containing newlines / ANSI escapes cannot forge log lines.
+        tracing::warn!(
+            path = ?path.display(),
+            component = ?name.to_string_lossy(),
+            refusal = kind,
+            "ARCH-2 / TASK-2038: refusing to read through a symlinked directory component; the file is treated as unreadable, so anything derived from it (about-card fields, .ops.toml layers) is degraded. Canonicalize the root before joining repo-supplied components, or replace the symlink with a real directory."
+        );
+        super::refused_symlink(path)
+    }
+
     /// Open one intermediate component and prove it is a directory.
     fn open_dir_component(cur: Option<&OwnedFd>, name: &CStr, path: &Path) -> io::Result<OwnedFd> {
         let fd = openat(cur, name, DIR_FLAGS).map_err(|e| {
             if is_symlink_refusal(&e) {
-                super::refused_symlink(path)
+                refused_symlink_component(path, name, "openat")
             } else {
                 e
             }
@@ -351,7 +399,7 @@ mod unix_open {
             // Reachable only on the `O_PATH` (Linux) path, where
             // `O_NOFOLLOW` hands back the symlink itself instead of failing
             // with `ELOOP`. Spell the refusal the same way either way.
-            libc::S_IFLNK => Err(super::refused_symlink(path)),
+            libc::S_IFLNK => Err(refused_symlink_component(path, name, "fstat")),
             _ => Err(io::Error::from_raw_os_error(libc::ENOTDIR)),
         }
     }
@@ -838,6 +886,33 @@ mod tests {
         assert!(
             err.to_string().contains("symlink"),
             "error should mention symlink, got {err}"
+        );
+    }
+
+    /// ARCH-2 / TASK-2038: the intermediate-component refusal must leave a
+    /// breadcrumb naming the offending component, so a degraded about card or
+    /// an unloadable `.ops.toml` layer is explainable rather than surfacing as
+    /// a bare `InvalidInput` from somewhere in the read stack.
+    #[cfg(unix)]
+    #[test]
+    fn read_capped_to_string_logs_breadcrumb_for_symlinked_intermediate_directory() {
+        let root = tempfile::tempdir().unwrap();
+        let outside = tempfile::tempdir().unwrap();
+        std::fs::write(outside.path().join("Cargo.toml"), b"secret").unwrap();
+        let link = root.path().join("shared_subproject");
+        std::os::unix::fs::symlink(outside.path(), &link).unwrap();
+
+        let (logged, result) = crate::test_utils::capture_tracing(tracing::Level::WARN, || {
+            read_capped_to_string_with(&link.join("Cargo.toml"), 1024)
+        });
+        assert!(result.is_err(), "the symlinked component must still refuse");
+        assert!(
+            logged.contains("shared_subproject"),
+            "breadcrumb must name the refused component, got: {logged}"
+        );
+        assert!(
+            logged.contains("symlinked directory component"),
+            "breadcrumb must explain the refusal, got: {logged}"
         );
     }
 
