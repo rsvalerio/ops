@@ -476,8 +476,10 @@ fn run_terraform_pipeline(
 ) -> anyhow::Result<String> {
     reject_reserved_passthrough(&opts.passthrough)?;
     let paths = prepare_artifact_paths(opts)?;
+    // `run_terraform_plan` hardens the binary plan itself, immediately after
+    // recording the path and before it interprets terraform's exit status, so
+    // a partial artifact from a failed run is covered too.
     run_terraform_plan(opts, &paths.binary, created)?;
-    harden_artifact_permissions(&paths.binary);
     let json_str = capture_plan_json(&paths.binary)?;
 
     if opts.keep_plan {
@@ -528,6 +530,13 @@ fn run_terraform_plan(
     // spawn itself failed, which is what keeps a run that never invoked
     // terraform from deleting a pre-existing file at `--out`.
     created.push(binary_path.to_path_buf());
+
+    // SEC-29: harden the artifact *before* the exit status is interpreted.
+    // A failing `terraform plan` can still have written a partial `-out`
+    // file, and that partial file is just as secret-dense as a complete one.
+    // Hardening only on the success path left it at terraform's umask for as
+    // long as it survived on disk (and `--keep-plan` keeps it forever).
+    harden_artifact_permissions(binary_path);
 
     plan_status_result(opts.detailed_exitcode, status.code(), status.success())
 }
