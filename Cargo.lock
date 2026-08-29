@@ -1708,7 +1708,7 @@ checksum = "384b8ab6d37215f3c5301a95a4accb5d64aa607f1fcb26a11b5303878451b4fe"
 
 [[package]]
 name = "ops"
-version = "0.44.0"
+version = "0.45.0"
 dependencies = [
  "anyhow",
  "assert_cmd",
@@ -1756,7 +1756,7 @@ dependencies = [
 
 [[package]]
 name = "ops-about"
-version = "0.44.0"
+version = "0.45.0"
 dependencies = [
  "anyhow",
  "linkme",
@@ -1774,7 +1774,7 @@ dependencies = [
 
 [[package]]
 name = "ops-about-go"
-version = "0.44.0"
+version = "0.45.0"
 dependencies = [
  "linkme",
  "ops-about",
@@ -1787,7 +1787,7 @@ dependencies = [
 
 [[package]]
 name = "ops-about-java"
-version = "0.44.0"
+version = "0.45.0"
 dependencies = [
  "linkme",
  "ops-about",
@@ -1800,7 +1800,7 @@ dependencies = [
 
 [[package]]
 name = "ops-about-node"
-version = "0.44.0"
+version = "0.45.0"
 dependencies = [
  "anyhow",
  "linkme",
@@ -1816,7 +1816,7 @@ dependencies = [
 
 [[package]]
 name = "ops-about-python"
-version = "0.44.0"
+version = "0.45.0"
 dependencies = [
  "linkme",
  "ops-about",
@@ -1832,7 +1832,7 @@ dependencies = [
 
 [[package]]
 name = "ops-about-rust"
-version = "0.44.0"
+version = "0.45.0"
 dependencies = [
  "anyhow",
  "linkme",
@@ -1853,7 +1853,7 @@ dependencies = [
 
 [[package]]
 name = "ops-about-terraform"
-version = "0.44.0"
+version = "0.45.0"
 dependencies = [
  "anyhow",
  "linkme",
@@ -1869,7 +1869,7 @@ dependencies = [
 
 [[package]]
 name = "ops-cargo-toml"
-version = "0.44.0"
+version = "0.45.0"
 dependencies = [
  "anyhow",
  "linkme",
@@ -1885,7 +1885,7 @@ dependencies = [
 
 [[package]]
 name = "ops-cargo-update"
-version = "0.44.0"
+version = "0.45.0"
 dependencies = [
  "anyhow",
  "linkme",
@@ -1900,7 +1900,7 @@ dependencies = [
 
 [[package]]
 name = "ops-config-checkers"
-version = "0.44.0"
+version = "0.45.0"
 dependencies = [
  "anyhow",
  "json5",
@@ -1916,7 +1916,7 @@ dependencies = [
 
 [[package]]
 name = "ops-core"
-version = "0.44.0"
+version = "0.45.0"
 dependencies = [
  "anyhow",
  "comfy-table",
@@ -1940,7 +1940,7 @@ dependencies = [
 
 [[package]]
 name = "ops-create-review-tasks"
-version = "0.44.0"
+version = "0.45.0"
 dependencies = [
  "anyhow",
  "chrono",
@@ -1954,7 +1954,7 @@ dependencies = [
 
 [[package]]
 name = "ops-create-review-tasks-rust"
-version = "0.44.0"
+version = "0.45.0"
 dependencies = [
  "linkme",
  "ops-about",
@@ -1972,7 +1972,7 @@ dependencies = [
 
 [[package]]
 name = "ops-deps"
-version = "0.44.0"
+version = "0.45.0"
 dependencies = [
  "anyhow",
  "linkme",
@@ -1989,7 +1989,7 @@ dependencies = [
 
 [[package]]
 name = "ops-duckdb"
-version = "0.44.0"
+version = "0.45.0"
 dependencies = [
  "anyhow",
  "duckdb",
@@ -2008,7 +2008,7 @@ dependencies = [
 
 [[package]]
 name = "ops-extension"
-version = "0.44.0"
+version = "0.45.0"
 dependencies = [
  "anyhow",
  "bitflags 2.13.1",
@@ -2024,7 +2024,7 @@ dependencies = [
 
 [[package]]
 name = "ops-git"
-version = "0.44.0"
+version = "0.45.0"
 dependencies = [
  "linkme",
  "ops-core",
@@ -2039,7 +2039,7 @@ dependencies = [
 
 [[package]]
 name = "ops-hook-common"
-version = "0.44.0"
+version = "0.45.0"
 dependencies = [
  "anyhow",
  "ops-core",
@@ -2054,7 +2054,7 @@ dependencies = [
 
 [[package]]
 name = "ops-metadata"
-version = "0.44.0"
+version = "0.45.0"
 dependencies = [
  "anyhow",
  "duckdb",
@@ -2071,7 +2071,7 @@ dependencies = [
 
 [[package]]
 name = "ops-run-before-commit"
-version = "0.44.0"
+version = "0.45.0"
 dependencies = [
  "anyhow",
  "linkme",
@@ -2085,7 +2085,7 @@ dependencies = [
 
 [[package]]
 name = "ops-run-before-push"
-version = "0.44.0"
+version = "0.45.0"
 dependencies = [
  "anyhow",
  "linkme",
@@ -2097,7 +2097,7 @@ dependencies = [
 
 [[package]]
 name = "ops-runner"
-version = "0.44.0"
+version = "0.45.0"
 dependencies = [
  "anyhow",
  "indexmap",
@@ -2120,7 +2120,7 @@ dependencies = [
 
 [[package]]
 name = "ops-rust-loc"
-version = "0.44.0"
+version = "0.45.0"
 dependencies = [
  "anyhow",
  "duckdb",
@@ -2138,7 +2138,7 @@ dependencies = [
 
 [[package]]
 name = "ops-test-coverage"
-version = "0.44.0"
+version = "0.45.0"
 dependencies = [
  "anyhow",
  "duckdb",
@@ -2154,7 +2154,7 @@ dependencies = [
 
 [[package]]
 name = "ops-text-fixers"
-version = "0.44.0"
+version = "0.45.0"
 dependencies = [
  "anyhow",
  "ignore",
@@ -2166,7 +2166,7 @@ dependencies = [
 
 [[package]]
 name = "ops-tfplan"
-version = "0.44.0"
+version = "0.45.0"
 dependencies = [
  "anyhow",
  "clap",
@@ -2183,7 +2183,7 @@ dependencies = [
 
 [[package]]
 name = "ops-theme"
-version = "0.44.0"
+version = "0.45.0"
 dependencies = [
  "indexmap",
  "ops-core",
@@ -2197,7 +2197,7 @@ dependencies = [
 
 [[package]]
 name = "ops-tokei"
-version = "0.44.0"
+version = "0.45.0"
 dependencies = [
  "anyhow",
  "duckdb",

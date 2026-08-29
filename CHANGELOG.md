@@ -2,6 +2,78 @@
 All notable changes to this project will be documented in this file. See [conventional commits](https://www.conventionalcommits.org/) for commit guidelines.
 
 - - -
+## [v0.45.0](https://github.com/rsvalerio/ops/compare/115b413bc26f89fdb1866f309e66d20c8b6f315b..v0.45.0) - 2026-08-29
+#### 🚀 Features
+- (**cli**) cancel the run on SIGTERM/SIGINT instead of orphaning children - ([57ea02b](https://github.com/rsvalerio/ops/commit/57ea02b3e6a5512923c6e31f57f49ea39aa71d73)) - [@rsvalerio](https://github.com/rsvalerio)
+- ![BREAKING](https://img.shields.io/badge/BREAKING-red) (**extension**) close the framework's bypassable API surfaces - ([9d606cc](https://github.com/rsvalerio/ops/commit/9d606cc950fef9b0d5736e8a92221b533bf3f329)) - [@rsvalerio](https://github.com/rsvalerio)
+#### 🐛 Bug Fixes
+- (**about**) contain glob members in the workspace and quote untrusted log fields - ([903ad72](https://github.com/rsvalerio/ops/commit/903ad722f187edff5f251e65f9757124fa401a51)) - [@rsvalerio](https://github.com/rsvalerio), Claude Opus 5 (1M context)
+- (**about-python**) degrade per field and drop non-http(s) manifest URLs - ([023b33b](https://github.com/rsvalerio/ops/commit/023b33bdcb264ad1f2821c02db611f593ed4af0a)) - [@rsvalerio](https://github.com/rsvalerio)
+- (**cargo-toml**) make an omitted package field absent instead of empty - ([636a89a](https://github.com/rsvalerio/ops/commit/636a89aed8fbaf71fd9f0c42bc1a31df38902b40)) - [@rsvalerio](https://github.com/rsvalerio)
+- (**cargo-toml**) detect [workspace] headers with comments or quoted keys - ([940504e](https://github.com/rsvalerio/ops/commit/940504e3797aafeff09e3838ece883502e011faf)) - [@rsvalerio](https://github.com/rsvalerio)
+- (**cargo-update**) parse Downgrading lines and stop publishing unvalidated fields - ([b9f5195](https://github.com/rsvalerio/ops/commit/b9f5195c7b9739cbf00d052edd8168493acea61b)) - [@rsvalerio](https://github.com/rsvalerio)
+- (**cli**) compile the signal-number constants for unix only - ([87fdab6](https://github.com/rsvalerio/ops/commit/87fdab679c6e53201f5996e6fa3da6a290c1a78b)) - [@rsvalerio](https://github.com/rsvalerio), Claude Opus 5 (1M context)
+- (**cli**) derive help's value-taking global flags from Cli instead of transcribing them - ([e06fb0f](https://github.com/rsvalerio/ops/commit/e06fb0f569eeb36a543d16b401351d6f8323cab4)) - [@rsvalerio](https://github.com/rsvalerio)
+- (**cli**) gate prompts on the stream inquire uses and share one cancel path - ([cc37791](https://github.com/rsvalerio/ops/commit/cc37791948adf019a73b1283606941d3b1270b7c)) - [@rsvalerio](https://github.com/rsvalerio)
+- (**cli**) pin the winner of a compiled-in extension config_name collision - ([5868af1](https://github.com/rsvalerio/ops/commit/5868af1a369069d960cd956f0c71cfdbca033b8d)) - [@rsvalerio](https://github.com/rsvalerio)
+- (**deps**) count diagnostic envelopes before decoding their fields - ([22dcf3d](https://github.com/rsvalerio/ops/commit/22dcf3db4a440faf3c3bd3375275122b5068fa68)) - [@rsvalerio](https://github.com/rsvalerio), Claude Opus 5 (1M context)
+- (**deps**) close the remaining cargo-upgrade fail-open and truncation paths - ([8c2aeb9](https://github.com/rsvalerio/ops/commit/8c2aeb9093e8760eb0d22c10147a53c58fb17b93)) - [@rsvalerio](https://github.com/rsvalerio)
+- (**deps**) fail closed when cargo-deny diagnostics largely fail to decode - ([f0d90ef](https://github.com/rsvalerio/ops/commit/f0d90ef8f92c5db2482d54c738413f0105bcb1d6)) - [@rsvalerio](https://github.com/rsvalerio)
+- (**python-about**) Debug-format normalized_key in the URL collision warn - ([25b3bc0](https://github.com/rsvalerio/ops/commit/25b3bc0c66e2da2c88a875f684f33878fee46f76)) - [@rsvalerio](https://github.com/rsvalerio), Claude Opus 5 (1M context)
+- (**runner**) re-check group liveness before the SIGKILL escalation - ([d906ed2](https://github.com/rsvalerio/ops/commit/d906ed2a275c3d6c6544412947c5bbc73cb4786f)) - [@rsvalerio](https://github.com/rsvalerio), Claude Opus 5 (1M context)
+- (**runner**) fail closed when a Deny-policy cwd cannot be canonicalized - ([92c4823](https://github.com/rsvalerio/ops/commit/92c48239fe8f620424e713fe2cdd7e9dfc016e95)) - [@rsvalerio](https://github.com/rsvalerio)
+- (**runner**) debug-format the .ops.toml env key in the SEC-002 warning - ([5ae589a](https://github.com/rsvalerio/ops/commit/5ae589aff4c8ae39663b5dd52bbc3f2a2de12531)) - [@rsvalerio](https://github.com/rsvalerio)
+- (**runner**) observe a panicked task while a sibling floods output - ([694e14e](https://github.com/rsvalerio/ops/commit/694e14e5de73df194425f8d6d08a64b69c381d70)) - [@rsvalerio](https://github.com/rsvalerio)
+- (**runner**) own the captured child's process tree and deny it stdin - ([92cfcd5](https://github.com/rsvalerio/ops/commit/92cfcd523e9f04f58bad6f96777d06f8bf8319fc)) - [@rsvalerio](https://github.com/rsvalerio)
+- (**rust-about**) treat a partial-segment members glob as unsupported - ([27cd2f4](https://github.com/rsvalerio/ops/commit/27cd2f47deec7421b4683c35866a011ff895c277)) - [@rsvalerio](https://github.com/rsvalerio), Claude Opus 5 (1M context)
+- (**sec**) bound each trivy scan and refuse to report success when no scan ran - ([f5daaa8](https://github.com/rsvalerio/ops/commit/f5daaa82486389bd7ca2ae93dc333a67e417a0a2)) - [@rsvalerio](https://github.com/rsvalerio)
+- (**theme**) sanitise report title, row label and row result - ([311886c](https://github.com/rsvalerio/ops/commit/311886cc640214a8fab2019edaa26c4a250e862c)) - [@rsvalerio](https://github.com/rsvalerio), Claude Opus 5 (1M context)
+- (**theme**) clamp the border title and pad flat report details - ([24721f3](https://github.com/rsvalerio/ops/commit/24721f3a15bf037b325d0d01ab0ecf037ebdc9de)) - [@rsvalerio](https://github.com/rsvalerio), Claude Opus 5 (1M context)
+- (**theme**) clamp rendered lines to their column budget - ([89938e6](https://github.com/rsvalerio/ops/commit/89938e656554beaa1111f190ef88d8d6b9e586c8)) - [@rsvalerio](https://github.com/rsvalerio)
+- (**theme**) sanitise subprocess stderr before rendering it - ([8e9ca34](https://github.com/rsvalerio/ops/commit/8e9ca34aafb741681208364788dbd0c86b733459)) - [@rsvalerio](https://github.com/rsvalerio)
+- (**theme**) strip 8-bit C1 introducers and bare control bytes - ([4a18a97](https://github.com/rsvalerio/ops/commit/4a18a979efbc9125a665df0a957f1db4dee9fe0d)) - [@rsvalerio](https://github.com/rsvalerio)
+- (**theme**) gate colour on stderr alone, not stdout or stderr - ([277e583](https://github.com/rsvalerio/ops/commit/277e583b91efebd536c1b9a0cb6f0d84ae1e9328)) - [@rsvalerio](https://github.com/rsvalerio)
+#### ⚡ Performance
+- (**about**) bound the rust about caches' victim queues below the cap - ([b6cf657](https://github.com/rsvalerio/ops/commit/b6cf65777a5b41cb708822676e2f6c091adaf70b)) - [@rsvalerio](https://github.com/rsvalerio), Claude Opus 5 (1M context)
+- (**runner**) buffer tap-file writes and flush them at RunFinished - ([819e0a9](https://github.com/rsvalerio/ops/commit/819e0a90aa5518bcfc47e9cc44c7949fb21218f8)) - [@rsvalerio](https://github.com/rsvalerio)
+- (**runner**) stop the stderr tail ring pinning each step's capture buffer - ([73e9c45](https://github.com/rsvalerio/ops/commit/73e9c45df97e07e26c597558bfd0805c71891dd6)) - [@rsvalerio](https://github.com/rsvalerio)
+#### 📚 Documentation
+- (**runner**) state the real capture-retention bound for a plan - ([c8c72b6](https://github.com/rsvalerio/ops/commit/c8c72b65f8276a556f1b0fd489d6b3613a0daefa)) - [@rsvalerio](https://github.com/rsvalerio)
+- correct ownership and construction advice on two public APIs - ([13f2f2d](https://github.com/rsvalerio/ops/commit/13f2f2d2b130e9b64ff649fb55e516192055fdf1)) - [@rsvalerio](https://github.com/rsvalerio), Claude Opus 5 (1M context)
+#### 🧪 Testing
+- (**about**) share the warn-capture harness and the dispatcher pin - ([ad55b09](https://github.com/rsvalerio/ops/commit/ad55b096c05998cbbddd1ee20a2990f1ef20c69d)) - [@rsvalerio](https://github.com/rsvalerio)
+- (**about-rust**) cover RustDepsProvider and the identity metrics module - ([08ec3f7](https://github.com/rsvalerio/ops/commit/08ec3f7c87c3ec761747cf7777ee69f41d273021)) - [@rsvalerio](https://github.com/rsvalerio)
+- (**cargo-toml**) assert with_root actually reaches the registered provider - ([f36806f](https://github.com/rsvalerio/ops/commit/f36806f7df440a6b84ba733bd1780ffb8c1312e5)) - [@rsvalerio](https://github.com/rsvalerio)
+- (**cli**) serialise the two run_until_signal tests - ([4044bba](https://github.com/rsvalerio/ops/commit/4044bba4acc455d06863acd49231a486163013f9)) - [@rsvalerio](https://github.com/rsvalerio), Claude Opus 5 (1M context)
+- (**cli**) cover the pre-commit exit-code contract as spawned commands - ([b2d1a59](https://github.com/rsvalerio/ops/commit/b2d1a59836fa5b842f0e5f266ee0f4c6bccfa99e)) - [@rsvalerio](https://github.com/rsvalerio)
+- (**cli**) restore env vars through an RAII guard and run the lifecycle test by default - ([cbbe721](https://github.com/rsvalerio/ops/commit/cbbe721c06a05d87e2acc4c58f9fb2d3b70d2741)) - [@rsvalerio](https://github.com/rsvalerio)
+- (**deps**) cover the deps command path and stop tests leaking global state - ([a3fad0c](https://github.com/rsvalerio/ops/commit/a3fad0ce912d78b4f162ce0ee5d8256e2bcaa119)) - [@rsvalerio](https://github.com/rsvalerio)
+- (**extension**) cover the factory arms, the registries and error rendering - ([c35f544](https://github.com/rsvalerio/ops/commit/c35f544ae38eb1d5c2ae828f319de34094015ef0)) - [@rsvalerio](https://github.com/rsvalerio)
+- (**runner**) outlive the drain timeout in the grandchild pipe test - ([f152ba8](https://github.com/rsvalerio/ops/commit/f152ba875c71d5620818075fbc722fa5f510270b)) - [@rsvalerio](https://github.com/rsvalerio)
+- (**theme**) assert the raw payloads are gone, not that no ESC exists - ([fa1a0b3](https://github.com/rsvalerio/ops/commit/fa1a0b3818ef5600301a3578c79f3a2230ac7924)) - [@rsvalerio](https://github.com/rsvalerio)
+- (**theme**) pin line width, truncation and error-block colour - ([23a4dc2](https://github.com/rsvalerio/ops/commit/23a4dc20ded04bf1b5122be700d334b1426a42f7)) - [@rsvalerio](https://github.com/rsvalerio)
+- stop two assertions passing for the wrong reason - ([1bac837](https://github.com/rsvalerio/ops/commit/1bac8379c8c8a382d0b9614d91f055b8e0be801e)) - [@rsvalerio](https://github.com/rsvalerio), Claude Opus 5 (1M context)
+#### 🔧 Build System
+- (**about-python**) drop unused anyhow and ops-git deps - ([892264d](https://github.com/rsvalerio/ops/commit/892264dc8b4f7a161ef938dc0d69ca6bb1407229)) - [@rsvalerio](https://github.com/rsvalerio)
+- (**deps**) inherit bitflags from the workspace dependency table - ([115b413](https://github.com/rsvalerio/ops/commit/115b413bc26f89fdb1866f309e66d20c8b6f315b)) - [@rsvalerio](https://github.com/rsvalerio)
+#### 🚜 Refactoring
+- (**about**) centralise the control-char and URL-scheme guards - ([be24389](https://github.com/rsvalerio/ops/commit/be2438946c4226048e3b73b63967d4e6c3ec868e)) - [@rsvalerio](https://github.com/rsvalerio)
+- (**about-rust**) resolve members against the workspace root, not the cwd - ([2dd9ad9](https://github.com/rsvalerio/ops/commit/2dd9ad9f8cc280aceed5b448ca71b81ac055e676)) - [@rsvalerio](https://github.com/rsvalerio)
+- (**extensions**) read Context through accessors and acknowledge register - ([cb25fd3](https://github.com/rsvalerio/ops/commit/cb25fd36fe4ffd18bc5520cf8acd9c6e02f4d304)) - [@rsvalerio](https://github.com/rsvalerio)
+#### ⚙️ Miscellaneous
+- (**backlog**) file TASK-2040 for glob workspace.exclude entries - ([32545de](https://github.com/rsvalerio/ops/commit/32545de0c0ef1821d37863813efa95ebf20effad)) - [@rsvalerio](https://github.com/rsvalerio), Claude Opus 5 (1M context)
+- (**backlog**) close code-review wave 163 - ([0642cb9](https://github.com/rsvalerio/ops/commit/0642cb9eaa0775bea274c99248d3715cdac15d33)) - [@rsvalerio](https://github.com/rsvalerio)
+- (**backlog**) close code-review wave 161 - ([1a57baa](https://github.com/rsvalerio/ops/commit/1a57baa628a8c9f510c0f5792ca8dba704e75ef0)) - [@rsvalerio](https://github.com/rsvalerio)
+- (**backlog**) close code-review wave 159 - ([71368f1](https://github.com/rsvalerio/ops/commit/71368f12ce8567ebc8abd407a99722a98bd035d6)) - [@rsvalerio](https://github.com/rsvalerio)
+- (**backlog**) close code-review wave 160 - ([2849fce](https://github.com/rsvalerio/ops/commit/2849fce0b05a494919317c6aebd5af84338dff3c)) - [@rsvalerio](https://github.com/rsvalerio)
+- (**backlog**) close code-review wave 158 - ([99fba2a](https://github.com/rsvalerio/ops/commit/99fba2af6e23c064e3ba02370142d17faebdf7b7)) - [@rsvalerio](https://github.com/rsvalerio)
+- (**backlog**) close code-review wave 152 - ([fa99824](https://github.com/rsvalerio/ops/commit/fa99824de26823e7dd16757cd0853012c811107f)) - [@rsvalerio](https://github.com/rsvalerio)
+- (**backlog**) close code-review wave 148 - ([daf47c5](https://github.com/rsvalerio/ops/commit/daf47c5cb45e7f281e5fe8e26383b118b321a9a3)) - [@rsvalerio](https://github.com/rsvalerio)
+- (**backlog**) close code-review wave 153 - ([85fd2c5](https://github.com/rsvalerio/ops/commit/85fd2c5b2ab0219e216fd343d94ab285b58fc789)) - [@rsvalerio](https://github.com/rsvalerio)
+- (**backlog**) close code-review wave 151 - ([dd744ac](https://github.com/rsvalerio/ops/commit/dd744acc883a71cbcce190ec459c94b46057c573)) - [@rsvalerio](https://github.com/rsvalerio)
+
+- - -
+
 ## [v0.44.0](https://github.com/rsvalerio/ops/compare/0fc0f4ddc5720e0f334d4014bc55b3c4776c736c..v0.44.0) - 2026-08-28
 #### 🚀 Features
 - (**run-before-push**) gate the hook on git's ref-update stream - ([07e4d33](https://github.com/rsvalerio/ops/commit/07e4d33be4ea3898f6f2f4ce1d19599d9e33fed4)) - [@rsvalerio](https://github.com/rsvalerio)
