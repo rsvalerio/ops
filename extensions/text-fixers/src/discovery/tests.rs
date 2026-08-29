@@ -2,7 +2,7 @@ use std::collections::BTreeSet;
 use std::path::Path;
 
 use super::{discover, walk, Fallback};
-use crate::test_support::{git_add, git_init, is_inside_repo};
+use crate::test_support::{git_add, git_available, git_init, is_inside_repo};
 
 fn names(paths: &[std::path::PathBuf]) -> Vec<String> {
     paths
@@ -189,6 +189,9 @@ fn tracked_mode_joins_paths_relative_to_a_subdirectory_root() {
 fn tracked_mode_falls_back_and_reports_when_root_is_not_a_repository() {
     let dir = tempfile::tempdir().unwrap();
     let root = dir.path();
+    if !git_available() {
+        return; // No git at all: discovery reports GitUnavailable, not NotARepository.
+    }
     if is_inside_repo(root) {
         return; // TMPDIR lives inside a repository; the fixture is void.
     }

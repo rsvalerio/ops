@@ -24,6 +24,18 @@ pub fn git_add(dir: &Path, paths: &[&Path]) -> bool {
     git_os(dir, &args)
 }
 
+/// Whether a usable `git` is on `PATH` at all.
+///
+/// [`is_inside_repo`] cannot distinguish "not a repository" from "git is
+/// missing" — both are `false` — so fixtures that assert on a git-derived
+/// outcome need this second guard before they run.
+pub fn git_available() -> bool {
+    Command::new("git")
+        .arg("--version")
+        .output()
+        .is_ok_and(|o| o.status.success())
+}
+
 /// Whether `dir` is inside a git worktree. Used to skip the
 /// "not a repository" fixtures when `TMPDIR` happens to live inside one.
 pub fn is_inside_repo(dir: &Path) -> bool {
