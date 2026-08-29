@@ -237,6 +237,12 @@ fn tracked_files(root: &Path) -> io::Result<Tracked> {
         .arg("-C")
         .arg(root)
         .args(["ls-files", "-z"])
+        // The `not a git repository` match below reads git's *stderr*, which
+        // git localises. Pin the locale to C so a developer running under a
+        // translated locale still lands on `Fallback::NotARepository` instead
+        // of the hard-error path.
+        .env("LC_ALL", "C")
+        .env("LANGUAGE", "C")
         .output()
     {
         Ok(output) => output,
