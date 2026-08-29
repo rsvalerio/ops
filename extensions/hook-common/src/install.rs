@@ -454,6 +454,14 @@ mod tests {
     fn install_hook_create_failure_leaves_no_hook_file() {
         use std::os::unix::fs::PermissionsExt;
 
+        // TEST-19: root bypasses DAC, so the 0o555 chmod below would not deny
+        // anything and the install would succeed — turning the whole test
+        // into a silent no-op that still reports green. Skip before touching
+        // the permissions rather than after.
+        if ops_core::test_utils::is_root_euid() {
+            return;
+        }
+
         let cfg = commit_config();
         let dir = tempfile::tempdir().expect("tempdir");
         let git_dir = dir.path().join(".git");
