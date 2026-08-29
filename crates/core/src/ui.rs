@@ -33,6 +33,15 @@ use std::io::Write;
 /// responsibility of the caller — they are split before reaching this helper
 /// so each physical line gets its own `ops: <level>:` prefix.
 ///
+/// CL-3 / TASK-2019: passing tab through is safe for this channel — stderr
+/// diagnostics are unframed, so a tab stop bends nothing — but it is *not*
+/// safe to measure, since `UnicodeWidthChar` scores it as zero columns while
+/// a terminal advances to the next 8-column stop. Sanitised text destined for
+/// a width-sensitive layout must therefore still go through `ops-theme`'s
+/// `strip_ansi` / `truncate_to_width`, which rewrite tab to a single space so
+/// measurement and painting agree. This helper is an *escaping* guarantee, not
+/// a measurement one.
+///
 /// SEC-21 / TASK-1843 records two deliberate decisions:
 ///
 /// 1. **C1 is escaped even though not every emulator acts on it.** `U+009B`

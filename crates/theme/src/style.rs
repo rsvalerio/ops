@@ -25,7 +25,7 @@ pub use sgr::{apply_style, apply_style_gated, apply_with_prefix, precompute_sgr_
 // TASK-1976); production code always goes through `color_enabled`.
 #[cfg(test)]
 pub(crate) use sgr::color_enabled_for;
-pub use strip::{strip_ansi, truncate_to_width, visible_width, ELLIPSIS};
+pub use strip::{strip_ansi, truncate_to_width, visible_width, ELLIPSIS, TAB_REPLACEMENT};
 
 #[cfg(test)]
 mod tests {
@@ -91,9 +91,11 @@ mod tests {
         // SEC-11 / TASK-1967: raw C0 and C1 code points used to be excluded
         // from this corpus because `UnicodeWidthStr` and `UnicodeWidthChar`
         // disagree on them. They no longer survive `strip_ansi` (which drops
-        // every control character except tab) nor `visible_width` (which
-        // skips the same set), so the contract now holds over them too and
-        // they are part of the corpus rather than a documented wart.
+        // every control character, rewriting tab to a space) nor
+        // `visible_width` (which scores the same way), so the contract now
+        // holds over them too and they are part of the corpus rather than a
+        // documented wart. CL-3 / TASK-2019 adds tab, the last code point
+        // where the two used to disagree.
         let controls = prop_oneof![
             Just("\r".to_string()),
             Just("\n".to_string()),
@@ -104,6 +106,7 @@ mod tests {
             Just("\u{9b}2J".to_string()),
             Just("\u{9d}0;title\u{9c}".to_string()),
             Just("\u{90}payload\u{9c}".to_string()),
+            Just("\t".to_string()),
         ];
         let visible = "[a-zA-Z0-9 résumé café 🚀ビルド]{0,8}";
         let chunk = prop_oneof![escapes, controls, visible.prop_map(String::from)];
@@ -118,12 +121,13 @@ mod tests {
             );
             let stripped = strip_ansi(&s);
             prop_assert!(!stripped.contains('\x1b'));
-            // SEC-11 / TASK-1967 AC#2: no C0 byte other than tab, no DEL and
-            // no C1 code point survives, for any input.
+            // SEC-11 / TASK-1967 AC#2 + CL-3 / TASK-2019: no C0 byte, no
+            // DEL and no C1 code point survives, for any input — tab
+            // included, since it is rewritten to a space.
             prop_assert!(
                 !stripped
                     .chars()
-                    .any(|c| (c.is_control() && c != '\t') || ('\u{80}'..='\u{9f}').contains(&c)),
+                    .any(|c| c.is_control() || ('\u{80}'..='\u{9f}').contains(&c)),
                 "control byte survived strip_ansi for {:?} -> {:?}",
                 s,
                 stripped
@@ -151,11 +155,23 @@ mod tests {
     #[test]
     fn bare_control_bytes_are_stripped() {
         assert_eq!(strip_ansi("a\rb\nc\u{8}d\u{7f}e"), "abcde");
-        // Tab is the one control character that is kept: it is legitimate
-        // layout, and `sanitise_line` in ops-core preserves it too.
-        assert_eq!(strip_ansi("a\tb"), "a\tb");
         assert_eq!(strip_ansi("\u{85}next"), "next");
         assert_eq!(visible_width("a\rb"), 2);
+    }
+
+    /// CL-3 / TASK-2019 AC#1: tab used to survive stripping while measuring
+    /// as zero columns, so a tabbed line painted wider than it measured and
+    /// pushed the boxed frame's closing bar out of column. It is now
+    /// rewritten to one space by every helper that shares the grammar, so
+    /// measurement and painting agree.
+    #[test]
+    fn tab_is_rewritten_to_one_space_in_every_helper() {
+        assert_eq!(strip_ansi("a\tb"), "a b");
+        assert_eq!(visible_width("a\tb"), 3);
+        assert_eq!(truncate_to_width("a\tb", 10), "a b");
+        assert_eq!(truncate_to_width("a\tb", 2), "a\u{2026}");
+        assert!(!strip_ansi("\tstart").contains('\t'));
+        assert_eq!(TAB_REPLACEMENT, ' ');
     }
 
     /// CL-3 / TASK-1969: the truncation policy — visible width is bounded,

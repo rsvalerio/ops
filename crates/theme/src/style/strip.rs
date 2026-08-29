@@ -28,11 +28,20 @@
 //!   They are consumed with the same payload rules, and `U+009C` (ST)
 //!   terminates a string sequence just like `ESC \`.
 //! - **Bare control characters** (SEC-11 / TASK-1967): every remaining C0
-//!   code point except tab (`\r`, `\n`, `\x08`, `\x07`, …), `DEL` (`\x7f`)
-//!   and every non-introducer C1 code point is dropped. They measure as zero
-//!   columns but the terminal *acts* on them — a bare `\r` returns to column
-//!   0 and overwrites a box frame — so a "stripped" string must not still
-//!   carry them.
+//!   code point (`\r`, `\n`, `\x08`, `\x07`, …), `DEL` (`\x7f`) and every
+//!   non-introducer C1 code point is dropped. They measure as zero columns
+//!   but the terminal *acts* on them — a bare `\r` returns to column 0 and
+//!   overwrites a box frame — so a "stripped" string must not still carry
+//!   them.
+//! - **Tab** (CL-3 / TASK-2019): the one control character that used to be
+//!   passed through. It measures as zero columns
+//!   (`UnicodeWidthChar::width('\t')` is `None`) while a terminal advances
+//!   the cursor to the next 8-column stop, so a tab in captured stderr made
+//!   every boxed frame under-pad and the closing bar land short. It is
+//!   rewritten to a single space ([`TAB_REPLACEMENT`]) here, where the
+//!   painted string is produced, so measurement and painting agree. A fixed
+//!   tab stop cannot be honoured instead: these helpers see a fragment, not
+//!   its column offset inside the frame.
 
 use std::borrow::Cow;
 use std::str::Chars;
@@ -67,6 +76,16 @@ const fn is_droppable_control(c: char) -> bool {
     matches!(c, '\u{0}'..='\u{8}' | '\u{a}'..='\u{1f}' | '\u{7f}'..='\u{9f}')
 }
 
+/// CL-3 / TASK-2019: what a tab is rewritten to by this module. One space,
+/// not an 8-column stop — see the module docs.
+pub const TAB_REPLACEMENT: char = ' ';
+
+/// True for characters this module rewrites or removes, i.e. every character
+/// for which the output cannot simply borrow the input.
+const fn is_rewritten(c: char) -> bool {
+    c == '\t' || is_droppable_control(c)
+}
+
 impl<'a> Iterator for AnsiPieces<'a> {
     type Item = AnsiPiece<'a>;
 
@@ -97,6 +116,9 @@ impl<'a> Iterator for AnsiPieces<'a> {
                     self.consume_string_terminated();
                     return Some(AnsiPiece::Escape(self.consumed_from(rest)));
                 }
+                // CL-3 / TASK-2019: tab is measured and painted as one
+                // column so the boxed frame's right pad stays exact.
+                '\t' => return Some(AnsiPiece::Visible(TAB_REPLACEMENT)),
                 c if is_droppable_control(c) => {}
                 c => return Some(AnsiPiece::Visible(c)),
             }
@@ -158,11 +180,11 @@ pub fn visible_width(s: &str) -> usize {
         .fold(0usize, usize::saturating_add)
 }
 
-/// Remove every ANSI escape sequence and every non-tab control character
-/// from `s`.
+/// Remove every ANSI escape sequence and every control character from `s`,
+/// rewriting tab to [`TAB_REPLACEMENT`].
 ///
-/// SEC-11 / TASK-1967: the result is guaranteed to contain no C0 code point
-/// other than tab, no `DEL`, and no C1 code point — so callers may treat it
+/// SEC-11 / TASK-1967, CL-3 / TASK-2019: the result is guaranteed to contain
+/// no C0 code point, no `DEL`, and no C1 code point — so callers may treat it
 /// as safe to print *and* safe to measure with a width helper.
 #[must_use]
 pub fn strip_ansi(s: &str) -> String {
@@ -190,7 +212,8 @@ const RESET: &str = "\x1b[0m";
 ///   mid-string would change the styling of what survives); a `\x1b[0m` reset
 ///   is appended whenever a truncated string carried an escape, so the cut
 ///   cannot leave the terminal in a styled state.
-/// - Control characters are dropped, exactly as [`strip_ansi`] drops them.
+/// - Control characters are dropped and tab is rewritten to
+///   [`TAB_REPLACEMENT`], exactly as [`strip_ansi`] treats them.
 /// - When content is dropped, the last visible column is spent on
 ///   [`ELLIPSIS`] so the reader can see the line was cut. `max_cols == 0`
 ///   therefore yields an empty visible string.
@@ -199,7 +222,7 @@ const RESET: &str = "\x1b[0m";
 #[must_use]
 pub fn truncate_to_width(s: &str, max_cols: usize) -> Cow<'_, str> {
     let fits = visible_width(s) <= max_cols;
-    if fits && !s.chars().any(is_droppable_control) {
+    if fits && !s.chars().any(is_rewritten) {
         return Cow::Borrowed(s);
     }
     // When content must be dropped, reserve the last column for the ellipsis

@@ -105,3 +105,45 @@ fn report_details_are_sanitised_on_both_layouts() {
         assert!(!line.contains('\r'), "boxed: {line:?}");
     }
 }
+
+/// CL-3 / TASK-2019 AC#2: tab is the one control character `sanitise_line`
+/// deliberately passes through, and it used to reach the frame unmeasured —
+/// `UnicodeWidthChar` scores it as zero columns while the terminal advances
+/// to the next 8-column stop, so the right pad came out too long and the
+/// closing bar landed short. Tabs are ordinary in rustc notes and test-runner
+/// panics, so this is the common case rather than an adversarial one.
+#[test]
+fn boxed_error_block_keeps_frame_width_with_tabbed_stderr() {
+    let theme = ConfigurableTheme::new(ThemeConfig {
+        layout_kind: LayoutKind::Boxed,
+        left_pad: 0,
+        error_block: chars(),
+        ..ThemeConfig::compact()
+    });
+    let columns = 60u16;
+    let detail = ErrorDetail::new(
+        "exit status: 101".to_string(),
+        vec![
+            "note:\tunsatisfied trait bound".to_string(),
+            "\t\tleft: 1\tright: 2".to_string(),
+        ],
+    );
+    let lines = theme.render_error_detail(&detail, columns);
+    assert!(!lines.is_empty());
+    assert!(
+        lines.iter().any(|l| l.contains("unsatisfied trait bound")),
+        "the tabbed detail must be rendered: {lines:?}"
+    );
+    for line in &lines {
+        assert_eq!(
+            visible_width(line),
+            usize::from(columns),
+            "tabbed detail line must match the frame width: {line:?}"
+        );
+        assert!(line.ends_with(" │"), "closing bar: {line:?}");
+        assert!(
+            !line.contains('\t'),
+            "tab survived into the frame: {line:?}"
+        );
+    }
+}
