@@ -265,6 +265,17 @@ impl AboutCardBuilder {
 //   `"  " (LEADING) + emoji (EMOJI_COLS) + " " (KEY_SEP) + padded_key
 //      (max_key_len + KEY_PAD) + " " (VALUE_SEP) + value`
 const LEADING_COLS: usize = 2;
+/// PATTERN-1 / TASK-1844: the emoji column is a **fixed two-cell slot**, not
+/// an assertion about the glyph. Measured against the workspace's pinned
+/// `unicode-width`, two of the glyphs [`field_emoji`] can return are one cell
+/// wide — ⬢ (`U+2B22`, the Node/JavaScript stack glyph) and ▸ (`U+25B8`, the
+/// catch-all fallback, which `module_label = "crate"` reaches) — while the
+/// rest are two. Interpolating the glyph unmeasured therefore started those
+/// rows' key column one cell to the left, and their continuation lines
+/// (built from this constant) one cell to the right of their own first value
+/// line. [`render_field`] now pads every glyph to this width with
+/// `pad_to_display_width`, so the constant describes the rendered column
+/// rather than asserting a property of the glyph set.
 const EMOJI_COLS: usize = 2;
 const KEY_SEP_COLS: usize = 1;
 const KEY_PAD_COLS: usize = 2;
@@ -302,7 +313,11 @@ fn render_field(
     is_tty: bool,
 ) -> Vec<String> {
     let styled = |s: &str| dim_gated(s, is_tty).into_owned();
-    let emoji = field_emoji(key, value);
+    // PATTERN-1 / TASK-1844: pad the glyph to the measured `EMOJI_COLS` slot
+    // so a width-1 glyph does not shift this row's key and value columns —
+    // and so `cont_indent`, which is derived from the same constant, matches
+    // this row's actual emoji width.
+    let emoji = pad_to_display_width(field_emoji(key, value), EMOJI_COLS);
     let mut value_lines = value.split('\n');
     let first = value_lines.next().unwrap_or("");
     // DUP-3 / TASK-1390: route through the shared pad helper so a future
@@ -347,6 +362,76 @@ mod tests {
             value_col(name_line, "alpha"),
             value_col(cjk_line, "beta"),
             "value column must align by display width"
+        );
+    }
+
+    /// PATTERN-1 / TASK-1844 AC#3: a width-2 glyph row (`license` → 📜) and a
+    /// width-1 glyph row (`stack` → ⬢ for Node, the fallback ▸ for an
+    /// unmapped key) must start their value column at the same terminal
+    /// column. The pre-existing test above cannot see this: both of its rows
+    /// take the same ▸ fallback, so their equally-wrong widths cancel out.
+    #[test]
+    fn render_field_aligns_rows_mixing_width_1_and_width_2_glyphs() {
+        let card = AboutCardBuilder::default()
+            .fields(vec![
+                ("license".to_string(), "alpha".to_string()),
+                ("stack".to_string(), "Node".to_string()),
+                ("crate".to_string(), "gamma".to_string()),
+            ])
+            .build();
+        let rendered = card.render(false);
+        let lines: Vec<&str> = rendered.lines().collect();
+        let value_col = |value: &str| -> usize {
+            let line = lines
+                .iter()
+                .find(|l| l.contains(value))
+                .unwrap_or_else(|| panic!("no rendered line contains {value:?}"));
+            let idx = line.find(value).unwrap();
+            display_width(line.get(..idx).expect("find returns a char boundary"))
+        };
+        // Sanity-check the premise: the two glyphs really do differ in width.
+        assert_eq!(display_width(field_emoji("stack", "Node")), 1);
+        assert_eq!(display_width(field_emoji("license", "alpha")), 2);
+
+        assert_eq!(
+            value_col("alpha"),
+            value_col("Node"),
+            "a width-1 stack glyph must not shift its value column"
+        );
+        assert_eq!(
+            value_col("alpha"),
+            value_col("gamma"),
+            "the width-1 fallback glyph must not shift its value column"
+        );
+    }
+
+    /// PATTERN-1 / TASK-1844 AC#4: `continuation_indent` is built from the
+    /// fixed `EMOJI_COLS` slot, so a width-1-emoji row's continuation lines
+    /// used to land one column right of that row's own first value line. The
+    /// Node stack row is exactly this shape — `compose_stack_value` appends
+    /// the stack detail as a second line.
+    #[test]
+    fn multi_line_value_on_width_1_emoji_row_aligns_its_continuation() {
+        let card = AboutCardBuilder::default()
+            .fields(vec![
+                ("license".to_string(), "alpha".to_string()),
+                ("stack".to_string(), "Node\nESM".to_string()),
+            ])
+            .build();
+        let rendered = card.render(false);
+        let lines: Vec<&str> = rendered.lines().collect();
+        let col = |value: &str| -> usize {
+            let line = lines
+                .iter()
+                .find(|l| l.contains(value))
+                .unwrap_or_else(|| panic!("no rendered line contains {value:?}"));
+            let idx = line.find(value).unwrap();
+            display_width(line.get(..idx).expect("find returns a char boundary"))
+        };
+        assert_eq!(
+            col("Node"),
+            col("ESM"),
+            "continuation must align with its own first value line"
         );
     }
 
