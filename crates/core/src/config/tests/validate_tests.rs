@@ -817,6 +817,47 @@ fn validate_commands_memo_still_enforces_depth_limit() {
     );
 }
 
+/// SEC-33 / TASK-1832, direct form: the sibling test above drives
+/// `validate_commands`, which only reaches the memo *incidentally* — a change
+/// to root ordering could make it stop exercising the memo-hit branch at all
+/// while still passing. This one calls [`Config::walk_composite`] itself:
+/// walk `mid` once at depth 0 so its height memoises, then re-enter the very
+/// same node at [`MAX_COMPOSITE_DEPTH`] with the same [`CompositeWalk`]. Only
+/// the `depth + height` re-check on the memo hit can reject that; a bare
+/// "seen" flag returns `Ok` and fails open.
+#[test]
+fn walk_composite_memo_hit_rechecks_depth() {
+    use crate::config::root::CompositeWalk;
+    use crate::config::CompositeCommandSpec;
+    let mut config = Config::default();
+    // mid -> leaf, so `mid` memoises with height 1 rather than 0 and the
+    // re-check has something to add to the entry depth.
+    config.commands.insert(
+        "mid".to_string(),
+        CommandSpec::Composite(CompositeCommandSpec::new(["leaf"])),
+    );
+    config.commands.insert(
+        "leaf".to_string(),
+        CommandSpec::Composite(CompositeCommandSpec::new(Vec::<String>::new())),
+    );
+    let known: std::collections::HashSet<&str> = ["mid", "leaf"].into_iter().collect();
+
+    let mut state = CompositeWalk::default();
+    let height = config
+        .walk_composite("mid", &known, &mut state, 0)
+        .expect("a two-node chain validates at depth 0");
+    assert_eq!(height, 1, "mid -> leaf is one edge tall");
+    assert!(state.path_is_empty(), "the DFS path must unwind fully");
+
+    let err = config
+        .walk_composite("mid", &known, &mut state, MAX_COMPOSITE_DEPTH)
+        .expect_err("a memoised node re-entered at the limit still overflows it");
+    assert!(
+        format!("{err:#}").contains("depth"),
+        "expected a depth-limit error, got: {err:#}"
+    );
+}
+
 /// SEC-33 / TASK-1849: `left_pad` sizes `" ".repeat(n)` in three renderers,
 /// and nothing validated `[themes]`, so a ~400-byte `.ops.toml` could panic
 /// the process with a capacity overflow. It must now be a clean `Err` from the
