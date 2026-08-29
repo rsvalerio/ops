@@ -3,11 +3,11 @@ id: TASK-2058
 title: >-
   DUP-3: seven TracingBuf consumers still hand-roll the fmt subscriber that
   capture_tracing now owns
-status: To Do
+status: Done
 assignee:
   - TASK-2061
 created_date: '2026-08-29 13:54'
-updated_date: '2026-08-29 17:27'
+updated_date: '2026-08-29 18:28'
 labels:
   - code-review-rust
   - duplication
@@ -65,7 +65,13 @@ different things across the crates.
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 Each of the seven inline TracingBuf + tracing_subscriber::fmt() sites uses ops_about::test_support::capture_tracing (or capture_warn) instead
-- [ ] #2 extensions-rust/deps/src/test_support.rs drops its private BufWriter/MakeWriter scaffold in favour of the shared harness
-- [ ] #3 No capture site is left without a global-dispatcher pin; assertions at each site are unchanged
+- [x] #1 Each of the seven inline TracingBuf + tracing_subscriber::fmt() sites uses ops_about::test_support::capture_tracing (or capture_warn) instead
+- [x] #2 extensions-rust/deps/src/test_support.rs drops its private BufWriter/MakeWriter scaffold in favour of the shared harness
+- [x] #3 No capture site is left without a global-dispatcher pin; assertions at each site are unchanged
 <!-- AC:END -->
+
+## Implementation Notes
+
+<!-- SECTION:NOTES:BEGIN -->
+TASK-2061: all seven enumerated sites now call ops_core::test_utils::capture_tracing via ops_about::test_support (deps_provider, members x2, units, manifest_cache, ingestor, payload_cap, create-review-tasks provider). extensions-rust/deps/src/test_support.rs dropped its BufWriter/MakeWriter scaffold and with_captured_logs; its five call sites use the shared capture_tracing (all passed ansi=false, so no capability lost). An eighth site the task did not enumerate, extensions-rust/about/src/manifest.rs, was the same shape and was converted too. extensions-rust/about/src/coverage_provider.rs is deliberately left alone: it installs per-thread subscribers over a shared buffer, which capture_tracing cannot express, and it pins the global dispatcher itself. Six further hand-rolled scaffolds outside this scope are filed as TASK-2069.
+<!-- SECTION:NOTES:END -->

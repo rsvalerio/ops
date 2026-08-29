@@ -3,11 +3,11 @@ id: TASK-2059
 title: >-
   DRY-1: three env-var guards with the same job and different contracts, now
   that CwdGuard has one home
-status: To Do
+status: Done
 assignee:
   - TASK-2061
 created_date: '2026-08-29 13:54'
-updated_date: '2026-08-29 17:27'
+updated_date: '2026-08-29 18:28'
 labels:
   - code-review-rust
   - duplication
@@ -52,7 +52,13 @@ is now a well-worn path in this tree.
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 One env-var guard exists in the workspace, in ops_core::test_utils, re-exported by the crates that used to define their own
-- [ ] #2 The surviving guard covers every constructor the four copies offered (set, unset/remove, and OsStr-valued keys) so no call site loses a capability
-- [ ] #3 Existing import paths keep working via re-export, or every call site is updated; the suites stay green under cargo test and nextest
+- [x] #1 One env-var guard exists in the workspace, in ops_core::test_utils, re-exported by the crates that used to define their own
+- [x] #2 The surviving guard covers every constructor the four copies offered (set, unset/remove, and OsStr-valued keys) so no call site loses a capability
+- [x] #3 Existing import paths keep working via re-export, or every call site is updated; the suites stay green under cargo test and nextest
 <!-- AC:END -->
+
+## Implementation Notes
+
+<!-- SECTION:NOTES:BEGIN -->
+TASK-2061: ops_core::test_utils::EnvGuard is now the workspaces only env-var guard. It is OsStr-keyed and OsStr-valued and carries every constructor the four copies offered: set, remove, unset (alias), set_value, unset_value. ops_cli::test_utils re-exports it as EnvVarGuard, ops_deps::test_support re-exports it as EnvVarGuard, ops_hook_common::test_helpers re-exports it as EnvGuard, so every existing import path and call site is unchanged. Two call sites lost a now-needless & on a format! argument (clippy::needless_borrows_for_generic_args) after the value type widened to AsRef<OsStr>. Suites green: cargo nextest run --workspace --all-features 2966 passed, cargo test --workspace --all-features --doc clean.
+<!-- SECTION:NOTES:END -->
