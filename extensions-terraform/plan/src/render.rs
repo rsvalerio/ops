@@ -43,9 +43,44 @@ const ACTION_DISPLAY_ORDER: [Action; 7] = [
 /// `char::is_control` is the Unicode `Cc` category: U+0000..=U+001F
 /// (ESC, CR, LF, TAB included) and U+007F..=U+009F (DEL and the C1
 /// controls). Everything in it is removed.
+///
+/// SEC-11: `Cc` is not the whole attack surface. The `Cf` format
+/// characters that matter here are invisible to comfy-table's width
+/// accounting yet change what the operator reads:
+///
+/// - **Bidi overrides / isolates** (U+202A..=U+202E, U+2066..=U+2069)
+///   reverse the rendered order of a resource name or module path, so the
+///   row an operator scans before approving an apply does not read as what
+///   the plan actually does.
+/// - **Zero-width characters** (U+200B..=U+200F, U+2060..=U+2064, U+FEFF)
+///   render as nothing at all, so a name can forge alignment or split a
+///   recognizable token such as `aws_db_instance` into something a
+///   reviewer skims past.
+///
+/// The class list mirrors the one `ops_core::ui::sanitise_line` applies on
+/// the stderr channel (bidi controls plus the C1 range, already covered
+/// here by `is_control`) so the two channels do not drift. It deliberately
+/// does not *call* that helper: `sanitise_line` escapes offenders into
+/// visible `\xNN` text, which is right for a log line but wrong for a
+/// fixed-width table cell whose width budget comes from the string it is
+/// handed.
 #[must_use]
 pub(crate) fn sanitize_terminal_text(value: &str) -> String {
-    value.chars().filter(|c| !c.is_control()).collect()
+    value
+        .chars()
+        .filter(|c| !c.is_control() && !is_forbidden_format_char(*c))
+        .collect()
+}
+
+/// The `Cf` format characters [`sanitize_terminal_text`] removes.
+const fn is_forbidden_format_char(c: char) -> bool {
+    matches!(c,
+        '\u{200b}'..='\u{200f}'   // ZWSP, ZWNJ, ZWJ, LRM, RLM
+        | '\u{202a}'..='\u{202e}' // bidi embeddings and overrides
+        | '\u{2060}'..='\u{2064}' // word joiner and invisible operators
+        | '\u{2066}'..='\u{2069}' // bidi isolates
+        | '\u{feff}'              // zero-width no-break space / BOM
+    )
 }
 
 /// SEC-11 / TASK-1939: the single constructor for untrusted text cells.
@@ -626,5 +661,33 @@ mod tests {
         );
         assert_eq!(sanitize_terminal_text("a\tb\nc"), "abc");
         assert_eq!(sanitize_terminal_text(""), "");
+    }
+
+    /// SEC-11: bidi controls and zero-width characters are `Cf`, not `Cc`,
+    /// so `char::is_control` alone let them through — invisible to the
+    /// width budget but able to reverse or hide what an operator reads.
+    #[test]
+    fn sanitize_terminal_text_strips_bidi_and_zero_width() {
+        // A bidi override can make `delete` render backwards.
+        assert_eq!(
+            sanitize_terminal_text("aws_db_instance.\u{202e}etaerc\u{202c}"),
+            "aws_db_instance.etaerc"
+        );
+        // Isolates.
+        assert_eq!(
+            sanitize_terminal_text("\u{2066}mod\u{2067}ule\u{2068}.a\u{2069}"),
+            "module.a"
+        );
+        // Zero-width characters that split a recognizable token.
+        assert_eq!(
+            sanitize_terminal_text("aws\u{200b}_db\u{200d}_inst\u{feff}ance"),
+            "aws_db_instance"
+        );
+        assert_eq!(sanitize_terminal_text("a\u{2060}b\u{200e}c"), "abc");
+        // Every removed character is zero-width or reordering, so the
+        // sanitized text is never longer than what came in.
+        for c in ['\u{200b}', '\u{202e}', '\u{2069}', '\u{feff}'] {
+            assert_eq!(sanitize_terminal_text(&c.to_string()), "");
+        }
     }
 }
