@@ -482,6 +482,7 @@ fn normalize_url_key(key: &str) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use ops_about::test_support::capture_tracing;
     use ops_core::project_identity::ProjectIdentity;
 
     /// DUP-1 / TASK-1763: sixteen tests in this module opened with the same
@@ -511,31 +512,6 @@ mod tests {
         let provider = PythonIdentityProvider;
         let mut ctx = ops_extension::Context::test_context(root.to_path_buf());
         serde_json::from_value(provider.provide(&mut ctx).unwrap()).unwrap()
-    }
-
-    /// Capture the WARN records `f` emits, rendered as text.
-    ///
-    /// TEST-5 / TASK-1756 + TASK-1757: several contracts in this crate *are*
-    /// the warn record — its presence, its `path`, and its `recovery` field —
-    /// so asserting on rendered output is the only way to pin them.
-    fn capture_warns<T>(f: impl FnOnce() -> T) -> (T, String) {
-        // `tracing` caches each callsite's `Interest` process-wide against the
-        // dispatchers registered when that callsite is first hit. A sibling
-        // test running in parallel can first-hit one of the warn callsites
-        // below while only scoped subscribers exist, caching
-        // `Interest::never()` so the warn never fires again and this capture
-        // comes back empty at random. `count_warnings` pins a global
-        // dispatcher and rebuilds the interest cache exactly once per test
-        // binary — see its doc comment in `ops_about::test_support`.
-        let ((), _) = ops_about::test_support::count_warnings(|| ());
-        let buf = ops_about::test_support::TracingBuf::default();
-        let subscriber = tracing_subscriber::fmt()
-            .with_writer(buf.clone())
-            .with_max_level(tracing::Level::WARN)
-            .with_ansi(false)
-            .finish();
-        let out = tracing::subscriber::with_default(subscriber, f);
-        (out, buf.captured())
     }
 
     /// ERR-7 (TASK-0818): manifest paths flow through `tracing::warn!` via
@@ -981,8 +957,9 @@ Documentation = "https://docs.x"
         urls.insert("Home-Page".to_string(), "https://first.dev".to_string());
         urls.insert("home page".to_string(), "https://second.dev".to_string());
 
-        let (picked, logs) =
-            capture_warns(|| pick_url(&normalize_urls(&urls), &["homepage", "home", "home-page"]));
+        let (logs, picked) = capture_tracing(tracing::Level::WARN, || {
+            pick_url(&normalize_urls(&urls), &["homepage", "home", "home-page"])
+        });
 
         assert_eq!(picked.as_deref(), Some("https://first.dev"));
         assert!(
@@ -1024,7 +1001,7 @@ Documentation = "https://docs.x"
             "https://second.dev".to_string(),
         );
 
-        let (_, logs) = capture_warns(|| normalize_urls(&urls));
+        let (logs, _) = capture_tracing(tracing::Level::WARN, || normalize_urls(&urls));
 
         assert!(
             logs.contains("normalized_key="),
@@ -1076,7 +1053,7 @@ Home-Page = "https://first.dev"
         let manifest = dir.path().join("pyproject.toml");
         ops_about::test_support::write_file(&manifest, "[project\nname = \"demo\"\n");
 
-        let (id, logs) = capture_warns(|| identity_at(dir.path()));
+        let (logs, id) = capture_tracing(tracing::Level::WARN, || identity_at(dir.path()));
 
         assert!(
             !id.name.is_empty(),
@@ -1134,7 +1111,7 @@ requires-python = ">=3.11"
 "#,
         );
 
-        let (id, logs) = capture_warns(|| identity_at(dir.path()));
+        let (logs, id) = capture_tracing(tracing::Level::WARN, || identity_at(dir.path()));
 
         assert_eq!(id.name, "demo", "a sibling field must survive");
         assert_eq!(id.description.as_deref(), Some("A demo"));
