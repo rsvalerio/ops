@@ -302,7 +302,29 @@ fn write_summary_reports_each_counter_in_its_own_slot() {
 
     assert_eq!(
         String::from_utf8(buf).unwrap(),
-        "check-json: scanned 7 file(s), 2 failed, 3 skipped\n"
+        "check-json: scanned 7 file(s), 2 failed, 3 skipped, 0 walk error(s)\n"
+    );
+}
+
+/// A run whose only problem is a traversal error must say so in the summary:
+/// `failed()` is true (the walk hid candidates), so a line reporting only
+/// "0 failed" would contradict the non-zero exit.
+#[test]
+fn the_summary_reports_walk_errors() {
+    let report = CheckerReport {
+        files_scanned: 1,
+        files_failed: Vec::new(),
+        files_skipped: 0,
+        walk_errors: vec!["denied/: permission denied".to_string()],
+    };
+    assert!(report.failed(), "a walk error must fail the run");
+
+    let mut buf = Vec::new();
+    write_summary(&report, "check-json", &mut buf).unwrap();
+
+    assert_eq!(
+        String::from_utf8(buf).unwrap(),
+        "check-json: scanned 1 file(s), 0 failed, 0 skipped, 1 walk error(s)\n"
     );
 }
 

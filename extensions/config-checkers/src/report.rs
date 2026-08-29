@@ -74,9 +74,10 @@ pub fn write_summary(
 ) -> std::io::Result<()> {
     writeln!(
         writer,
-        "{label}: scanned {} file(s), {} failed, {} skipped",
+        "{label}: scanned {} file(s), {} failed, {} skipped, {} walk error(s)",
         report.files_scanned,
         report.files_failed.len(),
         report.files_skipped,
+        report.walk_errors.len(),
     )
 }
