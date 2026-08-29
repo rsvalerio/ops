@@ -396,7 +396,7 @@ fn set_hook_executable(path: &Path) -> anyhow::Result<()> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::fixtures::{commit_config, push_config};
+    use crate::fixtures::{commit_config, push_config, truncated_hook_script};
 
     #[test]
     fn install_hook_creates_executable_file_commit() {
@@ -504,7 +504,7 @@ mod tests {
         // What an interruption can leave behind: a staged, partially written
         // sibling. Never a partial `pre-commit`.
         let orphan = hooks.join(".pre-commit.ops-tmp.AbCxYz");
-        std::fs::write(&orphan, "#!/usr/bin/env bash\nexec ops run-before-com").unwrap();
+        std::fs::write(&orphan, truncated_hook_script(&cfg)).unwrap();
         assert!(!hooks.join("pre-commit").exists());
 
         let mut buf = Vec::new();
@@ -523,7 +523,7 @@ mod tests {
     #[test]
     fn install_hook_replaces_truncated_hook_rather_than_calling_it_foreign() {
         let cfg = commit_config();
-        for partial in ["", "   \n", "#!/usr/bin/env bash\nexec ops run-before-com"] {
+        for partial in ["", "   \n", truncated_hook_script(&cfg)] {
             let dir = tempfile::tempdir().expect("tempdir");
             let git_dir = dir.path().join(".git");
             std::fs::create_dir_all(git_dir.join("hooks")).unwrap();
@@ -552,7 +552,7 @@ mod tests {
         );
         assert_eq!(classify_existing_hook("", &cfg), ExistingHook::Partial);
         assert_eq!(
-            classify_existing_hook("#!/usr/bin/env bash\nexec ops run-before-com", &cfg),
+            classify_existing_hook(truncated_hook_script(&cfg), &cfg),
             ExistingHook::Partial
         );
         assert_eq!(
