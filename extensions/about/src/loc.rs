@@ -132,7 +132,7 @@ fn format_region_table(stats: &[&RustLocStat]) -> String {
     for stat in stats {
         let (_, name) = region_display(&stat.region);
         table.add_row(vec![
-            Cell::new(capitalize(name)),
+            OpsTable::text_cell(&capitalize(name)),
             Cell::new(format_number(stat.files)),
             Cell::new(format_number(stat.code)),
             Cell::new(format_number(stat.docs)),

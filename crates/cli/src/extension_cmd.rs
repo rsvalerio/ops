@@ -232,17 +232,19 @@ fn build_extension_row(
         .map(std::string::ToString::to_string)
         .unwrap_or_default();
 
+    // SEC-11 / TASK-2032: extension metadata is registry-supplied text, so
+    // every cell here is built through `OpsTable`'s sanitising constructors.
     let data_cell = if table.is_tty() && !data_provider.is_empty() {
-        Cell::new(&data_provider).fg(Color::Green)
+        OpsTable::text_cell(&data_provider).fg(Color::Green)
     } else {
-        Cell::new(&data_provider)
+        OpsTable::text_cell(&data_provider)
     };
 
     vec![
         table.cell(config_name, Color::Cyan),
-        Cell::new(info.shortname),
-        Cell::new(format_list(types)),
-        Cell::new(format_list(commands)),
+        OpsTable::text_cell(info.shortname),
+        OpsTable::text_cell(&format_list(types)),
+        OpsTable::text_cell(&format_list(commands)),
         data_cell,
         table.cell(info.description, Color::DarkGrey),
     ]
