@@ -53,11 +53,15 @@ impl ConfigurableTheme {
         let pad = self.left_pad_str();
         let mut out = Vec::with_capacity(report.rows.len().saturating_mul(2).saturating_add(4));
         out.push(String::new());
-        let title = apply_with_prefix(&report.title, self.report_title_prefix.as_deref());
+        // SEC-21: the title is producer-supplied text on the same footing as
+        // the detail lines below — sanitise before it is styled or measured.
+        let safe_title = sanitise(&report.title);
+        let title = apply_with_prefix(&safe_title, self.report_title_prefix.as_deref());
         out.push(format!("{pad}{title}"));
         out.push(String::new());
         for row in &report.rows {
-            out.push(self.render_slot(&self.report_slot(row), columns));
+            let (label, result) = sanitised_row_text(row);
+            out.push(self.render_slot(&self.report_slot(row, &label, &result), columns));
             for detail in &row.details {
                 // SEC-21 / TASK-1965: report details are producer-supplied
                 // text (often captured tool output) rendered verbatim.
@@ -86,7 +90,8 @@ impl ConfigurableTheme {
 
         out.push(String::new());
         out.push(build_horizontal_border(BorderArgs {
-            title: &format!(" {} ", report.title),
+            // SEC-21: same untrusted-input class as the flat path.
+            title: &format!(" {} ", sanitise(&report.title)),
             left_corner: "╭─",
             right_corner: "╮",
             columns,
@@ -94,7 +99,8 @@ impl ConfigurableTheme {
             title_prefix: self.report_title_prefix.as_deref(),
         }));
         for row in &report.rows {
-            let inner = self.render_slot(&self.report_slot(row), effective);
+            let (label, result) = sanitised_row_text(row);
+            let inner = self.render_slot(&self.report_slot(row, &label, &result), effective);
             // All report rows are terminal; use the runner's "done" cell so the
             // left progress column reads as a solid bar.
             out.push(self.wrap_step_line(&inner, "█", columns));
@@ -117,13 +123,30 @@ impl ConfigurableTheme {
 
     /// Build the [`SlotLine`] for a report row (icon/color from the `[report]`
     /// block, trailing = the result string). Shared by the flat and boxed paths.
-    fn report_slot<'a>(&'a self, row: &'a ops_core::report::ReportRow) -> SlotLine<'a> {
+    ///
+    /// SEC-21: `label` and `result` are passed in already sanitised (see
+    /// [`sanitised_row_text`]) rather than borrowed from `row`, because
+    /// `render_slot` both measures and truncates them — sanitising afterwards
+    /// would let the width math and the emitted text disagree.
+    fn report_slot<'a>(
+        &'a self,
+        row: &ops_core::report::ReportRow,
+        label: &'a str,
+        result: &'a str,
+    ) -> SlotLine<'a> {
         SlotLine {
             icon: self.report_icon(row.status),
-            label: &row.label,
-            trailing: &row.result,
+            label,
+            trailing: result,
             trailing_prefix: self.report_prefix(row.status),
             is_running: false,
         }
     }
+}
+
+/// SEC-21 / TASK-1965: report rows are producer-supplied text (often captured
+/// tool output). Neutralise control bytes and ESC in both slots *before* the
+/// width measurement and truncation in `render_slot`, so the two agree.
+fn sanitised_row_text(row: &ops_core::report::ReportRow) -> (String, String) {
+    (sanitise(&row.label), sanitise(&row.result))
 }

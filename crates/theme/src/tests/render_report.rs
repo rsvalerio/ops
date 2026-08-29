@@ -223,3 +223,44 @@ fn boxed_report_row_with_sgr_label_matches_border_width() {
         assert_eq!(visible_width(line), usize::from(cols), "{line:?}");
     }
 }
+
+/// SEC-21 / TASK-1965 (extended): the report title and each row's label and
+/// result are producer-supplied text on the same footing as the detail lines,
+/// so a captured tool output carrying ESC or a control byte must not reach the
+/// terminal raw. Sanitisation happens *before* `render_slot` measures and
+/// truncates, so the layout math sees the same string that is emitted.
+#[test]
+fn report_title_label_and_result_are_sanitised() {
+    for layout in [LayoutKind::Flat, LayoutKind::Boxed] {
+        let theme = ConfigurableTheme::new(ThemeConfig {
+            layout_kind: layout,
+            left_pad: 0,
+            ..ThemeConfig::compact()
+        });
+        let mut report = Report::new("Health\u{1b}[2J");
+        report.push(ReportRow::new(
+            ReportStatus::Ok,
+            "Advisories\u{1b}[31m",
+            "None\u{7}",
+        ));
+
+        let lines = theme.render_report(&report, 200);
+        let joined = lines.join("\n");
+        assert!(
+            !joined.contains('\u{1b}') || !joined.contains("[2J"),
+            "raw ESC from the title must not survive: {joined:?}"
+        );
+        assert!(
+            joined.contains("\\x1b[2J"),
+            "title ESC must be escaped: {joined:?}"
+        );
+        assert!(
+            joined.contains("\\x1b[31m"),
+            "label ESC must be escaped: {joined:?}"
+        );
+        assert!(
+            joined.contains("\\x07"),
+            "result control byte must be escaped: {joined:?}"
+        );
+    }
+}
