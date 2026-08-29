@@ -4,11 +4,11 @@ title: >-
   SEC-21: sanitise_line lets C1 control characters and bidi overrides through,
   so the 'cannot smuggle terminal control codes' guarantee is narrower than
   documented
-status: To Do
+status: Done
 assignee:
   - TASK-1984
 created_date: '2026-08-27 15:23'
-updated_date: '2026-08-28 14:09'
+updated_date: '2026-08-29 00:36'
 labels:
   - code-review-rust
   - security
@@ -59,8 +59,14 @@ Note the C1-vs-terminal question deserves a deliberate answer rather than an ass
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 sanitise_line escapes the C1 range U+0080..U+009F, so U+009B (CSI) and U+009D (OSC) cannot reach the terminal unescaped
-- [ ] #2 A deliberate decision is recorded for Unicode bidi controls (U+202A-U+202E, U+2066-U+2069) — either neutralised or documented as out of scope with the reason
-- [ ] #3 The docstring states the exact character classes neutralised instead of the informal 'terminal control codes' claim
-- [ ] #4 Tests cover U+009B and a bidi override reaching sanitise_line, asserting the rendered output for each
+- [x] #1 sanitise_line escapes the C1 range U+0080..U+009F, so U+009B (CSI) and U+009D (OSC) cannot reach the terminal unescaped
+- [x] #2 A deliberate decision is recorded for Unicode bidi controls (U+202A-U+202E, U+2066-U+2069) — either neutralised or documented as out of scope with the reason
+- [x] #3 The docstring states the exact character classes neutralised instead of the informal 'terminal control codes' claim
+- [x] #4 Tests cover U+009B and a bidi override reaching sanitise_line, asserting the rendered output for each
 <!-- AC:END -->
+
+## Implementation Notes
+
+<!-- SECTION:NOTES:BEGIN -->
+Fixed in wave TASK-1984. `sanitise_line` now escapes the C1 range U+0080..=U+009F as \xNN (so CSI U+009B and OSC U+009D cannot reach the terminal unescaped) and neutralises the Unicode bidi reordering controls U+202A..=U+202E and U+2066..=U+2069 as \u{NNNN}. Bidi is escaped rather than stripped so an operator can see the input contained them; bidi *marks* (U+200E/U+200F) and general confusable filtering are documented as out of scope. The docstring now carries a table of the exact character classes neutralised instead of the informal "terminal control codes" claim, plus the recorded rationale for both decisions. Tests: c1_control_characters_are_escaped, bidi_controls_are_escaped, characters_adjacent_to_the_escaped_ranges_pass_through.
+<!-- SECTION:NOTES:END -->

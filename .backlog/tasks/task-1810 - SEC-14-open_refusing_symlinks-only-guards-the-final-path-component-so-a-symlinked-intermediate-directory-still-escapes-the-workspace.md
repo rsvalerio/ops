@@ -3,11 +3,11 @@ id: TASK-1810
 title: >-
   SEC-14: open_refusing_symlinks only guards the final path component, so a
   symlinked intermediate directory still escapes the workspace
-status: To Do
+status: Done
 assignee:
   - TASK-1984
 created_date: '2026-08-27 11:31'
-updated_date: '2026-08-28 14:09'
+updated_date: '2026-08-29 00:36'
 labels:
   - code-review-rust
   - security
@@ -40,7 +40,13 @@ Fix direction (any one is sufficient): resolve the path component-by-component w
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 open_refusing_symlinks (or a replacement primitive) refuses to open a path whose resolution traverses a symlink at ANY component, not only the final one
-- [ ] #2 A regression test creates dir/link -> /tmp/outside plus a target file, then asserts that reading <root>/link/<manifest> is refused with the stable InvalidInput surface
-- [ ] #3 The rustdoc states the boundary the primitive enforces (e.g. 'the opened file is beneath <root> and no component is a symlink') rather than naming the O_NOFOLLOW flag, and the non-Unix fallback documents the residual TOCTOU gap
+- [x] #1 open_refusing_symlinks (or a replacement primitive) refuses to open a path whose resolution traverses a symlink at ANY component, not only the final one
+- [x] #2 A regression test creates dir/link -> /tmp/outside plus a target file, then asserts that reading <root>/link/<manifest> is refused with the stable InvalidInput surface
+- [x] #3 The rustdoc states the boundary the primitive enforces (e.g. 'the opened file is beneath <root> and no component is a symlink') rather than naming the O_NOFOLLOW flag, and the non-Unix fallback documents the residual TOCTOU gap
 <!-- AC:END -->
+
+## Implementation Notes
+
+<!-- SECTION:NOTES:BEGIN -->
+Fixed in wave TASK-1984. `open_refusing_symlinks` now resolves the path one component at a time with `openat(2)` + O_NOFOLLOW from the previously opened directory fd (crates/core/src/text.rs, module `unix_open`), so a symlink at ANY component is refused, each intermediate component is proven to be a directory by fstat, and the walk cannot be raced between steps. Rustdoc states the enforced boundary (regular file, beneath a symlink-free component chain) rather than naming O_NOFOLLOW, and documents the residual TOCTOU gap in the non-Unix fallback. Tests: read_capped_to_string_refuses_symlinked_intermediate_directory (dir/link -> outside tempdir, InvalidInput surface) and read_capped_to_string_reads_through_real_nested_directories. Compatibility risk of the stricter boundary filed as TASK-2038 (Triage).
+<!-- SECTION:NOTES:END -->

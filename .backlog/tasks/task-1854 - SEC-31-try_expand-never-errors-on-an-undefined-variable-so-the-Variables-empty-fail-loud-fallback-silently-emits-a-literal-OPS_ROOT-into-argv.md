@@ -4,11 +4,11 @@ title: >-
   SEC-31: try_expand never errors on an undefined variable, so the
   Variables::empty fail-loud fallback silently emits a literal $OPS_ROOT into
   argv
-status: To Do
+status: Done
 assignee:
   - TASK-1984
 created_date: '2026-08-27 15:27'
-updated_date: '2026-08-28 14:09'
+updated_date: '2026-08-29 00:37'
 labels:
   - code-review-rust
   - security
@@ -73,8 +73,14 @@ Which side to fix is a design call — either `try_expand` gains a real undefine
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 try_expand's documented behaviour and its actual behaviour agree: either an undefined variable produces an Err, or the # Errors section and Variables::empty's doc stop claiming it does
-- [ ] #2 If the docs are corrected rather than the code, the Variables::empty fallback is replaced by something that actually fails closed, and the runner's from_arc_config rationale is updated to match
-- [ ] #3 A test pins the chosen behaviour for a bare $UNDEFINED, a ${UNDEFINED} form, and ${UNDEFINED:-default}
-- [ ] #4 A test covers the ambient-environment case: with OPS_ROOT set in the process environment, a Variables::empty expansion of $OPS_ROOT does not silently resolve to that unrelated directory
+- [x] #1 try_expand's documented behaviour and its actual behaviour agree: either an undefined variable produces an Err, or the # Errors section and Variables::empty's doc stop claiming it does
+- [x] #2 If the docs are corrected rather than the code, the Variables::empty fallback is replaced by something that actually fails closed, and the runner's from_arc_config rationale is updated to match
+- [x] #3 A test pins the chosen behaviour for a bare $UNDEFINED, a ${UNDEFINED} form, and ${UNDEFINED:-default}
+- [x] #4 A test covers the ambient-environment case: with OPS_ROOT set in the process environment, a Variables::empty expansion of $OPS_ROOT does not silently resolve to that unrelated directory
 <!-- AC:END -->
+
+## Implementation Notes
+
+<!-- SECTION:NOTES:BEGIN -->
+Fixed in wave TASK-1984. Chose the docs-plus-fail-closed-fallback branch of AC#1/AC#2 rather than making an undefined variable an error: shellexpand calls the same lookup for `${VAR:-default}` as for a bare `$VAR`, so returning Err on a miss cannot be done without also breaking the documented default form. Instead: (a) try_expand `# Errors` now states what it really produces and explains why an undefined variable is deliberately not an error; (b) `Variables::empty()` is replaced by `Variables::poisoned(err)`, which stores the ExpandError and returns it from EVERY try_expand call with no builtin lookup and no std::env fallback; (c) `CommandRunner::from_arc_config` now falls back to `Variables::poisoned(e)` and its rationale comment is rewritten to match. AC#4 substitution recorded: `Variables::empty` no longer exists (it had exactly one production caller, the runner fallback), so the ambient-environment test pins the same property on the fallback that actually ships — poisoned_variables_fail_closed_even_with_ambient_ops_root sets OPS_ROOT=/unrelated/ambient/root via EnvGuard under #[serial] and asserts try_expand errors and the lossy expand never resolves to that directory. AC#3 pinned by undefined_variable_forms_are_pinned ($UNDEFINED and ${UNDEFINED} stay literal, ${UNDEFINED:-default} resolves).
+<!-- SECTION:NOTES:END -->

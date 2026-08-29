@@ -3,11 +3,11 @@ id: TASK-1825
 title: >-
   PATTERN-1: TailRanges::push_oldest_front emits the newest line first once the
   tail exceeds 32 lines
-status: To Do
+status: Done
 assignee:
   - TASK-1984
 created_date: '2026-08-27 11:33'
-updated_date: '2026-08-28 14:09'
+updated_date: '2026-08-29 00:36'
 labels:
   - code-review-rust
   - correctness
@@ -56,8 +56,14 @@ Secondary defect in the same branch: `spill.insert(0, …)` is O(len) per push, 
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 Once the inline array is full, a further (older) range goes to the front of the spill and the array is left untouched, so iter() yields buffer order for every n
-- [ ] #2 A test with n = 33 (the first overflow) and one with n = 40 assert format_error_tail returns the lines in exact buffer order
-- [ ] #3 The oversized path no longer front-inserts into a Vec per push, so collecting n ranges is O(n) rather than O(n squared)
-- [ ] #4 The comment on the overflow branch states the ordering invariant iter() depends on, and matches what the code does
+- [x] #1 Once the inline array is full, a further (older) range goes to the front of the spill and the array is left untouched, so iter() yields buffer order for every n
+- [x] #2 A test with n = 33 (the first overflow) and one with n = 40 assert format_error_tail returns the lines in exact buffer order
+- [x] #3 The oversized path no longer front-inserts into a Vec per push, so collecting n ranges is O(n) rather than O(n squared)
+- [x] #4 The comment on the overflow branch states the ordering invariant iter() depends on, and matches what the code does
 <!-- AC:END -->
+
+## Implementation Notes
+
+<!-- SECTION:NOTES:BEGIN -->
+Fixed in wave TASK-1984. `TailRanges::push_oldest_front` now leaves the full inline array untouched and appends the older range to the spill (O(1) per push, no front-insert); `iter()` yields `spill.iter().rev()` then the inline entries, restoring buffer order for every n. The overflow-branch comment now states the ordering invariant iter() depends on. Tests: format_error_tail_preserves_buffer_order_at_first_overflow (n=33), format_error_tail_preserves_buffer_order_well_past_cap (n=40), and tail_ranges_overflow_appends_to_spill_and_leaves_stack_intact, which pins the O(n) shape structurally (stack_len == TAIL_STACK_CAP, spill holds the remainder) rather than by timing.
+<!-- SECTION:NOTES:END -->
