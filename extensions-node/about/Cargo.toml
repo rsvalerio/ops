@@ -9,11 +9,12 @@ license.workspace = true
 ops-core = { workspace = true }
 ops-extension = { workspace = true }
 ops-about = { workspace = true }
-ops-git = { workspace = true }
+# ARCH-11 (TASK-2013): `linkme` has no textual use here — `impl_extension!`
+# expands to `#[linkme::distributed_slice(...)]` and resolves the path in the
+# calling crate, so this entry is load-bearing despite the empty grep.
 linkme = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }
-anyhow = { workspace = true }
 tracing = { workspace = true }
 
 [dev-dependencies]

@@ -151,24 +151,45 @@ pub fn find_workspace_root_with_depth(
 /// workspace. The strict variant adds a per-candidate canonicalize step
 /// so a redirected ancestor is detected and skipped.
 ///
-/// # Scope of the guarantee (TASK-1785)
+/// # Scope of the guarantee (TASK-1785 / TASK-2026)
 ///
-/// The check is evaluated against the **canonical** start path, which the
-/// shared walk resolves once up front. Two consequences callers must not
-/// mistake for a stronger guarantee:
+/// The strict variant enforces **two** independent checks per candidate:
+///
+/// 1. The candidate directory's canonical path must lie on the canonical
+///    start's ancestor chain.
+/// 2. The candidate `Cargo.toml`'s **own** canonical path must sit directly
+///    inside that canonical directory — i.e. the manifest must not be a
+///    symlink (or reachable through one) that redirects the read into
+///    another tree.
+///
+/// TASK-2026 recorded the decision behind check 2. Check 1 alone is a
+/// tautology on a quiescent filesystem: the shared walk canonicalizes
+/// `start` once and reaches every ancestor via [`Path::parent`], and every
+/// lexical ancestor of a canonical path is itself canonical, so
+/// `canonicalize(current) == current` and the ancestor-chain test can only
+/// fail if an ancestor is swapped for a symlink *during* the walk (a TOCTOU
+/// race no test can construct deterministically). Check 2 is the arm that
+/// actually rejects an attacker-plantable manifest on a quiescent
+/// filesystem, and it is driven by
+/// `find_root_strict_rejects_symlinked_manifest_that_lenient_accepts`.
+///
+/// The alternative — re-anchoring discovery to the caller's *pre-canonical*
+/// `start` — was rejected: it would reject every legitimate working
+/// directory reached through a symlink, which is a routine layout. Two
+/// consequences of that choice callers must not mistake for a stronger
+/// guarantee:
 ///
 /// - A symlink *inside the caller's own `start` path* is resolved before
 ///   the walk begins, so the strict variant walks the resolved chain and
 ///   accepts what it finds there — exactly like the lenient variant. It
 ///   does **not** re-anchor discovery to the caller's pre-canonical,
 ///   logical path.
-/// - Because every lexical ancestor of an already-canonical path is itself
-///   canonical on a quiescent filesystem, the off-chain rejection normally
-///   fires only when an ancestor is swapped for a symlink *during* the walk
-///   (the TOCTOU window), or when the per-candidate canonicalize fails.
+/// - A symlinked *directory* ancestor above the start is likewise already
+///   resolved; only a symlinked `Cargo.toml` (check 2) and a mid-walk
+///   ancestor swap (check 1) are rejected.
 ///
 /// The per-candidate decision is factored into [`strict_candidate_action`]
-/// so both rejection arms are directly testable without racing the
+/// so every rejection arm is directly testable without racing the
 /// filesystem.
 ///
 /// Lenient siblings remain available for callers that explicitly opt
@@ -181,7 +202,9 @@ pub fn find_workspace_root_with_depth(
 /// ancestor-depth bound, or if an ancestor cannot be read or canonicalized.
 ///
 /// The strict variant additionally rejects a candidate root that does not
-/// contain `start` after canonicalization (symlink-planting defence).
+/// contain `start` after canonicalization, and any candidate whose
+/// `Cargo.toml` resolves outside that directory (symlink-planting defence,
+/// TASK-2026).
 pub fn find_workspace_root_strict(start: &Path) -> Result<PathBuf, FindWorkspaceRootError> {
     find_workspace_root_strict_with_depth(start, MAX_ANCESTOR_DEPTH)
 }
@@ -196,7 +219,9 @@ pub fn find_workspace_root_strict(start: &Path) -> Result<PathBuf, FindWorkspace
 /// ancestor-depth bound, or if an ancestor cannot be read or canonicalized.
 ///
 /// The strict variant additionally rejects a candidate root that does not
-/// contain `start` after canonicalization (symlink-planting defence).
+/// contain `start` after canonicalization, and any candidate whose
+/// `Cargo.toml` resolves outside that directory (symlink-planting defence,
+/// TASK-2026).
 pub fn find_workspace_root_strict_with_depth(
     start: &Path,
     max_depth: usize,
@@ -211,12 +236,18 @@ pub fn find_workspace_root_strict_with_depth(
 /// The strict variant's per-candidate decision, with the canonicalizer
 /// injected.
 ///
-/// TASK-1785: both rejection arms — an off-chain canonical parent and a
-/// failed canonicalize — are unreachable through a quiescent filesystem
-/// (see "Scope of the guarantee" on [`find_workspace_root_strict`]), so
-/// they were previously untested despite being the entire reason the
-/// strict variant exists. Taking `canonicalize` as a parameter lets tests
-/// drive both arms deterministically instead of racing a symlink swap.
+/// TASK-1785: the directory rejection arms — an off-chain canonical parent
+/// and a failed canonicalize — are unreachable through a quiescent
+/// filesystem (see "Scope of the guarantee" on
+/// [`find_workspace_root_strict`]), so they were previously untested despite
+/// being the entire reason the strict variant exists. Taking `canonicalize`
+/// as a parameter lets tests drive them deterministically instead of racing
+/// a symlink swap.
+///
+/// TASK-2026: adds the manifest-path check that *is* reachable on a
+/// quiescent filesystem — a `Cargo.toml` whose own canonical path does not
+/// sit directly inside the canonical candidate directory is a planted
+/// symlink into another tree and is skipped.
 pub fn strict_candidate_action(
     current: &Path,
     cargo_toml: &Path,
@@ -226,6 +257,9 @@ pub fn strict_candidate_action(
     match canonicalize(current) {
         Ok(canonical_parent) => {
             if start_canonical.starts_with(&canonical_parent) {
+                if !manifest_is_contained(cargo_toml, &canonical_parent, canonicalize) {
+                    return CandidateAction::Skip;
+                }
                 if manifest_declares_workspace(cargo_toml) {
                     return CandidateAction::AcceptWorkspace(canonical_parent);
                 }
@@ -250,6 +284,48 @@ pub fn strict_candidate_action(
             CandidateAction::Skip
         }
     }
+}
+
+/// SEC-25 / TASK-2026: true iff the candidate `Cargo.toml` resolves to a
+/// file that lives directly inside `canonical_parent`.
+///
+/// Unlike the ancestor-chain check this is *not* a tautology: the walk only
+/// ever canonicalizes directories, so a `Cargo.toml` that is itself a
+/// symlink into an attacker tree is read through that symlink and its
+/// `[workspace]` table is trusted. Resolving the manifest path and demanding
+/// its canonical parent equal the canonical candidate directory rejects that
+/// planted manifest without affecting any ordinary one.
+///
+/// A canonicalize failure is treated as "not contained": the walk has
+/// already established the file exists, so a failure here means the path
+/// changed underneath us or is unreadable, neither of which should be
+/// trusted as a workspace root.
+fn manifest_is_contained(
+    cargo_toml: &Path,
+    canonical_parent: &Path,
+    canonicalize: &dyn Fn(&Path) -> std::io::Result<PathBuf>,
+) -> bool {
+    let canonical_manifest = match canonicalize(cargo_toml) {
+        Ok(p) => p,
+        Err(e) => {
+            tracing::warn!(
+                path = ?cargo_toml.display(),
+                error = ?e,
+                "SEC-25 / TASK-2026: failed to canonicalize candidate Cargo.toml; skipping ancestor"
+            );
+            return false;
+        }
+    };
+    if canonical_manifest.parent() == Some(canonical_parent) {
+        return true;
+    }
+    tracing::warn!(
+        cargo_toml = ?cargo_toml.display(),
+        canonical_manifest = ?canonical_manifest.display(),
+        canonical_parent = ?canonical_parent.display(),
+        "SEC-25 / TASK-2026: candidate Cargo.toml resolves outside its own directory (planted symlink); rejecting"
+    );
+    false
 }
 
 /// Action returned by the per-candidate check closure in [`walk_ancestors`].

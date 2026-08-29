@@ -354,10 +354,20 @@ where
                 return PlanOutcome::Completed(plan.await);
             }
         };
+        // CONC-14 / TASK-2023: the restore runs inside the signal arms, not
+        // after the `select!`, because `select!` drops the losing futures
+        // only once the whole expression finishes — and dropping the plan
+        // future *is* the teardown we need to stay escapable.
         tokio::select! {
             value = plan => PlanOutcome::Completed(value),
-            _ = term.recv() => PlanOutcome::Interrupted(SIGTERM_SIGNO),
-            _ = interrupt.recv() => PlanOutcome::Interrupted(SIGINT_SIGNO),
+            _ = term.recv() => {
+                restore_default_shutdown_dispositions();
+                PlanOutcome::Interrupted(SIGTERM_SIGNO)
+            }
+            _ = interrupt.recv() => {
+                restore_default_shutdown_dispositions();
+                PlanOutcome::Interrupted(SIGINT_SIGNO)
+            }
         }
     }
     #[cfg(not(unix))]
@@ -366,7 +376,55 @@ where
     }
 }
 
-/// POSIX signal numbers, spelled out so this file does not need `libc`.
+/// Restore the kernel's default disposition for `SIGINT` / `SIGTERM`
+/// (CONC-14 / TASK-2023).
+///
+/// Installing a tokio signal handler replaces the default disposition for
+/// the rest of the process's life. Without this, every signal delivered
+/// *after* [`run_until_signal`] has taken its shutdown arm is consumed by a
+/// stream nobody reads any more — so a second Ctrl-C does nothing while the
+/// teardown is slow or wedged (a child ignoring `SIGTERM` through its
+/// `GROUP_TERM_GRACE` window, a capture drain still running, the runtime
+/// parked on a blocking-pool task). That removed the escape hatch users had
+/// before TASK-1932. The conventional shape is what this restores: the first
+/// signal requests a graceful cancel, the second one exits hard.
+///
+/// The second signal then terminates the process the way it would have
+/// before any handler existed, which shells report as `128 + signo` — 130
+/// for `SIGINT`, 143 for `SIGTERM` — matching the graceful path's exit code.
+///
+/// **Trade-off (TASK-2023 AC #2).** Dying from the second signal bypasses
+/// unwinding, so [`EchoGuard`]'s `Drop` does not run and an interactive
+/// terminal keeps `ECHO` cleared; `reset` is the remedy. That is the same
+/// exposure the pre-TASK-1932 behaviour had, and it is recorded in the
+/// `Drop`-paths table on `EchoGuard` itself. Restoring the terminal from a
+/// signal-death path is not possible without an async-signal-safe handler,
+/// which is a strictly larger change than the escape hatch is worth.
+///
+/// ## Manual verification (TASK-2023 AC #3)
+///
+/// ```text
+/// $ ops <a plan with a step that ignores SIGTERM>
+/// ^C                       # first: graceful cancel begins
+/// ^C                       # second: exits immediately
+/// $ echo $?                # 130
+/// ```
+#[cfg(unix)]
+fn restore_default_shutdown_dispositions() {
+    // SAFETY: `signal(2)` with `SIG_DFL` only rewrites this process's
+    // disposition for the two named signals. It dereferences nothing, and
+    // `SIG_DFL` is the documented sentinel for "kernel default"; the
+    // returned previous handler is deliberately discarded because this path
+    // never reinstalls one.
+    unsafe {
+        libc::signal(libc::SIGINT, libc::SIG_DFL);
+        libc::signal(libc::SIGTERM, libc::SIG_DFL);
+    }
+}
+
+/// POSIX signal numbers, spelled out as literals: they are the values the
+/// exit code is derived from, and writing them here keeps the mapping
+/// readable next to [`exit_code_for_signal`].
 ///
 /// Both are read only from the `#[cfg(unix)]` arm of [`run_until_signal`],
 /// so they are compiled for Unix only — otherwise a non-Unix build carries

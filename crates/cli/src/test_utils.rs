@@ -1,7 +1,11 @@
 //! CLI-specific test utilities.
 //!
-//! Re-exports shared helpers from ops-core and ops-runner,
-//! and adds CLI-specific ones (CwdGuard-based helpers, etc.).
+//! Re-exports shared helpers from ops-core and ops-runner, and adds
+//! CLI-specific ones on top.
+//!
+//! DRY-1 / TASK-2034: `CwdGuard` and `CWD_MUTEX` used to be defined here.
+//! They live in `ops_core::test_utils` now — one guard for the workspace —
+//! and reach this module through the glob re-export below.
 
 // Re-export shared test helpers from core
 pub use ops_core::test_utils::*;
@@ -10,69 +14,6 @@ pub use ops_core::test_utils::*;
 #[cfg(test)]
 #[allow(unused_imports)]
 pub use ops_runner::test_support::{test_runner, EventAssertions};
-
-/// Process-wide mutex for tests that change the current working directory.
-/// Rust tests run in parallel by default; `std::env::set_current_dir` is
-/// process-global, so CWD-dependent tests must serialize on this lock.
-///
-/// # Mutex Poisoning Recovery
-///
-/// If a test panics while holding this lock, the mutex becomes "poisoned".
-/// We intentionally recover from poisoned state (rather than propagating
-/// the panic) because:
-/// 1. The panic has already been reported by the test framework
-/// 2. Subsequent tests should be allowed to run
-/// 3. CWD restoration failure is non-critical (test isolation is best-effort)
-pub static CWD_MUTEX: std::sync::Mutex<()> = std::sync::Mutex::new(());
-
-/// RAII guard that acquires `CWD_MUTEX`, switches to a target directory,
-/// and restores the original CWD on drop.
-///
-/// # Test Isolation Note
-///
-/// This guard serializes CWD-dependent tests. While this prevents race
-/// conditions, it means these tests cannot run in parallel with each other.
-/// Prefer using `tempfile::tempdir()` and passing paths explicitly when
-/// possible to avoid CWD mutations entirely.
-///
-/// # Rust 2024 Compatibility (E104)
-///
-/// `std::env::set_current_dir` is `unsafe` in Rust 2024 edition.
-/// All calls are wrapped in `unsafe` blocks with SAFETY comments.
-pub struct CwdGuard {
-    _lock: std::sync::MutexGuard<'static, ()>,
-    original_dir: std::path::PathBuf,
-}
-
-impl CwdGuard {
-    pub fn new(target: &std::path::Path) -> Result<Self, std::io::Error> {
-        let lock = CWD_MUTEX.lock().unwrap_or_else(|poisoned| {
-            tracing::warn!("CWD_MUTEX poisoned by previous test panic, recovering");
-            poisoned.into_inner()
-        });
-        let original_dir = std::env::current_dir()?;
-        // SAFETY: Test-only. CWD_MUTEX serializes all CWD-dependent tests.
-        // unsafe required in Rust 2024 edition; allow unused_unsafe for 2021.
-        #[allow(unused_unsafe)]
-        unsafe {
-            std::env::set_current_dir(target)?;
-        };
-        Ok(Self {
-            _lock: lock,
-            original_dir,
-        })
-    }
-}
-
-impl Drop for CwdGuard {
-    #[allow(unused_unsafe)]
-    fn drop(&mut self) {
-        // SAFETY: Test-only. CWD_MUTEX serializes all CWD-dependent tests.
-        if let Err(e) = unsafe { std::env::set_current_dir(&self.original_dir) } {
-            tracing::warn!("CwdGuard: failed to restore original directory: {}", e);
-        }
-    }
-}
 
 /// Create a test Context with default config and given path.
 #[cfg(test)]
@@ -109,66 +50,18 @@ pub fn with_temp_config(content: &str) -> (tempfile::TempDir, CwdGuard) {
     (dir, guard)
 }
 
-/// Keep one globally-registered `tracing` dispatcher alive for the whole
-/// test binary so scoped capture subscribers are never the only ones
-/// registered. `tracing` caches each callsite's `Interest` process-wide
-/// against the dispatchers registered when the callsite is first hit; with
-/// only scoped subscribers, a parallel test thread can first-hit a callsite
-/// while none is registered, caching `Interest::never()` and silently
-/// dropping the event a capture elsewhere asserts on. The global discards
-/// everything — captures still come from the per-call scoped subscriber.
-#[cfg(test)]
-fn pin_global_dispatcher() {
-    use std::sync::Once;
-    static INSTALL: Once = Once::new();
-    INSTALL.call_once(|| {
-        let sink = tracing_subscriber::fmt()
-            .with_writer(std::io::sink)
-            .with_max_level(tracing::Level::TRACE)
-            .finish();
-        let _ = tracing::subscriber::set_global_default(sink);
-        tracing::callsite::rebuild_interest_cache();
-    });
-}
-
 /// Shared tracing-event capture helper for tests across the cli crate.
-/// Installs a thread-local subscriber at `level` for the duration of `f`
-/// and returns the captured text.
+///
+/// DUP-3 / TASK-2014: delegates to `ops_core::test_utils`, which owns the
+/// workspace's single copy of the buffer shim and of the global-dispatcher
+/// pin. `tracing` caches each callsite's `Interest` process-wide, so with
+/// only scoped subscribers a parallel test thread can cache
+/// `Interest::never()` and a capture comes back empty at random; the pin
+/// lives inside the shared helper, so no call site here can forget it.
 #[cfg(test)]
 #[allow(dead_code)]
 pub fn capture_tracing<F: FnOnce()>(level: tracing::Level, f: F) -> String {
-    pin_global_dispatcher();
-    use std::sync::{Arc, Mutex};
-    use tracing_subscriber::fmt::MakeWriter;
-
-    #[derive(Clone, Default)]
-    struct BufWriter(Arc<Mutex<Vec<u8>>>);
-    impl std::io::Write for BufWriter {
-        fn write(&mut self, b: &[u8]) -> std::io::Result<usize> {
-            self.0.lock().unwrap().extend_from_slice(b);
-            Ok(b.len())
-        }
-        fn flush(&mut self) -> std::io::Result<()> {
-            Ok(())
-        }
-    }
-    impl<'a> MakeWriter<'a> for BufWriter {
-        type Writer = Self;
-        fn make_writer(&'a self) -> Self::Writer {
-            self.clone()
-        }
-    }
-
-    let buf = BufWriter::default();
-    let captured = buf.0.clone();
-    let subscriber = tracing_subscriber::fmt()
-        .with_writer(buf)
-        .with_max_level(level)
-        .with_ansi(false)
-        .finish();
-    tracing::subscriber::with_default(subscriber, f);
-    let bytes = captured.lock().unwrap().clone();
-    String::from_utf8(bytes).unwrap()
+    ops_core::test_utils::capture_tracing(level, f).0
 }
 
 #[cfg(test)]

@@ -302,6 +302,49 @@ fn find_root_strict_also_follows_symlink_inside_the_start_path() {
     );
 }
 
+/// SEC-25 / TASK-2026: the strict variant's *reachable* defence — a
+/// `Cargo.toml` that is itself a symlink into an attacker tree.
+///
+/// This is the layout the strict variant's ancestor-chain check cannot see:
+/// every directory on the walk is genuine and canonical, so
+/// `canonicalize(dir) == dir` holds throughout, but the manifest read
+/// through `legit/Cargo.toml` is the attacker's `[workspace]` file. The
+/// lenient walk accepts it and returns `legit` as the workspace root; the
+/// strict walk resolves the manifest itself, sees its canonical parent is
+/// `attacker`, skips the candidate, and — with no other manifest in the
+/// chain — reports `NotFound`.
+#[cfg(unix)]
+#[test]
+fn find_root_strict_rejects_symlinked_manifest_that_lenient_accepts() {
+    let tmp = tempfile::tempdir().expect("tempdir");
+    let real_root = fs::canonicalize(tmp.path()).expect("canonicalize tempdir");
+
+    let attacker = real_root.join("attacker");
+    fs::create_dir(&attacker).unwrap();
+    let planted = attacker.join("Cargo.toml");
+    fs::write(&planted, "[workspace]\nmembers = []\n").unwrap();
+
+    // A genuine (non-symlinked) directory chain whose manifest is a symlink
+    // pointing into the attacker tree.
+    let legit = real_root.join("legit");
+    let leaf = legit.join("leaf");
+    fs::create_dir_all(&leaf).unwrap();
+    std::os::unix::fs::symlink(&planted, legit.join("Cargo.toml")).unwrap();
+
+    let lenient = find_workspace_root(&leaf).expect("lenient follows the planted manifest symlink");
+    assert_eq!(
+        lenient, legit,
+        "lenient walk must read the planted manifest through the symlink"
+    );
+
+    let err = find_workspace_root_strict(&leaf)
+        .expect_err("strict must refuse a manifest that resolves outside its own directory");
+    assert!(
+        matches!(err, FindWorkspaceRootError::NotFound { .. }),
+        "expected NotFound after the planted manifest is skipped, got: {err:?}"
+    );
+}
+
 /// TEST-6 / TASK-1785: the off-chain rejection arm
 /// (`workspace_root.rs`, `CandidateAction::Skip`) is unreachable through a
 /// quiescent filesystem — every lexical ancestor of an already-canonical

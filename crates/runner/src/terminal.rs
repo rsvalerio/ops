@@ -21,6 +21,7 @@ use std::io::IsTerminal;
 /// | Normal return / early `return` / `?` | yes |
 /// | Panic (unwinding) | yes |
 /// | `SIGINT` (Ctrl-C) or `SIGTERM` during a run | **only via the CLI's shutdown path** |
+/// | A *second* `SIGINT`/`SIGTERM` after that path was entered | no (CONC-14 / TASK-2023) |
 /// | `panic = "abort"`, `SIGKILL`, `std::process::exit` | no |
 ///
 /// A signal does not run destructors. `ops` therefore does not rely on
@@ -30,6 +31,14 @@ use std::io::IsTerminal;
 /// Ctrl-C'd run still leaves the terminal with `ECHO` restored. Anything
 /// that bypasses unwinding entirely (`SIGKILL`, an abort) is outside what
 /// any RAII guard can cover — the shell's own `reset` is the remedy there.
+///
+/// CONC-14 / TASK-2023 deliberately adds one more row to that last group.
+/// Once the shutdown path has been entered, `run_until_signal` restores the
+/// default disposition for both signals so a second Ctrl-C can still escape
+/// a wedged teardown. That second signal kills the process without
+/// unwinding, so this guard's `Drop` does not run and `ECHO` stays cleared —
+/// accepted as the price of keeping the escape hatch users had before
+/// TASK-1932, with `reset` as the remedy exactly as for `SIGKILL`.
 ///
 /// TEST-5: Platform-specific terminal control via libc termios. Tested manually;
 /// unit tests would require a PTY or mock which exceeds the complexity budget

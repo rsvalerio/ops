@@ -48,8 +48,17 @@ impl DataIngestor for MetadataIngestor {
     }
 
     fn load(&self, data_dir: &Path, db: &DuckDb) -> DbResult<LoadResult> {
-        init_schema(db)?;
         let path = data_dir.join("metadata.json");
+        // SEC-32 / TASK-2033: arm the cleanup *before* the first fallible
+        // step, so every exit from `load` unlinks the staged file. The
+        // previous single call site sat immediately before `Ok(...)`, so
+        // `init_schema`, `build_views`, the record count, the
+        // `reject_non_singleton` rejection added by ERR-1 / TASK-1891, the
+        // workspace-root extract and the checksum/upsert all returned via `?`
+        // and left a full `cargo metadata` dump — every workspace member,
+        // every dependency and absolute local paths — on disk indefinitely.
+        let _staged = StagedFile::new(&path);
+        init_schema(db)?;
         // CONC-2 / TASK-1907: one guard across table creation *and* the reads
         // of that table. The previous shape scoped `build_views` in its own
         // block and re-acquired the lock on the very next line, which
@@ -84,7 +93,6 @@ impl DataIngestor for MetadataIngestor {
                 &checksum,
             ),
         )?;
-        cleanup_staged_file(&path);
         Ok(LoadResult::success(self.name(), record_count))
     }
 }
@@ -192,17 +200,53 @@ fn extract_workspace_root(conn: &duckdb::Connection) -> DbResult<String> {
     })
 }
 
-/// FN-1 / TASK-1543: best-effort removal of the staged JSON file after a
-/// successful load. TASK-0510: a failure here must not propagate — the
+/// SEC-32 / TASK-2033: owns the staged `metadata.json` for the whole of
+/// [`MetadataIngestor::load`] and unlinks it on `Drop`, so success, `?` and
+/// the explicit `reject_non_singleton` rejection all clean up through one
+/// code path instead of the single pre-`Ok` call site this replaced. Mirrors
+/// the terraform pipeline's `with_artifact_cleanup` (SEC-32 / TASK-1927),
+/// using `Drop` rather than a wrapper because `load`'s early exits are `?`
+/// rather than a single fallible expression.
+///
+/// Cleanup is unconditional: the file is a staging artifact that `collect`
+/// rewrites from scratch on the next run, so there is no failure mode in
+/// which keeping it helps.
+struct StagedFile<'a> {
+    path: &'a Path,
+}
+
+impl<'a> StagedFile<'a> {
+    const fn new(path: &'a Path) -> Self {
+        Self { path }
+    }
+}
+
+impl Drop for StagedFile<'_> {
+    fn drop(&mut self) {
+        cleanup_staged_file(self.path);
+    }
+}
+
+/// FN-1 / TASK-1543: best-effort removal of the staged JSON file.
+/// TASK-0510: a failure here must not propagate — on the success path the
 /// `DuckDB` row is already committed and a subsequent re-ingest would
-/// otherwise loop.
+/// otherwise loop, and on a failure path the caller's own error is the one
+/// worth surfacing.
 fn cleanup_staged_file(path: &Path) {
-    if let Err(e) = std::fs::remove_file(path) {
-        tracing::warn!(
-            path = %path.display(),
-            error = %e,
-            "failed to remove staged metadata file after successful load; leaving in place"
-        );
+    // SEC-25: no `exists()` probe first — that is check-then-act, and
+    // `remove_file` already reports `NotFound`. An absent file is the normal
+    // outcome when `load` fails before `collect` ever staged one, so it is
+    // not worth a warning.
+    match std::fs::remove_file(path) {
+        Ok(()) => {}
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => {}
+        Err(e) => {
+            tracing::warn!(
+                path = %path.display(),
+                error = %e,
+                "failed to remove staged metadata file after load; leaving in place"
+            );
+        }
     }
 }
 
@@ -468,6 +512,53 @@ mod tests {
             .expect("catalog probe");
         drop(conn);
         assert_eq!(tables, 0, "metadata_raw must be gone after a rejected load");
+    }
+
+    /// SEC-32 / TASK-2033 AC #2 + #3: the rejection path added by ERR-1 /
+    /// TASK-1891 is the most likely way out of `load` that is not `Ok`, and it
+    /// used to skip the cleanup entirely — leaving a full `cargo metadata`
+    /// dump (every workspace member, every dependency, absolute local paths)
+    /// on disk with no bound on how long it stays there.
+    #[test]
+    fn metadata_load_rejection_removes_the_staged_json() {
+        let data_dir = tempfile::tempdir().unwrap();
+        let metadata_json = serde_json::Value::Array(vec![
+            ingest_metadata().root("/test/a").value(),
+            ingest_metadata().root("/test/b").value(),
+        ]);
+        let json_path = write_metadata_json(data_dir.path(), &metadata_json);
+
+        let db = DuckDb::open_in_memory().expect("open in-memory db");
+        MetadataIngestor
+            .load(data_dir.path(), &db)
+            .expect_err("two-row load must fail");
+
+        assert!(
+            !json_path.exists(),
+            "the staged metadata.json must not survive a rejected load"
+        );
+    }
+
+    /// SEC-32 / TASK-2033 AC #1: the guard is armed before the first fallible
+    /// step, so a failure that happens *earlier* than the row-count check —
+    /// here `metadata_raw create` choking on input `read_json_auto` cannot
+    /// parse — cleans up too. Pins that the cleanup is a scope guard rather
+    /// than a second call site bolted onto one more error path.
+    #[test]
+    fn metadata_load_removes_the_staged_json_when_the_table_build_fails() {
+        let data_dir = tempfile::tempdir().unwrap();
+        let json_path = data_dir.path().join("metadata.json");
+        std::fs::write(&json_path, b"this is not JSON at all").unwrap();
+
+        let db = DuckDb::open_in_memory().expect("open in-memory db");
+        MetadataIngestor
+            .load(data_dir.path(), &db)
+            .expect_err("unparseable staged JSON must fail the load");
+
+        assert!(
+            !json_path.exists(),
+            "the staged metadata.json must not survive a failed table build"
+        );
     }
 
     /// PATTERN-1 / TASK-1056: the same dependency declared under two

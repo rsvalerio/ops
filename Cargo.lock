@@ -1769,7 +1769,6 @@ dependencies = [
  "serde_path_to_error",
  "tempfile",
  "tracing",
- "tracing-subscriber",
  "unicode-segmentation",
 ]
 
@@ -1803,12 +1802,10 @@ dependencies = [
 name = "ops-about-node"
 version = "0.45.2"
 dependencies = [
- "anyhow",
  "linkme",
  "ops-about",
  "ops-core",
  "ops-extension",
- "ops-git",
  "serde",
  "serde_json",
  "tempfile",
@@ -1828,7 +1825,6 @@ dependencies = [
  "tempfile",
  "toml 1.1.4+spec-1.1.0",
  "tracing",
- "tracing-subscriber",
 ]
 
 [[package]]
@@ -1863,6 +1859,7 @@ dependencies = [
  "serde_json",
  "tempfile",
  "tracing",
+ "unicode-ident",
 ]
 
 [[package]]
@@ -1992,6 +1989,7 @@ dependencies = [
  "anyhow",
  "duckdb",
  "hex",
+ "libc",
  "linkme",
  "ops-core",
  "ops-extension",
@@ -2032,7 +2030,6 @@ dependencies = [
  "serde_json",
  "tempfile",
  "tracing",
- "tracing-subscriber",
 ]
 
 [[package]]

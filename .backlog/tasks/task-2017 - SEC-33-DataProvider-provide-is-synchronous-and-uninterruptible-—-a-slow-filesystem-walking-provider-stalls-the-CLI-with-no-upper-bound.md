@@ -3,9 +3,11 @@ id: TASK-2017
 title: >-
   SEC-33: DataProvider::provide is synchronous and uninterruptible — a slow
   filesystem-walking provider stalls the CLI with no upper bound
-status: Triage
-assignee: []
+status: Done
+assignee:
+  - TASK-2047
 created_date: '2026-08-28 15:58'
+updated_date: '2026-08-29 13:26'
 labels:
   - code-review-rust
   - security
@@ -43,7 +45,7 @@ bullet of that finding, which is out of scope for a single extension crate).
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 Provider dispatch enforces a bound on how long a single provide() call may run, or the trait exposes a cancellation signal providers are required to honour
-- [ ] #2 Exceeding the bound is reported as a provider failure with the provider name, not as an empty or partial success
-- [ ] #3 A test drives a deliberately slow provider through the dispatch path and asserts the bound is enforced
+- [x] #1 Provider dispatch enforces a bound on how long a single provide() call may run, or the trait exposes a cancellation signal providers are required to honour
+- [x] #2 Exceeding the bound is reported as a provider failure with the provider name, not as an empty or partial success
+- [x] #3 A test drives a deliberately slow provider through the dispatch path and asserts the bound is enforced
 <!-- AC:END -->

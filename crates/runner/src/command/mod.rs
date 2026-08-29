@@ -343,9 +343,9 @@ impl CommandRunner {
             if let Some(config_owner) = self.config.resolve_alias(alias.as_str()) {
                 if config_owner != id.as_str() {
                     tracing::warn!(
-                        alias = %alias,
-                        config_owner = %config_owner,
-                        new = %id,
+                        alias = ?alias,
+                        config_owner = ?config_owner,
+                        new = ?id.as_str(),
                         "alias collision: extension/stack alias shadowed by config alias of same name"
                     );
                 }
@@ -354,9 +354,9 @@ impl CommandRunner {
                 Entry::Occupied(mut occ) => {
                     if occ.get() != id.as_str() {
                         tracing::warn!(
-                            alias = %alias,
-                            existing = %occ.get(),
-                            new = %id,
+                            alias = ?alias,
+                            existing = ?occ.get(),
+                            new = ?id.as_str(),
                             "alias collision: later store overrides earlier"
                         );
                     }
@@ -445,7 +445,7 @@ impl CommandRunner {
         for (id, spec) in commands {
             if self.extension_commands.contains_key(&id) {
                 tracing::warn!(
-                    command = %id,
+                    command = ?id.as_str(),
                     "duplicate extension command registration; later registration shadows earlier"
                 );
             }
@@ -458,7 +458,7 @@ impl CommandRunner {
     }
 
     /// Run a single exec command; returns result and can stream output via callback.
-    #[instrument(skip(self, on_event), fields(id = %id))]
+    #[instrument(skip(self, on_event), fields(id = ?id))]
     pub async fn run_exec(
         &self,
         id: &str,

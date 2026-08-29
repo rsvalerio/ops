@@ -896,73 +896,8 @@ mod tests {
     /// ANSI escape), the previous valid URL must still be returned AND the
     /// drop must surface as a warn-level event with a rejected-line count
     /// so the operator can tell "stale URL" from "all URLs malformed".
-    /// Keep one globally-registered `tracing` dispatcher alive for the whole
-    /// test binary so the scoped capture subscriber below is never the only
-    /// one registered. `tracing` caches each callsite's `Interest`
-    /// process-wide against the dispatchers registered when the callsite is
-    /// first hit; with only a scoped subscriber, a parallel test thread can
-    /// first-hit a callsite while none is registered, caching
-    /// `Interest::never()` and silently dropping the event this test asserts
-    /// on. The global discards everything — the capture still comes from the
-    /// scoped subscriber.
-    ///
-    /// TEST-15 / TASK-1664: this test open-coded the capture scaffold without
-    /// the pin and failed 1 run in 30 under 16-core load, reporting an empty
-    /// buffer while the parser assertion above it passed. Third copy of the
-    /// helper, after `ops_core::test_utils` and `ops_cli::test_utils`: those
-    /// two are `#[cfg(test)]`-gated and deliberately not exported under
-    /// `test-support`, because `tracing-subscriber` is a dev-dependency of
-    /// both crates (see the stability contract in `core/src/test_utils.rs`).
-    /// Collapsing the three needs that dependency made optional-and-feature-
-    /// gated instead, which is a change to a shared crate's contract rather
-    /// than a flake fix.
-    fn pin_global_dispatcher() {
-        use std::sync::Once;
-        static INSTALL: Once = Once::new();
-        INSTALL.call_once(|| {
-            let sink = tracing_subscriber::fmt()
-                .with_writer(std::io::sink)
-                .with_max_level(tracing::Level::TRACE)
-                .finish();
-            let _ = tracing::subscriber::set_global_default(sink);
-            tracing::callsite::rebuild_interest_cache();
-        });
-    }
-
     #[test]
     fn read_origin_url_warns_on_control_byte_drop_keeping_prior_valid() {
-        use tracing::subscriber::with_default;
-        use tracing::Level;
-        use tracing_subscriber::fmt::MakeWriter;
-
-        pin_global_dispatcher();
-
-        #[derive(Clone, Default)]
-        struct BufWriter(std::sync::Arc<std::sync::Mutex<Vec<u8>>>);
-        impl std::io::Write for BufWriter {
-            fn write(&mut self, buf: &[u8]) -> std::io::Result<usize> {
-                self.0.lock().unwrap().extend_from_slice(buf);
-                Ok(buf.len())
-            }
-            fn flush(&mut self) -> std::io::Result<()> {
-                Ok(())
-            }
-        }
-        impl<'a> MakeWriter<'a> for BufWriter {
-            type Writer = Self;
-            fn make_writer(&'a self) -> Self::Writer {
-                self.clone()
-            }
-        }
-
-        let buf = BufWriter::default();
-        let subscriber = tracing_subscriber::fmt()
-            .with_max_level(Level::WARN)
-            .with_writer(buf.clone())
-            .with_ansi(false)
-            .without_time()
-            .finish();
-
         // Two `url = ...` lines: a valid one, then a trailing line with an
         // embedded ANSI escape. Pre-fix: silent debug-only breadcrumb, the
         // valid earlier URL is returned (last-wins is *masked*). Post-fix:
@@ -973,15 +908,19 @@ mod tests {
 \turl = https://github.com/real/repo.git
 \turl = https://example.com/\u{001b}[31mrogue\u{001b}[0m
 ";
-        let url =
-            with_default(subscriber, || read_origin_url_from(cfg)).map(RedactedUrl::into_string);
+        // DUP-3 / TASK-2014: the shared harness pins a global dispatcher for
+        // us. TEST-15 / TASK-1664: this test open-coded the capture scaffold
+        // without that pin and failed 1 run in 30 under 16-core load,
+        // reporting an empty buffer while the parser assertion below passed.
+        let (logged, url) = ops_core::test_utils::capture_tracing(tracing::Level::WARN, || {
+            read_origin_url_from(cfg).map(RedactedUrl::into_string)
+        });
         assert_eq!(
             url,
             Some("https://github.com/real/repo.git".to_string()),
             "must fall back to the previous valid url= line"
         );
 
-        let logged = String::from_utf8(buf.0.lock().unwrap().clone()).unwrap();
         assert!(
             logged.contains("WARN") && logged.contains("TASK-1215"),
             "expected one TASK-1215 warn-level event; got: {logged}"

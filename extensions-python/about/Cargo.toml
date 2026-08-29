@@ -19,10 +19,6 @@ toml = { workspace = true }
 ops-about = { workspace = true, features = ["test-support"] }
 ops-extension = { workspace = true, features = ["test-support"] }
 tempfile = { workspace = true }
-# TEST-5 / TASK-1756 + TASK-1757: the malformed-manifest and URL-collision
-# contracts are the `tracing::warn!` records themselves, so the tests capture
-# rendered log output through `ops_about::test_support::TracingBuf`.
-tracing-subscriber = { workspace = true }
 
 [lints]
 workspace = true

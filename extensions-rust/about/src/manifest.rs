@@ -16,6 +16,7 @@ use std::sync::{Arc, OnceLock};
 
 use crate::manifest_cache;
 use crate::members::resolved_workspace_members;
+use crate::workspace_root_cache;
 
 /// ERR-1 / TASK-1076: pairs the cached parsed manifest with its resolved
 /// `[workspace].members` list so the original glob spec on the cached
@@ -224,7 +225,7 @@ pub fn load_workspace_manifest(ctx: &mut Context) -> Result<LoadedManifest, Data
     // freshness, cache key, glob expansion and every downstream member join.
     // `ctx.working_directory` is the live process cwd and may sit below the
     // root; the ancestor walk here is the proof the code already knows that.
-    let root = Arc::new(resolve_workspace_root(ctx)?);
+    let root = resolve_workspace_root(ctx)?;
     let freshness = manifest_cache::cargo_toml_freshness(&root);
 
     if ctx.is_refreshing() {
@@ -248,15 +249,32 @@ pub fn load_workspace_manifest(ctx: &mut Context) -> Result<LoadedManifest, Data
 ///
 /// The returned path is canonical, which is also what makes it a stable cache
 /// key: two cwds inside one workspace resolve to the same root.
-fn resolve_workspace_root(ctx: &Context) -> Result<PathBuf, DataProviderError> {
-    find_workspace_root_strict(ctx.working_directory()).map_err(|err| {
+///
+/// PERF-1 / TASK-2028: the walk is memoized per cwd in
+/// [`crate::workspace_root_cache`], because keying the typed-manifest cache by
+/// the resolved root (CL-3 / TASK-1762) put this walk *ahead* of the cache
+/// probe — so every provider's cache hit paid for it again against the same
+/// cwd. `ctx.refresh` bypasses the memo and replaces the entry, which is the
+/// only in-process event that can legitimately move a cwd's root. Failures are
+/// never memoized: a missing `Cargo.toml` must stay re-checkable.
+fn resolve_workspace_root(ctx: &Context) -> Result<Arc<PathBuf>, DataProviderError> {
+    let cwd = ctx.working_directory();
+    if !ctx.is_refreshing() {
+        if let Some(root) = workspace_root_cache::probe(cwd) {
+            return Ok(root);
+        }
+    }
+    let root = find_workspace_root_strict(cwd).map_err(|err| {
         tracing::debug!(
-            cwd = ?ctx.working_directory().display(),
+            cwd = ?cwd.display(),
             error = ?err,
             "TASK-1204: strict workspace-root resolution failed; surfacing typed error"
         );
         DataProviderError::from(anyhow::Error::from(err))
-    })
+    })?;
+    let root = Arc::new(root);
+    workspace_root_cache::insert(cwd, &root);
+    Ok(root)
 }
 
 /// PERF-1 / TASK-1195: the cache-miss path goes through
@@ -490,16 +508,68 @@ mod tests {
         manifest_cache::evict(&canonical(root));
     }
 
+    /// PERF-1 / TASK-2028: the canonicalizing ancestor walk runs once per cwd,
+    /// not once per `load_workspace_manifest` call. Proved by making a *nearer*
+    /// ancestor declare its own `[workspace]` after the first load: a second
+    /// walk would stop there, so the loader still reporting the original root
+    /// is the observable evidence that no second walk happened.
+    #[serial_test::serial(typed_manifest_cache)]
+    #[test]
+    fn workspace_root_resolution_is_memoized_per_cwd() {
+        let dir = tempfile::tempdir().expect("tempdir");
+        let root = dir.path();
+        let member = root.join("crates/alpha");
+        std::fs::create_dir_all(member.join("src")).unwrap();
+        std::fs::write(
+            member.join("Cargo.toml"),
+            "[package]\nname=\"alpha\"\nversion=\"0.1.0\"\n",
+        )
+        .unwrap();
+        std::fs::write(
+            root.join("Cargo.toml"),
+            "[workspace]\nmembers = [\"crates/*\"]\n",
+        )
+        .unwrap();
+        let cwd = member.join("src");
+        manifest_cache::evict(&canonical(root));
+        workspace_root_cache::evict(&cwd);
+
+        let mut ctx = Context::test_context(cwd.clone());
+        let first = load_workspace_manifest(&mut ctx).expect("first load");
+        assert_eq!(first.workspace_root(), canonical(root));
+
+        // A fresh walk from the same cwd would now stop at `crates/alpha`.
+        std::fs::write(
+            member.join("Cargo.toml"),
+            "[workspace]\nmembers = []\n\n[package]\nname=\"alpha\"\nversion=\"0.1.0\"\n",
+        )
+        .unwrap();
+
+        let second = load_workspace_manifest(&mut ctx).expect("second load");
+        assert_eq!(
+            second.workspace_root(),
+            canonical(root),
+            "the memoized root must be reused instead of re-walking the ancestors"
+        );
+
+        // The memo is per cwd, so the same directory reached by a fresh
+        // resolution (here: `ctx.refresh`) picks up the new nearer root.
+        let mut refreshing = Context::test_context(cwd.clone()).with_refresh();
+        let refreshed = load_workspace_manifest(&mut refreshing).expect("refreshed load");
+        assert_eq!(
+            refreshed.workspace_root(),
+            canonical(&member),
+            "ctx.refresh must bypass the memo and re-resolve the root"
+        );
+
+        manifest_cache::evict(&canonical(root));
+        manifest_cache::evict(&canonical(&member));
+        workspace_root_cache::evict(&cwd);
+    }
+
     /// A missing `Cargo.toml` anywhere in the ancestor chain is an error, not
     /// an empty manifest: `resolve_workspace_root` surfaces the typed
     /// `FindWorkspaceRootError::NotFound` rather than defaulting to the cwd.
-    ///
-    /// The classification `log_manifest_load_failure` performs on top of it is
-    /// deliberately *not* asserted here: `SharedError::source()` skips its own
-    /// inner error, so the typed marker never reaches `is_manifest_missing`'s
-    /// chain walk and this case is currently logged at warn. That is a defect
-    /// in `crates/extension/src/error.rs`, filed separately — pinning today's
-    /// behaviour here would cement it.
     #[serial_test::serial(typed_manifest_cache)]
     #[test]
     fn missing_manifest_surfaces_the_typed_not_found_error() {
@@ -510,5 +580,72 @@ mod tests {
             format!("{err:#}").contains("no Cargo.toml found"),
             "expected the workspace-root NotFound error, got: {err:#}"
         );
+    }
+
+    /// ERR-1 / TASK-2024: the classification built on top of that error is
+    /// what was inert. `SharedError::source()` skipped its own inner error and
+    /// `From<anyhow::Error>` stored anyhow's wrapper rather than the
+    /// originating error, so `is_manifest_missing`'s chain walk never reached
+    /// `FindWorkspaceRootError` and returned `false` — every directory that is
+    /// simply not a Rust project produced "failed to load workspace
+    /// Cargo.toml" at warn. The test above used to say so in prose and
+    /// deliberately declined to pin it; this pins the fixed behaviour.
+    #[serial_test::serial(typed_manifest_cache)]
+    #[test]
+    fn a_missing_manifest_is_classified_as_not_found_and_logged_at_debug() {
+        let dir = tempfile::tempdir().expect("tempdir");
+        let cwd = dir.path().to_path_buf();
+        workspace_root_cache::evict(&cwd);
+
+        let mut ctx = Context::test_context(cwd.clone());
+        let err = load_workspace_manifest(&mut ctx).expect_err("no Cargo.toml anywhere");
+
+        assert!(
+            is_manifest_missing(&err),
+            "the typed NotFound marker must be reachable through the chain: {err:#}"
+        );
+
+        let buf = ops_about::test_support::TracingBuf::default();
+        let subscriber = tracing_subscriber::fmt()
+            .with_writer(buf.clone())
+            .with_max_level(tracing::Level::DEBUG)
+            .with_ansi(false)
+            .finish();
+        tracing::subscriber::with_default(subscriber, || log_manifest_load_failure(&err));
+        let logs = buf.captured();
+
+        assert!(
+            logs.contains("Cargo.toml not found"),
+            "expected the debug classification, got: {logs}"
+        );
+        assert!(
+            !logs.contains("failed to load workspace Cargo.toml"),
+            "a directory that is not a Rust project must not warn: {logs}"
+        );
+
+        workspace_root_cache::evict(&cwd);
+    }
+
+    /// The other half of the classification must still hold: a manifest that
+    /// exists but does not parse is a real failure and keeps its warn.
+    #[serial_test::serial(typed_manifest_cache)]
+    #[test]
+    fn an_unparseable_manifest_is_not_classified_as_missing() {
+        let dir = tempfile::tempdir().expect("tempdir");
+        let root = dir.path();
+        std::fs::write(root.join("Cargo.toml"), "[workspace\nthis is not toml").unwrap();
+        let cwd = root.to_path_buf();
+        manifest_cache::evict(&canonical(root));
+        workspace_root_cache::evict(&cwd);
+
+        let mut ctx = Context::test_context(cwd.clone());
+        let err = load_workspace_manifest(&mut ctx).expect_err("malformed manifest must fail");
+        assert!(
+            !is_manifest_missing(&err),
+            "a parse failure must not be mistaken for an absent manifest: {err:#}"
+        );
+
+        manifest_cache::evict(&canonical(root));
+        workspace_root_cache::evict(&cwd);
     }
 }

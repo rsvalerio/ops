@@ -3,9 +3,11 @@ id: TASK-2040
 title: >-
   FEAT: workspace.exclude entries are matched literally, so a glob exclude
   silently drops nothing
-status: Triage
-assignee: []
+status: Done
+assignee:
+  - TASK-2048
 created_date: '2026-08-29 06:53'
+updated_date: '2026-08-29 13:23'
 labels:
   - code-review-rust
 dependencies: []
@@ -27,3 +29,9 @@ Note this is incomplete behaviour rather than a wrong result for literal exclude
 
 **Possible fix**: route `exclude` entries through the same `classify_member` / `expand_member_glob` machinery as `members` before building the retain set, or match each resolved member against the exclude patterns with the same single-trailing-`*` semantics; either way keep `MemberShape::Unsupported` warning rather than silently ignoring a shape that cannot be expanded.
 <!-- SECTION:DESCRIPTION:END -->
+
+## Implementation Notes
+
+<!-- SECTION:NOTES:BEGIN -->
+Implemented in code-review/TASK-2048: `[workspace].exclude` now goes through an `ExcludeSet` that matches resolved members with the same single-`*` semantics `members` uses (whole- and partial-segment prefixes, one path segment). Shapes the expander cannot interpret (`**`, `?`, `[..]`, `{..}`) keep the previous literal behaviour and emit a warn instead of being silently reinterpreted. Tests: members::tests::{exclude_globs_drop_the_members_they_match, exclude_glob_matches_one_segment_only, unsupported_exclude_shapes_stay_literal_and_warn}.
+<!-- SECTION:NOTES:END -->

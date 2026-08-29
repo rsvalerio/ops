@@ -300,7 +300,7 @@ fn extension_registers_commands() {
 #[test]
 fn shared_error_display_shows_inner_message() {
     let inner = std::io::Error::other("disk full");
-    let shared = SharedError(Arc::new(inner));
+    let shared = SharedError::new(inner);
     assert_eq!(shared.to_string(), "disk full");
 }
 
@@ -321,9 +321,24 @@ fn shared_error_source_chain_preserved() {
         }
     }
     let outer = Outer(std::io::Error::other("root cause"));
-    let shared = SharedError(Arc::new(outer));
-    assert!(shared.source().is_some());
-    assert!(shared.source().unwrap().to_string().contains("root cause"));
+    let shared = SharedError::new(outer);
+
+    // ERR-1 / TASK-2024: the first link is the *wrapped error itself*. This
+    // test previously asserted that `source()` skipped straight to "root
+    // cause", which is exactly the missing link the fix restores — the
+    // wrapped `Outer` was unreachable by any chain walk or downcast.
+    let first = shared
+        .source()
+        .expect("the wrapped error is the first link");
+    assert_eq!(first.to_string(), "outer");
+    assert!(
+        first.downcast_ref::<Outer>().is_some(),
+        "the wrapped error must be downcastable through the chain"
+    );
+
+    // …and the rest of the chain still follows from there.
+    let root = first.source().expect("the wrapped error's own source");
+    assert!(root.to_string().contains("root cause"), "got: {root}");
 }
 
 #[test]
@@ -398,7 +413,7 @@ fn shared_error_alternate_display_walks_source_chain() {
 /// flag — the chain walk must not append separators to nothing.
 #[test]
 fn shared_error_alternate_display_matches_plain_when_no_sources() {
-    let shared = SharedError(Arc::new(std::io::Error::other("disk full")));
+    let shared = SharedError::new(std::io::Error::other("disk full"));
     assert_eq!(shared.to_string(), "disk full");
     assert_eq!(format!("{shared:#}"), "disk full");
 }
@@ -689,7 +704,7 @@ fn data_provider_error_is_clone() {
     else {
         panic!("expected ComputationFailed variants");
     };
-    assert!(std::sync::Arc::ptr_eq(&orig.0, &copy.0));
+    assert!(orig.shares_allocation_with(copy));
 }
 
 // --- DataRegistry::about_fields ---
@@ -1518,6 +1533,16 @@ mod duckdb_feature {
     /// `as_any()` returns the `Arc` erased rather than the handle. Pinned
     /// because the trait's own "Downcast contract" example reads
     /// `handle.as_any()` and callers copy it verbatim.
+    ///
+    /// SEC-38 / TASK-2018: this holds *because this module imports
+    /// `DuckDbHandle`*. The blanket impl is only a method-resolution candidate
+    /// where the trait is in scope, so a module that never names it sees
+    /// `handle.as_any()` fall through the deref chain to the trait object's own
+    /// method and downcast correctly — which is exactly how the misresolution
+    /// stayed invisible in `ops_duckdb::downcast_duckdb`. Do not read this test
+    /// as "an `Arc` receiver always fails"; read it as "an `Arc` receiver fails
+    /// the moment anyone adds the import". The reborrow is the only shape that
+    /// is correct in both modules.
     #[test]
     fn as_any_on_an_arc_receiver_erases_the_arc_not_the_handle() {
         let handle: Arc<dyn DuckDbHandle> = Arc::new(FakeDb(7));
@@ -1642,4 +1667,406 @@ fn serialization_rendering_flattens_its_chain() {
     );
     assert!(rendered.contains(&expected_root), "got: {rendered}");
     assert_eq!(format!("{e:#}"), rendered);
+}
+
+// ---------------------------------------------------------------------------
+// SEC-33 / TASK-2017 — provider dispatch is bounded in wall-clock time
+// ---------------------------------------------------------------------------
+
+/// A provider that burns wall-clock time in `steps` chunks, optionally polling
+/// the context deadline between them, and records how many chunks it got
+/// through so a test can tell "aborted early" from "ran to completion".
+struct SlowProvider {
+    name: &'static str,
+    steps: usize,
+    step: std::time::Duration,
+    poll_deadline: bool,
+    completed_steps: Arc<std::sync::atomic::AtomicUsize>,
+}
+
+impl SlowProvider {
+    fn new(name: &'static str, poll_deadline: bool) -> Self {
+        Self {
+            name,
+            steps: 20,
+            step: std::time::Duration::from_millis(10),
+            poll_deadline,
+            completed_steps: Arc::new(std::sync::atomic::AtomicUsize::new(0)),
+        }
+    }
+}
+
+impl DataProvider for SlowProvider {
+    fn name(&self) -> &'static str {
+        self.name
+    }
+    fn provide(&self, ctx: &mut Context) -> Result<serde_json::Value, DataProviderError> {
+        for _ in 0..self.steps {
+            if self.poll_deadline {
+                ctx.check_deadline()?;
+            }
+            std::thread::sleep(self.step);
+            self.completed_steps
+                .fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+        }
+        Ok(serde_json::json!({ "finished": true }))
+    }
+}
+
+fn registry_with(name: &str, provider: Box<dyn DataProvider>) -> DataRegistry {
+    let mut registry = DataRegistry::new();
+    let _ = registry.register(name, provider);
+    registry
+}
+
+/// The default budget must be an actual bound, not an unset option: a fresh
+/// context carries one, which is what makes every provider bounded by
+/// construction rather than by each provider remembering to opt in.
+#[test]
+fn a_fresh_context_carries_a_provider_budget() {
+    let registry = registry_with("stub", Box::new(StubProvider));
+    let mut ctx = test_context();
+    assert!(
+        ctx.deadline().is_none(),
+        "no dispatch is in flight, so no deadline is installed yet"
+    );
+    let mut probe = DataRegistry::new();
+    let _ = probe.register("probe", Box::new(DeadlineProbe));
+    let seen = probe
+        .provide("probe", &mut ctx)
+        .expect("probe provider must succeed");
+    assert_eq!(
+        seen,
+        serde_json::json!({ "deadline_installed": true }),
+        "DataRegistry::provide must install a deadline for the dispatch"
+    );
+    assert!(
+        ctx.deadline().is_none(),
+        "the deadline must be cleared once the dispatch returns"
+    );
+    // The default budget must not be so tight that ordinary providers trip it.
+    assert!(registry.provide("stub", &mut ctx).is_ok());
+}
+
+/// Reports whether a deadline was visible from inside `provide`.
+struct DeadlineProbe;
+impl DataProvider for DeadlineProbe {
+    fn name(&self) -> &'static str {
+        "probe"
+    }
+    fn provide(&self, ctx: &mut Context) -> Result<serde_json::Value, DataProviderError> {
+        Ok(serde_json::json!({ "deadline_installed": ctx.deadline().is_some() }))
+    }
+}
+
+/// AC #2: a provider that runs past the budget without ever polling must be
+/// reported as a failure naming it — never as the late value it produced.
+#[test]
+fn over_budget_provider_without_polling_is_reported_as_a_named_failure() {
+    let slow = SlowProvider::new("slow", false);
+    let registry = registry_with("slow", Box::new(slow));
+    let mut ctx = test_context().with_provider_budget(Some(std::time::Duration::from_millis(20)));
+
+    match registry.provide("slow", &mut ctx) {
+        Err(DataProviderError::TimedOut { provider, budget }) => {
+            assert_eq!(provider, "slow");
+            assert_eq!(budget, std::time::Duration::from_millis(20));
+        }
+        other => panic!("expected TimedOut naming the provider, got {other:?}"),
+    }
+}
+
+/// An overrun must not overwrite the provider's own failure. A slow provider
+/// that fails for its own reason — a command that could not be spawned, a file
+/// that could not be read — has already answered *why* the dispatch failed;
+/// replacing that with `TimedOut` would report only that it was also slow, and
+/// send the operator after a timeout that is not the problem.
+#[test]
+fn an_over_budget_provider_keeps_its_own_error() {
+    /// Overruns the budget and then fails for an unrelated reason.
+    struct SlowFailing;
+    impl DataProvider for SlowFailing {
+        fn name(&self) -> &'static str {
+            "slow-failing"
+        }
+        fn provide(&self, _ctx: &mut Context) -> Result<serde_json::Value, DataProviderError> {
+            std::thread::sleep(std::time::Duration::from_millis(60));
+            Err(DataProviderError::computation_failed("cargo not on PATH"))
+        }
+    }
+
+    let registry = registry_with("slow-failing", Box::new(SlowFailing));
+    let mut ctx = test_context().with_provider_budget(Some(std::time::Duration::from_millis(20)));
+
+    match registry.provide("slow-failing", &mut ctx) {
+        Err(DataProviderError::ComputationMessage(msg)) => {
+            assert_eq!(msg, "cargo not on PATH");
+        }
+        other => panic!("expected the provider's own error, got {other:?}"),
+    }
+    assert!(
+        ctx.deadline().is_none(),
+        "the failed dispatch must still clear its deadline"
+    );
+}
+
+/// AC #1/#3: a provider that honours `check_deadline` stops early, so the
+/// bound shortens the stall rather than merely labelling it afterwards.
+#[test]
+fn polling_provider_aborts_at_the_deadline_instead_of_running_to_completion() {
+    let slow = SlowProvider::new("polling", true);
+    let completed = Arc::clone(&slow.completed_steps);
+    let total_steps = slow.steps;
+    let registry = registry_with("polling", Box::new(slow));
+    let mut ctx = test_context().with_provider_budget(Some(std::time::Duration::from_millis(20)));
+
+    let err = registry
+        .provide("polling", &mut ctx)
+        .expect_err("the provider must not outlast its budget");
+    assert!(
+        matches!(err, DataProviderError::TimedOut { ref provider, .. } if provider == "polling"),
+        "got {err:?}"
+    );
+    let done = completed.load(std::sync::atomic::Ordering::Relaxed);
+    assert!(
+        done < total_steps,
+        "the provider ran all {total_steps} steps, so the deadline was not honoured"
+    );
+}
+
+/// The budget bounds the traversal an operator asked for, not each level of
+/// it: a provider composing others must not be able to multiply its budget by
+/// nesting, and the failure keeps naming the provider that owns the budget.
+///
+/// The nesting here is a real second trip through [`DataRegistry::provide`],
+/// so `begin_deadline` / `clear_deadline_if_owned` are exercised on the inner
+/// dispatch too: it must inherit the outer deadline rather than install its
+/// own, and must leave the outer one in place when it returns.
+#[test]
+fn nested_dispatch_inherits_the_outermost_deadline() {
+    /// The inner provider: records the deadline it was dispatched under.
+    struct Inner {
+        seen: Arc<std::sync::Mutex<Vec<Option<std::time::Instant>>>>,
+    }
+    impl DataProvider for Inner {
+        fn name(&self) -> &'static str {
+            "inner"
+        }
+        fn provide(&self, ctx: &mut Context) -> Result<serde_json::Value, DataProviderError> {
+            self.seen
+                .lock()
+                .unwrap_or_else(std::sync::PoisonError::into_inner)
+                .push(ctx.deadline());
+            Ok(serde_json::json!({ "inner": true }))
+        }
+    }
+
+    /// The outer provider: records the deadline, dispatches `inner` through
+    /// the registry, records it again, then overruns the budget. The
+    /// assertions live in the test body rather than inside a
+    /// `Result`-returning `provide` (`clippy::panic_in_result_fn`).
+    struct Composing {
+        seen: Arc<std::sync::Mutex<Vec<Option<std::time::Instant>>>>,
+        registry: Arc<std::sync::Mutex<Option<Arc<DataRegistry>>>>,
+    }
+    impl DataProvider for Composing {
+        fn name(&self) -> &'static str {
+            "outer"
+        }
+        fn provide(&self, ctx: &mut Context) -> Result<serde_json::Value, DataProviderError> {
+            self.seen
+                .lock()
+                .unwrap_or_else(std::sync::PoisonError::into_inner)
+                .push(ctx.deadline());
+            let reg = self
+                .registry
+                .lock()
+                .unwrap_or_else(std::sync::PoisonError::into_inner)
+                .as_ref()
+                .expect("registry wired")
+                .clone();
+            let _ = reg.provide("inner", ctx)?;
+            self.seen
+                .lock()
+                .unwrap_or_else(std::sync::PoisonError::into_inner)
+                .push(ctx.deadline());
+            std::thread::sleep(std::time::Duration::from_millis(120));
+            let result = ctx.check_deadline();
+            self.seen
+                .lock()
+                .unwrap_or_else(std::sync::PoisonError::into_inner)
+                .push(ctx.deadline());
+            result?;
+            Ok(serde_json::json!({ "finished": true }))
+        }
+    }
+
+    let seen = Arc::new(std::sync::Mutex::new(Vec::new()));
+    let shared: Arc<std::sync::Mutex<Option<Arc<DataRegistry>>>> =
+        Arc::new(std::sync::Mutex::new(None));
+    let mut registry = DataRegistry::new();
+    let _ = registry.register(
+        "outer",
+        Box::new(Composing {
+            seen: Arc::clone(&seen),
+            registry: Arc::clone(&shared),
+        }),
+    );
+    let _ = registry.register(
+        "inner",
+        Box::new(Inner {
+            seen: Arc::clone(&seen),
+        }),
+    );
+    let registry = Arc::new(registry);
+    *shared
+        .lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner) = Some(Arc::clone(&registry));
+
+    let mut ctx = test_context().with_provider_budget(Some(std::time::Duration::from_millis(60)));
+    match registry.provide("outer", &mut ctx) {
+        Err(DataProviderError::TimedOut { provider, .. }) => assert_eq!(provider, "outer"),
+        other => panic!("expected TimedOut naming the budget owner, got {other:?}"),
+    }
+
+    let seen = seen
+        .lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner);
+    // [outer on entry, inner, outer after the nested dispatch, outer after the
+    // deadline check].
+    assert_eq!(seen.len(), 4, "got {seen:?}");
+    assert!(seen[0].is_some(), "the dispatch must install a deadline");
+    assert_eq!(
+        seen[0], seen[1],
+        "the nested dispatch must inherit the outer deadline, not begin a fresh one"
+    );
+    assert_eq!(
+        seen[0], seen[2],
+        "the nested dispatch must not clear a deadline it does not own"
+    );
+    assert_eq!(
+        seen[0], seen[3],
+        "the outer deadline must survive its own check"
+    );
+    assert!(
+        ctx.deadline().is_none(),
+        "the outermost dispatch owns the deadline and must clear it on the way out"
+    );
+}
+
+/// A dispatch that times out must not poison the context: the deadline is
+/// cleared on the failure path, the way the in-flight marker is.
+#[test]
+fn a_timed_out_dispatch_leaves_the_context_usable() {
+    let mut registry = DataRegistry::new();
+    let _ = registry.register("slow", Box::new(SlowProvider::new("slow", true)));
+    let _ = registry.register("stub", Box::new(StubProvider));
+    let mut ctx = test_context().with_provider_budget(Some(std::time::Duration::from_millis(20)));
+
+    assert!(registry.provide("slow", &mut ctx).is_err());
+    assert!(
+        ctx.deadline().is_none(),
+        "a failed dispatch must not leave its deadline installed"
+    );
+    let v = registry
+        .provide("stub", &mut ctx)
+        .expect("a later provider must get its own budget, not the expired one");
+    assert_eq!(v, serde_json::json!({"key": "value"}));
+}
+
+/// Opting out is explicit and honoured: callers that know a provider is
+/// legitimately long-running (a full-workspace coverage run) can say so, and
+/// nothing is silently converted into a failure.
+#[test]
+fn an_unbounded_context_does_not_time_a_provider_out() {
+    let registry = registry_with("slow", Box::new(SlowProvider::new("slow", true)));
+    let mut ctx = test_context().with_provider_budget(None);
+    let v = registry
+        .provide("slow", &mut ctx)
+        .expect("an unbounded dispatch must run to completion");
+    assert_eq!(v, serde_json::json!({ "finished": true }));
+    assert!(ctx.deadline().is_none());
+}
+
+// ---------------------------------------------------------------------------
+// ERR-1 / TASK-2024 — typed errors survive the DataProviderError chain
+// ---------------------------------------------------------------------------
+
+/// Stands in for `FindWorkspaceRootError`: a typed marker a consumer wants to
+/// recover from a `DataProviderError` in order to classify the failure.
+#[derive(Debug, PartialEq, Eq)]
+enum TypedMarker {
+    NotFound,
+}
+
+impl std::fmt::Display for TypedMarker {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str("no Cargo.toml found")
+    }
+}
+
+impl std::error::Error for TypedMarker {}
+
+/// Walks the chain the way real consumers do (`extensions-rust/about`'s
+/// `is_manifest_missing`).
+fn find_typed_marker<'a>(err: &'a (dyn std::error::Error + 'static)) -> Option<&'a TypedMarker> {
+    let mut current = Some(err);
+    while let Some(e) = current {
+        if let Some(found) = e.downcast_ref::<TypedMarker>() {
+            return Some(found);
+        }
+        current = e.source();
+    }
+    None
+}
+
+/// AC #2: the defect this pins is a *false negative* — before the fix the
+/// wrapped error was skipped, so the marker was unreachable and every
+/// consumer's classification silently degraded to "unknown failure".
+#[test]
+fn typed_error_is_reachable_through_data_provider_error_source_chain() {
+    let err = DataProviderError::from(anyhow::Error::from(TypedMarker::NotFound));
+    assert_eq!(
+        find_typed_marker(&err),
+        Some(&TypedMarker::NotFound),
+        "the typed marker must be a link in the chain, not skipped"
+    );
+}
+
+/// The same must hold for the `computation_error` constructor, which wraps a
+/// concrete error directly rather than going through anyhow.
+#[test]
+fn typed_error_from_computation_error_is_reachable_too() {
+    let err = DataProviderError::computation_error(TypedMarker::NotFound);
+    assert_eq!(find_typed_marker(&err), Some(&TypedMarker::NotFound));
+}
+
+/// AC #4: `SharedError`'s alternate rendering walks `self.0.source()` after
+/// printing `self.0`, which is independent of the `Error::source()` impl. The
+/// fix must therefore leave `{:#}` byte-identical — no link printed twice and
+/// none dropped.
+#[test]
+fn source_fix_leaves_the_alternate_display_unchanged() {
+    #[derive(Debug)]
+    struct Layered(std::io::Error);
+    impl std::fmt::Display for Layered {
+        fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+            f.write_str("outer context")
+        }
+    }
+    impl std::error::Error for Layered {
+        fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
+            Some(&self.0)
+        }
+    }
+
+    let shared = SharedError::new(Layered(std::io::Error::other("root cause")));
+    assert_eq!(format!("{shared}"), "outer context");
+    assert_eq!(format!("{shared:#}"), "outer context: root cause");
+
+    let e = DataProviderError::ComputationFailed(shared);
+    assert_eq!(
+        e.to_string(),
+        "data computation failed: outer context: root cause"
+    );
 }

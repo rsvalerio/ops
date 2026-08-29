@@ -8,7 +8,6 @@
 
 use std::ffi::{OsStr, OsString};
 use std::io::Write;
-use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex};
 use tracing::Level;
 use tracing_subscriber::fmt::MakeWriter;
@@ -78,29 +77,14 @@ impl Drop for EnvVarGuard {
 /// The leak this prevents is worse than it looks: the directory a test
 /// chdirs into is a `tempfile::TempDir` deleted on drop, so a skipped
 /// restore leaves the *whole test binary* running in a deleted directory,
-/// and every later test touching a relative path (e.g. `check_tool`'s
-/// hardcoded `Path::new(".")`) fails for unrelated reasons.
-pub struct CwdGuard {
-    prev: PathBuf,
-}
-
-impl CwdGuard {
-    pub fn set(dir: &Path) -> Self {
-        let prev = std::env::current_dir().expect("cwd");
-        std::env::set_current_dir(dir).expect("chdir");
-        Self { prev }
-    }
-}
-
-impl Drop for CwdGuard {
-    fn drop(&mut self) {
-        // Panicking here would mask the test's own failure, so report the
-        // restore failure loudly instead of unwinding a second time.
-        if let Err(e) = std::env::set_current_dir(&self.prev) {
-            eprintln!("CwdGuard: failed to restore {}: {e}", self.prev.display());
-        }
-    }
-}
+/// and every later test touching a relative path (e.g. `run_deps`, whose
+/// `build_user_context` resolves `std::env::current_dir`) fails for
+/// unrelated reasons.
+///
+/// DRY-1 / TASK-2034: re-exported from `ops_core::test_utils` rather than
+/// redefined — that copy also serialises on a process-wide mutex, so a caller
+/// that forgets `#[serial]` cannot race another CWD-dependent test.
+pub use ops_core::test_utils::CwdGuard;
 
 #[derive(Clone, Default)]
 pub struct BufWriter(pub Arc<Mutex<Vec<u8>>>);

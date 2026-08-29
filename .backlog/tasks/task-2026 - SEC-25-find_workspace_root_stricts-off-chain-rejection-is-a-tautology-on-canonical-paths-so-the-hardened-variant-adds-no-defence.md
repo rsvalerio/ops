@@ -3,9 +3,11 @@ id: TASK-2026
 title: >-
   SEC-25: find_workspace_root_strict's off-chain rejection is a tautology on
   canonical paths, so the hardened variant adds no defence
-status: Triage
-assignee: []
+status: Done
+assignee:
+  - TASK-2041
 created_date: '2026-08-28 20:16'
+updated_date: '2026-08-29 12:53'
 labels:
   - code-review-rust
   - security
@@ -37,7 +39,13 @@ Either way, the doc comment on `find_workspace_root_strict` must stop promising 
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 find_workspace_root_strict either enforces a check that a filesystem-level test can drive to rejection, or its doc comment and the SEC-25 annotations stop claiming a symlink-planting defence
-- [ ] #2 A test constructs a real on-disk layout in which find_workspace_root_strict rejects a manifest that find_workspace_root accepts
-- [ ] #3 The decision (re-anchor to the pre-canonical start, validate the manifest file's own canonical path, or retire the strict variant) is recorded on the function
+- [x] #1 find_workspace_root_strict either enforces a check that a filesystem-level test can drive to rejection, or its doc comment and the SEC-25 annotations stop claiming a symlink-planting defence
+- [x] #2 A test constructs a real on-disk layout in which find_workspace_root_strict rejects a manifest that find_workspace_root accepts
+- [x] #3 The decision (re-anchor to the pre-canonical start, validate the manifest file's own canonical path, or retire the strict variant) is recorded on the function
 <!-- AC:END -->
+
+## Implementation Notes
+
+<!-- SECTION:NOTES:BEGIN -->
+Decision recorded on find_workspace_root_strict: option 2 (validate the candidate manifest's own canonical path). strict_candidate_action now calls manifest_is_contained, which canonicalizes the candidate Cargo.toml and requires its canonical parent to equal the canonical candidate directory, so a planted Cargo.toml symlink into an attacker tree is skipped. Re-anchoring to the pre-canonical start was rejected in the doc comment (it would break every cwd reached through a symlink). New filesystem test find_root_strict_rejects_symlinked_manifest_that_lenient_accepts drives the rejection on a real on-disk layout: lenient returns the planted root, strict reports NotFound.
+<!-- SECTION:NOTES:END -->

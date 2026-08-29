@@ -1187,4 +1187,58 @@ mod signal_shutdown_tests {
             PlanOutcome::Completed(()) => panic!("the plan future can only end via the signal"),
         }
     }
+
+    /// CONC-14 / TASK-2023: once the shutdown path has been entered, the two
+    /// shutdown signals must be back on their default disposition, so a
+    /// second Ctrl-C during a slow or wedged teardown kills the process
+    /// (`128 + signo`) instead of being swallowed by a tokio stream nobody
+    /// reads any more.
+    ///
+    /// The reset is process-global and, by design, not undoable in-process:
+    /// tokio installs each OS handler behind a `Once`, so it will not
+    /// reinstall one it already registered. This test therefore relies on
+    /// the project's process-per-test harness (`cargo nextest`), the same
+    /// assumption the sibling SIGTERM test makes when it signals its own pid.
+    #[cfg(unix)]
+    #[test]
+    #[serial_test::serial]
+    fn shutdown_path_restores_default_signal_dispositions() {
+        /// Read the currently installed handler for `signo`.
+        fn disposition(signo: i32) -> libc::sighandler_t {
+            let mut current = std::mem::MaybeUninit::<libc::sigaction>::uninit();
+            // SAFETY: a null `act` makes `sigaction` a pure query; `oldact`
+            // points at properly aligned, writable storage owned by this
+            // frame for the whole call, and the kernel fully initialises it
+            // on success.
+            let rc = unsafe { libc::sigaction(signo, std::ptr::null(), current.as_mut_ptr()) };
+            assert_eq!(rc, 0, "sigaction query failed for signal {signo}");
+            // SAFETY: `sigaction` returned 0, so `current` is initialised.
+            unsafe { current.assume_init() }.sa_sigaction
+        }
+
+        let rt = tokio::runtime::Builder::new_multi_thread()
+            .worker_threads(2)
+            .enable_all()
+            .build()
+            .unwrap();
+        let outcome = rt.block_on(run_until_signal(async {
+            // SAFETY: `kill` with a valid signal number targeting our own
+            // pid; it touches no memory and cannot alias.
+            unsafe { libc::kill(libc::getpid(), libc::SIGTERM) };
+            std::future::pending::<()>().await;
+        }));
+        assert!(
+            matches!(outcome, PlanOutcome::Interrupted(SIGTERM_SIGNO)),
+            "the plan future can only end via the signal"
+        );
+
+        for signo in [libc::SIGINT, libc::SIGTERM] {
+            assert_eq!(
+                disposition(signo),
+                libc::SIG_DFL,
+                "signal {signo} must be back on SIG_DFL after the shutdown path, \
+                 otherwise a second Ctrl-C cannot escape a wedged teardown"
+            );
+        }
+    }
 }

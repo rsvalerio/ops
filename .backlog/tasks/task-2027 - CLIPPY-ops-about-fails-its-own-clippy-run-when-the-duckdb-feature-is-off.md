@@ -1,9 +1,11 @@
 ---
 id: TASK-2027
 title: 'CLIPPY: ops-about fails its own clippy run when the duckdb feature is off'
-status: Triage
-assignee: []
+status: Done
+assignee:
+  - TASK-2049
 created_date: '2026-08-28 20:25'
+updated_date: '2026-08-29 13:01'
 labels:
   - code-review-rust
   - readability
@@ -48,6 +50,6 @@ feature-off build of `ops-about` into a per-crate lint run).
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 cargo clippy -p ops-about --all-targets passes with no extra flags and the duckdb feature off
-- [ ] #2 The fix is applied at the narrowest scope (const fn, or an allow carrying its reason) per docs/clippy.md
+- [x] #1 cargo clippy -p ops-about --all-targets passes with no extra flags and the duckdb feature off
+- [x] #2 The fix is applied at the narrowest scope (const fn, or an allow carrying its reason) per docs/clippy.md
 <!-- AC:END -->

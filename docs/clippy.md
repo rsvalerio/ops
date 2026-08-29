@@ -20,7 +20,7 @@ only ever shrinks.
 |---|---|
 | `Cargo.toml` → `[workspace.lints]` | Which lints are on, and which are allowed workspace-wide |
 | `clippy.toml` | Lint thresholds, and the `msrv` that gates version-sensitive lints |
-| Each member's `Cargo.toml` → `[lints] workspace = true` | Opt-in. Every one of the 28 members has it |
+| Each member's `Cargo.toml` → `[lints] workspace = true` | Opt-in. Every workspace member has it |
 | Each crate root (`lib.rs` / `main.rs`) | The `#[cfg(test)]` relaxations |
 | Individual call sites | `#[allow(...)]` with a comment saying why |
 
@@ -130,18 +130,15 @@ restriction lint this workspace adopts from now on goes there directly.
 
 ### Layer 2 — test code
 
-`unwrap_used` is the reason this layer exists. Banning `unwrap` in production is
-worth it; banning it in tests is not, where `unwrap` on a fixture is the clearest
-way to say "this cannot fail and I want a panic if it does".
-
-Cargo's `[lints]` table cannot be `cfg`-gated, so the relaxation lives in each
-crate root:
+Some lints are worth denying in production and not worth denying in tests: the
+cast lints, for instance, where `(i % 256) as u8` in a fixture generator carries
+no risk and no information. Cargo's `[lints]` table cannot be `cfg`-gated, so
+that relaxation lives in the crate root:
 
 ```rust
 #![cfg_attr(
     test,
     allow(
-        clippy::unwrap_used,
         clippy::cast_possible_truncation,
         clippy::cast_precision_loss,
         clippy::cast_sign_loss
@@ -149,12 +146,27 @@ crate root:
 )]
 ```
 
-The three cast lints are here for the same reason: `(i % 256) as u8` in a
-fixture generator carries no risk and no information.
+**A crate root lists only the lints it actually triggers.** There is no standard
+block to paste in: write the entry when the crate has a test that fires the
+lint, and delete it when that test goes away. An entry that excuses nothing is
+not harmless: it tells the next reader the crate does something it does not,
+and rewriting it as `#[expect]` to check would report it unfulfilled.
 
-All 28 crate roots carry this block. **Integration test targets under `tests/`
-are separate crates** and are not covered by the library's crate root — if one
-ever needs `unwrap`, it needs its own inner attribute at the top of that file.
+Two consequences follow, and both are normal outcomes rather than gaps:
+
+- **`unwrap` needs no entry.** Layer 1's `allow-unwrap-in-tests = true` in
+  `clippy.toml` already relaxes `unwrap_used` for test code across the whole
+  workspace, along with `expect`, `panic` and `indexing_slicing`. A crate root
+  listing `clippy::unwrap_used` is a leftover; the READ-10 tasks are removing
+  them as they are found (TASK-1914, TASK-1968).
+- **A crate root may carry no block at all.** `extensions/tokei` and
+  `extensions-rust/create-review-tasks` are the worked examples: their tests use
+  `unwrap`/`expect`/indexing, all covered by `clippy.toml`, and cast nothing —
+  so the block was deleted outright and replaced by a comment saying why.
+
+**Integration test targets under `tests/` are separate crates** and are not
+covered by the library's crate root — if one ever needs its own relaxation, it
+needs an inner attribute at the top of that file.
 `crates/cli/tests/integration.rs` uses `expect` in its helper functions, which
 sit outside `#[test]` bodies and so are not covered by `allow-expect-in-tests`
 either; it carries its own `#![allow(clippy::expect_used)]` for that reason
@@ -345,9 +357,11 @@ entirely. Run the same command the gate runs, or run `ops verify`.
 
 1. Add `[lints]` / `workspace = true` to its `Cargo.toml`. Without this the
    crate is outside the policy and nothing will tell you.
-2. Add the `#![cfg_attr(test, allow(...))]` block to its crate root, copied from
-   any existing crate.
-3. Run `ops verify`.
+2. Run `ops verify`.
+3. Only if the gate is red on test code, add a `#![cfg_attr(test, allow(...))]`
+   block to the crate root listing exactly the lints that fired — do not copy
+   another crate's block. Most crates need none: `clippy.toml` already relaxes
+   `unwrap`/`expect`/`panic`/indexing in tests workspace-wide (layer 2).
 
 ## Changing the policy
 

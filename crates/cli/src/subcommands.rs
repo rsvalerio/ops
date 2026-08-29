@@ -57,11 +57,19 @@ pub fn run_about(
     }
 }
 
+/// The `--refresh` flag's one and only translation into the library's
+/// options bag. Split out of [`run_deps`] so the mapping can be pinned
+/// without spawning cargo: `run_deps` shells out to `cargo upgrade` and
+/// `cargo deny` before it can be observed.
+#[cfg(feature = "stack-rust")]
+const fn deps_options(refresh: bool) -> ops_deps::DepsOptions {
+    ops_deps::DepsOptions::new(refresh)
+}
+
 #[cfg(feature = "stack-rust")]
 pub fn run_deps(config: &Config, refresh: bool) -> anyhow::Result<()> {
     let (_cwd, registry) = cli_data_context(config)?;
-    let opts = ops_deps::DepsOptions::new(refresh);
-    ops_deps::run_deps(&registry, &opts)
+    ops_deps::run_deps(&registry, &deps_options(refresh))
 }
 
 pub fn run_create_review_tasks(config: &Config, dry_run: bool) -> anyhow::Result<()> {
@@ -463,6 +471,36 @@ mod tests {
         }
         guard.unset_value();
         assert!(!env_flag_enabled("OPS_NONINTERACTIVE_TEST"));
+    }
+
+    /// TEST-31 / TASK-2030: `ops deps --refresh` is plumbed argv →
+    /// `CoreSubcommand::Deps { refresh }` → `run_deps` →
+    /// `DepsOptions::new(refresh)`. The library test pins
+    /// `DepsOptions.refresh -> ctx.refresh`; nothing pinned the half above
+    /// it, so a dispatch that dropped the flag — or hard-coded `false` —
+    /// would have left every test green. The context's provider cache is
+    /// per-process and `ops deps` queries it once, so this seam is the only
+    /// place the flag's value is observable at all.
+    #[cfg(feature = "stack-rust")]
+    #[test]
+    fn deps_refresh_flag_reaches_deps_options() {
+        use crate::args::{Cli, Parser as _};
+
+        for (argv, expected) in [
+            (vec!["ops", "deps"], false),
+            (vec!["ops", "deps", "--refresh"], true),
+        ] {
+            let cli = Cli::parse_from(argv);
+            let Some(crate::args::CoreSubcommand::Deps { refresh }) = cli.subcommand else {
+                panic!("expected the deps subcommand");
+            };
+            assert_eq!(refresh, expected, "--refresh must survive parsing");
+            assert_eq!(
+                deps_options(refresh).refresh,
+                expected,
+                "the parsed flag must reach DepsOptions"
+            );
+        }
     }
 
     /// Split out of the previous combined `handlers_do_not_reload_config`

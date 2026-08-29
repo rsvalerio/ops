@@ -31,8 +31,27 @@ use ops_extension::{Context, DataProvider, DataProviderError, ExtensionType};
 use std::path::PathBuf;
 use std::sync::Arc;
 
+/// SEC-38 / TASK-2018: the `as_ref()` reborrow is load-bearing.
+///
+/// `ops_extension` gives `DuckDbHandle` a blanket impl over every
+/// `'static + Send + Sync` type, and `Arc<dyn DuckDbHandle>` is itself one of
+/// them. Wherever the trait is in scope, method resolution on an `Arc` (or
+/// `&Arc`) receiver matches that blanket impl *for the smart pointer* before it
+/// derefs, so `as_any()` erases the `Arc` and every downcast to [`DuckDb`]
+/// returns `None` — silently, with no error and no compile failure.
+///
+/// This module happens not to import `DuckDbHandle` by name, which is the only
+/// reason a bare `h.as_any()` resolves through to the trait object's own method
+/// today. That is an accident of the import list, not a contract: a single
+/// `use ops_extension::DuckDbHandle;` anywhere in this module would flip every
+/// downcast to `None`. Reborrowing to `&dyn DuckDbHandle` first names the
+/// receiver explicitly and drops the dependency on scope entirely. The
+/// `duckdb_handle_in_scope` tests below pin both halves.
 fn downcast_duckdb(handle: Option<&Arc<dyn ops_extension::DuckDbHandle>>) -> Option<&DuckDb> {
-    handle.and_then(|h| h.as_any().downcast_ref::<DuckDb>())
+    handle.and_then(|h| {
+        let erased: &dyn ops_extension::DuckDbHandle = h.as_ref();
+        erased.as_any().downcast_ref::<DuckDb>()
+    })
 }
 
 /// Try to provide data from `DuckDB` first, falling back to a direct computation.
@@ -296,6 +315,65 @@ mod tests {
             err.to_string().contains("fallback exploded"),
             "cause must survive the conversion: {err}"
         );
+    }
+
+    /// SEC-38 / TASK-2018: the accessors above happen to be exercised from a
+    /// module where `DuckDbHandle` is *not* imported, which is exactly the
+    /// condition under which a bare `as_any()` on an `Arc` receiver resolves
+    /// correctly. This module imports the trait, so the blanket impl for
+    /// `Arc<dyn DuckDbHandle>` wins method resolution here — the state the
+    /// whole crate is one `use` statement away from. `get_db` and
+    /// `try_provide_from_db` must be immune to it.
+    mod duckdb_handle_in_scope {
+        use super::{get_db, try_provide_from_db, DuckDb};
+        use ops_extension::{Context, DuckDbHandle};
+        use std::sync::Arc;
+
+        fn context_with_a_handle() -> (Context, u64) {
+            let db = DuckDb::open_in_memory().expect("should open");
+            let id = db.id();
+            let config = Arc::new(ops_core::config::Config::empty());
+            let mut ctx = Context::new(config, std::path::PathBuf::from("."));
+            ctx.attach_db(Arc::new(db));
+            (ctx, id)
+        }
+
+        #[test]
+        fn an_unreborrowed_as_any_on_an_arc_receiver_erases_the_arc() {
+            let db = DuckDb::open_in_memory().expect("should open");
+            let handle: Arc<dyn DuckDbHandle> = Arc::new(db);
+
+            assert!(
+                handle.as_any().downcast_ref::<DuckDb>().is_none(),
+                "with the trait in scope an Arc receiver does not reach the handle"
+            );
+            assert!(
+                handle
+                    .as_any()
+                    .downcast_ref::<Arc<dyn DuckDbHandle>>()
+                    .is_some(),
+                "it erases the Arc itself instead"
+            );
+        }
+
+        #[test]
+        fn get_db_finds_the_handle_regardless_of_what_is_in_scope() {
+            let (ctx, expected_id) = context_with_a_handle();
+            let got = get_db(&ctx).expect("downcast_duckdb must reborrow, not rely on scope");
+            assert_eq!(got.id(), expected_id, "must be the very handle attached");
+        }
+
+        #[test]
+        fn try_provide_from_db_takes_the_db_branch_regardless_of_what_is_in_scope() {
+            let (mut ctx, expected_id) = context_with_a_handle();
+            let value = try_provide_from_db(
+                &mut ctx,
+                |db, _ctx| Ok(serde_json::json!({ "id": db.id() })),
+                |_ctx| panic!("fallback must not run when a handle is attached"),
+            )
+            .expect("db branch");
+            assert_eq!(value, serde_json::json!({ "id": expected_id }));
+        }
     }
 
     #[test]

@@ -3,9 +3,11 @@ id: TASK-2030
 title: >-
   TEST-31: ops deps is never run as a CLI subcommand — its exit code and
   stdout/stderr routing are untested
-status: Triage
-assignee: []
+status: Done
+assignee:
+  - TASK-2046
 created_date: '2026-08-28 20:52'
+updated_date: '2026-08-29 12:44'
 labels:
   - code-review-rust
   - test-quality
@@ -38,9 +40,45 @@ The same argument applies to the sibling subcommands wired through `cli_data_con
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 A test runs the built ops binary with the deps subcommand against a fixture project and asserts a non-zero exit when the report carries actionable issues
-- [ ] #2 The same harness asserts a zero exit on a clean report
-- [ ] #3 The test asserts the rendered report lands on stdout and the failure message on stderr
-- [ ] #4 --refresh is asserted to reach DepsOptions
-- [ ] #5 The test does not require real cargo-edit / cargo-deny installations and does not reach the network
+- [x] #1 A test runs the built ops binary with the deps subcommand against a fixture project and asserts a non-zero exit when the report carries actionable issues
+- [x] #2 The same harness asserts a zero exit on a clean report
+- [x] #3 The test asserts the rendered report lands on stdout and the failure message on stderr
+- [x] #4 --refresh is asserted to reach DepsOptions
+- [x] #5 The test does not require real cargo-edit / cargo-deny installations and does not reach the network
 <!-- AC:END -->
+
+## Implementation Notes
+
+<!-- SECTION:NOTES:BEGIN -->
+Covered in crates/cli/tests/integration.rs and crates/cli/src/subcommands.rs
+(wave TASK-2046).
+
+`run_cargo` resolves the cargo binary through `$CARGO`, so the tests point
+that variable at a `/bin/sh` shim written into the fixture dir. The shim
+answers the two `--version` probes `ensure_tools` makes, prints nothing for
+`cargo upgrade --dry-run` (which the upgrade parser reads as "no upgrades"),
+and replays a canned diagnostic stream on stderr for `cargo deny`. No
+cargo-edit / cargo-deny installation and no network (AC#5). Unix-only,
+because the shim is a shell script.
+
+- `cli_deps_exits_zero_and_renders_the_report_on_stdout_when_clean` (AC#2).
+- `cli_deps_fails_and_splits_report_from_error_when_issues_are_found` (AC#1,
+  AC#3): one `error`-severity advisory drives the exit non-zero, the rendered
+  report is asserted on stdout, and `dependency issues found` is asserted on
+  stderr *and* asserted absent from stdout.
+- `cli_deps_accepts_refresh_and_still_renders_the_report` plus
+  `subcommands::tests::deps_refresh_flag_reaches_deps_options` (AC#4).
+
+AC#4 substitution, recorded per the wave protocol: `--refresh` has no
+observable effect on a single spawned run, so it cannot be pinned
+black-box. `Context`'s provider cache is per-process (crates/extension/src/data.rs)
+and `ops deps` calls `get_or_provide` exactly once, so the cache always misses
+and refresh vs. no-refresh produce identical output and identical cargo
+invocations. The AC's intent — "the flag is not dropped between argv and
+`DepsOptions`" — is satisfied by pinning that seam directly: a new
+`subcommands::deps_options` helper (split out of `run_deps`, which shells out
+before anything is observable) plus a test that parses both `ops deps` and
+`ops deps --refresh` and asserts the value reaching `DepsOptions.refresh`. The
+spawned test additionally proves the flag is accepted at that argv position
+and the deps path still runs to a rendered report.
+<!-- SECTION:NOTES:END -->

@@ -233,7 +233,9 @@ fn enrich_from_db(ctx: &ops_extension::Context, identity: &mut ProjectIdentity) 
 }
 
 #[cfg(not(feature = "duckdb"))]
-fn enrich_from_db(_ctx: &ops_extension::Context, _identity: &mut ProjectIdentity) {}
+// CLIPPY (TASK-2027): `const` keeps `cargo clippy -p ops-about` green with the
+// `duckdb` feature off, where `missing_const_for_fn` fires on this empty stub.
+const fn enrich_from_db(_ctx: &ops_extension::Context, _identity: &mut ProjectIdentity) {}
 
 /// Build a minimal identity from the filesystem when no stack provider exists.
 fn build_fallback_identity(cwd: &std::path::Path) -> ProjectIdentity {

@@ -50,7 +50,9 @@ pub fn format_language_stats_section(stats: Option<&[LanguageStat]>) -> Vec<Stri
         let loc_str = format!("{} ({:.1}%)", format_number(stat.loc), stat.loc_pct);
         let files_str = format!("{} ({:.1}%)", format_number(stat.files), stat.files_pct);
         table.add_row(vec![
-            Cell::new(&stat.name),
+            // SEC-11 / TASK-2032: language names come from the tooling's
+            // output, so they go through the sanitising constructor.
+            OpsTable::text_cell(&stat.name),
             Cell::new(&loc_str),
             Cell::new(&files_str),
         ]);

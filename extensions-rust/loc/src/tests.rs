@@ -464,6 +464,37 @@ fn collect_rust_loc_skips_build_directories() {
     assert_eq!(files, vec!["src/lib.rs"], "build dirs must be pruned");
 }
 
+/// Pins the depth-agnostic half of the [`crate::EXCLUDED_DIRS`] policy
+/// (CL-3, TASK-2016): unlike tokei's root-anchored `TOKEI_DEFAULT_EXCLUDED`,
+/// an excluded name is pruned wherever it appears below the root, because a
+/// nested `target/` is a nested cargo workspace's build directory and a
+/// nested `.git/` a submodule's.
+#[test]
+fn excluded_directories_are_pruned_below_the_scan_root_too() {
+    let dir = tempfile::tempdir().expect("tempdir");
+    std::fs::create_dir_all(dir.path().join("src")).expect("mkdir src");
+    std::fs::write(dir.path().join("src/lib.rs"), "pub fn f() {}\n").expect("write src");
+    for excluded in crate::EXCLUDED_DIRS {
+        // Two levels down, so neither depth 0 nor depth 1 can explain the prune.
+        let path = dir.path().join("nested/crate-a").join(excluded);
+        std::fs::create_dir_all(&path).expect("mkdir nested excluded");
+        std::fs::write(path.join("noise.rs"), "fn b() {}\nfn c() {}\n").expect("write noise");
+    }
+
+    let value = crate::collect_rust_loc(dir.path()).expect("collect");
+    let files: Vec<&str> = value
+        .as_array()
+        .expect("array")
+        .iter()
+        .map(|r| r["file"].as_str().unwrap_or_default())
+        .collect();
+    assert_eq!(
+        files,
+        vec!["src/lib.rs"],
+        "excluded names must be pruned at any depth, not only at the root"
+    );
+}
+
 /// Pins the `MAX_SOURCE_BYTES` gate (SEC-33): a file past the cap is
 /// counted by the streaming blank-vs-non-blank fallback instead of being
 /// read, lexed and `syn`-parsed at full size, and its presence never

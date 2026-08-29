@@ -19,6 +19,11 @@ tracing = { workspace = true }
 thiserror = { workspace = true }
 serde = { workspace = true }
 
+# SEC / TASK-2039: `geteuid`, to decide whether a sticky shared-writable ingest
+# staging parent is owned by a principal we trust. std exposes no equivalent.
+[target.'cfg(unix)'.dependencies]
+libc = { workspace = true }
+
 [features]
 default = []
 # Exposes test-only helpers (e.g., the test_create_sql_validation macro) for use

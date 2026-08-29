@@ -59,10 +59,45 @@ pub fn data_dir_for_db(db_path: &Path) -> DbResult<PathBuf> {
 /// default umask (TASK-1000) and are deliberately *not* hardened; the
 /// co-tenant guarantee this function makes is about the leaf ingest dir
 /// only.
+///
+/// # SEC / TASK-2039: closing the verify-then-write TOCTOU window
+///
+/// Everything above verifies the ingest dir through an **open handle** and
+/// then drops it. `provide_via_ingestor` afterwards hands the plain `&Path`
+/// to [`crate::Ingestor::collect`] and [`crate::Ingestor::load`], which
+/// reopen `data_dir` by path, and `sidecar.rs` joins onto it by path too. A
+/// principal who can create names in the ingest dir's **parent** can
+/// therefore swap the verified directory for a symlink between the check and
+/// each staged write, and the JSON the database later trusts on load lands
+/// wherever they point.
+///
+/// Of the two options weighed on TASK-2039 — threading a verified `Dir`-like
+/// handle (`cap-std` / `*at` syscalls) through the `Ingestor` trait and
+/// `sidecar.rs`, versus removing the swap *capability* — this takes the
+/// second: [`harden_ingest_parent`] makes the staging parent unwritable to
+/// every principal but its owner, so no one else can create or rename a name
+/// inside it and the window has nothing to exploit. That keeps the
+/// `Ingestor` trait's `&Path` signature and every implementation unchanged.
+///
+/// The parent is tightened by clearing the group/other **write** bits only
+/// (`0o775` → `0o755`), not stamped to `0o700`: `target/ops` is conventionally
+/// readable, and TASK-1000's rule that intermediate parents keep the platform
+/// default still holds for everything above the immediate parent. A parent
+/// that is shared-writable but **sticky** (`/tmp`-style) is accepted as is —
+/// the sticky bit already forbids other principals renaming or deleting a
+/// name they do not own, which is exactly the swap being defended against.
+/// If the write bits cannot be cleared (we do not own the directory), staging
+/// is refused rather than performed into a directory another principal
+/// controls.
+///
+/// Non-Unix keeps the rejection half only, as above: there is no portable
+/// mode to inspect or stamp.
 pub(super) fn create_ingest_dir(data_dir: &Path) -> std::io::Result<()> {
     if let Some(parent) = data_dir.parent() {
         if !parent.as_os_str().is_empty() {
             std::fs::create_dir_all(parent)?;
+            #[cfg(unix)]
+            harden_ingest_parent(parent)?;
         }
     }
     #[cfg(unix)]
@@ -133,6 +168,105 @@ fn reject_untrusted_ingest_dir(data_dir: &Path) -> std::io::Result<Option<std::f
         ));
     }
     Ok(Some(lstat))
+}
+
+/// SEC / TASK-2039: remove the *capability* to swap the verified ingest dir
+/// for a symlink, by making its parent directory writable only by its owner.
+///
+/// See the TASK-2039 section on [`create_ingest_dir`] for why this is done
+/// instead of threading a directory handle through the [`crate::Ingestor`]
+/// trait. Returns:
+///
+/// * `Ok(())` when no other principal can create names in `parent` — either
+///   the group/other write bits were already clear, or the directory is
+///   sticky (a name there cannot be renamed or unlinked by anyone but its
+///   owner), or we cleared the bits ourselves.
+/// * `Err` when the bits are set, the directory is not sticky, and the
+///   `fchmod` fails — typically because the directory belongs to someone
+///   else, which is precisely the situation in which staging into it is
+///   unsafe.
+///
+/// The mode is applied through an open handle (`fchmod`), and the handle is
+/// confirmed to be a directory first, so a symlink at `parent` cannot have
+/// its target chmodded — the same discipline as
+/// [`harden_existing_ingest_dir`].
+#[cfg(unix)]
+fn harden_ingest_parent(parent: &Path) -> std::io::Result<()> {
+    use std::io::{Error, ErrorKind};
+    use std::os::unix::fs::{MetadataExt, PermissionsExt};
+
+    /// Write permission for group and other: the ability to create, rename,
+    /// or unlink names inside the directory.
+    const SHARED_WRITE: u32 = 0o022;
+    /// The sticky bit (`S_ISVTX`), which restricts renaming and unlinking
+    /// inside a shared-writable directory to the entry's own owner.
+    const STICKY: u32 = 0o1000;
+
+    let handle = std::fs::File::open(parent)?;
+    let meta = handle.metadata()?;
+    if !meta.is_dir() {
+        return Err(Error::new(
+            ErrorKind::InvalidInput,
+            format!(
+                "ingest staging parent {} is not a directory",
+                parent.display()
+            ),
+        ));
+    }
+    // `PermissionsExt::mode` returns the raw `st_mode`, file-type bits and
+    // all; keep only the permission + set-id/sticky bits `fchmod` accepts.
+    let mode = meta.permissions().mode() & 0o7777;
+    if mode & SHARED_WRITE == 0 {
+        return Ok(());
+    }
+    if mode & STICKY != 0 {
+        // The sticky bit binds every principal *except* the directory's own
+        // owner, who can clear it, chmod the directory, or replace it
+        // wholesale. Accepting on the bit alone would therefore trust an
+        // attacker-owned `0o1777` directory exactly as much as `/tmp`.
+        let owner = meta.uid();
+        if !is_trusted_parent_owner(owner) {
+            return Err(Error::new(
+                ErrorKind::PermissionDenied,
+                format!(
+                    "ingest staging parent {} is shared-writable and sticky but owned by uid {owner}, which can clear the sticky bit or replace the directory",
+                    parent.display(),
+                ),
+            ));
+        }
+        tracing::debug!(
+            parent = ?parent.display(),
+            mode = format!("{mode:o}"),
+            owner,
+            "SEC / TASK-2039: ingest staging parent is shared-writable but sticky and trusted-owned; names cannot be swapped by other principals"
+        );
+        return Ok(());
+    }
+    handle
+        .set_permissions(std::fs::Permissions::from_mode(mode & !SHARED_WRITE))
+        .map_err(|e| {
+            Error::new(
+                e.kind(),
+                format!(
+                    "ingest staging parent {} is writable by other local principals (mode {mode:o}) and its permissions could not be tightened: {e}",
+                    parent.display(),
+                ),
+            )
+        })
+}
+
+/// May `owner` be trusted to hold a shared-writable staging parent?
+///
+/// Only the superuser and ourselves. `/tmp` — root-owned and sticky — is the
+/// shape this accepts; a co-tenant's own `0o1777` directory is the shape it
+/// must not, because its owner is not bound by the sticky bit they set.
+#[cfg(unix)]
+fn is_trusted_parent_owner(owner: u32) -> bool {
+    // SAFETY: `geteuid` takes no arguments, dereferences nothing, and is
+    // defined to always succeed, so there are no preconditions to uphold and
+    // no error case to handle.
+    let euid = unsafe { libc::geteuid() };
+    owner == 0 || owner == euid
 }
 
 /// Stamp `0o700` on an ingest dir that already exists on disk, refusing to
@@ -292,6 +426,96 @@ mod tests {
                 parent.display()
             );
         }
+    }
+
+    /// SEC / TASK-2039: the swap this defends against needs the ability to
+    /// create or rename names in the ingest dir's parent. After
+    /// `create_ingest_dir`, a shared-writable parent must no longer grant it,
+    /// so a symlink cannot be swapped in after verification and no staged
+    /// write can be redirected. Starting the parent at 0o777 is the closest
+    /// on-disk stand-in for a co-tenant-writable staging area.
+    #[cfg(unix)]
+    #[test]
+    fn create_ingest_dir_removes_swap_capability_from_the_staging_parent() {
+        use std::os::unix::fs::PermissionsExt;
+        let tmp = tempfile::tempdir().expect("tempdir");
+        let parent = tmp.path().join("shared");
+        std::fs::create_dir(&parent).expect("parent");
+        std::fs::set_permissions(&parent, std::fs::Permissions::from_mode(0o777))
+            .expect("make parent shared-writable");
+
+        create_ingest_dir(&parent.join("data.duckdb.ingest")).expect("create");
+
+        let mode = std::fs::metadata(&parent)
+            .expect("meta")
+            .permissions()
+            .mode()
+            & 0o7777;
+        assert_eq!(
+            mode & 0o022,
+            0,
+            "no other principal may create or rename names in the staging parent; got {mode:o}"
+        );
+        assert_eq!(
+            mode & 0o700,
+            0o700,
+            "the owner must keep full access to the staging parent; got {mode:o}"
+        );
+    }
+
+    /// SEC / TASK-2039: a parent that is shared-writable but sticky already
+    /// forbids other principals renaming or unlinking a name they do not own,
+    /// so its mode is left alone rather than tightened — `ops` must not chmod
+    /// a `/tmp`-style directory it happens to stage under.
+    #[cfg(unix)]
+    #[test]
+    fn create_ingest_dir_leaves_a_sticky_shared_parent_alone() {
+        use std::os::unix::fs::PermissionsExt;
+        let tmp = tempfile::tempdir().expect("tempdir");
+        let parent = tmp.path().join("sticky");
+        std::fs::create_dir(&parent).expect("parent");
+        std::fs::set_permissions(&parent, std::fs::Permissions::from_mode(0o1777))
+            .expect("make parent sticky and shared-writable");
+
+        create_ingest_dir(&parent.join("data.duckdb.ingest")).expect("create");
+
+        let mode = std::fs::metadata(&parent)
+            .expect("meta")
+            .permissions()
+            .mode()
+            & 0o7777;
+        assert_eq!(
+            mode, 0o1777,
+            "a sticky shared parent must keep its mode; got {mode:o}"
+        );
+    }
+
+    /// SEC / TASK-2039: the sticky bit is only worth trusting when the
+    /// directory's *owner* is. An owner who is neither root nor us can clear
+    /// the bit at will, so the exemption must not extend to them.
+    #[cfg(unix)]
+    #[test]
+    fn only_root_and_ourselves_are_trusted_with_a_sticky_shared_parent() {
+        use std::os::unix::fs::MetadataExt;
+        let tmp = tempfile::tempdir().expect("tempdir");
+        let ours = std::fs::metadata(tmp.path()).expect("meta").uid();
+
+        assert!(
+            is_trusted_parent_owner(0),
+            "root-owned /tmp must be accepted"
+        );
+        assert!(
+            is_trusted_parent_owner(ours),
+            "a parent we own ourselves must be accepted"
+        );
+
+        // Any uid that is neither root nor ours. `u32::MAX` is `nobody` on
+        // most systems and is never the caller here.
+        let stranger = if ours == u32::MAX { 12345 } else { u32::MAX };
+        assert!(
+            !is_trusted_parent_owner(stranger),
+            "a sticky parent owned by uid {stranger} must be refused"
+        );
     }
 
     /// SEC-25 / TASK-1857: a symlink planted at the ingest-dir path must be

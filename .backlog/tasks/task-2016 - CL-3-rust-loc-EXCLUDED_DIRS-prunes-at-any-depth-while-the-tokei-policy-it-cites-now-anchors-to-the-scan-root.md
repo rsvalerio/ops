@@ -3,9 +3,11 @@ id: TASK-2016
 title: >-
   CL-3: rust-loc EXCLUDED_DIRS prunes at any depth while the tokei policy it
   cites now anchors to the scan root
-status: Triage
-assignee: []
+status: Done
+assignee:
+  - TASK-2050
 created_date: '2026-08-28 15:56'
+updated_date: '2026-08-29 13:12'
 labels:
   - code-review-rust
   - cognitive-load
@@ -45,6 +47,6 @@ next author reading either constant cannot tell which anchoring is current.
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 rust-loc's exclusion anchoring either matches the root-anchored tokei policy or its doc comment states the deliberate difference instead of claiming to mirror it
-- [ ] #2 A test covers the chosen behaviour for a directory with an excluded name nested below the scan root
+- [x] #1 rust-loc's exclusion anchoring either matches the root-anchored tokei policy or its doc comment states the deliberate difference instead of claiming to mirror it
+- [x] #2 A test covers the chosen behaviour for a directory with an excluded name nested below the scan root
 <!-- AC:END -->

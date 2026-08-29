@@ -123,7 +123,7 @@ impl ProgressState {
             .get(id.as_str())
             .cloned()
             .unwrap_or_else(|| {
-                tracing::trace!(id = %id, "display_map fallback: using id as display");
+                tracing::trace!(id = ?id.as_str(), "display_map fallback: using id as display");
                 id_str.clone()
             });
         (id_str, display)
@@ -185,7 +185,7 @@ impl ProgressState {
                 // The occurrence number is bounded by `self.steps.len()`, an
                 // in-memory `Vec`, so this is exactly equal to `+ 1`.
                 tracing::warn!(
-                    id = %sid,
+                    id = ?sid.as_str(),
                     occurrence = entry.len().saturating_add(1),
                     "ProgressState::reset_for_plan: duplicate command id; allocating an additional bar (TASK-1109)"
                 );

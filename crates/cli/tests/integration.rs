@@ -1034,3 +1034,321 @@ fn cli_import_makefile_without_a_terminal_refuses() {
         .stderr(predicate::str::contains("import-makefile"))
         .stderr(predicate::str::contains("requires an interactive terminal"));
 }
+
+// -- `ops create-review-tasks` and `ops run-before-push` (TEST-31 / TASK-2021) --
+//
+// TASK-1737 covered the rest of the README command table as spawned processes
+// but left these two out of its acceptance criteria. `run-before-push` is the
+// gate-shaped one: a git pre-push hook execs it and its exit code decides
+// whether the push proceeds, so a regression collapsing a failing command to
+// exit 0 would silently disarm the hook.
+
+/// Minimal single-package Cargo manifest — enough for stack detection to
+/// resolve Rust and for the `review_targets` provider to answer with one
+/// target.
+const SOLO_CARGO_TOML: &str = r#"[package]
+name = "demo"
+version = "0.1.0"
+edition = "2021"
+"#;
+
+/// `--dry-run` must render the plan the next real run would write, and write
+/// nothing: the report is the only observable effect. Rust-only because the
+/// `review_targets` provider ships with the rust stack.
+#[test]
+#[cfg_attr(
+    not(feature = "stack-rust"),
+    ignore = "review_targets is only registered by the rust stack provider"
+)]
+fn cli_create_review_tasks_dry_run_reports_the_plan_without_writing() {
+    let dir = temp_dir();
+    std::fs::write(dir.path().join("Cargo.toml"), SOLO_CARGO_TOML).expect("write Cargo.toml");
+    let tasks = dir.path().join(".backlog/tasks");
+    std::fs::create_dir_all(&tasks).expect("create .backlog/tasks");
+
+    ops()
+        .args(["create-review-tasks", "--dry-run"])
+        .current_dir(dir.path())
+        .assert()
+        .success()
+        .stdout(predicate::str::contains(
+            "would create TASK-0001 review-request-",
+        ))
+        .stdout(predicate::str::contains("(1 subtasks)"))
+        .stdout(predicate::str::contains(
+            "would create TASK-0001.01 REVIEW: Run skill code-review-rust against demo",
+        ))
+        .stdout(predicate::str::contains(
+            "list subtasks: backlog task list --parent TASK-0001",
+        ));
+
+    let written: Vec<_> = std::fs::read_dir(&tasks)
+        .expect("read .backlog/tasks")
+        .map(|e| e.expect("dir entry").file_name())
+        .collect();
+    assert!(
+        written.is_empty(),
+        "a dry run must not create task files, found: {written:?}"
+    );
+}
+
+/// The write form is the one that has an effect on disk, and the report is
+/// only printed once the whole task set exists — so "created" on stdout and
+/// the files under `.backlog/tasks` have to agree. The fixture's backlog tree
+/// is a tempdir, never the developer's.
+#[test]
+#[cfg_attr(
+    not(feature = "stack-rust"),
+    ignore = "review_targets is only registered by the rust stack provider"
+)]
+fn cli_create_review_tasks_writes_the_task_set() {
+    let dir = temp_dir();
+    std::fs::write(dir.path().join("Cargo.toml"), SOLO_CARGO_TOML).expect("write Cargo.toml");
+    let tasks = dir.path().join(".backlog/tasks");
+    std::fs::create_dir_all(&tasks).expect("create .backlog/tasks");
+
+    ops()
+        .arg("create-review-tasks")
+        .current_dir(dir.path())
+        .assert()
+        .success()
+        .stdout(predicate::str::contains(
+            "created TASK-0001 review-request-",
+        ))
+        .stdout(predicate::str::contains(
+            "created TASK-0001.01 REVIEW: Run skill code-review-rust against demo",
+        ));
+
+    let mut written: Vec<String> = std::fs::read_dir(&tasks)
+        .expect("read .backlog/tasks")
+        .map(|e| e.expect("dir entry").file_name().to_string_lossy().into())
+        .collect();
+    written.sort();
+    assert_eq!(
+        written.len(),
+        2,
+        "one main task plus one subtask must exist, found: {written:?}"
+    );
+    assert!(
+        written[0].starts_with("task-0001 - review-request-"),
+        "main task file must be named after the main task, found: {written:?}"
+    );
+    assert!(
+        written[1].starts_with("task-0001.01 - REVIEW-"),
+        "subtask file must be named after the subtask, found: {written:?}"
+    );
+}
+
+/// Without a `.backlog/tasks` tree there is nothing to allocate ids against.
+/// The refusal has to name the missing directory, or the operator's only
+/// signal is a non-zero exit.
+#[test]
+fn cli_create_review_tasks_without_a_backlog_tree_fails() {
+    let dir = temp_dir();
+    std::fs::write(dir.path().join("Cargo.toml"), SOLO_CARGO_TOML).expect("write Cargo.toml");
+
+    ops()
+        .args(["create-review-tasks", "--dry-run"])
+        .current_dir(dir.path())
+        .assert()
+        .failure()
+        .stderr(predicate::str::contains(".backlog/tasks"));
+}
+
+/// `ops` clears every `OPS_*` variable already; `SKIP_OPS_RUN_BEFORE_PUSH`
+/// does not match that prefix, so an ambient bypass in the developer's shell
+/// would turn both exit-code assertions below into vacuous successes.
+fn ops_hook() -> Command {
+    let mut cmd = ops();
+    cmd.env_remove("SKIP_OPS_RUN_BEFORE_PUSH");
+    cmd
+}
+
+#[test]
+fn cli_run_before_push_propagates_the_configured_command_exit_code() {
+    for (program, expect_success) in [("true", true), ("false", false)] {
+        let dir = temp_dir();
+        write_ops_toml(
+            dir.path(),
+            &format!(
+                r#"
+[commands.run-before-push]
+program = "{program}"
+"#
+            ),
+        );
+
+        let assertion = ops_hook()
+            .arg("run-before-push")
+            .current_dir(dir.path())
+            .assert();
+        if expect_success {
+            assertion.success();
+        } else {
+            assertion.failure();
+        }
+    }
+}
+
+/// A hook whose command is not configured must not exit 0: git reads success
+/// as "the hook passed" and would let the push through unchecked. Without a
+/// terminal there is nothing to prompt on, so the run bails immediately.
+#[test]
+fn cli_run_before_push_without_a_configured_command_fails_closed() {
+    let dir = temp_dir();
+    write_ops_toml(
+        dir.path(),
+        r#"[output]
+theme = "classic"
+"#,
+    );
+
+    ops_hook()
+        .arg("run-before-push")
+        .current_dir(dir.path())
+        .assert()
+        .failure()
+        .stderr(predicate::str::contains(
+            "no 'run-before-push' command configured",
+        ));
+}
+
+/// `install` picks the hook's commands from an `inquire` multi-select, so a
+/// spawned process (piped stdio) must refuse rather than render a picker
+/// nobody can answer. The `.git` directory is required first: the install
+/// path resolves the repository before it reaches the TTY gate.
+#[test]
+fn cli_run_before_push_install_without_a_terminal_refuses() {
+    let dir = temp_dir();
+    let git_dir = dir.path().join(".git");
+    std::fs::create_dir(&git_dir).expect("create .git");
+    std::fs::write(git_dir.join("HEAD"), "ref: refs/heads/main\n").expect("write HEAD");
+
+    ops_hook()
+        .args(["run-before-push", "install"])
+        .current_dir(dir.path())
+        .assert()
+        .failure()
+        .stderr(predicate::str::contains("run-before-push install"))
+        .stderr(predicate::str::contains("requires an interactive terminal"));
+}
+
+// -- `ops deps` (TEST-31 / TASK-2030) --
+//
+// TASK-1845 pinned `run_deps` / `ensure_tools` / `DepsProvider::provide`
+// in-process. Three things live only above that seam and were asserted
+// nowhere: the exit code `main` derives from the `dependency issues found`
+// error, the split of the report (stdout) from that error (stderr), and the
+// `--refresh` flag reaching `DepsOptions`.
+//
+// `ops deps` shells out to `cargo upgrade` and `cargo deny`. `run_cargo`
+// resolves the binary through `$CARGO`, so a shim on that variable stands in
+// for both cargo-edit and cargo-deny and keeps the test off the network. The
+// shim is `/bin/sh`, hence unix-only.
+
+/// A stand-in `cargo` that answers the two `--version` probes `ensure_tools`
+/// makes and the two collection commands `DepsProvider` spawns. `cargo
+/// upgrade --dry-run` prints nothing, which the upgrade parser reads as "no
+/// upgrades available"; `cargo deny` replays `deny_diagnostics` on stderr and
+/// exits `deny_exit`, cargo-deny's own contract for "issues found".
+#[cfg(all(unix, feature = "stack-rust"))]
+fn write_fake_cargo(dir: &Path, deny_exit: u8, deny_diagnostics: &str) -> PathBuf {
+    use std::os::unix::fs::PermissionsExt as _;
+
+    let path = dir.join("fake-cargo");
+    // The heredoc keeps the JSON diagnostics free of shell quoting; its
+    // delimiter is namespaced so no diagnostic line can close it early.
+    std::fs::write(
+        &path,
+        format!(
+            r#"#!/bin/sh
+case "$1 $2" in
+  "upgrade --version") echo "cargo-upgrade 0.0.0-fake"; exit 0 ;;
+  "deny --version") echo "cargo-deny 0.0.0-fake"; exit 0 ;;
+  "upgrade --dry-run") exit 0 ;;
+esac
+if [ "$1" = "deny" ]; then
+  cat >&2 <<'OPS_FAKE_DENY_EOF'
+{deny_diagnostics}
+OPS_FAKE_DENY_EOF
+  exit {deny_exit}
+fi
+echo "fake cargo: unexpected invocation: $*" >&2
+exit 127
+"#
+        ),
+    )
+    .expect("write fake cargo");
+    std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o755)).expect("chmod");
+    path
+}
+
+/// One cargo-deny `error` advisory, in the newline-delimited JSON shape
+/// `--format json` emits on stderr.
+#[cfg(all(unix, feature = "stack-rust"))]
+const DENY_ADVISORY_DIAGNOSTIC: &str = r#"{"type":"diagnostic","fields":{"severity":"error","code":"vulnerability","message":"fixture advisory","advisory":{"id":"RUSTSEC-0000-0000","package":"demo","title":"fixture advisory"}}}"#;
+
+/// A fixture project plus the `ops deps` invocation that runs against it,
+/// with `$CARGO` pointed at the shim.
+#[cfg(all(unix, feature = "stack-rust"))]
+fn deps_cmd(dir: &Path, deny_exit: u8, deny_diagnostics: &str) -> Command {
+    std::fs::write(dir.join("Cargo.toml"), SOLO_CARGO_TOML).expect("write Cargo.toml");
+    let cargo = write_fake_cargo(dir, deny_exit, deny_diagnostics);
+    let mut cmd = ops();
+    cmd.env("CARGO", cargo).arg("deps").current_dir(dir);
+    cmd
+}
+
+/// A clean report is the "scores green" case: exit 0, and the rendered
+/// report — not a bare exit status — is what a pipeline reads off stdout.
+#[test]
+#[cfg(all(unix, feature = "stack-rust"))]
+fn cli_deps_exits_zero_and_renders_the_report_on_stdout_when_clean() {
+    let dir = temp_dir();
+    deps_cmd(dir.path(), 0, "")
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("Dependency Health Report"))
+        .stdout(predicate::str::contains("Advisories"))
+        .stdout(predicate::str::contains("None"));
+}
+
+/// The product's contract: `ops deps` fails CI when the report carries
+/// actionable issues. The exit code is `main`'s translation of `run_deps`'
+/// `dependency issues found` error and was pinned nowhere above the library.
+///
+/// The stream split is asserted in the same run because it is the other half
+/// of what a consumer sees: a change routing the report to stderr (or the
+/// failure to stdout) would break every pipeline reading `ops deps` while
+/// leaving the whole suite green.
+#[test]
+#[cfg(all(unix, feature = "stack-rust"))]
+fn cli_deps_fails_and_splits_report_from_error_when_issues_are_found() {
+    let dir = temp_dir();
+    deps_cmd(dir.path(), 1, DENY_ADVISORY_DIAGNOSTIC)
+        .assert()
+        .failure()
+        .stdout(predicate::str::contains("Dependency Health Report"))
+        .stdout(predicate::str::contains("Advisories"))
+        .stdout(predicate::str::contains("1 error"))
+        .stdout(predicate::str::contains("dependency issues found").not())
+        .stderr(predicate::str::contains("dependency issues found"));
+}
+
+/// `--refresh` is plumbed `CoreSubcommand::Deps { refresh }` → `run_deps` →
+/// `DepsOptions::new(refresh)` → `Context::with_refresh`. The context's cache
+/// is per-process and `ops deps` queries the provider once, so refreshing has
+/// no *observable* effect on a single run — what a spawned test can pin is
+/// that the flag is accepted at this position and the deps path still runs to
+/// a rendered report. `deps_refresh_flag_reaches_deps_options` in
+/// `subcommands.rs` pins the value carried across the seam.
+#[test]
+#[cfg(all(unix, feature = "stack-rust"))]
+fn cli_deps_accepts_refresh_and_still_renders_the_report() {
+    let dir = temp_dir();
+    deps_cmd(dir.path(), 0, "")
+        .arg("--refresh")
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("Dependency Health Report"));
+}

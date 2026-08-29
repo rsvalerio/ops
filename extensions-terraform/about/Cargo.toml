@@ -18,6 +18,10 @@ ops-about = { workspace = true }
 linkme = { workspace = true }
 serde_json = { workspace = true }
 tracing = { workspace = true }
+# PATTERN-1: HCL identifiers are UAX #31, and heredoc terminators are
+# identifiers. `char::is_alphanumeric` is not a substitute — it rejects the
+# combining marks ID_Continue includes.
+unicode-ident = { workspace = true }
 
 [dev-dependencies]
 # DUP-3 / TASK-1788 + TASK-1772: the shared `write_file` fixture helper and the

@@ -3,9 +3,11 @@ id: TASK-2015
 title: >-
   DOCS: docs/clippy.md still claims all 28 crate roots carry the cfg_attr(test,
   allow(..)) block
-status: Triage
-assignee: []
+status: Done
+assignee:
+  - TASK-2049
 created_date: '2026-08-28 15:56'
+updated_date: '2026-08-29 13:01'
 labels:
   - code-review-rust
   - documentation
@@ -44,6 +46,12 @@ policy: the block is per-crate and only lists lints with an actual callsite;
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 docs/clippy.md layer 2 no longer claims every crate root carries the four-lint block, and states that a crate root only relaxes lints it actually triggers
-- [ ] #2 The interaction with clippy.toml's allow-unwrap-in-tests is documented, so a crate root that needs no block at all is a recognised outcome
+- [x] #1 docs/clippy.md layer 2 no longer claims every crate root carries the four-lint block, and states that a crate root only relaxes lints it actually triggers
+- [x] #2 The interaction with clippy.toml's allow-unwrap-in-tests is documented, so a crate root that needs no block at all is a recognised outcome
 <!-- AC:END -->
+
+## Implementation Notes
+
+<!-- SECTION:NOTES:BEGIN -->
+Also refreshed the "Adding a new crate" checklist (step 2 told authors to paste another crate's block) and dropped the stale "28 members" count in the policy table -- same staleness class, same file.
+<!-- SECTION:NOTES:END -->

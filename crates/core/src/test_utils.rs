@@ -14,10 +14,9 @@
 //!   by the crate's semver promises.
 //! - **Cross-crate consumers** (e.g. `ops-cli`, `ops-runner`) bind to the
 //!   public-under-feature surface enumerated below.
-//! - **`#[cfg(test)]` helpers** (currently only [`capture_tracing`]) are
-//!   compile-gated to `cargo test` of this crate and are not visible to
-//!   downstream `test-support` consumers; mark anything new the same way
-//!   when it depends on dev-only deps (e.g. `tracing-subscriber`).
+//! - **`#[cfg(test)]` helpers** are compile-gated to `cargo test` of this
+//!   crate and are not visible to downstream `test-support` consumers; mark
+//!   anything new the same way when it depends on a dev-only dependency.
 //!
 //! ## `CommandSpec` / `ExecCommandSpec` constructors (public-under-feature)
 //!
@@ -49,13 +48,28 @@
 //! - [`is_root_euid`] — true on Unix when EUID is 0; tests that depend on
 //!   DAC-permission denial must `return` early when this is true (see
 //!   TEST-19 in the function rustdoc).
+//! - [`CwdGuard`] / [`CWD_MUTEX`] — DRY-1 / TASK-2034: the workspace's one
+//!   working-directory guard. It serialises on the mutex itself, so a caller
+//!   that forgets `#[serial]` still cannot race another CWD-dependent test.
+//!
+//! ## Tracing capture (public-under-feature)
+//!
+//! DUP-3 / TASK-2014: the workspace's single tracing-capture harness, so no
+//! crate has to re-derive the global-dispatcher pin whose absence is a silent
+//! flake. `ops_about::test_support` re-exports these for the extensions.
+//!
+//! - [`capture_tracing`] — run a closure under a thread-local subscriber at a
+//!   given level, returning the rendered output and the closure's value.
+//! - [`capture_warn`] — [`capture_tracing`] fixed at `WARN`.
+//! - [`count_warnings`] — the same, counting `WARN` events instead of
+//!   rendering them.
+//! - [`TracingBuf`], [`WarnCounter`] — the underlying sinks, for the rare
+//!   test that installs its own subscriber (e.g. one per spawned thread).
+//! - [`pin_global_dispatcher`] — what those rare tests must call first; the
+//!   helpers above already do.
 //!
 //! ## Internal helpers (not part of the surface contract)
 //!
-//! - `capture_tracing` (test-only) — used by in-crate tests to drive a
-//!   thread-local `tracing-subscriber` and capture its output. Not exposed
-//!   under the `test-support` feature because `tracing-subscriber` is a
-//!   dev-dependency here.
 //! - `proptest_strategies` (test-only) — proptest generators used by this
 //!   crate's property tests only.
 //!
@@ -614,89 +628,267 @@ pub fn is_root_euid() -> bool {
     false
 }
 
-/// Keep one globally-registered `tracing` dispatcher alive for the whole
-/// test binary so scoped capture subscribers are never the *only* ones
-/// registered.
+/// Process-wide mutex for tests that change the current working directory.
 ///
-/// `tracing` caches each callsite's `Interest` process-wide, computed from
-/// the dispatchers registered the moment that callsite is first hit. With
-/// only scoped (`with_default`) subscribers, a test thread can first-hit a
-/// callsite while no dispatcher is registered at all: the callsite then
-/// caches `Interest::never()` and every later event from it is dropped
-/// before reaching *any* subscriber — including the capture a parallel test
-/// is asserting on, which comes back empty at random. A global dispatcher
-/// is never unregistered, so every registration resolves against it and the
-/// interest cache can no longer answer "never".
+/// Rust tests run in parallel by default and `std::env::set_current_dir` is
+/// process-global, so CWD-dependent tests must serialize on this lock.
 ///
-/// The global itself discards everything; captures still come from the
-/// scoped subscriber installed per call.
-#[cfg(test)]
-fn pin_global_dispatcher() {
-    use std::sync::Once;
-    static INSTALL: Once = Once::new();
-    INSTALL.call_once(|| {
-        let sink = tracing_subscriber::fmt()
-            .with_writer(std::io::sink)
-            .with_max_level(tracing::Level::TRACE)
-            .finish();
-        // Another test binary layout may already have set one; either way an
-        // interested global is registered from here on.
-        let _ = tracing::subscriber::set_global_default(sink);
-        // Callsites hit before this point resolved against an empty
-        // dispatcher list; recompute them now that one is registered.
-        tracing::callsite::rebuild_interest_cache();
-    });
+/// # Mutex poisoning recovery
+///
+/// If a test panics while holding this lock the mutex becomes poisoned. We
+/// deliberately recover rather than propagate: the panic has already been
+/// reported by the test framework, later tests should still run, and a failed
+/// CWD restoration is non-critical (test isolation is best-effort).
+#[cfg(any(test, feature = "test-support"))]
+pub static CWD_MUTEX: std::sync::Mutex<()> = std::sync::Mutex::new(());
+
+/// DRY-1 / TASK-2034: the workspace's one working-directory guard — acquires
+/// [`CWD_MUTEX`], switches to a target directory, and restores the original
+/// CWD on drop, **including on the unwind path**.
+///
+/// The lock is part of the contract, not an optimisation. The directory a
+/// test chdirs into is usually a `tempfile::TempDir` deleted on drop, so a
+/// racing or skipped restore leaves the whole test binary running in a
+/// deleted directory and every later relative-path test fails for unrelated
+/// reasons. Guards that relied on the caller remembering
+/// `#[serial_test::serial]` gave a non-serial caller a silent race; holding
+/// the mutex means a caller cannot get that wrong.
+///
+/// The guard is not reentrant: a single test must hold at most one at a time.
+///
+/// # Test isolation note
+///
+/// Serialising means these tests cannot run in parallel with each other.
+/// Prefer `tempfile::tempdir()` plus an explicit path parameter where the
+/// code under test accepts one, and keep this for the production entry
+/// points that read `std::env::current_dir()` themselves.
+///
+/// # Rust 2024 compatibility (E104)
+///
+/// `std::env::set_current_dir` becomes `unsafe` in the 2024 edition; the
+/// calls are already wrapped with SAFETY comments so the bump is a no-op.
+#[cfg(any(test, feature = "test-support"))]
+pub struct CwdGuard {
+    _lock: std::sync::MutexGuard<'static, ()>,
+    original_dir: std::path::PathBuf,
 }
 
-/// Shared tracing-event capture helper for tests across the core crate.
-///
-/// Installs a thread-local subscriber at `level` for the duration of `f`,
-/// captures the formatted output (ANSI off) and returns it alongside `f`'s
-/// return value. Consolidates DUP-3: every in-process tracing-capture test
-/// in core was open-coding the same `BufWriter` + `MakeWriter` scaffold.
-///
-/// # Panics
-///
-/// If the capture buffer's lock is poisoned by a panic inside `f`.
-#[cfg(test)]
-pub fn capture_tracing<F, R>(level: tracing::Level, f: F) -> (String, R)
-where
-    F: FnOnce() -> R,
-{
-    pin_global_dispatcher();
-    use std::sync::{Arc, Mutex};
-    use tracing_subscriber::fmt::MakeWriter;
+#[cfg(any(test, feature = "test-support"))]
+impl CwdGuard {
+    /// Acquire [`CWD_MUTEX`], capture the current directory, then switch to
+    /// `target`.
+    ///
+    /// # Errors
+    ///
+    /// If the current directory cannot be read or `target` cannot be entered.
+    pub fn new(target: &std::path::Path) -> std::io::Result<Self> {
+        let lock = CWD_MUTEX.lock().unwrap_or_else(|poisoned| {
+            tracing::warn!("CWD_MUTEX poisoned by previous test panic, recovering");
+            poisoned.into_inner()
+        });
+        let original_dir = std::env::current_dir()?;
+        // SAFETY: Test-only. CWD_MUTEX serializes all CWD-dependent tests.
+        // `unsafe` is required in the 2024 edition; allow unused_unsafe for 2021.
+        #[allow(unused_unsafe)]
+        unsafe {
+            std::env::set_current_dir(target)?;
+        };
+        Ok(Self {
+            _lock: lock,
+            original_dir,
+        })
+    }
+}
 
+#[cfg(any(test, feature = "test-support"))]
+impl Drop for CwdGuard {
+    #[allow(unused_unsafe)]
+    fn drop(&mut self) {
+        // SAFETY: Test-only. CWD_MUTEX serializes all CWD-dependent tests.
+        if let Err(e) = unsafe { std::env::set_current_dir(&self.original_dir) } {
+            tracing::warn!(
+                path = %self.original_dir.display(),
+                error = %e,
+                "CwdGuard: failed to restore the original working directory"
+            );
+        }
+    }
+}
+
+/// DUP-3 / TASK-2014, TASK-2025: the workspace's one tracing-capture harness.
+///
+/// Every crate that asserts on `tracing` output used to grow its own copy of
+/// the buffer / `MakeWriter` shim *and* of the global-dispatcher pin below,
+/// whose absence is a silent flake rather than a failure. The harness lives
+/// here — the crate every other one already depends on — and is re-exported
+/// by `ops_about::test_support` for the extension family.
+#[cfg(any(test, feature = "test-support"))]
+mod tracing_capture {
+    use std::io::Write;
+    use std::sync::atomic::{AtomicUsize, Ordering};
+    use std::sync::{Arc, Mutex};
+
+    /// Shared capture buffer: a `Clone`able `Write` + `MakeWriter` sink that
+    /// accumulates a subscriber's rendered output in memory.
+    ///
+    /// Construct via [`TracingBuf::default`], hand a clone to
+    /// `tracing_subscriber::fmt::Subscriber::with_writer`, and read the
+    /// captured bytes via [`TracingBuf::captured`].
     #[derive(Clone, Default)]
-    struct BufWriter(Arc<Mutex<Vec<u8>>>);
-    impl std::io::Write for BufWriter {
+    pub struct TracingBuf(Arc<Mutex<Vec<u8>>>);
+
+    impl TracingBuf {
+        /// Snapshot of the captured tracing output as a UTF-8 string. Tests
+        /// typically assert on substrings, so we tolerate a flush that
+        /// splits a multi-byte char by going through `from_utf8_lossy`.
+        #[must_use]
+        pub fn captured(&self) -> String {
+            let guard = self
+                .0
+                .lock()
+                .unwrap_or_else(std::sync::PoisonError::into_inner);
+            String::from_utf8_lossy(&guard).into_owned()
+        }
+    }
+
+    impl Write for TracingBuf {
         fn write(&mut self, b: &[u8]) -> std::io::Result<usize> {
-            self.0.lock().expect("lock").extend_from_slice(b);
+            self.0
+                .lock()
+                .unwrap_or_else(std::sync::PoisonError::into_inner)
+                .extend_from_slice(b);
             Ok(b.len())
         }
+
         fn flush(&mut self) -> std::io::Result<()> {
             Ok(())
         }
     }
-    impl<'a> MakeWriter<'a> for BufWriter {
+
+    impl<'a> tracing_subscriber::fmt::MakeWriter<'a> for TracingBuf {
         type Writer = Self;
         fn make_writer(&'a self) -> Self::Writer {
             self.clone()
         }
     }
 
-    let buf = BufWriter::default();
-    let captured = buf.0.clone();
-    let subscriber = tracing_subscriber::fmt()
-        .with_writer(buf)
-        .with_max_level(level)
-        .with_ansi(false)
-        .finish();
-    let value = tracing::subscriber::with_default(subscriber, f);
-    let bytes = captured.lock().expect("lock").clone();
-    let text = String::from_utf8(bytes).expect("utf8");
-    (text, value)
+    /// Minimal `tracing::Subscriber` that counts `WARN`-level events, so a
+    /// test can assert on warn counts without pulling `tracing-subscriber`
+    /// layer machinery into the assertion.
+    #[derive(Clone, Default)]
+    pub struct WarnCounter(Arc<AtomicUsize>);
+
+    impl WarnCounter {
+        /// Number of `WARN` events observed so far.
+        #[must_use]
+        pub fn count(&self) -> usize {
+            self.0.load(Ordering::SeqCst)
+        }
+    }
+
+    impl tracing::Subscriber for WarnCounter {
+        fn enabled(&self, _metadata: &tracing::Metadata<'_>) -> bool {
+            true
+        }
+        fn new_span(&self, _span: &tracing::span::Attributes<'_>) -> tracing::span::Id {
+            tracing::span::Id::from_u64(1)
+        }
+        fn record(&self, _span: &tracing::span::Id, _values: &tracing::span::Record<'_>) {}
+        fn record_follows_from(&self, _span: &tracing::span::Id, _follows: &tracing::span::Id) {}
+        fn event(&self, event: &tracing::Event<'_>) {
+            if *event.metadata().level() == tracing::Level::WARN {
+                self.0.fetch_add(1, Ordering::SeqCst);
+            }
+        }
+        fn enter(&self, _span: &tracing::span::Id) {}
+        fn exit(&self, _span: &tracing::span::Id) {}
+    }
+
+    /// Keep one globally-registered `tracing` dispatcher alive for the whole
+    /// test binary so scoped capture subscribers are never the *only* ones
+    /// registered.
+    ///
+    /// `tracing` caches each callsite's `Interest` process-wide, computed from
+    /// the dispatchers registered the moment that callsite is first hit. With
+    /// only scoped (`with_default`) subscribers, a test thread can first-hit a
+    /// callsite while no dispatcher is registered at all: the callsite then
+    /// caches `Interest::never()` and every later event from it is dropped
+    /// before reaching *any* subscriber — including the capture a parallel
+    /// test is asserting on, which comes back empty at random, under
+    /// `cargo test`'s shared-process threads as well as under nextest. A
+    /// global dispatcher is never unregistered, so the interest cache can no
+    /// longer answer "never".
+    ///
+    /// The global itself discards everything; captures still come from the
+    /// scoped subscriber installed per call.
+    ///
+    /// Every entry point below pins first, so the hazard is unreachable
+    /// through them. It is `pub` only for the rare test that cannot use them
+    /// — one installing a *per-thread* subscriber over a shared
+    /// [`TracingBuf`], say — which must call this itself before spawning.
+    pub fn pin_global_dispatcher() {
+        static INSTALL: std::sync::Once = std::sync::Once::new();
+        INSTALL.call_once(|| {
+            // Another test binary layout may already have set one; either way
+            // an interested global is registered from here on.
+            let _ = tracing::subscriber::set_global_default(WarnCounter::default());
+            // Callsites hit before this point resolved against an empty
+            // dispatcher list; recompute them now that one is registered.
+            tracing::callsite::rebuild_interest_cache();
+        });
+    }
+
+    /// Capture the rendered tracing records at or above `level` that `f`
+    /// emits on the calling thread, alongside `f`'s return value.
+    ///
+    /// ANSI colouring is disabled so the capture contains no escape bytes of
+    /// the subscriber's own making — assertions about escapes in the *record*
+    /// stay meaningful. The subscriber configuration is decided here rather
+    /// than per call site so "captured output" means the same thing
+    /// everywhere.
+    ///
+    /// **Scope:** the subscriber is the *thread-local* default, so only
+    /// records `f` emits on the calling thread are captured. If `f` fans out
+    /// to worker threads — a parallel walker, `rayon`, a spawned scope —
+    /// their records reach the global dispatcher instead and are not seen.
+    pub fn capture_tracing<F, R>(level: tracing::Level, f: F) -> (String, R)
+    where
+        F: FnOnce() -> R,
+    {
+        pin_global_dispatcher();
+        let buf = TracingBuf::default();
+        let subscriber = tracing_subscriber::fmt()
+            .with_writer(buf.clone())
+            .with_max_level(level)
+            .with_ansi(false)
+            .finish();
+        let value = tracing::subscriber::with_default(subscriber, f);
+        (buf.captured(), value)
+    }
+
+    /// [`capture_tracing`] fixed at `WARN` — the common case.
+    pub fn capture_warn<F: FnOnce()>(body: F) -> String {
+        capture_tracing(tracing::Level::WARN, body).0
+    }
+
+    /// Count the `WARN` events `f` emits on the calling thread.
+    ///
+    /// The counting counterpart to [`capture_warn`], for tests that only need
+    /// "how many warnings did this call emit?" and should not be coupled to
+    /// the rendered text. Carries the same thread-local scope caveat as
+    /// [`capture_tracing`].
+    pub fn count_warnings<T>(f: impl FnOnce() -> T) -> (T, usize) {
+        pin_global_dispatcher();
+        let counter = WarnCounter::default();
+        let out = tracing::subscriber::with_default(counter.clone(), f);
+        (out, counter.count())
+    }
 }
+
+#[cfg(any(test, feature = "test-support"))]
+pub use tracing_capture::{
+    capture_tracing, capture_warn, count_warnings, pin_global_dispatcher, TracingBuf, WarnCounter,
+};
 
 impl Drop for EnvGuard {
     #[allow(unused_unsafe)]
