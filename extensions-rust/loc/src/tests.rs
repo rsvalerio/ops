@@ -910,3 +910,74 @@ fn a_live_budget_leaves_the_rust_loc_walk_intact() {
         .expect("a live budget must not fail the walk");
     assert_eq!(value.as_array().map(Vec::len), Some(1));
 }
+
+/// Hands a test a real `Deadline`, which has no public constructor: register a
+/// provider whose only job is to keep the handle the dispatch installs on it.
+fn spent_deadline() -> ops_extension::Deadline {
+    struct Capture(std::sync::Arc<std::sync::Mutex<Option<ops_extension::Deadline>>>);
+    impl DataProvider for Capture {
+        fn name(&self) -> &'static str {
+            "deadline-capture"
+        }
+        fn provide(
+            &self,
+            ctx: &mut Context,
+        ) -> Result<serde_json::Value, ops_extension::DataProviderError> {
+            *self
+                .0
+                .lock()
+                .unwrap_or_else(std::sync::PoisonError::into_inner) = ctx.deadline_handle();
+            Ok(serde_json::Value::Array(Vec::new()))
+        }
+    }
+
+    let slot = std::sync::Arc::new(std::sync::Mutex::new(None));
+    let mut registry = ops_extension::DataRegistry::new();
+    let _ = registry.register("deadline-capture", Box::new(Capture(slot.clone())));
+    let mut ctx = Context::test_context(PathBuf::from("."))
+        .with_provider_budget(Some(std::time::Duration::from_nanos(1)));
+    // The dispatch itself times out on the post-check; only the handle matters.
+    let _ = registry.provide("deadline-capture", &mut ctx);
+    let deadline = slot
+        .lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner)
+        .clone()
+        .expect("a bounded dispatch installs a deadline");
+    assert!(deadline.is_expired(), "a 1ns budget is spent on arrival");
+    deadline
+}
+
+/// SEC-33 / TASK-2052: the streaming fallback polls the deadline too. The
+/// per-entry check admits a file before reading it, and an over-cap file is
+/// unbounded in size, so without a poll inside the read loop one huge file
+/// could scan to EOF arbitrarily long after the budget was spent.
+#[test]
+fn an_expired_deadline_stops_the_streaming_count() {
+    let dir = tempfile::tempdir().expect("tempdir");
+    let path = dir.path().join("big.rs");
+    std::fs::write(&path, "fn a() {}\n\nfn b() {}\n").expect("write big.rs");
+
+    let deadline = spent_deadline();
+    assert!(
+        crate::count_streaming(&path, Region::Main, Some(&deadline))
+            .expect("the read itself must not fail")
+            .is_none(),
+        "an expired deadline must abandon the file instead of counting it"
+    );
+
+    let counts = crate::count_streaming(&path, Region::Main, None)
+        .expect("the read itself must not fail")
+        .expect("an unbounded count runs to EOF");
+    assert_eq!(
+        counts.non_empty().collect::<Vec<_>>(),
+        vec![(
+            Region::Main,
+            Locs {
+                code: 2,
+                blanks: 1,
+                ..Locs::default()
+            }
+        )],
+        "the control run counts every line"
+    );
+}
