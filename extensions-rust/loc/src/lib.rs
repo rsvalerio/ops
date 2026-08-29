@@ -88,8 +88,18 @@ impl DataProvider for RustLocProvider {
 /// `ignore::Walk` already honours `.gitignore` (which excludes `target/`
 /// in every cargo project) and skips hidden entries, but only inside a
 /// git repository. Listing the build directory explicitly keeps the
-/// counts sane when `ops` runs on an unversioned checkout, mirroring the
-/// `TOKEI_DEFAULT_EXCLUDED` policy in the tokei extension.
+/// counts sane when `ops` runs on an unversioned checkout.
+///
+/// **Pruned at any depth, unlike tokei's `TOKEI_DEFAULT_EXCLUDED`**, which
+/// prunes only direct children of the scan root (TASK-1974). That list
+/// carries names — `build`, `dist`, `venv` — that are ordinary source
+/// directories deeper in a tree (`pkg/build/`, `src/dist/`), so anchoring
+/// it to the root is what stops it dropping real source. This list carries
+/// neither: a nested `target/` belongs to a nested cargo workspace and a
+/// nested `.git/` to a submodule or vendored checkout, and in both cases
+/// their contents are as uninteresting as at the root. The two anchorings
+/// follow from what each list contains, not from each other — adding a
+/// generic directory name here means revisiting the depth rule.
 pub(crate) const EXCLUDED_DIRS: &[&str] = &["target", ".git"];
 
 /// Largest `.rs` file that is read into memory, lexed, and parsed.
@@ -299,6 +309,8 @@ fn count_streaming(path: &Path, region: Region) -> std::io::Result<FileCounts> {
 ///
 /// The walk root (depth 0) is never pruned: a workspace that happens to
 /// be called `target` is still the directory the operator asked for.
+/// Every deeper match is pruned — see [`EXCLUDED_DIRS`] for why this list
+/// is depth-agnostic where tokei's is root-anchored.
 fn is_excluded_dir(entry: &DirEntry) -> bool {
     if entry.depth() == 0 || !entry.file_type().is_some_and(|ft| ft.is_dir()) {
         return false;
