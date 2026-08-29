@@ -3,11 +3,11 @@ id: TASK-2057
 title: >-
   DUP-1: the terraform heredoc opener is recognised twice, in strip_comments and
   scan_line
-status: To Do
+status: Done
 assignee:
   - TASK-2064
 created_date: '2026-08-29 13:42'
-updated_date: '2026-08-29 17:27'
+updated_date: '2026-08-29 17:45'
 labels:
   - code-review-rust
   - duplication
@@ -46,6 +46,6 @@ heredoc state machine into one type both stages drive.
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 The heredoc opener grammar is stated once and used by both strip_comments and scan_line
-- [ ] #2 A test pins the two stages to the same opener set
+- [x] #1 The heredoc opener grammar is stated once and used by both strip_comments and scan_line
+- [x] #2 A test pins the two stages to the same opener set
 <!-- AC:END -->

@@ -1,11 +1,11 @@
 ---
 id: TASK-2055
 title: 'FEAT: workspace.exclude does not drop members nested under an excluded path'
-status: To Do
+status: Done
 assignee:
   - TASK-2064
 created_date: '2026-08-29 13:24'
-updated_date: '2026-08-29 17:27'
+updated_date: '2026-08-29 17:42'
 labels:
   - code-review-rust
   - correctness
@@ -32,6 +32,6 @@ priority: low
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 A member nested under a literal exclude entry (exclude = ["crates/foo"], member crates/foo/bar) is excluded, matching cargo metadata
-- [ ] #2 A leading ./ on either an exclude entry or a resolved member does not prevent a match
+- [x] #1 A member nested under a literal exclude entry (exclude = ["crates/foo"], member crates/foo/bar) is excluded, matching cargo metadata
+- [x] #2 A leading ./ on either an exclude entry or a resolved member does not prevent a match
 <!-- AC:END -->
