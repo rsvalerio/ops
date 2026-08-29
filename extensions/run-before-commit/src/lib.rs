@@ -344,6 +344,7 @@ mod tests {
     }
 
     #[test]
+    #[serial_test::serial]
     fn has_staged_files_false_when_index_empty() {
         let dir = tempfile::tempdir().expect("tempdir");
         init_repo(dir.path());
@@ -351,6 +352,7 @@ mod tests {
     }
 
     #[test]
+    #[serial_test::serial]
     fn has_staged_files_true_when_file_staged() {
         let dir = tempfile::tempdir().expect("tempdir");
         init_repo(dir.path());
@@ -383,6 +385,7 @@ mod tests {
     /// "nothing staged" and skipped the whole pre-commit gate with exit 0 —
     /// on exactly the commits most likely to break a build.
     #[test]
+    #[serial_test::serial]
     fn has_staged_files_true_when_only_a_deletion_is_staged() {
         let dir = tempfile::tempdir().expect("tempdir");
         init_repo(dir.path());
@@ -405,6 +408,7 @@ mod tests {
     /// old `ACMR` filter excluded it alongside `D` and `U`.
     #[cfg(unix)]
     #[test]
+    #[serial_test::serial]
     fn has_staged_files_true_when_only_a_type_change_is_staged() {
         let dir = tempfile::tempdir().expect("tempdir");
         init_repo(dir.path());
@@ -426,6 +430,7 @@ mod tests {
     }
 
     #[test]
+    #[serial_test::serial]
     fn has_staged_files_errors_outside_git_repo() {
         let dir = tempfile::tempdir().expect("tempdir");
         let err = has_staged_files_with("git", dir.path()).unwrap_err();
