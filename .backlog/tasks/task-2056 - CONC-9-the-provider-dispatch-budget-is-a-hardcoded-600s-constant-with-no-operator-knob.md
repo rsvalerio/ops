@@ -3,11 +3,11 @@ id: TASK-2056
 title: >-
   CONC-9: the provider dispatch budget is a hardcoded 600s constant with no
   operator knob
-status: To Do
+status: Done
 assignee:
   - TASK-2060
 created_date: '2026-08-29 13:31'
-updated_date: '2026-08-29 17:27'
+updated_date: '2026-08-29 18:09'
 labels:
   - code-review-rust
   - concurrency
@@ -43,6 +43,39 @@ diagnose a suspected provider stall is to rebuild with a different constant.
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 The provider dispatch budget is readable from config (with the current constant as the default) rather than only from a const
-- [ ] #2 The wiring that builds a Context applies the configured value, pinned by a test
+- [x] #1 The provider dispatch budget is readable from config (with the current constant as the default) rather than only from a const
+- [x] #2 The wiring that builds a Context applies the configured value, pinned by a test
 <!-- AC:END -->
+
+## Implementation Notes
+
+<!-- SECTION:NOTES:BEGIN -->
+Fixed in code-review/TASK-2060.
+
+AC #1: new `[data] provider_budget_secs` key on `DataConfig`
+(`crates/core/src/config/sections.rs`), documented in
+`crates/core/src/.default.ops.toml`. Unset keeps `DEFAULT_PROVIDER_BUDGET`
+(still the compiled-in default, now genuinely a *default* rather than the only
+value); any other value replaces it, which is what lets an operator on a slow
+network filesystem tighten it.
+
+`0` is the opt-out and maps to `None` (unbounded) rather than to a zero-length
+budget — read literally it would expire every dispatch instantly, turning a
+knob meant to *remove* the bound into one that fails every provider. That is
+the operator running a full-workspace `cargo llvm-cov` through the coverage
+providers.
+
+AC #2: the resolution happens in `Context::from_cwd_arc`, which `Context::new`
+also routes through, so **every** construction path honours the configured
+value without separate wiring — there is no call site left that can forget it.
+`Context::provider_budget()` exposes the resolved value. Pinned by four tests
+in `crates/extension/src/tests.rs`: unset yields the default, a configured
+value replaces it, `0` is unbounded (driven end-to-end through a slow provider
+that must still complete), and the programmatic `with_provider_budget`
+override still wins over the project file.
+
+Chose a TOML key over TASK-2022's env-var precedent because `from_cwd_arc`
+already holds the `Arc<Config>`: the value is per-project (a repo on a slow
+mount wants it tightened for everyone), which is what `.ops.toml` is for, and
+it needs no new resolver, cache, or clamp.
+<!-- SECTION:NOTES:END -->
