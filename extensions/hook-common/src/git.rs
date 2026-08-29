@@ -103,8 +103,9 @@ fn probe_git_entry(candidate: &Path) -> Option<PathBuf> {
 /// primitive that produces an executable file git runs on every commit.
 ///
 /// * **Relative**: textual `..` cap, then the canonical result must sit under
-///   the anchor exactly [`MAX_GITDIR_PARENT_TRAVERSAL`] levels above the
-///   pointer's parent.
+///   the anchor at most [`MAX_GITDIR_PARENT_TRAVERSAL`] levels above the
+///   pointer's parent — floored below the filesystem root, see
+///   [`anchor_ancestor`].
 /// * **Absolute**: the canonical result must sit under that same anchor, carry
 ///   git's own back-reference, or be a substantive separate git directory —
 ///   see [`resolve_absolute_gitdir`].
@@ -178,11 +179,22 @@ fn read_gitdir_pointer(file: &Path) -> Option<PathBuf> {
 /// [`MAX_GITDIR_PARENT_TRAVERSAL`] levels above the pointer's parent — so any
 /// canonical result that escapes that anchor (via symlink redirection) is
 /// refused before downstream code writes into it.
+/// SEC-14 / TASK-2035: the ancestor is picked with [`anchor_ancestor`], which
+/// floors the walk below the filesystem root. Taking `nth` unconditionally
+/// made the anchor `/` for any pointer whose parent is two or fewer components
+/// deep (`/srv/checkout/.git`), and `starts_with("/")` holds for every path on
+/// the machine — the containment gate then cost a syscall and proved nothing.
+/// A canonical anchor that is still rootlike (a shallow ancestor that
+/// canonicalizes to `/`) is refused outright with a breadcrumb rather than
+/// waved through as a vacuous check.
 fn canonical_anchor(parent: &Path) -> Option<PathBuf> {
-    let anchor_raw = parent
-        .ancestors()
-        .nth(MAX_GITDIR_PARENT_TRAVERSAL)
-        .unwrap_or(parent);
+    let Some(anchor_raw) = anchor_ancestor(parent) else {
+        tracing::debug!(
+            parent = ?parent.display(),
+            "gitdir pointer: SEC-14 anchor would be the filesystem root; refusing to resolve"
+        );
+        return None;
+    };
     // ERR-1 / TASK-1004: emit a per-site breadcrumb on canonicalize failure
     // so operators chasing "ops did nothing in this repo" can distinguish
     // (a) no `.git` upstream, (b) SEC-14 escape rejection, and (c) a real
@@ -190,6 +202,14 @@ fn canonical_anchor(parent: &Path) -> Option<PathBuf> {
     // collapsed to the same silent `None`. Debug-format paths/errors per
     // the ERR-7 (TASK-0937) sweep.
     match std::fs::canonicalize(anchor_raw) {
+        Ok(p) if p.parent().is_none() => {
+            tracing::debug!(
+                anchor_raw = ?anchor_raw.display(),
+                anchor = ?p.display(),
+                "gitdir pointer: SEC-14 anchor canonicalizes to the filesystem root; refusing to resolve"
+            );
+            None
+        }
         Ok(p) => Some(p),
         Err(e) => {
             tracing::debug!(
@@ -200,6 +220,30 @@ fn canonical_anchor(parent: &Path) -> Option<PathBuf> {
             None
         }
     }
+}
+
+/// The lexical ancestor the SEC-14 containment check anchors to: at most
+/// [`MAX_GITDIR_PARENT_TRAVERSAL`] levels above the pointer's parent, but
+/// never the filesystem root itself.
+///
+/// SEC-14 / TASK-2035: flooring here is what keeps the anchor discriminating
+/// for a shallow pointer. `/srv/checkout/.git` used to anchor at `/`; it now
+/// anchors at `/srv`, which still admits every layout the cap was written for
+/// (a sibling gitdir, a submodule next to the repo) while refusing a symlink
+/// that jumps elsewhere on the machine. `None` means every permitted ancestor
+/// *is* the root — the caller refuses to resolve rather than applying a check
+/// that admits everything.
+fn anchor_ancestor(parent: &Path) -> Option<&Path> {
+    let mut anchor = None;
+    for candidate in parent.ancestors().take(MAX_GITDIR_PARENT_TRAVERSAL + 1) {
+        // `parent() == None` identifies a root (`/`, or a Windows prefix root)
+        // and, for relative inputs, the empty path that terminates the walk.
+        if candidate.parent().is_none() {
+            break;
+        }
+        anchor = Some(candidate);
+    }
+    anchor
 }
 
 fn canonicalize_gitdir_target(target: &Path) -> Option<PathBuf> {
@@ -562,6 +606,74 @@ mod tests {
         // No real .git anywhere up the chain — only the planted pointer. The
         // walk must reject the pointer and fall through to None.
         assert_eq!(find_git_dir(&pointer_parent), None);
+    }
+
+    /// SEC-14 / TASK-2035: the anchor must never degenerate to a path that
+    /// contains every candidate target. Pinned lexically because the
+    /// degenerate layouts (`/srv/checkout`, `/repo`, `/`) are not ones a test
+    /// can create on a real filesystem.
+    #[test]
+    fn anchor_ancestor_is_floored_below_the_filesystem_root() {
+        // Deep enough: the full MAX_GITDIR_PARENT_TRAVERSAL climb applies.
+        assert_eq!(
+            anchor_ancestor(Path::new("/a/b/c/d")),
+            Some(Path::new("/a/b"))
+        );
+        // Shallow: the unfloored climb would land on `/`, which contains
+        // everything. Floor at the deepest non-root ancestor instead.
+        assert_eq!(
+            anchor_ancestor(Path::new("/srv/checkout")),
+            Some(Path::new("/srv"))
+        );
+        assert_eq!(
+            anchor_ancestor(Path::new("/repo")),
+            Some(Path::new("/repo"))
+        );
+        // Nothing but the root is available — refuse rather than admit
+        // every path on the machine.
+        assert_eq!(anchor_ancestor(Path::new("/")), None);
+    }
+
+    /// SEC-14 / TASK-2035: the on-disk half of the same fix. The pointer sits
+    /// directly at the tempdir root, so its parent is shallow (`/tmp/.tmpXXXX`)
+    /// and the unfloored anchor `parent.ancestors().nth(2)` was `/` — under
+    /// which `canonical_target.starts_with(anchor)` holds for every path on the
+    /// machine, so a symlink jumping clean out of the temp tree was accepted.
+    /// With the anchor floored at the temp root the same redirect is refused.
+    #[cfg(unix)]
+    #[test]
+    fn find_git_dir_rejects_out_of_tree_redirect_from_a_shallow_pointer() {
+        let dir = tempfile::tempdir().expect("tempdir");
+
+        // Sanity: this fixture really is the shallow shape the finding
+        // describes — without the floor the anchor would be the root.
+        let unfloored = dir
+            .path()
+            .ancestors()
+            .nth(MAX_GITDIR_PARENT_TRAVERSAL)
+            .unwrap_or_else(|| dir.path());
+        if unfloored.parent().is_some() {
+            // TMPDIR is nested deeper than /tmp on this machine, so the
+            // degenerate case cannot be reproduced here. The lexical test
+            // above still pins the floor.
+            return;
+        }
+
+        // A real git directory well outside the temp tree: the crate's own
+        // source directory stands in for "somewhere else on the machine".
+        let out_of_tree = Path::new(env!("CARGO_MANIFEST_DIR"));
+        let symlink = dir.path().join("sym");
+        std::os::unix::fs::symlink(out_of_tree, &symlink).unwrap();
+
+        let pointer = dir.path().join(".git");
+        // Textual escape is 0, so only the anchor check can refuse this.
+        std::fs::write(&pointer, "gitdir: sym\n").unwrap();
+
+        assert_eq!(
+            read_gitdir_pointer(&pointer),
+            None,
+            "a shallow pointer must not get a vacuous containment anchor"
+        );
     }
 
     /// PATTERN-1 (TASK-1245): an indented `gitdir:` line is not the shape git
