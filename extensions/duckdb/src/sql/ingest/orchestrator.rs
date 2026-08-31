@@ -396,28 +396,7 @@ mod tests {
     #[test]
     fn poison_recovery_emits_warn_log() {
         use crate::DataIngestor;
-        use std::io::Write;
         use std::sync::atomic::{AtomicBool, Ordering};
-        use std::sync::Mutex as StdMutex;
-        use tracing_subscriber::fmt::MakeWriter;
-
-        #[derive(Clone, Default)]
-        struct BufWriter(Arc<StdMutex<Vec<u8>>>);
-        impl Write for BufWriter {
-            fn write(&mut self, b: &[u8]) -> std::io::Result<usize> {
-                self.0.lock().unwrap().extend_from_slice(b);
-                Ok(b.len())
-            }
-            fn flush(&mut self) -> std::io::Result<()> {
-                Ok(())
-            }
-        }
-        impl<'a> MakeWriter<'a> for BufWriter {
-            type Writer = Self;
-            fn make_writer(&'a self) -> Self::Writer {
-                self.clone()
-            }
-        }
 
         struct PanickyIngestor {
             should_panic: AtomicBool,
@@ -470,14 +449,7 @@ mod tests {
         });
         assert!(h.join().is_err(), "first call must have panicked");
 
-        let buf = BufWriter::default();
-        let captured = buf.0.clone();
-        let subscriber = tracing_subscriber::fmt()
-            .with_writer(buf)
-            .with_max_level(tracing::Level::WARN)
-            .with_ansi(false)
-            .finish();
-        tracing::subscriber::with_default(subscriber, || {
+        let logs = ops_core::test_utils::capture_warn(|| {
             let ctx = ops_extension::Context::new(
                 Arc::new(ops_core::config::Config::empty()),
                 PathBuf::from("/tmp"),
@@ -488,7 +460,6 @@ mod tests {
             .expect("recovery ingest must not panic");
         });
 
-        let logs = String::from_utf8(captured.lock().unwrap().clone()).unwrap();
         assert!(
             logs.contains("per-table ingest mutex was poisoned"),
             "expected poison-recovery warn, got: {logs}"

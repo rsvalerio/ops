@@ -791,39 +791,7 @@ mod tests {
     /// silently.
     mod clamp_log_emission {
         use super::*;
-        use std::sync::{Arc, Mutex};
-        use tracing_subscriber::fmt::MakeWriter;
-
-        #[derive(Clone, Default)]
-        struct BufWriter(Arc<Mutex<Vec<u8>>>);
-        impl std::io::Write for BufWriter {
-            fn write(&mut self, b: &[u8]) -> std::io::Result<usize> {
-                self.0.lock().unwrap().extend_from_slice(b);
-                Ok(b.len())
-            }
-            fn flush(&mut self) -> std::io::Result<()> {
-                Ok(())
-            }
-        }
-        impl<'a> MakeWriter<'a> for BufWriter {
-            type Writer = Self;
-            fn make_writer(&'a self) -> Self::Writer {
-                self.clone()
-            }
-        }
-
-        fn capture<F: FnOnce()>(f: F) -> String {
-            let buf = BufWriter::default();
-            let captured = buf.0.clone();
-            let subscriber = tracing_subscriber::fmt()
-                .with_writer(buf)
-                .with_max_level(tracing::Level::WARN)
-                .with_ansi(false)
-                .finish();
-            tracing::subscriber::with_default(subscriber, f);
-            let bytes = captured.lock().unwrap().clone();
-            String::from_utf8(bytes).unwrap()
-        }
+        use ops_core::test_utils::capture_warn as capture;
 
         #[test]
         #[serial_test::serial]

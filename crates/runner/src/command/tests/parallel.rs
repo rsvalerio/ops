@@ -489,35 +489,13 @@ async fn exec_standalone_emits_step_output_dropped_under_burst() {
 #[cfg(unix)]
 #[tokio::test(flavor = "multi_thread")]
 async fn exec_standalone_logs_dropped_count_when_outer_receiver_closed() {
-    use std::io::Write;
-    use std::sync::{Arc as StdArc, Mutex as StdMutex};
-
-    #[derive(Clone)]
-    struct VecWriter(StdArc<StdMutex<Vec<u8>>>);
-    impl Write for VecWriter {
-        fn write(&mut self, buf: &[u8]) -> std::io::Result<usize> {
-            self.0.lock().unwrap().write(buf)
-        }
-        fn flush(&mut self) -> std::io::Result<()> {
-            Ok(())
-        }
-    }
-    impl<'a> tracing_subscriber::fmt::MakeWriter<'a> for VecWriter {
-        type Writer = Self;
-        fn make_writer(&'a self) -> Self::Writer {
-            self.clone()
-        }
-    }
-
     use tracing::instrument::WithSubscriber;
 
-    let buf = StdArc::new(StdMutex::new(Vec::<u8>::new()));
-    let subscriber = tracing_subscriber::fmt()
-        .with_max_level(tracing::Level::WARN)
-        .with_writer(VecWriter(StdArc::clone(&buf)))
-        .with_ansi(false)
-        .finish();
-    let dispatch: tracing::Dispatch = subscriber.into();
+    // DUP-3 / TASK-2069: the work runs on a spawned tokio task, so the scoped
+    // `capture_tracing` cannot see it — but the detached form is the same
+    // subscriber over the same sink, and it pins the global dispatcher (which
+    // the hand-built one here did not).
+    let (dispatch, buf) = ops_core::test_utils::capture_dispatch(tracing::Level::WARN);
 
     // Outer channel capacity 1, receiver held but never read. The forwarder
     // can deliver at most one event before parking on `outer.send` forever,
@@ -555,7 +533,7 @@ async fn exec_standalone_logs_dropped_count_when_outer_receiver_closed() {
 
     let _ = task.await;
 
-    let logged = String::from_utf8(buf.lock().unwrap().clone()).unwrap();
+    let logged = buf.captured();
     assert!(
         logged.contains("dropped-output count") && logged.contains("drop-target"),
         "expected a tracing::warn! diagnostic naming the step id and the dropped count when \

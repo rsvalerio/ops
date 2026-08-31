@@ -102,26 +102,6 @@ fn register_commands_re_registration_prunes_stale_aliases() {
 /// shadowed an extension alias at lookup time with no audit trail.
 #[test]
 fn register_commands_warns_on_cross_store_alias_collision_with_config() {
-    use std::io::Write;
-    use std::sync::{Arc as StdArc, Mutex as StdMutex};
-
-    #[derive(Clone)]
-    struct VecWriter(StdArc<StdMutex<Vec<u8>>>);
-    impl Write for VecWriter {
-        fn write(&mut self, buf: &[u8]) -> std::io::Result<usize> {
-            self.0.lock().unwrap().write(buf)
-        }
-        fn flush(&mut self) -> std::io::Result<()> {
-            Ok(())
-        }
-    }
-    impl<'a> tracing_subscriber::fmt::MakeWriter<'a> for VecWriter {
-        type Writer = Self;
-        fn make_writer(&'a self) -> Self::Writer {
-            self.clone()
-        }
-    }
-
     // Seed a config that defines `cfg_cmd` with alias `shared`.
     let mut commands = HashMap::new();
     let mut cfg_spec = exec_spec("echo", &["cfg"]);
@@ -129,21 +109,13 @@ fn register_commands_warns_on_cross_store_alias_collision_with_config() {
     commands.insert("cfg_cmd".to_string(), CommandSpec::Exec(cfg_spec));
     let mut runner = test_runner(commands);
 
-    let buf = StdArc::new(StdMutex::new(Vec::<u8>::new()));
-    let subscriber = tracing_subscriber::fmt()
-        .with_max_level(tracing::Level::WARN)
-        .with_writer(VecWriter(StdArc::clone(&buf)))
-        .with_ansi(false)
-        .finish();
-
-    tracing::subscriber::with_default(subscriber, || {
+    let logged = ops_core::test_utils::capture_warn(|| {
         // Register an extension command that re-uses `shared` as its alias.
         let mut ext_spec = exec_spec("echo", &["ext"]);
         ext_spec.aliases = vec!["shared".to_string()];
         runner.register_commands(vec![("ext_cmd".into(), CommandSpec::Exec(ext_spec))]);
     });
 
-    let logged = String::from_utf8(buf.lock().unwrap().clone()).unwrap();
     assert!(
         logged.contains("alias collision")
             && logged.contains("cfg_cmd")

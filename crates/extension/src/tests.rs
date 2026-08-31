@@ -816,45 +816,14 @@ fn command_registry_from_iter_drains_duplicate_audit_trail() {
 /// broader workspace policy.
 #[test]
 fn provider_name_field_debug_escapes_control_characters() {
-    use std::io::Write;
-    use std::sync::{Arc, Mutex};
-    use tracing_subscriber::fmt::MakeWriter;
-
-    #[derive(Clone, Default)]
-    struct BufWriter(Arc<Mutex<Vec<u8>>>);
-    impl Write for BufWriter {
-        fn write(&mut self, b: &[u8]) -> std::io::Result<usize> {
-            self.0.lock().expect("lock").extend_from_slice(b);
-            Ok(b.len())
-        }
-        fn flush(&mut self) -> std::io::Result<()> {
-            Ok(())
-        }
-    }
-    impl<'a> MakeWriter<'a> for BufWriter {
-        type Writer = Self;
-        fn make_writer(&'a self) -> Self::Writer {
-            self.clone()
-        }
-    }
-
     let forged = "stub\nFAKE_LOG\n\u{1b}[31m";
-    let buf = BufWriter::default();
-    let captured = buf.0.clone();
-    let subscriber = tracing_subscriber::fmt()
-        .with_writer(buf)
-        .with_max_level(tracing::Level::DEBUG)
-        .with_ansi(false)
-        .finish();
-
-    tracing::subscriber::with_default(subscriber, || {
+    let (text, ()) = ops_core::test_utils::capture_tracing(tracing::Level::DEBUG, || {
         let mut registry = DataRegistry::new();
         let _ = registry.register(forged, Box::new(StubProvider));
         // Duplicate insert triggers the breadcrumb under test.
         let _ = registry.register(forged, Box::new(StubProvider));
     });
 
-    let text = String::from_utf8(captured.lock().expect("lock").clone()).expect("utf8");
     assert!(
         text.contains("DataRegistry::register rejecting duplicate provider"),
         "expected duplicate-insert breadcrumb in captured tracing output, got: {text}"

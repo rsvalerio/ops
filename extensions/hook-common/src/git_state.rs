@@ -313,38 +313,12 @@ mod tests {
     #[test]
     #[serial_test::serial]
     fn git_timeout_from_env_warn_escapes_control_characters() {
-        use std::sync::{Arc, Mutex};
-
-        #[derive(Clone)]
-        struct VecWriter(Arc<Mutex<Vec<u8>>>);
-        impl std::io::Write for VecWriter {
-            fn write(&mut self, buf: &[u8]) -> std::io::Result<usize> {
-                self.0.lock().unwrap().write(buf)
-            }
-            fn flush(&mut self) -> std::io::Result<()> {
-                Ok(())
-            }
-        }
-        impl<'a> tracing_subscriber::fmt::MakeWriter<'a> for VecWriter {
-            type Writer = Self;
-            fn make_writer(&'a self) -> Self::Writer {
-                self.clone()
-            }
-        }
-
         let _g = EnvGuard::set(TEST_ENV, "10s\nWARN forged log line\u{1b}[31m");
 
-        let buf = Arc::new(Mutex::new(Vec::<u8>::new()));
-        let subscriber = tracing_subscriber::fmt()
-            .with_max_level(tracing::Level::WARN)
-            .with_writer(VecWriter(Arc::clone(&buf)))
-            .with_ansi(false)
-            .finish();
-        tracing::subscriber::with_default(subscriber, || {
+        let logged = ops_core::test_utils::capture_warn(|| {
             assert_eq!(git_timeout_from_env(TEST_ENV, 300), None);
         });
 
-        let logged = String::from_utf8(buf.lock().unwrap().clone()).unwrap();
         let value_line = logged
             .lines()
             .find(|l| l.contains("unparseable or zero value"))

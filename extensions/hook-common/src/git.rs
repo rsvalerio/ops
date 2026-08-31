@@ -519,26 +519,7 @@ mod tests {
     #[cfg(unix)]
     #[test]
     fn unreadable_gitdir_pointer_is_logged_at_debug() {
-        use std::io::Write;
         use std::os::unix::fs::PermissionsExt;
-        use std::sync::{Arc, Mutex};
-
-        #[derive(Clone)]
-        struct VecWriter(Arc<Mutex<Vec<u8>>>);
-        impl Write for VecWriter {
-            fn write(&mut self, buf: &[u8]) -> std::io::Result<usize> {
-                self.0.lock().unwrap().write(buf)
-            }
-            fn flush(&mut self) -> std::io::Result<()> {
-                Ok(())
-            }
-        }
-        impl<'a> tracing_subscriber::fmt::MakeWriter<'a> for VecWriter {
-            type Writer = Self;
-            fn make_writer(&'a self) -> Self::Writer {
-                self.clone()
-            }
-        }
 
         let dir = tempfile::tempdir().expect("tempdir");
         let pointer = dir.path().join(".git");
@@ -546,14 +527,7 @@ mod tests {
         // Make the pointer unreadable by the current user.
         std::fs::set_permissions(&pointer, std::fs::Permissions::from_mode(0o000)).unwrap();
 
-        let buf = Arc::new(Mutex::new(Vec::<u8>::new()));
-        let writer = VecWriter(Arc::clone(&buf));
-        let subscriber = tracing_subscriber::fmt()
-            .with_max_level(tracing::Level::DEBUG)
-            .with_writer(writer)
-            .with_ansi(false)
-            .finish();
-        tracing::subscriber::with_default(subscriber, || {
+        let (logged, ()) = ops_core::test_utils::capture_tracing(tracing::Level::DEBUG, || {
             // Walking from the workspace root finds *its* .git, not ours, so
             // probe the entry directly to exercise the read-error path.
             assert!(probe_git_entry(&pointer).is_none());
@@ -562,7 +536,6 @@ mod tests {
         // Restore permissions so tempdir cleanup succeeds.
         let _ = std::fs::set_permissions(&pointer, std::fs::Permissions::from_mode(0o644));
 
-        let logged = String::from_utf8(buf.lock().unwrap().clone()).unwrap();
         assert!(
             logged.contains("failed to read .git pointer file"),
             "expected debug log, got: {logged}",

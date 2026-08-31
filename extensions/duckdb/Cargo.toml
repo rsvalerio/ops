@@ -31,8 +31,8 @@ default = []
 test-helpers = []
 
 [dev-dependencies]
+ops-core = { workspace = true, features = ["test-support"] }
 tempfile = { workspace = true }
-tracing-subscriber = { workspace = true }
 
 [lints]
 workspace = true
