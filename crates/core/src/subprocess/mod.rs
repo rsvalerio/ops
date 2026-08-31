@@ -313,20 +313,46 @@ fn run_with_timeout_inner(
 ///
 /// # Errors
 ///
-/// Returns [`RunError::Io`] if the subprocess fails to spawn and
-/// [`RunError::Timeout`] if it outruns the (possibly env-overridden)
-/// deadline.
+/// Returns [`RunError::Spawn`] if the subprocess fails to spawn (a missing
+/// `cargo`, say) and [`RunError::Timeout`] if it outruns the (possibly
+/// env-overridden) deadline.
 pub fn run_cargo(
     args: &[&str],
     working_dir: &Path,
     op_default: Duration,
     label: &str,
 ) -> Result<Output, RunError> {
+    run_cargo_bounded(args, working_dir, default_timeout(op_default), label)
+}
+
+/// [`run_cargo`] with the wait already resolved by the caller.
+///
+/// CONC-9 / TASK-2068: [`run_cargo`]'s `op_default` goes through
+/// [`default_timeout`], which lets `OPS_SUBPROCESS_TIMEOUT_SECS` *raise* the
+/// wait — fine for a fixed per-operation default, wrong for a caller that
+/// must not outlive a bound it was handed. `ops-test-coverage` sizes the
+/// `cargo llvm-cov` wait from the remaining provider deadline
+/// (`Context::deadline`), so its number is a ceiling, not a default, and has
+/// to reach [`run_with_timeout`] unmodified.
+///
+/// Callers with a plain per-operation default want [`run_cargo`]; this is for
+/// the ones that computed the ceiling themselves.
+///
+/// # Errors
+///
+/// Returns [`RunError::Spawn`] if the subprocess fails to spawn and
+/// [`RunError::Timeout`] if the child outruns `timeout`.
+pub fn run_cargo_bounded(
+    args: &[&str],
+    working_dir: &Path,
+    timeout: Duration,
+    label: &str,
+) -> Result<Output, RunError> {
     run_with_timeout(
         Command::new(resolve_cargo_bin())
             .args(args)
             .current_dir(working_dir),
-        default_timeout(op_default),
+        timeout,
         label,
     )
 }

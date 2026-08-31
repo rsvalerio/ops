@@ -352,9 +352,19 @@ pub fn has_parseable_coverage_data(raw: &serde_json::Value) -> bool {
 /// On the success path, non-empty stderr is emitted at `info` level so
 /// instrumentation skips and compiler warnings are visible in operator
 /// logs without re-running with `RUST_LOG=debug`.
+///
+/// CONC-9 / TASK-2068: `deadline` is the provider dispatch deadline
+/// (`Context::deadline`), which sizes the `cargo llvm-cov` wait so the
+/// subprocess cannot outlive the budget bounding it. `None` means unbounded
+/// dispatch and leaves the wait at [`crate::subprocess::CARGO_LLVM_COV_TIMEOUT`].
 #[must_use = "collect_coverage drives the coverage ingest; dropping the result throws the run away"]
-pub fn collect_coverage(working_dir: &Path) -> Result<serde_json::Value, anyhow::Error> {
-    collect_coverage_with(working_dir, run_cargo_llvm_cov)
+pub fn collect_coverage(
+    working_dir: &Path,
+    deadline: Option<std::time::Instant>,
+) -> Result<serde_json::Value, anyhow::Error> {
+    collect_coverage_with(working_dir, |dir, output_path| {
+        run_cargo_llvm_cov(dir, output_path, deadline)
+    })
 }
 
 /// TEST-6 / TASK-1938: the body of [`collect_coverage`], with the cargo

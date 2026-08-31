@@ -16,7 +16,7 @@ impl DataProvider for CoverageProvider {
 
     fn provide(&self, ctx: &mut Context) -> Result<serde_json::Value, DataProviderError> {
         ops_duckdb::try_provide_from_db(ctx, provide_from_db, |ctx| {
-            collect_coverage(ctx.working_directory())
+            collect_coverage(ctx.working_directory(), ctx.deadline())
         })
     }
 

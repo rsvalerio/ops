@@ -1,7 +1,10 @@
 //! Cargo argv guards, exit-status checking, and stderr diagnostics.
 
 use crate::parse::format_stderr_diagnostic;
-use crate::subprocess::{check_llvm_cov_output, LLVM_COV_ARGS};
+use crate::subprocess::{
+    check_llvm_cov_output, llvm_cov_timeout, CARGO_LLVM_COV_TIMEOUT, LLVM_COV_ARGS,
+};
+use std::time::Duration;
 
 /// TASK-1595: the extracted helper must return `Some` when stderr contains
 /// bytes and `None` when empty, so the success-path log line fires only
@@ -190,5 +193,109 @@ fn llvm_cov_argv_appends_output_path_after_static_args() {
         &argv[LLVM_COV_ARGS.len()..],
         &["--output-path", "/tmp/report.json"],
         "report must be written to a file, not stdout (output-cap truncation); argv: {argv:?}"
+    );
+}
+
+// ---------------------------------------------------------------------------
+// CONC-9 / TASK-2068 — the subprocess wait is sized from the dispatch deadline
+// ---------------------------------------------------------------------------
+
+/// AC #1: with no deadline installed (an unbounded dispatch, or a direct
+/// `collect_coverage` call outside the provider graph) the wait stays at the
+/// operation ceiling.
+#[test]
+fn llvm_cov_timeout_without_a_deadline_is_the_operation_ceiling() {
+    assert_eq!(llvm_cov_timeout(None), CARGO_LLVM_COV_TIMEOUT);
+}
+
+/// AC #1: a deadline further out than the ceiling does not *extend* the wait —
+/// the ceiling is still a ceiling.
+#[test]
+fn llvm_cov_timeout_never_exceeds_the_operation_ceiling() {
+    let far = std::time::Instant::now() + CARGO_LLVM_COV_TIMEOUT + Duration::from_secs(600);
+    assert_eq!(llvm_cov_timeout(Some(far)), CARGO_LLVM_COV_TIMEOUT);
+}
+
+/// AC #1 + AC #2, the finding itself: a *tightened* budget must shorten the
+/// subprocess wait. Pre-fix the wait was a fixed 15 minutes regardless, so an
+/// operator who set `[data] provider_budget_secs = 60` still got a full
+/// fifteen-minute block in `cargo llvm-cov` and was only told about the
+/// overrun afterwards.
+#[test]
+fn a_tightened_deadline_shortens_the_subprocess_wait() {
+    let budget = Duration::from_secs(60);
+    let sized = llvm_cov_timeout(Some(std::time::Instant::now() + budget));
+    assert!(
+        sized <= budget,
+        "wait must not outlive the budget: {sized:?} > {budget:?}"
+    );
+    assert!(
+        sized < CARGO_LLVM_COV_TIMEOUT,
+        "a 60s budget must shorten the 15-minute default, got {sized:?}"
+    );
+}
+
+/// AC #1: an already-spent deadline yields a zero wait, so the subprocess is
+/// reaped immediately instead of being started on a budget with nothing left.
+#[test]
+fn an_expired_deadline_yields_a_zero_wait() {
+    let past = std::time::Instant::now()
+        .checked_sub(Duration::from_secs(1))
+        .expect("an Instant one second in the past");
+    assert_eq!(llvm_cov_timeout(Some(past)), Duration::ZERO);
+}
+
+/// AC #2, end to end: the budget an operator configures reaches this sizing
+/// through a real `DataRegistry` dispatch. `Context::deadline` is installed by
+/// `DataRegistry::provide` and nothing else, so this is the only way to pin
+/// that the coverage provider reads the *configured* budget rather than a
+/// value a test handed it.
+#[test]
+fn a_configured_provider_budget_reaches_the_subprocess_sizing() {
+    use ops_extension::{
+        Context, DataProvider, DataProviderError, DataProviderSchema, DataRegistry,
+    };
+    use std::sync::{Arc, Mutex};
+
+    /// Stands in for `CoverageProvider` at exactly the point that matters:
+    /// it sizes a subprocess wait from `ctx.deadline()` the way
+    /// `collect_coverage` does, without running the workspace test suite.
+    struct DeadlineProbe(Arc<Mutex<Option<Duration>>>);
+
+    impl DataProvider for DeadlineProbe {
+        fn name(&self) -> &'static str {
+            "deadline_probe"
+        }
+        fn provide(&self, ctx: &mut Context) -> Result<serde_json::Value, DataProviderError> {
+            *self.0.lock().expect("lock") = Some(llvm_cov_timeout(ctx.deadline()));
+            Ok(serde_json::Value::Null)
+        }
+        fn schema(&self) -> DataProviderSchema {
+            DataProviderSchema::new("probe", Vec::new())
+        }
+    }
+
+    let budget = Duration::from_secs(60);
+    let observed = Arc::new(Mutex::new(None));
+    let mut registry = DataRegistry::new();
+    let _ = registry.register(
+        "deadline_probe",
+        Box::new(DeadlineProbe(Arc::clone(&observed))),
+    );
+
+    let mut ctx =
+        Context::test_context(std::path::PathBuf::from("/tmp")).with_provider_budget(Some(budget));
+    registry
+        .provide("deadline_probe", &mut ctx)
+        .expect("probe dispatch");
+
+    let sized = observed.lock().expect("lock").expect("probe must have run");
+    assert!(
+        sized <= budget,
+        "a 60s provider budget must bound the cargo llvm-cov wait, got {sized:?}"
+    );
+    assert!(
+        sized < CARGO_LLVM_COV_TIMEOUT,
+        "the wait must be shortened, not merely reported afterwards: {sized:?}"
     );
 }
