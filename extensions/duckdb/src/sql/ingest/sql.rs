@@ -108,6 +108,31 @@ impl std::fmt::Display for CreateViewSql {
 /// than a bare `String`, so the statement `load_with_sidecar` executes is
 /// provably the output of this validator.
 ///
+/// # SEC-25 / TASK-2067: the one staged access that is not anchored
+///
+/// TASK-2054 put every staged write, rename, unlink and checksum behind
+/// [`crate::IngestDir`]'s verified directory descriptor. The `path`
+/// interpolated here is the exception: the embedded `DuckDB` engine takes
+/// `read_json_auto('<path>')` as a *string* and offers no descriptor-passing
+/// API, so this read — and only this read — resolves the ingest directory by
+/// name. [`crate::IngestDir::path`] / `entry_path` exist for it.
+///
+/// The residual is narrower than the write side was. An attacker who swaps the
+/// directory name between the anchored write and the engine's read can feed
+/// `DuckDB` JSON of their choosing, but cannot capture what ops staged — the
+/// write already landed on the verified inode. What they can do is get their
+/// rows into a table the about pipeline then reports as the project's own.
+///
+/// That is **not** accepted as-is: `SidecarIngestorConfig::load_with_sidecar`
+/// calls [`crate::IngestDir::verify_entry_identity`] immediately before
+/// executing this statement, so the path and the anchor are checked to name
+/// the same inode. That shrinks the window to the gap between the check and
+/// the engine's own `open`; it does not close it, because closing it needs
+/// either a descriptor-passing read in `DuckDB` or an in-memory hand-off the
+/// engine does not offer. The remaining gap is recorded here rather than left
+/// implicit, and re-opens the moment a caller builds this statement without
+/// going through `load_with_sidecar`.
+///
 /// # Errors
 ///
 /// [`SqlError`] if `table_name` is not a valid identifier, `path` fails
