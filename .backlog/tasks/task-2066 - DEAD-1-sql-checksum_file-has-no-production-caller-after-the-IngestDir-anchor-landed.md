@@ -3,9 +3,10 @@ id: TASK-2066
 title: >-
   DEAD-1: sql::checksum_file has no production caller after the IngestDir anchor
   landed
-status: Triage
+status: Done
 assignee: []
 created_date: '2026-08-29 18:09'
+updated_date: '2026-08-31 17:38'
 labels:
   - code-review-rust
   - dead-code
@@ -47,5 +48,5 @@ mechanical dead-code sweep the wave protocol allows in-flight.
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 sql::checksum_file is either removed or narrowed to a non-public/test-only surface, and no production code path computes an ingest checksum from a re-resolved path
+- [x] #1 sql::checksum_file is either removed or narrowed to a non-public/test-only surface, and no production code path computes an ingest checksum from a re-resolved path
 <!-- AC:END -->

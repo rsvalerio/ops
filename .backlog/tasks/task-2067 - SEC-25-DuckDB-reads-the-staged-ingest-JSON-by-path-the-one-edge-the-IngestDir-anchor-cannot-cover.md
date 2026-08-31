@@ -3,9 +3,10 @@ id: TASK-2067
 title: >-
   SEC-25: DuckDB reads the staged ingest JSON by path, the one edge the
   IngestDir anchor cannot cover
-status: Triage
+status: Done
 assignee: []
 created_date: '2026-08-29 18:09'
+updated_date: '2026-08-31 17:38'
 labels:
   - code-review-rust
   - security
@@ -44,5 +45,5 @@ platforms that offer one, or accept and document it as the engine's boundary.
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 The by-path read of the staged ingest JSON is either hardened (identity re-checked through the anchor, or the read routed through it) or explicitly accepted with the reasoning recorded next to create_table_from_json_sql
+- [x] #1 The by-path read of the staged ingest JSON is either hardened (identity re-checked through the anchor, or the read routed through it) or explicitly accepted with the reasoning recorded next to create_table_from_json_sql
 <!-- AC:END -->

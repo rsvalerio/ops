@@ -3,9 +3,10 @@ id: TASK-2069
 title: >-
   DUP-3: six more hand-rolled tracing-capture scaffolds outside the TASK-2058
   enumeration
-status: Triage
+status: Done
 assignee: []
 created_date: '2026-08-29 18:21'
+updated_date: '2026-08-31 17:38'
 labels:
   - code-review-rust
   - duplication
@@ -49,7 +50,7 @@ empty at random. Each copy also picks its own subscriber configuration, so
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 Each listed site captures through ops_core::test_utils::capture_tracing (or capture_warn) instead of a private writer + fmt() builder
-- [ ] #2 The private VecWriter/BufWriter MakeWriter shims those sites owned are deleted, with no remaining users
-- [ ] #3 Assertions at each site are unchanged and the suites stay green under cargo nextest
+- [x] #1 Each listed site captures through ops_core::test_utils::capture_tracing (or capture_warn) instead of a private writer + fmt() builder
+- [x] #2 The private VecWriter/BufWriter MakeWriter shims those sites owned are deleted, with no remaining users
+- [x] #3 Assertions at each site are unchanged and the suites stay green under cargo nextest
 <!-- AC:END -->
