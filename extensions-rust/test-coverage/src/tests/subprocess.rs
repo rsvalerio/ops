@@ -4,6 +4,7 @@ use crate::parse::format_stderr_diagnostic;
 use crate::subprocess::{
     check_llvm_cov_output, llvm_cov_timeout, CARGO_LLVM_COV_TIMEOUT, LLVM_COV_ARGS,
 };
+use ops_core::subprocess::default_timeout;
 use std::time::Duration;
 
 /// TASK-1595: the extracted helper must return `Some` when stderr contains
@@ -200,20 +201,32 @@ fn llvm_cov_argv_appends_output_path_after_static_args() {
 // CONC-9 / TASK-2068 — the subprocess wait is sized from the dispatch deadline
 // ---------------------------------------------------------------------------
 
+/// The ceiling these tests measure against.
+///
+/// [`CARGO_LLVM_COV_TIMEOUT`] is the *operation default*, not the effective
+/// wait: `llvm_cov_timeout` puts it through `default_timeout`, which
+/// `OPS_SUBPROCESS_TIMEOUT_SECS` overrides. Asserting against the raw constant
+/// would fail on a machine that has that variable set, even with the
+/// implementation correct — and the override is memoised per process, so a test
+/// cannot clear it either. Resolve it the same way the code under test does.
+fn ceiling() -> Duration {
+    default_timeout(CARGO_LLVM_COV_TIMEOUT)
+}
+
 /// AC #1: with no deadline installed (an unbounded dispatch, or a direct
 /// `collect_coverage` call outside the provider graph) the wait stays at the
 /// operation ceiling.
 #[test]
 fn llvm_cov_timeout_without_a_deadline_is_the_operation_ceiling() {
-    assert_eq!(llvm_cov_timeout(None), CARGO_LLVM_COV_TIMEOUT);
+    assert_eq!(llvm_cov_timeout(None), ceiling());
 }
 
 /// AC #1: a deadline further out than the ceiling does not *extend* the wait —
 /// the ceiling is still a ceiling.
 #[test]
 fn llvm_cov_timeout_never_exceeds_the_operation_ceiling() {
-    let far = std::time::Instant::now() + CARGO_LLVM_COV_TIMEOUT + Duration::from_secs(600);
-    assert_eq!(llvm_cov_timeout(Some(far)), CARGO_LLVM_COV_TIMEOUT);
+    let far = std::time::Instant::now() + ceiling() + Duration::from_secs(600);
+    assert_eq!(llvm_cov_timeout(Some(far)), ceiling());
 }
 
 /// AC #1 + AC #2, the finding itself: a *tightened* budget must shorten the
@@ -221,18 +234,36 @@ fn llvm_cov_timeout_never_exceeds_the_operation_ceiling() {
 /// operator who set `[data] provider_budget_secs = 60` still got a full
 /// fifteen-minute block in `cargo llvm-cov` and was only told about the
 /// overrun afterwards.
+///
+/// The budget is derived from the ceiling rather than fixed at 60s so it is
+/// always strictly below it: a lowered `OPS_SUBPROCESS_TIMEOUT_SECS` would
+/// otherwise make "the budget is the binding bound" false and the assertion
+/// vacuous.
 #[test]
 fn a_tightened_deadline_shortens_the_subprocess_wait() {
-    let budget = Duration::from_secs(60);
+    let budget = tighter_than_ceiling();
     let sized = llvm_cov_timeout(Some(std::time::Instant::now() + budget));
     assert!(
         sized <= budget,
         "wait must not outlive the budget: {sized:?} > {budget:?}"
     );
     assert!(
-        sized < CARGO_LLVM_COV_TIMEOUT,
-        "a 60s budget must shorten the 15-minute default, got {sized:?}"
+        sized < ceiling(),
+        "a {budget:?} budget must shorten the {:?} ceiling, got {sized:?}",
+        ceiling()
     );
+}
+
+/// A budget that is genuinely tighter than the effective ceiling, so the
+/// deadline — not the ceiling — is what bounds the wait.
+fn tighter_than_ceiling() -> Duration {
+    // `checked_div` rather than `/`: the workspace denies
+    // `clippy::arithmetic_side_effects`, and the fallback is the honest answer
+    // for a ceiling that division cannot halve.
+    ceiling()
+        .checked_div(2)
+        .unwrap_or(Duration::ZERO)
+        .min(Duration::from_secs(60))
 }
 
 /// AC #1: an already-spent deadline yields a zero wait, so the subprocess is
@@ -275,7 +306,7 @@ fn a_configured_provider_budget_reaches_the_subprocess_sizing() {
         }
     }
 
-    let budget = Duration::from_secs(60);
+    let budget = tighter_than_ceiling();
     let observed = Arc::new(Mutex::new(None));
     let mut registry = DataRegistry::new();
     let _ = registry.register(
@@ -292,10 +323,10 @@ fn a_configured_provider_budget_reaches_the_subprocess_sizing() {
     let sized = observed.lock().expect("lock").expect("probe must have run");
     assert!(
         sized <= budget,
-        "a 60s provider budget must bound the cargo llvm-cov wait, got {sized:?}"
+        "a {budget:?} provider budget must bound the cargo llvm-cov wait, got {sized:?}"
     );
     assert!(
-        sized < CARGO_LLVM_COV_TIMEOUT,
+        sized < ceiling(),
         "the wait must be shortened, not merely reported afterwards: {sized:?}"
     );
 }
