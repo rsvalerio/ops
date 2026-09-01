@@ -220,19 +220,29 @@ fn strip_dot_prefix(path: &str) -> &str {
 /// before the `*` of an exclude glob, which [`ExcludeSet::excludes`] matches
 /// as a raw string prefix against already-normalised members.
 ///
-/// A trailing separator is load-bearing and survives: `crates/` must stay
-/// `crates/` so `strip_prefix` leaves `foo`, the single segment the glob
-/// stands for. A partial-segment prefix (`crates/gen-`) has none to preserve
-/// and is left as its segments spell it — that shape is supported here on
-/// purpose (see the field docs) and must not be collapsed.
+/// Only the directory part goes through [`path_segments`]. The text after the
+/// last separator is a **partial** segment — the `gen-` of `crates/gen-*` — and
+/// must survive verbatim, including when it is a bare `.` (`exclude = [".*"]`,
+/// a hidden-directory glob). `path_segments` filters `.` segments out, so
+/// running the whole prefix through it turned `.` into the empty prefix, which
+/// [`ExcludeSet::excludes`] reads as the bare-`*` wildcard and which therefore
+/// dropped *every* single-segment member. The empty prefix has to keep meaning
+/// exactly one thing: the `*` that legitimately produced it.
+///
+/// A trailing separator is load-bearing too and survives as the empty partial
+/// segment: `crates/` must stay `crates/` so `strip_prefix` leaves `foo`, the
+/// single segment the glob stands for.
 fn normalize_exclude_prefix(prefix: &str) -> String {
-    let trailing_separator = prefix.ends_with(std::path::is_separator);
-    let mut normalized = path_segments(prefix)
+    let (directories, partial_segment) = prefix
+        .rsplit_once(std::path::is_separator)
+        .unwrap_or(("", prefix));
+    let mut normalized = path_segments(directories)
         .collect::<Vec<_>>()
         .join(std::path::MAIN_SEPARATOR_STR);
-    if trailing_separator && !normalized.is_empty() {
+    if !normalized.is_empty() {
         normalized.push(std::path::MAIN_SEPARATOR);
     }
+    normalized.push_str(partial_segment);
     normalized
 }
 
@@ -846,6 +856,40 @@ mod tests {
         );
     }
 
+    /// PATTERN-1 / TASK-2065 regression: `exclude = [".*"]` is a
+    /// hidden-directory glob whose prefix is a bare `.`. Canonicalising the
+    /// prefix through `path_segments` — which drops `.` segments — collapsed it
+    /// to the empty string, and `ExcludeSet::excludes` reads an empty prefix as
+    /// the bare-`*` wildcard: every single-segment member was silently
+    /// excluded. The empty prefix must stay unique to the `*` that earns it.
+    #[test]
+    fn a_dot_exclude_glob_does_not_become_the_bare_wildcard() {
+        let exclude = vec![".*".to_string()];
+        let set = ExcludeSet::from_entries(&exclude);
+        assert!(set.excludes(".hidden"), "`.*` excludes a hidden directory");
+        assert!(
+            !set.excludes("crates"),
+            "`.*` must not swallow every top-level member"
+        );
+        assert!(!set.excludes("crates/core"));
+
+        // The member list agrees, not just the matcher.
+        let manifest = manifest_with_members_and_exclude(&[".hidden", "crates/core"], &[".*"]);
+        assert_eq!(
+            resolved_workspace_members(&manifest, std::path::Path::new("/nonexistent")),
+            vec![format!("crates{}core", std::path::MAIN_SEPARATOR)],
+        );
+
+        // The bare `*` keeps the wildcard meaning that shape does earn.
+        let star = vec!["*".to_string()];
+        let star_set = ExcludeSet::from_entries(&star);
+        assert!(
+            star_set.excludes("crates"),
+            "`*` still excludes every member"
+        );
+        assert!(star_set.excludes(".hidden"));
+    }
+
     /// PATTERN-1 / TASK-2065: normalisation applies to *literal* members
     /// only. An unsupported glob shape is documented as passing through
     /// unchanged so downstream rendering can surface the manifest's own text —
@@ -899,6 +943,11 @@ mod tests {
         // A bare `*` has no prefix to canonicalise and must stay empty, or it
         // would gain a separator and match nothing.
         assert_eq!(normalize_exclude_prefix(""), "");
+        // …and the empty prefix must stay unique to `*`. A bare `.` is a
+        // *partial segment*, not a path segment, so canonicalising it away
+        // would hand `.*` the bare-`*` wildcard's meaning.
+        assert_eq!(normalize_exclude_prefix("."), ".");
+        assert_eq!(normalize_exclude_prefix("./."), ".");
 
         let exclude = vec!["crates//gen-*".to_string()];
         let set = ExcludeSet::from_entries(&exclude);
