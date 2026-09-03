@@ -128,7 +128,10 @@ impl SidecarIngestorConfig {
     /// 1. `init_schema(db)` — idempotent; creates `data_sources` if absent.
     /// 2. Validate `count_table` and read the workspace sidecar (file I/O,
     ///    no lock held). Failure here aborts before any DB mutation.
-    /// 3. Acquire the connection lock and execute `create_sql` then `view_sql`.
+    /// 3. Acquire the connection lock, check that `<json_filename>` resolves
+    ///    to the same inode by path as through the anchor (SEC-25 /
+    ///    TASK-2067: `create_sql` hands `DuckDB` that path and the engine
+    ///    re-resolves it by name), then execute `create_sql` and `view_sql`.
     ///    On failure, the table/view created up to the failing statement
     ///    remain in `DuckDB` (partial state).
     /// 4. `SELECT COUNT(*) FROM count_table` runs **under the same lock**
@@ -213,6 +216,22 @@ impl SidecarIngestorConfig {
             // between them produce a record_count from a different table
             // than the one we just wrote.
             let conn = db.lock()?;
+            // SEC-25 / TASK-2067: `create_sql` reads the staged JSON through
+            // `read_json_auto('<path>')`, the one staged access the anchor
+            // cannot cover — `DuckDB` takes a path string and has no
+            // descriptor-passing API. Check the path and the anchor still name
+            // the same inode, so a directory swapped between the anchored write
+            // and the engine's read is refused instead of feeding the database
+            // an attacker's rows.
+            //
+            // The check's value is the size of the gap between it and the
+            // engine's own `open`, so it sits *inside* the connection lock,
+            // with nothing but `create_tables_with` between the two — waiting
+            // on `db.lock()` after checking would have widened that gap by an
+            // unbounded amount under a concurrent ingest. It shrinks the
+            // window rather than closing it; the reasoning is recorded on
+            // `create_table_from_json_sql`.
+            dir.verify_entry_identity(self.json_filename)?;
             self.create_tables_with(&conn, create_sql, view_sql)?;
             self.count_records_with(&conn, &quoted)?
         };

@@ -26,12 +26,21 @@ use std::time::{Duration, Instant};
 /// on a stall*, not a latency target. Callers that know their own tolerance
 /// narrow it with [`Context::with_provider_budget`].
 ///
-/// It must stay **above every subprocess timeout a provider can wait on**,
-/// or this budget fires first and reports a run that was still within its own
-/// limit as a failure. The binding one is `ops-test-coverage`'s
-/// `CARGO_LLVM_COV_TIMEOUT` (15 minutes); the five minutes of headroom cover
-/// the workspace walk and parsing either side of that subprocess. Raising
-/// that timeout means raising this too.
+/// CONC-9 / TASK-2068: this used to carry the ordering requirement as prose —
+/// the budget had to stay **above every subprocess timeout a provider can wait
+/// on**, or it would fire first and report a run still within its own limit as
+/// a failure. TASK-2056 made the budget operator-configurable
+/// (`[data] provider_budget_secs`), which put that invariant at the mercy of a
+/// config file no test could police. The binding subprocess wait,
+/// `ops-test-coverage`'s `CARGO_LLVM_COV_TIMEOUT` (15 minutes), now sizes
+/// itself from [`Context::deadline`] instead, so the two agree by construction
+/// at whatever value this budget takes and the ordering no longer has to be
+/// maintained by hand.
+///
+/// The twenty minutes still buy headroom over that fifteen for the workspace
+/// walk and parsing either side of the subprocess. A provider that hands work
+/// to something with its own timeout knob should follow the coverage provider
+/// and size it from [`Context::deadline`] rather than assume a floor here.
 pub const DEFAULT_PROVIDER_BUDGET: Duration = Duration::from_mins(20);
 
 /// The budget installed for the provider dispatch currently in flight.
@@ -904,7 +913,7 @@ impl Context {
     /// a loop over external commands) must therefore poll this itself, once
     /// per unit of work, and propagate the error with `?`:
     ///
-    /// ```ignore
+    /// ```text
     /// for entry in walker {
     ///     ctx.check_deadline()?;
     ///     // … per-entry work

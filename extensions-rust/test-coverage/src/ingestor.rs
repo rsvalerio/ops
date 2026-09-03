@@ -17,7 +17,8 @@ impl DataIngestor for CoverageIngestor {
     }
 
     fn collect(&self, ctx: &Context, dir: &IngestDir) -> DbResult<()> {
-        let records = collect_coverage(ctx.working_directory()).map_err(external_err)?;
+        let records =
+            collect_coverage(ctx.working_directory(), ctx.deadline()).map_err(external_err)?;
         PIPELINE.collect_sidecar(dir, &records, ctx.working_directory())
     }
 

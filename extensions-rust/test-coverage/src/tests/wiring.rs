@@ -36,9 +36,11 @@ fn load_coverage_missing_json_file_errors() {
     let db = DuckDb::open_in_memory().expect("open in-memory db");
     let err = load_coverage(&dir, &db).unwrap_err();
     let msg = err.to_string();
-    // The failure now comes from `read_json_auto` in the coverage-JSON load
-    // ("No files found that match the pattern"), not from the sidecar's IO
-    // NotFound — which is the proof this test reaches the path it names.
+    // SEC-25 / TASK-2067: the failure now comes from the anchored identity
+    // check `load_with_sidecar` runs immediately before handing `DuckDB` the
+    // staged path — one step earlier than `read_json_auto`'s "No files found
+    // that match the pattern", and still past the sidecar read, which is what
+    // proves this test reaches the path it names.
     assert!(
         msg.contains("coverage_files.json"),
         "expected the missing coverage JSON to be named, got: {msg}"

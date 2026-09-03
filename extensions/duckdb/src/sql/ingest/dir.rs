@@ -679,6 +679,76 @@ impl IngestDir {
     pub fn checksum(&self, name: &str) -> DbResult<String> {
         checksum_reader(self.open_read(name)?)
     }
+
+    /// SEC-25 / TASK-2067: assert that [`IngestDir::entry_path`] and the
+    /// anchor still name the same inode.
+    ///
+    /// The one staged access this type cannot anchor is the `DuckDB` engine's
+    /// own read: `read_json_auto('<path>')` takes a path string and the
+    /// embedded engine offers no descriptor-passing API, so that read resolves
+    /// the ingest directory by name (see `create_table_from_json_sql`). Call
+    /// this immediately before handing the path over: it opens the entry
+    /// through the verified descriptor and compares its `(dev, ino)` against
+    /// what the *path* resolves to, so a directory swapped between the
+    /// anchored write and the engine's read is refused rather than silently
+    /// feeding the database an attacker's JSON.
+    ///
+    /// This **shrinks** the window; it does not close it. The path is still
+    /// resolved a second time inside `DuckDB`, and nothing prevents a swap
+    /// between this check and that resolution. Closing it needs either a
+    /// descriptor-passing read in the engine or staging the JSON somewhere
+    /// unreachable by name, neither of which is available here.
+    ///
+    /// Non-Unix has no `(dev, ino)` pair to compare and no anchored open to
+    /// compare it against, so the check is a no-op there — the same split
+    /// [`IngestDir::open`] and [`create_ingest_dir`] already make.
+    ///
+    /// # Errors
+    ///
+    /// [`DbError::Io`] if `name` is not a single path component, the entry
+    /// cannot be opened through the anchor or resolved by path, or the two
+    /// resolve to different inodes.
+    pub fn verify_entry_identity(&self, name: &str) -> DbResult<()> {
+        self.verify_entry_identity_io(name).map_err(DbError::Io)
+    }
+
+    #[cfg(unix)]
+    fn verify_entry_identity_io(&self, name: &str) -> std::io::Result<()> {
+        use std::io::{Error, ErrorKind};
+        use std::os::unix::fs::MetadataExt;
+
+        // Both opens can fail with a bare `ENOENT` that names nothing, and
+        // this check now runs *before* `read_json_auto` would have reported
+        // the missing file itself — so re-attach the entry name, or the
+        // operator loses which staged file went missing.
+        let named = |e: std::io::Error| {
+            Error::new(
+                e.kind(),
+                format!("staged entry {name:?} in {}: {e}", self.path.display()),
+            )
+        };
+        let anchored = self
+            .open_read_io(name)
+            .and_then(|f| f.metadata())
+            .map_err(named)?;
+        // Resolve exactly as the engine will: by path, following symlinks.
+        let by_path = std::fs::metadata(self.entry_path(name)).map_err(named)?;
+        if anchored.dev() != by_path.dev() || anchored.ino() != by_path.ino() {
+            return Err(Error::new(
+                ErrorKind::InvalidInput,
+                format!(
+                    "staged entry {name:?} resolves to a different inode by path than through \
+                     the verified ingest directory; refusing to hand the path to DuckDB"
+                ),
+            ));
+        }
+        Ok(())
+    }
+
+    #[cfg(not(unix))]
+    fn verify_entry_identity_io(&self, name: &str) -> std::io::Result<()> {
+        Self::check_name(name)
+    }
 }
 
 /// Default DB path for a workspace root (using default `DataConfig`).
@@ -704,21 +774,20 @@ pub const fn external_err(e: anyhow::Error) -> DbError {
     DbError::External(e)
 }
 
-/// Compute SHA-256 checksum of a file, returning hex string.
+/// Streaming SHA-256 core behind [`IngestDir::checksum`].
 ///
-/// Streams the file in 64 KiB chunks so multi-megabyte ingests (coverage,
-/// tokei) do not allocate a full file-sized buffer (PERF-1).
+/// DEAD-1 / TASK-2066: the path-based `checksum_file` that used to share this
+/// core is gone. TASK-2054 moved the pipeline's only two checksum call sites
+/// (`SidecarIngestorConfig::persist_record` and `MetadataIngestor::load`) onto
+/// the anchored [`IngestDir::checksum`], leaving a public helper whose whole
+/// job was the by-path resolution the anchor exists to remove — a standing
+/// invitation for a future ingestor to reach for
+/// `checksum_file(&dir.entry_path(name))` and silently get the pre-TASK-2054
+/// behaviour. The streaming implementation is kept here, reachable only
+/// through the anchor.
 ///
-/// # Errors
-///
-/// [`DbError::Io`] if `path` cannot be opened or read.
-pub fn checksum_file(path: &Path) -> DbResult<String> {
-    checksum_reader(std::fs::File::open(path).map_err(DbError::Io)?)
-}
-
-/// Streaming SHA-256 core shared by [`checksum_file`] and the anchored
-/// [`IngestDir::checksum`], so the two cannot drift on chunk size or on how an
-/// over-long read is handled.
+/// Streams in 64 KiB chunks so multi-megabyte ingests (coverage, tokei) do not
+/// allocate a full file-sized buffer (PERF-1).
 fn checksum_reader<R: std::io::Read>(source: R) -> DbResult<String> {
     use sha2::{Digest, Sha256};
     use std::io::{BufReader, Read};
@@ -1077,20 +1146,30 @@ mod tests {
         );
     }
 
+    /// DEAD-1 / TASK-2066: the checksum tests below drive the anchored
+    /// [`IngestDir::checksum`], which is the only surface the streaming
+    /// implementation is reachable through now that the path-based
+    /// `checksum_file` is gone.
+    fn staged_dir(tmp: &tempfile::TempDir) -> IngestDir {
+        IngestDir::open(&tmp.path().join("data.duckdb.ingest")).expect("open")
+    }
+
     #[test]
-    fn checksum_file_returns_sha256_hex() {
-        let dir = tempfile::tempdir().expect("tempdir");
-        let path = dir.path().join("test.json");
-        std::fs::write(&path, r#"{"test": "data"}"#).expect("write");
-        let checksum = checksum_file(&path).expect("checksum");
+    fn checksum_returns_sha256_hex() {
+        let tmp = tempfile::tempdir().expect("tempdir");
+        let dir = staged_dir(&tmp);
+        dir.write_atomic("test.json", br#"{"test": "data"}"#)
+            .expect("stage");
+        let checksum = dir.checksum("test.json").expect("checksum");
         assert_eq!(checksum.len(), 64, "SHA-256 hex should be 64 chars");
         assert!(checksum.chars().all(|c| c.is_ascii_hexdigit()));
     }
 
     #[test]
-    fn checksum_file_fails_when_missing() {
-        let dir = tempfile::tempdir().expect("tempdir");
-        let result = checksum_file(&dir.path().join("nonexistent.json"));
+    fn checksum_fails_when_missing() {
+        let tmp = tempfile::tempdir().expect("tempdir");
+        let dir = staged_dir(&tmp);
+        let result = dir.checksum("nonexistent.json");
         assert!(result.is_err(), "should fail for missing file");
     }
 
@@ -1138,8 +1217,65 @@ mod tests {
         assert_eq!(
             dir.checksum("staged.json")
                 .expect("checksum through the anchor"),
-            checksum_file(&moved_aside.join("staged.json")).expect("checksum by path"),
+            checksum_reader(
+                std::fs::File::open(moved_aside.join("staged.json")).expect("open by path")
+            )
+            .expect("checksum by path"),
         );
+    }
+
+    /// SEC-25 / TASK-2067 AC #1: the identity re-check accepts a staged entry
+    /// that the anchor and the path agree on — the ordinary case, on every
+    /// load.
+    #[test]
+    fn entry_identity_holds_for_an_unmolested_staged_entry() {
+        let tmp = tempfile::tempdir().expect("tempdir");
+        let dir = staged_dir(&tmp);
+        dir.write_atomic("staged.json", b"[]").expect("stage");
+        dir.verify_entry_identity("staged.json")
+            .expect("path and anchor must agree");
+    }
+
+    /// SEC-25 / TASK-2067 AC #1: the swap `create_table_from_json_sql` cannot
+    /// defend against on its own. The verified directory is renamed aside and
+    /// an attacker-controlled directory holding a different `staged.json` is
+    /// put at the name `read_json_auto` would resolve — so the path and the
+    /// anchor name different inodes, and the check refuses to hand `DuckDB`
+    /// the path.
+    #[cfg(unix)]
+    #[test]
+    fn entry_identity_refuses_a_directory_swapped_under_the_anchor() {
+        let tmp = tempfile::tempdir().expect("tempdir");
+        let staging = tmp.path().join("data.duckdb.ingest");
+        let dir = IngestDir::open(&staging).expect("open");
+        dir.write_atomic("staged.json", b"[{\"ours\":1}]")
+            .expect("stage through the anchor");
+
+        // Swap the verified directory for an attacker's, at the same name.
+        let moved_aside = tmp.path().join("moved-aside");
+        std::fs::rename(&staging, &moved_aside).expect("move the verified dir aside");
+        let attacker = tmp.path().join("attacker-dir");
+        std::fs::create_dir(&attacker).expect("create attacker dir");
+        std::fs::write(attacker.join("staged.json"), b"[{\"theirs\":1}]").expect("plant");
+        std::os::unix::fs::symlink(&attacker, &staging).expect("plant symlink at the ingest path");
+
+        let err = dir
+            .verify_entry_identity("staged.json")
+            .expect_err("a swapped directory must be refused");
+        match err {
+            DbError::Io(e) => assert_eq!(e.kind(), std::io::ErrorKind::InvalidInput),
+            other => panic!("expected DbError::Io, got {other:?}"),
+        }
+    }
+
+    /// SEC-25 / TASK-2067: a missing staged entry is refused too — there is
+    /// nothing for `read_json_auto` to read, and the anchored open is what
+    /// says so.
+    #[test]
+    fn entry_identity_refuses_a_missing_entry() {
+        let tmp = tempfile::tempdir().expect("tempdir");
+        let dir = staged_dir(&tmp);
+        assert!(dir.verify_entry_identity("never-staged.json").is_err());
     }
 
     /// SEC-25 / TASK-2054: anchoring is worthless if the *entry name* can walk
@@ -1219,16 +1355,16 @@ mod tests {
     }
 
     #[test]
-    fn checksum_file_streaming_matches_in_memory_for_large_input() {
+    fn checksum_streaming_matches_in_memory_for_large_input() {
         use sha2::{Digest, Sha256};
-        let dir = tempfile::tempdir().expect("tempdir");
-        let path = dir.path().join("big.bin");
+        let tmp = tempfile::tempdir().expect("tempdir");
+        let dir = staged_dir(&tmp);
         // Same byte sequence as `|i| i % 256`, built without a cast: 200 KiB
         // is an exact multiple of 256, so the cycle ends on a full period.
         let data: Vec<u8> = (0..=u8::MAX).cycle().take(200 * 1024).collect();
-        std::fs::write(&path, &data).expect("write");
+        dir.write_atomic("big.bin", &data).expect("stage");
 
-        let streamed = checksum_file(&path).expect("stream");
+        let streamed = dir.checksum("big.bin").expect("stream");
         let mut hasher = Sha256::new();
         hasher.update(&data);
         let in_memory = hex::encode(hasher.finalize().as_slice());
@@ -1236,12 +1372,12 @@ mod tests {
     }
 
     #[test]
-    fn checksum_file_is_deterministic() {
-        let dir = tempfile::tempdir().expect("tempdir");
-        let path = dir.path().join("test.json");
-        std::fs::write(&path, b"test data").expect("write");
-        let c1 = checksum_file(&path).expect("checksum1");
-        let c2 = checksum_file(&path).expect("checksum2");
+    fn checksum_is_deterministic() {
+        let tmp = tempfile::tempdir().expect("tempdir");
+        let dir = staged_dir(&tmp);
+        dir.write_atomic("test.json", b"test data").expect("stage");
+        let c1 = dir.checksum("test.json").expect("checksum1");
+        let c2 = dir.checksum("test.json").expect("checksum2");
         assert_eq!(c1, c2, "checksum should be deterministic");
     }
 }

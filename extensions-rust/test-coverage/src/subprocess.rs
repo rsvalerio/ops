@@ -7,14 +7,18 @@
 //! marker for SIGKILL/OOM kills.
 
 use ops_core::output::format_error_tail;
-use ops_core::subprocess::{run_cargo, RunError};
+use ops_core::subprocess::{default_timeout, run_cargo_bounded, RunError};
 use std::path::Path;
 use std::process::{ExitStatus, Output};
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
-/// Default timeout for `cargo llvm-cov`; overridable via
+/// Ceiling for the `cargo llvm-cov` wait; overridable via
 /// `OPS_SUBPROCESS_TIMEOUT_SECS`. Coverage runs the full test suite, so this
 /// is the largest of the cargo-subprocess defaults.
+///
+/// CONC-9 / TASK-2068: this is no longer the whole story — see
+/// [`llvm_cov_timeout`], which caps it at whatever is left of the provider
+/// dispatch deadline.
 pub const CARGO_LLVM_COV_TIMEOUT: Duration = Duration::from_mins(15);
 
 /// TEST-23 / TASK-1554: the argv list `cargo llvm-cov` runs with. Exposed
@@ -45,9 +49,40 @@ pub fn llvm_cov_argv(output_path: &str) -> Vec<&str> {
     args
 }
 
+/// CONC-9 / TASK-2068: how long the `cargo llvm-cov` subprocess may wait,
+/// given the provider dispatch deadline currently installed (if any).
+///
+/// [`ops_extension::DEFAULT_PROVIDER_BUDGET`] used to carry the invariant as
+/// prose — the dispatch budget "must stay **above** every subprocess timeout a
+/// provider can wait on", with [`CARGO_LLVM_COV_TIMEOUT`] named as the binding
+/// one. TASK-2056 made the budget operator-configurable via
+/// `[data] provider_budget_secs`, so a `.ops.toml` can now break that ordering:
+/// an operator who tightens the budget to 60s got the coverage provider
+/// blocking in `cargo llvm-cov` for the full fifteen minutes and only *then*
+/// being told it was over budget — a bound that labelled the stall instead of
+/// curing it (the shape SEC-33 / TASK-2052 removed from the tree walkers).
+///
+/// Sizing the wait as `min(ceiling, time remaining on the deadline)` makes the
+/// two agree by construction, which is exactly what `Context::deadline`'s own
+/// documentation asks callers with an inner timeout knob to do. An expired (or
+/// instantly-expiring) deadline yields [`Duration::ZERO`], so the subprocess is
+/// reaped immediately rather than started on a budget that is already spent.
+#[must_use]
+pub fn llvm_cov_timeout(deadline: Option<Instant>) -> Duration {
+    let ceiling = default_timeout(CARGO_LLVM_COV_TIMEOUT);
+    deadline.map_or(ceiling, |expires_at| {
+        ceiling.min(expires_at.saturating_duration_since(Instant::now()))
+    })
+}
+
 /// Run `cargo llvm-cov` against the workspace, writing the JSON report to
 /// `output_path`, and return the captured `Output` (stdout stays small;
 /// stderr carries the test-run log).
+///
+/// CONC-9 / TASK-2068: `deadline` is the provider dispatch deadline
+/// (`Context::deadline`). The wait is sized from what is left of it via
+/// [`llvm_cov_timeout`], so the subprocess cannot outlive the budget that is
+/// supposed to bound it.
 ///
 /// ERR-1 / TASK-1057: pass `--no-fail-fast` (forwarded to cargo test) so a
 /// single failing test does not abort the whole suite — without it,
@@ -57,11 +92,15 @@ pub fn llvm_cov_argv(output_path: &str) -> Vec<&str> {
 /// per-file coverage data for the passing slice is preserved; the
 /// `check_llvm_cov_output` helper then tolerates a non-zero exit when
 /// the report file still contains a parseable llvm-cov JSON document.
-pub fn run_cargo_llvm_cov(working_dir: &Path, output_path: &str) -> Result<Output, RunError> {
-    run_cargo(
+pub fn run_cargo_llvm_cov(
+    working_dir: &Path,
+    output_path: &str,
+    deadline: Option<Instant>,
+) -> Result<Output, RunError> {
+    run_cargo_bounded(
         &llvm_cov_argv(output_path),
         working_dir,
-        CARGO_LLVM_COV_TIMEOUT,
+        llvm_cov_timeout(deadline),
         "cargo llvm-cov",
     )
 }

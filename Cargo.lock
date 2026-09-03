@@ -1999,7 +1999,6 @@ dependencies = [
  "tempfile",
  "thiserror 2.0.19",
  "tracing",
- "tracing-subscriber",
 ]
 
 [[package]]
@@ -2015,7 +2014,6 @@ dependencies = [
  "tempfile",
  "thiserror 2.0.19",
  "tracing",
- "tracing-subscriber",
 ]
 
 [[package]]
@@ -2070,12 +2068,12 @@ version = "0.47.0"
 dependencies = [
  "anyhow",
  "linkme",
+ "ops-core",
  "ops-extension",
  "ops-hook-common",
  "serial_test",
  "tempfile",
  "tracing",
- "tracing-subscriber",
 ]
 
 [[package]]

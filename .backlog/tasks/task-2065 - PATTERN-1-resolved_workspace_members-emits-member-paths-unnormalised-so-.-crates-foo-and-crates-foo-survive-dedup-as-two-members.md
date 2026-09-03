@@ -3,9 +3,10 @@ id: TASK-2065
 title: >-
   PATTERN-1: resolved_workspace_members emits member paths unnormalised, so
   ./crates/foo and crates/foo survive dedup as two members
-status: Triage
+status: Done
 assignee: []
 created_date: '2026-08-29 17:57'
+updated_date: '2026-08-31 17:38'
 labels:
   - code-review-rust
   - correctness
@@ -48,6 +49,6 @@ TASK-2055.
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 A workspace listing both ./crates/foo and crates/foo resolves to a single member
-- [ ] #2 Resolved member paths are emitted in one canonical spelling, and sibling consumers still resolve against the workspace root
+- [x] #1 A workspace listing both ./crates/foo and crates/foo resolves to a single member
+- [x] #2 Resolved member paths are emitted in one canonical spelling, and sibling consumers still resolve against the workspace root
 <!-- AC:END -->

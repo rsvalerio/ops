@@ -61,6 +61,8 @@
 //! - [`capture_tracing`] — run a closure under a thread-local subscriber at a
 //!   given level, returning the rendered output and the closure's value.
 //! - [`capture_warn`] — [`capture_tracing`] fixed at `WARN`.
+//! - [`capture_dispatch`] — the same subscriber as a detached
+//!   [`tracing::Dispatch`], for work that does not run on the calling thread.
 //! - [`count_warnings`] — the same, counting `WARN` events instead of
 //!   rendering them.
 //! - [`TracingBuf`], [`WarnCounter`] — the underlying sinks, for the rare
@@ -885,6 +887,26 @@ mod tracing_capture {
     where
         F: FnOnce() -> R,
     {
+        let (dispatch, buf) = capture_dispatch(level);
+        let value = tracing::dispatcher::with_default(&dispatch, f);
+        (buf.captured(), value)
+    }
+
+    /// The capture subscriber [`capture_tracing`] installs, as a detached
+    /// [`tracing::Dispatch`] plus the buffer it writes into.
+    ///
+    /// DUP-3 / TASK-2069: for the test whose work does not run on the calling
+    /// thread and so cannot use the scoped form — a `tokio::spawn`ed task
+    /// attached with `WithSubscriber`, say. Such a test used to hand-build the
+    /// `fmt()` subscriber and its own `MakeWriter` shim, which meant a second
+    /// definition of what "captured output" is *and* no
+    /// [`pin_global_dispatcher`] call, leaving it open to the random-empty
+    /// capture that pinning exists to prevent.
+    ///
+    /// Pins the global dispatcher and fixes the same configuration
+    /// [`capture_tracing`] uses, so the two capture identically.
+    #[must_use]
+    pub fn capture_dispatch(level: tracing::Level) -> (tracing::Dispatch, TracingBuf) {
         pin_global_dispatcher();
         let buf = TracingBuf::default();
         let subscriber = tracing_subscriber::fmt()
@@ -892,8 +914,7 @@ mod tracing_capture {
             .with_max_level(level)
             .with_ansi(false)
             .finish();
-        let value = tracing::subscriber::with_default(subscriber, f);
-        (buf.captured(), value)
+        (subscriber.into(), buf)
     }
 
     /// [`capture_tracing`] fixed at `WARN` — the common case.
@@ -917,7 +938,8 @@ mod tracing_capture {
 
 #[cfg(any(test, feature = "test-support"))]
 pub use tracing_capture::{
-    capture_tracing, capture_warn, count_warnings, pin_global_dispatcher, TracingBuf, WarnCounter,
+    capture_dispatch, capture_tracing, capture_warn, count_warnings, pin_global_dispatcher,
+    TracingBuf, WarnCounter,
 };
 
 impl Drop for EnvGuard {

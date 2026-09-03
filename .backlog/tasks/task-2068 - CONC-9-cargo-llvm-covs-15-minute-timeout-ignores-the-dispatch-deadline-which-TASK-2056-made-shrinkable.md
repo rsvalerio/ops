@@ -3,9 +3,10 @@ id: TASK-2068
 title: >-
   CONC-9: cargo llvm-cov's 15-minute timeout ignores the dispatch deadline,
   which TASK-2056 made shrinkable
-status: Triage
+status: Done
 assignee: []
 created_date: '2026-08-29 18:10'
+updated_date: '2026-08-31 17:38'
 labels:
   - code-review-rust
   - concurrency
@@ -57,6 +58,6 @@ crate is outside that wave's file scope.
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 The cargo llvm-cov subprocess timeout is sized from the remaining Context deadline, never exceeding it
-- [ ] #2 A test pins that a tightened provider budget shortens the subprocess wait rather than only reporting it afterwards
+- [x] #1 The cargo llvm-cov subprocess timeout is sized from the remaining Context deadline, never exceeding it
+- [x] #2 A test pins that a tightened provider budget shortens the subprocess wait rather than only reporting it afterwards
 <!-- AC:END -->
