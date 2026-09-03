@@ -2,6 +2,21 @@
 All notable changes to this project will be documented in this file. See [conventional commits](https://www.conventionalcommits.org/) for commit guidelines.
 
 - - -
+## [v0.47.1](https://github.com/rsvalerio/ops/compare/b43006bca08049ec95391685a6bc36347d5901ad..v0.47.1) - 2026-09-03
+#### 🐛 Bug Fixes
+- (**duckdb**) verify staged JSON identity before DuckDB reads it by path - ([61497bf](https://github.com/rsvalerio/ops/commit/61497bfc48894c37e0c6e5d7e196fcf97171240d)) - [@rsvalerio](https://github.com/rsvalerio)
+- (**rust-about**) keep a bare `.` exclude prefix out of the wildcard case - ([23f5e3e](https://github.com/rsvalerio/ops/commit/23f5e3ef7572cc51cc5a755962d21cbe33f985b8)) - [@rsvalerio](https://github.com/rsvalerio)
+- (**rust-about**) emit resolved workspace members in one canonical spelling - ([b43006b](https://github.com/rsvalerio/ops/commit/b43006bca08049ec95391685a6bc36347d5901ad)) - [@rsvalerio](https://github.com/rsvalerio)
+- (**test-coverage**) bound the cargo llvm-cov wait by the provider deadline - ([9201c15](https://github.com/rsvalerio/ops/commit/9201c150e914ece55cb5a3e58f94b7dc748ee743)) - [@rsvalerio](https://github.com/rsvalerio)
+#### 🧪 Testing
+- (**test-coverage**) resolve the llvm-cov ceiling the way the code does - ([a4a7b79](https://github.com/rsvalerio/ops/commit/a4a7b790883328c5aca36414c4cccd1390c740e2)) - [@rsvalerio](https://github.com/rsvalerio)
+#### 🚜 Refactoring
+- (**test-support**) capture tracing through the shared harness - ([db125fa](https://github.com/rsvalerio/ops/commit/db125fa9e302b7b64796e74905921f6c5957e498)) - [@rsvalerio](https://github.com/rsvalerio)
+#### ⚙️ Miscellaneous
+- (**backlog**) close TASK-2065 through TASK-2069 - ([be3abf2](https://github.com/rsvalerio/ops/commit/be3abf233d2d4412a7c66e20c24e7084a2731ff7)) - [@rsvalerio](https://github.com/rsvalerio)
+
+- - -
+
 ## [v0.47.0](https://github.com/rsvalerio/ops/compare/8752701ea542179823ca40e384ad75b68a5281ae..v0.47.0) - 2026-08-29
 #### 🚀 Features
 - (**config**) add [data] provider_budget_secs for the provider dispatch budget - ([6a4a759](https://github.com/rsvalerio/ops/commit/6a4a759ca5bc6085d78b03c5fc0869db3a2c4f57)) - [@rsvalerio](https://github.com/rsvalerio)
