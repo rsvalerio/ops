@@ -19,6 +19,7 @@ ops backlog task edit <taskId> [flags]        # prints `Updated TASK-NNNN`
 ops backlog task list [flags]
 ops backlog task view <taskId> [--plain|--json]
 ops backlog search [query] [flags]
+ops backlog cleanup [flags]
 ```
 
 ### `task create`
@@ -95,6 +96,34 @@ Scoring is deterministic keyword containment (exact id match = 1.000;
 otherwise per-token weights id 0.35 / title 0.30 / labels 0.15 /
 description 0.10 / notes 0.05, averaged). Scores are intentionally **not**
 compatible with the backlog CLI's fuzzy algorithm; the row shape is.
+
+### `cleanup`
+
+| Flag | Meaning |
+|------|---------|
+| `--older-than <days>` | Move terminal-status tasks older than this many days (default `30`) |
+| `--dry-run` | Print the candidates without moving anything (no prompt) |
+
+Moves terminal-status tasks (the **last** entry of the config's `statuses`,
+matched case-insensitively) from `tasks/` to `completed/`, file unchanged.
+A task's age reads `updated_date` with `created_date` as fallback; a task
+with no parseable date is skipped, never moved on a technicality. After
+listing the candidates it asks `Move N tasks to completed folder? [y/N]`
+on stdin — `y`/`yes` proceeds, empty input or anything else cancels (No is
+the default, like the backlog CLI's confirm). The age arrives as a flag
+instead of the backlog CLI's interactive menu; `--dry-run` skips the prompt
+entirely. Destinations are preflighted after the confirmation: a same-name
+file already in `completed/` aborts the command naming both paths before
+anything moves — all-or-nothing for collisions detected at preflight, the
+tree holds real id collisions and a silent overwrite would destroy one of
+them. A move is not itself atomic: the destination name is claimed
+atomically with a no-replace link (`link(2)` refuses an existing name, so
+a destination appearing between preflight and move is never overwritten),
+then the source name is removed as a separate step — an interruption in
+between leaves both names on one file, and a retry reports the leftover
+destination as a collision to resolve by hand. A late collision, or any
+other per-file failure, aborts the run with the earlier moves kept — there
+is no rollback. Git staging stays with the caller.
 
 ---
 

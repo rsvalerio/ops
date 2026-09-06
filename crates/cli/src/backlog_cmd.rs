@@ -38,6 +38,16 @@ pub fn run_backlog(cwd: &Path, action: BacklogAction) -> anyhow::Result<()> {
             };
             cmd::run_search(&store, &opts, &mut std::io::stdout())
         }
+        BacklogAction::Cleanup {
+            older_than,
+            dry_run,
+        } => {
+            let opts = cmd::CleanupOptions {
+                older_than_days: older_than,
+                dry_run,
+            };
+            cmd::run_cleanup(&store, &cfg, &opts, &mut std::io::stdout())
+        }
     }
 }
 

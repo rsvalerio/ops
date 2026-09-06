@@ -259,6 +259,15 @@ pub enum BacklogAction {
         #[arg(long)]
         plain: bool,
     },
+    /// Move terminal-status tasks older than a cutoff to `completed/`.
+    Cleanup {
+        /// Move tasks older than this many days (default 30).
+        #[arg(long = "older-than", value_name = "DAYS", default_value_t = 30)]
+        older_than: u32,
+        /// Report what would move without moving anything.
+        #[arg(long = "dry-run")]
+        dry_run: bool,
+    },
 }
 
 /// Arguments of `ops backlog task create` (a struct, boxed in the enum, so
