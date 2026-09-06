@@ -2,6 +2,18 @@
 All notable changes to this project will be documented in this file. See [conventional commits](https://www.conventionalcommits.org/) for commit guidelines.
 
 - - -
+## [v0.48.0](https://github.com/rsvalerio/ops/compare/70b68e99a33f821286eaf2af1039d22b60a88d91..v0.48.0) - 2026-09-06
+#### 🚀 Features
+- (**backlog**) add native ops backlog task management - ([405857e](https://github.com/rsvalerio/ops/commit/405857ee15576194799acff9839fafe8262f57c2)) - [@rsvalerio](https://github.com/rsvalerio)
+#### 🐛 Bug Fixes
+- (**backlog**) apply CodeRabbit review fixes - ([0f776c2](https://github.com/rsvalerio/ops/commit/0f776c284d3bd6fe9c325b406d05e798dcd1d56c)) - [@rsvalerio](https://github.com/rsvalerio), Claude Code
+#### 🧪 Testing
+- resolve tempdir roots through macOS's symlinked /var prefix - ([70b68e9](https://github.com/rsvalerio/ops/commit/70b68e99a33f821286eaf2af1039d22b60a88d91)) - [@rsvalerio](https://github.com/rsvalerio)
+#### 🚜 Refactoring
+- (**create-review-tasks**) reuse ops-backlog primitives - ([8236f66](https://github.com/rsvalerio/ops/commit/8236f66fe3c34e00452fcaa541b3571acbca4a06)) - [@rsvalerio](https://github.com/rsvalerio)
+
+- - -
+
 ## [v0.47.1](https://github.com/rsvalerio/ops/compare/b43006bca08049ec95391685a6bc36347d5901ad..v0.47.1) - 2026-09-03
 #### 🐛 Bug Fixes
 - (**duckdb**) verify staged JSON identity before DuckDB reads it by path - ([61497bf](https://github.com/rsvalerio/ops/commit/61497bfc48894c37e0c6e5d7e196fcf97171240d)) - [@rsvalerio](https://github.com/rsvalerio)
