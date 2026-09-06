@@ -1552,9 +1552,10 @@ fn cli_backlog_search_by_rule_id_and_modified_file() {
     .stdout(predicate::str::contains("(Triage)"));
 }
 
-/// Cleanup: `--dry-run` names the candidate without moving it, the real run
-/// relocates the aged terminal-status file to `completed/` and drops it from
-/// `task list`, and a fresh Done task stays put.
+/// Cleanup: `--dry-run` names the candidate without moving it and without
+/// asking, the real run prompts `Move N tasks … [y/N]` and relocates the aged
+/// terminal-status file to `completed/` on `y` (cancelling on `n`), and the
+/// moved task drops out of `task list` while a fresh Done task stays.
 #[test]
 fn cli_backlog_cleanup_moves_aged_done_tasks_to_completed() {
     let dir = backlog_dir();
@@ -1595,7 +1596,8 @@ fn cli_backlog_cleanup_moves_aged_done_tasks_to_completed() {
         "Found 1 tasks older than 30 days:",
     ))
     .stdout(predicate::str::contains("- TASK-0001: aged finding"))
-    .stdout(predicate::str::contains("Dry run: no files moved."));
+    .stdout(predicate::str::contains("Dry run: no files moved."))
+    .stdout(predicate::str::contains("[y/N]").not());
     assert!(
         dir.path()
             .join(".backlog/tasks/task-0001 - aged.md")
@@ -1603,7 +1605,29 @@ fn cli_backlog_cleanup_moves_aged_done_tasks_to_completed() {
         "dry run must not move the file"
     );
 
-    ops_in(dir.path(), &["backlog", "cleanup"])
+    // Declined: the prompt names the count and nothing moves.
+    ops()
+        .args(["backlog", "cleanup"])
+        .current_dir(dir.path())
+        .write_stdin("n\n")
+        .assert()
+        .success()
+        .stdout(predicate::str::contains(
+            "Move 1 tasks to completed folder? [y/N]",
+        ))
+        .stdout(predicate::str::contains("Cleanup cancelled."));
+    assert!(
+        dir.path()
+            .join(".backlog/tasks/task-0001 - aged.md")
+            .exists(),
+        "a declined confirmation must not move the file"
+    );
+
+    ops()
+        .args(["backlog", "cleanup"])
+        .current_dir(dir.path())
+        .write_stdin("y\n")
+        .assert()
         .success()
         .stdout(predicate::str::contains(
             "Moved 1 tasks to completed folder.",

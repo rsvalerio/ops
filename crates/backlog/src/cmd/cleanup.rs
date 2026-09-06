@@ -1,14 +1,16 @@
 //! `cleanup`: move terminal-status tasks older than a cutoff from `tasks/`
-//! to `completed/` — the non-interactive shape of the backlog CLI's cleanup.
+//! to `completed/` — the non-interactive shape of the backlog CLI's cleanup
+//! age menu, with its confirmation prompt kept.
 //!
 //! The npm CLI asks interactively for an age (1 day … 1 year) and confirms
 //! before moving; interactive TUIs are out of scope here, so the age arrives
-//! as `--older-than <days>` and the caller composes their own preview with
-//! `--dry-run`. Semantics otherwise match: the terminal status is the last
-//! entry of the configured `statuses`, a task's age reads `updated_date`
-//! with `created_date` as fallback, and the file is moved unchanged into
-//! `completed/`. Git staging stays with the caller (the skills own their
-//! `chore(backlog)` commits).
+//! as `--older-than <days>` and the preview is `--dry-run`. The move itself
+//! still asks — `Move N tasks to completed folder? [y/N]` on stdin, default
+//! No, like the backlog CLI's confirm. Semantics otherwise match: the
+//! terminal status is the last entry of the configured `statuses`, a task's
+//! age reads `updated_date` with `created_date` as fallback, and the file is
+//! moved unchanged into `completed/`. Git staging stays with the caller (the
+//! skills own their `chore(backlog)` commits).
 
 use std::io::Write;
 use std::path::Path;
@@ -28,12 +30,22 @@ pub struct CleanupOptions {
     pub dry_run: bool,
 }
 
-/// Run cleanup against the host clock.
+/// The environment cleanup runs against: the clock the age cutoff reads and
+/// the stream the confirmation answer comes from. Production reads the host
+/// clock and stdin; tests inject fixed values through the same struct —
+/// grouping them also keeps the handler within clippy's argument budget.
+struct CleanupEnv<'a> {
+    now: DateTime<Utc>,
+    input: &'a mut dyn std::io::BufRead,
+}
+
+/// Run cleanup against the host clock and stdin.
 ///
 /// # Errors
 ///
 /// A task file in `tasks/` does not parse (the error names the file), or
-/// writing `out` failed.
+/// writing `out` failed, or the confirmation answer could not be read from
+/// stdin.
 pub fn run_cleanup<W: Write>(
     store: &Store,
     cfg: &BacklogConfig,
@@ -43,20 +55,29 @@ pub fn run_cleanup<W: Write>(
     // The workspace chrono carries no `clock` feature; the wall clock is read
     // as a SystemTime and converted, exactly like `clock::UtcStamp`.
     let now: DateTime<Utc> = std::time::SystemTime::now().into();
-    cleanup_at(store, cfg, opts, now, out)
+    let mut input = std::io::stdin().lock();
+    let mut env = CleanupEnv {
+        now,
+        input: &mut input,
+    };
+    let result = cleanup_with(store, cfg, opts, &mut env, out);
+    // Release the stdin lock before returning (significant_drop_tightening):
+    // nothing after the handler needs it.
+    drop(input);
+    result
 }
 
-/// [`run_cleanup`] against an explicit clock reading; the seam the age-filter
-/// tests drive.
+/// [`run_cleanup`] against an explicit environment; the seam the age-filter
+/// and confirmation tests drive.
 ///
 /// # Errors
 ///
 /// As [`run_cleanup`].
-fn cleanup_at<W: Write>(
+fn cleanup_with<W: Write>(
     store: &Store,
     cfg: &BacklogConfig,
     opts: &CleanupOptions,
-    now: DateTime<Utc>,
+    env: &mut CleanupEnv<'_>,
     out: &mut W,
 ) -> anyhow::Result<()> {
     // The terminal status is the last configured column (empty/blank entries
@@ -84,7 +105,8 @@ fn cleanup_at<W: Write>(
     )
     .context("printing the terminal-status count")?;
 
-    let cutoff = now
+    let cutoff = env
+        .now
         .checked_sub_days(Days::new(u64::from(opts.older_than_days)))
         .context("computing the cleanup cutoff")?;
     let aged: Vec<&&TaskEntry> = terminal_tasks
@@ -120,6 +142,11 @@ fn cleanup_at<W: Write>(
         return Ok(());
     }
 
+    if !confirm_move(aged.len(), env.input, out)? {
+        writeln!(out, "Cleanup cancelled.").context("printing the cancellation notice")?;
+        return Ok(());
+    }
+
     let completed = store.completed_dir();
     std::fs::create_dir_all(&completed)
         .with_context(|| format!("creating {}", completed.display()))?;
@@ -138,6 +165,28 @@ fn terminal_status(statuses: &[String]) -> Option<&str> {
         .last()
         .map(String::as_str)
         .filter(|s| !s.trim().is_empty())
+}
+
+/// Ask `Move N tasks to completed folder? [y/N]` and read one answer line.
+/// `y`/`yes` (case-insensitive) proceeds; empty input — including EOF on a
+/// closed stdin — and anything else cancels. No is the default, matching the
+/// backlog CLI's confirm prompt.
+fn confirm_move<W: Write>(
+    count: usize,
+    input: &mut dyn std::io::BufRead,
+    out: &mut W,
+) -> anyhow::Result<bool> {
+    write!(out, "Move {count} tasks to completed folder? [y/N] ")
+        .context("printing the confirmation prompt")?;
+    out.flush().context("flushing the confirmation prompt")?;
+    let mut answer = String::new();
+    input
+        .read_line(&mut answer)
+        .context("reading the confirmation answer")?;
+    Ok(matches!(
+        answer.trim().to_ascii_lowercase().as_str(),
+        "y" | "yes"
+    ))
 }
 
 /// A task's age reads `updated_date` with `created_date` as fallback — the
@@ -227,16 +276,27 @@ mod tests {
         )
     }
 
-    fn run(store: &Store, cfg: &BacklogConfig, older_than: u32, dry_run: bool) -> String {
+    fn run(
+        store: &Store,
+        cfg: &BacklogConfig,
+        older_than: u32,
+        dry_run: bool,
+        answer: &str,
+    ) -> String {
         let mut out = Vec::new();
-        cleanup_at(
+        let mut input = answer.as_bytes();
+        let mut env = CleanupEnv {
+            now: now(),
+            input: &mut input,
+        };
+        cleanup_with(
             store,
             cfg,
             &CleanupOptions {
                 older_than_days: older_than,
                 dry_run,
             },
-            now(),
+            &mut env,
             &mut out,
         )
         .expect("cleanup");
@@ -267,10 +327,11 @@ mod tests {
                 ),
             ),
         ]);
-        let text = run(&store, &cfg, 30, false);
+        let text = run(&store, &cfg, 30, false, "y\n");
         assert!(text.contains("Found 2 tasks marked as Done."));
         assert!(text.contains("Found 1 tasks older than 30 days:"));
         assert!(text.contains("- TASK-0001: task TASK-0001 (2026-08-06 11:59)"));
+        assert!(text.contains("Move 1 tasks to completed folder? [y/N]"));
         assert!(text.contains("Moved 1 tasks to completed folder."));
         let root = dir.path().join(".backlog");
         assert!(!root.join("tasks/task-0001 - old.md").exists());
@@ -314,7 +375,7 @@ mod tests {
                 &fm("TASK-0004", "Done", Some("back then"), None),
             ),
         ]);
-        let text = run(&store, &cfg, 30, false);
+        let text = run(&store, &cfg, 30, false, "y\n");
         assert!(text.contains("TASK-0002"));
         assert!(text.contains("TASK-0003"));
         assert!(!text.contains("TASK-0001"));
@@ -337,7 +398,7 @@ mod tests {
             ],
             ..BacklogConfig::default()
         };
-        let text = run(&store, &cfg, 30, false);
+        let text = run(&store, &cfg, 30, false, "y\n");
         assert!(text.contains("Moved 1 tasks to completed folder."));
     }
 
@@ -348,7 +409,7 @@ mod tests {
             "task-0001 - triage.md",
             &fm("TASK-0001", "Triage", Some("2020-01-01 00:00"), None),
         )]);
-        let text = run(&store, &cfg, 30, false);
+        let text = run(&store, &cfg, 30, false, "");
         assert!(text.contains("No Done tasks found to clean up."));
         assert!(dir
             .path()
@@ -363,9 +424,11 @@ mod tests {
             "task-0001 - old.md",
             &fm("TASK-0001", "Done", Some("2026-01-01 00:00"), None),
         )]);
-        let text = run(&store, &cfg, 30, true);
+        // No answer is needed: dry run never asks.
+        let text = run(&store, &cfg, 30, true, "");
         assert!(text.contains("TASK-0001"));
         assert!(text.contains("Dry run: no files moved."));
+        assert!(!text.contains("[y/N]"));
         assert!(dir
             .path()
             .join(".backlog/tasks/task-0001 - old.md")
@@ -391,14 +454,19 @@ mod tests {
         let store = Store::open(&root).expect("open");
         let cfg = BacklogConfig::default();
         let mut out = Vec::new();
-        let err = cleanup_at(
+        let mut input: &[u8] = b"y\n";
+        let mut env = CleanupEnv {
+            now: now(),
+            input: &mut input,
+        };
+        let err = cleanup_with(
             &store,
             &cfg,
             &CleanupOptions {
                 older_than_days: 30,
                 dry_run: false,
             },
-            now(),
+            &mut env,
             &mut out,
         )
         .expect_err("must fail");
@@ -429,7 +497,62 @@ mod tests {
             statuses: Vec::new(),
             ..BacklogConfig::default()
         };
-        let text = run(&store, &cfg, 30, false);
+        let text = run(&store, &cfg, 30, false, "");
         assert!(text.contains("No terminal status configured for cleanup."));
+    }
+
+    /// The prompt shows the count; answering n cancels without moving.
+    #[test]
+    fn declined_confirmation_cancels_without_moving() {
+        let (dir, store, cfg) = scratch_with(&[(
+            "task-0001 - old.md",
+            &fm("TASK-0001", "Done", Some("2026-01-01 00:00"), None),
+        )]);
+        let text = run(&store, &cfg, 30, false, "n\n");
+        assert!(text.contains("Move 1 tasks to completed folder? [y/N]"));
+        assert!(text.contains("Cleanup cancelled."));
+        assert!(!text.contains("Moved"));
+        assert!(dir
+            .path()
+            .join(".backlog/tasks/task-0001 - old.md")
+            .exists());
+    }
+
+    /// EOF / empty input defaults to No — a piped stdin with no answer never
+    /// moves files, matching the backlog CLI's default-false confirm.
+    #[test]
+    fn empty_answer_defaults_to_no() {
+        let (dir, store, cfg) = scratch_with(&[(
+            "task-0001 - old.md",
+            &fm("TASK-0001", "Done", Some("2026-01-01 00:00"), None),
+        )]);
+        let text = run(&store, &cfg, 30, false, "");
+        assert!(text.contains("Cleanup cancelled."));
+        assert!(dir
+            .path()
+            .join(".backlog/tasks/task-0001 - old.md")
+            .exists());
+    }
+
+    /// `YES` in any casing is accepted; anything that is not y/yes is not.
+    #[test]
+    fn yes_is_case_insensitive_and_strict() {
+        let (_dir, store, cfg) = scratch_with(&[(
+            "task-0001 - old.md",
+            &fm("TASK-0001", "Done", Some("2026-01-01 00:00"), None),
+        )]);
+        let text = run(&store, &cfg, 30, false, "YES\n");
+        assert!(text.contains("Moved 1 tasks to completed folder."));
+
+        let (dir, store, cfg) = scratch_with(&[(
+            "task-0002 - old.md",
+            &fm("TASK-0002", "Done", Some("2026-01-01 00:00"), None),
+        )]);
+        let text = run(&store, &cfg, 30, false, "yeah\n");
+        assert!(text.contains("Cleanup cancelled."));
+        assert!(dir
+            .path()
+            .join(".backlog/tasks/task-0002 - old.md")
+            .exists());
     }
 }

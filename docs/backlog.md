@@ -102,15 +102,17 @@ compatible with the backlog CLI's fuzzy algorithm; the row shape is.
 | Flag | Meaning |
 |------|---------|
 | `--older-than <days>` | Move terminal-status tasks older than this many days (default `30`) |
-| `--dry-run` | Print the candidates without moving anything |
+| `--dry-run` | Print the candidates without moving anything (no prompt) |
 
 Moves terminal-status tasks (the **last** entry of the config's `statuses`,
 matched case-insensitively) from `tasks/` to `completed/`, file unchanged.
 A task's age reads `updated_date` with `created_date` as fallback; a task
-with no parseable date is skipped, never moved on a technicality. The
-non-interactive shape of the backlog CLI's cleanup (which asks for the age
-interactively); preview with `--dry-run`, and compose the confirmation
-yourself. A same-name file already in `completed/` aborts the command naming
+with no parseable date is skipped, never moved on a technicality. After
+listing the candidates it asks `Move N tasks to completed folder? [y/N]`
+on stdin — `y`/`yes` proceeds, empty input or anything else cancels (No is
+the default, like the backlog CLI's confirm). The age arrives as a flag
+instead of the backlog CLI's interactive menu; `--dry-run` skips the prompt
+entirely. A same-name file already in `completed/` aborts the command naming
 both paths instead of overwriting — the tree holds real id collisions.
 Git staging stays with the caller.
 
