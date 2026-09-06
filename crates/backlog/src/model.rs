@@ -75,6 +75,26 @@ pub fn yaml_scalar(value: &str) -> String {
     }
 }
 
+/// A bare scalar when the value survives a round trip unquoted (the byte
+/// shape the backlog CLI writes for plain values), else the quoted form
+/// from [`yaml_scalar`]. The bare form is unsafe when the value is empty,
+/// carries a control character, a `:` or `#` (mapping / comment syntax), or
+/// outer whitespace the parser would strip. `status` is user-supplied
+/// (`task create -s`, `task edit -s`), so it needs the same encoder
+/// guarantee as the title without changing the common-case bytes.
+fn bare_or_quoted(value: &str) -> String {
+    let plain = !value.is_empty()
+        && !value.chars().any(char::is_control)
+        && !value.contains(':')
+        && !value.contains('#')
+        && value.trim() == value;
+    if plain {
+        value.to_string()
+    } else {
+        yaml_scalar(value)
+    }
+}
+
 /// YAML single-quoted scalar: wrap in `'` and double any embedded `'`. The
 /// backlog CLI quotes titles containing `: `; quoting unconditionally is
 /// byte-compatible for our titles. Only safe for control-character-free
@@ -343,7 +363,7 @@ impl Frontmatter {
 
         let _ = writeln!(out, "id: {}", self.id);
         let _ = writeln!(out, "title: {}", yaml_scalar(&self.title));
-        let _ = writeln!(out, "status: {}", self.status);
+        let _ = writeln!(out, "status: {}", bare_or_quoted(&self.status));
         render_list(out, "assignee", &self.assignees);
         let _ = writeln!(out, "created_date: '{}'", self.created_date);
         if let Some(updated) = &self.updated_date {
@@ -836,6 +856,32 @@ priority: low
 - [ ] #2 second criterion
 <!-- AC:END -->
 ";
+
+    /// `status` is user-supplied, so a YAML-hostile status must come back
+    /// out quoted: the file this crate writes has to re-parse (the same
+    /// SEC-11 round-trip rule the module header states for titles), while
+    /// a plain status keeps its bare CLI byte shape.
+    #[test]
+    fn hostile_status_round_trips_and_plain_status_stays_bare() {
+        let mut doc = TaskDoc::parse(SAMPLE).expect("must parse");
+
+        doc.frontmatter.status = "In Progress".to_string();
+        assert!(
+            doc.render().contains("\nstatus: In Progress\n"),
+            "plain statuses keep the bare CLI byte shape"
+        );
+
+        for hostile in ["needs: quoting", "hash # inside", " padded ", ""] {
+            doc.frontmatter.status = hostile.to_string();
+            let rendered = doc.render();
+            let reparsed = TaskDoc::parse(&rendered)
+                .unwrap_or_else(|e| panic!("status {hostile:?} must round-trip: {e:#}"));
+            assert_eq!(
+                reparsed.frontmatter.status, hostile,
+                "the rendered status must survive its own writer: {rendered}"
+            );
+        }
+    }
 
     #[test]
     fn parse_reads_folded_title_and_sections() {

@@ -49,12 +49,17 @@ impl BacklogConfig {
     /// read; the error names the file (ERR-13).
     pub fn load(dir: &Path) -> anyhow::Result<Self> {
         let path = dir.join("backlog.config.yml");
-        let Some(src) = std::fs::read_to_string(&path)
-            .ok()
-            .filter(|s| !s.trim().is_empty())
-        else {
-            return Ok(Self::default());
+        // Absent means defaults; every other read failure (permissions,
+        // non-UTF-8) must surface rather than silently fall back to the
+        // defaults and write tasks with the wrong prefix and status.
+        let src = match std::fs::read_to_string(&path) {
+            Ok(src) => src,
+            Err(e) if e.kind() == std::io::ErrorKind::NotFound => return Ok(Self::default()),
+            Err(e) => anyhow::bail!("reading {}: {e}", path.display()),
         };
+        if src.trim().is_empty() {
+            return Ok(Self::default());
+        }
         Self::parse(&src).map_err(|e| anyhow::anyhow!("parsing {}: {e:#}", path.display()))
     }
 

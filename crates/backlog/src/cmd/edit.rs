@@ -6,7 +6,7 @@ use std::io::Write;
 use anyhow::Context as _;
 
 use crate::clock::UtcStamp;
-use crate::store::{main_task_file_name, Store};
+use crate::store::Store;
 
 /// Everything `task edit` can change. `assignees: None` leaves the list
 /// untouched; `Some(vec![""])` (from `-a ""`) clears it.
@@ -75,7 +75,13 @@ pub fn run_edit<W: Write>(store: &Store, opts: &EditOptions, out: &mut W) -> any
         fm.remove_extra("parent_task_id");
     }
     for dep in &opts.add_dep {
-        if !dep.trim().is_empty() && !fm.dependencies.contains(dep) {
+        // Same case rule as the remove below: a dep differing only by case
+        // must not slip past the duplicate check and then be removed twice.
+        let already = fm
+            .dependencies
+            .iter()
+            .any(|existing| existing.eq_ignore_ascii_case(dep));
+        if !dep.trim().is_empty() && !already {
             fm.dependencies.push(dep.clone());
         }
     }
@@ -118,25 +124,7 @@ pub fn run_edit<W: Write>(store: &Store, opts: &EditOptions, out: &mut W) -> any
     if opts.title.is_some() {
         // A title change moves the slug: write the new file and remove the
         // old one so only one task owns the id.
-        let number = entry
-            .path
-            .file_name()
-            .and_then(|n| n.to_str())
-            .and_then(extract_number)
-            .ok_or_else(|| {
-                anyhow::anyhow!("cannot derive task number from {}", entry.path.display())
-            })?;
-        let file_name = main_task_file_name(number, 4, &doc.frontmatter.title);
-        let new_path = store.task_path(&file_name);
-        if new_path == entry.path {
-            std::fs::write(&new_path, rendered)
-                .with_context(|| format!("writing {}", new_path.display()))?;
-        } else {
-            std::fs::write(&new_path, rendered)
-                .with_context(|| format!("writing {}", new_path.display()))?;
-            std::fs::remove_file(&entry.path)
-                .with_context(|| format!("removing {}", entry.path.display()))?;
-        }
+        rename_to_new_slug(store, &entry.path, &doc.frontmatter.title, rendered)?;
     } else {
         std::fs::write(&entry.path, rendered)
             .with_context(|| format!("writing {}", entry.path.display()))?;
@@ -146,16 +134,44 @@ pub fn run_edit<W: Write>(store: &Store, opts: &EditOptions, out: &mut W) -> any
     Ok(())
 }
 
-/// The `task-<n>` number from a task filename.
-fn extract_number(file_name: &str) -> Option<u32> {
+/// Write the task under its new title slug and drop the old file. The id
+/// portion of the old filename is carried over verbatim — re-deriving it
+/// from the bare number would drop a dotted subtask suffix (`task-0042.03`)
+/// and aim the write at the parent task's file, truncating it.
+///
+/// # Errors
+///
+/// The old filename carries no derivable id portion (the error names the
+/// path), or the write/remove fails — each error names its path.
+fn rename_to_new_slug(
+    store: &Store,
+    old_path: &std::path::Path,
+    title: &str,
+    rendered: String,
+) -> anyhow::Result<()> {
+    let file_id = old_path
+        .file_name()
+        .and_then(|n| n.to_str())
+        .and_then(extract_file_id)
+        .ok_or_else(|| anyhow::anyhow!("cannot derive task id from {}", old_path.display()))?;
+    let file_name = format!("{file_id} - {}.md", crate::model::file_slug(title));
+    let new_path = store.task_path(&file_name);
+    std::fs::write(&new_path, rendered)
+        .with_context(|| format!("writing {}", new_path.display()))?;
+    if new_path != old_path {
+        std::fs::remove_file(old_path)
+            .with_context(|| format!("removing {}", old_path.display()))?;
+    }
+    Ok(())
+}
+
+/// The `task-<n>[.<mm>]` id portion of a task filename, verbatim — the
+/// dotted subtask suffix included, so a rename can never retarget the
+/// parent task's file.
+fn extract_file_id(file_name: &str) -> Option<&str> {
     let stem = file_name.strip_suffix(".md")?;
     let (id, _) = stem.split_once(" - ").unwrap_or((stem, ""));
-    let digits = id
-        .strip_prefix("task-")?
-        .split(|c: char| !c.is_ascii_digit())
-        .next()
-        .filter(|d| !d.is_empty())?;
-    digits.parse::<u32>().ok()
+    Some(id)
 }
 
 #[cfg(test)]
@@ -333,6 +349,46 @@ body text
         );
     }
 
+    /// A dotted subtask keeps its dotted file name through a title edit:
+    /// re-deriving the name from the bare number would aim the write at the
+    /// parent's `task-0001` file and truncate it.
+    #[test]
+    fn subtask_title_edit_keeps_the_dotted_file_name() {
+        let (dir, store) = scratch_with(TASK);
+        let tasks = dir.path().join(".backlog").join("tasks");
+        let subtask = TASK
+            .replace("id: TASK-0001\n", "id: TASK-0001.01\n")
+            .replace("title: 'original'", "title: 'child'");
+        std::fs::write(tasks.join("task-0001.01 - child.md"), subtask).expect("seed subtask");
+
+        let mut out = Vec::new();
+        run_edit(
+            &store,
+            &EditOptions {
+                task_id: "TASK-0001.01".to_string(),
+                title: Some("grown-up".to_string()),
+                ..EditOptions::default()
+            },
+            &mut out,
+        )
+        .expect("edit");
+
+        assert!(
+            tasks.join("task-0001.01 - grown-up.md").is_file(),
+            "the subtask keeps its dotted id under the new slug"
+        );
+        assert!(
+            !tasks.join("task-0001.01 - child.md").exists(),
+            "old subtask file must be gone"
+        );
+        let parent = std::fs::read_to_string(tasks.join("task-0001 - original.md"))
+            .expect("parent file must survive");
+        assert!(
+            parent.contains("title: 'original'"),
+            "the parent task must not be truncated, got: {parent}"
+        );
+    }
+
     /// `--parent` sets, `--clear-parent` removes — the structural link the
     /// backlog CLI cannot edit after create.
     #[test]
@@ -386,11 +442,21 @@ body text
             )
             .expect("edit");
         }
-        // Appending a dep that is already there must not duplicate it.
+        // Appending a dep that is already there must not duplicate it —
+        // even when the casing differs (the remove rule is case-blind too).
         run_edit(
             &store,
             &EditOptions {
                 add_dep: vec!["TASK-0010".to_string()],
+                ..opts()
+            },
+            &mut out,
+        )
+        .expect("edit");
+        run_edit(
+            &store,
+            &EditOptions {
+                add_dep: vec!["task-0010".to_string()],
                 ..opts()
             },
             &mut out,

@@ -379,11 +379,10 @@ fn push_dependency_graph(
         s.push('\n');
     };
     push_node(&fm.id, &fm.title, &fm.status, fm.dependencies.is_empty());
-    for dep in &fm.dependencies {
-        match resolved(dep) {
-            Some(status) => push_node(dep, "", &status, false),
-            None => push_node(dep, "", "", false),
-        }
+    let last_dep = fm.dependencies.len().saturating_sub(1);
+    for (idx, dep) in fm.dependencies.iter().enumerate() {
+        let status = resolved(dep).unwrap_or_default();
+        push_node(dep, "", &status, idx == last_dep);
     }
     s.push_str("      ],\n");
     if fm.dependencies.is_empty() {
@@ -548,6 +547,16 @@ pub fn list_json<W: Write>(
         .into_iter()
         .flat_map(|(_, group)| group)
         .collect();
+    // The same lookup `run_view` hands `readiness_of`, so list and view
+    // agree: a dependency missing from the scanned set (moved to
+    // `completed/` or archived) does not block, only an unresolved non-Done
+    // dependency does.
+    let status_of = |id: &str| -> Option<String> {
+        entries
+            .iter()
+            .find(|e| e.doc.frontmatter.id == id)
+            .map(|e| e.doc.frontmatter.status.clone())
+    };
     let mut s = String::with_capacity(256usize.saturating_mul(ordered.len().saturating_add(1)));
     s.push_str("{\n  \"schemaVersion\": 1,\n  \"kind\": \"task-list\",\n  \"tasks\": [\n");
     for (idx, entry) in ordered.iter().enumerate() {
@@ -556,9 +565,7 @@ pub fn list_json<W: Write>(
         let ac = entry.doc.body.ac_items();
         let done = ac.iter().filter(|item| item.checked).count();
         let ordinal = fm.ordinal.as_deref().and_then(|o| o.parse::<u64>().ok());
-        let ready = fm.status != "Done"
-            && (fm.dependencies.is_empty()
-                || fm.dependencies.iter().all(|d| dependency_done(entries, d)));
+        let ready = readiness_of(&entry.doc, &status_of).is_ready;
         s.push_str("    {\n");
         fn push_row_field(s: &mut String, name: &str, value: &str, last: bool) {
             s.push_str("      ");
@@ -635,13 +642,6 @@ pub fn list_json<W: Write>(
     }
     s.push_str("  ]\n}\n");
     w.write_all(s.as_bytes())
-}
-
-/// Whether `dep` resolves to a Done task within `entries`.
-fn dependency_done(entries: &[TaskEntry], dep: &str) -> bool {
-    entries
-        .iter()
-        .any(|e| e.doc.frontmatter.id == dep && e.doc.frontmatter.status == "Done")
 }
 
 // ---------------------------------------------------------------------------
@@ -870,6 +870,31 @@ priority: low
         let title_pos = text.find("\"title\"").expect("title");
         let status_pos = text.find("\"status\"").expect("status");
         assert!(id_pos < title_pos && title_pos < status_pos);
+    }
+
+    /// One dependency: the graph's node array must close without a trailing
+    /// comma — strict parsers (`serde_json`) reject `},]`.
+    #[test]
+    fn view_json_dependency_graph_with_edges_parses() {
+        let src = VIEW_SAMPLE.replacen("dependencies: []", "dependencies:\n  - TASK-0001", 1);
+        let entry = doc_from(&src);
+        let readiness = Readiness {
+            is_ready: true,
+            blocking: vec![],
+            missing: vec![],
+        };
+        let mut out = Vec::new();
+        view_json(&mut out, &entry, Path::new("/ws"), &readiness, &|_| None).expect("render");
+        let text = String::from_utf8(out).expect("utf8");
+        let value: serde_json::Value =
+            serde_json::from_str(&text).unwrap_or_else(|e| panic!("must be valid json: {e}"));
+        let graph = &value["task"]["dependencyGraph"];
+        assert_eq!(
+            graph["nodes"].as_array().map(Vec::len),
+            Some(2),
+            "the task plus its dependency, got: {graph}"
+        );
+        assert_eq!(graph["edges"].as_array().map(Vec::len), Some(1));
     }
 
     #[test]

@@ -25,6 +25,10 @@ pub struct CreateOptions {
     pub dependencies: Vec<String>,
 }
 
+/// How many allocation attempts `run_create` makes before conceding that
+/// the backlog tree is too contended to place a task.
+const CREATE_ATTEMPTS: usize = 8;
+
 /// Create one task and print `Created TASK-NNNN`.
 ///
 /// # Errors
@@ -38,51 +42,75 @@ pub fn run_create<W: Write>(
     out: &mut W,
 ) -> anyhow::Result<()> {
     let stamp = UtcStamp::now()?;
-    let number = store.next_task_number();
-    let id = format_task_id(&cfg.task_prefix, number, cfg.zero_padded_ids);
-    let file_name = main_task_file_name(number, cfg.zero_padded_ids, &opts.title);
-    let path = store.task_path(&file_name);
+    // The create must be exclusive: two concurrent runs can scan the same
+    // highest number and derive the same path, and a plain `fs::write`
+    // would let the later run truncate the earlier task. `File::create_new`
+    // refuses to clobber; on `AlreadyExists`, re-scan and take the next
+    // number (the same invariant `create-review-tasks` documents).
+    let mut attempts_left = CREATE_ATTEMPTS;
+    loop {
+        attempts_left = attempts_left.saturating_sub(1);
+        let number = store.next_task_number();
+        let id = format_task_id(&cfg.task_prefix, number, cfg.zero_padded_ids);
+        let file_name = main_task_file_name(number, cfg.zero_padded_ids, &opts.title);
+        let path = store.task_path(&file_name);
 
-    let frontmatter = Frontmatter {
-        id: id.clone(),
-        title: opts.title.clone(),
-        status: opts
-            .status
-            .clone()
-            .unwrap_or_else(|| cfg.default_status.clone()),
-        assignees: opts.assignees.clone(),
-        created_date: format!("{} {}", stamp.date, stamp.minutes),
-        updated_date: None,
-        labels: opts.labels.clone(),
-        dependencies: opts.dependencies.clone(),
-        priority: Some(opts.priority.clone().unwrap_or_else(|| "low".to_string())),
-        modified_files: opts.modified_files.clone(),
-        // The ordinal the backlog CLI assigns a freshly created parent task,
-        // pinned by the create-review-tasks golden tests.
-        ordinal: Some("1000".to_string()),
-        extras: Vec::new(),
-    };
-    let ac: Vec<AcItem> = opts
-        .ac
-        .iter()
-        .map(|text| AcItem {
-            checked: false,
-            text: text.clone(),
-        })
-        .collect();
-    let body = render_body(
-        opts.description.as_deref().unwrap_or(""),
-        &ac,
-        opts.plan.as_deref(),
-        opts.notes.as_deref(),
-    );
-    let doc = TaskDoc {
-        frontmatter,
-        body: Body { raw: body },
-    };
-    std::fs::write(&path, doc.render()).with_context(|| format!("writing {}", path.display()))?;
-    writeln!(out, "Created {id}").context("printing the created task id")?;
-    Ok(())
+        let frontmatter = Frontmatter {
+            id: id.clone(),
+            title: opts.title.clone(),
+            status: opts
+                .status
+                .clone()
+                .unwrap_or_else(|| cfg.default_status.clone()),
+            assignees: opts.assignees.clone(),
+            created_date: format!("{} {}", stamp.date, stamp.minutes),
+            updated_date: None,
+            labels: opts.labels.clone(),
+            dependencies: opts.dependencies.clone(),
+            priority: Some(opts.priority.clone().unwrap_or_else(|| "low".to_string())),
+            modified_files: opts.modified_files.clone(),
+            // The ordinal the backlog CLI assigns a freshly created parent
+            // task, pinned by the create-review-tasks golden tests.
+            ordinal: Some("1000".to_string()),
+            extras: Vec::new(),
+        };
+        let ac: Vec<AcItem> = opts
+            .ac
+            .iter()
+            .map(|text| AcItem {
+                checked: false,
+                text: text.clone(),
+            })
+            .collect();
+        let body = render_body(
+            opts.description.as_deref().unwrap_or(""),
+            &ac,
+            opts.plan.as_deref(),
+            opts.notes.as_deref(),
+        );
+        let rendered = TaskDoc {
+            frontmatter,
+            body: Body { raw: body },
+        }
+        .render();
+
+        let mut handle = match std::fs::File::create_new(&path) {
+            Ok(handle) => handle,
+            // Another run claimed this number between scan and create;
+            // try the next one until the attempts run out.
+            Err(e) if e.kind() == std::io::ErrorKind::AlreadyExists && attempts_left > 0 => {
+                continue;
+            }
+            Err(e) => {
+                return Err(e).with_context(|| format!("creating {}", path.display()));
+            }
+        };
+        handle
+            .write_all(rendered.as_bytes())
+            .with_context(|| format!("writing {}", path.display()))?;
+        writeln!(out, "Created {id}").context("printing the created task id")?;
+        return Ok(());
+    }
 }
 
 #[cfg(test)]

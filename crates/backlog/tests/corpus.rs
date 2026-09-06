@@ -1,8 +1,3 @@
-// Panicking helpers outside `#[test]` fns are not covered by the
-// workspace's allow-in-tests clippy keys; this file is test-only, so the
-// restriction lints are relaxed at its root.
-#![allow(clippy::expect_used, clippy::panic, clippy::unwrap_used)]
-
 //! Corpus invariants over COPIES of real task files from this repository's
 //! own `.backlog` tree — the read-compatibility contract in executable form.
 //!
@@ -15,11 +10,25 @@ use ops_backlog::model::TaskDoc;
 
 const FIXTURES: &str = concat!(env!("CARGO_MANIFEST_DIR"), "/tests/fixtures");
 
+/// The exact fixture set, pinned: a fixture deleted from the tree must fail
+/// the corpus test, not silently shrink coverage. Refresh deliberately
+/// alongside the fixtures when a new shape joins the corpus.
+const EXPECTED_FIXTURES: &[&str] = &[
+    "archive-tasks/task-0059 - TQ-5-config-merge.rs-has-zero-test-coverage-for-core-merge-logic.md",
+    "completed/task-0001 - Box-leak-for-dynamic-command-strings-is-intentional-but-undocumented-lifetime.md",
+    "completed/task-0059 - Improve-test-coverage-for-ops-about-crate.md",
+    "completed/task-0100 - code-review-plan-wave5.md",
+    "tasks/task-1692 - Run-the-code-review-rust-skill-against-the-crate-ops.md",
+    "tasks/task-1834 - SEC-11-provider-supplied-target-names-reach-YAML-frontmatter-and-stdout-unvalidated-and-yaml_single_quoted-cannot-encode-a-newline.md",
+    "tasks/task-2039 - SEC-anchor-duckdb-ingest-staging-to-a-verified-directory-handle.md",
+    "tasks/task-2069 - DUP-3-six-more-hand-rolled-tracing-capture-scaffolds-outside-the-TASK-2058-enumeration.md",
+];
+
 /// Every fixture parses, and re-rendering then re-parsing is a fixed point:
 /// nothing the writer emits can confuse the reader.
 #[test]
 fn every_fixture_parses_and_round_trips() {
-    let mut checked = 0;
+    let mut seen: Vec<String> = Vec::new();
     for dir in ["tasks", "completed", "archive-tasks"] {
         for fixture in fixture_files(dir) {
             let src = std::fs::read_to_string(&fixture).expect("read fixture");
@@ -35,10 +44,22 @@ fn every_fixture_parses_and_round_trips() {
                 "{}: render must be a fixed point",
                 fixture.display()
             );
-            checked += 1;
+            let name = fixture
+                .file_name()
+                .and_then(|n| n.to_str())
+                .unwrap_or_default();
+            seen.push(format!("{dir}/{name}"));
         }
     }
-    assert!(checked >= 7, "expected the full fixture set, saw {checked}");
+    seen.sort_unstable();
+    assert_eq!(
+        seen,
+        EXPECTED_FIXTURES
+            .iter()
+            .map(std::string::ToString::to_string)
+            .collect::<Vec<_>>(),
+        "the fixture set is pinned; refresh EXPECTED_FIXTURES deliberately"
+    );
 }
 
 /// task-1834: YAML-looking text inside a fenced code block must not confuse
@@ -105,6 +126,10 @@ fn bare_scalar_title_parses() {
     assert_eq!(doc.frontmatter.title, "code-review-plan-wave5");
 }
 
+// Panicking helpers outside `#[test]` fns are not covered by the
+// workspace's allow-in-tests clippy keys, so each helper below carries the
+// narrow exception it needs (AGENTS.md: narrowest scope, reason beside it).
+#[allow(clippy::expect_used)]
 fn fixture_files(dir: &str) -> Vec<std::path::PathBuf> {
     let root = std::path::Path::new(FIXTURES).join(dir);
     let mut files: Vec<std::path::PathBuf> = std::fs::read_dir(&root)
@@ -117,6 +142,7 @@ fn fixture_files(dir: &str) -> Vec<std::path::PathBuf> {
     files
 }
 
+#[allow(clippy::panic)]
 fn fixture(dir: &str, matches: impl Fn(&str) -> bool) -> String {
     let files = fixture_files(dir);
     let found = files
@@ -131,6 +157,7 @@ fn fixture(dir: &str, matches: impl Fn(&str) -> bool) -> String {
     std::fs::read_to_string(&found).unwrap_or_else(|e| panic!("{name}: {e}"))
 }
 
+#[allow(clippy::panic)]
 fn parse(src: &str) -> TaskDoc {
     TaskDoc::parse(src).unwrap_or_else(|e| panic!("fixture must parse: {e:#}"))
 }
