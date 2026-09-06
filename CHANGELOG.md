@@ -2,6 +2,21 @@
 All notable changes to this project will be documented in this file. See [conventional commits](https://www.conventionalcommits.org/) for commit guidelines.
 
 - - -
+## [v0.51.0](https://github.com/rsvalerio/ops/compare/eefacbf914a0d90f305648afe223cdf8940cf040..v0.51.0) - 2026-09-06
+#### 🚀 Features
+- (**backlog**) confirm before moving tasks in cleanup - ([a30d6f5](https://github.com/rsvalerio/ops/commit/a30d6f5fbd7d1407ea3bf26166f0fdc0ca976eb5)) - [@rsvalerio](https://github.com/rsvalerio), Claude Code
+- (**backlog**) add cleanup command moving aged done tasks to completed - ([a99fabe](https://github.com/rsvalerio/ops/commit/a99fabebc92e5896f4096e248fa44b91c46c0437)) - [@rsvalerio](https://github.com/rsvalerio)
+#### 🐛 Bug Fixes
+- (**backlog**) claim cleanup destinations atomically, no replace - ([b15ab3d](https://github.com/rsvalerio/ops/commit/b15ab3d76a38be2951f4f633a6e703bd6f7413ae)) - [@rsvalerio](https://github.com/rsvalerio), Claude Code
+- (**backlog**) preflight cleanup destinations before the first rename - ([eecabd2](https://github.com/rsvalerio/ops/commit/eecabd27c2bdd26292c5cc666aba6cc91b52123d)) - [@rsvalerio](https://github.com/rsvalerio), Claude Code
+#### 📚 Documentation
+- (**backlog**) state cleanup move atomicity precisely - ([04eeae0](https://github.com/rsvalerio/ops/commit/04eeae06d3579cdc0e48c14bdd0ffb5ea13e573e)) - [@rsvalerio](https://github.com/rsvalerio), Claude Code
+- (**backlog**) scope cleanup all-or-nothing claim to preflight collisions - ([6c68e5a](https://github.com/rsvalerio/ops/commit/6c68e5af8c6007e47ec1576cde2d05af2c5fc12c)) - [@rsvalerio](https://github.com/rsvalerio), Claude Code
+#### ⚙️ Miscellaneous
+- update backlog tasks - ([eefacbf](https://github.com/rsvalerio/ops/commit/eefacbf914a0d90f305648afe223cdf8940cf040)) - [@rsvalerio](https://github.com/rsvalerio)
+
+- - -
+
 ## [v0.50.0](https://github.com/rsvalerio/ops/compare/efa5bdf4ef75deb2446ed4f00b81bceb78016e8d..v0.50.0) - 2026-09-06
 #### 🚀 Features
 - (**rust-stack**) add doc command that fails on broken intra-doc links - ([efa5bdf](https://github.com/rsvalerio/ops/commit/efa5bdf4ef75deb2446ed4f00b81bceb78016e8d)) - [@rsvalerio](https://github.com/rsvalerio)
