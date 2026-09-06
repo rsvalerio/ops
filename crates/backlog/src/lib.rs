@@ -1,6 +1,6 @@
-//! Minimal backlog.md-compatible task manager: the task create/edit/list/view
-//! and search subset the ops skills use, operating directly on the `.backlog`
-//! markdown tree.
+//! Minimal backlog.md-compatible task manager: the task create/edit/list/view,
+//! search, and cleanup subset the ops skills use, operating directly on the
+//! `.backlog` markdown tree.
 //!
 //! The file shapes mirror what `backlog task ...` (backlog.md CLI v1.51.0)
 //! reads and writes, so files produced here are indistinguishable from

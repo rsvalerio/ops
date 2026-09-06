@@ -138,6 +138,14 @@ impl Store {
     pub fn task_path(&self, file_name: &str) -> PathBuf {
         self.backlog_root.join("tasks").join(file_name)
     }
+
+    /// Absolute path of the `completed/` directory, where `cleanup` moves
+    /// terminal-status task files. Created on demand by the caller; a scan
+    /// never requires it to exist.
+    #[must_use = "the path is derived; discarding it re-derives nothing"]
+    pub fn completed_dir(&self) -> PathBuf {
+        self.backlog_root.join("completed")
+    }
 }
 
 /// The integer part of a `TASK-<n>` / `TASK-<n>.<mm>` id, when the id

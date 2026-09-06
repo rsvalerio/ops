@@ -1552,6 +1552,82 @@ fn cli_backlog_search_by_rule_id_and_modified_file() {
     .stdout(predicate::str::contains("(Triage)"));
 }
 
+/// Cleanup: `--dry-run` names the candidate without moving it, the real run
+/// relocates the aged terminal-status file to `completed/` and drops it from
+/// `task list`, and a fresh Done task stays put.
+#[test]
+fn cli_backlog_cleanup_moves_aged_done_tasks_to_completed() {
+    let dir = backlog_dir();
+    // Aged seed: Done long before the default 30-day cutoff, so the test does
+    // not depend on the wall clock. The fresh task is created through the CLI
+    // (dated now) and flipped to Done.
+    std::fs::write(
+        dir.path().join(".backlog/tasks/task-0001 - aged.md"),
+        "---\nid: TASK-0001\ntitle: 'aged finding'\nstatus: Done\nassignee: []\ncreated_date: '2026-01-01 00:00'\nlabels: []\ndependencies: []\n---\n",
+    )
+    .expect("seed aged task");
+    ops_in(
+        dir.path(),
+        &["backlog", "task", "create", "fresh finding", "--plain"],
+    )
+    .success();
+    ops_in(
+        dir.path(),
+        &[
+            "backlog",
+            "task",
+            "edit",
+            "TASK-0002",
+            "-s",
+            "Done",
+            "--plain",
+        ],
+    )
+    .success();
+
+    ops_in(
+        dir.path(),
+        &["backlog", "cleanup", "--older-than", "30", "--dry-run"],
+    )
+    .success()
+    .stdout(predicate::str::contains("Found 2 tasks marked as Done."))
+    .stdout(predicate::str::contains(
+        "Found 1 tasks older than 30 days:",
+    ))
+    .stdout(predicate::str::contains("- TASK-0001: aged finding"))
+    .stdout(predicate::str::contains("Dry run: no files moved."));
+    assert!(
+        dir.path()
+            .join(".backlog/tasks/task-0001 - aged.md")
+            .exists(),
+        "dry run must not move the file"
+    );
+
+    ops_in(dir.path(), &["backlog", "cleanup"])
+        .success()
+        .stdout(predicate::str::contains(
+            "Moved 1 tasks to completed folder.",
+        ));
+    assert!(
+        dir.path()
+            .join(".backlog/completed/task-0001 - aged.md")
+            .exists(),
+        "the aged task must land in completed/"
+    );
+    assert!(
+        !dir.path()
+            .join(".backlog/tasks/task-0001 - aged.md")
+            .exists(),
+        "the aged task must leave tasks/"
+    );
+
+    // Completed tasks never appear in listings; the fresh Done task stays.
+    ops_in(dir.path(), &["backlog", "task", "list", "--plain"])
+        .success()
+        .stdout(predicate::str::contains("TASK-0002"))
+        .stdout(predicate::str::contains("TASK-0001").not());
+}
+
 /// The JSON view parses and carries the envelope fields skills read.
 #[test]
 fn cli_backlog_view_json_envelope() {

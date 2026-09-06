@@ -19,6 +19,7 @@ ops backlog task edit <taskId> [flags]        # prints `Updated TASK-NNNN`
 ops backlog task list [flags]
 ops backlog task view <taskId> [--plain|--json]
 ops backlog search [query] [flags]
+ops backlog cleanup [flags]
 ```
 
 ### `task create`
@@ -95,6 +96,23 @@ Scoring is deterministic keyword containment (exact id match = 1.000;
 otherwise per-token weights id 0.35 / title 0.30 / labels 0.15 /
 description 0.10 / notes 0.05, averaged). Scores are intentionally **not**
 compatible with the backlog CLI's fuzzy algorithm; the row shape is.
+
+### `cleanup`
+
+| Flag | Meaning |
+|------|---------|
+| `--older-than <days>` | Move terminal-status tasks older than this many days (default `30`) |
+| `--dry-run` | Print the candidates without moving anything |
+
+Moves terminal-status tasks (the **last** entry of the config's `statuses`,
+matched case-insensitively) from `tasks/` to `completed/`, file unchanged.
+A task's age reads `updated_date` with `created_date` as fallback; a task
+with no parseable date is skipped, never moved on a technicality. The
+non-interactive shape of the backlog CLI's cleanup (which asks for the age
+interactively); preview with `--dry-run`, and compose the confirmation
+yourself. A same-name file already in `completed/` aborts the command naming
+both paths instead of overwriting — the tree holds real id collisions.
+Git staging stays with the caller.
 
 ---
 

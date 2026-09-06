@@ -1,0 +1,435 @@
+//! `cleanup`: move terminal-status tasks older than a cutoff from `tasks/`
+//! to `completed/` — the non-interactive shape of the backlog CLI's cleanup.
+//!
+//! The npm CLI asks interactively for an age (1 day … 1 year) and confirms
+//! before moving; interactive TUIs are out of scope here, so the age arrives
+//! as `--older-than <days>` and the caller composes their own preview with
+//! `--dry-run`. Semantics otherwise match: the terminal status is the last
+//! entry of the configured `statuses`, a task's age reads `updated_date`
+//! with `created_date` as fallback, and the file is moved unchanged into
+//! `completed/`. Git staging stays with the caller (the skills own their
+//! `chore(backlog)` commits).
+
+use std::io::Write;
+use std::path::Path;
+
+use anyhow::Context as _;
+use chrono::{DateTime, Days, NaiveDateTime, TimeZone as _, Utc};
+
+use crate::config::BacklogConfig;
+use crate::store::{Store, TaskEntry};
+
+/// Filters for `cleanup`.
+#[derive(Debug, Clone)]
+pub struct CleanupOptions {
+    /// Move tasks whose date is strictly older than this many calendar days.
+    pub older_than_days: u32,
+    /// Report what would move without touching the tree.
+    pub dry_run: bool,
+}
+
+/// Run cleanup against the host clock.
+///
+/// # Errors
+///
+/// A task file in `tasks/` does not parse (the error names the file), or
+/// writing `out` failed.
+pub fn run_cleanup<W: Write>(
+    store: &Store,
+    cfg: &BacklogConfig,
+    opts: &CleanupOptions,
+    out: &mut W,
+) -> anyhow::Result<()> {
+    // The workspace chrono carries no `clock` feature; the wall clock is read
+    // as a SystemTime and converted, exactly like `clock::UtcStamp`.
+    let now: DateTime<Utc> = std::time::SystemTime::now().into();
+    cleanup_at(store, cfg, opts, now, out)
+}
+
+/// [`run_cleanup`] against an explicit clock reading; the seam the age-filter
+/// tests drive.
+///
+/// # Errors
+///
+/// As [`run_cleanup`].
+fn cleanup_at<W: Write>(
+    store: &Store,
+    cfg: &BacklogConfig,
+    opts: &CleanupOptions,
+    now: DateTime<Utc>,
+    out: &mut W,
+) -> anyhow::Result<()> {
+    // The terminal status is the last configured column (empty/blank entries
+    // mean none), matched case-insensitively — the npm CLI's rule.
+    let Some(terminal) = terminal_status(&cfg.statuses) else {
+        writeln!(out, "No terminal status configured for cleanup.")
+            .context("printing the no-terminal-status notice")?;
+        return Ok(());
+    };
+
+    let entries = store.scan_tasks()?;
+    let terminal_tasks: Vec<&TaskEntry> = entries
+        .iter()
+        .filter(|e| e.doc.frontmatter.status.eq_ignore_ascii_case(terminal))
+        .collect();
+    if terminal_tasks.is_empty() {
+        writeln!(out, "No {terminal} tasks found to clean up.")
+            .context("printing the no-terminal-tasks notice")?;
+        return Ok(());
+    }
+    writeln!(
+        out,
+        "Found {} tasks marked as {terminal}.",
+        terminal_tasks.len()
+    )
+    .context("printing the terminal-status count")?;
+
+    let cutoff = now
+        .checked_sub_days(Days::new(u64::from(opts.older_than_days)))
+        .context("computing the cleanup cutoff")?;
+    let aged: Vec<&&TaskEntry> = terminal_tasks
+        .iter()
+        .filter(|e| is_older_than(e, cutoff))
+        .collect();
+    if aged.is_empty() {
+        writeln!(
+            out,
+            "No tasks found that are older than {} days.",
+            opts.older_than_days
+        )
+        .context("printing the no-aged-tasks notice")?;
+        return Ok(());
+    }
+
+    writeln!(
+        out,
+        "Found {} tasks older than {} days:",
+        aged.len(),
+        opts.older_than_days
+    )
+    .context("printing the aged-task count")?;
+    for entry in &aged {
+        let fm = &entry.doc.frontmatter;
+        let date = fm.updated_date.as_deref().unwrap_or(&fm.created_date);
+        writeln!(out, "  - {}: {} ({date})", fm.id, fm.title)
+            .context("printing an aged-task row")?;
+    }
+
+    if opts.dry_run {
+        writeln!(out, "Dry run: no files moved.").context("printing the dry-run notice")?;
+        return Ok(());
+    }
+
+    let completed = store.completed_dir();
+    std::fs::create_dir_all(&completed)
+        .with_context(|| format!("creating {}", completed.display()))?;
+    for entry in &aged {
+        move_to_completed(&entry.path, &completed)?;
+    }
+    writeln!(out, "Moved {} tasks to completed folder.", aged.len())
+        .context("printing the moved summary")?;
+    Ok(())
+}
+
+/// The terminal status: the last configured column, when it carries a
+/// non-blank name.
+fn terminal_status(statuses: &[String]) -> Option<&str> {
+    statuses
+        .last()
+        .map(String::as_str)
+        .filter(|s| !s.trim().is_empty())
+}
+
+/// A task's age reads `updated_date` with `created_date` as fallback — the
+/// npm CLI's rule. A date that is absent or unparseable excludes the task
+/// (there, an invalid Date compares false; here, `None` does).
+fn is_older_than(entry: &TaskEntry, cutoff: DateTime<Utc>) -> bool {
+    let fm = &entry.doc.frontmatter;
+    let raw = fm
+        .updated_date
+        .as_deref()
+        .unwrap_or(fm.created_date.as_str());
+    parse_frontmatter_date(raw).is_some_and(|dt| dt < cutoff)
+}
+
+/// Parse a `'YYYY-MM-DD HH:MM'` frontmatter date, with or without the
+/// seconds part the 24 oldest files carry, as UTC.
+fn parse_frontmatter_date(raw: &str) -> Option<DateTime<Utc>> {
+    ["%Y-%m-%d %H:%M:%S", "%Y-%m-%d %H:%M"]
+        .iter()
+        .find_map(|fmt| NaiveDateTime::parse_from_str(raw.trim(), fmt).ok())
+        .map(|dt| Utc.from_utc_datetime(&dt))
+}
+
+/// Move one task file into `completed/` under the same name.
+///
+/// # Errors
+///
+/// A file of the same name already exists in `completed/` (the error names
+/// both paths — the tree holds real id collisions between directories, and a
+/// silent overwrite would destroy one of them), or the rename itself fails
+/// (the error names the path).
+fn move_to_completed(from: &Path, completed: &Path) -> anyhow::Result<()> {
+    let name = from
+        .file_name()
+        .and_then(|n| n.to_str())
+        .context("task file name is not valid UTF-8")?;
+    let to = completed.join(name);
+    if to
+        .try_exists()
+        .with_context(|| format!("checking {}", to.display()))?
+    {
+        anyhow::bail!(
+            "{} already exists; refusing to overwrite it with {}",
+            to.display(),
+            from.display()
+        );
+    }
+    std::fs::rename(from, &to)
+        .with_context(|| format!("moving {} to {}", from.display(), to.display()))?;
+    Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn scratch_with(tasks: &[(&str, &str)]) -> (tempfile::TempDir, Store, BacklogConfig) {
+        let dir = tempfile::tempdir().expect("tempdir");
+        let tasks_dir = dir.path().join(".backlog").join("tasks");
+        std::fs::create_dir_all(&tasks_dir).expect("tasks dir");
+        for &(name, fm) in tasks {
+            std::fs::write(tasks_dir.join(name), fm).expect("seed task");
+        }
+        let store = Store::open(&dir.path().join(".backlog")).expect("open");
+        (dir, store, BacklogConfig::default())
+    }
+
+    /// Frontmatter with the given dates; `None` omits the key entirely
+    /// (4 pre-history files carry no `updated_date`).
+    fn fm(id: &str, status: &str, created: Option<&str>, updated: Option<&str>) -> String {
+        use std::fmt::Write as _;
+        let mut src = format!(
+            "---\nid: {id}\ntitle: 'task {id}'\nstatus: {status}\nassignee: []\ncreated_date: '{}'\nlabels: []\ndependencies: []\n",
+            created.unwrap_or("2026-01-01 00:00")
+        );
+        if let Some(updated) = updated {
+            let _ = writeln!(src, "updated_date: '{updated}'");
+        }
+        src.push_str("---\n");
+        src
+    }
+
+    /// Fixed clock: 2026-09-06 12:00 UTC.
+    fn now() -> DateTime<Utc> {
+        Utc.from_utc_datetime(
+            &NaiveDateTime::parse_from_str("2026-09-06 12:00", "%Y-%m-%d %H:%M").expect("now"),
+        )
+    }
+
+    fn run(store: &Store, cfg: &BacklogConfig, older_than: u32, dry_run: bool) -> String {
+        let mut out = Vec::new();
+        cleanup_at(
+            store,
+            cfg,
+            &CleanupOptions {
+                older_than_days: older_than,
+                dry_run,
+            },
+            now(),
+            &mut out,
+        )
+        .expect("cleanup");
+        String::from_utf8(out).expect("utf8")
+    }
+
+    /// A Done task updated 31 days before the fixed clock moves; one updated
+    /// today stays. 30 days = the default `--older-than` in the CLI.
+    #[test]
+    fn moves_terminal_tasks_older_than_the_cutoff() {
+        let (dir, store, cfg) = scratch_with(&[
+            (
+                "task-0001 - old.md",
+                &fm(
+                    "TASK-0001",
+                    "Done",
+                    Some("2026-01-01 00:00"),
+                    Some("2026-08-06 11:59"),
+                ),
+            ),
+            (
+                "task-0002 - fresh.md",
+                &fm(
+                    "TASK-0002",
+                    "Done",
+                    Some("2026-01-01 00:00"),
+                    Some("2026-09-06 12:00"),
+                ),
+            ),
+        ]);
+        let text = run(&store, &cfg, 30, false);
+        assert!(text.contains("Found 2 tasks marked as Done."));
+        assert!(text.contains("Found 1 tasks older than 30 days:"));
+        assert!(text.contains("- TASK-0001: task TASK-0001 (2026-08-06 11:59)"));
+        assert!(text.contains("Moved 1 tasks to completed folder."));
+        let root = dir.path().join(".backlog");
+        assert!(!root.join("tasks/task-0001 - old.md").exists());
+        assert!(root.join("completed/task-0001 - old.md").exists());
+        assert!(root.join("tasks/task-0002 - fresh.md").exists());
+    }
+
+    /// `updated_date` wins over an older `created_date`, and a task whose
+    /// date is unparseable is excluded, never moved on a technicality.
+    #[test]
+    fn age_reads_updated_date_first_and_skips_unparseable_dates() {
+        let (_dir, store, cfg) = scratch_with(&[
+            // created long ago, updated yesterday: not old enough.
+            (
+                "task-0001 - refreshed.md",
+                &fm(
+                    "TASK-0001",
+                    "Done",
+                    Some("2020-01-01 00:00"),
+                    Some("2026-09-05 12:00"),
+                ),
+            ),
+            // no updated_date: falls back to created_date, 2026-01-01.
+            (
+                "task-0002 - stale.md",
+                &fm("TASK-0002", "Done", Some("2026-01-01 00:00"), None),
+            ),
+            // seconds form parses too.
+            (
+                "task-0003 - seconds.md",
+                &fm(
+                    "TASK-0003",
+                    "Done",
+                    Some("2026-01-01 00:00"),
+                    Some("2026-01-02 03:04:05"),
+                ),
+            ),
+            // unparseable: excluded.
+            (
+                "task-0004 - odd.md",
+                &fm("TASK-0004", "Done", Some("back then"), None),
+            ),
+        ]);
+        let text = run(&store, &cfg, 30, false);
+        assert!(text.contains("TASK-0002"));
+        assert!(text.contains("TASK-0003"));
+        assert!(!text.contains("TASK-0001"));
+        assert!(!text.contains("TASK-0004"));
+    }
+
+    /// Terminal status is the *last* configured column, case-insensitive —
+    /// a "done" task matches a `Done` column.
+    #[test]
+    fn terminal_status_is_the_last_column_matched_case_insensitively() {
+        let (_dir, store, _cfg) = scratch_with(&[(
+            "task-0001 - done.md",
+            &fm("TASK-0001", "done", Some("2026-01-01 00:00"), None),
+        )]);
+        let cfg = BacklogConfig {
+            statuses: vec![
+                "To Do".to_string(),
+                "In Progress".to_string(),
+                "Done".to_string(),
+            ],
+            ..BacklogConfig::default()
+        };
+        let text = run(&store, &cfg, 30, false);
+        assert!(text.contains("Moved 1 tasks to completed folder."));
+    }
+
+    /// Non-terminal tasks are never touched, whatever their age.
+    #[test]
+    fn non_terminal_statuses_are_never_moved() {
+        let (dir, store, cfg) = scratch_with(&[(
+            "task-0001 - triage.md",
+            &fm("TASK-0001", "Triage", Some("2020-01-01 00:00"), None),
+        )]);
+        let text = run(&store, &cfg, 30, false);
+        assert!(text.contains("No Done tasks found to clean up."));
+        assert!(dir
+            .path()
+            .join(".backlog/tasks/task-0001 - triage.md")
+            .exists());
+    }
+
+    /// Dry run names the same candidates and moves nothing.
+    #[test]
+    fn dry_run_moves_nothing() {
+        let (dir, store, cfg) = scratch_with(&[(
+            "task-0001 - old.md",
+            &fm("TASK-0001", "Done", Some("2026-01-01 00:00"), None),
+        )]);
+        let text = run(&store, &cfg, 30, true);
+        assert!(text.contains("TASK-0001"));
+        assert!(text.contains("Dry run: no files moved."));
+        assert!(dir
+            .path()
+            .join(".backlog/tasks/task-0001 - old.md")
+            .exists());
+        assert!(!dir.path().join(".backlog/completed").exists());
+    }
+
+    /// A same-name file already in `completed/` aborts the command naming
+    /// both paths instead of overwriting either.
+    #[test]
+    fn same_name_collision_is_an_error_naming_both_paths() {
+        let dir = tempfile::tempdir().expect("tempdir");
+        let root = dir.path().join(".backlog");
+        std::fs::create_dir_all(root.join("tasks")).expect("tasks dir");
+        std::fs::create_dir_all(root.join("completed")).expect("completed dir");
+        std::fs::write(
+            root.join("tasks/task-0001 - old.md"),
+            fm("TASK-0001", "Done", Some("2026-01-01 00:00"), None),
+        )
+        .expect("seed task");
+        std::fs::write(root.join("completed/task-0001 - old.md"), "occupied").expect("seed target");
+
+        let store = Store::open(&root).expect("open");
+        let cfg = BacklogConfig::default();
+        let mut out = Vec::new();
+        let err = cleanup_at(
+            &store,
+            &cfg,
+            &CleanupOptions {
+                older_than_days: 30,
+                dry_run: false,
+            },
+            now(),
+            &mut out,
+        )
+        .expect_err("must fail");
+        let rendered = format!("{err:#}");
+        assert!(
+            rendered.contains("refusing to overwrite"),
+            "error must state the refusal, got: {rendered}"
+        );
+        assert_eq!(
+            std::fs::read_to_string(root.join("completed/task-0001 - old.md")).expect("target"),
+            "occupied",
+            "the existing completed file must be untouched"
+        );
+        assert!(
+            root.join("tasks/task-0001 - old.md").exists(),
+            "the source task must still be in tasks/"
+        );
+    }
+
+    /// An empty statuses list leaves nothing to clean up and says so.
+    #[test]
+    fn no_terminal_status_is_a_clean_no_op() {
+        let (_dir, store, _cfg) = scratch_with(&[(
+            "task-0001 - done.md",
+            &fm("TASK-0001", "Done", Some("2026-01-01 00:00"), None),
+        )]);
+        let cfg = BacklogConfig {
+            statuses: Vec::new(),
+            ..BacklogConfig::default()
+        };
+        let text = run(&store, &cfg, 30, false);
+        assert!(text.contains("No terminal status configured for cleanup."));
+    }
+}
