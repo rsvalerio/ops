@@ -114,11 +114,14 @@ the default, like the backlog CLI's confirm). The age arrives as a flag
 instead of the backlog CLI's interactive menu; `--dry-run` skips the prompt
 entirely. Destinations are preflighted after the confirmation: a same-name
 file already in `completed/` aborts the command naming both paths before
-anything moves (all-or-nothing) — the tree holds real id collisions, and a
-silent overwrite would destroy one of them. Each move itself is an atomic
-no-replace link (`link(2)` refuses an existing name; the source is dropped
-afterwards), so an existing destination is never overwritten even if it
-appears between preflight and move. Git staging stays with the caller.
+anything moves — all-or-nothing for collisions detected at preflight, the
+tree holds real id collisions and a silent overwrite would destroy one of
+them. Each move itself is an atomic no-replace link (`link(2)` refuses an
+existing name; the source is dropped afterwards), so an existing
+destination is never overwritten even if it appears between preflight and
+move. That late collision, or any other per-file failure, aborts the run
+with the earlier moves kept — there is no rollback. Git staging stays with
+the caller.
 
 ---
 
