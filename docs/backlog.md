@@ -115,8 +115,10 @@ instead of the backlog CLI's interactive menu; `--dry-run` skips the prompt
 entirely. Destinations are preflighted after the confirmation: a same-name
 file already in `completed/` aborts the command naming both paths before
 anything moves (all-or-nothing) — the tree holds real id collisions, and a
-silent overwrite would destroy one of them. Git staging stays with the
-caller.
+silent overwrite would destroy one of them. Each move itself is an atomic
+no-replace link (`link(2)` refuses an existing name; the source is dropped
+afterwards), so an existing destination is never overwritten even if it
+appears between preflight and move. Git staging stays with the caller.
 
 ---
 

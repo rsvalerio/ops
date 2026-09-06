@@ -150,10 +150,11 @@ fn cleanup_with<W: Write>(
     let completed = store.completed_dir();
     std::fs::create_dir_all(&completed)
         .with_context(|| format!("creating {}", completed.display()))?;
-    // Preflight every destination before the first rename: a collision found
+    // Preflight every destination before the first move: a collision found
     // only when its turn comes would leave the earlier files already moved —
-    // a partial cleanup. [`move_to_completed`] re-checks each destination as
-    // a guard against concurrent filesystem changes in between.
+    // a partial cleanup. [`move_to_completed`] itself claims each destination
+    // atomically, guarding against a file appearing in `completed/` in
+    // between.
     for entry in &aged {
         let to = destination_for(&entry.path, &completed)?;
         ensure_destination_free(&entry.path, &to)?;
@@ -253,19 +254,38 @@ fn ensure_destination_free(from: &Path, to: &Path) -> anyhow::Result<()> {
     Ok(())
 }
 
-/// Move one task file into `completed/` under the same name. The destination
-/// is re-checked here even though the preflight pass already cleared it — a
-/// guard against a file appearing in `completed/` between the two.
+/// Move one task file into `completed/` under the same name, atomically
+/// refusing to overwrite: a check-then-`rename` sequence would race (POSIX
+/// `rename` silently replaces a destination that appears between the two),
+/// so the destination name is claimed with a hard link instead — `link(2)`
+/// fails with `EEXIST` when the name is taken, with no window in between —
+/// and only then is the source name dropped. A crash between the two steps
+/// leaves both names pointing at one file: recoverable, never destructive.
 ///
 /// # Errors
 ///
-/// As [`destination_for`] and [`ensure_destination_free`], or the rename
-/// itself fails (the error names the path).
+/// As [`destination_for`]; the destination name is already taken (the error
+/// names both paths); or the link/remove itself fails (the error names the
+/// path).
 fn move_to_completed(from: &Path, completed: &Path) -> anyhow::Result<()> {
     let to = destination_for(from, completed)?;
-    ensure_destination_free(from, &to)?;
-    std::fs::rename(from, &to)
-        .with_context(|| format!("moving {} to {}", from.display(), to.display()))?;
+    if let Err(err) = std::fs::hard_link(from, &to) {
+        if err.kind() == std::io::ErrorKind::AlreadyExists {
+            anyhow::bail!(
+                "{} already exists; refusing to overwrite it with {}",
+                to.display(),
+                from.display()
+            );
+        }
+        return Err(err).with_context(|| format!("linking {} to {}", from.display(), to.display()));
+    }
+    std::fs::remove_file(from).with_context(|| {
+        format!(
+            "removing {} after linking it as {}",
+            from.display(),
+            to.display()
+        )
+    })?;
     Ok(())
 }
 
@@ -574,6 +594,25 @@ mod tests {
             !root.join("completed/task-0001 - free.md").exists(),
             "nothing may land in completed/ when the preflight aborts"
         );
+    }
+
+    /// The link+remove move preserves the file's bytes exactly and leaves
+    /// exactly one copy behind.
+    #[test]
+    fn moved_file_keeps_its_bytes_and_leaves_one_copy() {
+        let (dir, store, cfg) = scratch_with(&[(
+            "task-0001 - old.md",
+            &fm("TASK-0001", "Done", Some("2026-01-01 00:00"), None),
+        )]);
+        let seeded = fm("TASK-0001", "Done", Some("2026-01-01 00:00"), None);
+        let _ = run(&store, &cfg, 30, false, "y\n");
+        let root = dir.path().join(".backlog");
+        assert_eq!(
+            std::fs::read_to_string(root.join("completed/task-0001 - old.md")).expect("moved"),
+            seeded,
+            "the completed file must be the seeded bytes"
+        );
+        assert!(!root.join("tasks/task-0001 - old.md").exists());
     }
 
     /// An empty statuses list leaves nothing to clean up and says so.
