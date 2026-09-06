@@ -233,7 +233,7 @@ fn scrub_path_segments(path: &str) -> String {
 }
 
 /// Scrub path traversal from a `host[/path]` body where the leading
-/// segment is the authority (host[:port]) and must be preserved verbatim.
+/// segment is the authority (`host[:port]`) and must be preserved verbatim.
 /// SEC-14 / TASK-1111: the `git://`, `git+git://`, and `git+<scheme>://`
 /// branches of [`normalize_repo_url`] all carry an authority followed by a
 /// path component; only the path is scrubbed, the host is kept intact so

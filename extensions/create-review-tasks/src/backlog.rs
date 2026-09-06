@@ -49,7 +49,7 @@ pub struct NextIds {
 }
 
 /// Allocate both ids from **one** walk of every task directory that exists
-/// (see [`TASK_DIRS`]): one more than the highest `task-<n>` id (dotted
+/// (see [`ops_backlog::store::TASK_DIRS`]): one more than the highest `task-<n>` id (dotted
 /// subtask ids share their parent's number, so the integer part alone
 /// determines allocation), and one more than the highest `<n>` in a
 /// `review-request-<date>-<n>` slug for `date`.

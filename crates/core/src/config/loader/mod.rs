@@ -2,7 +2,7 @@
 //!
 //! # Module layout (ARCH-1 / TASK-1471)
 //!
-//! - [`env`] — `OPS__*` env-var overlay merge.
+//! - [`mod@env`] — `OPS__*` env-var overlay merge.
 //! - [`global`] — global config path resolver (XDG / APPDATA / HOME) and
 //!   `~/.config/ops/config(.toml)` loader.
 //! - [`conf_d`] — `.ops.d/*.toml` overlay walker and merger.

@@ -1,5 +1,5 @@
 //! Maven `project_identity` provider — wires the [`pom`] parser to a
-//! [`DataProvider`] that emits a [`ProjectIdentity`] for the current
+//! [`DataProvider`] that emits a [`ops_core::project_identity::ProjectIdentity`] for the current
 //! workspace.
 
 mod pom;

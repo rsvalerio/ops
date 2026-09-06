@@ -55,7 +55,7 @@ pub struct ConfigurableTheme {
     separator_prefix: Option<String>,
     duration_prefix: Option<String>,
     /// Precomputed SGR prefixes for the report `[report]` block — one per
-    /// [`ReportStatus`] result slot, plus the report title. Mirrors the
+    /// [`ops_core::report::ReportStatus`] result slot, plus the report title. Mirrors the
     /// label/separator/duration prefixes so `render_report` avoids re-parsing
     /// the color specs on every row.
     report_ok_prefix: Option<String>,
@@ -351,7 +351,7 @@ impl ConfigurableTheme {
         truncate_to_width(&line, budget.saturating_sub(template_overhead)).into_owned()
     }
 
-    /// Columns available to the label in [`render_slot`], after the chrome,
+    /// Columns available to the label in [`Self::render_slot`], after the chrome,
     /// the trailing slot and the minimum separator run are reserved.
     fn label_budget(
         &self,

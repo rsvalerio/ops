@@ -25,7 +25,7 @@
 //! no battery-burning wakeups for a 30 s `cargo metadata`, and idle waits
 //! cooperate with macOS App Nap. The wait blocks the calling thread for
 //! the full duration; async callers MUST wrap the invocation in
-//! [`tokio::task::spawn_blocking`] (or introduce a dedicated
+//! `tokio::task::spawn_blocking` (or introduce a dedicated
 //! `tokio::process`-based variant) rather than awaiting it on the runtime
 //! thread.
 //!

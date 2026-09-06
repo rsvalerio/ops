@@ -21,7 +21,7 @@
 //! shell that has not been touched by any cross-platform tooling. The
 //! WSL/MSYS leakage trade-off (a process inheriting Unix-style `HOME` from
 //! a polluted parent shell) is the same one
-//! [`crate::config::loader::global_config_path`] documents for
+//! `crate::config::loader::resolve_global_config_path` documents for
 //! `XDG_CONFIG_HOME`; both surfaces accept the same trade-off so a user
 //! moving between shells does not see config silently load from one
 //! directory and `~` expand to another.

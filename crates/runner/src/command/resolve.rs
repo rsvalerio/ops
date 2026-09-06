@@ -178,7 +178,8 @@ impl CommandRunner {
     }
 
     /// Resolve a command id (or alias) to its `(canonical_name, spec)` pair
-    /// in a single pass over the same stores [`canonical_id`] and [`resolve`]
+    /// in a single pass over the same stores [`Self::canonical_id`] and
+    /// [`Self::resolve`]
     /// each walk independently.
     ///
     /// PERF-3 / TASK-0766: composite expansion previously called both

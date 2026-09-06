@@ -17,7 +17,7 @@ use crate::hook_shared;
 /// classified as the flag's value, not a positional. `--tap=path` was
 /// already handled because clap folds the value into the same argv entry.
 ///
-/// The set of such flags is derived from [`Cli::command()`] rather than
+/// The set of such flags is derived from `Cli::command()` rather than
 /// transcribed (TASK-1750) — see [`value_taking_globals`].
 pub fn is_toplevel_help(args: &[std::ffi::OsString]) -> bool {
     let value_taking_globals = value_taking_globals();

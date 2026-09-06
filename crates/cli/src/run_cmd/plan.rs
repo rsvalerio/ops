@@ -17,7 +17,7 @@ use ops_runner::command::StepResult;
 /// success. That silent "ran nothing, success" outcome masks upstream
 /// filtering bugs (callers that ended up with an empty argv after CLI
 /// parsing or hook filtering). The single production caller
-/// [`run_external_command`] already rejects empty argv before reaching
+/// [`super::run_external_command`] already rejects empty argv before reaching
 /// here, so the error path is a defensive fail-loud guard rather than a
 /// behavioural change for the happy path.
 pub fn merge_plan(

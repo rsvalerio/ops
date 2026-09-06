@@ -19,7 +19,7 @@ pub const MAX_COMPOSITE_DEPTH: usize = 100;
 /// TRAIT-4 / TASK-0872: `Default` is **gated to test/test-support builds**
 /// so a buggy production CLI path cannot silently fall back to a blank
 /// `Config` (no commands, no themes, etc.) instead of going through
-/// [`load_config_or_default`]. Production code that genuinely needs a
+/// [`crate::config::loader::load_config_or_default`]. Production code that genuinely needs a
 /// blank-slate Config (the load-failure degradation, init-template
 /// scaffolding) calls [`Config::empty`] explicitly so the choice is visible
 /// at the call site. The user-visible defaults (theme = "classic", etc.)
@@ -71,9 +71,9 @@ impl CompositeWalk<'_> {
 
 impl Config {
     /// Construct a blank `Config` for the documented degradation paths
-    /// ([`load_config_or_default`] fallback, [`init_template`] scaffolding).
+    /// ([`crate::config::loader::load_config_or_default`] fallback, [`crate::config::init::init_template`] scaffolding).
     /// Production code that wants user-visible defaults should call
-    /// [`load_config`] / [`load_config_or_default`] instead.
+    /// [`crate::config::loader::load_config`] / [`crate::config::loader::load_config_or_default`] instead.
     #[must_use]
     pub fn empty() -> Self {
         Self {
@@ -92,7 +92,7 @@ impl Config {
     /// This is the validation the shipped binary actually runs — the loader's
     /// `load_config_at` calls it on every `ops` invocation. It covers:
     ///
-    /// - every exec spec ([`ExecCommandSpec::validate`]);
+    /// - every exec spec ([`crate::config::ExecCommandSpec::validate`]);
     /// - every theme ([`ThemeConfig::validate`], SEC-33 / TASK-1849);
     /// - alias hygiene against the config's own command names
     ///   ([`Config::validate_aliases`], SEC-31 / TASK-1818).
@@ -109,7 +109,7 @@ impl Config {
     ///
     /// # Errors
     ///
-    /// If any exec spec fails [`ExecCommandSpec::validate`], any theme fails
+    /// If any exec spec fails [`crate::config::ExecCommandSpec::validate`], any theme fails
     /// [`ThemeConfig::validate`], or alias hygiene fails. Composite reference /
     /// cycle / depth checks are not performed — see
     /// [`Config::validate_commands`].
@@ -140,7 +140,7 @@ impl Config {
     /// - cycle (self-reference or indirect cycle)
     /// - depth violation (deeper than [`MAX_COMPOSITE_DEPTH`])
     ///
-    /// Does not stand up a [`crate::runner::CommandRunner`]; the caller
+    /// Does not stand up a `crate::runner::CommandRunner`; the caller
     /// passes in the externally-known ids explicitly, so this can run from
     /// tests or from any setup path that already knows the extra command
     /// stores.
@@ -345,7 +345,7 @@ impl Config {
 
 /// TRAIT-4 / TASK-0872: `Default` is intentionally test-only. Production
 /// code uses [`Config::empty`] (explicit blank slate) or
-/// [`load_config_or_default`] (user-visible defaults). The serde defaults
+/// [`crate::config::loader::load_config_or_default`] (user-visible defaults). The serde defaults
 /// on individual fields do not require `Config: Default`.
 #[cfg(any(test, feature = "test-support"))]
 impl Default for Config {
