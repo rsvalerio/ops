@@ -1,22 +1,17 @@
-//! backlog.md task-file layout: id allocation, filename slugs, and
-//! frontmatter rendering.
+//! backlog.md task-file layout for review requests: daily-sequence id
+//! allocation, claim re-checks, and frontmatter rendering.
 //!
-//! The shapes mirror what `backlog task create` (backlog.md CLI v1.50.1)
-//! writes, so files produced here are indistinguishable from CLI-created
-//! ones when re-read by the CLI: `task-NNNN - <slug>.md` for main tasks,
-//! `task-NNNN.MM - <slug>.md` dotted ids with a `parent_task_id` field for
-//! subtasks, zero-padded 4-digit ids, and UTC `created_date`.
+//! The generic shapes — filename slugs, the YAML scalar codec, id-number
+//! scanning across the backlog tree, zero-padded ids, dotted subtask ids —
+//! live in `ops-backlog` (shared with `ops backlog task ...`); what stays
+//! here is everything specific to the `review-request-<date>-<n>` scheme.
 
 use std::io::Write;
 use std::path::Path;
 
-use crate::clock::UtcStamp;
-
-/// backlog.md directories (relative to the `.backlog` root, itself relative
-/// to the workspace root) that can hold task markdown files. `tasks` is the
-/// only one required to exist; the others are scanned when present because
-/// id allocation must never collide with an archived or completed task.
-const TASK_DIRS: &[&str] = &["tasks", "completed", "archive/tasks", "archive/completed"];
+use ops_backlog::clock::UtcStamp;
+use ops_backlog::model::yaml_scalar;
+use ops_backlog::store::{for_each_task_file, TaskFileName};
 
 /// Main-task frontmatter labels, in order.
 const MAIN_LABELS: &[&str] = &["code-review-request", "code-review", "qa"];
@@ -53,11 +48,11 @@ pub struct NextIds {
     pub sequence: u32,
 }
 
-/// Allocate both ids from **one** walk of every [`TASK_DIRS`] directory that
-/// exists: one more than the highest `task-<n>` id (dotted subtask ids share
-/// their parent's number, so the integer part alone determines allocation),
-/// and one more than the highest `<n>` in a `review-request-<date>-<n>` slug
-/// for `date`.
+/// Allocate both ids from **one** walk of every task directory that exists
+/// (see [`TASK_DIRS`]): one more than the highest `task-<n>` id (dotted
+/// subtask ids share their parent's number, so the integer part alone
+/// determines allocation), and one more than the highest `<n>` in a
+/// `review-request-<date>-<n>` slug for `date`.
 ///
 /// DUP-1: the two allocators used to be the same scan-extract-max loop run
 /// twice. Deriving both maxima from one listing makes them consistent with
@@ -75,7 +70,7 @@ pub fn next_ids(workspace_root: &Path, date: &str) -> NextIds {
         if let Some(number) = parsed.number {
             max_number = max_number.max(number);
         }
-        if let Some(sequence) = parsed.review_request_sequence(&prefix) {
+        if let Some(sequence) = review_request_sequence(parsed.slug, &prefix) {
             max_sequence = max_sequence.max(sequence);
         }
     });
@@ -85,6 +80,20 @@ pub fn next_ids(workspace_root: &Path, date: &str) -> NextIds {
     }
 }
 
+/// The `<n>` of a `review-request-<date>-<n>` slug, where `prefix` is
+/// `review-request-<date>-`. Anchored at both ends: the prefix must *start*
+/// the slug and the digits must be all that follows it, so a task merely
+/// mentioning a review request in its title (`task-1900 -
+/// Fix-review-request-2026-08-27-3-flakiness.md`) contributes nothing to
+/// that day's sequence.
+fn review_request_sequence(slug: &str, prefix: &str) -> Option<u32> {
+    let digits = slug.strip_prefix(prefix)?;
+    if digits.is_empty() || !digits.bytes().all(|b| b.is_ascii_digit()) {
+        return None;
+    }
+    digits.parse::<u32>().ok()
+}
+
 /// Identifiers one run has reserved by creating its main task file: the file
 /// itself, its main-task number, and its `review-request-<date>-<n>` title.
 /// FN-3: grouped rather than passed as four positional parameters.
@@ -92,9 +101,9 @@ pub struct MainTaskClaim<'a> {
     /// Name of the main task file this run created, inside `tasks`.
     pub(crate) file_name: &'a str,
     /// Main-task number the run allocated.
-    pub(crate) number: u32,
+    pub number: u32,
     /// Main-task title the run allocated.
-    pub(crate) title: &'a str,
+    pub title: &'a str,
 }
 
 /// A task file, other than the claimant's own, that already claims the
@@ -111,7 +120,7 @@ pub struct MainTaskClaim<'a> {
 /// whoever checks last necessarily sees both files.
 pub fn conflicting_claim(workspace_root: &Path, claim: &MainTaskClaim<'_>) -> Option<String> {
     let backlog_root = workspace_root.join(".backlog");
-    let own_slug = file_slug(claim.title);
+    let own_slug = ops_backlog::model::slugify(claim.title);
     let mut conflict = None;
     for_each_task_file(&backlog_root, |dir, file_name| {
         // The claimant's own reservation lives in `tasks`; an identically
@@ -130,123 +139,6 @@ pub fn conflicting_claim(workspace_root: &Path, claim: &MainTaskClaim<'_>) -> Op
         }
     });
     conflict
-}
-
-/// A backlog task filename split into the parts every scan here reasons
-/// about: `task-<n>[.<mm>] - <slug>.md`.
-///
-/// READ-6: id allocation, daily-sequence allocation and the claim re-check
-/// all go through this one parser, so they cannot disagree about where a
-/// filename's number ends and its slug begins.
-struct TaskFileName<'a> {
-    /// Integer part of the `task-<n>` id, when the name carries one.
-    number: Option<u32>,
-    /// Slug between the `" - "` separator and the `.md` extension.
-    slug: &'a str,
-}
-
-impl<'a> TaskFileName<'a> {
-    /// Split `file_name`, or `None` when it is not a markdown file at all.
-    ///
-    /// Every file the backlog CLI writes is `<id> - <slug>.md`; a name with
-    /// no `" - "` separator still yields its id, so id allocation keeps
-    /// seeing a slugless `task-0500.md` and can never hand its number out
-    /// twice. Such a name has an empty slug, which matches no
-    /// review-request prefix and no claim title (both are always non-empty).
-    fn parse(file_name: &'a str) -> Option<Self> {
-        let stem = file_name.strip_suffix(".md")?;
-        let (id, slug) = stem.split_once(" - ").unwrap_or((stem, ""));
-        Some(Self {
-            number: leading_task_number(id),
-            slug,
-        })
-    }
-
-    /// The `<n>` of this name's `review-request-<date>-<n>` slug, where
-    /// `prefix` is `review-request-<date>-`. Anchored at both ends: the
-    /// prefix must *start* the slug and the digits must be all that follows
-    /// it, so a task merely mentioning a review request in its title (`task-
-    /// 1900 - Fix-review-request-2026-08-27-3-flakiness.md`) contributes
-    /// nothing to that day's sequence.
-    fn review_request_sequence(&self, prefix: &str) -> Option<u32> {
-        let digits = self.slug.strip_prefix(prefix)?;
-        if digits.is_empty() || !digits.bytes().all(|b| b.is_ascii_digit()) {
-            return None;
-        }
-        digits.parse::<u32>().ok()
-    }
-}
-
-/// The integer part of a `task-<n>` / `task-<n>.<mm>` id, if it starts with
-/// the `task-` prefix followed by at least one digit.
-fn leading_task_number(id: &str) -> Option<u32> {
-    let digits = id
-        .strip_prefix("task-")?
-        .split(|c: char| !c.is_ascii_digit())
-        .next()?;
-    digits.parse::<u32>().ok()
-}
-
-/// Invoke `f` for every entry name in each existing [`TASK_DIRS`] directory.
-/// Read errors and non-UTF-8 names are skipped silently here: id allocation
-/// treats an unreadable directory like an absent one rather than failing the
-/// whole command (the required `tasks` dir existence is checked separately by
-/// [`require_backlog_tasks_dir`]).
-fn for_each_task_file(backlog_root: &Path, mut f: impl FnMut(&str, &str)) {
-    for dir in TASK_DIRS {
-        let Ok(entries) = std::fs::read_dir(backlog_root.join(dir)) else {
-            continue;
-        };
-        for entry in entries.flatten() {
-            if let Ok(name) = entry.file_name().into_string() {
-                f(dir, &name);
-            }
-        }
-    }
-}
-
-/// Filename slug matching the backlog CLI's observed behaviour: runs of
-/// characters outside `[A-Za-z0-9._-]` collapse to a single `-`, and
-/// leading/trailing `-` are trimmed. Case is preserved.
-///
-/// Observed CLI samples this pins:
-/// - `"Main task"` → `Main-task`
-/// - `"REVIEW: Run skill code-review-rust against ops-core"`
-///   → `REVIEW-Run-skill-code-review-rust-against-ops-core`
-///
-/// Non-ASCII letters are outside the alphabet and collapse like any other
-/// run: `"naïve-crate"` → `"na-ve-crate"`, and a wholly non-ASCII title slugs
-/// to the empty string. Filenames therefore go through [`file_slug`], which
-/// substitutes a placeholder rather than emitting `task-0042.01 - .md`.
-#[must_use = "slugify is pure; discarding it means the title was formatted for nothing"]
-pub fn slugify(title: &str) -> String {
-    let mut out = String::with_capacity(title.len());
-    let mut in_run = false;
-    for ch in title.chars() {
-        if ch.is_ascii_alphanumeric() || ch == '_' || ch == '.' || ch == '-' {
-            out.push(ch);
-            in_run = false;
-        } else if !in_run {
-            out.push('-');
-            in_run = true;
-        }
-    }
-    out.trim_matches('-').to_string()
-}
-
-/// Slug substituted when a title carries no character the slug alphabet
-/// keeps, so a filename always has a non-empty slug component.
-const EMPTY_SLUG: &str = "untitled";
-
-/// [`slugify`] for the filename position, where an empty slug would produce
-/// the unusable `task-0042.01 - .md`.
-fn file_slug(title: &str) -> String {
-    let slug = slugify(title);
-    if slug.is_empty() {
-        EMPTY_SLUG.to_string()
-    } else {
-        slug
-    }
 }
 
 /// Render one task markdown file (frontmatter only, no body sections) into
@@ -291,70 +183,14 @@ pub fn render_task_file<W: Write>(
     Ok(())
 }
 
-/// YAML scalar for a frontmatter value.
-///
-/// SEC-11: a single-quoted scalar cannot encode a control character — a
-/// newline in the value would split the scalar across lines and desynchronise
-/// the document, so the `---` terminator is read as a second document and the
-/// file the crate just wrote no longer parses. Values are validated at the
-/// provider boundary, but the encoder does not rely on that: anything the
-/// single-quoted form cannot represent is emitted as a double-quoted scalar
-/// with escapes instead.
-fn yaml_scalar(value: &str) -> String {
-    if value.chars().any(char::is_control) {
-        yaml_double_quoted(value)
-    } else {
-        yaml_single_quoted(value)
-    }
-}
-
-/// YAML single-quoted scalar: wrap in `'` and double any embedded `'`. The
-/// backlog CLI quotes titles containing `: `; quoting unconditionally is
-/// byte-compatible for our titles. Only safe for control-character-free
-/// values — [`yaml_scalar`] owns that decision.
-fn yaml_single_quoted(value: &str) -> String {
-    let mut out = String::with_capacity(value.len().saturating_add(2));
-    out.push('\'');
-    out.push_str(&value.replace('\'', "''"));
-    out.push('\'');
-    out
-}
-
-/// YAML double-quoted scalar, the only form that can carry a control
-/// character: `\\`, `"` and the C0/C1 controls are escaped, everything else
-/// (non-ASCII included) is emitted literally.
-fn yaml_double_quoted(value: &str) -> String {
-    use std::fmt::Write as _;
-
-    let mut out = String::with_capacity(value.len().saturating_add(2));
-    out.push('"');
-    for ch in value.chars() {
-        match ch {
-            '"' => out.push_str("\\\""),
-            '\\' => out.push_str("\\\\"),
-            '\n' => out.push_str("\\n"),
-            '\r' => out.push_str("\\r"),
-            '\t' => out.push_str("\\t"),
-            // `fmt::Write for String` never returns `Err`, so there is
-            // nothing to report and nothing to panic on.
-            control if control.is_control() => {
-                let _ = write!(out, "\\x{:02x}", u32::from(control));
-            }
-            other => out.push(other),
-        }
-    }
-    out.push('"');
-    out
-}
-
 /// Zero-padded task id string (`TASK-0042`) for a main-task number.
 pub fn main_task_id(number: u32) -> String {
-    format!("TASK-{number:04}")
+    ops_backlog::store::format_task_id("TASK", number, 4)
 }
 
 /// Filename for a main task: `task-0042 - <slug>.md`.
 pub fn main_task_file_name(number: u32, title: &str) -> String {
-    format!("task-{number:04} - {}.md", file_slug(title))
+    ops_backlog::store::main_task_file_name(number, 4, title)
 }
 
 /// Id for the subtask at 1-based `index` under main-task `number`:
@@ -365,7 +201,10 @@ pub fn subtask_id(number: u32, index: usize) -> String {
 
 /// Filename for a subtask: `task-0042.03 - <slug>.md`.
 pub fn subtask_file_name(number: u32, index: usize, title: &str) -> String {
-    format!("task-{number:04}.{index:02} - {}.md", file_slug(title))
+    format!(
+        "task-{number:04}.{index:02} - {}.md",
+        ops_backlog::model::file_slug(title)
+    )
 }
 
 #[cfg(test)]
@@ -385,24 +224,6 @@ mod tests {
         }
         std::fs::create_dir_all(dir.path().join(".backlog").join("tasks")).expect("tasks dir");
         dir
-    }
-
-    #[test]
-    fn slugify_matches_backlog_cli_observed_shapes() {
-        assert_eq!(slugify("Main task"), "Main-task");
-        assert_eq!(
-            slugify("REVIEW: Run skill code-review-rust against ops-core"),
-            "REVIEW-Run-skill-code-review-rust-against-ops-core"
-        );
-    }
-
-    #[test]
-    fn slugify_collapses_runs_and_trims_edges() {
-        assert_eq!(slugify("a  b"), "a-b");
-        assert_eq!(slugify("?!leading"), "leading");
-        assert_eq!(slugify("trailing??"), "trailing");
-        assert_eq!(slugify("keep.dots_and-dashes"), "keep.dots_and-dashes");
-        assert_eq!(slugify(""), "");
     }
 
     #[test]
@@ -647,11 +468,6 @@ mod tests {
     }
 
     #[test]
-    fn yaml_single_quoted_doubles_embedded_quotes() {
-        assert_eq!(yaml_single_quoted("it's"), "'it''s'");
-    }
-
-    #[test]
     fn file_name_helpers_format_ids_and_slugs() {
         assert_eq!(
             main_task_file_name(42, "review-request-2026-08-20-1"),
@@ -700,54 +516,12 @@ mod tests {
         assert_eq!(next_ids(dir.path(), ANY_DATE).number, u32::MAX);
     }
 
-    /// The documented "treat an unreadable directory like an absent one"
-    /// policy (TEST-6), pinned rather than asserted only in prose.
-    #[cfg(unix)]
-    #[test]
-    fn unreadable_task_dir_is_skipped_like_an_absent_one() {
-        use std::os::unix::fs::PermissionsExt as _;
-
-        let dir = scratch_backlog(&[
-            ("tasks", "task-0002 - open.md"),
-            ("completed", "task-0500 - done.md"),
-        ]);
-        let completed = dir.path().join(".backlog").join("completed");
-        std::fs::set_permissions(&completed, std::fs::Permissions::from_mode(0o000))
-            .expect("chmod 000");
-        // Root ignores the mode bits, so the policy is unobservable there.
-        let unreadable = std::fs::read_dir(&completed).is_err();
-        let ids = next_ids(dir.path(), ANY_DATE);
-        std::fs::set_permissions(&completed, std::fs::Permissions::from_mode(0o755))
-            .expect("restore mode");
-        if unreadable {
-            assert_eq!(ids.number, 3, "the unreadable directory must be skipped");
-        }
-    }
-
-    /// A non-UTF-8 filename is skipped, not a panic and not an aborted scan
-    /// that would silently under-count the tree (TEST-6).
-    #[cfg(unix)]
-    #[test]
-    fn non_utf8_file_name_is_skipped_without_aborting_the_scan() {
-        use std::os::unix::ffi::OsStrExt as _;
-
-        let dir = scratch_backlog(&[("tasks", "task-0002 - open.md")]);
-        let tasks = dir.path().join(".backlog").join("tasks");
-        let name = std::ffi::OsStr::from_bytes(b"task-0500 - \xff.md");
-        std::fs::write(tasks.join(name), "").expect("write non-utf8 name");
-        assert_eq!(
-            next_ids(dir.path(), ANY_DATE).number,
-            3,
-            "the undecodable name must be skipped, the rest of the scan must continue"
-        );
-    }
-
     /// SEC-11 boundary: non-ASCII letters are outside the slug alphabet, and
     /// a wholly non-ASCII title must not produce `task-NNNN.MM - .md`.
     #[test]
     fn slugify_and_file_names_pin_non_ascii_titles() {
-        assert_eq!(slugify("naïve-crate"), "na-ve-crate");
-        assert_eq!(slugify("日本語"), "");
+        assert_eq!(ops_backlog::model::slugify("naïve-crate"), "na-ve-crate");
+        assert_eq!(ops_backlog::model::slugify("日本語"), "");
         assert_eq!(
             main_task_file_name(42, "日本語"),
             "task-0042 - untitled.md",
@@ -763,12 +537,6 @@ mod tests {
     /// document — a single-quoted scalar cannot encode one.
     #[test]
     fn control_characters_render_as_a_double_quoted_scalar() {
-        assert_eq!(yaml_scalar("plain"), "'plain'");
-        assert_eq!(yaml_scalar("it's"), "'it''s'");
-        assert_eq!(yaml_scalar("ops\ncore"), "\"ops\\ncore\"");
-        assert_eq!(yaml_scalar("esc\u{1b}[31m"), "\"esc\\x1b[31m\"");
-        assert_eq!(yaml_scalar("tab\tsep\r"), "\"tab\\tsep\\r\"");
-
         let stamp = UtcStamp {
             date: "2026-08-20".to_string(),
             minutes: "19:02".to_string(),

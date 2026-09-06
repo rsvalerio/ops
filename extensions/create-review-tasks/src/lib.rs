@@ -11,7 +11,6 @@
 //! [`backlog`] to be byte-compatible with the backlog.md CLI.
 
 mod backlog;
-mod clock;
 
 use std::io::Write;
 use std::path::Path;
@@ -22,7 +21,7 @@ use ops_core::config::Config;
 use ops_extension::{Context, DataProviderError, DataRegistry};
 use serde::Deserialize;
 
-use clock::UtcStamp;
+use ops_backlog::clock::UtcStamp;
 
 /// Name of the data provider this engine queries. Stack-specific
 /// create-review-tasks extensions register under this name.
