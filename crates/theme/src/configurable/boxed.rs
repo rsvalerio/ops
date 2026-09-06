@@ -194,7 +194,7 @@ impl ConfigurableTheme {
     }
 
     /// Wrap an already-formatted content line in the boxed `│ … │` frame,
-    /// right-padding so the closing bar aligns with [`wrap_step_line`]'s. Used
+    /// right-padding so the closing bar aligns with [`Self::wrap_step_line`]'s. Used
     /// for report detail/continuation lines, which carry their own indentation
     /// and so don't take the progress-cell column.
     pub(super) fn wrap_box_content(&self, inner: &str, columns: u16) -> String {

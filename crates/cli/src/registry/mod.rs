@@ -6,7 +6,7 @@
 //! - [`discovery`] — stack resolution, compiled-in extension enumeration,
 //!   stack/config filtering, ref-conversion helpers.
 //! - [`registration`] — symmetric command + data-provider registration with
-//!   the shared [`Owner`]-tracked collision audit pipeline, plus
+//!   the shared [`registration::Owner`]-tracked collision audit pipeline, plus
 //!   [`build_data_registry`] convenience.
 //!
 //! Public surface is unchanged: callers under `crate::registry::*` get the

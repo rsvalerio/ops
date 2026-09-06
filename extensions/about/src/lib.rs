@@ -179,7 +179,7 @@ fn resolve_identity(
 
 /// Enrich identity with LOC/file count from `DuckDB` if available.
 ///
-/// ERR-1 (TASK-1148, mirrors TASK-0431 in [`units::enrich_from_db`]): each of
+/// ERR-1 (TASK-1148, mirrors TASK-0431 in `units::enrich_from_db`): each of
 /// the five underlying queries acquires `db.lock()` independently, so a
 /// concurrent ingestion that runs between samples can produce an identity
 /// whose `loc`, `file_count`, `dependency_count`, `coverage_percent`, and

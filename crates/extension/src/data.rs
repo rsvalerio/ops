@@ -574,7 +574,7 @@ impl IntoIterator for DataRegistry {
     type Item = (String, Box<dyn DataProvider>);
     type IntoIter = indexmap::map::IntoIter<String, Box<dyn DataProvider>>;
     /// API-9 / TASK-1179: yields entries in registration order, matching
-    /// the documented expectations of [`take_duplicate_inserts`]
+    /// the documented expectations of [`DataRegistry::take_duplicate_inserts`]
     /// audit-trail consumers and aligning with the insertion-order
     /// policy of [`crate::CommandRegistry`].
     fn into_iter(self) -> Self::IntoIter {
@@ -613,7 +613,7 @@ impl IntoIterator for DataRegistry {
 ///     .downcast_ref::<ops_duckdb::DuckDb>();
 /// ```
 ///
-/// or use the typed convenience helper [`ops_duckdb::get_db`] which performs
+/// or use the typed convenience helper `ops_duckdb::get_db` which performs
 /// the downcast and returns `Option<&DuckDb>`. New consumers should prefer
 /// `get_db` over calling `as_any` directly to avoid coupling on the concrete
 /// trait method (FN-9).

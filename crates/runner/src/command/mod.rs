@@ -425,7 +425,7 @@ impl CommandRunner {
     ///
     /// # Errors
     ///
-    /// Whatever the named provider returns; see [`Context::get_or_provide`].
+    /// Whatever the named provider returns; see [`ops_extension::Context::get_or_provide`].
     pub fn query_data(&mut self, name: &str) -> Result<Arc<serde_json::Value>, DataProviderError> {
         self.data_context.get_or_provide(name, &self.data_registry)
     }

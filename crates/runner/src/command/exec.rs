@@ -1,4 +1,5 @@
-//! Async command execution: running a built [`Command`], capturing output,
+//! Async command execution: running a built [`tokio::process::Command`],
+//! capturing output,
 //! emitting [`RunnerEvent`]s, and applying timeouts.
 //!
 //! # Stdin: captured steps are non-interactive (ASYNC-6 / TASK-1918)
@@ -426,7 +427,7 @@ fn log_and_redact_spawn_error(program: &str, e: &std::io::Error, context: &'stat
 /// Emit `StepOutput` events for captured stdout and stderr.
 ///
 /// PERF-3 / TASK-0732: each capture buffer is wrapped in a single
-/// `Arc<str>` and per-line events carry an [`OutputLine`] view onto a byte
+/// `Arc<str>` and per-line events carry an [`super::events::OutputLine`] view onto a byte
 /// sub-range of that shared buffer. A noisy step that previously paid one
 /// heap allocation per line via `line.to_string()` now pays one per buffer;
 /// the per-line event emission is just an `Arc::clone` (atomic refcount

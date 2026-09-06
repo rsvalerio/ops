@@ -176,7 +176,7 @@ fn reject_untrusted_ingest_dir(data_dir: &Path) -> std::io::Result<Option<std::f
 /// for a symlink, by making its parent directory writable only by its owner.
 ///
 /// See the TASK-2039 section on [`create_ingest_dir`] for why this is done
-/// instead of threading a directory handle through the [`crate::Ingestor`]
+/// instead of threading a directory handle through the [`crate::DataIngestor`]
 /// trait. Returns:
 ///
 /// * `Ok(())` when no other principal can create names in `parent` — either

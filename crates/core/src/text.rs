@@ -93,7 +93,7 @@ pub(crate) fn parse_byte_cap_env(
 /// process.
 ///
 /// Both [`manifest_max_bytes`] and
-/// [`crate::config::loader::ops_toml_max_bytes`] (and any future sibling caps)
+/// `crate::config::loader::ops_toml_max_bytes` (and any future sibling caps)
 /// route through this so the cache discipline, fallback semantics, and
 /// one-shot warn diagnostic stay aligned across the codebase. The shared shape
 /// mirrors `crates/runner/src/command/results.rs::output_byte_cap`

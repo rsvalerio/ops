@@ -105,7 +105,7 @@ macro_rules! ansi_style {
             style_gated(s, $code, color_enabled())
         }
 
-        /// Same as [`$name`] but with an explicit color-enabled override.
+        #[doc = concat!("Same as [`", stringify!($name), "`] but with an explicit color-enabled override.")]
         ///
         /// Used by callers that compute their own TTY state (e.g. against
         /// an injected writer) and tests that need to observe the styled-

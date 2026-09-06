@@ -52,10 +52,11 @@ struct WorkspaceCacheEntry {
 ///    workspace was swapped after the entry was populated, all subsequent
 ///    containment decisions used the stale canonical path.
 ///
-/// The cache is now an instance type owned by [`CommandRunner`] (see
-/// `mod.rs`). When the runner is dropped, the cache and its entries go
-/// with it. The runner exposes [`CommandRunner::invalidate_workspace_cache`]
-/// and [`CommandRunner::clear_workspace_cache`] for hosts that need to
+/// The cache is now an instance type owned by [`super::CommandRunner`]
+/// (see `mod.rs`). When the runner is dropped, the cache and its entries go
+/// with it. The runner exposes
+/// [`super::CommandRunner::invalidate_workspace_cache`]
+/// and [`super::CommandRunner::clear_workspace_cache`] for hosts that need to
 /// react to a known on-disk change without dropping the runner.
 ///
 /// Eviction policy mirrors `extensions/about/src/manifest_cache.rs`
@@ -81,7 +82,7 @@ impl WorkspaceCanonicalCache {
         }
     }
 
-    /// Default-capacity constructor used by [`CommandRunner::new`].
+    /// Default-capacity constructor used by [`super::CommandRunner::new`].
     pub(crate) fn new() -> Self {
         Self::with_capacity(WORKSPACE_CANONICAL_CACHE_CAP)
     }
@@ -219,7 +220,8 @@ fn recover_workspace_cache<T>(
 ///
 /// ARCH-9 / TASK-1126: takes the runner-scoped cache instance as a
 /// parameter so the spawn path consults the same cache that
-/// [`CommandRunner::invalidate_workspace_cache`] / [`clear_workspace_cache`]
+/// [`super::CommandRunner::invalidate_workspace_cache`] /
+/// [`super::CommandRunner::clear_workspace_cache`]
 /// mutate. Earlier this routed through a process-global static, which made
 /// the public invalidate API a no-op against the cache that actually decided
 /// escape outcomes for production callers.
@@ -619,7 +621,7 @@ pub fn build_command(
 }
 
 /// CONC-5 / TASK-0330: async variant that runs the synchronous filesystem
-/// work in [`build_command`] (notably `std::fs::canonicalize` calls inside
+/// work in `build_command` (notably `std::fs::canonicalize` calls inside
 /// [`detect_workspace_escape`] and [`resolve_spec_cwd`]) on the blocking
 /// thread pool.
 ///

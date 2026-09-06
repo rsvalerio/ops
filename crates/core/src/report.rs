@@ -6,7 +6,7 @@
 //! maps each [`ReportStatus`] to the theme's configured icon and color via the
 //! `[report]` theme block. This type is intentionally theme-agnostic so report
 //! producers (`extensions-rust/deps`, `crates/cli/src/sec_cmd.rs`) build reports
-//! without depending on the theme crate — the same separation [`StepLine`]
+//! without depending on the theme crate — the same separation [`crate::output::StepLine`]
 //! (`crate::output`) keeps between the runner's step data and its rendering.
 
 /// Severity of a single report row.

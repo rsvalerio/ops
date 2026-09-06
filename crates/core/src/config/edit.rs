@@ -181,7 +181,7 @@ where
 /// `atomic_write` performs blocking I/O: write, `sync_all`, `rename`, and a
 /// parent-directory `sync_all` on Unix. `fsync` can stall the calling thread
 /// for tens to hundreds of milliseconds on slow disks. Async callers MUST
-/// wrap the invocation in [`tokio::task::spawn_blocking`] rather than calling
+/// wrap the invocation in `tokio::task::spawn_blocking` rather than calling
 /// it directly from a runtime thread, mirroring the contract on
 /// `ops_core::subprocess::run_with_timeout`. The same applies to
 /// [`write_ops_toml`] and [`edit_ops_toml`], which delegate here.

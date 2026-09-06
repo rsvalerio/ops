@@ -74,7 +74,7 @@ impl DataConfig {
 #[derive(Debug, Clone, Deserialize, Serialize)]
 #[serde(deny_unknown_fields)]
 pub struct OutputConfig {
-    /// Theme name (built-in: "classic", "compact"; or custom theme from [themes]).
+    /// Theme name (built-in: "classic", "compact"; or custom theme from `[themes]`).
     #[serde(default = "default_theme")]
     pub theme: String,
     /// Line width in columns for step lines (command + spacer + time). No runtime change.

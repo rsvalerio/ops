@@ -299,7 +299,7 @@ pub fn run_before_push(
     run_hook_action(config, &pre_hook_cmd::PUSH_OPS, hook_action)
 }
 
-/// Run a text-fixer and translate its [`FixerReport`] into a process exit
+/// Run a text-fixer and translate its [`ops_text_fixers::FixerReport`] into a process exit
 /// code: `FAILURE` when at least one file was rewritten, and also when at
 /// least one file could not be read or written back, or the discovery walk
 /// could not traverse part of the tree. The first half mirrors the
@@ -342,7 +342,7 @@ pub fn run_end_of_file_fixer(tracked: bool) -> anyhow::Result<ExitCode> {
     )
 }
 
-/// Run a config-checker and translate its [`CheckerReport`] into a process
+/// Run a config-checker and translate its [`ops_config_checkers::CheckerReport`] into a process
 /// exit code: success when nothing failed, `FAILURE` when at least one file
 /// failed to parse. Mirrors the `pre-commit-hooks` contract.
 fn run_config_checker<F>(

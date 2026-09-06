@@ -182,7 +182,7 @@ impl Stack {
 /// empty `IndexMap` on parse failure.
 ///
 /// ERR-1 (TASK-1413): the embedded TOML is validated by
-/// [`tests::all_embedded_default_tomls_parse`]; reaching the failure branch
+/// `tests::all_embedded_default_tomls_parse`; reaching the failure branch
 /// at runtime means the CI gate was bypassed and the next `ops init` would
 /// otherwise scaffold an empty command section with no operator-visible
 /// signal. Emit both a structured `tracing::warn` (for logs / debugging) and

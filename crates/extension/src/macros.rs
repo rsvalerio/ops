@@ -168,7 +168,7 @@ macro_rules! impl_extension {
     };
 }
 
-/// Shorthand macro for constructing a [`DataField`].
+/// Shorthand macro for constructing a [`crate::data::DataField`].
 ///
 /// Reduces verbose struct initialization from 5 lines to 1.
 ///

@@ -84,6 +84,7 @@ where
 /// downcast silently reclassified every nested `MutexPoisoned` / `Timeout`
 /// as a benign `warn!`.
 ///
+/// [`DbError`]: crate::error::DbError
 /// [`DbError::External`]: crate::error::DbError::External
 fn is_hard_failure(err: &anyhow::Error) -> bool {
     use crate::error::DbError;

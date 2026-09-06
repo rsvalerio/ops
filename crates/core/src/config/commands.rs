@@ -301,7 +301,7 @@ impl ExecCommandSpec {
     /// values containing whitespace or metacharacters cannot be confused
     /// with multiple separate arguments.
     ///
-    /// ERR-7 (TASK-0576): uses the strict [`Variables::try_expand`] so a
+    /// ERR-7 (TASK-0576): uses the strict [`crate::expand::Variables::try_expand`] so a
     /// non-UTF-8 / unparsable env var produces a visible diagnostic in the
     /// dry-run preview rather than silently rendering the literal `${VAR}`
     /// while a `tracing` event hides in the log buffer.

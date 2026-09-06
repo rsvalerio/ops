@@ -13,7 +13,7 @@
 //! - [`lock_recover`] — silent recovery, used by production hot paths whose
 //!   protected state is documented as "every state is valid" (the
 //!   workspace-root cache, the warn-seen set, the canonicalize cache).
-//! - [`lock_recover_warn`] — surfaces a `tracing::warn!` breadcrumb with the
+//! - `lock_recover_warn` — surfaces a `tracing::warn!` breadcrumb with the
 //!   supplied label when the lock was poisoned. Used by test-support seams
 //!   (`ops_root_cache_len`, `expand_warn_seen_count`, …) so a flake stemming
 //!   from a sibling panic is visible at the right level instead of being
@@ -25,7 +25,7 @@ use std::sync::{Mutex, MutexGuard};
 ///
 /// Use in production hot paths whose protected state is a cache or
 /// dedup set with no broken invariant. Tests and seams that need a
-/// breadcrumb when poison was observed should use [`lock_recover_warn`]
+/// breadcrumb when poison was observed should use `lock_recover_warn`
 /// instead.
 pub fn lock_recover<T>(m: &Mutex<T>) -> MutexGuard<'_, T> {
     m.lock().unwrap_or_else(|e| {
