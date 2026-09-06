@@ -130,6 +130,8 @@ invocation (`ops run verify qa`) expands each independently, so they may differ.
 | `ops trailing-whitespace` (`tw`) | Strip trailing whitespace in place; non-zero when files changed (pre-commit contract) |
 | `ops end-of-file-fixer` (`eof`) | Ensure files end with exactly one newline; non-zero when files changed |
 | `ops check-json` / `check-yaml` | Verify every JSON/YAML file parses (`--tracked` limits to git files; `--allow-json5` for JSON5) |
+| `ops backlog task create/edit/list/view` | Manage `.backlog/` markdown tasks — a compatible subset of [Backlog.md](https://github.com/MrLesk/Backlog.md); see [docs/backlog.md](docs/backlog.md) |
+| `ops backlog search` | Keyword search over tasks, with `--modified-file` filtering |
 
 Global flags: `--dry-run` (preview the resolved plan), `--verbose` (full stderr on
 failure), `--tap <file>` (capture raw output), `--raw` (inherit child stdio, no ops output).
@@ -230,6 +232,7 @@ When they are missing, the coverage warning/error includes these same install co
 - **Themed output** — step lines with timing; switch between themes easily
 - **Extension architecture** — compile-time extensions; build your own ops
 - **Parallel execution** — run command groups concurrently with `parallel = true`
+- **Backlog tasks** — native `.backlog` markdown task management, output-compatible with the Backlog.md CLI (`--json` envelopes included), so existing tooling keeps working
 
 ## Contributing
 
@@ -246,6 +249,7 @@ See [docs/releasing.md](docs/releasing.md) for the full release workflow.
 
 - [Releasing](docs/releasing.md) — automated releases, conventional commits, Homebrew tap
 - [Visual Components](docs/components.md) — step icons, error boxes, theme comparison
+- [Backlog tasks](docs/backlog.md) — `ops backlog` command reference, file format, and output contracts
 
 ## License
 

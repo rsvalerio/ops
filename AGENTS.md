@@ -26,6 +26,11 @@ For any non-trivial Rust change, read the `code-review-rust` skill *before*
 editing and follow its rules as acceptance criteria. Do not file backlog tasks
 during implementation — that mode is for formal reviews only.
 
+Backlog tasks are managed with `ops backlog task ...` / `ops backlog search`
+(native, Backlog.md-compatible — see `docs/backlog.md`); prefer it over the
+external `backlog` CLI. Do not hand-edit task files: field types and marker
+layout are load-bearing for the triage and wave skills.
+
 Run `cargo fmt`, `cargo clippy --all-targets --workspace -- -D warnings`, and
 `cargo nextest run --workspace --all-features` (plus `cargo test --workspace
 --doc` — nextest does not run doctests) before declaring the change done.
@@ -68,6 +73,7 @@ DuckDB version. Details: `docs/duckdb-prebuilt-lib.md`.
 - `crates/runner/src/command/`: command execution engine and event stream.
 - `crates/runner/src/display.rs`: progress rendering with `indicatif`.
 - `crates/extension/src/lib.rs`: extension, command registry, data registry, context APIs.
+- `crates/backlog/`: `.backlog` markdown task management (`ops backlog task create/edit/list/view`, `ops backlog search`) — a Backlog.md-compatible subset; `model.rs` parses/writes the task files, `store.rs` scans and allocates ids, `render.rs` owns the output contracts. See `docs/backlog.md`.
 - `crates/cli/src/theme_cmd.rs`: theme management CLI.
 - `crates/cli/src/sec_cmd.rs`: Trivy-based security scans (`ops sec`).
 - `extensions/`: generic extensions.
@@ -75,6 +81,7 @@ DuckDB version. Details: `docs/duckdb-prebuilt-lib.md`.
 
 ## Docs
 
+- Backlog task management (`ops backlog`): `docs/backlog.md`
 - Releasing: `docs/releasing.md`
 - Stack default command mappings: `docs/command-mappings.md`
 - Visual components and theme comparison: `docs/components.md`
