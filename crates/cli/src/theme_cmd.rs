@@ -474,7 +474,7 @@ build = "cargo build"
     fn write_theme_select_result_set_to_message() {
         let dir = tempfile::tempdir().expect("tempdir");
         let mut buf = Vec::new();
-        write_theme_select_result(&mut buf, "compact", "classic", dir.path())
+        write_theme_select_result(&mut buf, "compact", "classic", &crate::canonical_root(&dir))
             .expect("write_theme_select_result");
         let out = String::from_utf8(buf).unwrap();
         assert_eq!(out, "Theme set to 'compact'\n");
@@ -521,7 +521,7 @@ theme = "compact"
         let dir = tempfile::tempdir().expect("tempdir");
         let config_path = dir.path().join(".ops.toml");
 
-        let result = update_theme_in_config(dir.path(), "classic");
+        let result = update_theme_in_config(&crate::canonical_root(&dir), "classic");
         assert!(result.is_ok());
         assert!(config_path.exists());
         let content = std::fs::read_to_string(&config_path).unwrap();
@@ -540,7 +540,7 @@ theme = "compact"
         std::fs::create_dir_all(&subdir).unwrap();
         let _guard = crate::CwdGuard::new(&subdir).expect("CwdGuard");
 
-        update_theme_in_config(workspace_root, "classic").expect("save");
+        update_theme_in_config(&crate::canonical_root(&dir), "classic").expect("save");
 
         assert!(workspace_root.join(".ops.toml").exists());
         assert!(

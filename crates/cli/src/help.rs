@@ -108,6 +108,7 @@ fn collect_value_taking_globals(cmd: &clap::Command) -> Vec<Box<str>> {
 pub fn builtin_category(name: &str) -> &'static str {
     match name {
         "about" => "Insights",
+        "backlog" => "Tasks",
         "deps" | "trailing-whitespace" | "end-of-file-fixer" | "sec" => "Code Quality",
         "init" | "theme" | "extension" | "run-before-commit" | "run-before-push" => "Setup",
         _ => "Commands",
@@ -393,7 +394,7 @@ mod tests {
 
     #[test]
     fn is_toplevel_help_with_flags() {
-        assert!(is_toplevel_help(&os(&["ops", "-d", "--help"])));
+        assert!(is_toplevel_help(&os(&["ops", "-v", "--help"])));
     }
 
     #[test]
@@ -408,7 +409,7 @@ mod tests {
 
     #[test]
     fn is_toplevel_help_no_help_flag() {
-        assert!(!is_toplevel_help(&os(&["ops", "-d"])));
+        assert!(!is_toplevel_help(&os(&["ops", "-v"])));
     }
 
     #[test]
@@ -552,7 +553,7 @@ mod tests {
         // anything after it must reach the subcommand catch-all unchanged.
         assert!(!is_toplevel_help(&os(&["ops", "--", "--help"])));
         assert!(!is_toplevel_help(&os(&["ops", "--"])));
-        assert!(!is_toplevel_help(&os(&["ops", "-d", "--", "--help"])));
+        assert!(!is_toplevel_help(&os(&["ops", "-v", "--", "--help"])));
     }
 
     #[test]

@@ -411,7 +411,7 @@ mod tests {
     #[serial_test::serial]
     fn read_ops_toml_rejects_oversized_payload() {
         let dir = tempfile::tempdir().unwrap();
-        let path = dir.path().join(".ops.toml");
+        let path = crate::test_utils::canonical_root(&dir).join(".ops.toml");
         std::fs::write(&path, "x".repeat(4096)).unwrap();
 
         // READ-5 / TASK-1129: `ops_toml_max_bytes` is `OnceLock`-cached,
@@ -433,7 +433,7 @@ mod tests {
     #[test]
     fn edit_missing_file_treated_as_empty() {
         let dir = tempfile::tempdir().unwrap();
-        let path = dir.path().join(".ops.toml");
+        let path = crate::test_utils::canonical_root(&dir).join(".ops.toml");
         edit_ops_toml(&path, |doc| {
             doc["output"] = toml_edit::Item::Table(toml_edit::Table::new());
             doc["output"]["theme"] = toml_edit::value("classic");
@@ -447,7 +447,7 @@ mod tests {
     #[test]
     fn edit_malformed_file_preserved_on_parse_error() {
         let dir = tempfile::tempdir().unwrap();
-        let path = dir.path().join(".ops.toml");
+        let path = crate::test_utils::canonical_root(&dir).join(".ops.toml");
         let bad = "this is = = not valid toml {{{";
         std::fs::write(&path, bad).unwrap();
 
@@ -463,7 +463,7 @@ mod tests {
     #[test]
     fn edit_writes_atomically_replaces_content() {
         let dir = tempfile::tempdir().unwrap();
-        let path = dir.path().join(".ops.toml");
+        let path = crate::test_utils::canonical_root(&dir).join(".ops.toml");
         std::fs::write(&path, "[output]\ntheme = \"compact\"\n").unwrap();
 
         edit_ops_toml(&path, |doc| {
@@ -474,7 +474,9 @@ mod tests {
 
         let content = std::fs::read_to_string(&path).unwrap();
         assert!(content.contains("theme = \"classic\""));
-        let entries: Vec<_> = std::fs::read_dir(dir.path()).unwrap().collect();
+        let entries: Vec<_> = std::fs::read_dir(crate::test_utils::canonical_root(&dir))
+            .unwrap()
+            .collect();
         assert_eq!(entries.len(), 1, "temp file should have been renamed away");
     }
 
@@ -483,7 +485,7 @@ mod tests {
         // Two back-to-back writes must not collide on a deterministic temp
         // name. If they shared one, the second create_new would fail.
         let dir = tempfile::tempdir().unwrap();
-        let path = dir.path().join("a.toml");
+        let path = crate::test_utils::canonical_root(&dir).join("a.toml");
         atomic_write(&path, b"first").unwrap();
         atomic_write(&path, b"second").unwrap();
         assert_eq!(std::fs::read_to_string(&path).unwrap(), "second");
@@ -496,7 +498,7 @@ mod tests {
     #[test]
     fn atomic_write_inner_failure_does_not_leak_tmp() {
         let dir = tempfile::tempdir().unwrap();
-        let path = dir.path().join("target.toml");
+        let path = crate::test_utils::canonical_root(&dir).join("target.toml");
 
         FAIL_AFTER_SYNC.with(|c| c.set(true));
         let result = atomic_write(&path, b"data");
@@ -506,7 +508,7 @@ mod tests {
         assert_eq!(err.to_string(), "injected post-sync failure");
 
         assert!(!path.exists(), "target should not exist on inner failure");
-        let leftovers: Vec<_> = std::fs::read_dir(dir.path())
+        let leftovers: Vec<_> = std::fs::read_dir(crate::test_utils::canonical_root(&dir))
             .unwrap()
             .filter_map(Result::ok)
             .filter(|e| {
@@ -527,7 +529,7 @@ mod tests {
         // directory. The remove_file fallback should clear the sibling tmp
         // so no .{name}.tmp.* file lingers in the parent.
         let dir = tempfile::tempdir().unwrap();
-        let target_dir = dir.path().join("target");
+        let target_dir = crate::test_utils::canonical_root(&dir).join("target");
         std::fs::create_dir(&target_dir).unwrap();
         std::fs::write(target_dir.join("inside"), b"x").unwrap();
 
@@ -539,7 +541,7 @@ mod tests {
                 | std::io::ErrorKind::Other
         ));
 
-        let leftovers: Vec<_> = std::fs::read_dir(dir.path())
+        let leftovers: Vec<_> = std::fs::read_dir(crate::test_utils::canonical_root(&dir))
             .unwrap()
             .filter_map(Result::ok)
             .filter(|e| {
@@ -557,14 +559,15 @@ mod tests {
     #[test]
     fn command_names_missing_file_is_empty() {
         let dir = tempfile::tempdir().unwrap();
-        let names = command_names(&dir.path().join(".ops.toml")).unwrap();
+        let names =
+            command_names(&crate::test_utils::canonical_root(&dir).join(".ops.toml")).unwrap();
         assert!(names.is_empty());
     }
 
     #[test]
     fn command_names_lists_commands_table_keys() {
         let dir = tempfile::tempdir().unwrap();
-        let path = dir.path().join(".ops.toml");
+        let path = crate::test_utils::canonical_root(&dir).join(".ops.toml");
         std::fs::write(
             &path,
             "[commands.build]\nprogram = \"cargo\"\n[commands.test]\nprogram = \"cargo\"\n",
@@ -576,7 +579,7 @@ mod tests {
     #[test]
     fn command_names_malformed_file_errors() {
         let dir = tempfile::tempdir().unwrap();
-        let path = dir.path().join(".ops.toml");
+        let path = crate::test_utils::canonical_root(&dir).join(".ops.toml");
         std::fs::write(&path, "not = = valid\n{{{").unwrap();
         assert!(command_names(&path).is_err());
     }
@@ -612,7 +615,7 @@ mod tests {
     #[test]
     fn edit_mutate_error_leaves_file_untouched() {
         let dir = tempfile::tempdir().unwrap();
-        let path = dir.path().join(".ops.toml");
+        let path = crate::test_utils::canonical_root(&dir).join(".ops.toml");
         let original = "[output]\ntheme = \"compact\"\n";
         std::fs::write(&path, original).unwrap();
 
@@ -631,7 +634,7 @@ mod tests {
     fn atomic_write_preserves_restrictive_destination_perms() {
         use std::os::unix::fs::PermissionsExt;
         let dir = tempfile::tempdir().unwrap();
-        let path = dir.path().join("ops.toml");
+        let path = crate::test_utils::canonical_root(&dir).join("ops.toml");
         std::fs::write(&path, b"first").unwrap();
         std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o600)).unwrap();
 
@@ -651,7 +654,7 @@ mod tests {
     fn atomic_write_defaults_new_file_to_0600() {
         use std::os::unix::fs::PermissionsExt;
         let dir = tempfile::tempdir().unwrap();
-        let path = dir.path().join("fresh.toml");
+        let path = crate::test_utils::canonical_root(&dir).join("fresh.toml");
         atomic_write(&path, b"hello").unwrap();
         let mode = std::fs::metadata(&path).unwrap().permissions().mode() & 0o7777;
         assert_eq!(
@@ -671,11 +674,11 @@ mod tests {
     fn atomic_write_symlink_destination_defaults_to_0600() {
         use std::os::unix::fs::PermissionsExt;
         let dir = tempfile::tempdir().unwrap();
-        let target = dir.path().join("world_readable.txt");
+        let target = crate::test_utils::canonical_root(&dir).join("world_readable.txt");
         std::fs::write(&target, b"do not touch").unwrap();
         std::fs::set_permissions(&target, std::fs::Permissions::from_mode(0o644)).unwrap();
 
-        let link = dir.path().join("ops.toml");
+        let link = crate::test_utils::canonical_root(&dir).join("ops.toml");
         std::os::unix::fs::symlink(&target, &link).unwrap();
 
         atomic_write(&link, b"fresh").unwrap();
@@ -721,7 +724,7 @@ mod tests {
         }
 
         let dir = tempfile::tempdir().unwrap();
-        let path = dir.path().join("ops.toml");
+        let path = crate::test_utils::canonical_root(&dir).join("ops.toml");
         std::fs::write(&path, b"first").unwrap();
         std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o644)).unwrap();
 
@@ -760,8 +763,8 @@ mod tests {
 
         let name_a: OsString = OsString::from_vec(vec![b'a', 0xff]);
         let name_b: OsString = OsString::from_vec(vec![b'a', 0xfe]);
-        let path_a = dir.path().join(&name_a);
-        let path_b = dir.path().join(&name_b);
+        let path_a = crate::test_utils::canonical_root(&dir).join(&name_a);
+        let path_b = crate::test_utils::canonical_root(&dir).join(&name_b);
 
         atomic_write(&path_a, b"alpha").unwrap();
         atomic_write(&path_b, b"beta").unwrap();
@@ -771,7 +774,7 @@ mod tests {
 
         // No `.tmp.` leftovers: the rename for each call must have
         // succeeded against its own unique tmp basename.
-        let leftovers: Vec<_> = std::fs::read_dir(dir.path())
+        let leftovers: Vec<_> = std::fs::read_dir(crate::test_utils::canonical_root(&dir))
             .unwrap()
             .filter_map(Result::ok)
             .filter(|e| {
@@ -795,7 +798,7 @@ mod tests {
     fn sync_parent_dir_warns_when_parent_open_fails() {
         use std::os::unix::fs::PermissionsExt;
         let dir = tempfile::tempdir().unwrap();
-        let locked = dir.path().join("locked");
+        let locked = crate::test_utils::canonical_root(&dir).join("locked");
         std::fs::create_dir(&locked).unwrap();
         // Strip every permission bit so File::open fails with EACCES.
         let mut perms = std::fs::metadata(&locked).unwrap().permissions();
@@ -836,7 +839,7 @@ mod tests {
     fn atomic_write_bare_filename_fsyncs_cwd_parent() {
         let dir = tempfile::tempdir().unwrap();
         let saved_cwd = std::env::current_dir().unwrap();
-        std::env::set_current_dir(dir.path()).unwrap();
+        std::env::set_current_dir(crate::test_utils::canonical_root(&dir)).unwrap();
 
         let result = atomic_write(Path::new("bare.toml"), b"payload");
 
@@ -849,10 +852,10 @@ mod tests {
         // resolved) and Path::new(".") opens successfully there — i.e. the
         // fsync codepath had a real, openable directory handle to act on,
         // rather than the empty path it would have had pre-fix.
-        let written = dir.path().join("bare.toml");
+        let written = crate::test_utils::canonical_root(&dir).join("bare.toml");
         assert_eq!(std::fs::read(&written).unwrap(), b"payload");
         assert!(
-            std::fs::File::open(dir.path()).is_ok(),
+            std::fs::File::open(crate::test_utils::canonical_root(&dir)).is_ok(),
             "parent dir must be openable for fsync"
         );
     }
@@ -867,11 +870,11 @@ mod tests {
         // failure by pre-creating a directory at the target path so
         // rename fails, leaving the tmp file behind for inspection.
         let dir = tempfile::tempdir().unwrap();
-        let target = dir.path().join(".ops.toml");
+        let target = crate::test_utils::canonical_root(&dir).join(".ops.toml");
         std::fs::create_dir(&target).expect("dir at target");
         let _ = atomic_write(&target, b"x");
 
-        let entries: Vec<_> = std::fs::read_dir(dir.path())
+        let entries: Vec<_> = std::fs::read_dir(crate::test_utils::canonical_root(&dir))
             .unwrap()
             .filter_map(Result::ok)
             .map(|e| e.file_name().to_string_lossy().into_owned())

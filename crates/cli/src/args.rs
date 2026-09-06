@@ -22,7 +22,10 @@ pub struct Cli {
     /// - Verifying config changes before running
     /// - Auditing what commands are defined
     /// - Debugging composite command expansion
-    #[arg(short, long, global = true)]
+    // No `short`: `-d` is reserved for subcommand-local flags (e.g.
+    // `backlog task create -d`), and a global short would collide with them
+    // under clap's duplicate-short debug assert.
+    #[arg(long, global = true)]
     pub dry_run: bool,
 
     /// Show full stderr output on failure (overrides `stderr_tail_lines` config).
@@ -223,9 +226,183 @@ pub enum CoreSubcommand {
         #[arg(long = "force", value_enum, value_name = "SCAN")]
         force: Vec<crate::sec_cmd::ScanArg>,
     },
+    /// Manage `.backlog` task files (backlog.md-compatible subset).
+    Backlog {
+        #[command(subcommand)]
+        action: BacklogAction,
+    },
     /// Catch-all for dynamic config-defined commands (e.g. `ops verify`).
     #[command(external_subcommand)]
     External(Vec<OsString>),
+}
+
+/// `ops backlog …` subcommands.
+#[derive(clap::Subcommand, Debug, Clone)]
+pub enum BacklogAction {
+    /// Task create/edit/list/view.
+    Task {
+        #[command(subcommand)]
+        action: BacklogTaskAction,
+    },
+    /// Search tasks by keyword and modified file.
+    Search {
+        /// Keyword query; omit to list everything the filters match.
+        query: Option<String>,
+        /// Keep tasks whose modified files contain this substring
+        /// (repeatable).
+        #[arg(long = "modified-file", value_name = "PATH")]
+        modified_file: Vec<String>,
+        /// Drop tasks with this status (repeatable).
+        #[arg(long = "exclude-status")]
+        exclude_status: Vec<String>,
+        /// Plain text output.
+        #[arg(long)]
+        plain: bool,
+    },
+}
+
+/// Arguments of `ops backlog task create` (a struct, boxed in the enum, so
+/// one large variant does not inflate every `CoreSubcommand` — the
+/// `Plans(ops_tfplan::PlanOptions)` idiom).
+#[derive(clap::Args, Debug, Clone)]
+pub struct BacklogCreateArgs {
+    /// Task title.
+    pub title: String,
+    /// Description body.
+    #[arg(short, long)]
+    pub description: Option<String>,
+    /// Assignees (comma-separated or repeatable; `""` clears).
+    #[arg(short, long, value_delimiter = ',')]
+    pub assignee: Vec<String>,
+    /// Status; defaults to the config's `default_status`.
+    #[arg(short, long)]
+    pub status: Option<String>,
+    /// Labels (comma-separated or repeatable).
+    #[arg(short, long, value_delimiter = ',')]
+    pub labels: Vec<String>,
+    /// Priority: critical, high, medium, or low.
+    #[arg(long)]
+    pub priority: Option<String>,
+    /// Acceptance criterion (repeatable).
+    #[arg(long = "ac")]
+    pub ac: Vec<String>,
+    /// Modified file, repo-root-relative (repeatable).
+    #[arg(long = "modified-file", value_name = "PATH")]
+    pub modified_file: Vec<String>,
+    /// Implementation plan.
+    #[arg(long)]
+    pub plan: Option<String>,
+    /// Implementation notes.
+    #[arg(long)]
+    pub notes: Option<String>,
+    /// Dependency task ids (comma-separated or repeatable).
+    #[arg(long = "depends-on", visible_alias = "dep", value_delimiter = ',')]
+    pub depends_on: Vec<String>,
+    /// Plain text output.
+    #[arg(long)]
+    pub plain: bool,
+}
+
+/// Arguments of `ops backlog task edit` — boxed in the enum so one large
+/// variant does not inflate every `CoreSubcommand`.
+#[derive(clap::Args, Debug, Clone)]
+pub struct BacklogEditArgs {
+    /// Task id (e.g. TASK-0042).
+    pub task_id: String,
+    /// New status.
+    #[arg(short, long)]
+    pub status: Option<String>,
+    /// Replace assignees (`""` clears; comma-separated or repeatable).
+    #[arg(short, long, value_delimiter = ',')]
+    pub assignee: Option<Vec<String>>,
+    /// Add labels without replacing existing ones.
+    #[arg(long = "add-label", value_delimiter = ',')]
+    pub add_label: Vec<String>,
+    /// Append implementation notes (repeatable).
+    #[arg(long = "append-notes")]
+    pub append_notes: Vec<String>,
+    /// New priority.
+    #[arg(long)]
+    pub priority: Option<String>,
+    /// New title (renames the file).
+    #[arg(short, long)]
+    pub title: Option<String>,
+    /// New description.
+    #[arg(short, long)]
+    pub description: Option<String>,
+    /// Replace all acceptance criteria (repeatable).
+    #[arg(long = "ac")]
+    pub ac: Option<Vec<String>>,
+    /// Check acceptance criterion by 1-based index (repeatable).
+    #[arg(long = "check-ac")]
+    pub check_ac: Vec<usize>,
+    /// Uncheck acceptance criterion by 1-based index (repeatable).
+    #[arg(long = "uncheck-ac")]
+    pub uncheck_ac: Vec<usize>,
+    /// Set `parent_task_id` — the structural member-to-parent link.
+    #[arg(long)]
+    pub parent: Option<String>,
+    /// Remove `parent_task_id` entirely.
+    #[arg(long, conflicts_with = "parent")]
+    pub clear_parent: bool,
+    /// Append dependencies without replacing the list (comma-separated or
+    /// repeatable).
+    #[arg(long = "add-dep", value_delimiter = ',')]
+    pub add_dep: Vec<String>,
+    /// Remove individual dependencies without restating the list
+    /// (comma-separated or repeatable).
+    #[arg(long = "remove-dep", value_delimiter = ',')]
+    pub remove_dep: Vec<String>,
+    /// Plain text output.
+    #[arg(long)]
+    pub plain: bool,
+}
+
+/// `ops backlog task …` subcommands.
+#[derive(clap::Subcommand, Debug, Clone)]
+pub enum BacklogTaskAction {
+    /// Create a task.
+    Create(Box<BacklogCreateArgs>),
+    /// Edit a task.
+    Edit(Box<BacklogEditArgs>),
+    /// List tasks grouped by status.
+    List {
+        /// Filter by status, case-insensitive (comma-separated or
+        /// repeatable).
+        #[arg(short, long, value_delimiter = ',')]
+        status: Vec<String>,
+        /// Filter by assignee.
+        #[arg(short, long, value_delimiter = ',')]
+        assignee: Vec<String>,
+        /// Keep tasks carrying every one of these labels
+        /// (comma-separated or repeatable).
+        #[arg(short, long, value_delimiter = ',')]
+        labels: Vec<String>,
+        /// Keep tasks whose `parent_task_id` matches.
+        #[arg(short, long)]
+        parent: Option<String>,
+        /// Keep tasks whose dependencies include this task id — the
+        /// dependents-of-X reverse query.
+        #[arg(long)]
+        dependents: Option<String>,
+        /// Plain text output.
+        #[arg(long)]
+        plain: bool,
+        /// Versioned machine-readable JSON.
+        #[arg(long, conflicts_with = "plain")]
+        json: bool,
+    },
+    /// Show one task.
+    View {
+        /// Task id (e.g. TASK-0042).
+        task_id: String,
+        /// Plain text output (first line is `File: <path>`).
+        #[arg(long, conflicts_with = "json")]
+        plain: bool,
+        /// Versioned machine-readable JSON.
+        #[arg(long)]
+        json: bool,
+    },
 }
 
 /// Theme management subcommands.
@@ -553,8 +730,28 @@ mod tests {
 
     #[test]
     fn parse_dry_run_flag() {
-        let cli = Cli::parse_from(["ops", "-d", "build"]);
+        let cli = Cli::parse_from(["ops", "--dry-run", "build"]);
         assert!(cli.dry_run);
+    }
+
+    /// `-d` belongs to the backlog subcommand, not the (long-only) global
+    /// dry-run: two args sharing one short would trip clap's duplicate-short
+    /// debug assert, which is why the global dropped its short.
+    #[test]
+    fn parse_backlog_task_create_short_d_binds_description() {
+        let cli = Cli::parse_from(["ops", "backlog", "task", "create", "-d", "the body", "T"]);
+        let Some(CoreSubcommand::Backlog {
+            action:
+                BacklogAction::Task {
+                    action: BacklogTaskAction::Create(create),
+                },
+        }) = cli.subcommand
+        else {
+            panic!("must parse as backlog task create");
+        };
+        assert_eq!(create.title, "T");
+        assert_eq!(create.description.as_deref(), Some("the body"));
+        assert!(!cli.dry_run, "-d must not leak into the global dry-run");
     }
 
     #[test]

@@ -46,12 +46,15 @@ version = "9.9.9"
     )
     .expect("write decoy cargo toml");
 
-    let ext = CargoTomlExtension::with_root(root_dir.path().to_path_buf());
+    let ext = CargoTomlExtension::with_root(root_dir.path().canonicalize().unwrap());
     let mut registry = DataRegistry::new();
     ext.register_data_providers(&mut registry);
 
     let provider = registry.get("cargo_toml").expect("provider registered");
-    let mut ctx = Context::new(Arc::new(Config::empty()), cwd_dir.path().to_path_buf());
+    let mut ctx = Context::new(
+        Arc::new(Config::empty()),
+        cwd_dir.path().canonicalize().unwrap(),
+    );
     let value = provider.provide(&mut ctx).expect("provider should provide");
     let manifest: CargoToml = serde_json::from_value(value).expect("should deserialize");
 
@@ -84,7 +87,10 @@ version = "0.1.0"
     ext.register_data_providers(&mut registry);
 
     let provider = registry.get("cargo_toml").expect("provider registered");
-    let mut ctx = Context::new(Arc::new(Config::empty()), cwd_dir.path().to_path_buf());
+    let mut ctx = Context::new(
+        Arc::new(Config::empty()),
+        cwd_dir.path().canonicalize().unwrap(),
+    );
     let value = provider.provide(&mut ctx).expect("provider should provide");
     let manifest: CargoToml = serde_json::from_value(value).expect("should deserialize");
 

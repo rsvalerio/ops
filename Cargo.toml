@@ -17,6 +17,7 @@ homepage = "https://github.com/rsvalerio/ops"
 ops-core = { path = "crates/core" }
 ops-extension = { path = "crates/extension" }
 ops-theme = { path = "crates/theme" }
+ops-backlog = { path = "crates/backlog" }
 ops-runner = { path = "crates/runner" }
 ops-duckdb = { path = "extensions/duckdb" }
 ops-tokei = { path = "extensions/tokei" }

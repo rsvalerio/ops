@@ -571,7 +571,7 @@ clean: ## Remove build artifacts
             description: None,
         };
 
-        append_targets_to_config(dir.path(), &[&build, &fmt]).expect("append");
+        append_targets_to_config(&crate::canonical_root(&dir), &[&build, &fmt]).expect("append");
 
         let content = std::fs::read_to_string(dir.path().join(".ops.toml")).unwrap();
         assert!(content.contains("[commands.build]"));
@@ -600,7 +600,7 @@ clean: ## Remove build artifacts
             name: "test".into(),
             description: None,
         };
-        let result = append_targets_to_config(dir.path(), &[&build, &test]);
+        let result = append_targets_to_config(&crate::canonical_root(&dir), &[&build, &test]);
 
         assert!(result.is_err());
         assert!(result.unwrap_err().to_string().contains("already exists"));
@@ -642,7 +642,8 @@ clean: ## Remove build artifacts
             },
         ];
 
-        let (importable, skipped) = partition_importable(dir.path(), targets).expect("partition");
+        let (importable, skipped) =
+            partition_importable(&crate::canonical_root(&dir), targets).expect("partition");
 
         assert_eq!(names(&importable), vec!["build"]);
         assert_eq!(skipped.len(), 3);

@@ -258,6 +258,10 @@ fn tracked_mode_drops_symlinks_and_agrees_with_the_walk() {
 
 #[cfg(unix)]
 #[test]
+// macOS-impossible: APFS refuses to create filenames that are not valid
+// UTF-8 (`fs::write` fails with `Illegal byte sequence`), so the Latin-1
+// fixture cannot exist there. Linux CI covers it.
+#[cfg(not(target_os = "macos"))]
 fn tracked_mode_keeps_a_non_utf8_filename_and_agrees_with_the_walk() {
     use std::ffi::OsStr;
     use std::os::unix::ffi::OsStrExt;

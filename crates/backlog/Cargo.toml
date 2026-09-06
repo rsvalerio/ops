@@ -1,19 +1,17 @@
 [package]
-name = "ops-create-review-tasks"
+name = "ops-backlog"
 publish = false
 version.workspace = true
 edition.workspace = true
 license.workspace = true
 
 [dependencies]
-ops-core = { workspace = true }
-ops-extension = { workspace = true }
-ops-backlog = { workspace = true }
 anyhow = { workspace = true }
-chrono = { workspace = true }
-serde = { workspace = true }
 serde_json = { workspace = true }
-tracing = { workspace = true }
+# Already in the binary's graph via duckdb -> arrow -> arrow-arith, so the
+# direct dependency adds no compilation. Calendar arithmetic is never
+# hand-rolled (TIME-1 lineage).
+chrono = { workspace = true }
 
 [dev-dependencies]
 tempfile = { workspace = true }

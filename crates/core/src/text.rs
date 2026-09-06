@@ -734,7 +734,7 @@ mod tests {
     #[test]
     fn for_each_trimmed_line_invokes_per_line() {
         let dir = tempfile::tempdir().unwrap();
-        let path = dir.path().join("data");
+        let path = crate::test_utils::canonical_root(&dir).join("data");
         std::fs::write(&path, "  foo  \n\nbar\n").unwrap();
         let mut seen = Vec::new();
         let res = for_each_trimmed_line(&path, |line| seen.push(line.to_string()));
@@ -745,7 +745,10 @@ mod tests {
     #[test]
     fn for_each_trimmed_line_missing_file_returns_none() {
         let dir = tempfile::tempdir().unwrap();
-        let res = for_each_trimmed_line(&dir.path().join("nope"), |_| {});
+        let res = for_each_trimmed_line(
+            &crate::test_utils::canonical_root(&dir).join("nope"),
+            |_| {},
+        );
         assert!(res.is_none());
     }
 
@@ -760,7 +763,7 @@ mod tests {
     #[test]
     fn for_each_trimmed_line_oversize_returns_none() {
         let dir = tempfile::tempdir().unwrap();
-        let path = dir.path().join("huge.txt");
+        let path = crate::test_utils::canonical_root(&dir).join("huge.txt");
         let oversize = vec![b'a'; 65];
         std::fs::write(&path, &oversize).unwrap();
 
@@ -773,7 +776,7 @@ mod tests {
     #[test]
     fn read_capped_to_string_oversize_returns_invalid_data() {
         let dir = tempfile::tempdir().unwrap();
-        let path = dir.path().join("big");
+        let path = crate::test_utils::canonical_root(&dir).join("big");
         std::fs::write(&path, vec![b'a'; 17]).unwrap();
         let err = read_capped_to_string_with(&path, 16).expect_err("must reject oversize");
         assert_eq!(err.kind(), std::io::ErrorKind::InvalidData);
@@ -787,7 +790,7 @@ mod tests {
     #[test]
     fn read_capped_to_string_oversize_multibyte_boundary_reports_cap() {
         let dir = tempfile::tempdir().unwrap();
-        let path = dir.path().join("big-utf8");
+        let path = crate::test_utils::canonical_root(&dir).join("big-utf8");
         // cap = 4, content = "aaa€": the 3-byte '€' starts at byte 3, so the
         // `cap + 1` window ends mid-sequence.
         std::fs::write(&path, "aaa\u{20ac}".as_bytes()).unwrap();
@@ -808,7 +811,7 @@ mod tests {
     #[test]
     fn read_capped_to_string_under_cap_invalid_utf8_still_errors() {
         let dir = tempfile::tempdir().unwrap();
-        let path = dir.path().join("garbage");
+        let path = crate::test_utils::canonical_root(&dir).join("garbage");
         std::fs::write(&path, [0xffu8, 0xfe, 0xfd]).unwrap();
 
         let err = read_capped_to_string_with(&path, 1024).expect_err("invalid UTF-8 must error");
@@ -828,7 +831,7 @@ mod tests {
     #[test]
     fn read_capped_to_string_at_cap_returns_content() {
         let dir = tempfile::tempdir().unwrap();
-        let path = dir.path().join("ok");
+        let path = crate::test_utils::canonical_root(&dir).join("ok");
         std::fs::write(&path, b"12345678").unwrap();
         let got = read_capped_to_string_with(&path, 8).expect("at-cap file reads ok");
         assert_eq!(got, "12345678");
@@ -837,8 +840,8 @@ mod tests {
     #[test]
     fn read_capped_to_string_missing_propagates_not_found() {
         let dir = tempfile::tempdir().unwrap();
-        let err =
-            read_capped_to_string(&dir.path().join("nope")).expect_err("missing should error");
+        let err = read_capped_to_string(&crate::test_utils::canonical_root(&dir).join("nope"))
+            .expect_err("missing should error");
         assert_eq!(err.kind(), std::io::ErrorKind::NotFound);
     }
 
@@ -850,9 +853,9 @@ mod tests {
     #[test]
     fn read_capped_to_string_refuses_to_follow_symlink() {
         let dir = tempfile::tempdir().unwrap();
-        let target = dir.path().join("real.txt");
+        let target = crate::test_utils::canonical_root(&dir).join("real.txt");
         std::fs::write(&target, b"secret").unwrap();
-        let link = dir.path().join("manifest.toml");
+        let link = crate::test_utils::canonical_root(&dir).join("manifest.toml");
         std::os::unix::fs::symlink(&target, &link).unwrap();
 
         let err = read_capped_to_string_with(&link, 1024).expect_err("symlink must be rejected");
@@ -922,7 +925,7 @@ mod tests {
     #[test]
     fn read_capped_to_string_reads_through_real_nested_directories() {
         let root = tempfile::tempdir().unwrap();
-        let nested = root.path().join("a").join("b");
+        let nested = crate::test_utils::canonical_root(&root).join("a").join("b");
         std::fs::create_dir_all(&nested).unwrap();
         std::fs::write(nested.join("Cargo.toml"), b"[package]").unwrap();
 
@@ -972,7 +975,7 @@ mod tests {
     #[test]
     fn read_capped_to_string_refuses_fifo_without_blocking() {
         let dir = tempfile::tempdir().unwrap();
-        let fifo = dir.path().join("go.mod");
+        let fifo = crate::test_utils::canonical_root(&dir).join("go.mod");
         let c_path = std::ffi::CString::new(fifo.as_os_str().as_encoded_bytes()).unwrap();
         // SAFETY: `c_path` is a NUL-terminated path inside a temp dir that
         // outlives the call; `mkfifo` takes no other pointer arguments.
@@ -1009,7 +1012,7 @@ mod tests {
     fn read_capped_to_string_permission_denied_includes_path() {
         use std::os::unix::fs::PermissionsExt;
         let dir = tempfile::tempdir().unwrap();
-        let path = dir.path().join("locked.toml");
+        let path = crate::test_utils::canonical_root(&dir).join("locked.toml");
         std::fs::write(&path, b"data").unwrap();
         std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o000)).unwrap();
 
@@ -1132,7 +1135,7 @@ mod tests {
             return;
         }
         let dir = tempfile::tempdir().unwrap();
-        let path = dir.path().join("denied.txt");
+        let path = crate::test_utils::canonical_root(&dir).join("denied.txt");
         std::fs::write(&path, "data").unwrap();
         let mut perms = std::fs::metadata(&path).unwrap().permissions();
         perms.set_mode(0o000);

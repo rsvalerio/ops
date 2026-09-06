@@ -238,7 +238,7 @@ fn command_id_from_str() {
 #[test]
 fn read_config_file_valid_toml() {
     let dir = tempfile::tempdir().expect("tempdir");
-    let path = dir.path().join("test.toml");
+    let path = crate::test_utils::canonical_root(&dir).join("test.toml");
     std::fs::write(
         &path,
         r#"
@@ -269,7 +269,7 @@ args = ["hi"]
 #[test]
 fn read_config_file_invalid_toml_returns_err() {
     let dir = tempfile::tempdir().expect("tempdir");
-    let path = dir.path().join("bad.toml");
+    let path = crate::test_utils::canonical_root(&dir).join("bad.toml");
     std::fs::write(&path, "not valid { toml }}}").unwrap();
     assert!(
         read_config_file(&path).is_err(),
@@ -280,7 +280,7 @@ fn read_config_file_invalid_toml_returns_err() {
 #[test]
 fn read_config_file_missing_returns_ok_none() {
     let dir = tempfile::tempdir().expect("tempdir");
-    let path = dir.path().join("nonexistent.toml");
+    let path = crate::test_utils::canonical_root(&dir).join("nonexistent.toml");
     assert!(
         matches!(read_config_file(&path), Ok(None)),
         "missing file should return Ok(None)"
@@ -384,7 +384,7 @@ mod read_config_file_error_paths {
         use std::os::unix::fs::PermissionsExt;
 
         let dir = tempfile::tempdir().expect("tempdir");
-        let path = dir.path().join("unreadable.toml");
+        let path = crate::test_utils::canonical_root(&dir).join("unreadable.toml");
         std::fs::write(&path, "[output]\ntheme = \"classic\"").unwrap();
 
         std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o000)).unwrap();
@@ -677,10 +677,10 @@ fn load_config_rejects_duplicate_alias_across_commands() {
     let dir = tempfile::tempdir().expect("tempdir");
     // Isolates XDG and clears the resolver cache both on entry and on drop,
     // so the cached tempdir path cannot outlive this test.
-    let _xdg = crate::test_utils::isolate_global_config(dir.path());
+    let _xdg = crate::test_utils::isolate_global_config(&crate::test_utils::canonical_root(&dir));
     let _env = EnvGuard::remove("OPS__OUTPUT__THEME");
     std::fs::write(
-        dir.path().join(".ops.toml"),
+        crate::test_utils::canonical_root(&dir).join(".ops.toml"),
         r#"
 [commands.build]
 program = "cargo"
@@ -693,7 +693,7 @@ aliases = ["b"]
     )
     .unwrap();
 
-    let err = crate::config::load_config_at(dir.path())
+    let err = crate::config::load_config_at(&crate::test_utils::canonical_root(&dir))
         .expect_err("a duplicate alias must fail the real load path");
 
     let msg = format!("{err:#}");
@@ -713,10 +713,10 @@ fn load_config_rejects_alias_shadowing_a_command_name() {
     let dir = tempfile::tempdir().expect("tempdir");
     // Isolates XDG and clears the resolver cache both on entry and on drop,
     // so the cached tempdir path cannot outlive this test.
-    let _xdg = crate::test_utils::isolate_global_config(dir.path());
+    let _xdg = crate::test_utils::isolate_global_config(&crate::test_utils::canonical_root(&dir));
     let _env = EnvGuard::remove("OPS__OUTPUT__THEME");
     std::fs::write(
-        dir.path().join(".ops.toml"),
+        crate::test_utils::canonical_root(&dir).join(".ops.toml"),
         r#"
 [commands.build]
 program = "cargo"
@@ -728,7 +728,7 @@ aliases = ["build"]
     )
     .unwrap();
 
-    let err = crate::config::load_config_at(dir.path())
+    let err = crate::config::load_config_at(&crate::test_utils::canonical_root(&dir))
         .expect_err("an alias shadowing a command name must fail the real load path");
 
     let msg = format!("{err:#}");
@@ -888,11 +888,16 @@ fn load_config_accepts_ordinary_left_pad() {
     let dir = tempfile::tempdir().expect("tempdir");
     // Isolates XDG and clears the resolver cache both on entry and on drop,
     // so the cached tempdir path cannot outlive this test.
-    let _xdg = crate::test_utils::isolate_global_config(dir.path());
+    let _xdg = crate::test_utils::isolate_global_config(&crate::test_utils::canonical_root(&dir));
     let _env = EnvGuard::remove("OPS__OUTPUT__THEME");
-    std::fs::write(dir.path().join(".ops.toml"), theme_toml("4")).unwrap();
+    std::fs::write(
+        crate::test_utils::canonical_root(&dir).join(".ops.toml"),
+        theme_toml("4"),
+    )
+    .unwrap();
 
-    let config = crate::config::load_config_at(dir.path()).expect("an ordinary left_pad must load");
+    let config = crate::config::load_config_at(&crate::test_utils::canonical_root(&dir))
+        .expect("an ordinary left_pad must load");
     assert_eq!(config.themes["wide"].left_pad, 4);
 }
 
@@ -944,11 +949,15 @@ fn load_config_with_left_pad(left_pad: &str) -> String {
     let dir = tempfile::tempdir().expect("tempdir");
     // Isolates XDG and clears the resolver cache both on entry and on drop,
     // so the cached tempdir path cannot outlive this test.
-    let _xdg = crate::test_utils::isolate_global_config(dir.path());
+    let _xdg = crate::test_utils::isolate_global_config(&crate::test_utils::canonical_root(&dir));
     let _env = EnvGuard::remove("OPS__OUTPUT__THEME");
-    std::fs::write(dir.path().join(".ops.toml"), theme_toml(left_pad)).unwrap();
+    std::fs::write(
+        crate::test_utils::canonical_root(&dir).join(".ops.toml"),
+        theme_toml(left_pad),
+    )
+    .unwrap();
 
-    let err = crate::config::load_config_at(dir.path())
+    let err = crate::config::load_config_at(&crate::test_utils::canonical_root(&dir))
         .expect_err("an out-of-range left_pad must be a clean Err, not a panic or an abort");
     format!("{err:#}")
 }

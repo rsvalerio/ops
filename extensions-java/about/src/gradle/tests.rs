@@ -5,6 +5,13 @@
 use super::lexer::{extract_quoted, extract_quoted_list};
 use super::*;
 
+/// Resolve the tempdir root through macOS's symlinked `/var` prefix so the
+/// SEC-33 `open_refusing_symlinks` guard accepts it (caller-canonicalizes
+/// rule; Linux CI's `/tmp` is not a symlink, so only local runs need this).
+fn canon(dir: &tempfile::TempDir) -> std::path::PathBuf {
+    dir.path().canonicalize().unwrap()
+}
+
 #[test]
 fn extract_quoted_list_bails_on_bare_token() {
     let mut out = Vec::new();
@@ -145,7 +152,7 @@ fn parse_gradle_settings_basic() {
     )
     .unwrap();
 
-    let s = parse_gradle_settings(dir.path()).unwrap();
+    let s = parse_gradle_settings(&canon(&dir)).unwrap();
     assert_eq!(s.root_project_name, Some("spring-boot".to_string()));
     assert_eq!(s.includes, vec!["core", "web"]);
 }
@@ -159,7 +166,7 @@ fn parse_gradle_settings_kts() {
     )
     .unwrap();
 
-    let s = parse_gradle_settings(dir.path()).unwrap();
+    let s = parse_gradle_settings(&canon(&dir)).unwrap();
     assert_eq!(s.root_project_name, Some("myapp".to_string()));
     assert_eq!(s.includes, vec!["api", "impl"]);
 }
@@ -173,7 +180,7 @@ fn parse_gradle_settings_single_quoted() {
     )
     .unwrap();
 
-    let s = parse_gradle_settings(dir.path()).unwrap();
+    let s = parse_gradle_settings(&canon(&dir)).unwrap();
     assert_eq!(s.root_project_name, Some("myapp".to_string()));
     assert_eq!(s.includes, vec!["core"]);
 }
@@ -187,7 +194,7 @@ fn parse_gradle_settings_multi_arg_groovy() {
     )
     .unwrap();
 
-    let s = parse_gradle_settings(dir.path()).unwrap();
+    let s = parse_gradle_settings(&canon(&dir)).unwrap();
     assert_eq!(s.includes, vec!["a", "b", "c"]);
 }
 
@@ -200,7 +207,7 @@ fn parse_gradle_settings_multi_arg_kotlin() {
     )
     .unwrap();
 
-    let s = parse_gradle_settings(dir.path()).unwrap();
+    let s = parse_gradle_settings(&canon(&dir)).unwrap();
     assert_eq!(s.includes, vec!["a", "b"]);
 }
 
@@ -213,7 +220,7 @@ fn parse_gradle_settings_kotlin_chained_includes_same_line() {
     )
     .unwrap();
 
-    let s = parse_gradle_settings(dir.path()).unwrap();
+    let s = parse_gradle_settings(&canon(&dir)).unwrap();
     assert_eq!(s.includes, vec!["a", "b"]);
 }
 
@@ -226,7 +233,7 @@ fn parse_gradle_settings_kotlin_quoted_arg_with_paren() {
     )
     .unwrap();
 
-    let s = parse_gradle_settings(dir.path()).unwrap();
+    let s = parse_gradle_settings(&canon(&dir)).unwrap();
     assert_eq!(s.includes, vec!["legacy)module"]);
 }
 
@@ -242,7 +249,7 @@ fn parse_gradle_settings_root_project_name_with_inline_comment() {
         "rootProject.name = \"myapp\" // primary\n",
     )
     .unwrap();
-    let s = parse_gradle_settings(dir.path()).unwrap();
+    let s = parse_gradle_settings(&canon(&dir)).unwrap();
     assert_eq!(s.root_project_name, Some("myapp".to_string()));
 }
 
@@ -255,7 +262,7 @@ fn parse_gradle_settings_inline_comment() {
     )
     .unwrap();
 
-    let s = parse_gradle_settings(dir.path()).unwrap();
+    let s = parse_gradle_settings(&canon(&dir)).unwrap();
     assert_eq!(s.includes, vec!["core"]);
 }
 
@@ -273,7 +280,7 @@ fn parse_gradle_settings_escaped_quote_include_parity_between_kotlin_and_groovy(
         "include(\"legacy\\\")module\")\n",
     )
     .unwrap();
-    let kotlin = parse_gradle_settings(kotlin_dir.path()).unwrap();
+    let kotlin = parse_gradle_settings(&canon(&kotlin_dir)).unwrap();
 
     let groovy_dir = tempfile::tempdir().unwrap();
     std::fs::write(
@@ -281,7 +288,7 @@ fn parse_gradle_settings_escaped_quote_include_parity_between_kotlin_and_groovy(
         "include \"legacy\\\")module\"\n",
     )
     .unwrap();
-    let groovy = parse_gradle_settings(groovy_dir.path()).unwrap();
+    let groovy = parse_gradle_settings(&canon(&groovy_dir)).unwrap();
 
     assert_eq!(kotlin.includes, expected);
     assert_eq!(groovy.includes, expected);
@@ -298,7 +305,7 @@ fn parse_gradle_settings_include_argument_containing_double_slash_is_kept() {
     )
     .unwrap();
 
-    let s = parse_gradle_settings(dir.path()).unwrap();
+    let s = parse_gradle_settings(&canon(&dir)).unwrap();
     assert_eq!(s.includes, vec!["a//b".to_string()]);
 }
 
@@ -316,14 +323,14 @@ fn parse_gradle_settings_nested_root_project_name_ignored() {
     )
     .unwrap();
 
-    let s = parse_gradle_settings(dir.path()).unwrap();
+    let s = parse_gradle_settings(&canon(&dir)).unwrap();
     assert_eq!(s.root_project_name, Some("real".to_string()));
 }
 
 #[test]
 fn parse_gradle_settings_missing_file() {
     let dir = tempfile::tempdir().unwrap();
-    assert!(parse_gradle_settings(dir.path()).is_none());
+    assert!(parse_gradle_settings(&canon(&dir)).is_none());
 }
 
 #[test]
@@ -335,7 +342,7 @@ fn parse_gradle_properties_version() {
     )
     .unwrap();
 
-    let p = parse_gradle_properties(dir.path()).unwrap();
+    let p = parse_gradle_properties(&canon(&dir)).unwrap();
     assert_eq!(p.version, Some("4.1.0-SNAPSHOT".to_string()));
 }
 
@@ -344,7 +351,7 @@ fn parse_gradle_properties_with_spaces() {
     let dir = tempfile::tempdir().unwrap();
     std::fs::write(dir.path().join("gradle.properties"), "version = 2.0.0\n").unwrap();
 
-    let p = parse_gradle_properties(dir.path()).unwrap();
+    let p = parse_gradle_properties(&canon(&dir)).unwrap();
     assert_eq!(p.version, Some("2.0.0".to_string()));
 }
 
@@ -353,7 +360,7 @@ fn parse_gradle_properties_colon_separator() {
     let dir = tempfile::tempdir().unwrap();
     std::fs::write(dir.path().join("gradle.properties"), "version : 1.2\n").unwrap();
 
-    let p = parse_gradle_properties(dir.path()).unwrap();
+    let p = parse_gradle_properties(&canon(&dir)).unwrap();
     assert_eq!(p.version, Some("1.2".to_string()));
 }
 
@@ -366,7 +373,7 @@ fn parse_gradle_properties_inline_comment() {
     )
     .unwrap();
 
-    let p = parse_gradle_properties(dir.path()).unwrap();
+    let p = parse_gradle_properties(&canon(&dir)).unwrap();
     assert_eq!(p.version, Some("1.2".to_string()));
 }
 
@@ -376,7 +383,7 @@ fn parse_gradle_properties_value_contains_bang() {
     // is part of the value, not a comment introducer.
     let dir = tempfile::tempdir().unwrap();
     std::fs::write(dir.path().join("gradle.properties"), "version=1.0!beta\n").unwrap();
-    let p = parse_gradle_properties(dir.path()).unwrap();
+    let p = parse_gradle_properties(&canon(&dir)).unwrap();
     assert_eq!(p.version, Some("1.0!beta".to_string()));
 }
 
@@ -390,7 +397,7 @@ fn parse_gradle_properties_value_contains_hash() {
         "version=1.0#snapshot\n",
     )
     .unwrap();
-    let p = parse_gradle_properties(dir.path()).unwrap();
+    let p = parse_gradle_properties(&canon(&dir)).unwrap();
     assert_eq!(p.version, Some("1.0#snapshot".to_string()));
 }
 
@@ -404,14 +411,14 @@ fn parse_gradle_properties_real_comment_line_skipped() {
         "# version=2.0\nversion=3.0\n",
     )
     .unwrap();
-    let p = parse_gradle_properties(dir.path()).unwrap();
+    let p = parse_gradle_properties(&canon(&dir)).unwrap();
     assert_eq!(p.version, Some("3.0".to_string()));
 }
 
 #[test]
 fn parse_gradle_properties_missing_file() {
     let dir = tempfile::tempdir().unwrap();
-    assert!(parse_gradle_properties(dir.path()).is_none());
+    assert!(parse_gradle_properties(&canon(&dir)).is_none());
 }
 
 #[test]
@@ -423,7 +430,7 @@ fn parse_gradle_build_description() {
     )
     .unwrap();
 
-    let b = parse_gradle_build(dir.path()).unwrap();
+    let b = parse_gradle_build(&canon(&dir)).unwrap();
     assert_eq!(b.description, Some("Spring Boot Build".to_string()));
 }
 
@@ -436,7 +443,7 @@ fn parse_gradle_build_bare_method() {
     )
     .unwrap();
 
-    let b = parse_gradle_build(dir.path()).unwrap();
+    let b = parse_gradle_build(&canon(&dir)).unwrap();
     assert_eq!(b.description, Some("Bare method form".to_string()));
 }
 
@@ -451,7 +458,7 @@ fn parse_gradle_build_bare_method_url_in_description() {
     )
     .unwrap();
 
-    let b = parse_gradle_build(dir.path()).unwrap();
+    let b = parse_gradle_build(&canon(&dir)).unwrap();
     assert_eq!(b.description, Some("see https://example.com".to_string()));
 }
 
@@ -466,7 +473,7 @@ fn parse_gradle_build_bare_method_trailing_comment_ignored() {
     )
     .unwrap();
 
-    let b = parse_gradle_build(dir.path()).unwrap();
+    let b = parse_gradle_build(&canon(&dir)).unwrap();
     assert_eq!(b.description, Some("My project".to_string()));
 }
 
@@ -479,7 +486,7 @@ fn parse_gradle_build_kts() {
     )
     .unwrap();
 
-    let b = parse_gradle_build(dir.path()).unwrap();
+    let b = parse_gradle_build(&canon(&dir)).unwrap();
     assert_eq!(b.description, Some("Kotlin Build".to_string()));
 }
 
@@ -499,7 +506,7 @@ fn parse_gradle_build_root_description_wins_over_task_block() {
     )
     .unwrap();
 
-    let b = parse_gradle_build(dir.path()).unwrap();
+    let b = parse_gradle_build(&canon(&dir)).unwrap();
     assert_eq!(
         b.description,
         Some("The real project description".to_string())
@@ -519,7 +526,7 @@ fn parse_gradle_build_task_block_description_alone_yields_none() {
     )
     .unwrap();
 
-    let b = parse_gradle_build(dir.path()).unwrap();
+    let b = parse_gradle_build(&canon(&dir)).unwrap();
     assert_eq!(b.description, None);
 }
 
@@ -536,7 +543,7 @@ fn parse_gradle_build_bare_method_inside_block_ignored() {
     )
     .unwrap();
 
-    let b = parse_gradle_build(dir.path()).unwrap();
+    let b = parse_gradle_build(&canon(&dir)).unwrap();
     assert_eq!(b.description, None);
 }
 
@@ -552,7 +559,7 @@ fn parse_gradle_build_brace_inside_quoted_value_is_not_a_block() {
     )
     .unwrap();
 
-    let b = parse_gradle_build(dir.path()).unwrap();
+    let b = parse_gradle_build(&canon(&dir)).unwrap();
     assert_eq!(b.description, Some("Still top level".to_string()));
 }
 
@@ -567,14 +574,14 @@ fn parse_gradle_build_duplicate_top_level_description_keeps_first() {
     )
     .unwrap();
 
-    let b = parse_gradle_build(dir.path()).unwrap();
+    let b = parse_gradle_build(&canon(&dir)).unwrap();
     assert_eq!(b.description, Some("first".to_string()));
 }
 
 #[test]
 fn parse_gradle_build_missing_file() {
     let dir = tempfile::tempdir().unwrap();
-    assert!(parse_gradle_build(dir.path()).is_none());
+    assert!(parse_gradle_build(&canon(&dir)).is_none());
 }
 
 #[test]
@@ -603,7 +610,7 @@ fn gradle_provider_provide_full() {
     )
     .unwrap();
 
-    let mut ctx = Context::test_context(dir.path().to_path_buf());
+    let mut ctx = Context::test_context(canon(&dir));
     let result = GradleIdentityProvider.provide(&mut ctx).unwrap();
 
     assert_eq!(result["name"], "mygradle");

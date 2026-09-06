@@ -564,13 +564,6 @@ mod cache_tests {
 
 #[cfg(all(test, unix))]
 mod tests {
-    use super::RustCoverageProvider;
-    use ops_about::test_support::capture_tracing;
-    use ops_duckdb::DuckDb;
-    use ops_extension::{Context, DataProvider};
-    use std::ffi::OsStr;
-    use std::os::unix::ffi::OsStrExt;
-    use std::sync::Arc;
 
     /// READ-5 / TASK-0986 + TEST-25 / TASK-1773: a non-UTF-8 workspace root
     /// must NOT collapse to a U+FFFD-replaced SQL key — the lossy key would
@@ -584,8 +577,19 @@ mod tests {
     /// UTF-8 — a `std` guarantee that stays green through exactly that
     /// regression.
     #[test]
+    // macOS-impossible: APFS refuses to create directory names that are not
+    // valid UTF-8 (`create_dir` fails with `Illegal byte sequence`), so the
+    // non-UTF-8 workspace-root fixture cannot exist there. Linux CI covers it.
+    #[cfg(not(target_os = "macos"))]
     #[serial_test::serial(typed_manifest_cache, project_coverage_cache)]
     fn non_utf8_workspace_root_skips_per_crate_coverage_with_warn() {
+        use super::RustCoverageProvider;
+        use ops_about::test_support::capture_tracing;
+        use ops_duckdb::DuckDb;
+        use ops_extension::{Context, DataProvider};
+        use std::ffi::OsStr;
+        use std::os::unix::ffi::OsStrExt;
+        use std::sync::Arc;
         let dir = tempfile::tempdir().expect("tempdir");
         // 0xC3 0x28 is an invalid UTF-8 sequence.
         let mut bytes = dir.path().as_os_str().as_bytes().to_vec();

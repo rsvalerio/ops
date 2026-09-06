@@ -11,9 +11,8 @@
 //! before 1970-01-01 — a container started before NTP steps it, an RTC-less
 //! board that boots at 0, a VM restored from a bad snapshot — [`UtcStamp::now`]
 //! returns an error naming the clock instead of substituting the Unix epoch.
-//! A silent substitution would date every task file, the
-//! `review-request-<date>-<n>` title, and the sequence namespace those ids are
-//! allocated in `1970-01-01`, unrecoverably and without any signal.
+//! A silent substitution would date every task file written from that point on
+//! `1970-01-01`, unrecoverably and without any signal.
 
 use anyhow::Context as _;
 
@@ -21,9 +20,9 @@ use anyhow::Context as _;
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct UtcStamp {
     /// `YYYY-MM-DD`
-    pub(crate) date: String,
+    pub date: String,
     /// `HH:MM`
-    pub(crate) minutes: String,
+    pub minutes: String,
 }
 
 impl UtcStamp {
@@ -31,7 +30,8 @@ impl UtcStamp {
     /// instant lies outside the range `chrono` can represent (roughly year
     /// 262143 — unreachable for any wall-clock value, but the conversion
     /// refuses rather than clamping).
-    pub(crate) fn from_unix_secs(secs: u64) -> Option<Self> {
+    #[must_use = "converting without using the stamp discards the calendar arithmetic"]
+    pub fn from_unix_secs(secs: u64) -> Option<Self> {
         let at = chrono::DateTime::from_timestamp(i64::try_from(secs).ok()?, 0)?;
         Some(Self {
             date: at.format("%Y-%m-%d").to_string(),
@@ -45,7 +45,7 @@ impl UtcStamp {
     ///
     /// The host clock reads before 1970-01-01, or so far after it that the
     /// instant has no calendar representation.
-    pub(crate) fn now() -> anyhow::Result<Self> {
+    pub fn now() -> anyhow::Result<Self> {
         Self::at(std::time::SystemTime::now())
     }
 
@@ -55,15 +55,15 @@ impl UtcStamp {
     /// # Errors
     ///
     /// As [`UtcStamp::now`].
-    pub(crate) fn at(reading: std::time::SystemTime) -> anyhow::Result<Self> {
+    pub fn at(reading: std::time::SystemTime) -> anyhow::Result<Self> {
         let since_epoch = reading
             .duration_since(std::time::UNIX_EPOCH)
-            .context("system clock reads before 1970-01-01; refusing to date review tasks")?;
+            .context("system clock reads before 1970-01-01; refusing to date backlog tasks")?;
         let secs = since_epoch.as_secs();
         Self::from_unix_secs(secs).with_context(|| {
             format!(
                 "system clock reads {secs} seconds after 1970-01-01, which is not a \
-                 representable date; refusing to date review tasks"
+                 representable date; refusing to date backlog tasks"
             )
         })
     }

@@ -112,6 +112,12 @@ mod tests {
     use super::*;
     use crate::fixtures::{commit_config, push_config};
 
+    /// Resolve the tempdir root through macOS's symlinked `/var` prefix so the
+    /// SEC-33 `open_refusing_symlinks` guard accepts it (Linux CI's `/tmp` is
+    /// not a symlink, so only local runs need this).
+    fn canon(dir: &tempfile::TempDir) -> std::path::PathBuf {
+        dir.path().canonicalize().unwrap()
+    }
     #[test]
     fn ensure_config_creates_command_in_empty_file() {
         let cfg = commit_config();
@@ -119,7 +125,7 @@ mod tests {
 
         let selected = vec!["verify".to_string()];
         let mut buf = Vec::new();
-        ensure_config_command(&cfg, dir.path(), &selected, &mut buf)
+        ensure_config_command(&cfg, &canon(&dir), &selected, &mut buf)
             .expect("ensure_config_command");
 
         let content = std::fs::read_to_string(dir.path().join(".ops.toml")).unwrap();
@@ -138,7 +144,7 @@ mod tests {
 
         let selected = vec!["verify".to_string()];
         let mut buf = Vec::new();
-        ensure_config_command(&cfg, dir.path(), &selected, &mut buf)
+        ensure_config_command(&cfg, &canon(&dir), &selected, &mut buf)
             .expect("ensure_config_command");
 
         let content = std::fs::read_to_string(dir.path().join(".ops.toml")).unwrap();
@@ -157,7 +163,7 @@ mod tests {
 
         let selected = vec!["verify".to_string()];
         let mut buf = Vec::new();
-        ensure_config_command(&cfg, dir.path(), &selected, &mut buf)
+        ensure_config_command(&cfg, &canon(&dir), &selected, &mut buf)
             .expect("ensure_config_command");
 
         let content = std::fs::read_to_string(dir.path().join(".ops.toml")).unwrap();
@@ -179,7 +185,7 @@ mod tests {
 
         let selected = vec!["build".to_string(), "test".to_string()];
         let mut buf = Vec::new();
-        ensure_config_command(&cfg, dir.path(), &selected, &mut buf)
+        ensure_config_command(&cfg, &canon(&dir), &selected, &mut buf)
             .expect("ensure_config_command");
 
         let content = std::fs::read_to_string(dir.path().join(".ops.toml")).unwrap();
@@ -200,7 +206,7 @@ mod tests {
 
         let selected = vec!["verify".to_string()];
         let mut buf = Vec::new();
-        let result = ensure_config_command(&cfg, dir.path(), &selected, &mut buf);
+        let result = ensure_config_command(&cfg, &canon(&dir), &selected, &mut buf);
 
         assert!(result.is_err(), "malformed TOML should be a hard error");
         let err = format!("{:#}", result.unwrap_err());
@@ -225,7 +231,7 @@ mod tests {
 
         let selected = vec!["verify".to_string()];
         let mut buf = Vec::new();
-        let err = ensure_config_command(&cfg, dir.path(), &selected, &mut buf)
+        let err = ensure_config_command(&cfg, &canon(&dir), &selected, &mut buf)
             .expect_err("a non-table `commands` must be an error");
 
         let rendered = format!("{err:#}");

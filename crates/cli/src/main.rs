@@ -44,6 +44,7 @@ extern crate ops_tokei;
 
 mod about_cmd;
 mod args;
+mod backlog_cmd;
 mod extension_cmd;
 mod help;
 mod hook_shared;
@@ -63,7 +64,7 @@ mod tty;
 #[cfg(test)]
 mod test_utils;
 #[cfg(test)]
-pub(crate) use test_utils::CwdGuard;
+pub(crate) use test_utils::{canonical_root, CwdGuard};
 
 use clap::FromArgMatches;
 use std::io;
@@ -269,6 +270,10 @@ fn dispatch(
             init_cmd::run_init(force, &sections)?;
         }
         Some(CoreSubcommand::Theme { action }) => run_theme(early_config, action)?,
+        Some(CoreSubcommand::Backlog { action }) => {
+            let cwd = cwd()?;
+            backlog_cmd::run_backlog(&cwd, action)?;
+        }
         Some(CoreSubcommand::Extension { action }) => run_extension(early_config, action)?,
         Some(CoreSubcommand::NewCommand) => {
             let cwd = cwd()?;

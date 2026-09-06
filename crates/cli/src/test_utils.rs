@@ -11,6 +11,19 @@
 pub use ops_core::test_utils::*;
 
 // Re-export runner test support (EventAssertions, test_runner)
+/// Resolve a tempdir root through its symlinked prefix (macOS: `/var` →
+/// `/private/var`), following the caller-canonicalizes-once rule from
+/// `ops_core::text`'s architecture note. Without this, the SEC-33
+/// `open_refusing_symlinks` guard in the config writer refuses the
+/// unresolved prefix on macOS (CI's Linux `/tmp` is not a symlink, which is
+/// why these tests only fail locally). Production callers get the same
+/// guarantee for free from `current_dir()`.
+pub fn canonical_root(dir: &tempfile::TempDir) -> std::path::PathBuf {
+    dir.path()
+        .canonicalize()
+        .unwrap_or_else(|_| dir.path().to_path_buf())
+}
+
 #[cfg(test)]
 #[allow(unused_imports)]
 pub use ops_runner::test_support::{test_runner, EventAssertions};

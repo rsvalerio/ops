@@ -1352,3 +1352,387 @@ fn cli_deps_accepts_refresh_and_still_renders_the_report() {
         .success()
         .stdout(predicate::str::contains("Dependency Health Report"));
 }
+
+// --- backlog -----------------------------------------------------------------
+
+fn backlog_dir() -> TempDir {
+    let dir = temp_dir();
+    std::fs::write(
+        dir.path().join("backlog.config.yml"),
+        "default_status: \"Triage\"\nstatuses: [\"Triage\", \"To Do\", \"In Progress\", \"Done\"]\nzero_padded_ids: 4\ntask_prefix: \"TASK\"\nbacklog_directory: \".backlog\"\n",
+    )
+    .expect("write config");
+    std::fs::create_dir_all(dir.path().join(".backlog").join("tasks")).expect("tasks dir");
+    dir
+}
+
+/// The create → list → view → edit loop the skills drive, against a scratch
+/// backlog: the created file lands under `tasks/`, `list --plain` carries the
+/// row shape triage greps, `view --plain` leads with the `File:` line
+/// run-wave extracts with `sed -n '1s/^File: //p'`, and an edit flips the
+/// status the next list shows.
+#[test]
+fn cli_backlog_create_list_view_edit_flow() {
+    let dir = backlog_dir();
+
+    ops_in(
+        dir.path(),
+        &[
+            "backlog",
+            "task",
+            "create",
+            "DUP-3: duplicated scaffold",
+            "-d",
+            "**File**: `crates/foo/src/lib.rs:42`",
+            "-s",
+            "Triage",
+            "-l",
+            "code-review-rust,duplication",
+            "--priority",
+            "high",
+            "--modified-file",
+            "crates/foo/src/lib.rs",
+            "--ac",
+            "criterion one",
+            "--plain",
+        ],
+    )
+    .success()
+    .stdout(predicate::str::contains("Created TASK-0001"));
+
+    ops_in(
+        dir.path(),
+        &["backlog", "task", "list", "--status", "Triage", "--plain"],
+    )
+    .success()
+    .stdout(predicate::str::contains(
+        "  [HIGH] TASK-0001 - DUP-3: duplicated scaffold (ac: 0/1)",
+    ));
+
+    let view = ops_in(
+        dir.path(),
+        &["backlog", "task", "view", "TASK-0001", "--plain"],
+    )
+    .success()
+    .get_output()
+    .stdout
+    .clone();
+    let text = String::from_utf8(view).expect("utf8");
+    let first = text.lines().next().expect("first line");
+    let path = first.strip_prefix("File: ").expect("File: prefix");
+    assert!(
+        std::path::Path::new(path)
+            .extension()
+            .is_some_and(|e| e.eq_ignore_ascii_case("md")),
+        "path names the task file: {path}"
+    );
+    // The sed extraction the run-wave skill performs.
+    let extracted = std::process::Command::new("sed")
+        .arg("-n")
+        .arg("1s/^File: //p")
+        .stdin(std::process::Stdio::piped())
+        .stdout(std::process::Stdio::piped())
+        .spawn()
+        .and_then(|mut child| {
+            use std::io::Write as _;
+            child
+                .stdin
+                .take()
+                .expect("stdin")
+                .write_all(text.as_bytes())
+                .ok();
+            child.wait_with_output()
+        })
+        .expect("sed run");
+    assert_eq!(
+        String::from_utf8_lossy(&extracted.stdout).trim_end(),
+        path,
+        "sed -n '1s/^File: //p' must yield the path"
+    );
+
+    ops_in(
+        dir.path(),
+        &[
+            "backlog",
+            "task",
+            "edit",
+            "TASK-0001",
+            "-s",
+            "To Do",
+            "--plain",
+        ],
+    )
+    .success()
+    .stdout(predicate::str::contains("Updated TASK-0001"));
+
+    ops_in(
+        dir.path(),
+        &["backlog", "task", "list", "-s", "To Do", "--plain"],
+    )
+    .success()
+    .stdout(predicate::str::contains("To Do:"))
+    .stdout(predicate::str::contains("TASK-0001"));
+}
+
+/// `--plain` and `--json` are mutually exclusive, matching the backlog CLI.
+#[test]
+fn cli_backlog_view_plain_json_conflict_fails() {
+    let dir = backlog_dir();
+    ops_in(
+        dir.path(),
+        &["backlog", "task", "view", "TASK-0001", "--plain", "--json"],
+    )
+    .failure();
+}
+
+/// A missing `.backlog/tasks` tree is an error naming the directory.
+#[test]
+fn cli_backlog_missing_tree_names_the_directory() {
+    let dir = temp_dir();
+    ops_in(dir.path(), &["backlog", "task", "list", "--plain"])
+        .failure()
+        .stderr(predicate::str::contains("tasks"));
+}
+
+/// Search finds a filed finding by its rule id and the `--modified-file`
+/// filter narrows to the touching task.
+#[test]
+fn cli_backlog_search_by_rule_id_and_modified_file() {
+    let dir = backlog_dir();
+    ops_in(
+        dir.path(),
+        &[
+            "backlog",
+            "task",
+            "create",
+            "ERR-5: unwrap in handler",
+            "-d",
+            "body",
+            "--modified-file",
+            "crates/foo/src/lib.rs",
+            "--plain",
+        ],
+    )
+    .success();
+    ops_in(
+        dir.path(),
+        &[
+            "backlog",
+            "task",
+            "create",
+            "DUP-3: duplicated scaffold",
+            "-d",
+            "body",
+            "--modified-file",
+            "crates/bar/src/main.rs",
+            "--plain",
+        ],
+    )
+    .success();
+
+    ops_in(dir.path(), &["backlog", "search", "DUP-3", "--plain"])
+        .success()
+        .stdout(predicate::str::contains(
+            "TASK-0002 - DUP-3: duplicated scaffold",
+        ))
+        .stdout(predicate::str::contains("[score 0.300]"));
+
+    ops_in(
+        dir.path(),
+        &[
+            "backlog",
+            "search",
+            "--modified-file",
+            "crates/foo",
+            "--plain",
+        ],
+    )
+    .success()
+    .stdout(predicate::str::contains("TASK-0001"))
+    .stdout(predicate::str::contains("(Triage)"));
+}
+
+/// The JSON view parses and carries the envelope fields skills read.
+#[test]
+fn cli_backlog_view_json_envelope() {
+    let dir = backlog_dir();
+    ops_in(
+        dir.path(),
+        &[
+            "backlog", "task", "create", "view me", "-d", "the body", "--plain",
+        ],
+    )
+    .success();
+    let out = ops_in(
+        dir.path(),
+        &["backlog", "task", "view", "TASK-0001", "--json"],
+    )
+    .success()
+    .get_output()
+    .stdout
+    .clone();
+    let value: serde_json::Value = serde_json::from_slice(&out).expect("valid json");
+    assert_eq!(value["schemaVersion"], 1);
+    assert_eq!(value["kind"], "task-view");
+    assert_eq!(value["task"]["id"], "TASK-0001");
+    assert_eq!(value["task"]["description"], "the body");
+    assert_eq!(
+        value["task"]["path"],
+        ".backlog/tasks/task-0001 - view-me.md"
+    );
+}
+
+/// The structural link primitives: `--parent`/`--clear-parent` edit
+/// `parent_task_id`, `-p` filters on it, and `--dependents` answers the
+/// reverse query off `dependencies:`.
+#[test]
+fn cli_backlog_structural_link_primitives() {
+    let dir = backlog_dir();
+    for title in ["wave parent", "member one", "member two"] {
+        ops_in(dir.path(), &["backlog", "task", "create", title, "--plain"]).success();
+    }
+
+    // Link both members to the parent: one via the structural field, one
+    // via a dependency (both directions of the relationship).
+    ops_in(
+        dir.path(),
+        &[
+            "backlog",
+            "task",
+            "edit",
+            "TASK-0002",
+            "--parent",
+            "TASK-0001",
+            "--plain",
+        ],
+    )
+    .success()
+    .stdout(predicate::str::contains("Updated TASK-0002"));
+    ops_in(
+        dir.path(),
+        &[
+            "backlog",
+            "task",
+            "edit",
+            "TASK-0003",
+            "--parent",
+            "TASK-0001",
+            "--add-dep",
+            "TASK-0001",
+            "--plain",
+        ],
+    )
+    .success();
+
+    // Membership from the parent side: -p filters parent_task_id.
+    ops_in(
+        dir.path(),
+        &["backlog", "task", "list", "-p", "TASK-0001", "--plain"],
+    )
+    .success()
+    .stdout(predicate::str::contains("TASK-0002"))
+    .stdout(predicate::str::contains("TASK-0003"))
+    .stdout(predicate::str::contains("TASK-0001").not());
+
+    // The reverse query: only TASK-0003 carries the dependency.
+    ops_in(
+        dir.path(),
+        &[
+            "backlog",
+            "task",
+            "list",
+            "--dependents",
+            "TASK-0001",
+            "--plain",
+        ],
+    )
+    .success()
+    .stdout(predicate::str::contains("TASK-0003"))
+    .stdout(predicate::str::contains("TASK-0002").not());
+}
+
+/// The surgical unlink side of the structural primitives: `--remove-dep`
+/// and `--clear-parent` detach without restating lists.
+#[test]
+fn cli_backlog_structural_unlink_primitives() {
+    let dir = backlog_dir();
+    for title in ["wave parent", "member one", "member two"] {
+        ops_in(dir.path(), &["backlog", "task", "create", title, "--plain"]).success();
+    }
+    ops_in(
+        dir.path(),
+        &[
+            "backlog",
+            "task",
+            "edit",
+            "TASK-0002",
+            "--parent",
+            "TASK-0001",
+            "--plain",
+        ],
+    )
+    .success();
+    ops_in(
+        dir.path(),
+        &[
+            "backlog",
+            "task",
+            "edit",
+            "TASK-0003",
+            "--parent",
+            "TASK-0001",
+            "--add-dep",
+            "TASK-0001",
+            "--plain",
+        ],
+    )
+    .success();
+
+    // Surgical unlink and parent clear.
+    ops_in(
+        dir.path(),
+        &[
+            "backlog",
+            "task",
+            "edit",
+            "TASK-0003",
+            "--remove-dep",
+            "TASK-0001",
+            "--plain",
+        ],
+    )
+    .success();
+    ops_in(
+        dir.path(),
+        &[
+            "backlog",
+            "task",
+            "list",
+            "--dependents",
+            "TASK-0001",
+            "--plain",
+        ],
+    )
+    .success()
+    .stdout(predicate::str::is_empty());
+    for member in ["TASK-0002", "TASK-0003"] {
+        ops_in(
+            dir.path(),
+            &[
+                "backlog",
+                "task",
+                "edit",
+                member,
+                "--clear-parent",
+                "--plain",
+            ],
+        )
+        .success();
+    }
+    ops_in(
+        dir.path(),
+        &["backlog", "task", "list", "-p", "TASK-0001", "--plain"],
+    )
+    .success()
+    .stdout(predicate::str::is_empty());
+}

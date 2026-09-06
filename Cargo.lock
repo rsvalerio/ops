@@ -1723,6 +1723,7 @@ dependencies = [
  "ops-about-python",
  "ops-about-rust",
  "ops-about-terraform",
+ "ops-backlog",
  "ops-cargo-toml",
  "ops-cargo-update",
  "ops-config-checkers",
@@ -1863,6 +1864,16 @@ dependencies = [
 ]
 
 [[package]]
+name = "ops-backlog"
+version = "0.47.1"
+dependencies = [
+ "anyhow",
+ "chrono",
+ "serde_json",
+ "tempfile",
+]
+
+[[package]]
 name = "ops-cargo-toml"
 version = "0.47.1"
 dependencies = [
@@ -1939,6 +1950,7 @@ version = "0.47.1"
 dependencies = [
  "anyhow",
  "chrono",
+ "ops-backlog",
  "ops-core",
  "ops-extension",
  "serde",

@@ -162,7 +162,7 @@ mod tests {
         let dir = tempfile::tempdir().expect("tempdir");
 
         let fields = vec!["project".to_string(), "codebase".to_string()];
-        save_about_fields(&fields, dir.path()).expect("save should succeed");
+        save_about_fields(&fields, &crate::canonical_root(&dir)).expect("save should succeed");
 
         let config_path = dir.path().join(".ops.toml");
         assert!(config_path.exists());
@@ -180,7 +180,7 @@ mod tests {
         std::fs::write(dir.path().join(".ops.toml"), existing).unwrap();
 
         let fields = vec!["authors".to_string(), "repository".to_string()];
-        save_about_fields(&fields, dir.path()).expect("save should succeed");
+        save_about_fields(&fields, &crate::canonical_root(&dir)).expect("save should succeed");
 
         let content = std::fs::read_to_string(dir.path().join(".ops.toml")).unwrap();
         assert!(
@@ -203,7 +203,7 @@ mod tests {
             "codebase".to_string(),
             "repository".to_string(),
         ];
-        save_about_fields(&fields, dir.path()).expect("save should succeed");
+        save_about_fields(&fields, &crate::canonical_root(&dir)).expect("save should succeed");
 
         let content = std::fs::read_to_string(dir.path().join(".ops.toml")).unwrap();
         assert!(content.contains("codebase"), "got: {content}");
@@ -220,8 +220,11 @@ mod tests {
         let existing = "[about]\nfields = [\"project\"] # keep\n";
         std::fs::write(dir.path().join(".ops.toml"), existing).unwrap();
 
-        save_about_fields(&["project".to_string(), "codebase".to_string()], dir.path())
-            .expect("save should succeed");
+        save_about_fields(
+            &["project".to_string(), "codebase".to_string()],
+            &crate::canonical_root(&dir),
+        )
+        .expect("save should succeed");
 
         let content = std::fs::read_to_string(dir.path().join(".ops.toml")).unwrap();
         assert!(
@@ -238,7 +241,7 @@ mod tests {
         let malformed = "not = = valid\n{{{";
         std::fs::write(&path, malformed).unwrap();
 
-        let result = save_about_fields(&["project".to_string()], dir.path());
+        let result = save_about_fields(&["project".to_string()], &crate::canonical_root(&dir));
         assert!(result.is_err());
         assert_eq!(std::fs::read_to_string(&path).unwrap(), malformed);
     }
@@ -247,7 +250,7 @@ mod tests {
     fn save_about_fields_empty_selection() {
         let dir = tempfile::tempdir().expect("tempdir");
 
-        save_about_fields(&[], dir.path()).expect("save should succeed");
+        save_about_fields(&[], &crate::canonical_root(&dir)).expect("save should succeed");
 
         let content = std::fs::read_to_string(dir.path().join(".ops.toml")).unwrap();
         assert!(content.contains("[about]"), "got: {content}");
@@ -265,7 +268,8 @@ mod tests {
         std::fs::create_dir_all(&subdir).unwrap();
         let _guard = crate::CwdGuard::new(&subdir).expect("CwdGuard");
 
-        save_about_fields(&["project".to_string()], workspace_root).expect("save should succeed");
+        save_about_fields(&["project".to_string()], &crate::canonical_root(&dir))
+            .expect("save should succeed");
 
         assert!(workspace_root.join(".ops.toml").exists());
         assert!(

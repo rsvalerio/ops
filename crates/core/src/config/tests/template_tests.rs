@@ -27,12 +27,13 @@ fn default_ops_file_exists_and_deserializes() {
 fn init_template_with_rust_stack_includes_commands() {
     let dir = tempfile::tempdir().expect("tempdir");
     std::fs::write(
-        dir.path().join("Cargo.toml"),
+        crate::test_utils::canonical_root(&dir).join("Cargo.toml"),
         "[package]\nname = \"x\"\nversion = \"0.1.0\"\n",
     )
     .expect("write Cargo.toml");
     let sections = InitSections::from_flags(true, true, true);
-    let content = init_template(dir.path(), &sections).expect("init_template must succeed");
+    let content = init_template(&crate::test_utils::canonical_root(&dir), &sections)
+        .expect("init_template must succeed");
     assert!(
         content.contains("[commands.build]"),
         "Rust stack init template must include [commands.build]"
@@ -55,7 +56,8 @@ fn init_template_with_rust_stack_includes_commands() {
 fn init_template_without_stack_omits_stack_commands() {
     let dir = tempfile::tempdir().expect("tempdir");
     let sections = InitSections::from_flags(true, true, true);
-    let content = init_template(dir.path(), &sections).expect("init_template must succeed");
+    let content = init_template(&crate::test_utils::canonical_root(&dir), &sections)
+        .expect("init_template must succeed");
     assert!(
         content.contains("[output]"),
         "init template must include base [output]"
