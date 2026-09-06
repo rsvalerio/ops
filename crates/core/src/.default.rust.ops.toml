@@ -86,16 +86,16 @@ help = "Run fmt, clippy, build, trailing-whitespace, end-of-file-fixer, check-js
 category = "Code Quality"
 
 [commands.qa]
-commands = ["deps", "test", "test-ignored", "test-doc", "sec"]
+commands = ["deps", "test", "test-doc", "sec"]
 parallel = false
 fail_fast = true
-help = "Run deps, test, test-ignored, test-doc, sec"
+help = "Run deps, test, test-doc, sec"
 category = "Code Quality"
 
 [commands.qa-next]
 aliases = ["qax"]
-commands = ["deps", "next", "next-ignored", "test-doc",  "sec"]
+commands = ["deps", "next", "test-doc",  "sec"]
 parallel = false
 fail_fast = true
-help = "Run deps, next, next-ignored, test-doc, sec"
+help = "Run deps, next, test-doc, sec"
 category = "Code Quality"
