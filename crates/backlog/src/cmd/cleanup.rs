@@ -150,6 +150,14 @@ fn cleanup_with<W: Write>(
     let completed = store.completed_dir();
     std::fs::create_dir_all(&completed)
         .with_context(|| format!("creating {}", completed.display()))?;
+    // Preflight every destination before the first rename: a collision found
+    // only when its turn comes would leave the earlier files already moved —
+    // a partial cleanup. [`move_to_completed`] re-checks each destination as
+    // a guard against concurrent filesystem changes in between.
+    for entry in &aged {
+        let to = destination_for(&entry.path, &completed)?;
+        ensure_destination_free(&entry.path, &to)?;
+    }
     for entry in &aged {
         move_to_completed(&entry.path, &completed)?;
     }
@@ -210,20 +218,28 @@ fn parse_frontmatter_date(raw: &str) -> Option<DateTime<Utc>> {
         .map(|dt| Utc.from_utc_datetime(&dt))
 }
 
-/// Move one task file into `completed/` under the same name.
+/// The `completed/` path one task file would move to, under the same name.
 ///
 /// # Errors
 ///
-/// A file of the same name already exists in `completed/` (the error names
-/// both paths — the tree holds real id collisions between directories, and a
-/// silent overwrite would destroy one of them), or the rename itself fails
-/// (the error names the path).
-fn move_to_completed(from: &Path, completed: &Path) -> anyhow::Result<()> {
+/// The task file name is not valid UTF-8.
+fn destination_for(from: &Path, completed: &Path) -> anyhow::Result<std::path::PathBuf> {
     let name = from
         .file_name()
         .and_then(|n| n.to_str())
         .context("task file name is not valid UTF-8")?;
-    let to = completed.join(name);
+    Ok(completed.join(name))
+}
+
+/// Refuse a move whose destination already holds a file (the error names
+/// both paths — the tree holds real id collisions between directories, and a
+/// silent overwrite would destroy one of them).
+///
+/// # Errors
+///
+/// The destination exists, or its existence cannot be determined (the error
+/// names the path).
+fn ensure_destination_free(from: &Path, to: &Path) -> anyhow::Result<()> {
     if to
         .try_exists()
         .with_context(|| format!("checking {}", to.display()))?
@@ -234,6 +250,20 @@ fn move_to_completed(from: &Path, completed: &Path) -> anyhow::Result<()> {
             from.display()
         );
     }
+    Ok(())
+}
+
+/// Move one task file into `completed/` under the same name. The destination
+/// is re-checked here even though the preflight pass already cleared it — a
+/// guard against a file appearing in `completed/` between the two.
+///
+/// # Errors
+///
+/// As [`destination_for`] and [`ensure_destination_free`], or the rename
+/// itself fails (the error names the path).
+fn move_to_completed(from: &Path, completed: &Path) -> anyhow::Result<()> {
+    let to = destination_for(from, completed)?;
+    ensure_destination_free(from, &to)?;
     std::fs::rename(from, &to)
         .with_context(|| format!("moving {} to {}", from.display(), to.display()))?;
     Ok(())
@@ -483,6 +513,66 @@ mod tests {
         assert!(
             root.join("tasks/task-0001 - old.md").exists(),
             "the source task must still be in tasks/"
+        );
+    }
+
+    /// The collision preflight is all-or-nothing: when any destination is
+    /// taken, no file moves at all — not even the ones before it in order.
+    #[test]
+    fn collision_preflight_moves_nothing() {
+        let dir = tempfile::tempdir().expect("tempdir");
+        let root = dir.path().join(".backlog");
+        std::fs::create_dir_all(root.join("tasks")).expect("tasks dir");
+        std::fs::create_dir_all(root.join("completed")).expect("completed dir");
+        // TASK-0001's destination is free; TASK-0002's is occupied.
+        std::fs::write(
+            root.join("tasks/task-0001 - free.md"),
+            fm("TASK-0001", "Done", Some("2026-01-01 00:00"), None),
+        )
+        .expect("seed 1");
+        std::fs::write(
+            root.join("tasks/task-0002 - blocked.md"),
+            fm("TASK-0002", "Done", Some("2026-01-01 00:00"), None),
+        )
+        .expect("seed 2");
+        std::fs::write(root.join("completed/task-0002 - blocked.md"), "occupied")
+            .expect("seed target");
+
+        let store = Store::open(&root).expect("open");
+        let cfg = BacklogConfig::default();
+        let mut out = Vec::new();
+        let mut input: &[u8] = b"y\n";
+        let mut env = CleanupEnv {
+            now: now(),
+            input: &mut input,
+        };
+        let err = cleanup_with(
+            &store,
+            &cfg,
+            &CleanupOptions {
+                older_than_days: 30,
+                dry_run: false,
+            },
+            &mut env,
+            &mut out,
+        )
+        .expect_err("must fail");
+        let rendered = format!("{err:#}");
+        assert!(
+            rendered.contains("refusing to overwrite"),
+            "error must state the refusal, got: {rendered}"
+        );
+        assert!(
+            root.join("tasks/task-0001 - free.md").exists(),
+            "a later collision must keep the earlier task in tasks/ too"
+        );
+        assert!(
+            root.join("tasks/task-0002 - blocked.md").exists(),
+            "the colliding task must stay in tasks/"
+        );
+        assert!(
+            !root.join("completed/task-0001 - free.md").exists(),
+            "nothing may land in completed/ when the preflight aborts"
         );
     }
 

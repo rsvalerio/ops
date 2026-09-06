@@ -112,9 +112,11 @@ listing the candidates it asks `Move N tasks to completed folder? [y/N]`
 on stdin — `y`/`yes` proceeds, empty input or anything else cancels (No is
 the default, like the backlog CLI's confirm). The age arrives as a flag
 instead of the backlog CLI's interactive menu; `--dry-run` skips the prompt
-entirely. A same-name file already in `completed/` aborts the command naming
-both paths instead of overwriting — the tree holds real id collisions.
-Git staging stays with the caller.
+entirely. Destinations are preflighted after the confirmation: a same-name
+file already in `completed/` aborts the command naming both paths before
+anything moves (all-or-nothing) — the tree holds real id collisions, and a
+silent overwrite would destroy one of them. Git staging stays with the
+caller.
 
 ---
 
