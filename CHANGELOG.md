@@ -2,6 +2,12 @@
 All notable changes to this project will be documented in this file. See [conventional commits](https://www.conventionalcommits.org/) for commit guidelines.
 
 - - -
+## [v0.49.0](https://github.com/rsvalerio/ops/compare/820b57830865ab3d327da15a2fab1bb6c557dd11..v0.49.0) - 2026-09-06
+#### 🚀 Features
+- stop running ignored test per default on rust stack - ([820b578](https://github.com/rsvalerio/ops/commit/820b57830865ab3d327da15a2fab1bb6c557dd11)) - [@rsvalerio](https://github.com/rsvalerio)
+
+- - -
+
 ## [v0.48.0](https://github.com/rsvalerio/ops/compare/70b68e99a33f821286eaf2af1039d22b60a88d91..v0.48.0) - 2026-09-06
 #### 🚀 Features
 - (**backlog**) add native ops backlog task management - ([405857e](https://github.com/rsvalerio/ops/commit/405857ee15576194799acff9839fafe8262f57c2)) - [@rsvalerio](https://github.com/rsvalerio)
