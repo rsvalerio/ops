@@ -24,8 +24,8 @@ fn provider_parses_real_cargo_toml() {
 #[test]
 fn provider_missing_cargo_toml() {
     let temp_dir = tempfile::tempdir().expect("create temp dir");
-    let provider = CargoTomlProvider::with_root(temp_dir.path().to_path_buf());
-    let mut ctx = test_context(temp_dir.path().to_path_buf());
+    let provider = CargoTomlProvider::with_root(temp_dir.path().canonicalize().unwrap());
+    let mut ctx = test_context(temp_dir.path().canonicalize().unwrap());
 
     let err = provider.provide(&mut ctx).unwrap_err();
     assert!(
@@ -40,8 +40,8 @@ fn provider_invalid_toml() {
     let cargo_toml = temp_dir.path().join("Cargo.toml");
     std::fs::write(&cargo_toml, "not valid toml [[[").expect("write invalid toml");
 
-    let provider = CargoTomlProvider::with_root(temp_dir.path().to_path_buf());
-    let mut ctx = test_context(temp_dir.path().to_path_buf());
+    let provider = CargoTomlProvider::with_root(temp_dir.path().canonicalize().unwrap());
+    let mut ctx = test_context(temp_dir.path().canonicalize().unwrap());
 
     let err = provider.provide(&mut ctx).unwrap_err();
     assert!(
@@ -77,8 +77,8 @@ fn provider_unreadable_file_returns_error() {
         return;
     };
 
-    let provider = CargoTomlProvider::with_root(temp_dir.path().to_path_buf());
-    let mut ctx = test_context(temp_dir.path().to_path_buf());
+    let provider = CargoTomlProvider::with_root(temp_dir.path().canonicalize().unwrap());
+    let mut ctx = test_context(temp_dir.path().canonicalize().unwrap());
 
     let err = provider.provide(&mut ctx).unwrap_err();
     assert!(
@@ -125,8 +125,8 @@ fn provider_schema_names_match_serialized_manifest() {
     std::fs::write(temp_dir.path().join("Cargo.toml"), FULLY_POPULATED_MANIFEST)
         .expect("write cargo toml");
 
-    let provider = CargoTomlProvider::with_root(temp_dir.path().to_path_buf());
-    let mut ctx = test_context(temp_dir.path().to_path_buf());
+    let provider = CargoTomlProvider::with_root(temp_dir.path().canonicalize().unwrap());
+    let mut ctx = test_context(temp_dir.path().canonicalize().unwrap());
     let value = provider.provide(&mut ctx).expect("should provide");
 
     let schema = provider.schema();
@@ -171,8 +171,8 @@ fn provider_dependency_sections_round_trip_in_both_spellings() {
     std::fs::write(temp_dir.path().join("Cargo.toml"), FULLY_POPULATED_MANIFEST)
         .expect("write cargo toml");
 
-    let provider = CargoTomlProvider::with_root(temp_dir.path().to_path_buf());
-    let mut ctx = test_context(temp_dir.path().to_path_buf());
+    let provider = CargoTomlProvider::with_root(temp_dir.path().canonicalize().unwrap());
+    let mut ctx = test_context(temp_dir.path().canonicalize().unwrap());
     let value = provider.provide(&mut ctx).expect("should provide");
 
     assert!(
@@ -224,7 +224,7 @@ fn provider_resolve_root_auto_discovers() {
 fn provider_resolve_root_auto_discover_fails_without_cargo_toml() {
     let temp_dir = tempfile::tempdir().expect("create temp dir");
     let provider = CargoTomlProvider::new();
-    let mut ctx = test_context(temp_dir.path().to_path_buf());
+    let mut ctx = test_context(temp_dir.path().canonicalize().unwrap());
 
     let result = provider.provide(&mut ctx);
     assert!(result.is_err());
@@ -258,8 +258,8 @@ serde = "1.0"
     )
     .expect("write cargo toml");
 
-    let provider = CargoTomlProvider::with_root(temp_dir.path().to_path_buf());
-    let mut ctx = test_context(temp_dir.path().to_path_buf());
+    let provider = CargoTomlProvider::with_root(temp_dir.path().canonicalize().unwrap());
+    let mut ctx = test_context(temp_dir.path().canonicalize().unwrap());
 
     let value = provider.provide(&mut ctx).expect("should provide");
     let manifest: CargoToml = serde_json::from_value(value).expect("should deserialize");

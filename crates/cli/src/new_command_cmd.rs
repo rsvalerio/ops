@@ -258,7 +258,7 @@ mod tests {
         let dir = tempfile::tempdir().expect("tempdir");
 
         append_command_to_config(
-            dir.path(),
+            &crate::canonical_root(&dir),
             "build",
             "cargo",
             &["build".into(), "--release".into()],
@@ -284,7 +284,13 @@ theme = "classic"
         )
         .unwrap();
 
-        append_command_to_config(dir.path(), "test", "cargo", &["test".into()]).expect("append");
+        append_command_to_config(
+            &crate::canonical_root(&dir),
+            "test",
+            "cargo",
+            &["test".into()],
+        )
+        .expect("append");
 
         let content = std::fs::read_to_string(dir.path().join(".ops.toml")).unwrap();
         assert!(content.contains(r#"theme = "classic""#));
@@ -296,9 +302,14 @@ theme = "classic"
     fn append_command_rejects_duplicate() {
         let dir = tempfile::tempdir().expect("tempdir");
 
-        append_command_to_config(dir.path(), "build", "cargo", &["build".into()])
-            .expect("first append");
-        let result = append_command_to_config(dir.path(), "build", "make", &[]);
+        append_command_to_config(
+            &crate::canonical_root(&dir),
+            "build",
+            "cargo",
+            &["build".into()],
+        )
+        .expect("first append");
+        let result = append_command_to_config(&crate::canonical_root(&dir), "build", "make", &[]);
         assert!(result.is_err());
         assert!(result.unwrap_err().to_string().contains("already exists"));
     }
@@ -307,7 +318,8 @@ theme = "classic"
     fn append_command_no_args() {
         let dir = tempfile::tempdir().expect("tempdir");
 
-        append_command_to_config(dir.path(), "lint", "make", &[]).expect("append");
+        append_command_to_config(&crate::canonical_root(&dir), "lint", "make", &[])
+            .expect("append");
 
         let content = std::fs::read_to_string(dir.path().join(".ops.toml")).unwrap();
         assert!(content.contains("[commands.lint]"));
@@ -322,7 +334,12 @@ theme = "classic"
         let malformed = "not = = valid\n{{{";
         std::fs::write(&path, malformed).unwrap();
 
-        let result = append_command_to_config(dir.path(), "build", "cargo", &["build".into()]);
+        let result = append_command_to_config(
+            &crate::canonical_root(&dir),
+            "build",
+            "cargo",
+            &["build".into()],
+        );
         assert!(result.is_err());
         assert_eq!(std::fs::read_to_string(&path).unwrap(), malformed);
     }
@@ -338,8 +355,13 @@ theme = "classic"
         std::fs::create_dir_all(&subdir).unwrap();
         let _guard = crate::CwdGuard::new(&subdir).expect("CwdGuard");
 
-        append_command_to_config(workspace_root, "build", "cargo", &["build".into()])
-            .expect("append");
+        append_command_to_config(
+            &crate::canonical_root(&dir),
+            "build",
+            "cargo",
+            &["build".into()],
+        )
+        .expect("append");
 
         assert!(workspace_root.join(".ops.toml").exists());
         assert!(

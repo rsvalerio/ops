@@ -295,7 +295,7 @@ mod tests {
     #[test]
     fn crate_metadata_breadcrumbs_debug_escape_control_characters() {
         let dir = tempfile::tempdir().expect("tempdir");
-        let hostile = dir.path().join("a\nb\u{1b}[31mc");
+        let hostile = dir.path().canonicalize().unwrap().join("a\nb\u{1b}[31mc");
         std::fs::create_dir_all(&hostile).unwrap();
 
         // (a) read failure that is not `NotFound`: the manifest path is a
@@ -304,7 +304,11 @@ mod tests {
         let as_dir = hostile.join("Cargo.toml");
         std::fs::create_dir_all(&as_dir).unwrap();
         // (b) parse failure: a sibling member with malformed TOML.
-        let malformed_dir = dir.path().join("m\nalformed\u{1b}[31m");
+        let malformed_dir = dir
+            .path()
+            .canonicalize()
+            .unwrap()
+            .join("m\nalformed\u{1b}[31m");
         std::fs::create_dir_all(&malformed_dir).unwrap();
         let malformed = malformed_dir.join("Cargo.toml");
         std::fs::write(&malformed, "[package\nname = \"unterminated\n").unwrap();
@@ -342,7 +346,7 @@ mod tests {
     #[test]
     fn read_crate_metadata_basic() {
         let dir = tempfile::tempdir().unwrap();
-        let path = dir.path().join("Cargo.toml");
+        let path = dir.path().canonicalize().unwrap().join("Cargo.toml");
         std::fs::write(
             &path,
             "[package]\nname = \"foo\"\nversion = \"1.0.0\"\ndescription = \"a foo\"\n",
@@ -367,7 +371,7 @@ mod tests {
     #[test]
     fn read_crate_metadata_malformed_toml() {
         let dir = tempfile::tempdir().unwrap();
-        let path = dir.path().join("Cargo.toml");
+        let path = dir.path().canonicalize().unwrap().join("Cargo.toml");
         std::fs::write(&path, "[package\nname = \"unterminated\n").unwrap();
         let meta = read_crate_metadata(&path);
         assert!(meta.name.is_none());
@@ -378,7 +382,7 @@ mod tests {
     #[test]
     fn resolve_crate_display_name_with_toml() {
         let dir = tempfile::tempdir().unwrap();
-        let root = dir.path();
+        let root = dir.path().canonicalize().unwrap();
         std::fs::create_dir_all(root.join("crates/my-lib")).unwrap();
         std::fs::write(
             root.join("crates/my-lib/Cargo.toml"),
@@ -386,7 +390,7 @@ mod tests {
         )
         .unwrap();
         assert_eq!(
-            resolve_crate_display_name("crates/my-lib", root),
+            resolve_crate_display_name("crates/my-lib", &root),
             "ops-my-lib"
         );
     }

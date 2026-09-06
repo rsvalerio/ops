@@ -279,9 +279,14 @@ mod max_bytes_env {
     /// value most likely to overflow `DuckDB`'s `UINTEGER` domain — against a
     /// real connection.
     #[test]
+    // macOS-impossible: DuckDB's `read_json_auto` fails with `EINVAL` reading
+    // from the per-user `/var/folders` temp area (even canonicalized to
+    // `/private/var/...`), which is where `tempfile` puts every fixture on a
+    // default macOS host. Linux CI executes this against a real connection.
+    #[cfg(not(target_os = "macos"))]
     fn resolved_ceiling_is_accepted_by_duckdb_read_json() {
         let dir = tempfile::tempdir().expect("tempdir");
-        let path = dir.path().join("metadata.json");
+        let path = dir.path().canonicalize().unwrap().join("metadata.json");
         std::fs::write(&path, br#"{"workspace_root":"/workspace"}"#).expect("seed json");
 
         let resolved = resolve_metadata_max_bytes(Some("99999999999999"));

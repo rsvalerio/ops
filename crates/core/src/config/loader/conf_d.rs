@@ -112,11 +112,17 @@ mod tests {
     #[test]
     fn read_conf_d_files_sorts_and_filters() {
         let dir = tempfile::tempdir().unwrap();
-        fs::write(dir.path().join("b.toml"), "").unwrap();
-        fs::write(dir.path().join("a.toml"), "").unwrap();
-        fs::write(dir.path().join("readme.md"), "").unwrap();
+        fs::write(crate::test_utils::canonical_root(&dir).join("b.toml"), "").unwrap();
+        fs::write(crate::test_utils::canonical_root(&dir).join("a.toml"), "").unwrap();
+        fs::write(
+            crate::test_utils::canonical_root(&dir).join("readme.md"),
+            "",
+        )
+        .unwrap();
 
-        let files = read_conf_d_files(dir.path()).unwrap().unwrap();
+        let files = read_conf_d_files(&crate::test_utils::canonical_root(&dir))
+            .unwrap()
+            .unwrap();
         assert_eq!(files.len(), 2);
         assert!(files[0].ends_with("a.toml"));
         assert!(files[1].ends_with("b.toml"));
@@ -155,7 +161,7 @@ mod tests {
     #[serial_test::serial]
     fn merge_conf_d_applies_overlays() {
         let dir = tempfile::tempdir().unwrap();
-        let ops_d = dir.path().join(".ops.d");
+        let ops_d = crate::test_utils::canonical_root(&dir).join(".ops.d");
         fs::create_dir(&ops_d).unwrap();
         fs::write(
             ops_d.join("extra.toml"),
@@ -168,7 +174,7 @@ args = ["hello"]
         .unwrap();
 
         let mut config = Config::default();
-        merge_conf_d(&mut config, dir.path()).unwrap();
+        merge_conf_d(&mut config, &crate::test_utils::canonical_root(&dir)).unwrap();
 
         assert!(config.commands.contains_key("extra"));
     }
@@ -182,7 +188,7 @@ args = ["hello"]
     fn read_conf_d_files_propagates_read_dir_error() {
         use std::os::unix::fs::PermissionsExt;
         let dir = tempfile::tempdir().unwrap();
-        let unreadable = dir.path().join("locked");
+        let unreadable = crate::test_utils::canonical_root(&dir).join("locked");
         fs::create_dir(&unreadable).unwrap();
         // Strip read+execute bits so read_dir fails with EACCES.
         let mut perms = fs::metadata(&unreadable).unwrap().permissions();
@@ -220,16 +226,16 @@ args = ["hello"]
     #[serial_test::serial]
     fn merge_conf_d_rejects_broken_symlink() {
         let dir = tempfile::tempdir().unwrap();
-        let ops_d = dir.path().join(".ops.d");
+        let ops_d = crate::test_utils::canonical_root(&dir).join(".ops.d");
         fs::create_dir(&ops_d).unwrap();
         std::os::unix::fs::symlink(
-            dir.path().join("does-not-exist.toml"),
+            crate::test_utils::canonical_root(&dir).join("does-not-exist.toml"),
             ops_d.join("dangling.toml"),
         )
         .unwrap();
 
         let mut config = Config::default();
-        let result = merge_conf_d(&mut config, dir.path());
+        let result = merge_conf_d(&mut config, &crate::test_utils::canonical_root(&dir));
 
         let err = result.expect_err("broken symlink overlay must error");
         let msg = format!("{err:#}");
@@ -253,14 +259,14 @@ args = ["hello"]
     #[serial_test::serial]
     fn merge_conf_d_refuses_symlink_to_a_real_file() {
         let dir = tempfile::tempdir().unwrap();
-        let ops_d = dir.path().join(".ops.d");
+        let ops_d = crate::test_utils::canonical_root(&dir).join(".ops.d");
         fs::create_dir(&ops_d).unwrap();
-        let target = dir.path().join("real.toml");
+        let target = crate::test_utils::canonical_root(&dir).join("real.toml");
         fs::write(&target, "[commands.linked]\nprogram = \"echo\"\n").unwrap();
         std::os::unix::fs::symlink(&target, ops_d.join("linked.toml")).unwrap();
 
         let mut config = Config::default();
-        let err = merge_conf_d(&mut config, dir.path())
+        let err = merge_conf_d(&mut config, &crate::test_utils::canonical_root(&dir))
             .expect_err("a symlinked .ops.d fragment must still be refused");
 
         assert!(
@@ -277,12 +283,12 @@ args = ["hello"]
     #[serial_test::serial]
     fn merge_conf_d_propagates_parse_error() {
         let dir = tempfile::tempdir().unwrap();
-        let ops_d = dir.path().join(".ops.d");
+        let ops_d = crate::test_utils::canonical_root(&dir).join(".ops.d");
         fs::create_dir(&ops_d).unwrap();
         fs::write(ops_d.join("broken.toml"), "not = = valid {{{").unwrap();
 
         let mut config = Config::default();
-        let result = merge_conf_d(&mut config, dir.path());
+        let result = merge_conf_d(&mut config, &crate::test_utils::canonical_root(&dir));
 
         let err = result.expect_err("parse failure should surface");
         assert!(format!("{err:#}").contains("broken.toml"));

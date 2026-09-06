@@ -385,7 +385,7 @@ mod tests {
     #[serial_test::serial]
     fn read_config_file_rejects_oversized_payload() {
         let dir = tempfile::tempdir().unwrap();
-        let path = dir.path().join(".ops.toml");
+        let path = crate::test_utils::canonical_root(&dir).join(".ops.toml");
         // Payload well over the 64-byte cap below.
         fs::write(&path, "x".repeat(4096)).unwrap();
 
@@ -415,7 +415,7 @@ mod tests {
     #[test]
     fn read_capped_toml_file_oversize_multibyte_boundary_reports_cap() {
         let dir = tempfile::tempdir().unwrap();
-        let path = dir.path().join(".ops.toml");
+        let path = crate::test_utils::canonical_root(&dir).join(".ops.toml");
         // cap = 4, content = "aaa€": the 3-byte '€' starts at byte 3, so the
         // `cap + 1` window ends mid-sequence.
         fs::write(&path, "aaa\u{20ac}".as_bytes()).unwrap();
@@ -439,7 +439,7 @@ mod tests {
     #[test]
     fn read_capped_toml_file_under_cap_invalid_utf8_still_errors() {
         let dir = tempfile::tempdir().unwrap();
-        let path = dir.path().join(".ops.toml");
+        let path = crate::test_utils::canonical_root(&dir).join(".ops.toml");
         fs::write(&path, [0xffu8, 0xfe, 0xfd]).unwrap();
 
         let err = read_capped_toml_file_with(&path, 1024).expect_err("invalid UTF-8 must error");
@@ -465,9 +465,9 @@ mod tests {
     #[test]
     fn read_capped_toml_file_refuses_to_follow_symlink() {
         let dir = tempfile::tempdir().unwrap();
-        let target = dir.path().join("secret.toml");
+        let target = crate::test_utils::canonical_root(&dir).join("secret.toml");
         fs::write(&target, b"[secret]\nkey = \"sentinel-must-not-leak\"\n").unwrap();
-        let link = dir.path().join(".ops.toml");
+        let link = crate::test_utils::canonical_root(&dir).join(".ops.toml");
         std::os::unix::fs::symlink(&target, &link).unwrap();
 
         let err = read_capped_toml_file_with(&link, 1024)
@@ -493,7 +493,7 @@ mod tests {
     #[test]
     fn read_capped_toml_file_error_debug_escapes_control_characters() {
         let dir = tempfile::tempdir().unwrap();
-        let path = dir.path().join("evil\n\u{1b}[31m.ops.toml");
+        let path = crate::test_utils::canonical_root(&dir).join("evil\n\u{1b}[31m.ops.toml");
         fs::write(&path, "x".repeat(256)).unwrap();
 
         let err = read_capped_toml_file_with(&path, 16)
@@ -520,7 +520,11 @@ mod tests {
     #[serial_test::serial]
     fn load_config_local_parse_error_names_layer() {
         let dir = tempfile::tempdir().unwrap();
-        fs::write(dir.path().join(".ops.toml"), "not = = valid {{{").unwrap();
+        fs::write(
+            crate::test_utils::canonical_root(&dir).join(".ops.toml"),
+            "not = = valid {{{",
+        )
+        .unwrap();
 
         // READ-1 / TASK-1475: clear the cached `GLOBAL_CONFIG_PATH` so the
         // env mutation below is observed by `global_config_path()` rather
@@ -530,8 +534,11 @@ mod tests {
         // Neutralise XDG/global config lookups so the failure pins to the
         // local layer instead of either preceding step.
         let prev_xdg = std::env::var_os("XDG_CONFIG_HOME");
-        std::env::set_var("XDG_CONFIG_HOME", dir.path().join("xdg-empty"));
-        let result = load_config_at(dir.path());
+        std::env::set_var(
+            "XDG_CONFIG_HOME",
+            crate::test_utils::canonical_root(&dir).join("xdg-empty"),
+        );
+        let result = load_config_at(&crate::test_utils::canonical_root(&dir));
         match prev_xdg {
             Some(v) => std::env::set_var("XDG_CONFIG_HOME", v),
             None => std::env::remove_var("XDG_CONFIG_HOME"),
@@ -557,15 +564,17 @@ mod tests {
     #[serial_test::serial]
     fn env_layer_overrides_the_local_ops_toml() {
         let dir = tempfile::tempdir().unwrap();
-        let _xdg = crate::test_utils::isolate_global_config(dir.path());
+        let _xdg =
+            crate::test_utils::isolate_global_config(&crate::test_utils::canonical_root(&dir));
         fs::write(
-            dir.path().join(".ops.toml"),
+            crate::test_utils::canonical_root(&dir).join(".ops.toml"),
             "[output]\ntheme = \"from-ops-toml\"\n",
         )
         .unwrap();
         let _env = crate::test_utils::EnvGuard::set("OPS__OUTPUT__THEME", "from-env");
 
-        let config = load_config_at(dir.path()).expect("layered load must succeed");
+        let config = load_config_at(&crate::test_utils::canonical_root(&dir))
+            .expect("layered load must succeed");
 
         assert_eq!(
             config.output.theme, "from-env",
@@ -579,14 +588,15 @@ mod tests {
     #[serial_test::serial]
     fn conf_d_layer_overrides_the_local_ops_toml() {
         let dir = tempfile::tempdir().unwrap();
-        let _xdg = crate::test_utils::isolate_global_config(dir.path());
+        let _xdg =
+            crate::test_utils::isolate_global_config(&crate::test_utils::canonical_root(&dir));
         let _env = crate::test_utils::EnvGuard::remove("OPS__OUTPUT__THEME");
         fs::write(
-            dir.path().join(".ops.toml"),
+            crate::test_utils::canonical_root(&dir).join(".ops.toml"),
             "[output]\ntheme = \"from-ops-toml\"\n",
         )
         .unwrap();
-        let ops_d = dir.path().join(".ops.d");
+        let ops_d = crate::test_utils::canonical_root(&dir).join(".ops.d");
         fs::create_dir(&ops_d).unwrap();
         fs::write(
             ops_d.join("override.toml"),
@@ -594,7 +604,8 @@ mod tests {
         )
         .unwrap();
 
-        let config = load_config_at(dir.path()).expect("layered load must succeed");
+        let config = load_config_at(&crate::test_utils::canonical_root(&dir))
+            .expect("layered load must succeed");
 
         assert_eq!(
             config.output.theme, "from-conf-d",
@@ -609,8 +620,9 @@ mod tests {
     #[serial_test::serial]
     fn env_layer_overrides_conf_d() {
         let dir = tempfile::tempdir().unwrap();
-        let _xdg = crate::test_utils::isolate_global_config(dir.path());
-        let ops_d = dir.path().join(".ops.d");
+        let _xdg =
+            crate::test_utils::isolate_global_config(&crate::test_utils::canonical_root(&dir));
+        let ops_d = crate::test_utils::canonical_root(&dir).join(".ops.d");
         fs::create_dir(&ops_d).unwrap();
         fs::write(
             ops_d.join("override.toml"),
@@ -619,7 +631,8 @@ mod tests {
         .unwrap();
         let _env = crate::test_utils::EnvGuard::set("OPS__OUTPUT__THEME", "from-env");
 
-        let config = load_config_at(dir.path()).expect("layered load must succeed");
+        let config = load_config_at(&crate::test_utils::canonical_root(&dir))
+            .expect("layered load must succeed");
 
         assert_eq!(
             config.output.theme, "from-env",
@@ -641,16 +654,18 @@ mod tests {
 
         // The dotfile-manager shape: the real file lives elsewhere and
         // ~/.config/ops/config.toml is a link to it.
-        let xdg = dir.path().join("xdg");
+        let xdg = crate::test_utils::canonical_root(&dir).join("xdg");
         let ops_dir = xdg.join("ops");
         fs::create_dir_all(&ops_dir).unwrap();
-        let real_global = dir.path().join("dotfiles").join("ops-config.toml");
+        let real_global = crate::test_utils::canonical_root(&dir)
+            .join("dotfiles")
+            .join("ops-config.toml");
         fs::create_dir_all(real_global.parent().unwrap()).unwrap();
         fs::write(&real_global, "[commands.from_global]\nprogram = \"echo\"\n").unwrap();
         std::os::unix::fs::symlink(&real_global, ops_dir.join("config.toml")).unwrap();
 
         fs::write(
-            dir.path().join(".ops.toml"),
+            crate::test_utils::canonical_root(&dir).join(".ops.toml"),
             "[commands.from_repo]\nprogram = \"echo\"\n",
         )
         .unwrap();
@@ -660,7 +675,7 @@ mod tests {
             crate::test_utils::EnvGuard::set("XDG_CONFIG_HOME", xdg.display().to_string());
         super::reset_global_config_path_cache(super::GlobalConfigPathResetToken::new());
 
-        let loaded = load_config_at(dir.path());
+        let loaded = load_config_at(&crate::test_utils::canonical_root(&dir));
 
         super::reset_global_config_path_cache(super::GlobalConfigPathResetToken::new());
 

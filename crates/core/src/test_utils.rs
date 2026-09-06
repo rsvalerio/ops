@@ -80,6 +80,23 @@
 //! [`ExecCommandSpec`]: crate::config::ExecCommandSpec
 //! [`CompositeCommandSpec`]: crate::config::CompositeCommandSpec
 
+/// Resolve a tempdir root through its symlinked prefix (macOS: `/var` →
+/// `/private/var`).
+///
+/// Follows the caller-canonicalizes-once rule from
+/// `text::open_refusing_symlinks`'s architecture note: tests that hand a
+/// raw `tempfile::tempdir()` path to the workspace-config layer hit the
+/// SEC-33 symlink refusal on macOS, where `/var` is a symlink (Linux CI's
+/// `/tmp` is not, which is why these tests only fail locally). Production
+/// callers get the same guarantee for free from `current_dir()`.
+#[cfg(test)]
+#[must_use = "canonicalizing without using the resolved root wastes the syscall"]
+pub fn canonical_root(dir: &tempfile::TempDir) -> std::path::PathBuf {
+    dir.path()
+        .canonicalize()
+        .unwrap_or_else(|_| dir.path().to_path_buf())
+}
+
 use indexmap::IndexMap;
 use std::collections::HashMap;
 
