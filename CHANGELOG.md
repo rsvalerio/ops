@@ -2,6 +2,14 @@
 All notable changes to this project will be documented in this file. See [conventional commits](https://www.conventionalcommits.org/) for commit guidelines.
 
 - - -
+## [v0.50.0](https://github.com/rsvalerio/ops/compare/efa5bdf4ef75deb2446ed4f00b81bceb78016e8d..v0.50.0) - 2026-09-06
+#### 🚀 Features
+- (**rust-stack**) add doc command that fails on broken intra-doc links - ([efa5bdf](https://github.com/rsvalerio/ops/commit/efa5bdf4ef75deb2446ed4f00b81bceb78016e8d)) - [@rsvalerio](https://github.com/rsvalerio)
+#### 📚 Documentation
+- resolve every broken intra-doc link in the workspace - ([da717e6](https://github.com/rsvalerio/ops/commit/da717e6b3413ad1791988e470a0f798272cbcb1d)) - [@rsvalerio](https://github.com/rsvalerio)
+
+- - -
+
 ## [v0.49.0](https://github.com/rsvalerio/ops/compare/820b57830865ab3d327da15a2fab1bb6c557dd11..v0.49.0) - 2026-09-06
 #### 🚀 Features
 - stop running ignored test per default on rust stack - ([820b578](https://github.com/rsvalerio/ops/commit/820b57830865ab3d327da15a2fab1bb6c557dd11)) - [@rsvalerio](https://github.com/rsvalerio)
