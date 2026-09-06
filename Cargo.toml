@@ -104,6 +104,11 @@ unused_lifetimes = "warn"
 # deliberate `extern crate` lines in crates/cli/src/main.rs that keep
 # linkme-only extension crates from being dropped by the linker.
 
+# Broken intra-doc links are errors, so `cargo doc` (the `doc` command in
+# the rust stack defaults) fails instead of warning.
+[workspace.lints.rustdoc]
+broken_intra_doc_links = "deny"
+
 [workspace.lints.clippy]
 all = { level = "deny", priority = -1 }
 pedantic = { level = "deny", priority = -1 }

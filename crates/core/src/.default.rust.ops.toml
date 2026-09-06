@@ -19,6 +19,12 @@ aliases = ["lint"]
 help = "Lint with clippy"
 category = "Code Quality"
 
+[commands.doc]
+program = "cargo"
+args = ["doc", "--workspace", "--no-deps", "--document-private-items", "--all-features"]
+help = "Build docs; denied workspace lint fails on broken intra-doc links"
+category = "Code Quality"
+
 [commands.build]
 program = "cargo"
 args = ["build", "--workspace", "--all-features", "--all-targets"]
@@ -79,10 +85,10 @@ category = "Build"
 # type-checks independently, so including it compiled the workspace a third
 # time under a third fingerprint. It remains available as a standalone command.
 [commands.verify]
-commands = ["fmt", "clippy", "build", "trailing-whitespace", "end-of-file-fixer", "check-json", "check-yaml"]
+commands = ["fmt", "clippy", "build", "trailing-whitespace", "end-of-file-fixer", "check-json", "check-yaml", "doc"]
 parallel = false
 fail_fast = true
-help = "Run fmt, clippy, build, trailing-whitespace, end-of-file-fixer, check-json, check-yaml"
+help = "Run fmt, clippy, build, trailing-whitespace, end-of-file-fixer, check-json, check-yaml, doc"
 category = "Code Quality"
 
 [commands.qa]
