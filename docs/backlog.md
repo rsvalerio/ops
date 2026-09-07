@@ -19,6 +19,7 @@ ops backlog task edit <taskId> [flags]        # prints `Updated TASK-NNNN`
 ops backlog task list [flags]
 ops backlog task view <taskId> [--plain|--json]
 ops backlog search [query] [flags]
+ops backlog wave list|members|migrate [flags]
 ops backlog cleanup [flags]
 ```
 
@@ -32,6 +33,7 @@ ops backlog cleanup [flags]
 | `-l, --labels <labels>` | Labels, comma-separated or repeatable |
 | `--priority <p>` | `critical` \| `high` \| `medium` \| `low` (default `low`) |
 | `--ac <criterion>` | Acceptance criterion, repeatable (`#N` numbering is assigned on write) |
+| `--dod <item>` | Definition-of-done item, repeatable — its own section, with its own `#N` numbering |
 | `--modified-file <path>` | Repo-root-relative path the task touches, repeatable — the machine-readable twin of the `**File**:` line; wave triage reads it to compute file scope and merge order |
 | `--plan <text>` | Implementation plan section |
 | `--notes <text>` | Implementation notes section |
@@ -46,7 +48,7 @@ parent tasks) and no `updated_date`.
 | Flag | Meaning |
 |------|---------|
 | `-s, --status <status>` | New status (free-form string) |
-| `-a, --assignee <names>` | **Replaces** the assignee list; `-a ""` clears it. This is how wave membership is recorded: a member's assignee is set to the wave parent's task id |
+| `-a, --assignee <names>` | **Replaces** the assignee list; `-a ""` clears it. Assignees are people again — wave membership moved to `--parent` (see [`wave`](#wave)) |
 | `--add-label <labels>` | Add labels without replacing existing ones |
 | `--append-notes <text>` | Append implementation notes, repeatable — inserted inside the existing SECTION:NOTES markers (blank-line separated) or as a new section |
 | `--priority <p>` | New priority |
@@ -54,6 +56,8 @@ parent tasks) and no `updated_date`.
 | `-d, --description <text>` | Replace the description |
 | `--ac <criterion>` | Replace all acceptance criteria |
 | `--check-ac N` / `--uncheck-ac N` | Set the 1-based criterion's checked state, repeatable |
+| `--dod <item>` | **Replaces** all definition-of-done items, like `--ac` above (the npm CLI's `--dod` appends instead; ops keeps its two checkbox flags consistent with each other) |
+| `--check-dod N` / `--uncheck-dod N` | Set the 1-based definition-of-done item's checked state, repeatable |
 | `--parent <taskId>` | Set `parent_task_id` — the structural member→parent link the npm CLI can only set at create time. Verified against the real binary: `list -p` and the view JSON resolve a plain `TASK-N` task carrying the field (no dotted subtask rename needed) |
 | `--clear-parent` | Remove `parent_task_id` entirely (conflicts with `--parent`) |
 | `--add-dep <ids>` | Append dependencies without replacing the list (dedup, comma-separated or repeatable) |
@@ -67,9 +71,9 @@ Every edit bumps `updated_date`.
 | Flag | Meaning |
 |------|---------|
 | `-s, --status <statuses>` | Case-insensitive status filter, comma-separated or repeatable |
-| `-a, --assignee <name>` | Keep tasks with any matching assignee (`task list -a code-review-wave` lists every wave parent) |
+| `-a, --assignee <name>` | Keep tasks with any matching assignee |
 | `-l, --labels <labels>` | Keep tasks carrying **every** one of these labels (AND semantics, case-insensitive, comma-separated or repeatable) — the backlog CLI's `--labels` contract |
-| `-p, --parent <taskId>` | Keep tasks whose `parent_task_id` matches — membership from the parent side |
+| `-p, --parent <taskId>` | Keep tasks whose `parent_task_id` matches — membership from the parent side (`wave members` answers the same question from either link) |
 | `--dependents <taskId>` | Keep tasks whose `dependencies:` include this id — the dependents-of-X reverse query the npm CLI lacks entirely |
 | `--plain` | Plain text (the only non-JSON renderer) |
 | `--json` | Versioned machine-readable JSON (mutually exclusive with `--plain`) |
@@ -96,6 +100,48 @@ Scoring is deterministic keyword containment (exact id match = 1.000;
 otherwise per-token weights id 0.35 / title 0.30 / labels 0.15 /
 description 0.10 / notes 0.05, averaged). Scores are intentionally **not**
 compatible with the backlog CLI's fuzzy algorithm; the row shape is.
+
+### `wave`
+
+A wave is a parent task grouping the findings one review run fixes
+together. The convention used to overload `assignee` — the wave parent
+carried the literal assignee `code-review-wave`, each member's assignee was
+its wave's task id — which left no room for a real assignee. It is now
+structural:
+
+| Concept | Representation |
+|---|---|
+| a wave | task carrying the marker label (`code-review-wave`) |
+| wave → members | the wave's `dependencies:` list |
+| member → wave | the member's `parent_task_id` |
+| assignee | free for real people |
+
+```
+ops backlog wave list [-s <status>] [--marker <label>] [--plain|--json]
+ops backlog wave members <waveId> [--plain|--json]
+ops backlog wave migrate [--marker <name>] [--dry-run]
+```
+
+- `list` keeps tasks carrying the marker as a **label or an assignee**, so
+  it answers the same before and after a migration. Rows are the `task list`
+  shape, grouped by status.
+- `members` lists the union of the wave's `dependencies:` and every task
+  whose `parent_task_id` names it — the two directions are written at
+  different times, so either alone under-reports. A dependency that no
+  longer resolves is reported as `Missing dependencies: <ids>` rather than
+  dropped. This replaces parsing member ids out of `task view` output:
+  `ops backlog task view --plain` renders no dependency block.
+- `migrate` is the one-shot backfill off the assignee overload: it adds the
+  marker label to each wave, drops the marker from its assignees, sets each
+  member's `parent_task_id`, drops the wave id from the member's assignees,
+  and adds any member found only through the assignee to the wave's
+  `dependencies:` so both directions agree. It preflights the whole tree
+  first — a member already carrying a *different* `parent_task_id`, or an
+  assignee naming a task id that is not a wave here, aborts naming both
+  tasks before anything is written — then lists the plan, asks
+  `Migrate N waves / M members? [y/N]` (default No, like `cleanup`), and
+  writes. `--dry-run` prints the plan and skips the prompt. Running it twice
+  is a no-op: the second run reports nothing to migrate.
 
 ### `cleanup`
 
@@ -161,6 +207,11 @@ ordinal: 1000
 - [x] #1 ...
 <!-- AC:END -->
 
+## Definition of Done
+<!-- DOD:BEGIN -->
+- [ ] #1 ...
+<!-- DOD:END -->
+
 ## Implementation Notes
 
 <!-- SECTION:NOTES:BEGIN -->
@@ -178,7 +229,11 @@ Rules the parser and writer honor:
   updated_date, labels, dependencies, parent_task_id, modified_files,
   priority, ordinal`, then other extras in file order.
 - Acceptance criteria are 100% `- [x] #N text` / `- [ ] #N text`; the `#N`
-  prefix is regenerated from list position on every write.
+  prefix is regenerated from list position on every write. Definition-of-done
+  items are the same line shape between `DOD` markers, numbered per section.
+  At create time the CLI writes them between the criteria and the plan; a
+  DoD section added later to a body that has none is appended at the end (as
+  acceptance criteria already are), and both shapes parse.
 - Hand-written unmarked sections (`## Closure`, `## Scope`, …) pass through
   edits byte-identical.
 - 31 files in the tree are frontmatter-only — the body is optional.
@@ -208,12 +263,15 @@ against backlog.md v1.51.0 and byte-verified against the live tree:
   ISO-8601 Z (`'2026-08-29 18:21'` → `"2026-08-29T18:21:00Z"`).
 - `search --plain`: `Tasks:` header, rows
   `  TASK-1766 - title (Done) [LOW] [score 0.671]`.
+- `wave list --plain` / `wave members --plain`: the `task list` row shape
+  above — the skills parse them with the same rules.
 
 ## Scope — deliberately not implemented
 
 Git integration (auto-commit, branch checks), the terminal board, the web
-browser UI, the MCP server, milestones, docs/decisions, DoD defaults, the
-init wizard, and interactive TUIs. Commits and locking stay with the caller
+browser UI, the MCP server, milestones, docs/decisions, project-level DoD
+defaults from config (per-task DoD items are supported), the init wizard
+(`.backlog/tasks/` just has to exist), and interactive TUIs. Commits and locking stay with the caller
 (the code-review skills own their merge lock and `chore(backlog)` commits).
 
 ## Compatibility testing

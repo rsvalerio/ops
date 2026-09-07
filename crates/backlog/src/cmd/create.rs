@@ -19,10 +19,23 @@ pub struct CreateOptions {
     pub labels: Vec<String>,
     pub priority: Option<String>,
     pub ac: Vec<String>,
+    pub dod: Vec<String>,
     pub modified_files: Vec<String>,
     pub plan: Option<String>,
     pub notes: Option<String>,
     pub dependencies: Vec<String>,
+}
+
+/// Fresh, unchecked checkbox items from their texts — the shape both `--ac`
+/// and `--dod` arrive in at create time.
+fn unchecked_items(texts: &[String]) -> Vec<AcItem> {
+    texts
+        .iter()
+        .map(|text| AcItem {
+            checked: false,
+            text: text.clone(),
+        })
+        .collect()
 }
 
 /// How many allocation attempts `run_create` makes before conceding that
@@ -74,17 +87,12 @@ pub fn run_create<W: Write>(
             ordinal: Some("1000".to_string()),
             extras: Vec::new(),
         };
-        let ac: Vec<AcItem> = opts
-            .ac
-            .iter()
-            .map(|text| AcItem {
-                checked: false,
-                text: text.clone(),
-            })
-            .collect();
+        let ac = unchecked_items(&opts.ac);
+        let dod = unchecked_items(&opts.dod);
         let body = render_body(
             opts.description.as_deref().unwrap_or(""),
             &ac,
+            &dod,
             opts.plan.as_deref(),
             opts.notes.as_deref(),
         );

@@ -1907,3 +1907,179 @@ fn cli_about_backlog_refresh_flag_is_accepted() {
         .success()
         .stdout(predicate::str::contains("Backlog overview — 1 tasks"));
 }
+
+/// Per-task Definition of Done: `--dod` writes the section the backlog CLI
+/// writes, `--check-dod` ticks one item, and both renderers show it.
+#[test]
+fn cli_backlog_definition_of_done_round_trip() {
+    let dir = backlog_dir();
+    ops_in(
+        dir.path(),
+        &[
+            "backlog",
+            "task",
+            "create",
+            "gated task",
+            "--ac",
+            "criterion one",
+            "--dod",
+            "tests pass",
+            "--dod",
+            "docs updated",
+            "--plain",
+        ],
+    )
+    .success()
+    .stdout(predicate::str::contains("Created TASK-0001"));
+
+    ops_in(
+        dir.path(),
+        &[
+            "backlog",
+            "task",
+            "edit",
+            "TASK-0001",
+            "--check-dod",
+            "2",
+            "--plain",
+        ],
+    )
+    .success();
+
+    ops_in(
+        dir.path(),
+        &["backlog", "task", "view", "TASK-0001", "--plain"],
+    )
+    .success()
+    .stdout(predicate::str::contains("Definition of Done:"))
+    .stdout(predicate::str::contains("- [ ] #1 tests pass"))
+    .stdout(predicate::str::contains("- [x] #2 docs updated"))
+    // The criteria are a separate list with its own numbering.
+    .stdout(predicate::str::contains("- [ ] #1 criterion one"));
+
+    let json = ops_in(
+        dir.path(),
+        &["backlog", "task", "view", "TASK-0001", "--json"],
+    )
+    .success()
+    .get_output()
+    .stdout
+    .clone();
+    let value: serde_json::Value =
+        serde_json::from_slice(&json).expect("view --json is valid JSON");
+    assert_eq!(value["task"]["definitionOfDone"][1]["text"], "docs updated");
+    assert_eq!(value["task"]["definitionOfDone"][1]["checked"], true);
+
+    // An index that does not exist names the section it belongs to.
+    ops_in(
+        dir.path(),
+        &[
+            "backlog",
+            "task",
+            "edit",
+            "TASK-0001",
+            "--check-dod",
+            "9",
+            "--plain",
+        ],
+    )
+    .failure()
+    .stderr(predicate::str::contains("no definition-of-done item #9"));
+}
+
+/// The wave commands the code-review skills drive: `wave list` enumerates
+/// parents by marker, `wave members` answers from either link direction, and
+/// `wave migrate --dry-run` reports without writing.
+#[test]
+fn cli_backlog_wave_list_members_and_dry_run_migrate() {
+    let dir = backlog_dir();
+    // A wave in the pre-migration shape: marker on the assignee, one member
+    // linked back the same way, plus a dependency-only member.
+    ops_in(
+        dir.path(),
+        &[
+            "backlog",
+            "task",
+            "create",
+            "code-review-plan-wave1",
+            "-s",
+            "To Do",
+            "-l",
+            "code-review-wave",
+            "-a",
+            "code-review-wave",
+            "--plain",
+        ],
+    )
+    .success();
+    for title in ["member one", "member two"] {
+        ops_in(
+            dir.path(),
+            &["backlog", "task", "create", title, "-s", "To Do", "--plain"],
+        )
+        .success();
+    }
+    ops_in(
+        dir.path(),
+        &[
+            "backlog",
+            "task",
+            "edit",
+            "TASK-0001",
+            "--add-dep",
+            "TASK-0002",
+            "--plain",
+        ],
+    )
+    .success();
+    ops_in(
+        dir.path(),
+        &[
+            "backlog",
+            "task",
+            "edit",
+            "TASK-0003",
+            "-a",
+            "TASK-0001",
+            "--plain",
+        ],
+    )
+    .success();
+
+    ops_in(
+        dir.path(),
+        &["backlog", "wave", "list", "-s", "To Do", "--plain"],
+    )
+    .success()
+    .stdout(predicate::str::contains(
+        "TASK-0001 - code-review-plan-wave1",
+    ))
+    .stdout(predicate::str::contains("member one").not());
+
+    ops_in(
+        dir.path(),
+        &["backlog", "wave", "members", "TASK-0001", "--plain"],
+    )
+    .success()
+    .stdout(predicate::str::contains("TASK-0002"));
+
+    ops_in(dir.path(), &["backlog", "wave", "migrate", "--dry-run"])
+        .success()
+        .stdout(predicate::str::contains("Found 1 waves to migrate:"))
+        .stdout(predicate::str::contains("Dry run: no files changed."));
+
+    // Dry run wrote nothing: the marker is still on the assignee.
+    ops_in(
+        dir.path(),
+        &[
+            "backlog",
+            "task",
+            "list",
+            "-a",
+            "code-review-wave",
+            "--plain",
+        ],
+    )
+    .success()
+    .stdout(predicate::str::contains("TASK-0001"));
+}

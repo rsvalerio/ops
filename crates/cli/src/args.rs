@@ -259,12 +259,60 @@ pub enum BacklogAction {
         #[arg(long)]
         plain: bool,
     },
+    /// Code-review wave grouping: list, members, migrate.
+    Wave {
+        #[command(subcommand)]
+        action: BacklogWaveAction,
+    },
     /// Move terminal-status tasks older than a cutoff to `completed/`.
     Cleanup {
         /// Move tasks older than this many days (default 30).
         #[arg(long = "older-than", value_name = "DAYS", default_value_t = 30)]
         older_than: u32,
         /// Report what would move without moving anything.
+        #[arg(long = "dry-run")]
+        dry_run: bool,
+    },
+}
+
+/// `ops backlog wave …` subcommands. A wave is a parent task carrying the
+/// marker label; its members link back with `parent_task_id`.
+#[derive(clap::Subcommand, Debug, Clone)]
+pub enum BacklogWaveAction {
+    /// List wave parents, grouped by status.
+    List {
+        /// Filter by status, case-insensitive (comma-separated or
+        /// repeatable).
+        #[arg(short, long, value_delimiter = ',')]
+        status: Vec<String>,
+        /// The label marking a wave parent.
+        #[arg(long, default_value = ops_backlog::cmd::DEFAULT_WAVE_MARKER)]
+        marker: String,
+        /// Plain text output.
+        #[arg(long)]
+        plain: bool,
+        /// Versioned machine-readable JSON.
+        #[arg(long, conflicts_with = "plain")]
+        json: bool,
+    },
+    /// List one wave's member tasks.
+    Members {
+        /// Wave task id (e.g. TASK-0119).
+        wave_id: String,
+        /// Plain text output.
+        #[arg(long)]
+        plain: bool,
+        /// Versioned machine-readable JSON.
+        #[arg(long, conflicts_with = "plain")]
+        json: bool,
+    },
+    /// Retire the assignee overload: marker to label, membership to
+    /// `parent_task_id`.
+    Migrate {
+        /// The marker to migrate off the assignee field.
+        #[arg(long, default_value = ops_backlog::cmd::DEFAULT_WAVE_MARKER)]
+        marker: String,
+        /// Report what would change without writing anything.
         #[arg(long = "dry-run")]
         dry_run: bool,
     },
@@ -295,6 +343,9 @@ pub struct BacklogCreateArgs {
     /// Acceptance criterion (repeatable).
     #[arg(long = "ac")]
     pub ac: Vec<String>,
+    /// Definition-of-done item (repeatable).
+    #[arg(long = "dod")]
+    pub dod: Vec<String>,
     /// Modified file, repo-root-relative (repeatable).
     #[arg(long = "modified-file", value_name = "PATH")]
     pub modified_file: Vec<String>,
@@ -348,6 +399,15 @@ pub struct BacklogEditArgs {
     /// Uncheck acceptance criterion by 1-based index (repeatable).
     #[arg(long = "uncheck-ac")]
     pub uncheck_ac: Vec<usize>,
+    /// Replace all definition-of-done items (repeatable).
+    #[arg(long = "dod")]
+    pub dod: Option<Vec<String>>,
+    /// Check definition-of-done item by 1-based index (repeatable).
+    #[arg(long = "check-dod")]
+    pub check_dod: Vec<usize>,
+    /// Uncheck definition-of-done item by 1-based index (repeatable).
+    #[arg(long = "uncheck-dod")]
+    pub uncheck_dod: Vec<usize>,
     /// Set `parent_task_id` — the structural member-to-parent link.
     #[arg(long)]
     pub parent: Option<String>,
