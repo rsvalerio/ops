@@ -2,6 +2,14 @@
 All notable changes to this project will be documented in this file. See [conventional commits](https://www.conventionalcommits.org/) for commit guidelines.
 
 - - -
+## [v0.53.0](https://github.com/rsvalerio/ops/compare/709a80c0c21d3cdb10598f1336e6551b3f94886a..v0.53.0) - 2026-09-07
+#### 🚀 Features
+- (**backlog**) add per-task definition of done and wave commands - ([709a80c](https://github.com/rsvalerio/ops/commit/709a80c0c21d3cdb10598f1336e6551b3f94886a)) - [@rsvalerio](https://github.com/rsvalerio)
+#### 🐛 Bug Fixes
+- (**backlog**) read legacy wave links and reject double-claimed members - ([107adf1](https://github.com/rsvalerio/ops/commit/107adf12f576e8af91401be1a3206526767662b5)) - [@rsvalerio](https://github.com/rsvalerio)
+
+- - -
+
 ## [v0.52.0](https://github.com/rsvalerio/ops/compare/a44e605280d004d7ef475eada7bdc414b373f509..v0.52.0) - 2026-09-07
 #### 🚀 Features
 - (**backlog**) add about overview with status matrix and metrics - ([f8d8eea](https://github.com/rsvalerio/ops/commit/f8d8eea44464d830f6a3abea25aeb192a4175654)) - [@rsvalerio](https://github.com/rsvalerio)
