@@ -169,7 +169,7 @@ fn cleanup_with<W: Write>(
 
 /// The terminal status: the last configured column, when it carries a
 /// non-blank name.
-fn terminal_status(statuses: &[String]) -> Option<&str> {
+pub(crate) fn terminal_status(statuses: &[String]) -> Option<&str> {
     statuses
         .last()
         .map(String::as_str)
@@ -212,7 +212,7 @@ fn is_older_than(entry: &TaskEntry, cutoff: DateTime<Utc>) -> bool {
 
 /// Parse a `'YYYY-MM-DD HH:MM'` frontmatter date, with or without the
 /// seconds part the 24 oldest files carry, as UTC.
-fn parse_frontmatter_date(raw: &str) -> Option<DateTime<Utc>> {
+pub(crate) fn parse_frontmatter_date(raw: &str) -> Option<DateTime<Utc>> {
     ["%Y-%m-%d %H:%M:%S", "%Y-%m-%d %H:%M"]
         .iter()
         .find_map(|fmt| NaiveDateTime::parse_from_str(raw.trim(), fmt).ok())
