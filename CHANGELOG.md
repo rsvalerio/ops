@@ -2,6 +2,16 @@
 All notable changes to this project will be documented in this file. See [conventional commits](https://www.conventionalcommits.org/) for commit guidelines.
 
 - - -
+## [v0.52.0](https://github.com/rsvalerio/ops/compare/a44e605280d004d7ef475eada7bdc414b373f509..v0.52.0) - 2026-09-07
+#### 🚀 Features
+- (**backlog**) add about overview with status matrix and metrics - ([f8d8eea](https://github.com/rsvalerio/ops/commit/f8d8eea44464d830f6a3abea25aeb192a4175654)) - [@rsvalerio](https://github.com/rsvalerio)
+- (**backlog**) scan every task directory with locations - ([a44e605](https://github.com/rsvalerio/ops/commit/a44e605280d004d7ef475eada7bdc414b373f509)) - [@rsvalerio](https://github.com/rsvalerio)
+- (**cli**) expose the backlog overview as ops about backlog - ([5c65abd](https://github.com/rsvalerio/ops/commit/5c65abd3659bb30f8660e07863e2004631cac284)) - [@rsvalerio](https://github.com/rsvalerio)
+#### 🐛 Bug Fixes
+- (**backlog**) resolve readiness dependencies case-insensitively - ([58fa78d](https://github.com/rsvalerio/ops/commit/58fa78d8d24a0ee90c3770672593fadd2fb41212)) - [@rsvalerio](https://github.com/rsvalerio), Claude Code
+
+- - -
+
 ## [v0.51.0](https://github.com/rsvalerio/ops/compare/eefacbf914a0d90f305648afe223cdf8940cf040..v0.51.0) - 2026-09-06
 #### 🚀 Features
 - (**backlog**) confirm before moving tasks in cleanup - ([a30d6f5](https://github.com/rsvalerio/ops/commit/a30d6f5fbd7d1407ea3bf26166f0fdc0ca976eb5)) - [@rsvalerio](https://github.com/rsvalerio), Claude Code
