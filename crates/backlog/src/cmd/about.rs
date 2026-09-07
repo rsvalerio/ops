@@ -211,16 +211,24 @@ fn status_rows(tasks: &[LocatedTask], cfg: &BacklogConfig) -> Vec<StatusRow> {
 /// and `archive/tasks/` hold real id collisions whose statuses must not flip
 /// a dependency between ready and blocked.
 fn readiness_counts(live_open: &[&LocatedTask], live: &[&LocatedTask]) -> (usize, usize) {
-    let live_statuses: HashMap<&str, &str> = live
+    // Ids resolve case-insensitively everywhere else in the store
+    // (`Store::find` lowercases both sides); the lookup here must too, or a
+    // dependency written `task-0003` would miss live `TASK-0003`, count as
+    // missing — non-blocking — and flip a blocked task to ready.
+    let live_statuses: HashMap<String, &str> = live
         .iter()
         .map(|t| {
             (
-                t.doc.frontmatter.id.as_str(),
+                t.doc.frontmatter.id.to_ascii_lowercase(),
                 t.doc.frontmatter.status.as_str(),
             )
         })
         .collect();
-    let lookup = |id: &str| live_statuses.get(id).map(|s| (*s).to_string());
+    let lookup = |id: &str| {
+        live_statuses
+            .get(&id.to_ascii_lowercase())
+            .map(|s| (*s).to_string())
+    };
     let mut ready: usize = 0;
     let mut blocked: usize = 0;
     for task in live_open {
@@ -695,10 +703,20 @@ mod tests {
             },
             // Done is finished, never ready or blocked.
             Seed::new("tasks", "TASK-0006", "Done"),
+            // 0007 is blocked: its dependency is the live TASK-0003,
+            // referenced with different casing — the lookup must resolve
+            // it, not treat it as missing.
+            Seed {
+                deps: &["task-0003"],
+                ..Seed::new("tasks", "TASK-0007", "To Do")
+            },
         ]);
         let data = overview(&scan(&store), &cfg, now());
         assert_eq!(data.ready, 3, "0003 (no deps), 0004, 0005 (missing dep)");
-        assert_eq!(data.blocked, 1, "0001 only");
+        assert_eq!(
+            data.blocked, 2,
+            "0001, and 0007 whose differently-cased dependency must resolve"
+        );
     }
 
     /// Oldest open reads the oldest live non-terminal task; terminal tasks
