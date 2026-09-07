@@ -5,6 +5,10 @@
 //! to `completed/` in the real tree must not break this suite. Refresh them
 //! deliberately when a new shape appears in the wild that the parser should
 //! accept.
+//!
+//! One exception to "from this tree": the Definition of Done fixture was
+//! written by the backlog CLI v1.51.0 itself, because no task here had ever
+//! carried that section when `ops backlog` learned to read it.
 
 use ops_backlog::model::TaskDoc;
 
@@ -18,6 +22,7 @@ const EXPECTED_FIXTURES: &[&str] = &[
     "completed/task-0001 - Box-leak-for-dynamic-command-strings-is-intentional-but-undocumented-lifetime.md",
     "completed/task-0059 - Improve-test-coverage-for-ops-about-crate.md",
     "completed/task-0100 - code-review-plan-wave5.md",
+    "tasks/task-0005 - TEST-9-definition-of-done-shape.md",
     "tasks/task-1692 - Run-the-code-review-rust-skill-against-the-crate-ops.md",
     "tasks/task-1834 - SEC-11-provider-supplied-target-names-reach-YAML-frontmatter-and-stdout-unvalidated-and-yaml_single_quoted-cannot-encode-a-newline.md",
     "tasks/task-2039 - SEC-anchor-duckdb-ingest-staging-to-a-verified-directory-handle.md",
@@ -160,4 +165,31 @@ fn fixture(dir: &str, matches: impl Fn(&str) -> bool) -> String {
 #[allow(clippy::panic)]
 fn parse(src: &str) -> TaskDoc {
     TaskDoc::parse(src).unwrap_or_else(|e| panic!("fixture must parse: {e:#}"))
+}
+
+/// The Definition of Done fixture, written by the backlog CLI v1.51.0: both
+/// checkbox sections parse with their own numbering, and the checked states
+/// survive a render round trip.
+#[test]
+fn definition_of_done_fixture_parses_both_checkbox_sections() {
+    let path =
+        std::path::Path::new(FIXTURES).join("tasks/task-0005 - TEST-9-definition-of-done-shape.md");
+    let src = std::fs::read_to_string(&path).expect("read fixture");
+    let doc = TaskDoc::parse(&src).expect("must parse");
+
+    let ac = doc.body.ac_items();
+    let dod = doc.body.dod_items();
+    assert_eq!(ac.len(), 2);
+    assert_eq!(dod.len(), 2);
+    assert!(!ac[0].checked && ac[1].checked, "criteria states");
+    assert!(
+        dod[0].checked && !dod[1].checked,
+        "definition-of-done states"
+    );
+    assert_eq!(dod[0].text, "cargo nextest run is green");
+
+    let rendered = doc.render();
+    let reparsed = TaskDoc::parse(&rendered).expect("re-parse");
+    assert_eq!(reparsed.body.dod_items(), dod);
+    assert_eq!(reparsed.body.ac_items(), ac);
 }

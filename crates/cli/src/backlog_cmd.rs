@@ -38,6 +38,7 @@ pub fn run_backlog(cwd: &Path, action: BacklogAction) -> anyhow::Result<()> {
             };
             cmd::run_search(&store, &opts, &mut std::io::stdout())
         }
+        BacklogAction::Wave { action } => run_wave_action(&store, &cfg, action),
         BacklogAction::Cleanup {
             older_than,
             dry_run,
@@ -81,6 +82,9 @@ fn edit_options_from(edit: Box<crate::args::BacklogEditArgs>) -> cmd::EditOption
         ac,
         check_ac,
         uncheck_ac,
+        dod,
+        check_dod,
+        uncheck_dod,
         parent,
         clear_parent,
         add_dep,
@@ -99,10 +103,50 @@ fn edit_options_from(edit: Box<crate::args::BacklogEditArgs>) -> cmd::EditOption
         ac,
         check_ac,
         uncheck_ac,
+        dod,
+        check_dod,
+        uncheck_dod,
         parent,
         clear_parent,
         add_dep,
         remove_dep,
+    }
+}
+
+/// Map the clap wave args onto the wave handlers.
+fn run_wave_action(
+    store: &Store,
+    cfg: &BacklogConfig,
+    action: crate::args::BacklogWaveAction,
+) -> anyhow::Result<()> {
+    use crate::args::BacklogWaveAction;
+
+    match action {
+        BacklogWaveAction::List {
+            status,
+            marker,
+            plain: _,
+            json,
+        } => {
+            let opts = cmd::WaveListOptions {
+                marker,
+                statuses: status,
+                json,
+            };
+            cmd::run_wave_list(store, cfg, &opts, &mut std::io::stdout())
+        }
+        BacklogWaveAction::Members {
+            wave_id,
+            plain: _,
+            json,
+        } => {
+            let opts = cmd::WaveMembersOptions { wave_id, json };
+            cmd::run_wave_members(store, cfg, &opts, &mut std::io::stdout())
+        }
+        BacklogWaveAction::Migrate { marker, dry_run } => {
+            let opts = cmd::WaveMigrateOptions { marker, dry_run };
+            cmd::run_wave_migrate(store, &opts, &mut std::io::stdout())
+        }
     }
 }
 
@@ -122,6 +166,7 @@ fn run_task_action(
                 labels,
                 priority,
                 ac,
+                dod,
                 modified_file,
                 plan,
                 notes,
@@ -136,6 +181,7 @@ fn run_task_action(
                 labels,
                 priority,
                 ac,
+                dod,
                 modified_files: modified_file,
                 plan,
                 notes,

@@ -198,18 +198,28 @@ const DESC_BEGIN: &str = "<!-- SECTION:DESCRIPTION:BEGIN -->";
 const DESC_END: &str = "<!-- SECTION:DESCRIPTION:END -->";
 const AC_BEGIN: &str = "<!-- AC:BEGIN -->";
 const AC_END: &str = "<!-- AC:END -->";
+const DOD_BEGIN: &str = "<!-- DOD:BEGIN -->";
+const DOD_END: &str = "<!-- DOD:END -->";
 const NOTES_BEGIN: &str = "<!-- SECTION:NOTES:BEGIN -->";
 const NOTES_END: &str = "<!-- SECTION:NOTES:END -->";
 const PLAN_BEGIN: &str = "<!-- SECTION:PLAN:BEGIN -->";
 const PLAN_END: &str = "<!-- SECTION:PLAN:END -->";
 
-/// One acceptance-criterion checkbox. `text` carries no `#N ` prefix; the
-/// index is regenerated from list position on write.
+/// One checkbox item. `text` carries no `#N ` prefix; the index is
+/// regenerated from list position on write.
+///
+/// Acceptance criteria and definition-of-done items are the same shape on
+/// disk (`- [x] #N text` between their own markers), so one type serves
+/// both — see [`DodItem`].
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct AcItem {
     pub checked: bool,
     pub text: String,
 }
+
+/// One definition-of-done checkbox — the same shape as [`AcItem`], named
+/// for the section it belongs to at the call site.
+pub type DodItem = AcItem;
 
 /// Split a document into frontmatter lines and the verbatim body.
 ///
@@ -652,7 +662,19 @@ impl Body {
     /// stripped.
     #[must_use = "querying the body is pure"]
     pub fn ac_items(&self) -> Vec<AcItem> {
-        let Some(block) = self.section(AC_BEGIN, AC_END) else {
+        self.checkbox_items(AC_BEGIN, AC_END)
+    }
+
+    /// Definition-of-done checkboxes between DOD markers, `#N ` prefixes
+    /// stripped. Same line shape as the acceptance criteria above.
+    #[must_use = "querying the body is pure"]
+    pub fn dod_items(&self) -> Vec<DodItem> {
+        self.checkbox_items(DOD_BEGIN, DOD_END)
+    }
+
+    /// Parse `- [x] #N text` checkbox lines between one marker pair.
+    fn checkbox_items(&self, begin: &str, end: &str) -> Vec<AcItem> {
+        let Some(block) = self.section(begin, end) else {
             return Vec::new();
         };
         block
@@ -684,6 +706,21 @@ impl Body {
 
     /// Write the acceptance-criteria section from items, regenerating `#N`.
     pub fn set_ac(&mut self, items: &[AcItem]) {
+        self.set_checkboxes(items, (AC_BEGIN, AC_END), "## Acceptance Criteria");
+    }
+
+    /// Write the definition-of-done section from items, regenerating `#N`.
+    ///
+    /// A body with no definition-of-done section yet gains one at the end,
+    /// the same way [`Body::set_ac`] appends acceptance criteria — the CLI
+    /// writes it right after the criteria at create time, and both parse.
+    pub fn set_dod(&mut self, items: &[DodItem]) {
+        self.set_checkboxes(items, (DOD_BEGIN, DOD_END), "## Definition of Done");
+    }
+
+    /// Render checkbox items between one marker pair, regenerating `#N` from
+    /// list position; append the section under `header` when it is absent.
+    fn set_checkboxes(&mut self, items: &[AcItem], markers: (&str, &str), header: &str) {
         use std::fmt::Write as _;
 
         let mut block = String::new();
@@ -697,8 +734,9 @@ impl Body {
             );
         }
         let block = block.trim_matches('\n');
-        if !self.replace_between(AC_BEGIN, AC_END, block) {
-            self.push_section("## Acceptance Criteria", false, (AC_BEGIN, AC_END), block);
+        let (begin, end) = markers;
+        if !self.replace_between(begin, end, block) {
+            self.push_section(header, false, markers, block);
         }
     }
 
@@ -709,14 +747,20 @@ impl Body {
     /// No criterion with that index.
     pub fn set_ac_checked(&mut self, index: usize, checked: bool) -> anyhow::Result<()> {
         let mut items = self.ac_items();
-        let Some(item) = index
-            .checked_sub(1)
-            .and_then(|zero_based| items.get_mut(zero_based))
-        else {
-            anyhow::bail!("no acceptance criterion #{index}");
-        };
-        item.checked = checked;
+        check_item_at(&mut items, index, checked, "acceptance criterion")?;
         self.set_ac(&items);
+        Ok(())
+    }
+
+    /// Set the checked state of the 1-based definition-of-done item `index`.
+    ///
+    /// # Errors
+    ///
+    /// No definition-of-done item with that index.
+    pub fn set_dod_checked(&mut self, index: usize, checked: bool) -> anyhow::Result<()> {
+        let mut items = self.dod_items();
+        check_item_at(&mut items, index, checked, "definition-of-done item")?;
+        self.set_dod(&items);
         Ok(())
     }
 
@@ -781,6 +825,29 @@ impl Body {
     }
 }
 
+/// Set the checked state of the 1-based `index` in a checkbox list.
+///
+/// # Errors
+///
+/// No item with that index — the message names `what` ("acceptance
+/// criterion", "definition-of-done item") so the CLI error points at the
+/// section the caller meant.
+fn check_item_at(
+    items: &mut [AcItem],
+    index: usize,
+    checked: bool,
+    what: &str,
+) -> anyhow::Result<()> {
+    let Some(item) = index
+        .checked_sub(1)
+        .and_then(|zero_based| items.get_mut(zero_based))
+    else {
+        anyhow::bail!("no {what} #{index}");
+    };
+    item.checked = checked;
+    Ok(())
+}
+
 /// Strip a leading `#N ` from an acceptance-criterion line, when present.
 fn strip_ac_index(text: &str) -> &str {
     let Some(rest) = text.strip_prefix('#') else {
@@ -800,12 +867,17 @@ fn strip_ac_index(text: &str) -> &str {
 pub fn render_body(
     description: &str,
     ac: &[AcItem],
+    dod: &[DodItem],
     plan: Option<&str>,
     notes: Option<&str>,
 ) -> String {
     let mut body = Body::default();
     body.set_description(description);
     body.set_ac(ac);
+    // The CLI writes Definition of Done between the criteria and the plan.
+    if !dod.is_empty() {
+        body.set_dod(dod);
+    }
     if let Some(plan) = plan {
         body.set_plan(plan);
     }
@@ -1059,12 +1131,73 @@ priority: low
                 checked: false,
                 text: "criterion one".to_string(),
             }],
+            &[],
             None,
             None,
         );
         let expected = "\
 \n## Description\n\n<!-- SECTION:DESCRIPTION:BEGIN -->\n**File**: `crates/foo/src/lib.rs:42`\n<!-- SECTION:DESCRIPTION:END -->\n\n## Acceptance Criteria\n<!-- AC:BEGIN -->\n- [ ] #1 criterion one\n<!-- AC:END -->\n";
         assert_eq!(body, expected);
+    }
+
+    #[test]
+    fn render_body_places_dod_between_criteria_and_plan() {
+        let body = render_body(
+            "desc",
+            &[AcItem {
+                checked: false,
+                text: "criterion one".to_string(),
+            }],
+            &[DodItem {
+                checked: false,
+                text: "gate one".to_string(),
+            }],
+            Some("the plan"),
+            None,
+        );
+        // The section order the backlog CLI writes at create time.
+        let offsets: Vec<usize> = [
+            body.find("## Description").expect("description"),
+            body.find("## Acceptance Criteria").expect("ac"),
+            body.find("## Definition of Done").expect("dod"),
+            body.find("## Implementation Plan").expect("plan"),
+        ]
+        .to_vec();
+        assert!(offsets.windows(2).all(|w| w[0] < w[1]));
+        assert!(body.contains("<!-- DOD:BEGIN -->\n- [ ] #1 gate one\n<!-- DOD:END -->"));
+    }
+
+    #[test]
+    fn dod_items_parse_and_check_independently_of_ac() {
+        // A body carrying both sections: checking a DoD item must not touch
+        // the criteria, and the `#N` numbering is per section.
+        let mut doc = TaskDoc::parse(
+            "---\nid: TASK-0001\ntitle: 'x'\nstatus: Triage\n---\n\n## Acceptance Criteria\n<!-- AC:BEGIN -->\n- [ ] #1 criterion\n<!-- AC:END -->\n\n## Definition of Done\n<!-- DOD:BEGIN -->\n- [ ] #1 gate one\n- [ ] #2 gate two\n<!-- DOD:END -->\n",
+        )
+        .expect("must parse");
+        assert_eq!(doc.body.dod_items().len(), 2);
+        doc.body.set_dod_checked(2, true).expect("check #2");
+        let rendered = doc.render();
+        assert!(rendered.contains("- [ ] #1 gate one"));
+        assert!(rendered.contains("- [x] #2 gate two"));
+        assert!(rendered.contains("- [ ] #1 criterion"));
+        assert!(doc.body.ac_items().iter().all(|item| !item.checked));
+        let err = doc
+            .body
+            .set_dod_checked(9, true)
+            .expect_err("index out of range");
+        assert!(err.to_string().contains("no definition-of-done item #9"));
+    }
+
+    #[test]
+    fn dod_survives_an_edit_that_does_not_mention_it() {
+        // ops must not eat a DoD section written by the npm CLI.
+        let source = "---\nid: TASK-0001\ntitle: 'x'\nstatus: Triage\n---\n\n## Definition of Done\n<!-- DOD:BEGIN -->\n- [x] #1 gate one\n<!-- DOD:END -->\n";
+        let mut doc = TaskDoc::parse(source).expect("must parse");
+        doc.body.set_description("new description");
+        let rendered = doc.render();
+        assert!(rendered.contains("- [x] #1 gate one"));
+        assert_eq!(doc.body.dod_items().len(), 1);
     }
 
     #[test]

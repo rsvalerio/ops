@@ -23,6 +23,10 @@ pub struct EditOptions {
     pub ac: Option<Vec<String>>,
     pub check_ac: Vec<usize>,
     pub uncheck_ac: Vec<usize>,
+    /// Replace the definition-of-done list, like `ac` above.
+    pub dod: Option<Vec<String>>,
+    pub check_dod: Vec<usize>,
+    pub uncheck_dod: Vec<usize>,
     /// Set `parent_task_id` — the structural member→parent link the backlog
     /// CLI can only set at create time.
     pub parent: Option<String>,
@@ -39,8 +43,8 @@ pub struct EditOptions {
 /// # Errors
 ///
 /// The task id resolves to nothing (the error names the id), the clock is
-/// unreadable, an AC index is out of range, or the file cannot be written —
-/// write errors name the path.
+/// unreadable, an acceptance-criterion or definition-of-done index is out of
+/// range, or the file cannot be written — write errors name the path.
 pub fn run_edit<W: Write>(store: &Store, opts: &EditOptions, out: &mut W) -> anyhow::Result<()> {
     let entry = store
         .find(&opts.task_id)
@@ -98,20 +102,22 @@ pub fn run_edit<W: Write>(store: &Store, opts: &EditOptions, out: &mut W) -> any
         doc.body.set_description(description);
     }
     if let Some(ac) = &opts.ac {
-        let items: Vec<crate::model::AcItem> = ac
-            .iter()
-            .map(|text| crate::model::AcItem {
-                checked: false,
-                text: text.clone(),
-            })
-            .collect();
-        doc.body.set_ac(&items);
+        doc.body.set_ac(&unchecked_items(ac));
     }
     for index in &opts.check_ac {
         doc.body.set_ac_checked(*index, true)?;
     }
     for index in &opts.uncheck_ac {
         doc.body.set_ac_checked(*index, false)?;
+    }
+    if let Some(dod) = &opts.dod {
+        doc.body.set_dod(&unchecked_items(dod));
+    }
+    for index in &opts.check_dod {
+        doc.body.set_dod_checked(*index, true)?;
+    }
+    for index in &opts.uncheck_dod {
+        doc.body.set_dod_checked(*index, false)?;
     }
     for note in &opts.append_notes {
         doc.body.append_notes(note);
@@ -132,6 +138,18 @@ pub fn run_edit<W: Write>(store: &Store, opts: &EditOptions, out: &mut W) -> any
 
     writeln!(out, "Updated {}", doc.frontmatter.id).context("printing the updated task id")?;
     Ok(())
+}
+
+/// Fresh, unchecked checkbox items — `--ac` and `--dod` both replace their
+/// section wholesale, so a replacement always starts unchecked.
+fn unchecked_items(texts: &[String]) -> Vec<crate::model::AcItem> {
+    texts
+        .iter()
+        .map(|text| crate::model::AcItem {
+            checked: false,
+            text: text.clone(),
+        })
+        .collect()
 }
 
 /// Write the task under its new title slug and drop the old file. The id
@@ -516,5 +534,61 @@ body text
         )
         .expect("re-parse");
         assert!(doc.body.ac_items()[0].checked);
+    }
+
+    #[test]
+    fn dod_is_written_then_checked_by_index() {
+        let (dir, store) = scratch_with(TASK);
+        let path = dir.path().join(".backlog/tasks/task-0001 - original.md");
+        let reparse = |path: &std::path::Path| {
+            TaskDoc::parse(&std::fs::read_to_string(path).expect("read")).expect("re-parse")
+        };
+
+        let mut out = Vec::new();
+        run_edit(
+            &store,
+            &EditOptions {
+                dod: Some(vec!["gate one".to_string(), "gate two".to_string()]),
+                ..opts()
+            },
+            &mut out,
+        )
+        .expect("set dod");
+        let doc = reparse(&path);
+        assert_eq!(doc.body.dod_items().len(), 2);
+        // A DoD write leaves the criteria section alone.
+        assert_eq!(doc.body.ac_items().len(), 1);
+
+        // Reopen: the store holds parsed copies, and the file just changed.
+        let store = Store::open(&dir.path().join(".backlog")).expect("reopen");
+        run_edit(
+            &store,
+            &EditOptions {
+                check_dod: vec![2],
+                ..opts()
+            },
+            &mut out,
+        )
+        .expect("check dod");
+        let doc = reparse(&path);
+        assert!(!doc.body.dod_items()[0].checked);
+        assert!(doc.body.dod_items()[1].checked);
+        assert!(!doc.body.ac_items()[0].checked);
+    }
+
+    #[test]
+    fn dod_index_out_of_range_names_the_section() {
+        let (_dir, store) = scratch_with(TASK);
+        let mut out = Vec::new();
+        let err = run_edit(
+            &store,
+            &EditOptions {
+                check_dod: vec![1],
+                ..opts()
+            },
+            &mut out,
+        )
+        .expect_err("no dod items");
+        assert!(err.to_string().contains("no definition-of-done item #1"));
     }
 }

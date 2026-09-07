@@ -73,7 +73,7 @@ DuckDB version. Details: `docs/duckdb-prebuilt-lib.md`.
 - `crates/runner/src/command/`: command execution engine and event stream.
 - `crates/runner/src/display.rs`: progress rendering with `indicatif`.
 - `crates/extension/src/lib.rs`: extension, command registry, data registry, context APIs.
-- `crates/backlog/`: `.backlog` markdown task management (`ops backlog task create/edit/list/view`, `ops backlog search`) — a Backlog.md-compatible subset; `model.rs` parses/writes the task files, `store.rs` scans and allocates ids, `render.rs` owns the output contracts. See `docs/backlog.md`.
+- `crates/backlog/`: `.backlog` markdown task management (`ops backlog task create/edit/list/view`, `ops backlog search`, `ops backlog wave list/members/migrate`) — a Backlog.md-compatible subset; `model.rs` parses/writes the task files, `store.rs` scans and allocates ids, `render.rs` owns the output contracts. See `docs/backlog.md`.
 - `crates/cli/src/theme_cmd.rs`: theme management CLI.
 - `crates/cli/src/sec_cmd.rs`: Trivy-based security scans (`ops sec`).
 - `extensions/`: generic extensions.

@@ -142,7 +142,11 @@ fn cleanup_with<W: Write>(
         return Ok(());
     }
 
-    if !confirm_move(aged.len(), env.input, out)? {
+    if !crate::cmd::confirm(
+        &format!("Move {} tasks to completed folder?", aged.len()),
+        env.input,
+        out,
+    )? {
         writeln!(out, "Cleanup cancelled.").context("printing the cancellation notice")?;
         return Ok(());
     }
@@ -174,28 +178,6 @@ pub(crate) fn terminal_status(statuses: &[String]) -> Option<&str> {
         .last()
         .map(String::as_str)
         .filter(|s| !s.trim().is_empty())
-}
-
-/// Ask `Move N tasks to completed folder? [y/N]` and read one answer line.
-/// `y`/`yes` (case-insensitive) proceeds; empty input — including EOF on a
-/// closed stdin — and anything else cancels. No is the default, matching the
-/// backlog CLI's confirm prompt.
-fn confirm_move<W: Write>(
-    count: usize,
-    input: &mut dyn std::io::BufRead,
-    out: &mut W,
-) -> anyhow::Result<bool> {
-    write!(out, "Move {count} tasks to completed folder? [y/N] ")
-        .context("printing the confirmation prompt")?;
-    out.flush().context("flushing the confirmation prompt")?;
-    let mut answer = String::new();
-    input
-        .read_line(&mut answer)
-        .context("reading the confirmation answer")?;
-    Ok(matches!(
-        answer.trim().to_ascii_lowercase().as_str(),
-        "y" | "yes"
-    ))
 }
 
 /// A task's age reads `updated_date` with `created_date` as fallback — the

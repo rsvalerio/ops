@@ -179,12 +179,21 @@ pub fn view_plain<W: Write>(
             writeln!(w, "{plan}")?;
         }
     }
-    // The CLI always renders a DoD section; we do not model project DoD
-    // items, so it is always the empty placeholder.
+    // The CLI always renders a DoD section, with the placeholder line when
+    // the task carries no items of its own (project-level DoD defaults are
+    // still out of scope — see docs/backlog.md).
+    let dod = entry.doc.body.dod_items();
     writeln!(w)?;
     writeln!(w, "Definition of Done:")?;
     writeln!(w, "{LIGHT_RULE}")?;
-    writeln!(w, "No Definition of Done items defined")?;
+    if dod.is_empty() {
+        writeln!(w, "No Definition of Done items defined")?;
+    } else {
+        for (idx, item) in dod.iter().enumerate() {
+            let mark = if item.checked { "x" } else { " " };
+            writeln!(w, "- [{mark}] #{} {}", idx.saturating_add(1), item.text)?;
+        }
+    }
     if !readiness.missing.is_empty() {
         writeln!(w)?;
         writeln!(w, "Missing dependencies: {}", readiness.missing.join(", "))?;
@@ -256,9 +265,10 @@ pub fn view_json<W: Write>(
     s.push_str("\n    },\n");
     push_field(&mut s, "documentation", "[]", false);
     push_field(&mut s, "subtasks", "[]", false);
-    // acceptanceCriteria array
-    push_ac_array(&mut s, &entry.doc.body.ac_items());
-    push_field(&mut s, "definitionOfDone", "[]", false);
+    // acceptanceCriteria and definitionOfDone arrays — the same item shape
+    // (`index` / `text` / `checked`) in both sections.
+    push_check_array(&mut s, "acceptanceCriteria", &entry.doc.body.ac_items());
+    push_check_array(&mut s, "definitionOfDone", &entry.doc.body.dod_items());
     push_field(
         &mut s,
         "implementationPlan",
@@ -407,9 +417,9 @@ fn push_dependency_graph(
 }
 
 /// Append the `acceptanceCriteria` array to a hand-rendered task JSON.
-fn push_ac_array(s: &mut String, ac: &[crate::model::AcItem]) {
+fn push_check_array(s: &mut String, name: &str, ac: &[crate::model::AcItem]) {
     s.push_str("    ");
-    s.push_str(&jstr("acceptanceCriteria"));
+    s.push_str(&jstr(name));
     s.push_str(": [\n");
     for (idx, item) in ac.iter().enumerate() {
         let last = idx == ac.len().saturating_sub(1);
@@ -825,6 +835,53 @@ priority: low
         assert!(text.contains("Labels: code-review-rust"));
         assert!(text.contains("Modified files: crates/foo/src/lib.rs"));
         assert!(text.contains("- [x] #1 first"));
+    }
+
+    #[test]
+    fn dod_renders_in_plain_and_json_when_the_task_has_items() {
+        let src = format!(
+            "{VIEW_SAMPLE}\n## Definition of Done\n<!-- DOD:BEGIN -->\n- [x] #1 gate one\n- [ ] #2 gate two\n<!-- DOD:END -->\n"
+        );
+        let entry = doc_from(&src);
+        let readiness = Readiness {
+            is_ready: true,
+            blocking: vec![],
+            missing: vec![],
+        };
+
+        let mut out = Vec::new();
+        view_plain(&mut out, &entry, &readiness).expect("render");
+        let text = String::from_utf8(out).expect("utf8");
+        assert!(text.contains("Definition of Done:"));
+        assert!(text.contains("- [x] #1 gate one"));
+        assert!(text.contains("- [ ] #2 gate two"));
+        assert!(!text.contains("No Definition of Done items defined"));
+
+        let mut out = Vec::new();
+        view_json(&mut out, &entry, Path::new("/ws"), &readiness, &|_| None).expect("render");
+        let text = String::from_utf8(out).expect("utf8");
+        let value: serde_json::Value = serde_json::from_str(&text).expect("valid json");
+        assert_eq!(
+            value["task"]["definitionOfDone"],
+            serde_json::json!([
+                { "index": 1, "text": "gate one", "checked": true },
+                { "index": 2, "text": "gate two", "checked": false },
+            ])
+        );
+    }
+
+    #[test]
+    fn dod_placeholder_stands_for_a_task_without_items() {
+        let entry = doc_from(VIEW_SAMPLE);
+        let readiness = Readiness {
+            is_ready: true,
+            blocking: vec![],
+            missing: vec![],
+        };
+        let mut out = Vec::new();
+        view_plain(&mut out, &entry, &readiness).expect("render");
+        let text = String::from_utf8(out).expect("utf8");
+        assert!(text.contains("No Definition of Done items defined"));
     }
 
     #[test]
