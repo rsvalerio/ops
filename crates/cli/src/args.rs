@@ -459,6 +459,9 @@ pub enum AboutAction {
     #[command(visible_alias = "modules")]
     /// Display project units — crates (Rust) or modules (Go).
     Crates,
+    /// Display backlog task overview: per-status totals (including
+    /// completed and archived) plus health metrics.
+    Backlog,
 }
 
 /// Extension management subcommands.
