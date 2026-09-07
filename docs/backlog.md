@@ -125,20 +125,25 @@ ops backlog wave migrate [--marker <name>] [--dry-run]
 - `list` keeps tasks carrying the marker as a **label or an assignee**, so
   it answers the same before and after a migration. Rows are the `task list`
   shape, grouped by status.
-- `members` lists the union of the wave's `dependencies:` and every task
-  whose `parent_task_id` names it — the two directions are written at
-  different times, so either alone under-reports. A dependency that no
-  longer resolves is reported as `Missing dependencies: <ids>` rather than
-  dropped. This replaces parsing member ids out of `task view` output:
+- `members` lists the union of three links: the wave's `dependencies:`,
+  every task whose `parent_task_id` names it, and every task still carrying
+  the wave id as an assignee (the pre-migration form). They are written at
+  different times, so any one alone under-reports — reading all three is
+  what lets a runner work an unmigrated tree. A dependency that no longer
+  resolves is reported as `Missing dependencies: <ids>` rather than dropped.
+  This replaces parsing member ids out of `task view` output:
   `ops backlog task view --plain` renders no dependency block.
 - `migrate` is the one-shot backfill off the assignee overload: it adds the
   marker label to each wave, drops the marker from its assignees, sets each
   member's `parent_task_id`, drops the wave id from the member's assignees,
   and adds any member found only through the assignee to the wave's
   `dependencies:` so both directions agree. It preflights the whole tree
-  first — a member already carrying a *different* `parent_task_id`, or an
-  assignee naming a task id that is not a wave here, aborts naming both
-  tasks before anything is written — then lists the plan, asks
+  first, aborting before anything is written (naming the tasks involved) if
+  a member already carries a *different* `parent_task_id`, if an assignee
+  names a task id that is not a wave here, or if two waves claim the same
+  member — `parent_task_id` holds one wave, so that last case has no valid
+  outcome and the assignees have to be sorted out by hand. Then it lists the
+  plan, asks
   `Migrate N waves / M members? [y/N]` (default No, like `cleanup`), and
   writes. `--dry-run` prints the plan and skips the prompt. Running it twice
   is a no-op: the second run reports nothing to migrate.

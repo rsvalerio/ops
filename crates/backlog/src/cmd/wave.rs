@@ -90,12 +90,16 @@ pub fn run_wave_list<W: Write>(
     }
 }
 
-/// List one wave's members: the union of its `dependencies:` and every task
-/// whose `parent_task_id` names it, grouped by status like `task list`.
+/// List one wave's members: the union of its `dependencies:`, every task
+/// whose `parent_task_id` names it, and every task still carrying the wave's
+/// id as an assignee, grouped by status like `task list`.
 ///
-/// The union is deliberate — the two directions are set at different times
-/// (dependencies at wave creation, `parent_task_id` per member), so either
-/// alone would under-report on a partly written wave.
+/// The union is deliberate — the links are written at different times
+/// (dependencies at wave creation, `parent_task_id` per member) and the
+/// assignee is the pre-migration form of the same link, so any one of them
+/// alone under-reports on a partly written or unmigrated wave. Reading all
+/// three is what lets a runner work a tree [`run_wave_migrate`] has not
+/// touched yet.
 ///
 /// # Errors
 ///
@@ -131,7 +135,9 @@ pub fn run_wave_members<W: Write>(
             let links_here = fm
                 .extra_scalar("parent_task_id")
                 .is_some_and(|parent| parent.eq_ignore_ascii_case(&wave_id));
-            is_dependency || links_here
+            // The pre-migration link: the member's assignee was its wave id.
+            let assigned_here = has_assignee(&entry.doc, &wave_id);
+            is_dependency || links_here || assigned_here
         })
         .collect();
 
@@ -172,11 +178,12 @@ struct WavePlan {
 ///
 /// # Errors
 ///
-/// A task file does not parse, a member already carries a *different*
-/// `parent_task_id` or names a wave that does not exist (both abort before
-/// anything is written, naming both tasks), the clock is unreadable, the
-/// confirmation answer cannot be read, or a write failed — write errors name
-/// the path.
+/// A task file does not parse, or a member cannot be relinked safely — it
+/// already carries a *different* `parent_task_id`, names a wave that does not
+/// exist, or is claimed by two waves at once. Those three abort before
+/// anything is written, naming the tasks involved. Also when the clock is
+/// unreadable, the confirmation answer cannot be read, or a write failed —
+/// write errors name the path.
 pub fn run_wave_migrate<W: Write>(
     store: &Store,
     opts: &WaveMigrateOptions,
@@ -208,7 +215,7 @@ fn migrate_with<W: Write>(
         .map(|entry| entry.doc.frontmatter.id.clone())
         .collect();
 
-    // Preflight both failure modes over the whole tree before planning any
+    // Preflight every failure mode over the whole tree before planning any
     // write: a half-applied migration would leave membership split across
     // two conventions with no record of which tasks were done.
     preflight(&entries, &wave_ids, &opts.marker)?;
@@ -365,6 +372,7 @@ fn report_plan<W: Write>(plans: &[WavePlan], out: &mut W) -> anyhow::Result<()> 
 fn preflight(entries: &[TaskEntry], wave_ids: &[String], marker: &str) -> anyhow::Result<()> {
     for entry in entries {
         let fm = &entry.doc.frontmatter;
+        let mut claimed_by: Vec<&String> = Vec::new();
         for assignee in &fm.assignees {
             if assignee.eq_ignore_ascii_case(marker) || !looks_like_task_id(assignee) {
                 continue;
@@ -385,6 +393,24 @@ fn preflight(entries: &[TaskEntry], wave_ids: &[String], marker: &str) -> anyhow
                     );
                 }
             }
+            claimed_by.push(wave_id);
+        }
+        // `parent_task_id` holds one wave, so a member claimed by two cannot
+        // be expressed after the migration. Planning it anyway would queue two
+        // writes to the same file: the later one wins, and the earlier wave's
+        // assignee survives on a task now parented elsewhere.
+        if claimed_by.len() > 1 {
+            anyhow::bail!(
+                "{} is assigned to {} waves ({}) — a member can belong to one wave, so \
+                 drop the assignees that no longer apply, then re-run",
+                fm.id,
+                claimed_by.len(),
+                claimed_by
+                    .iter()
+                    .map(|id| id.as_str())
+                    .collect::<Vec<_>>()
+                    .join(", ")
+            );
         }
     }
     Ok(())
@@ -647,14 +673,57 @@ mod tests {
             String::from_utf8(out).expect("utf8")
         };
 
-        // Before migration only the dependency list is populated.
+        // Before migration TASK-0120 is a dependency and TASK-0121 is linked
+        // only by the legacy assignee: both are members, and a runner working
+        // an unmigrated tree must see both.
         let before = render(&store);
-        assert!(before.contains("TASK-0120"));
-        assert!(!before.contains("TASK-0121"));
+        assert!(before.contains("TASK-0120"), "{before}");
+        assert!(before.contains("TASK-0121"), "{before}");
 
         migrate(&reopen(&dir), false, "y\n").expect("migrate");
         let after = render(&reopen(&dir));
         assert!(after.contains("TASK-0120") && after.contains("TASK-0121"));
+    }
+
+    /// `parent_task_id` holds one wave, so a member two waves claim through
+    /// the assignee overload cannot be migrated: without this check both
+    /// waves queue a write to the same file, the later one wins, and the
+    /// earlier wave's assignee survives on a task parented elsewhere.
+    #[test]
+    fn member_claimed_by_two_waves_aborts_before_any_write() {
+        let tasks = vec![
+            (
+                "task-0119 - wave-a.md",
+                task("TASK-0119", &["code-review-wave"], &[], &[]),
+            ),
+            (
+                "task-0130 - wave-b.md",
+                task("TASK-0130", &["code-review-wave"], &[], &[]),
+            ),
+            (
+                "task-0120 - member.md",
+                task("TASK-0120", &["TASK-0119", "TASK-0130"], &[], &[]),
+            ),
+        ];
+        let (dir, store) = scratch(&tasks);
+        let before = doc_of(&dir, "task-0120 - member.md");
+
+        let err = migrate(&store, false, "y\n").expect_err("two waves claim one member");
+        let message = err.to_string();
+        assert!(message.contains("TASK-0120"), "{message}");
+        assert!(message.contains("TASK-0119"), "{message}");
+        assert!(message.contains("TASK-0130"), "{message}");
+
+        assert_eq!(
+            doc_of(&dir, "task-0120 - member.md"),
+            before,
+            "preflight aborts before the first write"
+        );
+        assert_eq!(
+            doc_of(&dir, "task-0119 - wave-a.md").frontmatter.assignees,
+            vec!["code-review-wave".to_string()],
+            "no wave is half-migrated either"
+        );
     }
 
     #[test]
