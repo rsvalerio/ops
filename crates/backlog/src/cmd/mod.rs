@@ -4,6 +4,7 @@
 //! Errors are `anyhow` with the file path attached (ERR-13); the CLI prints
 //! them as `ops: error: …`.
 
+pub mod about;
 pub mod cleanup;
 pub mod create;
 pub mod edit;
@@ -11,6 +12,7 @@ pub mod list;
 pub mod search;
 pub mod view;
 
+pub use about::run_about_backlog;
 pub use cleanup::{run_cleanup, CleanupOptions};
 pub use create::{run_create, CreateOptions};
 pub use edit::{run_edit, EditOptions};

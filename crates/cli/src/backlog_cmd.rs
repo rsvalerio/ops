@@ -51,6 +51,22 @@ pub fn run_backlog(cwd: &Path, action: BacklogAction) -> anyhow::Result<()> {
     }
 }
 
+/// `ops about backlog`: the same config + store preamble as [`run_backlog`],
+/// then the read-only overview. Kept here so every path into the backlog
+/// tree resolves `.backlog` through one config load.
+///
+/// # Errors
+///
+/// The config file is present but unparseable, the `.backlog/tasks` tree is
+/// missing (the error names it), a task file anywhere in the tree does not
+/// parse, or writing stdout failed.
+pub fn run_about_backlog(cwd: &Path) -> anyhow::Result<()> {
+    let cfg = BacklogConfig::load(cwd)?;
+    let backlog_root = cwd.join(&cfg.backlog_directory);
+    let store = Store::open(&backlog_root)?;
+    cmd::run_about_backlog(&store, &cfg, &mut std::io::stdout())
+}
+
 /// Map the clap edit args onto the handler options.
 fn edit_options_from(edit: Box<crate::args::BacklogEditArgs>) -> cmd::EditOptions {
     let crate::args::BacklogEditArgs {

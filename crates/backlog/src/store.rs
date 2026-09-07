@@ -33,6 +33,54 @@ pub struct TaskEntry {
     pub doc: TaskDoc,
 }
 
+/// Which [`TASK_DIRS`] directory a task file lives in.
+///
+/// Archiving is a file-location concept only — the bytes (and the status
+/// inside them) are unchanged by a move — so "archived" is answered by
+/// location, not frontmatter.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum TaskLocation {
+    /// `tasks/` — every live task regardless of status.
+    Tasks,
+    /// `completed/` — terminal-status tasks moved by cleanup.
+    Completed,
+    /// `archive/tasks/` — archived by the external backlog CLI.
+    ArchiveTasks,
+    /// `archive/completed/` — archived by the external backlog CLI.
+    ArchiveCompleted,
+}
+
+impl TaskLocation {
+    /// Map a [`TASK_DIRS`] relative directory name to its location.
+    #[must_use = "mapping without using the result discards the parse"]
+    pub fn from_dir(dir: &str) -> Option<Self> {
+        match dir {
+            "tasks" => Some(Self::Tasks),
+            "completed" => Some(Self::Completed),
+            "archive/tasks" => Some(Self::ArchiveTasks),
+            "archive/completed" => Some(Self::ArchiveCompleted),
+            _ => None,
+        }
+    }
+
+    /// True for `tasks/` — the only directory `scan_tasks` reads and the only
+    /// one whose ids are unique (the corpus holds id collisions between
+    /// `completed/` and `archive/tasks/`).
+    #[must_use = "the answer exists to be branched on"]
+    pub const fn is_live(self) -> bool {
+        matches!(self, Self::Tasks)
+    }
+}
+
+/// One task file found by an all-dirs scan: its path, its directory, and its
+/// parsed document.
+#[derive(Debug)]
+pub struct LocatedTask {
+    pub path: PathBuf,
+    pub location: TaskLocation,
+    pub doc: TaskDoc,
+}
+
 /// The backlog tree rooted at one backlog directory (`.backlog` by default).
 #[derive(Debug, Clone)]
 pub struct Store {
@@ -84,6 +132,63 @@ impl Store {
         }
         entries.sort_by_key(|e| leading_task_number_of(&e.doc.frontmatter.id).unwrap_or(0));
         Ok(entries)
+    }
+
+    /// Every parseable task in every [`TASK_DIRS`] directory that exists,
+    /// each tagged with its location. Absent directories are skipped (only
+    /// `tasks/` is required, by [`Store::open`]); within each directory the
+    /// same rules as [`Store::scan_tasks`] apply — non-`.md` files skipped,
+    /// a read or parse failure errors naming the file. Order is
+    /// [`TASK_DIRS`] declaration order, then numeric id ascending within
+    /// each directory.
+    ///
+    /// Duplicate ids across directories are returned as-is (the corpus holds
+    /// real collisions between `completed/` and `archive/tasks/`); callers
+    /// keying by id must use the live entries only, whose ids are unique.
+    ///
+    /// # Errors
+    ///
+    /// A directory exists but cannot be read (the error names the
+    /// directory), or a task file that exists does not parse (the error
+    /// names the file).
+    pub fn scan_all_tasks(&self) -> anyhow::Result<Vec<LocatedTask>> {
+        let mut located = Vec::new();
+        for dir in TASK_DIRS {
+            let Some(location) = TaskLocation::from_dir(dir) else {
+                continue;
+            };
+            let dir_path = self.backlog_root.join(dir);
+            // Only a missing directory is skippable (only `tasks/` is
+            // required); any other read failure — permissions, a file where
+            // a directory belongs — must surface rather than silently
+            // under-count the tree.
+            let read = match std::fs::read_dir(&dir_path) {
+                Ok(read) => read,
+                Err(err) if err.kind() == std::io::ErrorKind::NotFound => continue,
+                Err(err) => {
+                    return Err(anyhow::anyhow!("reading {}: {err}", dir_path.display()));
+                }
+            };
+            let mut entries = Vec::new();
+            for entry in read.flatten() {
+                let path = entry.path();
+                if path.extension().and_then(|e| e.to_str()) != Some("md") {
+                    continue;
+                }
+                let src = std::fs::read_to_string(&path)
+                    .map_err(|e| anyhow::anyhow!("reading {}: {e}", path.display()))?;
+                let doc = TaskDoc::parse(&src)
+                    .map_err(|e| anyhow::anyhow!("parsing {}: {e:#}", path.display()))?;
+                entries.push(LocatedTask {
+                    path,
+                    location,
+                    doc,
+                });
+            }
+            entries.sort_by_key(|l| leading_task_number_of(&l.doc.frontmatter.id).unwrap_or(0));
+            located.extend(entries);
+        }
+        Ok(located)
     }
 
     /// Resolve one task id across [`LOOKUP_DIRS`] in precedence order.
@@ -365,5 +470,98 @@ mod tests {
         let dir = scratch_backlog(&[("tasks", "task-0030.md"), ("tasks", "task-0020 - real.md")]);
         let store = Store::open(&dir.path().join(".backlog")).expect("open");
         assert_eq!(store.next_task_number(), 31);
+    }
+
+    #[test]
+    fn scan_all_buckets_each_dir_and_orders_within_it() {
+        let dir = scratch_backlog(&[
+            ("tasks", "task-0020 - b.md"),
+            ("tasks", "task-0003 - a.md"),
+            ("completed", "task-0500 - done.md"),
+            ("archive/tasks", "task-1667 - archived.md"),
+            ("archive/completed", "task-0009 - old.md"),
+            ("tasks", "notes.txt"),
+        ]);
+        std::fs::write(dir.path().join(".backlog/tasks/notes.txt"), "x").expect("write");
+        let store = Store::open(&dir.path().join(".backlog")).expect("open");
+        let scanned = store.scan_all_tasks().expect("scan");
+        let seen: Vec<(TaskLocation, &str)> = scanned
+            .iter()
+            .map(|l| (l.location, l.doc.frontmatter.id.as_str()))
+            .collect();
+        assert_eq!(
+            seen,
+            vec![
+                (TaskLocation::Tasks, "TASK-0003"),
+                (TaskLocation::Tasks, "TASK-0020"),
+                (TaskLocation::Completed, "TASK-0500"),
+                (TaskLocation::ArchiveTasks, "TASK-1667"),
+                (TaskLocation::ArchiveCompleted, "TASK-0009"),
+            ],
+            "TASK_DIRS declaration order, numeric id within each dir, non-md skipped"
+        );
+    }
+
+    /// Only `tasks/` is required; the other three directories are skipped
+    /// when absent, not errors.
+    #[test]
+    fn scan_all_skips_absent_dirs() {
+        let dir = scratch_backlog(&[("tasks", "task-0001 - only.md")]);
+        let store = Store::open(&dir.path().join(".backlog")).expect("open");
+        let scanned = store.scan_all_tasks().expect("scan");
+        assert_eq!(scanned.len(), 1);
+        assert!(scanned[0].location.is_live());
+    }
+
+    /// An unparseable file in a non-live directory must fail the scan naming
+    /// the file — same strictness as `scan_tasks`, so an externally corrupted
+    /// archive is surfaced rather than silently under-counted.
+    #[test]
+    fn scan_all_parse_failure_names_the_file() {
+        let dir = scratch_backlog(&[]);
+        std::fs::create_dir_all(dir.path().join(".backlog/archive/tasks")).expect("archive dir");
+        std::fs::write(
+            dir.path()
+                .join(".backlog/archive/tasks/task-0042 - broken.md"),
+            "not frontmatter",
+        )
+        .expect("write broken file");
+        let store = Store::open(&dir.path().join(".backlog")).expect("open");
+        let err = store.scan_all_tasks().expect_err("must fail");
+        let rendered = format!("{err:#}");
+        assert!(
+            rendered.contains("task-0042 - broken.md"),
+            "error must name the file, got: {rendered}"
+        );
+    }
+
+    /// A `read_dir` failure other than `NotFound` must fail the scan naming
+    /// the directory — here, a file squatting where `completed/` belongs —
+    /// instead of silently skipping it and under-counting the tree.
+    #[test]
+    fn scan_all_read_failure_names_the_directory() {
+        let dir = scratch_backlog(&[]);
+        std::fs::write(dir.path().join(".backlog/completed"), "not a dir").expect("write file");
+        let store = Store::open(&dir.path().join(".backlog")).expect("open");
+        let err = store.scan_all_tasks().expect_err("must fail");
+        let rendered = format!("{err:#}");
+        assert!(
+            rendered.contains("completed"),
+            "error must name the unreadable directory, got: {rendered}"
+        );
+    }
+
+    /// A duplicate id across directories is returned twice — the corpus
+    /// really holds such pairs, and callers decide how to aggregate.
+    #[test]
+    fn scan_all_returns_duplicate_ids_across_dirs() {
+        let dir = scratch_backlog(&[
+            ("completed", "task-0059 - done.md"),
+            ("archive/tasks", "task-0059 - archived.md"),
+        ]);
+        let store = Store::open(&dir.path().join(".backlog")).expect("open");
+        let scanned = store.scan_all_tasks().expect("scan");
+        assert_eq!(scanned.len(), 2);
+        assert!(scanned.iter().all(|l| l.doc.frontmatter.id == "TASK-0059"));
     }
 }

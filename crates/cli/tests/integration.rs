@@ -1836,3 +1836,74 @@ fn cli_backlog_structural_unlink_primitives() {
     .success()
     .stdout(predicate::str::is_empty());
 }
+
+// --- about backlog -----------------------------------------------------------
+
+/// Seed one task file into a backlog subdirectory.
+fn seed_backlog_task(dir: &TempDir, sub: &str, id: &str, status: &str) {
+    let target = dir.path().join(".backlog").join(sub);
+    std::fs::create_dir_all(&target).expect("subdir");
+    let digits: String = id
+        .trim_start_matches("TASK-")
+        .chars()
+        .take_while(char::is_ascii_digit)
+        .collect();
+    std::fs::write(
+        target.join(format!("task-{digits:0>4} - x.md")),
+        format!(
+            "---\nid: {id}\ntitle: 't {id}'\nstatus: {status}\nassignee: []\ncreated_date: '2026-01-01 00:00'\nlabels: []\ndependencies: []\n---\n"
+        ),
+    )
+    .expect("seed task");
+}
+
+/// The overview counts every directory: a Done file in `completed/` and an
+/// archived Done still land in the matrix and the completion rate.
+#[test]
+fn cli_about_backlog_counts_completed_and_archived() {
+    let dir = backlog_dir();
+    seed_backlog_task(&dir, "tasks", "TASK-0001", "Triage");
+    seed_backlog_task(&dir, "tasks", "TASK-0002", "Done");
+    seed_backlog_task(&dir, "completed", "TASK-0003", "Done");
+    seed_backlog_task(&dir, "archive/tasks", "TASK-0004", "Done");
+    seed_backlog_task(&dir, "tasks", "TASK-0005", "To Do");
+
+    ops_in(dir.path(), &["about", "backlog"])
+        .success()
+        .stdout(predicate::str::contains(
+            "Backlog overview — 5 tasks, 3 complete (60.0%)",
+        ))
+        .stdout(predicate::str::contains("Status"))
+        .stdout(predicate::str::contains("Live work"))
+        .stdout(predicate::str::contains("Activity"));
+}
+
+/// An empty (but initialized) backlog tree is a worded empty state, not an
+/// error or a zeroed matrix.
+#[test]
+fn cli_about_backlog_empty_tree_is_the_notice() {
+    let dir = backlog_dir();
+    ops_in(dir.path(), &["about", "backlog"])
+        .success()
+        .stdout(predicate::str::contains("No backlog tasks found."));
+}
+
+/// A missing `.backlog/tasks` tree is the same error the backlog commands
+/// give, naming the directory.
+#[test]
+fn cli_about_backlog_missing_tree_names_the_directory() {
+    let dir = temp_dir();
+    ops_in(dir.path(), &["about", "backlog"])
+        .failure()
+        .stderr(predicate::str::contains("tasks"));
+}
+
+/// `--refresh` parses and is a no-op for the backlog page (no cache).
+#[test]
+fn cli_about_backlog_refresh_flag_is_accepted() {
+    let dir = backlog_dir();
+    seed_backlog_task(&dir, "tasks", "TASK-0001", "To Do");
+    ops_in(dir.path(), &["about", "--refresh", "backlog"])
+        .success()
+        .stdout(predicate::str::contains("Backlog overview — 1 tasks"));
+}

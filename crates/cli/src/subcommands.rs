@@ -10,7 +10,7 @@ use crate::args::{
     AboutAction, ExtensionAction, RunBeforeCommitAction, RunBeforePushAction, ThemeAction,
 };
 use crate::hook_shared::HookOps;
-use crate::{about_cmd, extension_cmd, pre_hook_cmd, run_cmd, theme_cmd, SIGINT_EXIT};
+use crate::{about_cmd, backlog_cmd, extension_cmd, pre_hook_cmd, run_cmd, theme_cmd, SIGINT_EXIT};
 
 /// Shared cwd + registry preamble used by `run_about`, `run_deps`, and the
 /// extension subcommand handlers. Collapses the per-handler boilerplate and
@@ -27,6 +27,16 @@ pub fn run_about(
     refresh: bool,
     action: Option<AboutAction>,
 ) -> anyhow::Result<()> {
+    // The backlog page reads the `.backlog` tree directly — no data
+    // providers — so it dispatches before the registry is built.
+    // `--refresh` is a no-op for it (no cache involved).
+    let action = match action {
+        Some(AboutAction::Backlog) => {
+            let cwd = crate::cwd()?;
+            return backlog_cmd::run_about_backlog(&cwd);
+        }
+        other => other,
+    };
     let (cwd, registry) = cli_data_context(config)?;
     match action {
         Some(AboutAction::Setup) => about_cmd::run_about_setup(config, &registry, &cwd),
@@ -37,6 +47,15 @@ pub fn run_about(
         Some(AboutAction::Crates) => ops_about::run_about_units(&registry),
         Some(AboutAction::Coverage) => ops_about::run_about_coverage(&registry),
         Some(AboutAction::Dependencies) => ops_about::run_about_deps(&registry),
+        // Intercepted above, before `cli_data_context` ran; the arm exists
+        // only to keep this match exhaustive. Allowed at the call site per
+        // docs/clippy.md: the interception is the real dispatch, so this
+        // arm can never run — there is no non-panicking body that would not
+        // duplicate it.
+        #[allow(clippy::unreachable)]
+        Some(AboutAction::Backlog) => {
+            unreachable!("`about backlog` dispatches before the registry is built")
+        }
         None => {
             // Removed the misleading `from_ref` wrapper
             // that pretended to avoid cloning while still calling `to_vec`.
