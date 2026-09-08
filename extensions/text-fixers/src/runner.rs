@@ -1,11 +1,14 @@
 //! The fixing engine: discover candidates, read each one under a hard byte
 //! cap, apply the fix, and write it back atomically.
 
-use std::fs::{File, Metadata};
-use std::io::{ErrorKind, Read, Write};
-use std::path::{Path, PathBuf};
+use std::io::Write;
+use std::path::Path;
 
 use anyhow::Context;
+
+use ops_core::bounded_read::{
+    read_candidate, record_failure, relative_to, report_walk_errors, Rejected,
+};
 
 use crate::options::FixerOptions;
 use crate::report::{FailedFile, FailureKind, FixerReport, SkipReason};
@@ -71,7 +74,7 @@ fn run_fixer(
     label: &str,
     fix: fn(&[u8]) -> Option<Vec<u8>>,
 ) -> anyhow::Result<FixerReport> {
-    let discovered = discovery::discover(&opts.root, opts.tracked_only).with_context(|| {
+    let mut discovered = discovery::discover(&opts.root, opts.tracked_only).with_context(|| {
         format!(
             "{label}: file discovery failed for root {} (tracked_only={})",
             opts.root.display(),
@@ -92,15 +95,15 @@ fn run_fixer(
         .with_context(|| format!("{label}: writing the discovery fallback notice failed"))?;
     }
     let mut report = FixerReport::default();
-    for error in &discovered.walk_errors {
-        // An entry the walk could not traverse hides an unknown number of
-        // files, and a gate that reports "clean" over them is fail-open.
-        // Printing the notice is not enough — the error has to reach the
-        // report so `FixerReport::failed` can drive a non-zero exit.
-        writeln!(writer, "{label}: walk error: {error}")
-            .with_context(|| format!("{label}: writing the walk-error notice failed"))?;
-    }
-    report.walk_errors = discovered.walk_errors;
+    // DUP-2 / TASK-2162: the walk-error accounting loop is shared with the
+    // config checkers; see `ops_core::bounded_read::report_walk_errors` for
+    // why an untraversable directory must fail the run, not just print.
+    report_walk_errors(
+        &mut report,
+        writer,
+        label,
+        std::mem::take(&mut discovered.walk_errors),
+    )?;
     if discovered.undecodable_paths > 0 {
         writeln!(
             writer,
@@ -115,6 +118,9 @@ fn run_fixer(
     // and the `saturating_add` guards can never actually saturate.
     for path in discovered.files {
         let display = relative_to(&path, &opts.root);
+        // DUP-2 / TASK-2162: the bounded read pipeline is shared with the
+        // config checkers; one implementation in `ops_core::bounded_read`,
+        // so its symlink/type guards and read ceiling cannot diverge again.
         let (bytes, metadata) = match read_candidate(&path, opts.max_bytes) {
             Ok(candidate) => candidate,
             Err(Rejected::Skipped(reason)) => {
@@ -198,132 +204,4 @@ fn write_skip(
     }
     writeln!(writer, "{label}: {}: skipped ({reason})", display.display())
         .with_context(|| format!("{label}: writing skip notice failed"))
-}
-
-/// Emit one failure line and record it, so the failure sources cannot drift
-/// apart in either wording or bookkeeping.
-///
-/// The path is on the line and in the record. That is the whole point: the
-/// predecessor propagated a bare `io::Error`, so a repository-wide run could
-/// fail with `Permission denied (os error 13)` and nothing anywhere naming
-/// which of thousands of files it meant.
-fn record_failure(
-    report: &mut FixerReport,
-    writer: &mut dyn Write,
-    label: &str,
-    failure: FailedFile,
-) -> anyhow::Result<()> {
-    writeln!(
-        writer,
-        "{label}: {}: {}",
-        failure.path.display(),
-        failure.message
-    )
-    .with_context(|| format!("{label}: writing failure line failed"))?;
-    report.files_failed.push(failure);
-    Ok(())
-}
-
-/// Why a path did not become bytes to fix.
-enum Rejected {
-    /// Deliberately not fixed.
-    Skipped(SkipReason),
-    /// I/O failure, with the line to render for it.
-    Failed(FailureKind, String),
-}
-
-/// Bytes read in full within the cap, with the metadata of the handle they
-/// came from — the same metadata the rewrite restores onto the new inode.
-type Content = (Vec<u8>, Metadata);
-
-/// Read one candidate file under a hard byte ceiling.
-///
-/// The cap is a property of the *read* (`Read::take`), not of a preceding
-/// `metadata()` call: `metadata()` describes a path at one instant and the
-/// file it described can grow before the read, so a stat-then-read pair
-/// bounds nothing. Opening once and measuring the handle also removes the
-/// window in which the path could be swapped between the type check and the
-/// read.
-fn read_candidate(path: &Path, max_bytes: u64) -> Result<Content, Rejected> {
-    let (file, metadata) = open_regular_file(path, max_bytes)?;
-    read_bounded(file, metadata, max_bytes)
-}
-
-/// Open `path` if — and only if — it is a regular file within the cap.
-fn open_regular_file(path: &Path, max_bytes: u64) -> Result<(File, Metadata), Rejected> {
-    // Type guard *before* `File::open`, and unavoidably by path: opening a
-    // FIFO blocks in `open(2)` until a writer appears, so a symlink to one
-    // would hang the fixer before any handle-based check could run.
-    // `symlink_metadata` rather than `metadata`, so a symlink is rejected as
-    // itself instead of being judged by its target. It authorises nothing —
-    // the checks that gate the read are taken from the handle below.
-    match std::fs::symlink_metadata(path) {
-        Ok(md) if !md.file_type().is_file() => {
-            return Err(Rejected::Skipped(SkipReason::NotRegularFile))
-        }
-        Ok(_) => {}
-        Err(e) if e.kind() == ErrorKind::NotFound => {
-            return Err(Rejected::Skipped(SkipReason::Vanished))
-        }
-        Err(e) => return Err(metadata_failure(&e)),
-    }
-
-    let file = match File::open(path) {
-        Ok(f) => f,
-        Err(e) if e.kind() == ErrorKind::NotFound => {
-            return Err(Rejected::Skipped(SkipReason::Vanished))
-        }
-        Err(e) => return Err(read_failure(&e)),
-    };
-    // From the handle, so it describes the file that will actually be read
-    // rather than whatever the path resolves to on a second lookup.
-    let md = match file.metadata() {
-        Ok(md) => md,
-        Err(e) => return Err(metadata_failure(&e)),
-    };
-    if !md.is_file() {
-        return Err(Rejected::Skipped(SkipReason::NotRegularFile));
-    }
-    if md.len() > max_bytes {
-        return Err(Rejected::Skipped(SkipReason::TooLarge {
-            len: md.len(),
-            cap: max_bytes,
-        }));
-    }
-    Ok((file, md))
-}
-
-/// Read `file` with the cap enforced by the reader itself.
-fn read_bounded(file: File, metadata: Metadata, max_bytes: u64) -> Result<Content, Rejected> {
-    // `max_bytes + 1` rather than `max_bytes`: reading one byte past the cap
-    // is what makes an over-cap file *detectable* instead of silently
-    // truncated and then rewritten as if it were the whole file — which for a
-    // fixer that writes its input back would destroy everything past the cap.
-    let ceiling = max_bytes.saturating_add(1);
-    let mut bytes = Vec::with_capacity(usize::try_from(metadata.len().min(max_bytes)).unwrap_or(0));
-    if let Err(e) = file.take(ceiling).read_to_end(&mut bytes) {
-        return Err(read_failure(&e));
-    }
-    // The stat above was a snapshot; the file may have grown since. This is
-    // the check that holds, because it measures what was read.
-    let read = u64::try_from(bytes.len()).unwrap_or(u64::MAX);
-    if read > max_bytes {
-        return Err(Rejected::Skipped(SkipReason::TooLarge {
-            len: read,
-            cap: max_bytes,
-        }));
-    }
-    Ok((bytes, metadata))
-}
-
-fn metadata_failure(e: &std::io::Error) -> Rejected {
-    Rejected::Failed(FailureKind::Metadata(e.kind()), format!("metadata: {e}"))
-}
-
-fn read_failure(e: &std::io::Error) -> Rejected {
-    Rejected::Failed(FailureKind::Read(e.kind()), format!("read: {e}"))
-}
-
-fn relative_to(path: &Path, root: &Path) -> PathBuf {
-    path.strip_prefix(root).unwrap_or(path).to_path_buf()
 }

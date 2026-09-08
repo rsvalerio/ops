@@ -1,59 +1,13 @@
 //! What a fixer run produces: per-file outcomes and the summary line.
 
-use std::fmt;
 use std::io::{self, Write};
 use std::path::PathBuf;
 
-/// Why a discovered file was deliberately not fixed.
-///
-/// A skip is a decision, not a malfunction: the file was reachable and the
-/// fixer chose to leave it alone. Contrast [`FailureKind`], which means the
-/// fixer wanted to look and could not.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum SkipReason {
-    /// Over [`crate::FixerOptions::max_bytes`].
-    TooLarge { len: u64, cap: u64 },
-    /// A directory, device, FIFO, socket or symlink: never something to
-    /// rewrite, and reading one can block forever or never reach EOF.
-    NotRegularFile,
-    /// Listed by discovery but absent when the fixer reached it — a staged
-    /// deletion under `--tracked`, a sparse checkout, or a plain race.
-    Vanished,
-    /// Not text: contains a NUL byte, or is not valid UTF-8. See
-    /// [`crate::binary::is_text`].
-    NotText,
-}
-
-impl fmt::Display for SkipReason {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        match self {
-            Self::TooLarge { len, cap } => write!(f, "size {len} exceeds cap {cap}"),
-            Self::NotRegularFile => f.write_str("not a regular file"),
-            Self::Vanished => f.write_str("not present in the worktree"),
-            Self::NotText => f.write_str("not text"),
-        }
-    }
-}
-
-/// Why the fixer could not complete a file.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum FailureKind {
-    /// `symlink_metadata` or `File::metadata` failed.
-    Metadata(io::ErrorKind),
-    /// The file could not be opened or read.
-    Read(io::ErrorKind),
-    /// The fix was computed but could not be written back.
-    Write(io::ErrorKind),
-}
-
-/// A file the fixer could not complete.
-#[derive(Debug, Clone)]
-pub struct FailedFile {
-    /// Relative to the run's root where possible.
-    pub path: PathBuf,
-    pub kind: FailureKind,
-    pub message: String,
-}
+// DUP-2 / TASK-2162: the per-file outcome vocabulary — why a candidate was
+// skipped, why a file failed — is shared with the config checkers through one
+// definition in `ops_core::bounded_read`, so a hardening fix applied there
+// reaches both file-walking extensions at once.
+pub use ops_core::bounded_read::{FailedFile, FailureKind, SkipReason};
 
 /// Outcome of a fixer run.
 #[derive(Debug, Default)]
@@ -72,6 +26,16 @@ pub struct FixerReport {
     /// not see the whole tree and must not report "clean" — see
     /// [`FixerReport::failed`].
     pub walk_errors: Vec<String>,
+}
+
+impl ops_core::bounded_read::FileRunReport for FixerReport {
+    fn push_failure(&mut self, failure: FailedFile) {
+        self.files_failed.push(failure);
+    }
+
+    fn adopt_walk_errors(&mut self, errors: Vec<String>) {
+        self.walk_errors = errors;
+    }
 }
 
 impl FixerReport {

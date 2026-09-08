@@ -2,20 +2,12 @@
 
 use std::path::PathBuf;
 
-/// Default per-file size cap.
-///
-/// Files larger than this are skipped and reported rather than read. Both
-/// fixers hold the whole file in memory and `fix_trailing` allocates a second
-/// buffer of the same size, so peak resident memory is roughly twice the
-/// largest candidate — and the candidate set is repository-controlled. A
-/// multi-gigabyte NUL-free file (a CSV export, an ndjson dump, a `.sql` seed,
-/// a minified bundle) is ordinary in a repo and would otherwise OOM-kill a
-/// `git commit`.
-///
-/// 16 MiB matches `ops-config-checkers`' `DEFAULT_MAX_BYTES` so the two
-/// file-walking extensions agree on what "too big to hold" means. Nothing a
-/// whitespace fixer should be editing comes close to it.
-pub const DEFAULT_MAX_BYTES: u64 = 16 * 1024 * 1024;
+// DUP-2 / TASK-2162: one definition, re-exported — the shared cap lives in
+// `ops_core::bounded_read` next to the read that enforces it, so the fixers
+// and the config checkers cannot drift on what "too big to hold" means. The
+// full rationale (peak resident memory is roughly twice the largest
+// candidate) is documented at the definition.
+pub use ops_core::bounded_read::DEFAULT_MAX_BYTES;
 
 /// Options for both fixers.
 #[derive(Debug, Clone)]

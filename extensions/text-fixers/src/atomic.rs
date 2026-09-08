@@ -176,7 +176,11 @@ mod tests {
         let md = std::fs::metadata(&path).unwrap();
 
         let Some(guard) = crate::test_support::ReadOnlyDir::new(path.parent().unwrap()) else {
-            return; // running as root: the directory is writable regardless.
+            crate::test_support::skip_precondition(
+                "read-only directory fixture",
+                "running as root or the chmod did not deny; rollback assertions did not run",
+            );
+            return;
         };
 
         let err = replace(&path, b"clobbered\n", &md).unwrap_err();
