@@ -525,6 +525,56 @@ fn with_path(e: &std::io::Error, path: &Path) -> std::io::Error {
     std::io::Error::new(e.kind(), format!("{}: {e}", path.display()))
 }
 
+/// SEC-2 / TASK-1238 / TASK-2116: whether `c` is a codepoint that must not
+/// reach an operator-facing surface (About cards, JSON, log records) from
+/// untrusted input.
+///
+/// The policy is whole-codepoint and covers the Unicode general categories
+/// `Cc` / `Cf` / `Zl` / `Zp` — `char::is_control` matches `Cc` completely
+/// (C0, DEL, and C1), so no separate ASCII byte pass is required: every
+/// ASCII control byte is a single-byte `char`, and multi-byte sequences
+/// never contain bytes below `0x80`. On top of the categories, the explicit
+/// list pins the most-abused formatting codepoints (zero-width family, BOM,
+/// bidi overrides and isolates, line / paragraph separators) that share
+/// categories with innocuous characters or sit just outside `Cc`.
+///
+/// DUP-2 / TASK-2116: promoted from `ops-git`'s strictest copy so
+/// `ops-git`, `ops-about`, and every About provider that renders
+/// manifest-controlled text reject the same set. Each call site keeps its
+/// own drop-versus-escape decision; this predicate only defines what is
+/// rejected.
+#[must_use]
+pub const fn is_unsafe_display_char(c: char) -> bool {
+    if c.is_control() {
+        return true;
+    }
+    matches!(
+        c,
+        // Zero-width family + ZWNJ / ZWJ + word joiner.
+        '\u{200B}' | '\u{200C}' | '\u{200D}' | '\u{2060}'
+        // BOM / specials.
+        | '\u{FEFF}'
+        // Bidi formatting characters: LRM/RLM, LRE/RLE/PDF, LRO/RLO.
+        | '\u{200E}' | '\u{200F}'
+        | '\u{202A}' | '\u{202B}' | '\u{202C}' | '\u{202D}' | '\u{202E}'
+        // Bidi isolates.
+        | '\u{2066}' | '\u{2067}' | '\u{2068}' | '\u{2069}'
+        // Unicode line / paragraph separators (Zl / Zp).
+        | '\u{2028}' | '\u{2029}'
+    )
+}
+
+/// String-level form of [`is_unsafe_display_char`]: whether `raw` carries any
+/// codepoint the display-safety policy rejects.
+///
+/// SEC-2 / TASK-2116: callers drop the whole field on rejection (never strip
+/// — stripping silently concatenates the attacker-controlled tail into a
+/// clickable value) so the field surfaces as missing.
+#[must_use]
+pub fn contains_unsafe_display_chars(raw: &str) -> bool {
+    raw.chars().any(is_unsafe_display_char)
+}
+
 /// Capitalize the first character of a string.
 #[must_use]
 pub fn capitalize(s: &str) -> String {
@@ -655,6 +705,55 @@ fn for_each_trimmed_line_with<F: FnMut(&str)>(path: &Path, cap: u64, mut f: F) -
 mod tests {
     use super::*;
     use std::path::PathBuf;
+
+    /// SEC-2 / TASK-1238 / TASK-2116: pin the shared rejected set at the
+    /// codepoints the policy names — C0 / DEL / C1 controls plus the
+    /// zero-width, BOM, bidi, and separator list. A codepoint added to one
+    /// consumer's local copy must show up here or the copies have drifted.
+    #[test]
+    fn is_unsafe_display_char_rejects_control_and_formatting_set() {
+        // C0, DEL, C1 (the whole Cc category).
+        for c in ['\u{0000}', '\n', '\u{001b}', '\u{007f}', '\u{0085}'] {
+            assert!(is_unsafe_display_char(c), "{c:?} must be rejected");
+        }
+        // Zero-width family, word joiner, BOM.
+        for c in ['\u{200B}', '\u{200C}', '\u{200D}', '\u{2060}', '\u{FEFF}'] {
+            assert!(is_unsafe_display_char(c), "{c:?} must be rejected");
+        }
+        // Bidi formatting + isolates.
+        for c in [
+            '\u{200E}', '\u{200F}', '\u{202A}', '\u{202B}', '\u{202C}', '\u{202D}', '\u{202E}',
+            '\u{2066}', '\u{2067}', '\u{2068}', '\u{2069}',
+        ] {
+            assert!(is_unsafe_display_char(c), "{c:?} must be rejected");
+        }
+        // Line / paragraph separators (Zl / Zp).
+        for c in ['\u{2028}', '\u{2029}'] {
+            assert!(is_unsafe_display_char(c), "{c:?} must be rejected");
+        }
+    }
+
+    /// Ordinary text — including multi-byte content, emoji, and combining
+    /// marks — must pass; the predicate is about display-safety, not about
+    /// non-ASCII.
+    #[test]
+    fn is_unsafe_display_char_accepts_ordinary_text() {
+        for c in "ab\u{e9}漢字🎉 Caf\u{e9}".chars() {
+            assert!(!is_unsafe_display_char(c), "{c:?} must be accepted");
+        }
+        assert!(!contains_unsafe_display_chars("https://github.com/o/r"));
+        assert!(!contains_unsafe_display_chars("~> 1.5, >= 1.0"));
+    }
+
+    /// The motivating spoof shapes: a RIGHT-TO-LEFT OVERRIDE and a zero-width
+    /// space inside an otherwise clean URL are rejected (SEC-2 / TASK-1238).
+    #[test]
+    fn contains_unsafe_display_chars_rejects_bidi_and_zero_width() {
+        assert!(contains_unsafe_display_chars(
+            "https://host/\u{202e}fake/repo"
+        ));
+        assert!(contains_unsafe_display_chars("https://host/\u{200b}repo"));
+    }
 
     #[test]
     fn capitalize_empty() {
