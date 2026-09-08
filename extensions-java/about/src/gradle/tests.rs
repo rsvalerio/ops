@@ -645,6 +645,39 @@ fn gradle_provider_name() {
 fn gradle_provider_about_fields() {
     let fields = GradleIdentityProvider.about_fields();
     assert!(!fields.is_empty());
+    // TASK-2204 AC #4: the Gradle provider parses no homepage source, so its
+    // card must not declare a homepage row that is structurally always empty.
+    assert!(
+        !fields.iter().any(|f| f.id == "homepage"),
+        "Gradle must not advertise a homepage field it can never fill"
+    );
+}
+
+/// TASK-2207 AC #2: the units provider's list length must equal the identity
+/// card's `module_count` on the same fixture — one unit per `include`, with
+/// `:a:b` project paths normalised to the on-disk `a/b` spelling enrichment
+/// joins against.
+#[test]
+fn gradle_units_length_equals_identity_module_count() {
+    let dir = tempfile::tempdir().unwrap();
+    std::fs::write(
+        dir.path().join("settings.gradle"),
+        "rootProject.name = \"mygradle\"\ninclude \"api\"\ninclude \":app:core\"\n",
+    )
+    .unwrap();
+
+    let mut ctx = ops_extension::Context::test_context(dir.path().to_path_buf());
+    let identity = GradleIdentityProvider.provide(&mut ctx).unwrap();
+    let units: Vec<ops_core::project_identity::ProjectUnit> =
+        serde_json::from_value(GradleUnitsProvider.provide(&mut ctx).unwrap()).unwrap();
+
+    assert_eq!(identity["module_count"].as_u64(), Some(2));
+    assert_eq!(units.len(), 2, "one unit per include entry");
+    assert_eq!(units[0].path, "api");
+    assert_eq!(units[0].name, "Api");
+    let sep = std::path::MAIN_SEPARATOR;
+    assert_eq!(units[1].path, format!("app{sep}core"));
+    assert_eq!(units[1].name, "Core");
 }
 
 #[test]

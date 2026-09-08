@@ -45,7 +45,16 @@ pub(super) struct PomData {
     pub(super) license: Option<String>,
     pub(super) modules: Vec<String>,
     pub(super) developers: Vec<String>,
+    /// `<scm><url>` — the source-control repository URL. The provider maps
+    /// this to `ParsedManifest::repository`.
     pub(super) scm_url: Option<String>,
+    /// TASK-2204: the **top-level** `<url>` — in the Maven POM schema this is
+    /// the *project homepage*, a distinct element from `<scm><url>`. The
+    /// provider maps this to `ParsedManifest::homepage`. Previously both
+    /// spellings landed in `scm_url`, so a POM declaring only a top-level
+    /// `<url>` reported its homepage as the project repository and the
+    /// About card's homepage row stayed permanently empty.
+    pub(super) project_url: Option<String>,
 }
 
 /// Tracks which POM section we're currently inside.
@@ -320,8 +329,9 @@ fn handle_scm(line: &str, data: &mut PomData) -> bool {
 /// DUP-1 / TASK-0869: write `field` from a `<tag>value</tag>` line iff the
 /// field is still empty. Encodes the "first writer wins on duplicates"
 /// invariant in a single helper so a future refactor cannot accidentally
-/// let a later top-level `<url>` clobber the `<scm><url>` already captured
-/// (regression pinned by `parse_pom_scm_takes_precedence_over_url`).
+/// change duplicate resolution. TASK-2204: the top-level `<url>` and
+/// `<scm><url>` write *distinct* fields (`project_url` vs `scm_url`), so
+/// neither can clobber the other regardless of source order.
 fn try_set_once(field: &mut Option<String>, line: &str, open: &str, close: &str) {
     if field.is_none() {
         if let Some(val) = extract_xml_value(line, open, close) {
@@ -445,7 +455,7 @@ fn parse_top_level(line: &str, data: &mut PomData) {
         "</description>",
     );
     try_set_once(&mut data.name, line, "<name>", "</name>");
-    try_set_once(&mut data.scm_url, line, "<url>", "</url>");
+    try_set_once(&mut data.project_url, line, "<url>", "</url>");
 }
 
 /// CL-3 / TASK-0846: strip XML comments from `line`, multi-line aware.
@@ -736,8 +746,11 @@ mod tests {
         assert!(parse_pom_xml(dir.path()).is_none());
     }
 
+    /// TASK-2204: a top-level `<url>` is the project homepage, not the SCM
+    /// repository. It must land in `project_url` and leave `scm_url` empty
+    /// for the provider's git-remote repository fallback.
     #[test]
-    fn parse_pom_top_level_url_fallback() {
+    fn parse_pom_top_level_url_is_the_project_homepage() {
         let dir = tempfile::tempdir().unwrap();
         std::fs::write(
             dir.path().join("pom.xml"),
@@ -746,29 +759,52 @@ mod tests {
         .unwrap();
 
         let pom = parse_pom_xml(dir.path()).unwrap();
-        assert_eq!(pom.scm_url, Some("https://example.com".to_string()));
+        assert_eq!(pom.project_url, Some("https://example.com".to_string()));
+        assert_eq!(pom.scm_url, None);
     }
 
+    /// TASK-2204: `<url>` and `<scm><url>` are distinct POM elements and must
+    /// be captured independently, in either source order — the homepage from
+    /// the top-level `<url>`, the repository from `<scm><url>`.
     #[test]
-    fn parse_pom_scm_takes_precedence_over_url() {
-        let dir = tempfile::tempdir().unwrap();
-        std::fs::write(
-            dir.path().join("pom.xml"),
-            r"<project>
+    fn parse_pom_url_and_scm_url_are_captured_independently_in_either_order() {
+        for (label, pom_xml) in [
+            (
+                "scm first, url second",
+                r"<project>
     <artifactId>mylib</artifactId>
     <scm>
         <url>https://github.com/user/mylib</url>
     </scm>
     <url>https://example.com</url>
 </project>",
-        )
-        .unwrap();
+            ),
+            (
+                "url first, scm second",
+                r"<project>
+    <artifactId>mylib</artifactId>
+    <url>https://example.com</url>
+    <scm>
+        <url>https://github.com/user/mylib</url>
+    </scm>
+</project>",
+            ),
+        ] {
+            let dir = tempfile::tempdir().unwrap();
+            std::fs::write(dir.path().join("pom.xml"), pom_xml).unwrap();
 
-        let pom = parse_pom_xml(dir.path()).unwrap();
-        assert_eq!(
-            pom.scm_url,
-            Some("https://github.com/user/mylib".to_string())
-        );
+            let pom = parse_pom_xml(dir.path()).unwrap();
+            assert_eq!(
+                pom.project_url,
+                Some("https://example.com".to_string()),
+                "homepage source must come from the top-level <url> ({label})"
+            );
+            assert_eq!(
+                pom.scm_url,
+                Some("https://github.com/user/mylib".to_string()),
+                "repository source must come from <scm><url> ({label})"
+            );
+        }
     }
 
     #[test]
@@ -930,8 +966,9 @@ mod tests {
         // Two `<scm>` openers on one line is malformed. The single-line scm
         // detector now rejects this shape (it would otherwise extract a URL
         // from a line we have not really proven to be one scm element). The
-        // top-level `<url>` fallback still picks up the first URL, which is
-        // the deterministic outcome we pin here.
+        // line still carries a `<url>` the top-level scanner reads into
+        // `project_url` (TASK-2204), keeping the outcome deterministic: the
+        // first URL becomes the homepage source and `scm_url` stays empty.
         let dir = tempfile::tempdir().unwrap();
         std::fs::write(
             dir.path().join("pom.xml"),
@@ -940,7 +977,8 @@ mod tests {
         .unwrap();
 
         let pom = parse_pom_xml(dir.path()).unwrap();
-        assert_eq!(pom.scm_url, Some("https://first.example".to_string()));
+        assert_eq!(pom.project_url, Some("https://first.example".to_string()));
+        assert_eq!(pom.scm_url, None);
     }
 
     #[test]

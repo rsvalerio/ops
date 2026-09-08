@@ -52,6 +52,9 @@ ops_extension::impl_extension! {
     data_provider_name: Some("project_identity"),
     register_data_providers: |_self, registry| {
         let _ = registry.register("project_identity", Box::new(MavenIdentityProvider));
+        // TASK-2207: the card counts `<module>` entries; the units page must
+        // list them, not claim the project has none.
+        let _ = registry.register("project_units", Box::new(maven::MavenUnitsProvider));
     },
     factory: MAVEN_ABOUT_FACTORY = |_, _| {
         Some((MAVEN_NAME, Box::new(AboutMavenExtension)))
@@ -77,6 +80,9 @@ ops_extension::impl_extension! {
     data_provider_name: Some("project_identity"),
     register_data_providers: |_self, registry| {
         let _ = registry.register("project_identity", Box::new(GradleIdentityProvider));
+        // TASK-2207: the card counts `include` entries; the units page must
+        // list them, not claim the project has none.
+        let _ = registry.register("project_units", Box::new(gradle::GradleUnitsProvider));
     },
     factory: GRADLE_ABOUT_FACTORY = |_, _| {
         Some((GRADLE_NAME, Box::new(AboutGradleExtension)))
@@ -85,7 +91,12 @@ ops_extension::impl_extension! {
 
 // --- Shared ---
 
-fn java_about_fields() -> Vec<AboutFieldDef> {
+// TASK-2204: the two Java stacks no longer share one field set. The Maven
+// card declares `homepage` because the POM's top-level `<url>` fills it;
+// the Gradle provider parses no homepage source, so its card must not
+// advertise a row that is structurally always empty.
+
+fn maven_about_fields() -> Vec<AboutFieldDef> {
     use std::sync::OnceLock;
     static FIELDS: OnceLock<Vec<AboutFieldDef>> = OnceLock::new();
     FIELDS
@@ -95,4 +106,8 @@ fn java_about_fields() -> Vec<AboutFieldDef> {
             fields
         })
         .clone()
+}
+
+fn gradle_about_fields() -> Vec<AboutFieldDef> {
+    base_about_fields()
 }

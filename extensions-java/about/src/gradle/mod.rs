@@ -9,12 +9,13 @@ mod lexer;
 
 use std::path::Path;
 
+use ops_about::cards::format_unit_name;
 use ops_about::identity::{provide_identity_from_manifest, ParsedManifest};
-use ops_core::project_identity::AboutFieldDef;
+use ops_core::project_identity::{AboutFieldDef, ProjectUnit};
 use ops_core::text::for_each_trimmed_line;
 use ops_extension::{Context, DataProvider, DataProviderError};
 
-use super::java_about_fields;
+use super::gradle_about_fields;
 use lexer::{
     brace_delta, extract_quoted, extract_quoted_list, split_at_unquoted_close_paren,
     strip_properties_comment, strip_trailing_comment,
@@ -24,7 +25,7 @@ pub struct GradleIdentityProvider;
 
 impl DataProvider for GradleIdentityProvider {
     fn about_fields(&self) -> Vec<AboutFieldDef> {
-        java_about_fields()
+        gradle_about_fields()
     }
 
     fn name(&self) -> &'static str {
@@ -282,6 +283,45 @@ fn extract_bare_method(line: &str, key: &str) -> Option<String> {
     }
     let rest = rest.trim_start();
     extract_quoted(rest).map(str::to_string)
+}
+
+/// TASK-2207: the Gradle `project_units` provider. The identity card counts
+/// `include` entries, so the units page must list exactly those
+/// subprojects — one `ProjectUnit` per include — or the card's "N
+/// subprojects" and the units table disagree by construction.
+pub struct GradleUnitsProvider;
+
+impl DataProvider for GradleUnitsProvider {
+    fn name(&self) -> &'static str {
+        "project_units"
+    }
+
+    fn provide(&self, ctx: &mut Context) -> Result<serde_json::Value, DataProviderError> {
+        let units = collect_units(ctx.working_directory());
+        serde_json::to_value(&units).map_err(DataProviderError::from)
+    }
+}
+
+/// Build one [`ProjectUnit`] per `include` entry — the same list the
+/// identity provider counts, so `units.len()` always equals its
+/// `module_count`.
+///
+/// Gradle spells nested projects with `:` separators (`include ":app:core"`),
+/// while enrichment joins `unit.path` against cwd-relative file paths, so the
+/// project path is normalised to the on-disk spelling (`app/core`).
+fn collect_units(cwd: &Path) -> Vec<ProjectUnit> {
+    let Some(GradleSettings { includes, .. }) = parse_gradle_settings(cwd) else {
+        return Vec::new();
+    };
+    includes
+        .into_iter()
+        .map(|include| {
+            let path = include
+                .trim_start_matches(':')
+                .replace(':', std::path::MAIN_SEPARATOR_STR);
+            ProjectUnit::new(format_unit_name(&path), path)
+        })
+        .collect()
 }
 
 #[cfg(test)]
