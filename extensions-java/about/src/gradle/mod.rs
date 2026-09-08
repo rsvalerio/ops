@@ -84,26 +84,64 @@ struct GradleBuild {
 /// project. Duplicate resolution is **first writer wins**, matching the
 /// sibling Maven parser's `try_set_once` (`maven/pom.rs`), so the two parsers
 /// in this crate resolve duplicates the same way (READ-6).
+///
+/// PATTERN-1 / TASK-2215: `include` directives get the same two protections
+/// the count feeds `module_count` directly:
+///
+/// - **Depth-gated**, like `rootProject.name` above. An `include` inside a
+///   multi-line block (`gradle.beforeSettings { … }`, an `if (…) { … }`
+///   spanning lines) belongs to that block and may never execute, so counting
+///   it inflates the subproject total. (A single-line conditional
+///   `if (…) { include(":x") }` never matches [`parse_include_line`] at all —
+///   it only accepts lines that *start* with the directive.)
+/// - **Deduplicated on the normalised project path** ([`normalise_include`]):
+///   Gradle treats `include` as idempotent on the project path, so
+///   `include ':app'` followed by `include 'app'` is one subproject, not two.
+///   The first raw spelling is kept (first writer wins, READ-6); only the
+///   dedup key is canonical.
 fn parse_gradle_settings(project_root: &Path) -> Option<GradleSettings> {
     let mut root_project_name: Option<String> = None;
     let mut includes = Vec::new();
     let mut depth = 0_i32;
 
     let mut scan = |line: &str| {
-        if depth == 0 && root_project_name.is_none() {
-            root_project_name = extract_assignment(line, "rootProject.name");
+        if depth == 0 {
+            if root_project_name.is_none() {
+                root_project_name = extract_assignment(line, "rootProject.name");
+            }
+            parse_include_line(line, &mut includes);
         }
-        parse_include_line(line, &mut includes);
         depth = depth.saturating_add(brace_delta(line)).max(0);
     };
 
     for_each_trimmed_line(&project_root.join("settings.gradle"), &mut scan)
         .or_else(|| for_each_trimmed_line(&project_root.join("settings.gradle.kts"), &mut scan))?;
 
+    // PATTERN-1 / TASK-2215: dedup on the normalised path, first writer wins.
+    let mut seen = std::collections::HashSet::new();
+    let mut deduped = Vec::with_capacity(includes.len());
+    for include in includes {
+        if seen.insert(normalise_include(&include)) {
+            deduped.push(include);
+        }
+    }
+
     Some(GradleSettings {
         root_project_name,
-        includes,
+        includes: deduped,
     })
+}
+
+/// PATTERN-1 / TASK-2215: canonical form of a Gradle project path, used as
+/// the include dedup key. Gradle's path separator is `:` and the leading
+/// `:` of an absolute project path is optional, so `":a"` and `"a"` denote
+/// the same subproject, and `/`- or `\`-separated spellings of the same path
+/// (`"apps/web"` for `"apps:web"`) collapse onto the `:` form.
+fn normalise_include(entry: &str) -> String {
+    entry
+        .trim()
+        .trim_start_matches(':')
+        .replace(['\\', '/'], ":")
 }
 
 /// Parse `gradle.properties` for the project `version`.

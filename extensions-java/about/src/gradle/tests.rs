@@ -309,6 +309,58 @@ fn parse_gradle_settings_include_argument_containing_double_slash_is_kept() {
     assert_eq!(s.includes, vec!["a//b".to_string()]);
 }
 
+/// PATTERN-1 / TASK-2215 AC#2: Gradle treats `include` as idempotent on the
+/// project path, so `':app'` and `'app'` are one subproject, not two — the
+/// raw spellings differ but their normalised paths collide, and the first
+/// writer's spelling is kept.
+#[test]
+fn parse_gradle_settings_dedupes_colon_and_bare_include_spellings() {
+    let dir = tempfile::tempdir().unwrap();
+    std::fs::write(
+        dir.path().join("settings.gradle"),
+        "include ':app'\ninclude 'app'\n",
+    )
+    .unwrap();
+
+    let s = parse_gradle_settings(&canon(&dir)).unwrap();
+    assert_eq!(s.includes.len(), 1);
+    assert_eq!(s.includes, vec![":app".to_string()]);
+}
+
+/// PATTERN-1 / TASK-2215 AC#1: `/`- and `\`-separated spellings of the same
+/// project path collapse onto Gradle's `:` form in the dedup key, so a
+/// Windows- or URL-styled hand edit does not double-count the subproject.
+#[test]
+fn parse_gradle_settings_dedupes_separator_spellings_of_one_path() {
+    let dir = tempfile::tempdir().unwrap();
+    std::fs::write(
+        dir.path().join("settings.gradle"),
+        "include ':apps:web'\ninclude 'apps/web'\ninclude 'apps\\web'\n",
+    )
+    .unwrap();
+
+    let s = parse_gradle_settings(&canon(&dir)).unwrap();
+    assert_eq!(s.includes.len(), 1);
+    assert_eq!(s.includes, vec![":apps:web".to_string()]);
+}
+
+/// PATTERN-1 / TASK-2215 AC#3: an `include` nested inside a block is
+/// depth-gated exactly like `rootProject.name` (CL-3 / TASK-1733) — the
+/// block may never execute, so counting its include would inflate
+/// `module_count`. A top-level include after the block still counts.
+#[test]
+fn parse_gradle_settings_ignores_includes_nested_in_blocks() {
+    let dir = tempfile::tempdir().unwrap();
+    std::fs::write(
+        dir.path().join("settings.gradle"),
+        "gradle.beforeSettings {\n    include(\":legacy\")\n}\ninclude(\":app\")\n",
+    )
+    .unwrap();
+
+    let s = parse_gradle_settings(&canon(&dir)).unwrap();
+    assert_eq!(s.includes, vec![":app".to_string()]);
+}
+
 /// CL-3 / TASK-1733: `rootProject.name` inside a block is not the root
 /// project's name; a top-level assignment elsewhere in the file still wins.
 #[test]
