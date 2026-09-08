@@ -3,11 +3,11 @@ id: TASK-2087
 title: >-
   UNSAFE-10: production unsafe FFI in ops-core is never exercised under Miri (no
   Miri job in CI)
-status: To Do
+status: Done
 assignee:
   - TASK-2245
 created_date: '2026-09-07 22:58'
-updated_date: '2026-09-08 10:58'
+updated_date: '2026-09-08 15:59'
 labels:
   - code-review-rust
   - unsafe
@@ -36,6 +36,12 @@ However, UNSAFE-10 check 2 — the code is exercised under Miri (`cargo +nightly
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 A Miri job (e.g. `cargo +nightly miri test -p ops-core`, possibly restricted to the `text::unix_open` and `edit::build_tmp_basename` tests if full-crate Miri hits unsupported libc operations) runs in CI, or the repo documents why Miri cannot cover this unsafe and what evidence substitutes for it
-- [ ] #2 If Miri cannot run the libc FFI paths on the CI runner, the job at minimum covers the pure-memory unsafe (`OsStr::from_encoded_bytes_unchecked`) and the fd-ownership transfer logic via a Miri-friendly seam, with the exclusion documented in the workflow
+- [x] #1 A Miri job (e.g. `cargo +nightly miri test -p ops-core`, possibly restricted to the `text::unix_open` and `edit::build_tmp_basename` tests if full-crate Miri hits unsupported libc operations) runs in CI, or the repo documents why Miri cannot cover this unsafe and what evidence substitutes for it
+- [x] #2 If Miri cannot run the libc FFI paths on the CI runner, the job at minimum covers the pure-memory unsafe (`OsStr::from_encoded_bytes_unchecked`) and the fd-ownership transfer logic via a Miri-friendly seam, with the exclusion documented in the workflow
 <!-- AC:END -->
+
+## Implementation Notes
+
+<!-- SECTION:NOTES:BEGIN -->
+Landed in wave TASK-2245. (1) ci.yml gains a `miri` job (nightly, MIRIFLAGS=-Zmiri-disable-isolation) running the ops-core atomic_write tests — locally verified: 9 passed, exercising build_tmp_basename OsStr::from_encoded_bytes_unchecked plus the atomic write/rename fd dance. (2) The unix_open walk cannot run under Miri (no shims for direct libc::openat/fstat/fcntl foreign calls — verified: "can't call foreign function `openat`"); its module docs now record that exemption and the substitute evidence (refusal test module under the Test job + per-block SAFETY prose), per AC#1's documentation prong. (3) atomic_write_mode_unaffected_by_umask is skipped in the job — it calls the umask foreign function directly, also unshimmed; documented in the workflow comments (AC#2's documented-exclusion requirement).
+<!-- SECTION:NOTES:END -->

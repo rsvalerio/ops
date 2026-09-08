@@ -1,11 +1,11 @@
 ---
 id: TASK-2094
 title: 'UNSAFE-10: runner unsafe blocks (termios, killpg) have no Miri coverage in CI'
-status: To Do
+status: Done
 assignee:
   - TASK-2245
 created_date: '2026-09-07 22:59'
-updated_date: '2026-09-08 10:58'
+updated_date: '2026-09-08 15:59'
 labels:
   - code-review-rust
   - unsafe
@@ -29,6 +29,12 @@ ordinal: 1000
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 CI runs a Miri job over the runner crate (nightly, ), or the unsafe modules' docs record explicitly why Miri cannot execute these libc paths and what covers them instead
-- [ ] #2 The EchoGuard MaybeUninit/assume_init path is exercised by whichever mechanism is chosen (Miri or documented exemption)
+- [x] #1 CI runs a Miri job over the runner crate (nightly, ), or the unsafe modules' docs record explicitly why Miri cannot execute these libc paths and what covers them instead
+- [x] #2 The EchoGuard MaybeUninit/assume_init path is exercised by whichever mechanism is chosen (Miri or documented exemption)
 <!-- AC:END -->
+
+## Implementation Notes
+
+<!-- SECTION:NOTES:BEGIN -->
+Landed in wave TASK-2245. (1) ci.yml miri job runs the runner EchoGuard construction path (`disable_echo` test) — locally verified passing under Miri: stderr is a pipe under the harness, so the non-TTY early-return branch executes. (2) terminal.rs module docs now record the UNSAFE-10 exemption for the MaybeUninit/tcgetattr/tcsetattr path: Miri has no shims for foreign termios calls and cannot provide a real TTY on stderr; substitute evidence is the per-block SAFETY prose (assume_init conditional on the POSIX ret==0 check) and the TEST-5 manual PTY testing. (3) process_group.rs module docs record the same for killpg, with the pid-reservation SAFETY argument and the cancellation tests under the ordinary Test job as the substitute evidence.
+<!-- SECTION:NOTES:END -->

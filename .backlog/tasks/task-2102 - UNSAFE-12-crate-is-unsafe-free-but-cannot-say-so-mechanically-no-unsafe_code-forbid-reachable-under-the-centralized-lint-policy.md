@@ -3,11 +3,11 @@ id: TASK-2102
 title: >-
   UNSAFE-12: crate is unsafe-free but cannot say so mechanically - no
   unsafe_code forbid reachable under the centralized lint policy
-status: To Do
+status: Done
 assignee:
   - TASK-2245
 created_date: '2026-09-08 06:42'
-updated_date: '2026-09-08 10:58'
+updated_date: '2026-09-08 15:45'
 labels:
   - code-review-rust
   - unsafe
@@ -30,6 +30,12 @@ ordinal: 25000
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 crates/backlog builds with unsafe_code = forbid in force (crate-level lints or an agreed workspace-policy exception), without loosening the policy for members that genuinely use unsafe
-- [ ] #2 Adding an unsafe block to crates/backlog fails the build
+- [x] #1 crates/backlog builds with unsafe_code = forbid in force (crate-level lints or an agreed workspace-policy exception), without loosening the policy for members that genuinely use unsafe
+- [x] #2 Adding an unsafe block to crates/backlog fails the build
 <!-- AC:END -->
+
+## Implementation Notes
+
+<!-- SECTION:NOTES:BEGIN -->
+Landed in wave TASK-2245: added `#![forbid(unsafe_code)]` to crates/backlog/src/lib.rs crate root — crate-level enforcement via inner attribute, keeping `[lints] workspace = true` (ARCH-11) intact, so no policy loosening for unsafe-holding members. AC#2 verified by negative probe: appending `unsafe { 1u8 + 1u8 }` to the crate fails cargo check with `error: usage of an unsafe block` under the forbid (probe removed afterwards). The lone "unsafe" token in crates/backlog/src/model.rs:80 is prose in a doc comment, not code.
+<!-- SECTION:NOTES:END -->

@@ -1,11 +1,11 @@
 ---
 id: TASK-2245
 title: code-review-plan-wave11
-status: To Do
+status: Done
 assignee:
   - code-review-wave
 created_date: '2026-09-08 10:52'
-updated_date: '2026-09-08 10:58'
+updated_date: '2026-09-08 16:57'
 labels:
   - code-review-wave
 dependencies:
@@ -36,4 +36,6 @@ code-review-plan-wave11: Mechanical unsafe forbiddance and Miri coverage for the
 
 <!-- SECTION:NOTES:BEGIN -->
 Overlaps: TASK-2241 wave7 (1 file: crates/extension/src/lib.rs); TASK-2246 wave12 (1 file: crates/extension/src/lib.rs); TASK-2248 wave14 (1 file: crates/extension/src/lib.rs)
+
+Branch: code-review/TASK-2245
 <!-- SECTION:NOTES:END -->

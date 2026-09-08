@@ -1,11 +1,11 @@
 ---
 id: TASK-2085
 title: 'UNSAFE-12: ops-theme contains no unsafe but does not forbid it mechanically'
-status: To Do
+status: Done
 assignee:
   - TASK-2245
 created_date: '2026-09-07 22:58'
-updated_date: '2026-09-08 10:58'
+updated_date: '2026-09-08 15:43'
 labels:
   - code-review-rust
   - unsafe
@@ -28,6 +28,12 @@ ordinal: 13000
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 crates/theme/Cargo.toml adds unsafe_code = "forbid" under a [lints.rust] section inheriting the rest from the workspace
-- [ ] #2 cargo check -p ops-theme still succeeds (no macro expansions in this crate emit unsafe tokens)
+- [x] #1 crates/theme/Cargo.toml adds unsafe_code = "forbid" under a [lints.rust] section inheriting the rest from the workspace
+- [x] #2 cargo check -p ops-theme still succeeds (no macro expansions in this crate emit unsafe tokens)
 <!-- AC:END -->
+
+## Implementation Notes
+
+<!-- SECTION:NOTES:BEGIN -->
+Landed in wave TASK-2245: added `#![forbid(unsafe_code)]` to crates/theme/src/lib.rs crate root. AC#1 substitution: the literal `[lints.rust]` table route is not satisfiable alongside ARCH-11 — Cargo cannot merge a per-crate lints table with `[lints] workspace = true`, and dropping inheritance would silently lose the centralized pedantic/nursery deny policy. The crate-root attribute enforces the same build-level forbid (cannot be lifted by a scoped allow) while keeping workspace lints intact; intent satisfied. AC#2 verified: cargo check -p ops-theme clean.
+<!-- SECTION:NOTES:END -->
