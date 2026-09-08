@@ -3,11 +3,11 @@ id: TASK-2178
 title: >-
   PATTERN-1: go.mod local `replace` targets are counted as modules, so the About
   card's module count disagrees with the units list
-status: To Do
+status: Done
 assignee:
   - TASK-2239
 created_date: '2026-09-08 07:12'
-updated_date: '2026-09-08 10:55'
+updated_date: '2026-09-08 16:58'
 labels:
   - code-review-rust
   - pattern
@@ -37,8 +37,14 @@ Semantically a `replace` directive is a dependency substitution, not a workspace
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 compute_module_count and collect_units agree on what counts as a module for every input: for any fixture, module_count is either None or equal to collect_units(...).len()
-- [ ] #2 A go.mod-only project with local replace directives no longer reports a module count larger than the number of emitted ProjectUnits (either the replaces become units, or the count drops the replaces)
-- [ ] #3 A test asserts the identity module_count and the units-provider length together on a single fixture containing local replaces
-- [ ] #4 The chosen semantics are documented on compute_module_count and cross-referenced against the Rust stack's resolved_members() convention
+- [x] #1 compute_module_count and collect_units agree on what counts as a module for every input: for any fixture, module_count is either None or equal to collect_units(...).len()
+- [x] #2 A go.mod-only project with local replace directives no longer reports a module count larger than the number of emitted ProjectUnits (either the replaces become units, or the count drops the replaces)
+- [x] #3 A test asserts the identity module_count and the units-provider length together on a single fixture containing local replaces
+- [x] #4 The chosen semantics are documented on compute_module_count and cross-referenced against the Rust stack's resolved_members() convention
 <!-- AC:END -->
+
+## Implementation Notes
+
+<!-- SECTION:NOTES:BEGIN -->
+Fixed: chosen semantics — the count drops the replaces. compute_module_count now counts only go.work use dirs (go_work_use_dirs.map(<[String]>::len)); a go.mod-only project reports None regardless of local replaces, matching Node/Python single-package convention and the Rust stack's resolved_members().len() invariant. Signature shed the now-unused go_mod parameter. Tests updated (compute_module_count_with_local_replaces and workspace_precedence replaced; provide_go_project_with_local_replaces now expects None) and the joint agreement test identity_module_count_agrees_with_units_on_local_replaces added, asserting identity module_count and GoUnitsProvider length on one fixture with two real replace targets. The TASK-1212 scrub test in go_mod.rs kept its parse-level assertion with the count call updated. Orphan discharged: local_replaces lost its last production reader — filed TASK-2254 (Triage). cargo test -p ops-about-go: 82 passed; clippy pedantic clean.
+<!-- SECTION:NOTES:END -->

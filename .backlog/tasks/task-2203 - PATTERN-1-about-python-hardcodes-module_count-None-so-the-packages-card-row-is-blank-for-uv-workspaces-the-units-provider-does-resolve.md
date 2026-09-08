@@ -3,11 +3,11 @@ id: TASK-2203
 title: >-
   PATTERN-1: about-python hardcodes module_count = None, so the 'packages' card
   row is blank for uv workspaces the units provider does resolve
-status: To Do
+status: Done
 assignee:
   - TASK-2239
 created_date: '2026-09-08 07:19'
-updated_date: '2026-09-08 10:55'
+updated_date: '2026-09-08 17:00'
 labels:
   - code-review-rust
   - pattern
@@ -35,7 +35,13 @@ ordinal: 116000
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 module_count for a uv workspace equals the number of ProjectUnits the units provider emits for the same root, or the module_label is dropped if no count is intended
-- [ ] #2 A single-package (non-workspace) pyproject still yields module_count = None
-- [ ] #3 A test pins the count against the units list for the same fixture so the two cannot drift
+- [x] #1 module_count for a uv workspace equals the number of ProjectUnits the units provider emits for the same root, or the module_label is dropped if no count is intended
+- [x] #2 A single-package (non-workspace) pyproject still yields module_count = None
+- [x] #3 A test pins the count against the units list for the same fixture so the two cannot drift
 <!-- AC:END -->
+
+## Implementation Notes
+
+<!-- SECTION:NOTES:BEGIN -->
+Fixed: module_count now derives from the same resolved member set the units provider lists. units::read_workspace_members is exposed (pub within the private module) and the identity provider sets module_count = Some(len) for a uv workspace that resolves members, None for single-package or zero-resolution projects (label kept — the count fills it). Joint test uv_workspace_module_count_equals_the_units_provider_length pins identity module_count == PythonUnitsProvider units len on one fixture including a non-resolving member dir; parse_minimal_pyproject now also pins the single-package None. cargo test -p ops-about-python: 47 passed; clippy pedantic clean.
+<!-- SECTION:NOTES:END -->

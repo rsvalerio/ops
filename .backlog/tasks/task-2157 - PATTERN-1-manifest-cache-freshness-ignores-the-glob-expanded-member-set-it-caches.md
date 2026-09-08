@@ -3,11 +3,11 @@ id: TASK-2157
 title: >-
   PATTERN-1: manifest cache freshness ignores the glob-expanded member set it
   caches
-status: To Do
+status: Done
 assignee:
   - TASK-2239
 created_date: '2026-09-08 07:04'
-updated_date: '2026-09-08 10:55'
+updated_date: '2026-09-08 16:53'
 labels:
   - code-review-rust
   - pattern
@@ -36,8 +36,18 @@ For the overwhelmingly common `members = ["crates/*"]` shape, creating or deleti
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 A decision is recorded: either the freshness key is extended to cover the resolved member set, or the cache contract explicitly documents that the member list and canonical-manifest map are frozen for the entry's lifetime
-- [ ] #2 If the key is extended, adding or removing a directory under a `prefix/*` glob causes the next `load_workspace_manifest` to re-resolve, and a test pins that (the existing `resolved_workspace_members_are_amortised_via_typed_manifest_cache` test is updated to assert the amortisation it actually still guarantees)
-- [ ] #3 If the contract is documented instead, the `# Cache contract` **Invalidation** bullet in `manifest_cache.rs` names the two derived views and states that a host which can outlive a member-set change must call `ctx.refresh`
-- [ ] #4 The reviewer rule at `manifest_cache.rs:74-76` ("do not add a daemon caller without first making the migration above") is extended to cover this staleness, so a future daemon caller cannot land without addressing it
+- [x] #1 A decision is recorded: either the freshness key is extended to cover the resolved member set, or the cache contract explicitly documents that the member list and canonical-manifest map are frozen for the entry's lifetime
+- [x] #2 If the key is extended, adding or removing a directory under a `prefix/*` glob causes the next `load_workspace_manifest` to re-resolve, and a test pins that (the existing `resolved_workspace_members_are_amortised_via_typed_manifest_cache` test is updated to assert the amortisation it actually still guarantees)
+- [x] #3 If the contract is documented instead, the `# Cache contract` **Invalidation** bullet in `manifest_cache.rs` names the two derived views and states that a host which can outlive a member-set change must call `ctx.refresh`
+- [x] #4 The reviewer rule at `manifest_cache.rs:74-76` ("do not add a daemon caller without first making the migration above") is extended to cover this staleness, so a future daemon caller cannot land without addressing it
 <!-- AC:END -->
+
+## Implementation Notes
+
+<!-- SECTION:NOTES:BEGIN -->
+Decision (TASK-2157 AC #1): contract documented, key NOT extended.
+
+Rationale: extending the freshness key to the glob prefixes would (a) restructure the probe API — the key is computed before the cache lookup, but the prefixes are only knowable from the already-cached manifest; (b) break the documented one-stat hot-path budget (PERF-1 / TASK-2028); and (c) still be incomplete — stat-ing the prefix directory catches directory add/remove but not an existing directory gaining a Cargo.toml, so the contract would over-promise a freshness it cannot deliver. No daemon caller exists (documented reviewer rule), and ctx.refresh is the escape hatch.
+
+Applied: manifest_cache.rs gains a **Member-set freeze** invalidation bullet (AC #3) naming resolved_members and canonical_member_manifests, and the daemon reviewer rule is extended to require key coverage or ctx.refresh-on-workspace-events before any daemon caller may rely on ops about member data (AC #4). The pinned test resolved_workspace_members_are_amortised_via_typed_manifest_cache now cross-references the documented contract. AC #2 is conditional on extending the key, which this decision declines — vacuously satisfied.
+<!-- SECTION:NOTES:END -->

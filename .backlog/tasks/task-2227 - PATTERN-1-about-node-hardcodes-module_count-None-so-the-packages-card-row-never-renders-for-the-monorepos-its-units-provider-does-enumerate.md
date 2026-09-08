@@ -3,11 +3,11 @@ id: TASK-2227
 title: >-
   PATTERN-1: about-node hardcodes module_count = None, so the 'packages' card
   row never renders for the monorepos its units provider does enumerate
-status: To Do
+status: Done
 assignee:
   - TASK-2239
 created_date: '2026-09-08 07:22'
-updated_date: '2026-09-08 10:55'
+updated_date: '2026-09-08 17:08'
 labels:
   - code-review-rust
   - correctness
@@ -59,8 +59,14 @@ count diverges from the units list rather than being absent).
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 module_count reflects the workspace member count the units provider resolves for npm/yarn workspaces and pnpm-workspace.yaml
-- [ ] #2 a single-package project (no workspaces declaration) still yields module_count = None so the row stays hidden
-- [ ] #3 the count is derived from the cached package.json read, adding no second manifest IO
-- [ ] #4 a test asserts the identity card's module_count equals the length of NodeUnitsProvider's output for the same fixture
+- [x] #1 module_count reflects the workspace member count the units provider resolves for npm/yarn workspaces and pnpm-workspace.yaml
+- [x] #2 a single-package project (no workspaces declaration) still yields module_count = None so the row stays hidden
+- [x] #3 the count is derived from the cached package.json read, adding no second manifest IO
+- [x] #4 a test asserts the identity card's module_count equals the length of NodeUnitsProvider's output for the same fixture
 <!-- AC:END -->
+
+## Implementation Notes
+
+<!-- SECTION:NOTES:BEGIN -->
+Fixed: units.rs exposes resolved_members (the shared resolve_member_globs call collect_units already used) and the identity provider sets module_count = Some(len) when the workspace resolves members, None for single-package projects. The root package.json read goes through the shared manifest_cache entry (AC #3 — no second manifest IO; only the same dir-listing probes the units provider performs). Tests: parse_minimal_package_json pins the single-package None (AC #2); workspace_module_count_equals_the_units_provider_length asserts identity module_count == NodeUnitsProvider units len on the same fixture for both npm workspaces and pnpm-workspace.yaml sources, including a non-resolving member dir (AC #1/#4). cargo test -p ops-about-node: 113 passed; clippy pedantic clean.
+<!-- SECTION:NOTES:END -->

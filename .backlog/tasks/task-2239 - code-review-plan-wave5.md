@@ -1,11 +1,11 @@
 ---
 id: TASK-2239
 title: code-review-plan-wave5
-status: To Do
+status: Done
 assignee:
   - code-review-wave
 created_date: '2026-09-08 10:51'
-updated_date: '2026-09-08 10:55'
+updated_date: '2026-09-08 17:31'
 labels:
   - code-review-wave
 dependencies:
@@ -40,4 +40,6 @@ code-review-plan-wave5: About card advertises counts and fields its providers ne
 
 <!-- SECTION:NOTES:BEGIN -->
 Overlaps: TASK-2248 wave14 (8 files: extensions-go/about/src/lib.rs ...); TASK-2240 wave6 (6 files: extensions-go/about/src/lib.rs ...); TASK-2247 wave13 (4 files: extensions-go/about/src/lib.rs ...); TASK-2238 wave4 (3 files: extensions-java/about/src/gradle/mod.rs ...); TASK-2242 wave8 (2 files: extensions-python/about/src/units.rs ...); TASK-2241 wave7 (1 file: extensions-python/about/src/units.rs)
+
+Branch: code-review/TASK-2239
 <!-- SECTION:NOTES:END -->

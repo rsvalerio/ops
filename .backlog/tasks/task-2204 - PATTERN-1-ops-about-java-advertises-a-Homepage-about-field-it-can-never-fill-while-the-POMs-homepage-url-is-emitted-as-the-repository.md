@@ -3,11 +3,11 @@ id: TASK-2204
 title: >-
   PATTERN-1: ops-about-java advertises a Homepage about field it can never fill,
   while the POM's homepage <url> is emitted as the repository
-status: To Do
+status: Done
 assignee:
   - TASK-2239
 created_date: '2026-09-08 07:19'
-updated_date: '2026-09-08 10:55'
+updated_date: '2026-09-08 17:03'
 labels:
   - code-review-rust
   - pattern
@@ -35,8 +35,14 @@ The data to fill it is being thrown at the wrong field: in `parse_top_level`, a 
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 PomData carries the top-level <url> in a field distinct from <scm><url> (e.g. project_url vs scm_url), and the Maven provider maps the former to ParsedManifest::homepage and the latter to repository
-- [ ] #2 A POM declaring only a top-level <url> yields homepage = that URL and leaves repository to the git-remote fallback; a test pins this
-- [ ] #3 A POM declaring both <url> and <scm><url> yields homepage from <url> and repository from <scm><url>, in either source order; a test pins this
-- [ ] #4 Either the Gradle provider populates homepage from an available source, or java_about_fields stops inserting the homepage field for the Gradle stack so no permanently-empty row is rendered
+- [x] #1 PomData carries the top-level <url> in a field distinct from <scm><url> (e.g. project_url vs scm_url), and the Maven provider maps the former to ParsedManifest::homepage and the latter to repository
+- [x] #2 A POM declaring only a top-level <url> yields homepage = that URL and leaves repository to the git-remote fallback; a test pins this
+- [x] #3 A POM declaring both <url> and <scm><url> yields homepage from <url> and repository from <scm><url>, in either source order; a test pins this
+- [x] #4 Either the Gradle provider populates homepage from an available source, or java_about_fields stops inserting the homepage field for the Gradle stack so no permanently-empty row is rendered
 <!-- AC:END -->
+
+## Implementation Notes
+
+<!-- SECTION:NOTES:BEGIN -->
+Fixed: PomData gained project_url (top-level <url>) distinct from scm_url (<scm><url>); parse_top_level writes the former. Maven provider maps project_url -> homepage and scm_url -> repository. java_about_fields split: maven_about_fields (inserts homepage) and gradle_about_fields (base only) — the Gradle card no longer declares a row it can never fill, pinned by gradle_provider_about_fields. Tests: parser-level parse_pom_top_level_url_is_the_project_homepage and parse_pom_url_and_scm_url_are_captured_independently_in_either_order; provider-level maven_provider_top_level_url_is_homepage_not_repository (AC #2, repository left to git fallback) and maven_provider_homepage_and_repository_come_from_distinct_elements (AC #3, both orders). parse_pom_duplicate_scm_opener_deterministic and parse_pom_scm_takes_precedence_over_url updated to the new field semantics (the latter folded into the either-order test). cargo test -p ops-about-java: 90 passed; clippy pedantic clean.
+<!-- SECTION:NOTES:END -->
