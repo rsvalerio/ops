@@ -320,7 +320,9 @@ fn extract_required_version(content: &str, source: &str) -> Option<String> {
         );
         return None;
     }
-    found.as_deref().and_then(|v| sanitize_required_version(v, source))
+    found
+        .as_deref()
+        .and_then(|v| sanitize_required_version(v, source))
 }
 
 /// The HCL block nesting the scanner is currently inside.
