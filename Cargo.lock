@@ -2176,6 +2176,7 @@ dependencies = [
  "anyhow",
  "clap",
  "comfy-table",
+ "libc",
  "ops-core",
  "serde",
  "serde_json",
@@ -2184,6 +2185,7 @@ dependencies = [
  "tempfile",
  "terminal_size",
  "tracing",
+ "wait-timeout",
 ]
 
 [[package]]

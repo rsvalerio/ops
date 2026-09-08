@@ -274,20 +274,28 @@ fn read_capped<R: std::io::Read>(reader: &mut R, source: &str) -> anyhow::Result
     use std::io::Read as _;
     let cap = plan_json_max_bytes();
     let limit = cap.saturating_add(1);
-    let mut buf = String::new();
+    // SEC-33 / TASK-2206: read **bytes** and decide the cap before any
+    // UTF-8 validation. `read_to_string` validated the whole truncated
+    // window, so whenever byte `cap + 1` split a multi-byte character —
+    // routine in a plan carrying non-ASCII resource names, tags, or
+    // provider diagnostics — the function failed with "stream did not
+    // contain valid UTF-8" and the operator never saw the cap or the
+    // override env var it exists for.
+    let mut bytes = Vec::new();
     reader
         .take(limit)
-        .read_to_string(&mut buf)
+        .read_to_end(&mut bytes)
         .with_context(|| format!("failed to read plan JSON {source}"))?;
     // `usize` is at most 64 bits on every supported target, so this widening
     // never actually saturates; the `u64::MAX` fallback would compare as
     // over-cap, which is the safe direction if that ever changed.
-    if u64::try_from(buf.len()).unwrap_or(u64::MAX) > cap {
+    if u64::try_from(bytes.len()).unwrap_or(u64::MAX) > cap {
         anyhow::bail!(
             "plan JSON {source} exceeds {cap} bytes (override via {PLAN_JSON_MAX_BYTES_ENV})"
         );
     }
-    Ok(buf)
+    String::from_utf8(bytes)
+        .map_err(|error| anyhow::anyhow!("plan JSON {source} is not valid UTF-8: {error}"))
 }
 
 /// SEC-33 / TASK-0915: default cap on `--json-file` reads. Real-world
@@ -302,6 +310,56 @@ const PLAN_JSON_MAX_BYTES_ENV: &str = "OPS_PLAN_JSON_MAX_BYTES";
 /// dropped rather than buffered, so a chatty or hostile `terraform` on
 /// `PATH` cannot grow an unbounded `Vec<u8>` inside this process.
 const TERRAFORM_STDERR_MAX_BYTES: u64 = 8 * 1024;
+
+/// SEC-33 / TASK-2209: default wall-clock bound, in seconds, on each
+/// terraform child (`plan` and `show -json`). Every byte-valued resource in
+/// this pipeline is capped; wall-clock is the one an unresponsive provider,
+/// a blocked credential-helper prompt, or a wrapped `terraform` on `PATH`
+/// actually exhausts — a child that opens its pipes and never writes used
+/// to wedge `ops plans` forever, with no diagnostic and no artifact
+/// cleanup. Generous enough for a real plan on a large stack; operators can
+/// override it via `OPS_TERRAFORM_TIMEOUT_SECS`.
+const DEFAULT_TERRAFORM_TIMEOUT_SECS: u64 = 600;
+const TERRAFORM_TIMEOUT_SECS_ENV: &str = "OPS_TERRAFORM_TIMEOUT_SECS";
+
+/// SEC-33 / TASK-2209: the configured wall-clock bound, in the same shape
+/// as [`plan_json_max_bytes`] — a positive integer through the documented
+/// env var, otherwise the documented default.
+fn terraform_timeout() -> std::time::Duration {
+    std::env::var(TERRAFORM_TIMEOUT_SECS_ENV)
+        .ok()
+        .and_then(|s| s.parse::<u64>().ok())
+        .filter(|&n| n > 0)
+        .map_or_else(
+            || std::time::Duration::from_secs(DEFAULT_TERRAFORM_TIMEOUT_SECS),
+            std::time::Duration::from_secs,
+        )
+}
+
+/// SEC-33 / TASK-2209: wait for a terraform child under the wall-clock
+/// bound. On expiry the child is killed and reaped — an unreaped child
+/// keeps its pipes open — and the error names the invocation and the limit
+/// that fired, so a hang surfaces as an actionable error instead of
+/// consuming a CI runner slot until the job-level timeout fires.
+fn wait_for_child(
+    child: &mut std::process::Child,
+    invocation: &str,
+) -> anyhow::Result<std::process::ExitStatus> {
+    let timeout = terraform_timeout();
+    match wait_timeout::ChildExt::wait_timeout(child, timeout) {
+        Ok(Some(status)) => Ok(status),
+        Ok(None) => {
+            let _ = child.kill();
+            let _ = child.wait();
+            bail!(
+                "`{invocation}` produced no result within {} seconds \
+                 (override via {TERRAFORM_TIMEOUT_SECS_ENV})",
+                timeout.as_secs(),
+            );
+        }
+        Err(e) => Err(anyhow::Error::new(e).context(format!("waiting for `{invocation}` to exit"))),
+    }
+}
 
 fn plan_json_max_bytes() -> u64 {
     std::env::var(PLAN_JSON_MAX_BYTES_ENV)
@@ -349,11 +407,13 @@ fn prepare_artifact_paths(opts: &PlanOptions) -> anyhow::Result<ArtifactPaths> {
     Ok(ArtifactPaths { binary, json })
 }
 
-/// SEC-29 / TASK-1930: 0700 on the artifact directory. Terraform plan
-/// artifacts are among the most secret-dense files a stack produces —
-/// provider configuration, generated passwords and keys, sensitive
-/// output values — so no other local account on a shared build host or
-/// multi-tenant runner may list or read them.
+/// SEC-29 / TASK-1930 + SEC-25 / TASK-2225: 0700 on the artifact directory,
+/// and — when the directory already existed — verification that what is
+/// actually there deserves the artifacts. Terraform plan artifacts are among
+/// the most secret-dense files a stack produces — provider configuration,
+/// generated passwords and keys, sensitive output values — so no other local
+/// account on a shared build host or multi-tenant runner may list, read, or
+/// plant names in it.
 fn create_artifact_dir(dir: &Path) -> std::io::Result<()> {
     #[cfg(unix)]
     {
@@ -361,12 +421,74 @@ fn create_artifact_dir(dir: &Path) -> std::io::Result<()> {
         std::fs::DirBuilder::new()
             .recursive(true)
             .mode(0o700)
-            .create(dir)
+            .create(dir)?;
+        verify_artifact_dir(dir)
     }
     #[cfg(not(unix))]
     {
-        std::fs::create_dir_all(dir)
+        std::fs::create_dir_all(dir)?;
+        // No portable mode to inspect: the rejection half only, as the
+        // ingest-dir checks in `ops-duckdb` do — a pre-existing symlink or
+        // reparse point at the directory path is refused.
+        if let Ok(meta) = std::fs::symlink_metadata(dir) {
+            if meta.file_type().is_symlink() {
+                return Err(std::io::Error::new(
+                    std::io::ErrorKind::InvalidInput,
+                    format!(
+                        "artifact directory {} is a symlink; refusing to stage plan artifacts through it",
+                        dir.display()
+                    ),
+                ));
+            }
+        }
+        Ok(())
     }
+}
+
+/// SEC-25 / TASK-2225: `DirBuilder::mode` only applies to directories the
+/// builder *creates*; `.ops/` normally already exists, created by other
+/// tooling under the user's umask. Before a secret-bearing artifact lands
+/// in a pre-existing directory, verify what is on disk: a symlink at the
+/// directory path, or group/other *write* permission — any local account
+/// could then plant or swap artifact names, retargeting terraform's own
+/// `-out` write — is a hard error naming the path and the mode found.
+#[cfg(unix)]
+fn verify_artifact_dir(dir: &Path) -> std::io::Result<()> {
+    use std::io::{Error, ErrorKind};
+    use std::os::unix::fs::PermissionsExt as _;
+
+    let lstat = std::fs::symlink_metadata(dir)?;
+    let file_type = lstat.file_type();
+    if file_type.is_symlink() {
+        return Err(Error::new(
+            ErrorKind::InvalidInput,
+            format!(
+                "artifact directory {} is a symlink; refusing to stage plan artifacts through it",
+                dir.display()
+            ),
+        ));
+    }
+    if !file_type.is_dir() {
+        return Err(Error::new(
+            ErrorKind::InvalidInput,
+            format!(
+                "artifact directory {} exists but is not a directory",
+                dir.display()
+            ),
+        ));
+    }
+    let mode = lstat.permissions().mode() & 0o7777;
+    if mode & 0o022 != 0 {
+        return Err(Error::new(
+            ErrorKind::PermissionDenied,
+            format!(
+                "artifact directory {} is writable by other local principals (mode {:o}); refusing to write plan artifacts into it",
+                dir.display(),
+                mode & 0o777
+            ),
+        ));
+    }
+    Ok(())
 }
 
 /// SEC-29 / TASK-1930: tighten an artifact terraform wrote for us.
@@ -397,11 +519,17 @@ fn harden_artifact_permissions(path: &Path) {
     }
 }
 
-/// SEC-29 / TASK-1930: 0600 on the plan JSON. It carries the `after`
-/// values of generated passwords and keys plus full provider
-/// configuration, so it must not be world-readable. The mode is also
-/// applied after opening, because `OpenOptions::mode` only takes effect
-/// when the file is created and this path may already exist.
+/// SEC-29 / TASK-1930 + SEC-25 / TASK-2225: create the plan JSON without
+/// ever following a pre-existing symlink at the destination. It carries the
+/// `after` values of generated passwords and keys plus full provider
+/// configuration, so it must not be world-readable — and must not be
+/// delivered, with the operator's credentials, to whatever a planted link
+/// points at. `O_NOFOLLOW` makes a symlink at the path a hard `ELOOP` error
+/// (mapped below to a message naming the path) instead of a write-through;
+/// the subsequent `set_permissions` runs on the descriptor this run opened,
+/// so it can only ever chmod this run's own file. The mode is applied after
+/// opening, because `OpenOptions::mode` only takes effect when the file is
+/// created and this path may already exist.
 fn write_plan_json(path: &Path, contents: &str) -> std::io::Result<()> {
     use std::io::Write as _;
     let mut open_opts = std::fs::OpenOptions::new();
@@ -409,9 +537,39 @@ fn write_plan_json(path: &Path, contents: &str) -> std::io::Result<()> {
     #[cfg(unix)]
     {
         use std::os::unix::fs::OpenOptionsExt as _;
-        open_opts.mode(0o600);
+        open_opts.mode(0o600).custom_flags(libc::O_NOFOLLOW);
     }
-    let mut file = open_opts.open(path)?;
+    #[cfg(not(unix))]
+    {
+        // No portable O_NOFOLLOW: the rejection half only, as the unix arm
+        // does through the flag — refuse a pre-existing symlink/reparse
+        // point rather than writing through it.
+        if let Ok(meta) = std::fs::symlink_metadata(path) {
+            if meta.file_type().is_symlink() {
+                return Err(std::io::Error::new(
+                    std::io::ErrorKind::InvalidInput,
+                    format!(
+                        "plan JSON {} is a symlink; refusing to write through it",
+                        path.display()
+                    ),
+                ));
+            }
+        }
+    }
+    let mut file = match open_opts.open(path) {
+        Ok(file) => file,
+        #[cfg(unix)]
+        Err(e) if e.raw_os_error() == Some(libc::ELOOP) => {
+            return Err(std::io::Error::new(
+                std::io::ErrorKind::InvalidInput,
+                format!(
+                    "plan JSON {} is a symlink; refusing to write through it",
+                    path.display()
+                ),
+            ));
+        }
+        Err(e) => return Err(e),
+    };
     #[cfg(unix)]
     {
         use std::os::unix::fs::PermissionsExt as _;
@@ -511,7 +669,7 @@ fn run_terraform_plan(
 
     plan_cmd.stdout(Stdio::null()).stderr(Stdio::inherit());
 
-    let status = plan_cmd.status().map_err(|e| {
+    let mut child = plan_cmd.spawn().map_err(|e| {
         if e.kind() == std::io::ErrorKind::NotFound {
             anyhow::anyhow!(
                 "`terraform` binary not found on PATH.\n\
@@ -524,12 +682,25 @@ fn run_terraform_plan(
         }
     })?;
 
-    // SEC-25 / SEC-32: terraform owns `-out` from the moment it starts and
-    // may have written a partial artifact even on a failing exit, so record
-    // the path once the process actually ran. Nothing is recorded when the
-    // spawn itself failed, which is what keeps a run that never invoked
-    // terraform from deleting a pre-existing file at `--out`.
+    // SEC-25 / SEC-32 + TASK-2209: terraform owns `-out` from the moment it
+    // starts and may have written a partial artifact even on a failing exit
+    // — or on a timeout kill in `wait_for_child` below — so record the path
+    // once the process actually exists. Nothing is recorded when the spawn
+    // itself failed, which is what keeps a run that never invoked terraform
+    // from deleting a pre-existing file at `--out`.
     created.push(binary_path.to_path_buf());
+
+    let status = match wait_for_child(&mut child, "terraform plan") {
+        Ok(status) => status,
+        Err(error) => {
+            // SEC-29: the run is over without a usable exit status (timeout
+            // kill, or the wait itself failed), and a partial artifact is as
+            // secret-dense as a complete one. Cleanup deletes it on the
+            // `!keep_plan` paths; `--keep-plan` keeps it covered.
+            harden_artifact_permissions(binary_path);
+            return Err(error);
+        }
+    };
 
     // SEC-29: harden the artifact *before* the exit status is interpreted.
     // A failing `terraform plan` can still have written a partial `-out`
@@ -564,7 +735,8 @@ fn plan_status_result(
     }
 }
 
-/// FN-1 / TASK-1958 + SEC-33 / TASK-1933: capture the plan document.
+/// FN-1 / TASK-1958 + SEC-33 / TASK-1933 / TASK-2209: capture the plan
+/// document.
 ///
 /// stdout is streamed through [`read_capped`], the same helper the file
 /// and stdin branches use, instead of `Command::output()`'s unbounded
@@ -572,6 +744,11 @@ fn plan_status_result(
 /// documented `OPS_PLAN_JSON_MAX_BYTES` control did nothing for. stderr
 /// is read on its own thread so a full stderr pipe can never wedge the
 /// child mid-stdout, and is bounded by [`TERRAFORM_STDERR_MAX_BYTES`].
+/// stdout is read on its own thread too (TASK-2209), so the child's
+/// wall-clock bound in [`wait_for_child`] governs the whole capture: a
+/// child that opens its pipes and never writes cannot wedge the read
+/// itself, and an over-cap read closing the pipe makes the child's next
+/// write fail instead of blocking.
 fn capture_plan_json(binary_path: &Path) -> anyhow::Result<String> {
     let mut child = std::process::Command::new("terraform")
         .args(["show", "-json"])
@@ -596,26 +773,20 @@ fn capture_plan_json(binary_path: &Path) -> anyhow::Result<String> {
         buf
     });
 
-    let read_result = {
-        let mut stdout = child
-            .stdout
-            .take()
-            .context("`terraform show -json` stdout was not captured")?;
-        let result = read_capped(&mut stdout, "from `terraform show -json`");
-        if result.is_err() {
-            // Over-cap: stop the child rather than leaving it blocked on a
-            // stdout pipe nobody is draining any more.
-            let _ = child.kill();
-        }
-        result
-    };
+    let mut stdout = child
+        .stdout
+        .take()
+        .context("`terraform show -json` stdout was not captured")?;
+    let stdout_reader =
+        std::thread::spawn(move || read_capped(&mut stdout, "from `terraform show -json`"));
 
-    let status = child
-        .wait()
-        .context("waiting for `terraform show -json` to exit")?;
+    let status = wait_for_child(&mut child, "terraform show -json")?;
     let stderr_bytes = stderr_reader.join().unwrap_or_default();
-
-    let json_str = read_result?;
+    let json_str = stdout_reader.join().unwrap_or_else(|_| {
+        Err(anyhow::anyhow!(
+            "the `terraform show -json` stdout reader panicked"
+        ))
+    })?;
 
     if status.success() {
         Ok(json_str)
@@ -919,6 +1090,309 @@ mod tests {
         assert!(
             msg.contains(PLAN_JSON_MAX_BYTES_ENV),
             "error must name the override env var, got: {msg}"
+        );
+    }
+
+    /// SEC-33 / TASK-2206: over-cap is a cap error regardless of encoding.
+    /// `read_to_string` validated the whole truncated window, so a payload
+    /// whose byte at `cap + 1` splits a multi-byte character failed with
+    /// "stream did not contain valid UTF-8" — naming neither the cap nor
+    /// `OPS_PLAN_JSON_MAX_BYTES`. Non-ASCII content is routine in real plan
+    /// output, and the three ASCII-only cap tests above could not see this.
+    #[test]
+    #[serial_test::serial(plan_json_max_bytes_env)]
+    fn read_capped_reports_the_cap_when_the_cut_splits_a_multibyte_character() {
+        let saved = std::env::var(PLAN_JSON_MAX_BYTES_ENV).ok();
+        unsafe { std::env::set_var(PLAN_JSON_MAX_BYTES_ENV, "64") };
+        // 62 ASCII bytes, then `€` (3 bytes each): byte 65 — the first byte
+        // read past the 64-byte cap — is the *first* byte of the second `€`,
+        // so the truncated window ends mid-sequence.
+        let payload = format!("{}{}", "x".repeat(62), "€".repeat(8));
+        let mut reader = std::io::Cursor::new(payload.into_bytes());
+        let result = read_capped(&mut reader, "from `terraform show -json`");
+        unsafe {
+            match saved {
+                Some(v) => std::env::set_var(PLAN_JSON_MAX_BYTES_ENV, v),
+                None => std::env::remove_var(PLAN_JSON_MAX_BYTES_ENV),
+            }
+        }
+        let msg = format!(
+            "{}",
+            result.expect_err("oversized payload must be a cap error")
+        );
+        assert!(
+            msg.contains("exceeds 64 bytes"),
+            "error must name the cap even when the cut splits a character, got: {msg}"
+        );
+        assert!(
+            msg.contains(PLAN_JSON_MAX_BYTES_ENV),
+            "error must name the override env var, got: {msg}"
+        );
+        assert!(
+            !msg.contains("UTF-8"),
+            "the multi-byte boundary must not surface as an encoding error, got: {msg}"
+        );
+    }
+
+    /// SEC-33 / TASK-2206: the other side of size-before-decode — a payload
+    /// that is under the cap but genuinely not UTF-8 keeps its own distinct
+    /// error, naming the source, instead of being conflated with the cap.
+    #[test]
+    fn read_capped_gives_non_utf8_under_the_cap_its_own_error() {
+        let mut reader = std::io::Cursor::new(vec![0xff, 0xfe, 0x01]);
+        let err = read_capped(&mut reader, "on stdin").expect_err("non-UTF-8 must error");
+        let msg = format!("{err}");
+        assert!(
+            msg.contains("not valid UTF-8"),
+            "error must name the encoding problem, got: {msg}"
+        );
+        assert!(
+            msg.contains("on stdin"),
+            "error must name the source, got: {msg}"
+        );
+        assert!(
+            !msg.contains("exceeds"),
+            "an under-cap payload must not be reported as a cap error, got: {msg}"
+        );
+    }
+
+    /// SEC-25 / TASK-2225: a pre-existing symlink at the plan-JSON path is a
+    /// hard error. The old `write(true).create(true).truncate(true)` open
+    /// resolved through it — writing the stack's secrets to the link's
+    /// target and chmod-ing that target to 0600, making the exfiltrated copy
+    /// look deliberately protected.
+    #[cfg(unix)]
+    #[test]
+    fn write_plan_json_refuses_a_symlink_at_the_destination() {
+        use std::os::unix::fs::PermissionsExt as _;
+
+        let dir = tempfile::tempdir().unwrap();
+        let target = dir.path().join("exfil");
+        std::fs::write(&target, "original contents").unwrap();
+        std::fs::set_permissions(&target, std::fs::Permissions::from_mode(0o644)).unwrap();
+
+        let link = dir.path().join("tfplan.json");
+        std::os::unix::fs::symlink(&target, &link).unwrap();
+
+        let err = write_plan_json(&link, "{\"secret\": true}")
+            .expect_err("a symlinked destination must be refused");
+        let msg = format!("{err}");
+        assert!(
+            msg.contains("symlink") && msg.contains(&link.display().to_string()),
+            "error must name the symlink and the path, got: {msg}"
+        );
+        assert_eq!(
+            std::fs::read_to_string(&target).unwrap(),
+            "original contents",
+            "the link target must not be written through"
+        );
+        let mode = std::fs::metadata(&target).unwrap().permissions().mode() & 0o777;
+        assert_eq!(
+            mode, 0o644,
+            "the link target must keep its mode, not be chmod-ed to 0600"
+        );
+    }
+
+    /// SEC-25 / TASK-2225: `DirBuilder::mode(0o700)` only stamps directories
+    /// it creates; `.ops/` normally already exists under the user's umask.
+    /// A pre-existing artifact directory that is writable by other local
+    /// principals is refused before any secret-bearing artifact is written
+    /// into it — anyone with write access could plant or swap artifact
+    /// names, retargeting even terraform's own `-out` write.
+    #[cfg(unix)]
+    #[test]
+    fn a_shared_writable_artifact_directory_is_refused() {
+        use std::os::unix::fs::PermissionsExt as _;
+
+        let dir = tempfile::tempdir().unwrap();
+        let shared = dir.path().join("shared");
+        std::fs::create_dir(&shared).unwrap();
+        std::fs::set_permissions(&shared, std::fs::Permissions::from_mode(0o777)).unwrap();
+
+        let opts = PlanOptions {
+            out: Some(shared.join("tfplan.binary").display().to_string()),
+            ..test_opts()
+        };
+        let err = prepare_artifact_paths(&opts)
+            .expect_err("a shared-writable artifact directory must be refused");
+        let msg = format!("{err:#}");
+        assert!(
+            msg.contains("writable by other local principals"),
+            "error must name the problem, got: {msg}"
+        );
+        assert!(
+            msg.contains(&shared.display().to_string()),
+            "error must name the directory, got: {msg}"
+        );
+    }
+
+    /// SEC-25 / TASK-2225: the artifact directory itself may not be a
+    /// symlink either — every artifact path below it would resolve through
+    /// the link.
+    #[cfg(unix)]
+    #[test]
+    fn a_symlinked_artifact_directory_is_refused() {
+        let dir = tempfile::tempdir().unwrap();
+        let real = dir.path().join("real");
+        std::fs::create_dir(&real).unwrap();
+        let link = dir.path().join("linked");
+        std::os::unix::fs::symlink(&real, &link).unwrap();
+
+        let opts = PlanOptions {
+            out: Some(link.join("tfplan.binary").display().to_string()),
+            ..test_opts()
+        };
+        let err = prepare_artifact_paths(&opts)
+            .expect_err("a symlinked artifact directory must be refused");
+        assert!(
+            format!("{err:#}").contains("is a symlink"),
+            "error must name the symlink, got: {err:#}"
+        );
+    }
+
+    /// SEC-33 / TASK-2209: a `terraform plan` that never exits is killed at
+    /// the wall-clock bound. The error names the invocation and the limit,
+    /// and artifact cleanup still runs — the partial artifact the hang
+    /// stranded is removed instead of sitting secret-dense on disk for as
+    /// long as the hang lasted.
+    #[cfg(unix)]
+    #[test]
+    #[serial_test::serial(terraform_timeout_env)]
+    fn a_hung_terraform_plan_is_killed_cleaned_up_and_reported() {
+        use std::os::unix::fs::PermissionsExt as _;
+
+        let dir = tempfile::tempdir().unwrap();
+        // The artifact sits directly in the tempdir, and TASK-2225 refuses
+        // a shared-writable artifact parent (some hosts create tempdirs
+        // 775), so make this one private first.
+        {
+            use std::os::unix::fs::PermissionsExt as _;
+            std::fs::set_permissions(dir.path(), std::fs::Permissions::from_mode(0o700)).unwrap();
+        }
+        // Stub: write the (partial) artifact, then never exit.
+        let stub = dir.path().join("terraform");
+        std::fs::write(
+            &stub,
+            "#!/bin/sh\nout=${2#-out=}\nprintf partial > \"$out\"\nexec sleep 600\n",
+        )
+        .unwrap();
+        std::fs::set_permissions(&stub, std::fs::Permissions::from_mode(0o755)).unwrap();
+
+        let binary = dir.path().join("tfplan.binary");
+        let opts = PlanOptions {
+            out: Some(binary.display().to_string()),
+            ..test_opts()
+        };
+
+        let saved_path = std::env::var("PATH").ok();
+        let saved_timeout = std::env::var(TERRAFORM_TIMEOUT_SECS_ENV).ok();
+        // SAFETY: serial-style local override; restored below.
+        unsafe {
+            std::env::set_var(
+                "PATH",
+                format!(
+                    "{}:{}",
+                    dir.path().display(),
+                    saved_path.as_deref().unwrap_or("")
+                ),
+            );
+            std::env::set_var(TERRAFORM_TIMEOUT_SECS_ENV, "1");
+        }
+        let mut out = Vec::new();
+        let result = run_plan_pipeline_code(&opts, &mut out, false);
+        unsafe {
+            match saved_timeout {
+                Some(v) => std::env::set_var(TERRAFORM_TIMEOUT_SECS_ENV, v),
+                None => std::env::remove_var(TERRAFORM_TIMEOUT_SECS_ENV),
+            }
+            match saved_path {
+                Some(v) => std::env::set_var("PATH", v),
+                None => std::env::remove_var("PATH"),
+            }
+        }
+
+        let msg = format!(
+            "{:#}",
+            result.expect_err("a hung terraform plan must time out")
+        );
+        assert!(
+            msg.contains("`terraform plan` produced no result within 1 seconds"),
+            "error must name the invocation and the limit, got: {msg}"
+        );
+        assert!(
+            msg.contains(TERRAFORM_TIMEOUT_SECS_ENV),
+            "error must name the override env var, got: {msg}"
+        );
+        assert!(
+            !binary.exists(),
+            "artifact cleanup must remove the partial plan the hang stranded"
+        );
+    }
+
+    /// SEC-33 / TASK-2209: the `show -json` half. The stub satisfies the
+    /// plan step, then hangs with its pipes open — the exact shape that
+    /// used to wedge the (byte-capped) stdout read forever, because no byte
+    /// cap bounds a child that writes nothing.
+    #[cfg(unix)]
+    #[test]
+    #[serial_test::serial(terraform_timeout_env)]
+    fn a_hung_terraform_show_is_killed_cleaned_up_and_reported() {
+        use std::os::unix::fs::PermissionsExt as _;
+
+        let dir = tempfile::tempdir().unwrap();
+        {
+            use std::os::unix::fs::PermissionsExt as _;
+            std::fs::set_permissions(dir.path(), std::fs::Permissions::from_mode(0o700)).unwrap();
+        }
+        let stub = dir.path().join("terraform");
+        std::fs::write(
+            &stub,
+            "#!/bin/sh\nif [ \"$1\" = \"show\" ]; then exec sleep 600; fi\nout=${2#-out=}\nprintf partial > \"$out\"\nexit 0\n",
+        )
+        .unwrap();
+        std::fs::set_permissions(&stub, std::fs::Permissions::from_mode(0o755)).unwrap();
+
+        let binary = dir.path().join("tfplan.binary");
+        let opts = PlanOptions {
+            out: Some(binary.display().to_string()),
+            ..test_opts()
+        };
+
+        let saved_path = std::env::var("PATH").ok();
+        let saved_timeout = std::env::var(TERRAFORM_TIMEOUT_SECS_ENV).ok();
+        // SAFETY: serial-style local override; restored below.
+        unsafe {
+            std::env::set_var(
+                "PATH",
+                format!(
+                    "{}:{}",
+                    dir.path().display(),
+                    saved_path.as_deref().unwrap_or("")
+                ),
+            );
+            std::env::set_var(TERRAFORM_TIMEOUT_SECS_ENV, "1");
+        }
+        let mut out = Vec::new();
+        let result = run_plan_pipeline_code(&opts, &mut out, false);
+        unsafe {
+            match saved_timeout {
+                Some(v) => std::env::set_var(TERRAFORM_TIMEOUT_SECS_ENV, v),
+                None => std::env::remove_var(TERRAFORM_TIMEOUT_SECS_ENV),
+            }
+            match saved_path {
+                Some(v) => std::env::set_var("PATH", v),
+                None => std::env::remove_var("PATH"),
+            }
+        }
+
+        let msg = format!("{:#}", result.expect_err("a hung show must time out"));
+        assert!(
+            msg.contains("`terraform show -json` produced no result within 1 seconds"),
+            "error must name the invocation and the limit, got: {msg}"
+        );
+        assert!(
+            !binary.exists(),
+            "artifact cleanup must still remove the plan artifact"
         );
     }
 
