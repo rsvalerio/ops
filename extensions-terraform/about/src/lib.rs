@@ -22,9 +22,9 @@
 //! SEC-11 / TASK-1775: `ops about` runs inside repositories the operator
 //! cloned but did not audit, and `stack_detail` reaches the terminal with no
 //! escaping layer in between. [`sanitize_required_version`] is the single
-//! producing-side gate: a value carrying control characters is dropped, not
-//! stripped, matching `ops_about::text_util`'s policy for manifest URL and
-//! repository fields.
+//! producing-side gate: a value carrying a control or Unicode formatting
+//! codepoint is dropped, not stripped, matching `ops_about::text_util`'s
+//! policy for manifest URL and repository fields.
 
 #![cfg_attr(
     test,
@@ -109,7 +109,7 @@ fn find_required_version(root: &Path) -> Option<String> {
         // permission-denied / EIO / "is a directory" failure surfaces as
         // tracing::warn! instead of silently degrading to "no version".
         if let Some(content) = ops_about::manifest_io::read_optional_text(&path, candidate) {
-            if let Some(v) = extract_required_version(&content) {
+            if let Some(v) = extract_required_version(&content, candidate) {
                 return Some(v);
             }
         }
@@ -120,7 +120,7 @@ fn find_required_version(root: &Path) -> Option<String> {
             |n| n.to_string_lossy().into_owned(),
         );
         if let Some(content) = ops_about::manifest_io::read_optional_text(&path, &kind) {
-            if let Some(v) = extract_required_version(&content) {
+            if let Some(v) = extract_required_version(&content, &kind) {
                 return Some(v);
             }
         }
@@ -208,6 +208,11 @@ const REQUIRED_VERSION_MAX_LEN: usize = 64;
 
 /// Extract the `required_version` value from a single `.tf` file's content.
 ///
+/// `source` names the file the content came from (candidate name or
+/// fallback-walk file name) so the warnings emitted here and in
+/// [`sanitize_required_version`] identify which of the workspace's `.tf`
+/// files triggered them (ERR-13 / TASK-2217).
+///
 /// FN-1 / TASK-1779: the scan is three separable stages, each independently
 /// testable, rather than one loop body mixing all of them —
 /// [`strip_comments`] blanks every comment form, [`scan_line`] tracks block
@@ -215,7 +220,7 @@ const REQUIRED_VERSION_MAX_LEN: usize = 64;
 /// applies the SEC-11 policy to the extracted string. The three correctness
 /// bugs this shape replaced (brace-stack desync, unrecognised block openers,
 /// comment-unaware stripping) all lived in the seams between those stages.
-fn extract_required_version(content: &str) -> Option<String> {
+fn extract_required_version(content: &str, source: &str) -> Option<String> {
     // PATTERN-1 / TASK-1020 + TASK-1768 + TASK-1771: blank every comment form
     // up front so the structural scan below never has to reason about them.
     let stripped = strip_comments(content);
@@ -225,13 +230,19 @@ fn extract_required_version(content: &str) -> Option<String> {
     for line in stripped.lines() {
         match scan_line(line, &mut state) {
             LineScan::Continue => {}
-            LineScan::Found(value) => return sanitize_required_version(&value),
+            LineScan::Found(value) => return sanitize_required_version(&value, source),
             LineScan::Malformed => {
                 // PATTERN-1 / TASK-1765: a `}` with nothing to close means the
                 // braces do not balance, so every depth judgement after it
                 // would be guesswork. Refuse the file rather than render a
                 // constraint read at an unknown nesting level.
-                tracing::warn!("unbalanced closing brace in .tf content; skipping file");
+                // ERR-13 / TASK-2217: name the file — the fallback walk feeds
+                // every root `.tf` through here, so without `source` the
+                // repeats are indistinguishable.
+                tracing::warn!(
+                    source = ?source,
+                    "unbalanced closing brace in .tf content; skipping file"
+                );
                 return None;
             }
         }
@@ -510,17 +521,24 @@ fn parse_required_version_assignment(fragment: &str) -> Option<&str> {
 /// tail onto the legitimate prefix; dropping surfaces the field as missing.
 /// This is the same drop-not-strip policy `ops_about::text_util` applies to
 /// manifest URL and repository fields, reusing its shared predicate.
-fn sanitize_required_version(value: &str) -> Option<String> {
+///
+/// `source` names the `.tf` file the value came from so both warnings are
+/// attributable to a file (ERR-13 / TASK-2217) — the control-character warn
+/// is the SEC-11 smuggling signal an operator would actually investigate,
+/// and a workspace root can carry a dozen indistinguishable `.tf` files.
+fn sanitize_required_version(value: &str, source: &str) -> Option<String> {
     if ops_about::text_util::contains_control_chars(value) {
         tracing::warn!(
+            source = ?source,
             len = value.len(),
-            "required_version contains control characters; dropping the value"
+            "required_version contains control or Unicode formatting codepoints; dropping the value"
         );
         return None;
     }
     if value.chars().count() > REQUIRED_VERSION_MAX_LEN {
         let truncated: String = value.chars().take(REQUIRED_VERSION_MAX_LEN).collect();
         tracing::warn!(
+            source = ?source,
             original_len = value.chars().count(),
             cap = REQUIRED_VERSION_MAX_LEN,
             "required_version value exceeds cap; truncating before rendering"
@@ -1129,7 +1147,7 @@ mod tests {
 }
 "#;
         assert_eq!(
-            extract_required_version(content),
+            extract_required_version(content, "test.tf"),
             Some("~> 1.0".to_string())
         );
     }
@@ -1143,7 +1161,7 @@ required_version = ">= 1.5"
 }
 "#;
         assert_eq!(
-            extract_required_version(content),
+            extract_required_version(content, "test.tf"),
             Some(">= 1.5".to_string())
         );
     }
@@ -1151,7 +1169,7 @@ required_version = ">= 1.5"
     #[test]
     fn extract_required_version_none_when_absent() {
         assert_eq!(
-            extract_required_version("resource \"test\" \"x\" {}\n"),
+            extract_required_version("resource \"test\" \"x\" {}\n", "test.tf"),
             None
         );
     }
@@ -1174,7 +1192,7 @@ terraform {
 }
 "#;
         assert_eq!(
-            extract_required_version(content),
+            extract_required_version(content, "test.tf"),
             Some("~> 1.5".to_string())
         );
     }
@@ -1189,7 +1207,7 @@ provider "aws" {
   required_version = ">= 1.0"
 }
 "#;
-        assert_eq!(extract_required_version(content), None);
+        assert_eq!(extract_required_version(content, "test.tf"), None);
     }
 
     /// ERR-2 / TASK-0919: `required_version` nested deeper than depth 1
@@ -1205,7 +1223,7 @@ terraform {
   }
 }
 "#;
-        assert_eq!(extract_required_version(content), None);
+        assert_eq!(extract_required_version(content, "test.tf"), None);
     }
 
     /// SEC-11 / TASK-0853: a trailing `# ...` comment after the quoted
@@ -1215,7 +1233,8 @@ terraform {
     fn extract_required_version_strips_trailing_hash_comment() {
         assert_eq!(
             extract_required_version(
-                "terraform {\nrequired_version = \">= 1.5\" # patch needed\n}\n"
+                "terraform {\nrequired_version = \">= 1.5\" # patch needed\n}\n",
+                "test.tf"
             ),
             Some(">= 1.5".to_string())
         );
@@ -1225,7 +1244,10 @@ terraform {
     #[test]
     fn extract_required_version_strips_trailing_slash_comment() {
         assert_eq!(
-            extract_required_version("terraform {\nrequired_version = \">= 1.5\" // note\n}\n"),
+            extract_required_version(
+                "terraform {\nrequired_version = \">= 1.5\" // note\n}\n",
+                "test.tf"
+            ),
             Some(">= 1.5".to_string())
         );
     }
@@ -1235,7 +1257,10 @@ terraform {
     #[test]
     fn extract_required_version_keeps_hash_inside_quotes() {
         assert_eq!(
-            extract_required_version("terraform {\nrequired_version = \">= 1.5 # marker\"\n}\n"),
+            extract_required_version(
+                "terraform {\nrequired_version = \">= 1.5 # marker\"\n}\n",
+                "test.tf"
+            ),
             Some(">= 1.5 # marker".to_string())
         );
     }
@@ -1247,7 +1272,10 @@ terraform {
     #[test]
     fn extract_required_version_rejects_bare_value() {
         assert_eq!(
-            extract_required_version("terraform {\nrequired_version = >= 1.5 # comment\n}\n"),
+            extract_required_version(
+                "terraform {\nrequired_version = >= 1.5 # comment\n}\n",
+                "test.tf"
+            ),
             None
         );
     }
@@ -1257,7 +1285,7 @@ terraform {
     #[test]
     fn extract_required_version_rejects_single_quoted() {
         assert_eq!(
-            extract_required_version("terraform {\nrequired_version = '>= 1.5'\n}\n"),
+            extract_required_version("terraform {\nrequired_version = '>= 1.5'\n}\n", "test.tf"),
             None
         );
     }
@@ -1268,7 +1296,7 @@ terraform {
     fn extract_required_version_caps_overlong_value() {
         let long = "v".repeat(200);
         let content = format!("terraform {{\nrequired_version = \"{long}\"\n}}\n");
-        let v = extract_required_version(&content).expect("Some");
+        let v = extract_required_version(&content, "test.tf").expect("Some");
         assert_eq!(v.len(), REQUIRED_VERSION_MAX_LEN);
         assert!(v.chars().all(|c| c == 'v'));
     }
@@ -1284,7 +1312,7 @@ terraform {
   /* required_version = ">= 99.0" */
 }
 "#;
-        assert_eq!(extract_required_version(content), None);
+        assert_eq!(extract_required_version(content, "test.tf"), None);
     }
 
     /// PATTERN-1 / TASK-1020: when a block comment wraps a stale
@@ -1296,7 +1324,7 @@ terraform {
     fn extract_required_version_uses_live_value_after_block_comment() {
         let content = "terraform {\n  /* TODO bump\n     required_version = \">= 99\" */ required_version = \"~> 1.5\"\n}\n";
         assert_eq!(
-            extract_required_version(content),
+            extract_required_version(content, "test.tf"),
             Some("~> 1.5".to_string())
         );
     }
@@ -1308,7 +1336,7 @@ terraform {
     fn extract_required_version_keeps_block_comment_marker_inside_quotes() {
         let content = "terraform {\nrequired_version = \"~> 1.5 /* not a comment */\"\n}\n";
         assert_eq!(
-            extract_required_version(content),
+            extract_required_version(content, "test.tf"),
             Some("~> 1.5 /* not a comment */".to_string())
         );
     }
@@ -1334,7 +1362,7 @@ terraform {
 }
 "#;
         assert_eq!(
-            extract_required_version(content),
+            extract_required_version(content, "test.tf"),
             Some(">= 1.5".to_string())
         );
     }
@@ -1354,7 +1382,7 @@ terraform {
 }
 "#;
         assert_eq!(
-            extract_required_version(content),
+            extract_required_version(content, "test.tf"),
             Some(">= 1.5".to_string())
         );
     }
@@ -1373,7 +1401,7 @@ terraform {
 }
 "#;
         assert_eq!(
-            extract_required_version(content),
+            extract_required_version(content, "test.tf"),
             Some("~> 1.6".to_string())
         );
     }
@@ -1384,7 +1412,7 @@ terraform {
     #[test]
     fn extract_required_version_rejects_unbalanced_closing_brace() {
         let content = "}\nterraform {\n  required_version = \">= 1.5\"\n}\n";
-        assert_eq!(extract_required_version(content), None);
+        assert_eq!(extract_required_version(content, "test.tf"), None);
     }
 
     /// PATTERN-1 / TASK-2031 AC#3/#4: a heredoc body containing a bare `}` is
@@ -1407,7 +1435,7 @@ terraform {
             "}\n",
         );
         assert_eq!(
-            extract_required_version(content),
+            extract_required_version(content, "test.tf"),
             Some(">= 1.5".to_string())
         );
     }
@@ -1428,7 +1456,7 @@ terraform {
             "}\n",
         );
         assert_eq!(
-            extract_required_version(content),
+            extract_required_version(content, "test.tf"),
             Some("~> 1.6".to_string())
         );
     }
@@ -1543,7 +1571,7 @@ terraform {
             "}\n",
         );
         assert_eq!(
-            extract_required_version(content),
+            extract_required_version(content, "test.tf"),
             Some(">= 1.9".to_string())
         );
     }
@@ -1565,7 +1593,7 @@ terraform {
             "}\n",
         );
         assert_eq!(
-            extract_required_version(content),
+            extract_required_version(content, "test.tf"),
             Some(">= 1.7".to_string())
         );
     }
@@ -1588,7 +1616,7 @@ terraform {
             "}\n",
         );
         assert_eq!(
-            extract_required_version(content),
+            extract_required_version(content, "test.tf"),
             Some(">= 1.10".to_string())
         );
     }
@@ -1610,7 +1638,7 @@ terraform {
             "}\n",
         );
         assert_eq!(
-            extract_required_version(content),
+            extract_required_version(content, "test.tf"),
             Some(">= 1.11".to_string())
         );
     }
@@ -1633,7 +1661,7 @@ terraform {
             "}\n",
         );
         assert_eq!(
-            extract_required_version(content),
+            extract_required_version(content, "test.tf"),
             Some(">= 1.8".to_string())
         );
     }
@@ -1653,7 +1681,7 @@ terraform {
             "}\n",
         );
         assert_eq!(
-            extract_required_version(content),
+            extract_required_version(content, "test.tf"),
             Some(">= 1.9".to_string())
         );
     }
@@ -1688,7 +1716,7 @@ terraform {
             "}\n",
         );
         assert_eq!(
-            extract_required_version(content),
+            extract_required_version(content, "test.tf"),
             Some(">= 1.4".to_string())
         );
     }
@@ -1701,7 +1729,7 @@ terraform {
         let content =
             "terraform { # pinned for the shared modules\n  required_version = \">= 1.5\"\n}\n";
         assert_eq!(
-            extract_required_version(content),
+            extract_required_version(content, "test.tf"),
             Some(">= 1.5".to_string())
         );
     }
@@ -1711,7 +1739,7 @@ terraform {
     fn extract_required_version_with_slash_commented_block_opener() {
         let content = "terraform { // pinned\n  required_version = \"~> 1.5\"\n}\n";
         assert_eq!(
-            extract_required_version(content),
+            extract_required_version(content, "test.tf"),
             Some("~> 1.5".to_string())
         );
     }
@@ -1721,7 +1749,7 @@ terraform {
     fn extract_required_version_with_same_line_closing_brace() {
         let content = "terraform {\n  required_version = \">= 1.5\" }\n";
         assert_eq!(
-            extract_required_version(content),
+            extract_required_version(content, "test.tf"),
             Some(">= 1.5".to_string())
         );
     }
@@ -1734,7 +1762,7 @@ terraform {
         let content =
             "terraform {\n  # see https://example.com/*note\n  required_version = \"~> 1.5\"\n}\n";
         assert_eq!(
-            extract_required_version(content),
+            extract_required_version(content, "test.tf"),
             Some("~> 1.5".to_string())
         );
     }
@@ -1752,7 +1780,7 @@ terraform {
             "}\n"
         );
         assert_eq!(
-            extract_required_version(content),
+            extract_required_version(content, "test.tf"),
             Some("~> 1.5".to_string())
         );
     }
@@ -1766,15 +1794,72 @@ terraform {
         let content =
             "terraform {\n  required_version = \"1.0\u{1b}[2J\u{1b}[31mCOMPROMISED\"\n}\n";
         assert!(content.len() < 128, "the payload fits under the cap");
-        assert_eq!(extract_required_version(content), None);
+        assert_eq!(extract_required_version(content, "test.tf"), None);
     }
 
     /// SEC-11 / TASK-1775: carriage return and BEL are control bytes too.
     #[test]
     fn extract_required_version_drops_value_with_cr_and_bel() {
         assert_eq!(
-            extract_required_version("terraform {\n  required_version = \"1.0\rfake\u{7}\"\n}\n"),
+            extract_required_version(
+                "terraform {\n  required_version = \"1.0\rfake\u{7}\"\n}\n",
+                "test.tf"
+            ),
             None
+        );
+    }
+
+    /// ERR-13 / TASK-2217 AC #4: the control-character drop is the SEC-11
+    /// signal an operator would actually investigate, and the workspace root
+    /// can carry a dozen `.tf` files — the warn must name which one carried
+    /// the payload. Drives the full `find_required_version` entry point via
+    /// a candidate file so the `source` field is the real probe name.
+    #[test]
+    fn extract_required_version_control_char_warn_names_the_file() {
+        let dir = tempfile::tempdir().unwrap();
+        write(
+            &dir.path().join("versions.tf"),
+            "terraform {\n  required_version = \"1.0\u{1b}[2J\u{1b}[31mCOMPROMISED\"\n}\n",
+        );
+
+        let logs = capture_warn(|| {
+            let found = find_required_version(dir.path());
+            assert!(found.is_none(), "the control-char value must be dropped");
+        });
+
+        assert!(
+            logs.contains("required_version"),
+            "expected the drop breadcrumb, got: {logs}"
+        );
+        assert!(
+            logs.contains("versions.tf"),
+            "the warn must name the offending .tf file, got: {logs}"
+        );
+    }
+
+    /// ERR-13 / TASK-2217: the malformed-brace warn names the file too — it
+    /// fires once per bad file during the fallback walk with nothing else to
+    /// distinguish the repeats.
+    #[test]
+    fn extract_required_version_unbalanced_brace_warn_names_the_file() {
+        let dir = tempfile::tempdir().unwrap();
+        write(
+            &dir.path().join("weird.tf"),
+            "}\n\"unbalanced from the start\"\n",
+        );
+
+        let logs = capture_warn(|| {
+            let found = find_required_version(dir.path());
+            assert!(found.is_none());
+        });
+
+        assert!(
+            logs.contains("unbalanced closing brace"),
+            "expected the brace breadcrumb, got: {logs}"
+        );
+        assert!(
+            logs.contains("weird.tf"),
+            "the warn must name the offending .tf file, got: {logs}"
         );
     }
 
@@ -1782,7 +1867,10 @@ terraform {
     #[test]
     fn extract_required_version_keeps_ordinary_constraint() {
         assert_eq!(
-            extract_required_version("terraform {\n  required_version = \">= 1.0, < 2.0\"\n}\n"),
+            extract_required_version(
+                "terraform {\n  required_version = \">= 1.0, < 2.0\"\n}\n",
+                "test.tf"
+            ),
             Some(">= 1.0, < 2.0".to_string())
         );
     }
