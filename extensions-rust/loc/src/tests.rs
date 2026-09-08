@@ -957,15 +957,17 @@ fn an_expired_deadline_stops_the_streaming_count() {
     let path = dir.path().join("big.rs");
     std::fs::write(&path, "fn a() {}\n\nfn b() {}\n").expect("write big.rs");
 
+    let open = || std::io::BufReader::new(std::fs::File::open(&path).expect("open big.rs"));
+
     let deadline = spent_deadline();
     assert!(
-        crate::count_streaming(&path, Region::Main, Some(&deadline))
+        crate::count_streaming(&mut open(), Region::Main, Some(&deadline))
             .expect("the read itself must not fail")
             .is_none(),
         "an expired deadline must abandon the file instead of counting it"
     );
 
-    let counts = crate::count_streaming(&path, Region::Main, None)
+    let counts = crate::count_streaming(&mut open(), Region::Main, None)
         .expect("the read itself must not fail")
         .expect("an unbounded count runs to EOF");
     assert_eq!(
@@ -979,5 +981,48 @@ fn an_expired_deadline_stops_the_streaming_count() {
             }
         )],
         "the control run counts every line"
+    );
+}
+
+/// SEC-25 / TASK-2177: the in-memory read is bounded against the *reader*,
+/// not a stat taken before it. `read_capped_source` reads `cap + 1` bytes so
+/// a file that grew past the cap after its size was checked is detected and
+/// degraded to the streaming count, never read whole; a file at or under the
+/// cap round-trips as UTF-8 source, and non-UTF-8 keeps the `InvalidData`
+/// shape `read_to_string` produced.
+#[test]
+fn read_capped_source_detects_growth_past_the_cap() {
+    use std::io::Cursor;
+
+    let mut small = Cursor::new(b"fn main() {}".to_vec());
+    assert_eq!(
+        crate::read_capped_source(&mut small, 1024).unwrap(),
+        Some("fn main() {}".to_string()),
+        "an under-cap source is returned whole"
+    );
+
+    // Exactly at the cap: the cap is inclusive, the file stays in memory.
+    let at_cap = "x".repeat(8);
+    let mut cursor = Cursor::new(at_cap.clone().into_bytes());
+    assert_eq!(
+        crate::read_capped_source(&mut cursor, 8).unwrap(),
+        Some(at_cap),
+        "a file exactly at the cap stays on the in-memory path"
+    );
+
+    // One byte past: detected, not truncated and not read whole.
+    let mut grew = Cursor::new("x".repeat(9).into_bytes());
+    assert_eq!(
+        crate::read_capped_source(&mut grew, 8).unwrap(),
+        None,
+        "growth past the cap must degrade, not truncate"
+    );
+
+    let mut binary = Cursor::new(vec![0xff, 0xfe, 0x01]);
+    let err = crate::read_capped_source(&mut binary, 8).unwrap_err();
+    assert_eq!(
+        err.kind(),
+        std::io::ErrorKind::InvalidData,
+        "non-UTF-8 keeps read_to_string's error shape"
     );
 }

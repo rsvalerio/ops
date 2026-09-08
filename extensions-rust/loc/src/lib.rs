@@ -19,7 +19,7 @@ pub mod views;
 
 pub use ingestor::RustLocIngestor;
 
-use std::io::{BufRead as _, BufReader};
+use std::io::{BufRead, BufReader, Read, Seek as _};
 use std::path::Path;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Mutex, PoisonError};
@@ -261,18 +261,31 @@ fn count_entry(entry: &DirEntry, working_dir: &Path, deadline: Option<&Deadline>
     let relative = relativize_path(path, working_dir);
     let region = region_from_path(Path::new(&relative));
 
-    // Gate on the walker's own metadata, before the contents are pulled
-    // into memory: reading first and measuring afterwards would already
-    // have paid the allocation the cap exists to avoid. Debug-format
-    // every path so embedded newlines or ANSI escapes cannot forge log
-    // lines, matching the project-wide path-log policy.
-    let size = match entry.metadata() {
+    // SEC-25 / TASK-2177: one open, one size decision. A stat on the path
+    // followed by an independent `read_to_string` let a concurrent writer —
+    // a build script or codegen step still appending to a generated file —
+    // grow the file after the stat and route it down the unbounded in-memory
+    // path. The size now comes from the same handle that is read, and the
+    // in-memory read is itself capped, so growth after the decision still
+    // cannot exceed the cap. Reading before deciding would already have paid
+    // the allocation the cap exists to avoid. Debug-format every path so
+    // embedded newlines or ANSI escapes cannot forge log lines, matching the
+    // project-wide path-log policy.
+    let handle = match std::fs::File::open(path) {
+        Ok(handle) => handle,
+        Err(error) => {
+            tracing::warn!(path = ?path, %error, "rust-loc: skipping unreadable file");
+            return EntryCount::Skipped;
+        }
+    };
+    let size = match handle.metadata() {
         Ok(metadata) => metadata.len(),
         Err(error) => {
             tracing::warn!(path = ?path, %error, "rust-loc: skipping file with unreadable metadata");
             return EntryCount::Skipped;
         }
     };
+    let mut reader = BufReader::new(handle);
 
     let counts = if size > MAX_SOURCE_BYTES {
         tracing::warn!(
@@ -281,7 +294,7 @@ fn count_entry(entry: &DirEntry, working_dir: &Path, deadline: Option<&Deadline>
             max_bytes = MAX_SOURCE_BYTES,
             "rust-loc: file over the size cap; counting blank vs non-blank only"
         );
-        match count_streaming(path, region, deadline) {
+        match count_streaming(&mut reader, region, deadline) {
             Ok(Some(counts)) => counts,
             Ok(None) => return EntryCount::TimedOut,
             Err(error) => {
@@ -290,14 +303,37 @@ fn count_entry(entry: &DirEntry, working_dir: &Path, deadline: Option<&Deadline>
             }
         }
     } else {
-        match std::fs::read_to_string(path) {
-            // `count_source` warns on the nesting-depth cap but takes only
-            // `&str`, so it has no path to name. Entering a span here adds the
-            // field to that warn without widening its signature; every other
-            // warn on this path already Debug-formats the path itself.
-            Ok(source) => {
+        match read_capped_source(&mut reader, MAX_SOURCE_BYTES) {
+            Ok(Some(source)) => {
+                // `count_source` warns on the nesting-depth cap but takes only
+                // `&str`, so it has no path to name. Entering a span here adds
+                // the field to that warn without widening its signature; every
+                // other warn on this path already Debug-formats the path
+                // itself.
                 let _span = tracing::warn_span!("rust-loc.count_source", path = ?path).entered();
                 count_source(&source, region)
+            }
+            // The file grew past the cap between the handle's metadata and
+            // the read. Degrade to the streaming count — rewound to the
+            // start of the file — rather than counting a truncated prefix.
+            Ok(None) => {
+                tracing::warn!(
+                    path = ?path,
+                    max_bytes = MAX_SOURCE_BYTES,
+                    "rust-loc: file grew past the size cap after opening; counting blank vs non-blank only"
+                );
+                if let Err(error) = reader.rewind() {
+                    tracing::warn!(path = ?path, %error, "rust-loc: skipping unreadable file");
+                    return EntryCount::Skipped;
+                }
+                match count_streaming(&mut reader, region, deadline) {
+                    Ok(Some(counts)) => counts,
+                    Ok(None) => return EntryCount::TimedOut,
+                    Err(error) => {
+                        tracing::warn!(path = ?path, %error, "rust-loc: skipping unreadable file");
+                        return EntryCount::Skipped;
+                    }
+                }
             }
             Err(error) => {
                 tracing::warn!(path = ?path, %error, "rust-loc: skipping unreadable file");
@@ -307,6 +343,28 @@ fn count_entry(entry: &DirEntry, working_dir: &Path, deadline: Option<&Deadline>
     };
 
     EntryCount::Counted(relative, counts)
+}
+
+/// Read at most `cap` bytes of Rust source into memory, as UTF-8.
+///
+/// SEC-25 / TASK-2177: reads `cap + 1` bytes so a file that grew past the
+/// cap after its size was checked is *detected* rather than silently read
+/// whole — `Ok(None)` tells the caller to degrade to the streaming count.
+/// The extra byte bounds resident memory to the cap even on that path.
+///
+/// # Errors
+///
+/// The read failed, or the bytes are not valid UTF-8 (the same `InvalidData`
+/// `read_to_string` produces).
+fn read_capped_source<R: Read>(reader: &mut R, cap: u64) -> std::io::Result<Option<String>> {
+    let mut bytes = Vec::new();
+    reader.take(cap.saturating_add(1)).read_to_end(&mut bytes)?;
+    if u64::try_from(bytes.len()).unwrap_or(u64::MAX) > cap {
+        return Ok(None);
+    }
+    String::from_utf8(bytes)
+        .map(Some)
+        .map_err(|error| std::io::Error::new(std::io::ErrorKind::InvalidData, error))
 }
 
 /// Count an over-cap file without holding it in memory.
@@ -323,12 +381,15 @@ fn count_entry(entry: &DirEntry, working_dir: &Path, deadline: Option<&Deadline>
 /// scan to EOF long after it. Polling once per buffer refill bounds the
 /// overrun by a single `fill_buf`, and the partial counts are dropped, since
 /// the walk they belong to aborts.
+///
+/// SEC-25 / TASK-2177: takes the already-open reader the size decision was
+/// made on, not a path — the fallback must count the same file that was
+/// measured.
 fn count_streaming(
-    path: &Path,
+    reader: &mut impl BufRead,
     region: Region,
     deadline: Option<&Deadline>,
 ) -> std::io::Result<Option<FileCounts>> {
-    let mut reader = BufReader::new(std::fs::File::open(path)?);
     let mut counts = FileCounts::default();
     // Blank-vs-non-blank state for the line currently being scanned, carried
     // across chunk boundaries. `started` marks bytes seen since the last
