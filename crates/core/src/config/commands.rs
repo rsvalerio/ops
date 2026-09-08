@@ -77,6 +77,31 @@ pub trait CommandMeta {
     fn category(&self) -> Option<&str>;
     fn aliases(&self) -> &[String];
 }
+/// Resolve the program every `ops`-re-invoking registration should spawn.
+///
+/// SEC-13 / TASK-2122: a bare `"ops"` is resolved through the invoking
+/// environment's `PATH`, so an `ops` shim earlier on `PATH` (a stale
+/// `~/.cargo/bin` entry, a direnv-injected dir, a vendored CI copy)
+/// silently becomes the binary that runs — and `PATH` is not cleared on the
+/// exec path. Anything that gates a pre-commit hook or drives the process
+/// exit code must therefore spawn an absolute path instead.
+///
+/// Prefer [`std::env::current_exe`] (absolute, robust under renamed/aliased
+/// shells) and fall back to the literal `"ops"` only when that lookup fails
+/// (e.g. unusual sandboxing), where `PATH` resolves it. The single shared
+/// helper is deliberate: the runner's builtin store and the extensions
+/// register the same command ids, and two private copies of this resolution
+/// are exactly how the extension half previously shipped the unsafe bare
+/// name while the builtin half did not. Set
+/// [`ExecCommandSpec::display_program`] to `"ops"` alongside it so the
+/// rendered step line stays `ops <subcommand>`.
+#[must_use]
+pub fn current_ops_program() -> String {
+    std::env::current_exe()
+        .ok()
+        .and_then(|p| p.into_os_string().into_string().ok())
+        .unwrap_or_else(|| "ops".to_string())
+}
 
 impl CommandSpec {
     fn meta(&self) -> &dyn CommandMeta {
@@ -142,9 +167,10 @@ pub struct ExecCommandSpec {
     /// command lines (see [`Self::display_cmd`]). Spawn behaviour is
     /// unchanged — `program` is still what executes.
     ///
-    /// Internal: set by the runner's builtin registrations, which spawn via
-    /// `current_exe()` (an absolute path that would otherwise render as
-    /// `/home/…/bin/ops sec` instead of `ops sec`). Deliberately
+    /// Internal: set by the runner's builtin registrations and by extensions
+    /// that re-invoke `ops` via [`current_ops_program`], both of which spawn
+    /// through `current_exe()` (an absolute path that would otherwise render
+    /// as `/home/…/bin/ops sec` instead of `ops sec`). Deliberately
     /// `serde(skip)` + `deny_unknown_fields`, so a `.ops.toml` cannot set
     /// it: a config-supplied display name diverging from the real program
     /// is exactly the misleading-render hazard SEC-21 guards against.

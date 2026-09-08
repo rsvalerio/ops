@@ -382,3 +382,34 @@ fn writer_errors_propagate() {
 // returns an empty list, so the `with_context` wrap on its `?` site is
 // a defensive future-proof — there is no externally-reachable failure
 // mode to assert against today.
+
+// -- extension registration --
+
+/// SEC-13 / TASK-2122 AC#1+#2+#4: the extension-registered specs spawn an
+/// absolute program derived from `current_exe()` (not a bare, PATH-resolved
+/// `"ops"` that any earlier `ops` shim could shadow), while the rendered
+/// step line still reads `ops check-json` / `ops check-yaml`.
+#[test]
+fn registered_checkers_spawn_absolute_ops_and_display_as_ops() {
+    use ops_core::config::CommandSpec;
+    use ops_extension::Extension as _;
+
+    let mut registry = ops_extension::CommandRegistry::new();
+    super::ConfigCheckersExtension.register_commands(&mut registry);
+
+    for id in ["check-json", "check-yaml"] {
+        let Some(CommandSpec::Exec(exec)) = registry.get(id) else {
+            panic!("{id} must be registered as an Exec spec");
+        };
+        // `current_exe()` succeeds under the test harness, so the program
+        // must resolve absolute here; the literal "ops" is only the
+        // fallback for when that lookup fails.
+        assert!(
+            std::path::Path::new(&exec.program).is_absolute(),
+            "{id} must spawn an absolute current_exe()-derived program, got {:?}",
+            exec.program
+        );
+        assert_eq!(exec.display_cmd(), format!("ops {id}"));
+        assert_eq!(exec.args, vec![id.to_string()]);
+    }
+}

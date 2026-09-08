@@ -75,18 +75,23 @@ ops_extension::impl_extension! {
     command_names: &["check-json", "check-yaml"],
     data_provider_name: None,
     register_commands: |_self, registry| {
-        registry.insert(
-            "check-json".into(),
-            ops_core::config::CommandSpec::Exec(
-                ops_core::config::ExecCommandSpec::new("ops", ["check-json"]),
-            ),
-        );
-        registry.insert(
-            "check-yaml".into(),
-            ops_core::config::CommandSpec::Exec(
-                ops_core::config::ExecCommandSpec::new("ops", ["check-yaml"]),
-            ),
-        );
+        // SEC-13 / TASK-2122: a bare "ops" resolves through the invoking
+        // environment's PATH, so a shim earlier on PATH silently becomes the
+        // validator. Spawn the absolute current_exe()-resolved binary via the
+        // same shared helper the runner's builtin store uses for these very
+        // command ids, and render as `ops check-json` / `ops check-yaml`.
+        let ops_bin = ops_core::config::current_ops_program();
+        for subcommand in ["check-json", "check-yaml"] {
+            let mut spec = ops_core::config::ExecCommandSpec::new(
+                ops_bin.clone(),
+                [subcommand.to_string()],
+            );
+            spec.display_program = Some("ops".to_string());
+            registry.insert(
+                subcommand.into(),
+                ops_core::config::CommandSpec::Exec(spec),
+            );
+        }
     },
     register_data_providers: |_self, _registry| {},
     factory: CONFIG_CHECKERS_FACTORY = |_, _| {
