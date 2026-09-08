@@ -70,11 +70,37 @@ use ops_about::text_util::has_allowed_url_scheme;
 /// authorities (TASK-1256).
 pub fn normalize_repo_url(raw: &str) -> std::borrow::Cow<'_, str> {
     let normalized = normalize_repo_url_shape(raw);
-    if has_allowed_url_scheme(&normalized) {
+    // SEC-11 / TASK-2226: the scheme allowlist inspects only the leading
+    // bytes, so an authority carrying RFC 3986 userinfo
+    // (`https://github.com@evil.com/o/r`) reads as an allowlisted `https://`
+    // URL while the effective host is `evil.com`. Any `@` in the authority
+    // drops the field, the same drop-not-strip policy applied to control
+    // characters, traversal, hostless authorities, and non-`http(s)`
+    // schemes. The gate sits after every rewrite branch, so the clean-URL
+    // fall-through and every `git://` / `git+<scheme>://` branch that routes
+    // through `scrub_authority_and_path` (which deliberately preserves the
+    // authority verbatim) are all covered. `ssh://git@host/…` never reaches
+    // here with its userinfo: `ssh_to_https` strips the `git@` prefix during
+    // the rewrite.
+    if has_allowed_url_scheme(&normalized) && !authority_has_userinfo(&normalized) {
         normalized
     } else {
         std::borrow::Cow::Borrowed("")
     }
+}
+
+/// SEC-11 / TASK-2226: whether the authority segment of a `<scheme>://…`
+/// URL carries RFC 3986 userinfo (`user@host` or `user:pass@host`) —
+/// everything before the `@` is not the host, so a value like
+/// `github.com@evil.com` presents a github-looking authority whose
+/// effective host is `evil.com`. The authority ends at the first `/`;
+/// anything after it is path, where `@` is legitimate.
+fn authority_has_userinfo(url: &str) -> bool {
+    let Some((_, rest)) = url.split_once("://") else {
+        return false;
+    };
+    let authority = rest.split('/').next().unwrap_or("");
+    authority.contains('@')
 }
 
 /// Apply the shorthand / SSH / `git+` rewrite branches, without the scheme
@@ -676,5 +702,48 @@ mod tests {
         ] {
             assert_eq!(normalize_repo_url(raw), want, "input: {raw:?}");
         }
+    }
+
+    /// SEC-11 / TASK-2226: a repository URL whose authority carries RFC 3986
+    /// userinfo presents a github-looking host whose *effective* host is the
+    /// attacker's. The clean-URL fall-through (`repo_url.rs` returns the
+    /// trimmed input verbatim) must drop it, matching the drop-the-field
+    /// policy every other authority-shaped defect already gets.
+    #[test]
+    fn normalize_drops_userinfo_authority_in_clean_url() {
+        assert_eq!(normalize_repo_url("https://github.com@evil.com/o/r"), "");
+        assert_eq!(
+            normalize_repo_url("https://github.com:secret@evil.com/o/r"),
+            ""
+        );
+    }
+
+    /// SEC-11 / TASK-2226: the `git://` branch rewrites through
+    /// `scrub_authority_and_path`, which preserves the leading authority
+    /// segment verbatim — so `git://github.com@evil.com/o/r` used to become
+    /// a clickable `https://github.com@evil.com/o/r`. The final gate must
+    /// drop it; the `git+git://` twin routes through the same scrub.
+    #[test]
+    fn normalize_drops_userinfo_authority_in_git_scheme_branches() {
+        assert_eq!(normalize_repo_url("git://github.com@evil.com/o/r"), "");
+        assert_eq!(
+            normalize_repo_url("git+git://github.com@evil.com/o/r.git"),
+            ""
+        );
+    }
+
+    /// SEC-11 / TASK-2226: an `@` in the **path** is legitimate (branch and
+    /// tag names may carry it), and a numeric port in the authority
+    /// (`host:22`) has no userinfo — both must keep round-tripping.
+    #[test]
+    fn normalize_keeps_port_and_path_ats() {
+        assert_eq!(
+            normalize_repo_url("https://host:22/owner/repo"),
+            "https://host:22/owner/repo"
+        );
+        assert_eq!(
+            normalize_repo_url("https://github.com/o/r/tree/HEAD/user@example.com"),
+            "https://github.com/o/r/tree/HEAD/user@example.com"
+        );
     }
 }

