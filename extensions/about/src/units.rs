@@ -59,6 +59,17 @@ pub fn run_about_units_with(
     // fields (e.g. dep_count) and so we can fill loc/file_count below.
     warm_providers(&mut ctx, data_registry, &["duckdb", "tokei"], "units");
 
+    // TASK-2207: "this stack was never wired up" and "the stack's provider
+    // ran and found nothing" are different facts; `load_or_default` collapses
+    // them to the same empty vec. Probe the registry first so an unregistered
+    // stack says so, and an empty answer from a registered one (a Maven POM
+    // with no `<modules>`, a Gradle settings file with no `include`) remains
+    // the honest "No project units found."
+    if data_registry.get(PROJECT_UNITS_PROVIDER).is_none() {
+        writeln!(writer, "No units provider is registered for this stack.")?;
+        return Ok(());
+    }
+
     let mut units: Vec<ProjectUnit> =
         load_or_default(&mut ctx, data_registry, PROJECT_UNITS_PROVIDER)?;
 
@@ -213,12 +224,31 @@ mod tests {
 
     /// TEST-5 / TASK-1739: the `writer` / `is_tty` / `term_width` seams were
     /// added by three separate tasks so this runner could be driven from a
-    /// test, and no test ever did. An empty registry makes `load_or_default`
-    /// yield `Vec::default()`, so this pins the exact user-facing empty
-    /// message that previously had no assertion behind it.
+    /// test, and no test ever did. This pins the exact user-facing message
+    /// that previously had no assertion behind it.
+    ///
+    /// TASK-2207: an empty registry (no `project_units` provider registered)
+    /// now says so — distinct from a registered provider that found nothing
+    /// (below), so "this stack was never wired up" is no longer
+    /// indistinguishable from "this project genuinely has no units".
     #[test]
     fn run_about_units_with_reports_no_units_for_an_empty_registry() {
         let registry = DataRegistry::new();
+        let mut out: Vec<u8> = Vec::new();
+        run_about_units_with(&registry, &mut out, false, 80).expect("runner must succeed");
+        assert_eq!(
+            String::from_utf8(out).unwrap(),
+            "No units provider is registered for this stack.\n"
+        );
+    }
+
+    /// TASK-2207 AC #3: a registered provider whose list is empty (a Maven
+    /// POM with no `<modules>`, a Gradle settings file with no `include`) is
+    /// the honest "No project units found." — a different fact from the
+    /// unregistered case above.
+    #[test]
+    fn run_about_units_with_reports_no_units_for_a_registered_empty_provider() {
+        let registry = registry_with_units(0);
         let mut out: Vec<u8> = Vec::new();
         run_about_units_with(&registry, &mut out, false, 80).expect("runner must succeed");
         assert_eq!(String::from_utf8(out).unwrap(), "No project units found.\n");
