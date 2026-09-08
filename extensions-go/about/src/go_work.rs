@@ -22,6 +22,13 @@ pub fn parse_use_dirs(root: &Path) -> Option<Vec<String>> {
     let content = ops_about::manifest_io::read_optional_text(&path, "go.work")?;
     let mut dirs = Vec::new();
     let mut in_use_block = false;
+    // PATTERN-1 (TASK-2181): where the currently open block started, as an
+    // index into `dirs`. A block whose `)` never arrives is malformed, so
+    // every entry it absorbed is manifest prose rather than a directive:
+    // at EOF the list is truncated back to this mark and one warn is
+    // emitted, instead of silently probing `cwd.join("go 1.22")`-shaped
+    // nonsense paths and inflating the module count.
+    let mut block_start_mark = 0;
 
     for raw in content.lines() {
         // PATTERN-1 (TASK-1724): normalise the comment away *before* any
@@ -36,6 +43,7 @@ pub fn parse_use_dirs(root: &Path) -> Option<Vec<String>> {
         }
         if is_block_opener(line, "use") && !in_use_block {
             in_use_block = true;
+            block_start_mark = dirs.len();
             continue;
         }
         if in_use_block {
@@ -66,6 +74,20 @@ pub fn parse_use_dirs(root: &Path) -> Option<Vec<String>> {
                 dirs.push(dir.into_owned());
             }
         }
+    }
+
+    // PATTERN-1 (TASK-2181): a `use` block still open at EOF means the file
+    // is truncated or hand-mangled. Report it once and drop the entries the
+    // block absorbed, so manifest prose (`go 1.22`, `replace …`) neither
+    // becomes a ProjectUnit nor triggers a go.mod probe against
+    // `cwd.join(<arbitrary manifest text>)`.
+    if in_use_block {
+        tracing::warn!(
+            manifest = "go.work",
+            directive = "use",
+            "go.work: unterminated `use (` block at end of file; dropping directives absorbed by the block"
+        );
+        dirs.truncate(block_start_mark);
     }
 
     if dirs.is_empty() {
@@ -284,5 +306,71 @@ mod tests {
         .unwrap();
         let dirs = parse_use_dirs(dir.path()).unwrap();
         assert_eq!(dirs, vec!["./first", "./second"]);
+    }
+
+    /// PATTERN-1 (TASK-2181) AC #2-#4: a `use` block whose `)` never arrives
+    /// must not silently absorb the rest of the file as directives. Exactly
+    /// one warn fires, and the absorbed lines — real-looking entries and
+    /// manifest prose alike — are dropped, so no `cwd.join("go 1.22")`
+    /// shaped go.mod probe is issued for them downstream.
+    #[test]
+    fn unterminated_use_block_warns_once_and_drops_absorbed_directives() {
+        let dir = tempfile::tempdir().unwrap();
+        std::fs::write(
+            dir.path().join("go.work"),
+            "go 1.21\n\nuse (\n\t./api\ngo 1.22\nreplace ex.com/a => ../b\n",
+        )
+        .unwrap();
+
+        let (dirs, warn_count) =
+            ops_about::test_support::count_warnings(|| parse_use_dirs(dir.path()));
+
+        // The whole unterminated block — including the legitimate-looking
+        // `./api` — is dropped rather than half-trusted: with no terminator
+        // there is no boundary between entry and prose.
+        assert_eq!(dirs, None);
+        assert_eq!(warn_count, 1);
+    }
+
+    /// PATTERN-1 (TASK-2181) AC #1: the rendered diagnostic names the
+    /// manifest and the unterminated directive.
+    #[test]
+    fn unterminated_use_block_warn_names_manifest_and_directive() {
+        let dir = tempfile::tempdir().unwrap();
+        std::fs::write(dir.path().join("go.work"), "go 1.21\n\nuse (\n\t./api\n").unwrap();
+        let rendered = ops_about::test_support::capture_warn(|| {
+            parse_use_dirs(dir.path());
+        });
+        assert!(
+            rendered.contains("go.work"),
+            "warn should name the manifest: {rendered}"
+        );
+        assert!(
+            rendered.contains("unterminated"),
+            "warn should say what is wrong: {rendered}"
+        );
+        assert!(
+            rendered.contains("use"),
+            "warn should name the directive: {rendered}"
+        );
+    }
+
+    /// PATTERN-1 (TASK-2181): a closed block followed by an unterminated one
+    /// keeps the closed block's entries — only the malformed block's payload
+    /// is dropped.
+    #[test]
+    fn unterminated_block_after_closed_block_keeps_earlier_entries() {
+        let dir = tempfile::tempdir().unwrap();
+        std::fs::write(
+            dir.path().join("go.work"),
+            "go 1.21\n\nuse (\n\t./api\n)\n\nuse (\n\t./sdk\ngo 1.22\n",
+        )
+        .unwrap();
+
+        let (dirs, warn_count) =
+            ops_about::test_support::count_warnings(|| parse_use_dirs(dir.path()));
+
+        assert_eq!(dirs, Some(vec!["./api".to_string()]));
+        assert_eq!(warn_count, 1);
     }
 }

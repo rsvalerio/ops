@@ -38,6 +38,12 @@ pub fn parse(dir: &Path) -> Option<GoMod> {
 
     let mut out = GoMod::default();
     let mut block: Option<Block> = None;
+    // PATTERN-1 (TASK-2181): snapshot of the fields a block can mutate, taken
+    // when the block opens. A block whose `)` never arrives is malformed, so
+    // at EOF the absorbed values are rolled back and one warn is emitted —
+    // a truncated `replace (` block must not drop the file's trailing
+    // `go 1.22` line silently nor half-trust its own absorbed entries.
+    let mut block_snapshot: Option<(Option<String>, Option<String>, usize)> = None;
 
     for raw in content.lines() {
         let line = strip_line_comment(raw).trim();
@@ -47,6 +53,7 @@ pub fn parse(dir: &Path) -> Option<GoMod> {
         if let Some(open) = block {
             if is_block_terminator(line) {
                 block = None;
+                block_snapshot = None;
                 continue;
             }
             match open {
@@ -64,12 +71,24 @@ pub fn parse(dir: &Path) -> Option<GoMod> {
         }
         // Block openers must be tested before the verb matcher: `module (`
         // otherwise parses as the module path `(`.
-        if is_block_opener(line, "replace") {
-            block = Some(Block::Replace);
+        let opener = if is_block_opener(line, "replace") {
+            Some(Block::Replace)
         } else if is_block_opener(line, "module") {
-            block = Some(Block::Module);
+            Some(Block::Module)
         } else if is_block_opener(line, "go") {
-            block = Some(Block::Go);
+            Some(Block::Go)
+        } else {
+            None
+        };
+        if let Some(verb) = opener {
+            // PATTERN-1 (TASK-2181): record the block so an unterminated one
+            // can be reported and its absorbed values rolled back at EOF.
+            block_snapshot = Some((
+                out.module.clone(),
+                out.go_version.clone(),
+                out.local_replaces.len(),
+            ));
+            block = Some(verb);
         } else if let Some(rest) = strip_verb(line, "module") {
             set_module(&mut out, rest);
         } else if let Some(rest) = strip_verb(line, "go") {
@@ -78,6 +97,29 @@ pub fn parse(dir: &Path) -> Option<GoMod> {
             if let Some(target) = parse_replace_directive(rest) {
                 out.local_replaces.push(target);
             }
+        }
+    }
+
+    // PATTERN-1 (TASK-2181): a block still open at EOF means the file is
+    // truncated or hand-mangled. Report it once (naming the manifest and the
+    // unterminated directive) and roll back the values the block absorbed,
+    // so an unterminated `replace (` block neither half-trusts its own
+    // entries nor silently swallows the directives after it.
+    if let Some(open) = block {
+        let directive = match open {
+            Block::Replace => "replace",
+            Block::Module => "module",
+            Block::Go => "go",
+        };
+        tracing::warn!(
+            manifest = "go.mod",
+            directive = directive,
+            "go.mod: unterminated block directive at end of file; dropping values absorbed by the block"
+        );
+        if let Some((module, go_version, replaces_len)) = block_snapshot {
+            out.module = module;
+            out.go_version = go_version;
+            out.local_replaces.truncate(replaces_len);
         }
     }
 
@@ -577,5 +619,57 @@ mod tests {
         .unwrap();
         let m = parse(dir.path()).unwrap();
         assert_eq!(m.local_replaces, vec!["./api", "./sdk"]);
+    }
+
+    /// PATTERN-1 (TASK-2181) AC #2-#4: an unterminated `replace (` block
+    /// swallows every following line — a trailing `go 1.22` is routed through
+    /// `parse_replace_directive` and dropped. Exactly one warn fires, the
+    /// absorbed entries are rolled back, and directives *before* the block
+    /// survive.
+    #[test]
+    fn unterminated_replace_block_warns_once_and_rolls_back_absorbed_values() {
+        let dir = tempfile::tempdir().unwrap();
+        std::fs::write(
+            dir.path().join("go.mod"),
+            "module example.com/m\n\nreplace ex.com/a => ./api\n\nreplace (\n\tex.com/sdk => ./sdk\ngo 1.22\n",
+        )
+        .unwrap();
+
+        let (m, warn_count) = ops_about::test_support::count_warnings(|| parse(dir.path()));
+
+        let m = m.unwrap();
+        // The single-line replace before the block survives; the block's own
+        // absorbed entry does not.
+        assert_eq!(m.local_replaces, vec!["./api"]);
+        // The `go 1.22` line swallowed by the block is gone with it.
+        assert!(m.go_version.is_none());
+        assert_eq!(warn_count, 1);
+    }
+
+    /// PATTERN-1 (TASK-2181) AC #1: the rendered diagnostic names the
+    /// manifest and the unterminated directive.
+    #[test]
+    fn unterminated_replace_block_warn_names_manifest_and_directive() {
+        let dir = tempfile::tempdir().unwrap();
+        std::fs::write(
+            dir.path().join("go.mod"),
+            "module example.com/m\n\nreplace (\n\tex.com/sdk => ./sdk\n",
+        )
+        .unwrap();
+        let rendered = ops_about::test_support::capture_warn(|| {
+            parse(dir.path());
+        });
+        assert!(
+            rendered.contains("go.mod"),
+            "warn should name the manifest: {rendered}"
+        );
+        assert!(
+            rendered.contains("unterminated"),
+            "warn should say what is wrong: {rendered}"
+        );
+        assert!(
+            rendered.contains("replace"),
+            "warn should name the directive: {rendered}"
+        );
     }
 }
