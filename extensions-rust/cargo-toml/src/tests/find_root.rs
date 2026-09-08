@@ -331,10 +331,10 @@ fn find_root_strict_rejects_symlinked_manifest_that_lenient_accepts() {
     fs::create_dir_all(&leaf).unwrap();
     std::os::unix::fs::symlink(&planted, legit.join("Cargo.toml")).unwrap();
 
-    let lenient = find_workspace_root(&leaf).expect("lenient follows the planted manifest symlink");
+    let lenient = find_workspace_root(&leaf).expect("lenient returns the symlink-manifested dir");
     assert_eq!(
         lenient, legit,
-        "lenient walk must read the planted manifest through the symlink"
+        "lenient walk cannot read the symlinked manifest (reads refuse symlinks), so it records this directory as its first-seen fallback and returns it"
     );
 
     let err = find_workspace_root_strict(&leaf)
