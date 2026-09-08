@@ -204,7 +204,21 @@ fn walked(root: &Path, fallback: Option<Fallback>) -> io::Result<Discovery> {
 /// vanished or unreachable path means belongs to the consumer, which is also
 /// the layer that can report it. Dropping it here would put the path straight
 /// back into the class of files nobody is told about.
+///
+/// The one type-based exception is [`crate::atomic::STAGE_PREFIX`] names
+/// (PATTERN-9 / TASK-2170): a stage file left behind by a killed run is this
+/// crate's own operational residue — a copy of already-fixed content — never
+/// repository content, so it is rejected in **both** modes. Unlike `SKIP_DIRS`
+/// this is not a TASK-2165 exclusion: that rule defers to the user's index
+/// for repository content, and a stage file is not that even when a
+/// post-interrupt `git add -A` staged it.
 fn is_candidate(path: &Path) -> bool {
+    if path.file_name().is_some_and(|name| {
+        name.to_string_lossy()
+            .starts_with(crate::atomic::STAGE_PREFIX)
+    }) {
+        return false;
+    }
     std::fs::symlink_metadata(path).map_or(true, |md| md.file_type().is_file())
 }
 

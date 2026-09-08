@@ -27,8 +27,17 @@
 //!   inode and the old content; only the path passed here sees the fix.
 //! - **Open file descriptors keep reading the old inode.** A process holding
 //!   the file open (an editor, a tail) does not observe the rewrite.
+//! - **A killed run leaves stage files behind.** `NamedTempFile`'s `Drop`
+//!   unlinks the stage on every ordinary error path, but `Drop` does not run
+//!   when the process is killed — SIGKILL, or a SIGINT/SIGTERM with no
+//!   handler, which is precisely the pre-commit-hook interruption this module
+//!   exists for. Each file that was mid-write then keeps one
+//!   [`STAGE_PREFIX`]-named sibling in the worktree (visible in `git status`
+//!   until deleted). The residue is inert: discovery rejects the prefix in
+//!   both walk and tracked modes (PATTERN-9 / TASK-2170), so a leftover is
+//!   never walked, read, or rewritten as a candidate by a later run.
 //!
-//! Both are accepted. A whitespace fixer's failure mode has to be "did
+//! All three are accepted. A whitespace fixer's failure mode has to be "did
 //! nothing", never "emptied a source file", and hard-linked source files are
 //! rare where interrupted hook runs are not. Mode, uid and gid *are*
 //! preserved, so the visible attributes of the file do not change.
@@ -36,6 +45,13 @@
 use std::fs::{File, Metadata};
 use std::io::{self, Write};
 use std::path::Path;
+
+/// Stage-file name prefix used by [`replace`].
+///
+/// Discovery rejects file names starting with this prefix in both walk and
+/// tracked modes (PATTERN-9 / TASK-2170), so a stage file left behind by a
+/// killed run is never a candidate for a subsequent fixer run.
+pub const STAGE_PREFIX: &str = ".ops-text-fixers.";
 
 /// Atomically replace the contents of `path` with `contents`, preserving the
 /// mode, uid and gid recorded in `original`.
@@ -59,7 +75,7 @@ pub fn replace(path: &Path, contents: &[u8], original: &Metadata) -> io::Result<
     // rename fails with EXDEV) and a randomised name so two concurrent fixer
     // runs over a shared worktree stage into disjoint paths.
     let mut tmp = tempfile::Builder::new()
-        .prefix(".ops-text-fixers.")
+        .prefix(STAGE_PREFIX)
         .tempfile_in(parent)?;
 
     tmp.write_all(contents)?;

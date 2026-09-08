@@ -373,3 +373,54 @@ fn tracked_mode_keeps_a_non_utf8_filename_and_agrees_with_the_walk() {
         "the two modes must agree about non-UTF-8 names"
     );
 }
+
+/// PATTERN-9 / TASK-2170: a stage file left behind by a killed run (Drop does
+/// not run on SIGKILL) must never become a candidate — the walk skips it
+/// rather than reading a copy of already-fixed content.
+#[test]
+fn walk_never_returns_a_stale_stage_file() {
+    let dir = tempfile::tempdir().unwrap();
+    let root = dir.path();
+    std::fs::write(root.join("keep.txt"), b"a").unwrap();
+    std::fs::write(root.join(".ops-text-fixers.abc123"), b"stale stage").unwrap();
+
+    let names = names(&walk(root).unwrap().0);
+    assert!(
+        names.contains(&"keep.txt".to_string()),
+        "ordinary files stay in scope"
+    );
+    assert!(
+        !names
+            .iter()
+            .any(|n| n.starts_with(crate::atomic::STAGE_PREFIX)),
+        "a stale stage file must not be a candidate: {names:?}"
+    );
+}
+
+/// PATTERN-9 / TASK-2170, tracked half: the only way a stage file reaches the
+/// index is a `git add -A` after an interrupted run. Even then it is this
+/// crate's own residue, not the user's reviewed repository content, so
+/// `--tracked` drops it too — the one deliberate carve-out from the
+/// TASK-2165 "the index decides" rule.
+#[test]
+fn tracked_mode_never_returns_a_staged_stage_file() {
+    let dir = tempfile::tempdir().unwrap();
+    let root = dir.path();
+    if !git_init(root) {
+        return;
+    }
+    std::fs::write(root.join("keep.txt"), b"a").unwrap();
+    std::fs::write(root.join(".ops-text-fixers.abc123"), b"stale stage").unwrap();
+    // The post-interrupt `git add -A`: both files land in the index.
+    git_add(
+        root,
+        &[Path::new("keep.txt"), Path::new(".ops-text-fixers.abc123")],
+    );
+
+    let tracked = discover(root, true).unwrap();
+    assert_eq!(
+        relative_set(&tracked.files, root),
+        BTreeSet::from([std::path::PathBuf::from("keep.txt")]),
+        "a staged stage file is operational residue, not repository content"
+    );
+}
