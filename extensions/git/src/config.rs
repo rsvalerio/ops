@@ -37,8 +37,10 @@ impl RedactedUrl {
     /// facing surfaces — bidi/homograph spoofing of remote host or owner
     /// in About cards / JSON / logs. Whole-codepoint policy:
     /// reject any char whose Unicode general category is Cc / Cf / Cs /
-    /// Zl / Zp (matched directly via `char::is_control` and an explicit
-    /// list of the most abused formatting codepoints), then redact
+    /// Zl / Zp, matched via the shared predicate
+    /// `ops_core::text::is_unsafe_display_char` (DUP-2 / TASK-2116
+    /// promoted it out of this crate so ops-git, ops-about, and every
+    /// About provider reject the same set), then redact
     /// userinfo on the cleaned value.
     ///
     /// ```
@@ -57,8 +59,13 @@ impl RedactedUrl {
     /// ```
     #[must_use]
     pub fn redact(raw: &str) -> Option<Self> {
-        if raw.bytes().any(is_ascii_control_byte) || raw.chars().any(is_unicode_format_or_separator)
-        {
+        // DUP-2 / TASK-2116: single shared whole-codepoint predicate
+        // (`ops_core::text::is_unsafe_display_char`). `char::is_control`
+        // inside it covers C0 / DEL / C1, which subsumes the previous
+        // separate ASCII byte pass — every ASCII control byte is a
+        // single-byte char and multi-byte sequences never contain bytes
+        // below `0x80`.
+        if ops_core::text::contains_unsafe_display_chars(raw) {
             return None;
         }
         Some(Self(redact_userinfo(raw)))
@@ -73,48 +80,6 @@ impl RedactedUrl {
     pub fn into_string(self) -> String {
         self.0
     }
-}
-
-/// SEC-2 / TASK-1102: ASCII control bytes (`0x00..=0x1f` and `0x7f`) must
-/// never reach JSON / about cards / logs through a [`RedactedUrl`]. Newlines,
-/// NULs, and ANSI escapes from a hostile `.git/config` would otherwise
-/// forge log lines or recolor terminal output downstream.
-#[inline]
-const fn is_ascii_control_byte(b: u8) -> bool {
-    b < 0x20 || b == 0x7f
-}
-
-/// SEC-2 / TASK-1238: Unicode formatting / directional-override /
-/// zero-width / line-separator codepoints must also be rejected before a
-/// remote URL flows into operator-facing surfaces (About cards, JSON,
-/// logs). The ASCII gate above only covers `<0x20` / `0x7f`, so multibyte
-/// sequences for U+202E (RIGHT-TO-LEFT OVERRIDE), U+200B / U+200D /
-/// U+200C (zero-width joiner family), U+FEFF (BOM), the bidi isolate
-/// codepoints U+2066..U+2069, U+2028 / U+2029 (line / paragraph
-/// separators), and the broader `char::is_control` set survive otherwise.
-/// Used by [`RedactedUrl::redact`] alongside the ASCII filter to give a
-/// single whole-codepoint policy, mirroring the SEC-2 hardening in
-/// `extensions-node/about::repo_url::contains_control_chars` (TASK-1165)
-/// and `extensions-python/about::contains_control_chars` (TASK-1207).
-#[inline]
-const fn is_unicode_format_or_separator(c: char) -> bool {
-    if c.is_control() {
-        return true;
-    }
-    matches!(
-        c,
-        // Zero-width family + ZWNJ / ZWJ + word joiner.
-        '\u{200B}' | '\u{200C}' | '\u{200D}' | '\u{2060}'
-        // BOM / specials.
-        | '\u{FEFF}'
-        // Bidi formatting characters: LRM/RLM, LRE/RLE/PDF, LRO/RLO.
-        | '\u{200E}' | '\u{200F}'
-        | '\u{202A}' | '\u{202B}' | '\u{202C}' | '\u{202D}' | '\u{202E}'
-        // Bidi isolates.
-        | '\u{2066}' | '\u{2067}' | '\u{2068}' | '\u{2069}'
-        // Unicode line / paragraph separators (Zl / Zp).
-        | '\u{2028}' | '\u{2029}'
-    )
 }
 
 impl std::fmt::Display for RedactedUrl {
@@ -295,9 +260,10 @@ fn parse_origin_url_inner(content: &str, path: Option<&Path>) -> Option<Redacted
                 match RedactedUrl::redact(value.as_ref()) {
                     Some(r) => last = Some(r),
                     None => {
-                        // SEC-2 / TASK-1102: a `url = ...` line with embedded
-                        // ASCII control bytes (raw newline, ANSI escape, NUL)
-                        // is dropped rather than propagated.
+                        // SEC-2 / TASK-1102: a `url = ...` line with an
+                        // embedded control or Unicode formatting codepoint
+                        // (raw newline, ANSI escape, NUL, bidi override,
+                        // zero-width space) is dropped rather than propagated.
                         // One increment per line of `content`; cannot saturate a `usize`.
                         rejected_count = rejected_count.saturating_add(1);
                     }
@@ -317,12 +283,12 @@ fn parse_origin_url_inner(content: &str, path: Option<&Path>) -> Option<Redacted
             tracing::warn!(
                 path = ?p,
                 rejected = rejected_count,
-                "SEC-2 / TASK-1215: dropped origin url= line(s) containing ASCII control bytes"
+                "SEC-2 / TASK-1215: dropped origin url= line(s) containing a control or Unicode formatting codepoint"
             );
         } else {
             tracing::warn!(
                 rejected = rejected_count,
-                "SEC-2 / TASK-1215: dropped origin url= line(s) containing ASCII control bytes"
+                "SEC-2 / TASK-1215: dropped origin url= line(s) containing a control or Unicode formatting codepoint"
             );
         }
     }
@@ -589,7 +555,7 @@ fn parse_section_header(line: &str) -> Result<(&str, Option<String>), SectionHea
 ///
 /// SEC-2 / SEC-11 / TASK-1863: the returned branch is subjected to the same
 /// whole-codepoint policy [`RedactedUrl::redact`] applies to the remote URL
-/// ([`is_ascii_control_byte`] + [`is_unicode_format_or_separator`]), plus the
+/// (`ops_core::text::is_unsafe_display_char`), plus the
 /// dot-only-segment rejection `remote::is_valid_path_segment` applies to
 /// owner/repo (SEC-13 / TASK-0929). `git_info.branch` is rendered on About
 /// cards and emitted in provider JSON exactly like `remote_url`, but only
@@ -658,11 +624,11 @@ pub fn read_head_branch(git_dir: &Path) -> Option<String> {
     if branch.is_empty() {
         return None;
     }
-    // SEC-2 / TASK-1863: reuse the `RedactedUrl::redact` predicates rather
-    // than growing a third copy of the policy.
-    if branch.bytes().any(is_ascii_control_byte)
-        || branch.chars().any(is_unicode_format_or_separator)
-    {
+    // SEC-2 / TASK-1863: reuse the same whole-codepoint policy
+    // `RedactedUrl::redact` applies (DUP-2 / TASK-2116 promoted it to
+    // `ops_core::text::is_unsafe_display_char`) rather than growing a
+    // third copy here.
+    if ops_core::text::contains_unsafe_display_chars(branch) {
         tracing::warn!(
             path = ?head_path.display(),
             "SEC-2 / TASK-1863: .git/HEAD ref contains a control or Unicode formatting codepoint; reporting branch as None"
