@@ -96,6 +96,41 @@ fn interpret_deny_result_passes_exit_code_0_through() {
     assert!(result.sources.is_empty());
 }
 
+/// ERR-1 / TASK-2176 AC#2: exit 0 with *decodable* warning-level findings —
+/// the dominant `ops deps` shape (`multiple-versions`, `unmaintained`,
+/// `yanked` at `warn` all exit 0) — must parse and stay `Ok`.
+#[test]
+fn interpret_deny_result_parses_warnings_on_exit_code_0() {
+    let stderr = r#"{"type":"diagnostic","fields":{"severity":"warning","message":"duplicate","code":"duplicate","graphs":[{"Krate":{"name":"serde_yaml","version":"0.9.0"}}]}}
+{"type":"diagnostic","fields":{"severity":"warning","message":"crate is unmaintained","code":"unmaintained","advisory":{"id":"RUSTSEC-2024-0375","package":"atty","title":"`atty` is unmaintained"},"graphs":[{"Krate":{"name":"atty","version":"0.2.14"}}]}}"#;
+
+    let result = interpret_deny_result(Some(0), stderr).expect("warning-level run is Ok");
+    assert_eq!(result.bans.len(), 1);
+    assert_eq!(result.advisories.len(), 1);
+}
+
+/// ERR-1 / TASK-2176 AC#1+#3: the partial-decode-loss guard must also fire
+/// on exit 0. cargo-deny exits 0 whenever every finding is at warning
+/// level, so an exit-0 run routinely carries a full diagnostic stream — and
+/// the exit-0 arm used to skip `check_partial_decode_loss` entirely,
+/// leaving the dominant path with no schema-drift protection: a per-code
+/// schema change silently dropped rows and the report stayed green.
+#[test]
+fn interpret_deny_result_errs_on_partial_decode_loss_on_exit_code_0() {
+    let stderr = r#"{"type":"diagnostic","fields":{"severity":"warning","message":"duplicate","code":"duplicate","graphs":[{"Krate":{"name":"baz","version":"2.0.0"}}]}}
+{"type":"diagnostic","fields":{"severity":"warning","message":"vuln","code":"security-vulnerability","advisory":{"id":"RUSTSEC-2024-0001","package":"a","title":"t"}}}
+{"type":"diagnostic","fields":{"severity":"warning","message":"vuln","code":"security-vulnerability","advisory":{"id":"RUSTSEC-2024-0002","package":"b","title":"t"}}}
+{"type":"diagnostic","fields":{"severity":"warning","message":"vuln","code":"security-vulnerability","advisory":{"id":"RUSTSEC-2024-0003","package":"c","title":"t"}}}"#;
+
+    let err = interpret_deny_result(Some(0), stderr)
+        .expect_err("a class-wide decode loss on an exit-0 run must not pass the subset through");
+    let msg = err.to_string();
+    assert!(
+        msg.contains("4 diagnostic line(s)") && msg.contains("3 dropped"),
+        "error must report the seen/decoded counts; got: {msg}"
+    );
+}
+
 #[test]
 fn interpret_deny_result_parses_diagnostics_on_exit_code_1() {
     let stderr = r#"{"type":"diagnostic","fields":{"severity":"error","message":"`atty` is unmaintained","code":"unmaintained","advisory":{"id":"RUSTSEC-2024-0375","package":"atty","title":"`atty` is unmaintained"},"graphs":[{"Krate":{"name":"atty","version":"0.2.14"},"parents":[]}]}}"#;

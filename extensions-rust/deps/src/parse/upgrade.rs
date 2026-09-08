@@ -119,12 +119,33 @@ fn check_header_drift(diag: &UpgradeParseDiagnostics) -> anyhow::Result<()> {
     Ok(())
 }
 
+/// ERR-1 / TASK-2179: the share of body rows that may fail
+/// `parse_upgrade_row` before the table stops being trustworthy, as
+/// `NUM / DEN`. Mirrors `MAX_DROPPED_SHARE_NUM` / `MAX_DROPPED_SHARE_DEN` in
+/// `parse/deny.rs`, which solved the same problem for the cargo-deny
+/// diagnostic stream: drift usually takes out *most* of a table while some
+/// rows keep decoding, and an all-or-nothing guard (TASK-1202) stays silent
+/// through exactly that shape — `ops deps` would report one available
+/// upgrade where there are ten, with a green report and no warn-level
+/// breadcrumb.
+///
+/// One dropped row among four or more is ordinary forward drift (a note or
+/// footer line that never filled five columns) and stays tolerated. A
+/// quarter of the table disappearing is rows going missing.
+const MAX_DROPPED_ROW_SHARE_NUM: usize = 1;
+const MAX_DROPPED_ROW_SHARE_DEN: usize = 4;
+
 fn check_row_shape_drift(diag: &UpgradeParseDiagnostics) -> anyhow::Result<()> {
-    if diag.saw_recognised_header
-        && diag.saw_separator
-        && diag.body_lines > 0
-        && diag.entries_emitted == 0
-    {
+    if !diag.saw_recognised_header || !diag.saw_separator || diag.body_lines == 0 {
+        return Ok(());
+    }
+    // Bounded by `body_lines`, itself bounded by the line count of an
+    // in-memory string, so `saturating_sub` equals plain subtraction here.
+    let dropped = diag.body_lines.saturating_sub(diag.entries_emitted);
+    if dropped == 0 {
+        return Ok(());
+    }
+    if diag.entries_emitted == 0 {
         tracing::warn!(
             body_lines = diag.body_lines,
             "TASK-1202: cargo-upgrade stdout had a recognised header, a `====` separator, \
@@ -136,6 +157,31 @@ fn check_row_shape_drift(diag: &UpgradeParseDiagnostics) -> anyhow::Result<()> {
              5 fixed columns; refusing to score as `no upgrades` — suspect cargo-edit \
              row-shape drift",
             body_lines = diag.body_lines
+        );
+    }
+    // ERR-1 / TASK-2179: the partial-loss arm. Same reasoning as
+    // `check_partial_decode_loss` in `parse/deny.rs`: a surviving minority
+    // of rows is not an answer, it is the residue of a table the parser
+    // mostly could not read. Comparing via cross-multiplication keeps the
+    // check total (no division, no rounding).
+    if dropped.saturating_mul(MAX_DROPPED_ROW_SHARE_DEN)
+        > diag.body_lines.saturating_mul(MAX_DROPPED_ROW_SHARE_NUM)
+    {
+        tracing::warn!(
+            body_lines = diag.body_lines,
+            entries_emitted = diag.entries_emitted,
+            dropped,
+            "TASK-2179: cargo-upgrade body rows largely failed parse_upgrade_row; \
+             refusing to treat the surviving subset as the complete upgrade list"
+        );
+        anyhow::bail!(
+            "cargo upgrade --dry-run produced {body_lines} body row(s) but only {emitted} \
+             filled the 5 fixed columns ({dropped} dropped); refusing to score the surviving \
+             subset as the complete upgrade list — suspect cargo-edit row-shape drift that \
+             silently shrank the table",
+            body_lines = diag.body_lines,
+            emitted = diag.entries_emitted,
+            dropped = dropped
         );
     }
     Ok(())

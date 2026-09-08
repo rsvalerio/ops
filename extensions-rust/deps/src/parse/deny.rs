@@ -74,7 +74,18 @@ pub fn run_cargo_deny(working_dir: &Path) -> anyhow::Result<DenyResult> {
 /// unrecognised status.
 pub fn interpret_deny_result(exit_code: Option<i32>, stderr: &str) -> anyhow::Result<DenyResult> {
     match exit_code {
-        Some(0) => Ok(parse_deny_output(stderr)),
+        // ERR-1 / TASK-2176: exit 0 is not the rare case — cargo-deny exits 0
+        // whenever every finding is at `warning` level (the default for
+        // `[bans] multiple-versions`, `unmaintained`, `yanked` configured as
+        // `warn`). Route it through the same guarded parse as exit 1, so the
+        // partial-decode-loss guard (TASK-1840) runs on the code path the
+        // gate normally takes. On a genuinely clean run there are no
+        // diagnostic envelopes and the guard is a no-op.
+        Some(0) => {
+            let (parsed, diag) = parse_deny_output_inner(stderr);
+            check_partial_decode_loss(&diag, stderr)?;
+            Ok(parsed)
+        }
         Some(1) => {
             // ERR-1 / TASK-0612: cargo-deny's contract for exit 1 is "stderr
             // has the JSON diagnostic stream". An empty/whitespace-only
@@ -191,7 +202,7 @@ fn check_partial_decode_loss(diag: &DenyParseDiagnostics, stderr: &str) -> anyho
              refusing to treat the surviving subset as the complete finding set"
         );
         anyhow::bail!(
-            "cargo deny exited with status 1 and emitted {candidates} diagnostic line(s) but only \
+            "cargo deny emitted {candidates} diagnostic line(s) but only \
              {emitted} could be decoded and classified ({dropped} dropped); refusing to score the \
              surviving subset as the complete finding set — suspect a per-code cargo-deny schema \
              change that silently removed a whole diagnostic class. \

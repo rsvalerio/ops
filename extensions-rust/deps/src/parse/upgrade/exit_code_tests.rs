@@ -137,6 +137,46 @@ fn interpret_upgrade_output_bails_on_row_shape_drift() {
     );
 }
 
+/// ERR-1 / TASK-2179: the *partial* permutation of row-shape drift. Most
+/// rows failing while one parses used to pass straight through — the
+/// all-or-nothing TASK-1202 guard saw `entries_emitted > 0` and stayed
+/// silent, so `ops deps` reported one available upgrade where there were
+/// four, with a green report.
+#[test]
+fn interpret_upgrade_output_bails_on_partial_row_loss() {
+    let stdout = b"name   old req compatible latest  new req\n\
+                   ====   ======= ========== ======  =======\n\
+                   serde  1.0.100 1.0.228    1.0.228 1.0.228\n\
+                   bad-a  1.0.0   1.0.1\n\
+                   bad-b  2.0.0   2.0.1\n\
+                   bad-c  3.0.0   3.0.1\n";
+
+    let result = crate::parse::interpret_upgrade_output(Some(0), stdout, b"");
+    let err = result.expect_err("partial row loss must bail, not return the survivor");
+    let msg = err.to_string();
+    assert!(
+        msg.contains("4 body row(s)") && msg.contains("1 filled") && msg.contains("3 dropped"),
+        "error must report the seen/parsed counts; got: {msg}"
+    );
+}
+
+/// ERR-1 / TASK-2179: the tolerance is a *share*, not zero — one dropped
+/// row among four or more is ordinary forward drift (a note or footer line
+/// that never filled five columns) and must keep the run `Ok`.
+#[test]
+fn interpret_upgrade_output_tolerates_one_dropped_row_among_many() {
+    let stdout = b"name   old req compatible latest  new req\n\
+                   ====   ======= ========== ======  =======\n\
+                   serde  1.0.100 1.0.228    1.0.228 1.0.228\n\
+                   anyio  1.0.0   1.0.1\n\
+                   tokio  1.35.0  1.38.0     1.38.0  1.38.0\n\
+                   clap   3.0.0   3.2.25     4.6.0   3.2.25\n";
+
+    let result = crate::parse::interpret_upgrade_output(Some(0), stdout, b"")
+        .expect("1-in-4 dropped rows must stay tolerated");
+    assert_eq!(result.len(), 3);
+}
+
 /// TASK-1492: preamble lines before the header must not feed the `body_lines`
 /// counter. A recognised header + separator with zero real body rows must
 /// return Ok([]), not bail with row-shape-drift.
