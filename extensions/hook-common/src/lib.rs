@@ -87,6 +87,58 @@ impl HookConfig {
     }
 }
 
+/// Generate a complete POSIX sh hook script from a crate-specific tail.
+///
+/// DUP-1 / TASK-2108: the bypass-then-probe prologue — the skip-var `case`
+/// guard followed by the `command -v ops` preflight with its diagnostic —
+/// used to be hand-copied into every hook crate, and the copies diverged:
+/// the pre-push script advertised `SKIP_OPS_RUN_BEFORE_PUSH` as the escape
+/// hatch yet never evaluated it, so the advertised bypass did not work in
+/// exactly the situation its own diagnostic described. The prologue now
+/// lives here, once, parameterised by the same fields [`HookConfig`] carries.
+///
+/// Every argument must be a string literal, so the result is a `&'static
+/// str` usable in `const` contexts (`const HOOK_SCRIPT: &str = ...`):
+///
+/// - `name` — the extension name (`"run-before-commit"`), spelled into the
+///   "Installed by" comment and the reinstall advice.
+/// - `hook_filename` — the git hook filename (`"pre-commit"`), used as the
+///   diagnostic prefix and the hook path it names.
+/// - `skip_env_var` — the bypass env var name. Keep it identical to the
+///   calling crate's `SKIP_ENV_VAR` const; pin the two together with a test,
+///   since a macro cannot reference the const and stay `const`-evaluable.
+/// - `tail` — the hook-specific lines that follow the guard.
+#[macro_export]
+macro_rules! hook_script {
+    (
+        name: $name:literal,
+        hook_filename: $hook_filename:literal,
+        skip_env_var: $skip_env_var:literal,
+        tail: $( $tail:literal ),* $(,)?
+    ) => {
+        concat!(
+            "#!/bin/sh\n",
+            "# Installed by `ops ", $name, " install`.\n",
+            "# The bypass is honoured before the probe below: that probe's own\n",
+            "# diagnostic advertises this variable, so it has to work in exactly\n",
+            "# the situation the diagnostic describes -- ops missing from PATH.\n",
+            "# Matched with shell builtins only, for the same reason. Value list\n",
+            "# mirrors `ops_hook_common::should_skip`.\n",
+            "case \"${", $skip_env_var, ":-}\" in\n",
+            "    1 | [Tt][Rr][Uu][Ee] | [Yy][Ee][Ss] | [Oo][Nn]) exit 0 ;;\n",
+            "esac\n",
+            "if ! command -v ops >/dev/null 2>&1; then\n",
+            "    echo \"", $hook_filename, ": cannot find the 'ops' binary on PATH ",
+            "(hook: .git/hooks/", $hook_filename, ").\" >&2\n",
+            "    echo \"", $hook_filename, ": add ops to PATH (e.g. ~/.cargo/bin) and rerun \\`ops ",
+            $name, " install\\`, or bypass with ", $skip_env_var, "=1.\" >&2\n",
+            "    exit 1\n",
+            "fi\n",
+            $( $tail, )*
+        )
+    };
+}
+
 /// Returns `true` if the skip env var is set to a recognized truthy value.
 ///
 /// Accepts (case-insensitive): `"1"`, `"true"`, `"yes"`, `"on"`. Anything else
@@ -210,5 +262,96 @@ mod tests {
             let _guard = EnvGuard::set(cfg.skip_env_var, value);
             assert!(!should_skip(&cfg), "{value:?} must not skip");
         }
+    }
+
+    // -- hook_script! prologue (DUP-1 / TASK-2108) --
+
+    /// A stand-in script with no risk of colliding with a real crate's
+    /// identifiers, so these tests pin the *prologue* rather than any one
+    /// crate's tail.
+    macro_rules! probe_script {
+        () => {
+            crate::hook_script! {
+                name: "run-before-probe",
+                hook_filename: "pre-probe",
+                skip_env_var: "SKIP_OPS_RUN_BEFORE_PROBE",
+                tail: "exec ops run-before-probe\n",
+            }
+        };
+    }
+
+    /// TASK-2108 AC#1+#2: the generated prologue evaluates the bypass
+    /// *before* the missing-ops probe, and names the hook path, the skip
+    /// var, and the reinstall command in its diagnostic.
+    #[test]
+    fn hook_script_prologue_honours_the_bypass_before_the_probe() {
+        let script = probe_script!();
+        let bypass_at = script
+            .find("case \"${SKIP_OPS_RUN_BEFORE_PROBE:-}\" in")
+            .expect("prologue must open the bypass case");
+        let probe_at = script
+            .find("if ! command -v ops")
+            .expect("prologue must probe for ops");
+        assert!(
+            bypass_at < probe_at,
+            "the bypass must be honoured before the probe, got: {script}"
+        );
+        assert!(script.contains(".git/hooks/pre-probe"));
+        // Backticks are shell-escaped in the diagnostic, so the script text
+        // carries them as \` — the shell prints bare backticks at runtime.
+        assert!(script.contains("rerun \\`ops run-before-probe install\\`"));
+    }
+
+    /// TASK-2108 AC#4: the generated script parses under `sh -n`, fails
+    /// closed with `ops` off PATH, and exits 0 for every documented truthy
+    /// bypass token in that same situation.
+    #[cfg(unix)]
+    #[test]
+    fn hook_script_prologue_passes_sh_n_bypass_and_fails_closed() {
+        let dir = tempfile::tempdir().expect("tempdir");
+        let script_path = dir.path().join("pre-probe");
+        std::fs::write(&script_path, probe_script!()).unwrap();
+
+        let parse = std::process::Command::new("/bin/sh")
+            .arg("-n")
+            .arg(&script_path)
+            .status()
+            .unwrap();
+        assert!(parse.success(), "prologue must parse under `sh -n`");
+
+        // PATH deliberately excludes the ambient one so a developer's own
+        // installed `ops` cannot satisfy the probe.
+        let run = |envs: &[(&str, &str)]| {
+            let mut cmd = std::process::Command::new("/bin/sh");
+            cmd.arg(&script_path).env("PATH", "/usr/bin:/bin");
+            for (k, v) in envs {
+                cmd.env(k, v);
+            }
+            cmd.output().unwrap()
+        };
+
+        for value in ["1", "true", "TRUE", "Yes", "on"] {
+            let out = run(&[("SKIP_OPS_RUN_BEFORE_PROBE", value)]);
+            assert_eq!(
+                out.status.code(),
+                Some(0),
+                "{value:?} must skip cleanly, stderr was: {}",
+                String::from_utf8_lossy(&out.stderr)
+            );
+        }
+
+        let out = run(&[]);
+        let stderr = String::from_utf8_lossy(&out.stderr);
+        assert_eq!(out.status.code(), Some(1), "stderr was: {stderr}");
+        assert!(stderr.contains("ops"), "must name ops, got: {stderr}");
+        assert!(stderr.contains(".git/hooks/pre-probe"), "got: {stderr}");
+        assert!(
+            stderr.contains("SKIP_OPS_RUN_BEFORE_PROBE"),
+            "got: {stderr}"
+        );
+
+        // A value `should_skip` rejects must still reach the probe and fail.
+        let out = run(&[("SKIP_OPS_RUN_BEFORE_PROBE", "maybe")]);
+        assert_eq!(out.status.code(), Some(1));
     }
 }

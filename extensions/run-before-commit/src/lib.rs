@@ -25,7 +25,7 @@ ops_extension::impl_extension! {
 
 /// The shell script installed as `.git/hooks/pre-commit`.
 ///
-/// Three properties are load-bearing and covered by tests below:
+/// Four properties are load-bearing and covered by tests below:
 ///
 /// 1. **`#!/bin/sh`, not bash** — the body uses nothing bash provides, and a
 ///    bash dependency breaks the hook on busybox/Alpine images, minimal
@@ -40,29 +40,24 @@ ops_extension::impl_extension! {
 ///    `ops: command not found` is a 127 in a dialog box that names neither the
 ///    tool nor the fix, and the user's only escape is deleting the hook by
 ///    hand. The guard names ops, the hook path, and the bypass env var.
-/// 3. **`--changed-only`** — that flag is what arms the [`has_staged_files`]
+/// 3. **The bypass is honoured before the probe** — the probe's own
+///    diagnostic advertises `SKIP_OPS_RUN_BEFORE_COMMIT`, so it has to work
+///    in exactly the situation the diagnostic describes. The bypass-then-
+///    probe prologue is shared with the pre-push hook through
+///    [`ops_hook_common::hook_script!`], not copy-pasted (DUP-1 / TASK-2108).
+/// 4. **`--changed-only`** — that flag is what arms the [`has_staged_files`]
 ///    preflight (`crates/cli/src/subcommands.rs`), so an empty index skips the
 ///    configured command chain instead of paying for a full check suite.
 ///    Without it the bounded-wait probe this crate parameterises below is
 ///    unreachable from the installed hook, and the README's "skips when
 ///    nothing is staged" is a promise the hook does not keep (ARCH-6 /
 ///    TASK-1905).
-const HOOK_SCRIPT: &str = r#"#!/bin/sh
-# Installed by `ops run-before-commit install`.
-# The bypass is honoured before the probe below: that probe's own diagnostic
-# advertises this variable, so it has to work in exactly the situation the
-# diagnostic describes -- ops missing from PATH. Matched with shell builtins
-# only, for the same reason. Value list mirrors `ops_hook_common::should_skip`.
-case "${SKIP_OPS_RUN_BEFORE_COMMIT:-}" in
-    1 | [Tt][Rr][Uu][Ee] | [Yy][Ee][Ss] | [Oo][Nn]) exit 0 ;;
-esac
-if ! command -v ops >/dev/null 2>&1; then
-    echo "pre-commit: cannot find the 'ops' binary on PATH (hook: .git/hooks/pre-commit)." >&2
-    echo "pre-commit: add ops to PATH (e.g. ~/.cargo/bin) and rerun \`ops run-before-commit install\`, or bypass with SKIP_OPS_RUN_BEFORE_COMMIT=1." >&2
-    exit 1
-fi
-exec ops run-before-commit --changed-only
-"#;
+const HOOK_SCRIPT: &str = ops_hook_common::hook_script! {
+    name: "run-before-commit",
+    hook_filename: "pre-commit",
+    skip_env_var: "SKIP_OPS_RUN_BEFORE_COMMIT",
+    tail: "exec ops run-before-commit --changed-only\n",
+};
 
 /// Environment variable that skips the run-before-commit check.
 ///
@@ -177,6 +172,16 @@ mod tests {
         assert!(HOOK_SCRIPT.contains("exit 1"));
     }
 
+    /// TASK-2108: the shared prologue is generated from string literals, so
+    /// the `SKIP_ENV_VAR` const and the literal spelled into the script must
+    /// be pinned together — a macro cannot reference the const and stay
+    /// `const`-evaluable.
+    #[test]
+    fn skip_env_var_const_matches_the_literal_spelled_into_the_script() {
+        assert_eq!(SKIP_ENV_VAR, "SKIP_OPS_RUN_BEFORE_COMMIT");
+        assert!(HOOK_SCRIPT.contains("case \"${SKIP_OPS_RUN_BEFORE_COMMIT:-}\""));
+    }
+
     /// ARCH-6 / TASK-1905 AC#2: the installed hook arms the preflight, so the
     /// README's "skips when nothing is staged" describes the shipped hook.
     #[test]
@@ -221,6 +226,10 @@ mod tests {
         let stderr = String::from_utf8_lossy(&out.stderr);
         assert_eq!(out.status.code(), Some(1), "stderr was: {stderr}");
         assert!(stderr.contains("ops"), "must name ops, got: {stderr}");
+        assert!(
+            stderr.contains(".git/hooks/pre-commit"),
+            "must name the hook path, got: {stderr}"
+        );
         assert!(
             stderr.contains("ops run-before-commit install"),
             "must name the reinstall command, got: {stderr}"
