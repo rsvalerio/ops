@@ -229,14 +229,37 @@ fn parse_pnpm_workspace_yaml(content: &str) -> PnpmParse {
     let mut out = Vec::new();
     let mut saw_packages_key = false;
     let mut in_packages = false;
+    // PATTERN-1 / TASK-2231: indentation at which the recognised `packages:`
+    // key itself appeared. The block it opens ends at the first later line
+    // whose indentation is not greater than this — a sibling key at the same
+    // level must end the block, so its list items are never read as
+    // workspace globs. Only a column-0 `packages:` is recognised at all (see
+    // below), so this stays 0 in practice; the comparison is written against
+    // the recorded indent rather than the literal.
+    let mut packages_indent = 0usize;
     for raw_line in content.lines() {
         let line = raw_line.trim_end();
         if line.trim_start().starts_with('#') || line.trim().is_empty() {
             continue;
         }
+        let leading_ws = line.chars().take_while(|c| c.is_whitespace()).count();
         let trimmed_start = line.trim_start();
-        if let Some(rest) = trimmed_start.strip_prefix("packages:") {
+        if in_packages && leading_ws <= packages_indent {
+            // A key at or above the `packages:` key's own level ends the
+            // block — the file has moved on to a sibling section.
+            in_packages = false;
+        }
+        // PATTERN-1 / TASK-2231: only a **top-level** `packages:` key is the
+        // workspace list. pnpm's workspace file has grown sibling keys whose
+        // values are lists (`catalog:`, `onlyBuiltDependencies:`,
+        // `ignoredBuiltDependencies:`, `overrides:`, …), and a `packages:`
+        // nested under any other mapping is not the workspace list — matching
+        // it on the left-trimmed line let `tooling: … packages:` hand
+        // unrelated entries to the glob resolver.
+        if leading_ws == 0 && trimmed_start.starts_with("packages:") {
+            let rest = trimmed_start.strip_prefix("packages:").unwrap_or_default();
             saw_packages_key = true;
+            packages_indent = leading_ws;
             let rest = rest.trim();
             if let Some(inner) = rest.strip_prefix('[').and_then(|s| s.strip_suffix(']')) {
                 for item in split_inline_list(inner) {
@@ -252,12 +275,6 @@ fn parse_pnpm_workspace_yaml(content: &str) -> PnpmParse {
             continue;
         }
         if in_packages {
-            let leading_ws = line.chars().take_while(|c| c.is_whitespace()).count();
-            if leading_ws == 0 {
-                // Next top-level key ends the block.
-                in_packages = false;
-                continue;
-            }
             let trimmed = line.trim();
             if let Some(rest) = trimmed.strip_prefix("- ") {
                 let stripped = strip_trailing_yaml_comment(rest.trim());
@@ -499,6 +516,61 @@ mod tests {
         let r = parse_pnpm_workspace_yaml(no_key);
         assert!(r.items.is_empty());
         assert!(!r.saw_packages_key);
+    }
+
+    /// PATTERN-1 / TASK-2231 AC#1/#3: a `packages:` key nested under another
+    /// mapping is not the workspace list. Nothing under it — and nothing
+    /// under its sibling list keys — may become a workspace glob; the parser
+    /// must not even record the key as seen.
+    #[test]
+    fn nested_packages_key_is_not_the_workspace_list() {
+        let yaml = concat!(
+            "tooling:\n",
+            "  packages:\n",
+            "    - apps/*\n",
+            "  ignoredBuiltDependencies:\n",
+            "    - esbuild\n",
+        );
+        let r = parse_pnpm_workspace_yaml(yaml);
+        assert!(
+            r.items.is_empty(),
+            "nested entries must not leak: {:?}",
+            r.items
+        );
+        assert!(!r.saw_packages_key);
+    }
+
+    /// PATTERN-1 / TASK-2231 AC#2: the packages block ends at the first
+    /// subsequent line whose indentation is not greater than the `packages:`
+    /// key's own — a sibling top-level list key ends it, so its entries stay
+    /// out of the workspace globs.
+    #[test]
+    fn packages_block_ends_at_sibling_key_of_equal_indentation() {
+        let yaml = concat!(
+            "packages:\n",
+            "  - apps/*\n",
+            "ignoredBuiltDependencies:\n",
+            "  - esbuild\n",
+        );
+        let r = parse_pnpm_workspace_yaml(yaml);
+        assert_eq!(r.items, vec!["apps/*".to_string()]);
+        assert!(r.saw_packages_key);
+    }
+
+    /// PATTERN-1 / TASK-2231 AC#1: a nested `packages:` must not shadow or
+    /// suppress a real top-level one elsewhere in the file.
+    #[test]
+    fn top_level_packages_wins_over_a_nested_one() {
+        let yaml = concat!(
+            "tooling:\n",
+            "  packages:\n",
+            "    - apps/*\n",
+            "packages:\n",
+            "  - libs/*\n",
+        );
+        let r = parse_pnpm_workspace_yaml(yaml);
+        assert_eq!(r.items, vec!["libs/*".to_string()]);
+        assert!(r.saw_packages_key);
     }
 
     #[test]
