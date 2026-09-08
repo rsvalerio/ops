@@ -214,6 +214,20 @@ enum RawAuthorEntry {
     Unsupported(toml::Value),
 }
 
+/// One entry of `[project.urls]`.
+///
+/// PATTERN-1 / TASK-2202: PEP 621 specifies string values, but nothing stops
+/// tooling drift or hand edits from emitting a nested table
+/// (`Funding = { url = "..." }`) or another non-string shape. Degrading
+/// per-entry — mirroring `RawAuthorEntry` — keeps one odd value from failing
+/// the whole map and discarding both `homepage` and `repository`.
+#[derive(Debug, Deserialize)]
+#[serde(untagged)]
+enum RawUrlEntry {
+    Url(String),
+    Unsupported(toml::Value),
+}
+
 #[derive(Debug, Deserialize)]
 struct RawTool {
     // PERF-3 / TASK-0569: only presence of `[tool.uv]` matters here. Using
@@ -275,11 +289,12 @@ fn parse_pyproject(project_root: &Path) -> Option<Pyproject> {
                 .unwrap_or_default(),
             &manifest_path,
         );
-        if let Some(urls) = project_field::<std::collections::BTreeMap<String, String>>(
+        if let Some(urls) = project_field::<std::collections::BTreeMap<String, RawUrlEntry>>(
             &project,
             "urls",
             &manifest_path,
         ) {
+            let urls = filter_url_entries(urls, &manifest_path);
             let (homepage, repository) = extract_urls(&urls);
             out.homepage = homepage;
             out.repository = repository;
@@ -348,6 +363,40 @@ fn format_authors(authors: Vec<RawAuthorEntry>, manifest_path: &Path) -> Vec<Str
             }
         })
         .collect()
+}
+
+/// PATTERN-1 / TASK-2202: degrade the `[project.urls]` table per-entry. A
+/// non-string value (e.g. the nested `Funding = { url = ... }` shape PEP 621
+/// tooling drift produces) warns with the offending key and is skipped, so
+/// the string-valued siblings still populate the About card — the same
+/// per-entry recovery `RawAuthorEntry::Unsupported` gives `authors`.
+fn filter_url_entries(
+    entries: std::collections::BTreeMap<String, RawUrlEntry>,
+    manifest_path: &Path,
+) -> std::collections::BTreeMap<String, String> {
+    let mut out = std::collections::BTreeMap::new();
+    for (key, entry) in entries {
+        match entry {
+            RawUrlEntry::Url(url) => {
+                out.insert(key, url);
+            }
+            RawUrlEntry::Unsupported(value) => {
+                // SEC-21: the key derives from verbatim `pyproject.toml`
+                // text, so Debug-format it (same policy as the
+                // `normalize_urls` collision warn) to keep embedded
+                // newlines / ANSI from forging log records.
+                tracing::warn!(
+                    path = ?manifest_path.display(),
+                    field = "project.urls",
+                    key = ?key,
+                    kind = value.type_str(),
+                    recovery = "skip-entry",
+                    "unsupported [project.urls] value; keeping string-valued siblings"
+                );
+            }
+        }
+    }
+    out
 }
 
 fn extract_urls(
@@ -786,6 +835,34 @@ Repository = "https://github.com/x/demo"
 
         assert_eq!(id.homepage.as_deref(), Some("https://demo.dev"));
         assert_eq!(id.repository.as_deref(), Some("https://github.com/x/demo"));
+    }
+
+    /// PATTERN-1 / TASK-2202 AC #1/#2: a `[project.urls]` table with one
+    /// non-string value is well-formed TOML and must not fail the whole map
+    /// (which used to drop both homepage and repository). The string-valued
+    /// siblings survive and the skipped entry warns once, naming its key
+    /// with a recovery field — the same per-entry degradation
+    /// `RawAuthorEntry::Unsupported` gives `authors`.
+    #[test]
+    fn mixed_value_urls_table_keeps_string_siblings_and_warns_per_entry() {
+        let (id, warn_count) = ops_about::test_support::count_warnings(|| {
+            identity_from(
+                r#"
+[project]
+name = "demo"
+version = "1.0.0"
+
+[project.urls]
+Homepage = "https://demo.dev"
+Repository = "https://github.com/x/demo"
+Funding = { url = "https://sponsor.dev" }
+"#,
+            )
+        });
+
+        assert_eq!(id.homepage.as_deref(), Some("https://demo.dev"));
+        assert_eq!(id.repository.as_deref(), Some("https://github.com/x/demo"));
+        assert_eq!(warn_count, 1);
     }
 
     /// TASK-0964: a whitespace-only URL must drop to None instead of rendering
