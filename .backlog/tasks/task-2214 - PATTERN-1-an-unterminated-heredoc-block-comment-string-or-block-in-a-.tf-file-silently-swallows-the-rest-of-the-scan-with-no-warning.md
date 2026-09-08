@@ -3,11 +3,11 @@ id: TASK-2214
 title: >-
   PATTERN-1: an unterminated heredoc, block comment, string or block in a .tf
   file silently swallows the rest of the scan with no warning
-status: To Do
+status: Done
 assignee:
   - TASK-2238
 created_date: '2026-09-08 07:21'
-updated_date: '2026-09-08 10:55'
+updated_date: '2026-09-08 16:55'
 labels:
   - code-review-rust
   - pattern
@@ -41,3 +41,9 @@ ordinal: 124000
 - [ ] #4 strip_comments and scan_line agree on where a string ends (both line-local, or both cross-line) and a test pins the agreed behaviour
 - [ ] #5 Tests cover each of the four unterminated shapes: heredoc, block comment, string, and unclosed block
 <!-- AC:END -->
+
+## Implementation Notes
+
+<!-- SECTION:NOTES:BEGIN -->
+Fixed in wave TASK-2238: strip_comments now returns StripEof (UnterminatedBlockComment | UnterminatedString) and extract_required_version warns+refuses on either; string state is line-local in both stages (AC#4); scan_line reports LineScan::UnterminatedString so the no-comment fast path has a reporter; heredoc-at-EOF and non-empty brace stack at EOF are warned+refused, and Found is deferred until the EOF checks pass so a constraint from an unclosed block is refused (AC#3); tests cover all four shapes plus string-open-at-EOF-without-newline (AC#5).
+<!-- SECTION:NOTES:END -->

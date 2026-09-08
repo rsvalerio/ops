@@ -3,11 +3,11 @@ id: TASK-2202
 title: >-
   PATTERN-1: [project.urls] is the one all-or-nothing shape left in pyproject
   parsing - a single non-string value drops both homepage and repository
-status: To Do
+status: Done
 assignee:
   - TASK-2238
 created_date: '2026-09-08 07:19'
-updated_date: '2026-09-08 10:55'
+updated_date: '2026-09-08 16:18'
 labels:
   - code-review-rust
   - pattern

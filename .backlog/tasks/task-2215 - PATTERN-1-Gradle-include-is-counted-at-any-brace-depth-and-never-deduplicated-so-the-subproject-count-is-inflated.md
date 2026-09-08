@@ -3,11 +3,11 @@ id: TASK-2215
 title: >-
   PATTERN-1: Gradle 'include' is counted at any brace depth and never
   deduplicated, so the subproject count is inflated
-status: To Do
+status: Done
 assignee:
   - TASK-2238
 created_date: '2026-09-08 07:21'
-updated_date: '2026-09-08 10:55'
+updated_date: '2026-09-08 16:57'
 labels:
   - code-review-rust
   - pattern
@@ -40,3 +40,9 @@ The count reaches the user directly: `module_count = (!includes.is_empty()).then
 - [ ] #2 A settings.gradle declaring include ':app' and include 'app' yields module_count = 1; a test pins this
 - [ ] #3 The treatment of an include nested inside a block is decided explicitly — either depth-gated like rootProject.name, or counted with the rationale recorded — and a test covers the chosen behaviour
 <!-- AC:END -->
+
+## Implementation Notes
+
+<!-- SECTION:NOTES:BEGIN -->
+Fixed in wave TASK-2238: includes are depth-gated like rootProject.name (AC#3 — chosen treatment, rationale in parse_gradle_settings docs); entries dedup on a canonical path key (leading ":" stripped, "/" and "\\" canonicalised to ":") with first-writer-wins raw spelling kept (AC#1); ":app"+"app" collapses to one (AC#2, test parse_gradle_settings_dedupes_colon_and_bare_include_spellings); nested-block and separator-spelling tests added.
+<!-- SECTION:NOTES:END -->

@@ -3,11 +3,11 @@ id: TASK-2210
 title: >-
   PATTERN-1: an unterminated XML comment, <project> opener or section in pom.xml
   silently swallows the rest of the file
-status: To Do
+status: Done
 assignee:
   - TASK-2238
 created_date: '2026-09-08 07:20'
-updated_date: '2026-09-08 10:55'
+updated_date: '2026-09-08 16:20'
 labels:
   - code-review-rust
   - pattern

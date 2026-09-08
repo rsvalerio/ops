@@ -3,11 +3,11 @@ id: TASK-2181
 title: >-
   PATTERN-1: an unterminated go.work `use (` / go.mod `replace (` block silently
   swallows the rest of the file instead of being reported
-status: To Do
+status: Done
 assignee:
   - TASK-2238
 created_date: '2026-09-08 07:13'
-updated_date: '2026-09-08 10:55'
+updated_date: '2026-09-08 16:16'
 labels:
   - code-review-rust
   - pattern

@@ -4,11 +4,11 @@ title: >-
   PATTERN-1: the pnpm-workspace.yaml parser matches a nested packages: key and
   only ends the block at column zero, so unrelated list entries become workspace
   globs
-status: To Do
+status: Done
 assignee:
   - TASK-2238
 created_date: '2026-09-08 07:23'
-updated_date: '2026-09-08 10:55'
+updated_date: '2026-09-08 16:59'
 labels:
   - code-review-rust
   - correctness
@@ -65,3 +65,9 @@ unterminated `use (` / `replace (` block swallows the rest of the file).
 - [ ] #3 a fixture with a nested packages: block followed by a sibling list key yields no entries from the sibling key
 - [ ] #4 existing top-level block and inline-flow fixtures continue to parse unchanged
 <!-- AC:END -->
+
+## Implementation Notes
+
+<!-- SECTION:NOTES:BEGIN -->
+Fixed in wave TASK-2238: only a column-0 packages: key is recognised (AC#1); the block records the key indentation and ends at the first later line whose indent is not greater (AC#2); tests pin the nested-key fixture (no entries, key not seen), the sibling-key end, and top-level-wins-over-nested (AC#3); existing block/inline fixtures pass unchanged (AC#4).
+<!-- SECTION:NOTES:END -->
