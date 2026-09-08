@@ -318,6 +318,10 @@ mod tests {
     /// `LoadedManifest::resolved_members` snapshot — verified here by
     /// mutating a member directory between two cached loads and asserting
     /// the cached view does NOT pick up the change (proving no re-walk).
+    /// TASK-2157: that freeze is the documented cache contract, not an
+    /// accident this test happens to observe — see the **Member-set freeze**
+    /// bullet in `manifest_cache.rs`; a host that must observe member-set
+    /// changes calls `ctx.refresh`.
     #[serial_test::serial(typed_manifest_cache)]
     #[test]
     fn resolved_workspace_members_are_amortised_via_typed_manifest_cache() {

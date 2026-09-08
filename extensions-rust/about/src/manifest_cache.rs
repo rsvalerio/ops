@@ -16,6 +16,20 @@
 //!   with LRU eviction.
 //! - **Invalidation**: the `<root>/Cargo.toml` mtime+len pair is re-stat'ed on
 //!   every probe; a mismatch reparses. `ctx.refresh` evicts the entry outright.
+//! - **Member-set freeze** (TASK-2157): the freshness key covers only the root
+//!   manifest's *bytes*. The cached [`LoadedManifest`] additionally carries two
+//!   derived views that are not functions of those bytes — `resolved_members`
+//!   (glob-expanded by `read_dir`-ing every `prefix/*` directory during
+//!   `LoadedManifest::new`) and `canonical_member_manifests` (an
+//!   `fs::canonicalize` pass over those members) — and both are **frozen for
+//!   the entry's lifetime**: creating or deleting a member directory changes
+//!   neither the root manifest's mtime nor its length, so the key still
+//!   matches and the pre-change member list keeps being served. This is
+//!   deliberate (the one-stat hot-path budget above) and test-pinned by
+//!   `resolved_workspace_members_are_amortised_via_typed_manifest_cache`.
+//!   A host that can outlive a member-set change — daemon, language server,
+//!   CI worker — must call `ctx.refresh` to observe it; the single-shot CLI's
+//!   process boundary hides the freeze by construction.
 //!
 //! PERF-1 / TASK-2028: keying by the root means the root must be resolved
 //! *before* the probe, which would otherwise put a canonicalizing ancestor walk
@@ -70,6 +84,16 @@
 //! Reviewer rule: do not add a daemon caller without first making the migration
 //! above. A new caller that opens parallel `ctx`s against distinct roots and
 //! bottlenecks here would silently undo a downstream performance fix.
+//!
+//! TASK-2157: the same rule covers member-set staleness. The freshness key
+//! stats only `<root>/Cargo.toml` (see **Member-set freeze** above), so a
+//! daemon that can outlive a `cargo new crates/foo` — or a member-directory
+//! removal — serves the frozen `resolved_members` and
+//! `canonical_member_manifests` views indefinitely, diverging from
+//! `cargo metadata` with no warn. A daemon caller must first either extend
+//! the freshness key to cover the resolved member set or drive `ctx.refresh`
+//! on workspace-modification events; only then may it rely on `ops about`
+//! member data.
 //!
 //! TEST-15 / TASK-1664: **every test that reaches this cache must carry
 //! `#[serial_test::serial(typed_manifest_cache)]`** — including the ones that
