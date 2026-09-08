@@ -5,59 +5,83 @@
 //! the default in many CI containers. Callers treat `None` as "this hazard
 //! cannot be simulated here" and skip, rather than asserting something the
 //! environment cannot make true.
+//!
+//! TEST-26 / TASK-2126, TASK-2166: a skip is never silent any more. Bail-outs
+//! surface a `skip:` line via [`skip_precondition`] (re-exported below), and
+//! the git helpers distinguish "git is absent here" (surfaced skip) from "git
+//! ran and refused" (panic — a broken fixture, not a missing capability), so
+//! a green run can no longer hide that its safety assertions never executed.
 
 use std::path::{Path, PathBuf};
-use std::process::Command;
+
+use ops_core::test_utils::{git_fixture, git_fixture_os, GitFixtureError};
+
+pub use ops_core::test_utils::skip_precondition;
 
 /// Create a git repository at `dir`.
 ///
-/// Returns `false` when git is unusable in this environment, so the caller
-/// skips rather than failing on something it is not testing.
+/// TEST-26 / TASK-2166: `false` means exactly one thing — this environment
+/// has no git binary — and the skip has already been surfaced on stderr, so
+/// a caller's `return` is visible in the test output instead of a vacuous
+/// pass. A git that *runs* and fails panics here.
 pub fn git_init(dir: &Path) -> bool {
-    git(dir, &["init", "-q"])
+    fixture("git fixture", dir, &["init", "-q"])
 }
 
 /// Stage `paths` in the repository at `dir`.
-pub fn git_add(dir: &Path, paths: &[&Path]) -> bool {
+///
+/// Same contract as [`git_init`]; on success there is nothing to assert —
+/// staging either worked or this helper already failed the test.
+pub fn git_add(dir: &Path, paths: &[&Path]) {
     let mut args: Vec<&std::ffi::OsStr> = vec!["add".as_ref(), "--".as_ref()];
     args.extend(paths.iter().map(|p| p.as_os_str()));
-    git_os(dir, &args)
+    fixture_os("git add fixture", dir, &args);
 }
 
 /// Whether a usable `git` is on `PATH` at all.
 ///
 /// [`is_inside_repo`] cannot distinguish "not a repository" from "git is
 /// missing" — both are `false` — so fixtures that assert on a git-derived
-/// outcome need this second guard before they run.
+/// outcome need this second guard before they run. `false` is returned only
+/// for an absent binary (surfaced as a skip); a `git --version` that runs and
+/// fails panics.
 pub fn git_available() -> bool {
-    Command::new("git")
-        .arg("--version")
-        .output()
-        .is_ok_and(|o| o.status.success())
+    fixture("git availability probe", Path::new("."), &["--version"])
 }
 
 /// Whether `dir` is inside a git worktree. Used to skip the
 /// "not a repository" fixtures when `TMPDIR` happens to live inside one.
+///
+/// A non-zero `rev-parse` is its expected "not a repository" answer, so —
+/// unlike the mutating helpers — a refused command is `false`, not a panic;
+/// callers that need the distinction guard with [`git_available`] first.
 pub fn is_inside_repo(dir: &Path) -> bool {
-    git(dir, &["rev-parse", "--is-inside-work-tree"])
+    git_fixture(dir, &["rev-parse", "--is-inside-work-tree"]).is_ok()
 }
 
-fn git(dir: &Path, args: &[&str]) -> bool {
-    let args: Vec<&std::ffi::OsStr> = args.iter().map(AsRef::as_ref).collect();
-    git_os(dir, &args)
+fn fixture(what: &str, dir: &Path, args: &[&str]) -> bool {
+    match git_fixture(dir, args) {
+        Ok(()) => true,
+        Err(GitFixtureError::BinaryAbsent) => {
+            skip_precondition(what, "git is not on PATH; git-mode assertions did not run");
+            false
+        }
+        Err(e @ GitFixtureError::CommandFailed { .. }) => {
+            panic!("{what} broke: {e}");
+        }
+    }
 }
 
-fn git_os(dir: &Path, args: &[&std::ffi::OsStr]) -> bool {
-    Command::new("git")
-        .arg("-C")
-        .arg(dir)
-        // Keep the fixture repo independent of the developer's global config
-        // (templates, hooks, `core.excludesFile`).
-        .env("GIT_CONFIG_GLOBAL", "/dev/null")
-        .env("GIT_CONFIG_SYSTEM", "/dev/null")
-        .args(args)
-        .output()
-        .is_ok_and(|o| o.status.success())
+fn fixture_os(what: &str, dir: &Path, args: &[&std::ffi::OsStr]) {
+    match git_fixture_os(dir, args) {
+        Ok(()) => {}
+        Err(GitFixtureError::BinaryAbsent) => {
+            skip_precondition(what, "git is not on PATH; git-mode assertions did not run");
+        }
+        Err(e @ GitFixtureError::CommandFailed { .. }) => {
+            panic!("{what} broke: {e}");
+        }
+    }
 }
 
 /// Makes a directory unwritable for the lifetime of the guard.

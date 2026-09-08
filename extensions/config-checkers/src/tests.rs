@@ -7,7 +7,6 @@
 
 use std::io::Write;
 use std::path::{Path, PathBuf};
-use std::process::Command;
 
 use super::{
     run_check_json, run_check_yaml, write_summary, CheckerOptions, CheckerReport, FailedFile,
@@ -23,19 +22,31 @@ fn write(p: &Path, content: &[u8]) {
 
 /// Stage everything under `root` in a fresh git repo.
 ///
-/// Returns `false` when git is unavailable, in which case
-/// `discovery::discover` silently falls back to the full walk and any
-/// tracked-mode assertion would pass vacuously — callers must bail out.
+/// TEST-26 / TASK-2126: `false` now means exactly one thing — this
+/// environment has no git binary, and the skip has already been surfaced on
+/// stderr, so a caller's `return` is visible in the test output instead of a
+/// vacuous pass. A git that *runs* and fails (spawn error, non-zero exit)
+/// panics here: a present-but-refusing git is a broken fixture, not a
+/// missing capability, and bailing out over it would delete the tracked-mode
+/// coverage this suite exists to hold.
 fn stage_all(root: &Path) -> bool {
-    let git = |args: &[&str]| {
-        Command::new("git")
-            .arg("-C")
-            .arg(root)
-            .args(args)
-            .output()
-            .is_ok_and(|o| o.status.success())
-    };
-    git(&["init", "--quiet"]) && git(&["add", "-A"])
+    for args in [["init", "--quiet"], ["add", "-A"]] {
+        if let Err(e) = ops_core::test_utils::git_fixture(root, &args) {
+            match e {
+                ops_core::test_utils::GitFixtureError::BinaryAbsent => {
+                    ops_core::test_utils::skip_precondition(
+                        "git fixture",
+                        "git is not on PATH; tracked-mode assertions did not run",
+                    );
+                    return false;
+                }
+                ops_core::test_utils::GitFixtureError::CommandFailed { .. } => {
+                    panic!("git fixture broke: {e}");
+                }
+            }
+        }
+    }
+    true
 }
 
 #[test]
@@ -154,7 +165,13 @@ fn unreadable_file_is_reported_as_a_read_failure_not_a_parse_failure() {
 
     // Root bypasses the permission bits entirely, so the assertion below
     // would invert rather than fail — the guard is mandatory, not cosmetic.
+    // TEST-26 / TASK-2126: surfaced, so a root-container run that never
+    // executes these assertions is distinguishable from one that did.
     if ops_core::test_utils::is_root_euid() {
+        ops_core::test_utils::skip_precondition(
+            "unreadable-file fixture",
+            "running as root bypasses DAC; the read-failure assertions did not run",
+        );
         return;
     }
 
@@ -229,6 +246,12 @@ fn tracked_but_deleted_file_is_skipped_rather_than_failing_the_hook() {
 fn tracked_symlink_to_a_character_device_is_never_a_candidate() {
     let device = Path::new("/dev/zero");
     if !device.exists() {
+        // TEST-26 / TASK-2126: surfaced, so a run without the device is
+        // distinguishable from one that exercised the guard.
+        ops_core::test_utils::skip_precondition(
+            "/dev/zero fixture",
+            "character device absent; the device-symlink assertions did not run",
+        );
         return;
     }
 
