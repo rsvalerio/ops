@@ -1,11 +1,11 @@
 ---
 id: TASK-2237
 title: code-review-plan-wave3
-status: To Do
+status: Done
 assignee:
   - code-review-wave
 created_date: '2026-09-08 10:50'
-updated_date: '2026-09-08 10:54'
+updated_date: '2026-09-08 17:05'
 labels:
   - code-review-wave
 dependencies:
@@ -44,4 +44,6 @@ code-review-plan-wave3: In-place rewriter behaviour and the shared read-candidat
 
 <!-- SECTION:NOTES:BEGIN -->
 Overlaps: TASK-2247 wave13 (5 files: extensions/config-checkers/src/lib.rs ...); TASK-2248 wave14 (3 files: extensions/text-fixers/src/discovery.rs ...); TASK-2235 wave1 (2 files: extensions/text-fixers/src/atomic.rs ...); TASK-2234 wave0 (1 file: extensions/config-checkers/src/lib.rs)
+
+Branch: code-review/TASK-2237
 <!-- SECTION:NOTES:END -->

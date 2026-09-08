@@ -4,11 +4,11 @@ title: >-
   TEST-26: five config-checkers tests return early on unmet preconditions and
   pass vacuously, so git-tracked-mode coverage can vanish from CI with a green
   run
-status: To Do
+status: Done
 assignee:
   - TASK-2237
 created_date: '2026-09-08 06:55'
-updated_date: '2026-09-08 10:54'
+updated_date: '2026-09-08 15:54'
 labels:
   - code-review-rust
   - tests
@@ -57,8 +57,14 @@ executed in CI while appearing to pass everywhere.
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 Missing git no longer produces a silently-passing test: either the tracked-mode tests fail when git is unavailable in an environment that is expected to have it, or the skip is surfaced (eprintln! with the reason plus a #[ignore]-style marker) so a reader of CI output can see the assertion did not run
-- [ ] #2 stage_all distinguishes 'git binary absent' from 'git command failed', and a git command that fails for a reason other than absence fails the test rather than skipping it
-- [ ] #3 The /dev/zero and root-euid guards are surfaced the same way, so a run where they trip is distinguishable from one where the assertions executed
-- [ ] #4 CI is verified to actually execute the tracked-mode tests (they are not skipped in the pipeline that gates merges)
+- [x] #1 Missing git no longer produces a silently-passing test: either the tracked-mode tests fail when git is unavailable in an environment that is expected to have it, or the skip is surfaced (eprintln! with the reason plus a #[ignore]-style marker) so a reader of CI output can see the assertion did not run
+- [x] #2 stage_all distinguishes 'git binary absent' from 'git command failed', and a git command that fails for a reason other than absence fails the test rather than skipping it
+- [x] #3 The /dev/zero and root-euid guards are surfaced the same way, so a run where they trip is distinguishable from one where the assertions executed
+- [x] #4 CI is verified to actually execute the tracked-mode tests (they are not skipped in the pipeline that gates merges)
 <!-- AC:END -->
+
+## Implementation Notes
+
+<!-- SECTION:NOTES:BEGIN -->
+Implemented via shared helpers in ops_core::test_utils (skip_precondition + git_fixture/git_fixture_os classifying BinaryAbsent vs CommandFailed): stage_all now panics on a present-but-refusing git and surfaces a "skip:" line only for a genuinely absent binary; the root-euid and /dev/zero guards print the same marker. Skip surfacing verified by running the compiled test binary with PATH stripped of git. AC #4 verified: gating CI (.github/workflows/ci.yml) runs ubuntu-latest with cargo nextest run --all --all-features — git preinstalled, non-root runner user, /dev/zero present, no #[ignore] on these tests, so the tracked-mode suite executes its assertions in the pipeline that gates merges. Same helper shape reused for TASK-2166 in ops-text-fixers.
+<!-- SECTION:NOTES:END -->

@@ -4,11 +4,11 @@ title: >-
   READ-6: discovery's two modes apply different exclusion rules - tracked mode
   ignores SKIP_DIRS and .gitignore, so --tracked can rewrite files the walk
   deliberately never touches
-status: To Do
+status: Done
 assignee:
   - TASK-2237
 created_date: '2026-09-08 07:05'
-updated_date: '2026-09-08 10:54'
+updated_date: '2026-09-08 16:08'
 labels:
   - code-review-rust
   - readability
@@ -71,8 +71,14 @@ the tool's own design says are out of scope.
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 A decision is recorded for whether SKIP_DIRS and gitignore rules apply to tracked mode, and the module header states the answer rather than implying the modes already agree
+- [x] #1 A decision is recorded for whether SKIP_DIRS and gitignore rules apply to tracked mode, and the module header states the answer rather than implying the modes already agree
 - [ ] #2 If they should apply, tracked_files output is filtered through the same deny-list and ignore matcher as the walk
-- [ ] #3 If they deliberately should not, the module header says so and explains why the verify-idempotency rationale does not apply under --tracked
-- [ ] #4 A test compares the two modes over a tracked file inside a SKIP_DIRS directory and over a tracked-but-gitignored file, pinning whichever behaviour was chosen
+- [x] #3 If they deliberately should not, the module header says so and explains why the verify-idempotency rationale does not apply under --tracked
+- [x] #4 A test compares the two modes over a tracked file inside a SKIP_DIRS directory and over a tracked-but-gitignored file, pinning whichever behaviour was chosen
 <!-- AC:END -->
+
+## Implementation Notes
+
+<!-- SECTION:NOTES:BEGIN -->
+Decision (AC #1): tracked mode deliberately does NOT apply SKIP_DIRS or gitignore rules; the module header now states this and the rationale — the index is the user reviewed choice of what belongs to the repository (git requires add -f to track an ignored path), and the verify-idempotency rationale does not carry over because regenerated build artifacts are untracked and thus never in git ls-files output. AC #2 therefore not applicable; AC #3 satisfied by the header text. AC #4: two new tests compare the modes over a tracked file inside dist/ (tracked_mode_keeps_a_tracked_file_inside_a_skip_dirs_directory) and a tracked-but-gitignored file staged before the rule existed (tracked_mode_keeps_a_tracked_but_gitignored_file), pinning the disagreement.
+<!-- SECTION:NOTES:END -->

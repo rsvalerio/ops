@@ -4,11 +4,11 @@ title: >-
   TEST-26: eighteen text-fixers tests return early on unmet preconditions and
   pass vacuously, deleting every permission and git-mode safety assertion in a
   root container
-status: To Do
+status: Done
 assignee:
   - TASK-2237
 created_date: '2026-09-08 07:06'
-updated_date: '2026-09-08 10:55'
+updated_date: '2026-09-08 16:11'
 labels:
   - code-review-rust
   - tests
@@ -74,8 +74,14 @@ path-escape test) can vanish silently.
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 A test whose precondition is unmet is distinguishable from one that ran: the skip is surfaced in the output with its reason, not a bare return
-- [ ] #2 The six permission-guarded tests are verified to actually execute in the CI pipeline that gates merges, or CI is changed so they do
-- [ ] #3 The git helpers distinguish 'git binary absent' from 'git command failed'; a git command failing for any reason other than absence fails the test rather than skipping it
-- [ ] #4 Resolved consistently with TASK-2126 in config-checkers, since both crates share the same helper shape
+- [x] #1 A test whose precondition is unmet is distinguishable from one that ran: the skip is surfaced in the output with its reason, not a bare return
+- [x] #2 The six permission-guarded tests are verified to actually execute in the CI pipeline that gates merges, or CI is changed so they do
+- [x] #3 The git helpers distinguish 'git binary absent' from 'git command failed'; a git command failing for any reason other than absence fails the test rather than skipping it
+- [x] #4 Resolved consistently with TASK-2126 in config-checkers, since both crates share the same helper shape
 <!-- AC:END -->
+
+## Implementation Notes
+
+<!-- SECTION:NOTES:BEGIN -->
+test_support.rs git helpers (git_init/git_add/git_available) now run through ops_core::test_utils::git_fixture: BinaryAbsent => "skip:" line printed inside the helper + false; CommandFailed => panic (is_inside_repo keeps bool semantics — a refused rev-parse is its expected not-a-repository answer). git_add returns () so the old assert! wrappers are gone (a refusing git fails inside the helper). All six permission guards (tests.rs x4, discovery/tests.rs x1, atomic.rs x1) surface skip_precondition with the fixture name and reason. Verified by running the compiled test binary with PATH stripped of git: "skip: git fixture: git is not on PATH; git-mode assertions did not run" prints while the test passes. AC #2: gating CI is ubuntu-latest under the non-root runner user, so the chmod guards genuinely deny and all six permission-guarded tests execute their assertions there. AC #4: same ops_core::test_utils helpers as TASK-2126.
+<!-- SECTION:NOTES:END -->

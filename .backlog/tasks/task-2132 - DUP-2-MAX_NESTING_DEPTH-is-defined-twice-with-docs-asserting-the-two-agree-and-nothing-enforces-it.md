@@ -3,11 +3,11 @@ id: TASK-2132
 title: >-
   DUP-2: MAX_NESTING_DEPTH is defined twice with docs asserting the two agree,
   and nothing enforces it
-status: To Do
+status: Done
 assignee:
   - TASK-2237
 created_date: '2026-09-08 06:55'
-updated_date: '2026-09-08 10:54'
+updated_date: '2026-09-08 15:55'
 labels:
   - code-review-rust
   - duplication
@@ -52,7 +52,13 @@ so drift is a correctness change to a guard, not a style nit.
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 MAX_NESTING_DEPTH has one definition; the second module re-exports or references it rather than restating the literal
+- [x] #1 MAX_NESTING_DEPTH has one definition; the second module re-exports or references it rather than restating the literal
 - [ ] #2 If two distinct constants are kept deliberately, a test asserts json::MAX_NESTING_DEPTH == yaml::MAX_NESTING_DEPTH and the docs say why they are separate
-- [ ] #3 The existing depth tests in json.rs and yaml.rs still pass unchanged
+- [x] #3 The existing depth tests in json.rs and yaml.rs still pass unchanged
 <!-- AC:END -->
+
+## Implementation Notes
+
+<!-- SECTION:NOTES:BEGIN -->
+AC #1 satisfied via the re-export branch: yaml.rs now does `pub use crate::json::MAX_NESTING_DEPTH` (one definition; the doc comment no longer asserts parity in prose, it states single-sourcing). AC #2 is the "two distinct constants kept deliberately" alternative — not taken, so not applicable. AC #3: all existing depth tests in json.rs and yaml.rs pass unchanged (33/33).
+<!-- SECTION:NOTES:END -->

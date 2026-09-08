@@ -3,11 +3,11 @@ id: TASK-2158
 title: >-
   READ-5: fix_eof converts CRLF to LF whenever the body holds no newline,
   rewriting single-line CRLF files it documents as untouched
-status: To Do
+status: Done
 assignee:
   - TASK-2237
 created_date: '2026-09-08 07:04'
-updated_date: '2026-09-08 10:54'
+updated_date: '2026-09-08 15:56'
 labels:
   - code-review-rust
   - readability
@@ -71,9 +71,15 @@ because tempdirs have no `.gitattributes`.
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 detect_crlf answers about the terminator style of the input, not of the terminator-stripped body: a file whose only newlines are the trailing run keeps the terminator it had
-- [ ] #2 fix_eof(b"abc\r\n") returns None — a single-line CRLF file that already ends in exactly one newline is not a change
-- [ ] #3 fix_eof(b"abc\r\n\r\n") returns Some(b"abc\r\n") and fix_eof(b"\r\n\r\n") returns Some(b"\r\n")
-- [ ] #4 The file-with-no-terminator case (b"abc") still gets LF, and the choice for that genuinely-ambiguous case is documented in the module header
-- [ ] #5 Regression tests cover the single-line CRLF class explicitly, alongside the existing multi-line crlf_preserved_when_dominant
+- [x] #1 detect_crlf answers about the terminator style of the input, not of the terminator-stripped body: a file whose only newlines are the trailing run keeps the terminator it had
+- [x] #2 fix_eof(b"abc\r\n") returns None — a single-line CRLF file that already ends in exactly one newline is not a change
+- [x] #3 fix_eof(b"abc\r\n\r\n") returns Some(b"abc\r\n") and fix_eof(b"\r\n\r\n") returns Some(b"\r\n")
+- [x] #4 The file-with-no-terminator case (b"abc") still gets LF, and the choice for that genuinely-ambiguous case is documented in the module header
+- [x] #5 Regression tests cover the single-line CRLF class explicitly, alongside the existing multi-line crlf_preserved_when_dominant
 <!-- AC:END -->
+
+## Implementation Notes
+
+<!-- SECTION:NOTES:BEGIN -->
+detect_crlf now measures the input as received (body + trailing terminator run) instead of the stripped body; module header documents the terminator-vs-body rule and the LF choice for the genuinely ambiguous no-terminator case. New tests: single_line_crlf_file_already_correct_is_not_a_change (None), single_line_crlf_file_with_extra_terminators_keeps_crlf, only_crlf_terminators_keeps_crlf, terminatorless_crlf_history_still_gets_lf. All 71 crate tests green; crlf_preserved_when_dominant and the mixed-tree fixed-point test unchanged and passing.
+<!-- SECTION:NOTES:END -->

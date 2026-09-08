@@ -4,11 +4,11 @@ title: >-
   DUP-2: the read-candidate and failure-reporting pipeline is duplicated between
   text-fixers and config-checkers, and the copies have already diverged on
   symlink handling
-status: To Do
+status: Done
 assignee:
   - TASK-2237
 created_date: '2026-09-08 07:05'
-updated_date: '2026-09-08 10:54'
+updated_date: '2026-09-08 16:06'
 labels:
   - code-review-rust
   - duplication
@@ -83,9 +83,15 @@ dependency.
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 The bounded read pipeline (open_regular_file / read_bounded / read_candidate) exists once and is used by both extensions
-- [ ] #2 SkipReason, FailureKind, FailedFile, relative_to, record_failure and the walk-error accounting loop exist once
-- [ ] #3 DEFAULT_MAX_BYTES is defined once and referenced by both crates, so the two cannot drift
-- [ ] #4 The shared code lives somewhere both extensions can depend on without one extension depending on the other (new crate or ops-core module), or the extension-to-extension edge is explicitly justified
-- [ ] #5 config-checkers picks up the symlink_metadata behaviour as part of the unification, with a test pinning that a symlinked config file is not judged by its target
+- [x] #1 The bounded read pipeline (open_regular_file / read_bounded / read_candidate) exists once and is used by both extensions
+- [x] #2 SkipReason, FailureKind, FailedFile, relative_to, record_failure and the walk-error accounting loop exist once
+- [x] #3 DEFAULT_MAX_BYTES is defined once and referenced by both crates, so the two cannot drift
+- [x] #4 The shared code lives somewhere both extensions can depend on without one extension depending on the other (new crate or ops-core module), or the extension-to-extension edge is explicitly justified
+- [x] #5 config-checkers picks up the symlink_metadata behaviour as part of the unification, with a test pinning that a symlinked config file is not judged by its target
 <!-- AC:END -->
+
+## Implementation Notes
+
+<!-- SECTION:NOTES:BEGIN -->
+Shared layer lives in the new ops_core::bounded_read module: read_candidate/open_regular_file/read_bounded (text-fixers symlink_metadata semantics as canonical), SkipReason/FailureKind/FailedFile/Rejected, relative_to, record_failure + report_walk_errors over a FileRunReport trait implemented by FixerReport and CheckerReport, and DEFAULT_MAX_BYTES. Both extensions re-export the vocabulary so their public API names (ops_text_fixers::SkipReason, ops_config_checkers::FailureKind, DEFAULT_MAX_BYTES) are unchanged for the CLI. AC #4 taken on both branches: generic pipeline moved to ops-core (no extension-to-extension edge), while the remaining ops-text-fixers edge is only discovery, explicitly justified in config-checkers/lib.rs header (policy-coupled to the rewriting tools; moving it would pull the ignore crate into core for one consumer; extraction to its own crate noted as the move if a third consumer appears). AC #5: symlink-not-judged-by-target pinned by ops-core test a_symlink_is_never_judged_by_its_target (an end-to-end config-checkers test is unreachable: discovery drops symlinks in both modes before the runner, so the pipeline-level test is the closest meaningful pin). Skip wording pinned by skip_reason_wording_is_pinned. Clippy -D warnings clean on all three crates; 33+71 tests green.
+<!-- SECTION:NOTES:END -->
