@@ -32,7 +32,7 @@ ordinal: 1000
 <!-- AC:BEGIN -->
 - [ ] #1 Test carries #[serial_test::serial(env_output_cap)] (a fresh serial key or the existing env group), matching the parallel.rs / exec.rs env-knob tests
 - [ ] #2 The SAFETY comment states the real isolation mechanism (serialisation and/or nextest per-process isolation), not the false single-thread-per-binary claim
-- [ ] #3 Plain 
+- [ ] #3 Plain
 running 245 tests
 test command::build::tests::apply_escape_policy_deny_returns_permission_denied ... ok
 test command::build::tests::apply_escape_policy_warn_is_ok ... ok
