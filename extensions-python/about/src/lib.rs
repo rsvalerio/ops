@@ -94,6 +94,17 @@ impl DataProvider for PythonIdentityProvider {
             let uses_uv = std::fs::symlink_metadata(root.join("uv.lock")).is_ok() || has_tool_uv;
             let stack_detail = build_stack_detail(requires_python.as_deref(), uses_uv);
 
+            // TASK-2203: the packages row must carry the same count the units
+            // provider lists — one per resolved `[tool.uv.workspace]` member —
+            // read through the shared manifest cache (DUP-3 / TASK-0816) so
+            // the card and the workspace table cannot drift. A
+            // single-package project (no workspace table, or members globs
+            // matching nothing) keeps `None`: a label with no value renders a
+            // blank row, and "1" would be as meaningless as the Go stack's
+            // omitted root-module count.
+            let workspace_members = units::read_workspace_members(root);
+            let module_count = (!workspace_members.is_empty()).then_some(workspace_members.len());
+
             ParsedManifest::build(|m| {
                 m.name = name;
                 m.version = version;
@@ -105,7 +116,7 @@ impl DataProvider for PythonIdentityProvider {
                 m.stack_label = "Python";
                 m.stack_detail = stack_detail;
                 m.module_label = "packages";
-                m.module_count = None;
+                m.module_count = module_count;
             })
         })
     }
@@ -696,6 +707,55 @@ authors = [{ name = "rsvaleri" }]
         assert_eq!(id.license.as_deref(), Some("MIT"));
         assert_eq!(id.authors, vec!["rsvaleri"]);
         assert_eq!(id.module_label, "packages");
+        // TASK-2203 AC #2: a single-package (non-workspace) pyproject keeps
+        // `module_count = None` — the packages row carries no value.
+        assert_eq!(id.module_count, None);
+    }
+
+    /// TASK-2203 AC #1 / AC #3: on one uv-workspace fixture, the identity
+    /// card's `module_count` and the units provider's list must come from the
+    /// same resolved member set, so the packages row and the workspace table
+    /// cannot drift. Asserted together on the same fixture, with a member
+    /// directory that resolves and one that does not (no pyproject.toml), so
+    /// the count follows the *resolved* set rather than the raw glob text.
+    #[test]
+    fn uv_workspace_module_count_equals_the_units_provider_length() {
+        let dir = tempfile::tempdir().unwrap();
+        ops_about::test_support::write_file(
+            &dir.path().join("pyproject.toml"),
+            r#"
+[project]
+name = "root"
+version = "0.0.0"
+
+[tool.uv.workspace]
+members = ["packages/*"]
+"#,
+        );
+        ops_about::test_support::write_file(
+            &dir.path().join("packages/alpha/pyproject.toml"),
+            "[project]\nname = \"alpha\"\nversion = \"1.0.0\"\n",
+        );
+        ops_about::test_support::write_file(
+            &dir.path().join("packages/beta/pyproject.toml"),
+            "[project]\nname = \"beta\"\nversion = \"2.0.0\"\n",
+        );
+        // A directory under the glob with no pyproject.toml resolves to no
+        // unit — and must not be counted.
+        std::fs::create_dir_all(dir.path().join("packages/not-a-pkg")).unwrap();
+
+        let mut ctx = ops_extension::Context::test_context(dir.path().to_path_buf());
+        let identity: ProjectIdentity =
+            serde_json::from_value(PythonIdentityProvider.provide(&mut ctx).unwrap()).unwrap();
+        let units: Vec<ops_core::project_identity::ProjectUnit> =
+            serde_json::from_value(units::PythonUnitsProvider.provide(&mut ctx).unwrap()).unwrap();
+
+        assert_eq!(units.len(), 2, "two members resolve, one does not");
+        assert_eq!(
+            identity.module_count,
+            Some(units.len()),
+            "the packages row must equal the units list length on the same fixture"
+        );
     }
 
     #[test]

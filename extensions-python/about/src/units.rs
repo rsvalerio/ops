@@ -83,7 +83,14 @@ fn string_globs(entries: Vec<RawGlob>, field: &str, manifest_path: &Path) -> Vec
         .collect()
 }
 
-fn read_workspace_members(root: &Path) -> Vec<(String, String)> {
+/// Resolve `[tool.uv.workspace].members` globs to concrete member dirs.
+///
+/// TASK-2203: `pub(crate)` so the identity provider can set
+/// `module_count` from the *same* resolved member list this provider builds
+/// `ProjectUnit`s from — the card's packages row and the units table must
+/// count the same things (the convention `extensions-rust/about` gets by
+/// setting `module_count` from `manifest.resolved_members().len()`).
+pub fn read_workspace_members(root: &Path) -> Vec<(String, String)> {
     // DUP-3 / TASK-0816: share the parsed `toml::Value` with the identity
     // provider via the per-process cache rather than re-reading and
     // re-parsing the same `pyproject.toml`.
