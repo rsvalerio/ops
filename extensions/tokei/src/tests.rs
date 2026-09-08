@@ -833,9 +833,14 @@ fn relativize_path_replaces_invalid_utf8_with_replacement_char() {
 /// walk rather than run it to completion and be told afterwards.
 ///
 /// Driven through `DataRegistry::provide`, which is what installs the
-/// deadline, so this pins the whole path an operator's dispatch takes — not
-/// just `scan_tokei`'s parameter. The control run below shows the same tree
-/// scans cleanly, so the failure is the deadline and not the fixture.
+/// deadline, so this pins the dispatch path an operator's dispatch takes —
+/// not just `scan_tokei`'s parameter. TASK-2156 correction: with no
+/// database attached this exercises the **fallback branch** of
+/// `try_provide_from_db` only; the ingest branch (a `DuckDb` attached,
+/// `tokei_files` empty) is pinned by
+/// `a_spent_budget_keeps_the_typed_timeout_on_the_ingest_path` below. The
+/// control run shows the same tree scans cleanly, so the failure is the
+/// deadline and not the fixture.
 #[test]
 fn a_spent_budget_aborts_the_tokei_walk_with_a_typed_timeout() {
     let dir = fixture_project();
@@ -862,6 +867,36 @@ fn a_spent_budget_aborts_the_tokei_walk_with_a_typed_timeout() {
         Some(FIXTURE_FILE_COUNT),
         "the control run must produce the whole fixture"
     );
+}
+
+/// AC #3 / TASK-2156: the production shape is the **ingest path** — a
+/// `DuckDb` attached and `tokei_files` empty, so dispatch runs
+/// `provide_via_ingestor` → `TokeiIngestor::collect` → `external_err` →
+/// the orchestrator's context wrap. That wrap used to erase the typed
+/// `TimedOut` into `ComputationFailed` (anyhow cannot recurse into a
+/// foreign `DbError` payload); the orchestrator now re-raises typed
+/// payloads through an anyhow-internal context, and this test pins the
+/// variant surviving the whole way out.
+#[test]
+fn a_spent_budget_keeps_the_typed_timeout_on_the_ingest_path() {
+    let dir = fixture_project();
+    let mut registry = ops_extension::DataRegistry::new();
+    let _ = registry.register(DATA_PROVIDER_NAME, Box::new(TokeiProvider));
+
+    // File-backed, not in-memory: the ingest pipeline derives its staging
+    // directory from the database path and refuses a `:memory:` handle
+    // before ever reaching `collect`.
+    let db_path = dir.path().join("tokei-ingest-test.duckdb");
+    let db = DuckDb::open(&db_path).expect("open file-backed db");
+    let mut ctx = Context::test_context(dir.path().to_path_buf())
+        .with_provider_budget(Some(std::time::Duration::from_nanos(1)));
+    ctx.attach_db(std::sync::Arc::new(db));
+    match registry.provide(DATA_PROVIDER_NAME, &mut ctx) {
+        Err(DataProviderError::TimedOut { provider, .. }) => {
+            assert_eq!(provider, DATA_PROVIDER_NAME);
+        }
+        other => panic!("expected a typed TimedOut from the ingest path, got {other:?}"),
+    }
 }
 
 /// A deadline that has not expired must not perturb the scan: the per-entry
