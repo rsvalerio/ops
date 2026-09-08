@@ -518,9 +518,11 @@ mod tests {
         assert_eq!(m.local_replaces, vec!["../../shared/lib"]);
     }
 
-    /// PATTERN-1 (TASK-1212): the scrub also affects `compute_module_count`
-    /// — a sole adversarial replace yields 0 `local_replaces`, so the
-    /// single-module count returns None rather than `Some(2)`.
+    /// PATTERN-1 (TASK-1212): adversarial replace targets are scrubbed from
+    /// `local_replaces` at the parse level — still pinned here even though
+    /// TASK-2178 removed replaces from `compute_module_count` entirely (a
+    /// `go.mod`-only project now reports `None` whatever its replaces), so
+    /// the count assertion is the constant part of the contract.
     #[test]
     fn compute_module_count_does_not_double_count_scrubbed_replace() {
         let dir = tempfile::tempdir().unwrap();
@@ -532,9 +534,7 @@ mod tests {
         let m = parse(dir.path()).unwrap();
         // Single bare go.mod with no surviving local replaces ⇒ count is None.
         assert!(m.local_replaces.is_empty());
-        // DUP-1 (TASK-1731): `lib.rs` consumes `go_mod::GoMod` directly, so
-        // the test no longer hand-constructs a second identical struct.
-        assert_eq!(crate::compute_module_count(None, Some(&m)), None);
+        assert_eq!(crate::compute_module_count(None), None);
     }
 
     /// PATTERN-1 (TASK-1727): modfile lexes Go string literals, and quoting is
