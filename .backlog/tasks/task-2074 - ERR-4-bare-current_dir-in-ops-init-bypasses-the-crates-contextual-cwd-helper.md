@@ -3,11 +3,11 @@ id: TASK-2074
 title: >-
   ERR-4: bare current_dir() in ops init bypasses the crate's contextual cwd()
   helper
-status: To Do
+status: Done
 assignee:
   - TASK-2249
 created_date: '2026-09-07 22:56'
-updated_date: '2026-09-08 11:02'
+updated_date: '2026-09-08 15:42'
 labels:
   - code-review-rust
   - error-handling
@@ -30,6 +30,6 @@ ordinal: 5000
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 init_cmd resolves cwd via crate::cwd() (or an equivalent .context naming the operation), so a failure names the operation
-- [ ] #2 no other bare std::env::current_dir() call sites remain in crates/cli production code
+- [x] #1 init_cmd resolves cwd via crate::cwd() (or an equivalent .context naming the operation), so a failure names the operation
+- [x] #2 no other bare std::env::current_dir() call sites remain in crates/cli production code
 <!-- AC:END -->

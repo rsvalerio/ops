@@ -3,11 +3,11 @@ id: TASK-2127
 title: >-
   ERR-3: a report write failure fails the whole run after the task set is
   already durably committed
-status: To Do
+status: Done
 assignee:
   - TASK-2249
 created_date: '2026-09-08 06:55'
-updated_date: '2026-09-08 11:02'
+updated_date: '2026-09-08 15:45'
 labels:
   - code-review-rust
   - error-handling
@@ -30,7 +30,7 @@ ordinal: 43000
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 A stdout write failure after a successful commit no longer presents as an unqualified run failure: either the run succeeds with the write failure surfaced separately, or the error explicitly states the task set was created and names the main task id
-- [ ] #2 The run_create_review_tasks # Errors documentation covers the report-write case and says what state the backlog is left in
-- [ ] #3 A test drives a failing writer after a committed set and pins the resulting behaviour
+- [x] #1 A stdout write failure after a successful commit no longer presents as an unqualified run failure: either the run succeeds with the write failure surfaced separately, or the error explicitly states the task set was created and names the main task id
+- [x] #2 The run_create_review_tasks # Errors documentation covers the report-write case and says what state the backlog is left in
+- [x] #3 A test drives a failing writer after a committed set and pins the resulting behaviour
 <!-- AC:END -->

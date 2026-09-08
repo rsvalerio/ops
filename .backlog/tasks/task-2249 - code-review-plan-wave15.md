@@ -1,11 +1,11 @@
 ---
 id: TASK-2249
 title: code-review-plan-wave15
-status: To Do
+status: Done
 assignee:
   - code-review-wave
 created_date: '2026-09-08 10:52'
-updated_date: '2026-09-08 11:02'
+updated_date: '2026-09-08 16:08'
 labels:
   - code-review-wave
 dependencies:
@@ -30,4 +30,6 @@ code-review-plan-wave15: Error paths that drop context or report success-shaped 
 
 <!-- SECTION:NOTES:BEGIN -->
 Overlaps: TASK-2234 wave0 (1 file: extensions/hook-common/src/install.rs); TASK-2244 wave10 (1 file: extensions/create-review-tasks/src/lib.rs); TASK-2247 wave13 (1 file: extensions/create-review-tasks/src/lib.rs)
+
+Branch: code-review/TASK-2249
 <!-- SECTION:NOTES:END -->

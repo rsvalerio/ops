@@ -3,11 +3,11 @@ id: TASK-2123
 title: >-
   ERR-3: StagedTasks rollback discards every remove_file error, so a failed
   rollback leaves a partial task set with no trace
-status: To Do
+status: Done
 assignee:
   - TASK-2249
 created_date: '2026-09-08 06:54'
-updated_date: '2026-09-08 11:02'
+updated_date: '2026-09-08 15:42'
 labels:
   - code-review-rust
   - error-handling
@@ -30,6 +30,6 @@ ordinal: 39000
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 A failed rollback delete emits a tracing warning naming the path that could not be removed and the underlying io error
-- [ ] #2 The rollback still continues past a failure and still never panics or masks the caller's error
+- [x] #1 A failed rollback delete emits a tracing warning naming the path that could not be removed and the underlying io error
+- [x] #2 The rollback still continues past a failure and still never panics or masks the caller's error
 <!-- AC:END -->

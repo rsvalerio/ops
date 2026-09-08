@@ -3,11 +3,11 @@ id: TASK-2137
 title: >-
   ERR-13: install.rs filesystem errors use static context strings that name no
   path, unlike every other error site in the crate
-status: To Do
+status: Done
 assignee:
   - TASK-2249
 created_date: '2026-09-08 06:56'
-updated_date: '2026-09-08 11:02'
+updated_date: '2026-09-08 15:47'
 labels:
   - code-review-rust
   - error-handling
@@ -54,7 +54,7 @@ Low severity: diagnostics only, no behaviour change.
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 Every std::fs error site in install.rs names the path it operated on, using with_context(|| format!(...display())) as the rest of the crate does
-- [ ] #2 The rename context names both the staged path and the destination hook path
-- [ ] #3 A test asserts that at least one install failure message contains the offending path
+- [x] #1 Every std::fs error site in install.rs names the path it operated on, using with_context(|| format!(...display())) as the rest of the crate does
+- [x] #2 The rename context names both the staged path and the destination hook path
+- [x] #3 A test asserts that at least one install failure message contains the offending path
 <!-- AC:END -->
