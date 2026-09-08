@@ -176,7 +176,7 @@ ops_extension::impl_extension! {
 /// Data provider that parses Cargo.toml and returns structured JSON.
 ///
 /// This provider:
-/// - Discovers workspace root by walking up from the working directory
+/// - Discovers workspace root with the strict ancestor walk ([`find_workspace_root_strict`])
 /// - Parses Cargo.toml into [`CargoToml`] types
 /// - Resolves workspace inheritance (`workspace = true`)
 /// - Returns fresh data on each call (no internal caching)
@@ -200,11 +200,22 @@ impl CargoTomlProvider {
         Self { root: Some(root) }
     }
 
+    /// SEC-25 / TASK-2143: the data-provider path resolves its root with the
+    /// **strict** ancestor walk — the same [`find_workspace_root_strict`]
+    /// every in-repo consumer that resolves a root itself calls
+    /// (`about`'s manifest loading and `create-review-tasks`' provider) — so
+    /// a `cargo_toml` query and those consumers target the same workspace
+    /// root for the identical working directory. The lenient
+    /// [`find_workspace_root`] differs exactly on attacker-plantable
+    /// candidates: a `Cargo.toml` that resolves outside its own directory is
+    /// recorded as the lenient walk's first-seen fallback instead of being
+    /// skipped, and a chain with no other manifest returns that fallback as
+    /// the root.
     fn resolve_root(&self, working_dir: &Path) -> Result<PathBuf, anyhow::Error> {
         if let Some(root) = &self.root {
             return Ok(root.clone());
         }
-        find_workspace_root(working_dir).with_context(|| {
+        find_workspace_root_strict(working_dir).with_context(|| {
             format!(
                 "resolving cargo_toml workspace root from {}",
                 working_dir.display()
