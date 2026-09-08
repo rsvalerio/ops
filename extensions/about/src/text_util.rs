@@ -45,18 +45,24 @@ pub fn trim_nonempty(value: Option<String>) -> Option<String> {
         .filter(|s| !s.is_empty())
 }
 
-/// Detect ASCII / Unicode control characters in an attacker-controllable text
-/// value (manifest URLs, repository fields, package metadata).
+/// Detect codepoints the display-safety policy rejects in an
+/// attacker-controllable text value (manifest URLs, repository fields,
+/// package metadata).
 ///
-/// `char::is_control` matches the whole Unicode `Cc` category — C0
-/// (`U+0000..=U+001F`), DEL (`U+007F`) **and** C1 (`U+0080..=U+009F`) — so it
-/// is the complete test on its own; no separate DEL clause is required.
+/// DUP-2 / TASK-2116: delegates to the shared
+/// [`ops_core::text::is_unsafe_display_char`] predicate — the same one the
+/// git remote path uses — so an About-card manifest field rejects exactly
+/// what a git remote rejects: the whole `Cc` control category (C0, DEL, C1)
+/// plus the bidi / zero-width / BOM / separator codepoints (U+202E, U+200B,
+/// U+FEFF, U+2066..U+2069, U+2028 / U+2029, …). The name is kept for the
+/// node / python / terraform callers; the set is the shared one.
 ///
-/// SEC-2 / TASK-1165 / TASK-1207: any control byte in such a value is treated
-/// as evidence of tampering and the caller drops the field entirely rather
-/// than stripping it. Stripping silently concatenates the attacker-controlled
-/// tail (`https://demo.dev\nINJECT` → `https://demo.devINJECT`) into a
-/// clickable URL; dropping surfaces the field as missing.
+/// SEC-2 / TASK-1165 / TASK-1207: any rejected codepoint in such a value is
+/// treated as evidence of tampering and the caller drops the field entirely
+/// rather than stripping it. Stripping silently concatenates the
+/// attacker-controlled tail (`https://demo.dev\nINJECT` →
+/// `https://demo.devINJECT`) into a clickable URL; dropping surfaces the
+/// field as missing.
 ///
 /// DUP-3 / TASK-1758: about-node and about-python each carried a verbatim copy
 /// of this predicate for the same policy. Lifting it here keeps the
@@ -64,7 +70,7 @@ pub fn trim_nonempty(value: Option<String>) -> Option<String> {
 /// for every stack at once.
 #[must_use]
 pub fn contains_control_chars(raw: &str) -> bool {
-    raw.chars().any(char::is_control)
+    ops_core::text::contains_unsafe_display_chars(raw)
 }
 
 /// URL schemes an About-card link may carry.
@@ -371,6 +377,24 @@ mod tests {
             "C1 (NEL) must be rejected"
         );
         assert!(!contains_control_chars("https://demo.dev/owner/repo"));
+    }
+
+    /// DUP-2 / TASK-2116 AC #3: About-card manifest fields must reject the
+    /// same bidi / zero-width codepoints the git remote path rejects. The
+    /// predicate is shared with `ops_core::text::is_unsafe_display_char`
+    /// (consumed by `ops_git`), so pin both motivating codepoints here —
+    /// a U+202E that only the git copy rejected would be exactly the drift
+    /// the shared predicate exists to prevent.
+    #[test]
+    fn contains_control_chars_rejects_bidi_and_zero_width() {
+        assert!(
+            contains_control_chars("https://host/\u{202e}fake/repo"),
+            "U+202E RIGHT-TO-LEFT OVERRIDE must be rejected"
+        );
+        assert!(
+            contains_control_chars("https://host/\u{200b}repo"),
+            "U+200B ZERO WIDTH SPACE must be rejected"
+        );
     }
 
     /// SEC-11 / TASK-1755: only `http(s)` reach a rendered About link.
