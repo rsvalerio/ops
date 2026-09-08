@@ -3,11 +3,11 @@ id: TASK-2160
 title: >-
   DUP-1: the SEC-14 member-safety reject-and-warn is written three times with
   three different messages
-status: To Do
+status: Done
 assignee:
   - TASK-2236
 created_date: '2026-09-08 07:05'
-updated_date: '2026-09-08 10:54'
+updated_date: '2026-09-08 15:53'
 labels:
   - code-review-rust
   - duplication

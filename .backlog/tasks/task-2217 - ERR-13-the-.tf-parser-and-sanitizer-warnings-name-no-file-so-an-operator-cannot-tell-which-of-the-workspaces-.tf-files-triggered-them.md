@@ -3,11 +3,11 @@ id: TASK-2217
 title: >-
   ERR-13: the .tf parser and sanitizer warnings name no file, so an operator
   cannot tell which of the workspace's .tf files triggered them
-status: To Do
+status: Done
 assignee:
   - TASK-2236
 created_date: '2026-09-08 07:21'
-updated_date: '2026-09-08 10:54'
+updated_date: '2026-09-08 15:56'
 labels:
   - code-review-rust
   - error-handling

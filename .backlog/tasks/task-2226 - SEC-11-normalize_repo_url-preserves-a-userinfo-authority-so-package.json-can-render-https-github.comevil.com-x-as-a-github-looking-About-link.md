@@ -3,11 +3,11 @@ id: TASK-2226
 title: >-
   SEC-11: normalize_repo_url preserves a userinfo authority, so package.json can
   render https://github.com@evil.com/x as a github-looking About link
-status: To Do
+status: Done
 assignee:
   - TASK-2236
 created_date: '2026-09-08 07:22'
-updated_date: '2026-09-08 10:54'
+updated_date: '2026-09-08 15:59'
 labels:
   - code-review-rust
   - security

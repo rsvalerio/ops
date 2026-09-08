@@ -1,11 +1,11 @@
 ---
 id: TASK-2236
 title: code-review-plan-wave2
-status: To Do
+status: Done
 assignee:
   - code-review-wave
 created_date: '2026-09-08 10:50'
-updated_date: '2026-09-08 10:54'
+updated_date: '2026-09-08 16:26'
 labels:
   - code-review-wave
 dependencies:
@@ -36,4 +36,6 @@ code-review-plan-wave2: Untrusted manifest/remote values reaching output, and di
 
 <!-- SECTION:NOTES:BEGIN -->
 Overlaps: TASK-2247 wave13 (7 files: extensions-node/about/src/package_json.rs ...); TASK-2248 wave14 (3 files: extensions-node/about/src/package_json.rs ...); TASK-2238 wave4 (1 file: extensions-terraform/about/src/lib.rs); TASK-2242 wave8 (1 file: extensions-terraform/about/src/lib.rs)
+
+Branch: code-review/TASK-2236
 <!-- SECTION:NOTES:END -->

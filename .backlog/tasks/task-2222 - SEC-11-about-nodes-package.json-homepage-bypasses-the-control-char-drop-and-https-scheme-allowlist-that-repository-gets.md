@@ -3,11 +3,11 @@ id: TASK-2222
 title: >-
   SEC-11: about-node's package.json homepage bypasses the control-char drop and
   http(s) scheme allowlist that repository gets
-status: To Do
+status: Done
 assignee:
   - TASK-2236
 created_date: '2026-09-08 07:21'
-updated_date: '2026-09-08 10:54'
+updated_date: '2026-09-08 15:58'
 labels:
   - code-review-rust
   - security

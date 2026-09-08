@@ -3,11 +3,11 @@ id: TASK-2116
 title: >-
   DUP-2: control / bidi codepoint rejection policy is reimplemented in ops-git
   and diverges from the shared About helper
-status: To Do
+status: Done
 assignee:
   - TASK-2236
 created_date: '2026-09-08 06:54'
-updated_date: '2026-09-08 10:54'
+updated_date: '2026-09-08 15:46'
 labels:
   - code-review-rust
   - duplication
