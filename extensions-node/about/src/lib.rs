@@ -85,6 +85,14 @@ impl DataProvider for NodeIdentityProvider {
             let pkg_manager = detect_package_manager(root, has_packagemanager.as_deref());
             let stack_detail = build_stack_detail(engines_node.as_deref(), pkg_manager);
 
+            // TASK-2227: the packages row must carry the count of the same
+            // resolved workspace members the units provider lists (npm/yarn
+            // `workspaces` or `pnpm-workspace.yaml`), read through the shared
+            // manifest cache. A single-package project — no workspaces
+            // declaration — keeps `None`, so the row stays hidden.
+            let members = units::resolved_members(root);
+            let module_count = (!members.is_empty()).then_some(members.len());
+
             ParsedManifest::build(|m| {
                 m.name = name;
                 m.version = version;
@@ -96,7 +104,7 @@ impl DataProvider for NodeIdentityProvider {
                 m.stack_label = "Node";
                 m.stack_detail = stack_detail;
                 m.module_label = "packages";
-                m.module_count = None;
+                m.module_count = module_count;
             })
         })
     }
@@ -225,12 +233,65 @@ mod tests {
         assert_eq!(id.license.as_deref(), Some("MIT"));
         assert_eq!(id.stack_label, "Node");
         assert_eq!(id.module_label, "packages");
+        // TASK-2227 AC #2: a single-package project (no workspaces
+        // declaration) keeps `module_count = None` — the row stays hidden.
+        assert_eq!(id.module_count, None);
         assert_eq!(id.homepage.as_deref(), Some("https://demo.dev"));
         assert_eq!(
             id.repository.as_deref(),
             Some("https://github.com/user/repo")
         );
         assert_eq!(id.authors, vec!["Alice <a@example.com>"]);
+    }
+
+    /// TASK-2227 AC #1 / AC #4: the identity card's `module_count` must equal
+    /// the units provider's list length on the same fixture, for both
+    /// workspace sources — npm/yarn `workspaces` and `pnpm-workspace.yaml`.
+    #[test]
+    fn workspace_module_count_equals_the_units_provider_length() {
+        for (label, root_pkg, pnpm_yaml) in [
+            (
+                "npm workspaces",
+                r#"{ "name": "root", "workspaces": ["packages/*"] }"#,
+                None,
+            ),
+            (
+                "pnpm-workspace.yaml",
+                r#"{ "name": "root" }"#,
+                Some("packages:\n  - 'packages/*'\n"),
+            ),
+        ] {
+            let dir = tempfile::tempdir().unwrap();
+            write(&dir.path().join("package.json"), root_pkg);
+            if let Some(yaml) = pnpm_yaml {
+                write(&dir.path().join("pnpm-workspace.yaml"), yaml);
+            }
+            write(
+                &dir.path().join("packages/alpha/package.json"),
+                r#"{ "name": "alpha", "version": "1.0.0" }"#,
+            );
+            write(
+                &dir.path().join("packages/beta/package.json"),
+                r#"{ "name": "beta", "version": "2.0.0" }"#,
+            );
+            // A directory under the glob with no package.json resolves to no
+            // unit — and must not be counted.
+            std::fs::create_dir_all(dir.path().join("packages/not-a-pkg")).unwrap();
+
+            let mut ctx = ops_extension::Context::test_context(dir.path().to_path_buf());
+            let identity: ProjectIdentity =
+                serde_json::from_value(NodeIdentityProvider.provide(&mut ctx).unwrap()).unwrap();
+            let units: Vec<ops_core::project_identity::ProjectUnit> =
+                serde_json::from_value(units::NodeUnitsProvider.provide(&mut ctx).unwrap())
+                    .unwrap();
+
+            assert_eq!(units.len(), 2, "{label}: two members resolve, one does not");
+            assert_eq!(
+                identity.module_count,
+                Some(units.len()),
+                "{label}: the packages row must equal the units list length"
+            );
+        }
     }
 
     #[test]

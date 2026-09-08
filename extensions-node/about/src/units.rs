@@ -35,11 +35,22 @@ impl DataProvider for NodeUnitsProvider {
     }
 }
 
-fn collect_units(cwd: &Path) -> Vec<ProjectUnit> {
+/// The resolved workspace member set — npm/yarn `workspaces` and
+/// `pnpm-workspace.yaml` globs expanded to member directories.
+///
+/// TASK-2227: shared with the identity provider so the card's
+/// `module_count` and this provider's unit list count the same members —
+/// the convention TASK-2203 gave the Python stack and TASK-2178 the Go
+/// stack. The root `package.json` read goes through the shared
+/// `manifest_cache` entry the identity provider's own parse uses, so
+/// resolving the count adds no second manifest IO.
+pub fn resolved_members(cwd: &Path) -> Vec<(String, String)> {
     let (includes, excludes) = workspace_member_globs(cwd);
-    let resolved =
-        ops_about::workspace::resolve_member_globs(&includes, &excludes, cwd, "package.json");
-    resolved
+    ops_about::workspace::resolve_member_globs(&includes, &excludes, cwd, "package.json")
+}
+
+fn collect_units(cwd: &Path) -> Vec<ProjectUnit> {
+    resolved_members(cwd)
         .into_iter()
         .map(|(member, manifest)| {
             let manifest_path = cwd.join(&member).join("package.json");
