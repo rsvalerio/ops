@@ -69,6 +69,23 @@ enum PomSection {
     },
 }
 
+impl PomSection {
+    /// PATTERN-1 / TASK-2210: the construct name for the end-of-input
+    /// diagnostic, or `None` at top level (nothing unterminated).
+    fn unterminated_name(&self) -> Option<&'static str> {
+        match self {
+            Self::TopLevel => None,
+            Self::Modules => Some("modules"),
+            Self::Developers { .. } => Some("developers"),
+            Self::Scm => Some("scm"),
+            Self::Licenses { .. } => Some("licenses"),
+            // `close` is `"</parent>"`-shaped; the construct name is the
+            // bare tag between the angle brackets.
+            Self::Skip { close } => Some(close.trim_matches(['<', '>', '/'])),
+        }
+    }
+}
+
 /// Outcome of matching a top-level line against the section openers.
 ///
 /// PATTERN-1 / TASK-1728: `match_section_open` used to return
@@ -157,6 +174,34 @@ pub(super) fn parse_pom_xml(project_root: &Path) -> Option<PomData> {
         if dispatch_started_line(line, &mut section, &mut data) {
             break;
         }
+    }
+
+    // PATTERN-1 / TASK-2210: a truncated or hand-mangled pom.xml must not
+    // degrade to "empty POM" with no diagnostic — the same failure mode
+    // lib.rs's TASK-0394 note claims to have fixed. Every construct still
+    // open at end of input is reported; the fields parsed before it remain
+    // (recovery: keep-parsed), and everything after it is explicitly dropped
+    // rather than silently swallowed.
+    if in_comment {
+        tracing::warn!(
+            manifest = "pom.xml",
+            construct = "comment",
+            "pom.xml: unterminated XML comment at end of file; every line after the `<!--` was dropped"
+        );
+    }
+    if opener_pending {
+        tracing::warn!(
+            manifest = "pom.xml",
+            construct = "project",
+            "pom.xml: unterminated <project ...> opener at end of file; no fields were parsed"
+        );
+    }
+    if let Some(section_name) = section.unterminated_name() {
+        tracing::warn!(
+            manifest = "pom.xml",
+            construct = section_name,
+            "pom.xml: unterminated section at end of file; top-level fields after it were dropped"
+        );
     }
 
     Some(data)
@@ -1069,5 +1114,103 @@ mod tests {
         assert!(matches!(outcome, SectionOutcome::Consumed));
         assert_eq!(data.name, None);
         assert_eq!(data.developers, vec!["Jane".to_string(), "Ada".to_string()]);
+    }
+
+    /// PATTERN-1 / TASK-2210 AC #2: an unterminated `<!--` comment must be
+    /// reported, not silently absorbed as "empty POM". Fields parsed before
+    /// the comment survive; the swallowed remainder is explicitly dropped.
+    #[test]
+    fn pom_with_unterminated_comment_warns_and_keeps_prefix_fields() {
+        let dir = tempfile::tempdir().unwrap();
+        std::fs::write(
+            dir.path().join("pom.xml"),
+            "<project>\n<artifactId>kept</artifactId>\n<!-- swallowed\n<version>1.0</version>\n</project>\n</project>",
+        )
+        .unwrap();
+
+        let (pom, warn_count) =
+            ops_about::test_support::count_warnings(|| parse_pom_xml(dir.path()));
+
+        let pom = pom.unwrap();
+        assert_eq!(pom.artifact_id, Some("kept".to_string()));
+        // The `<version>` after the unterminated `<!--` was dropped, with a
+        // diagnostic — not silently parsed and not silently ignored.
+        assert_eq!(pom.version, None);
+        assert_eq!(warn_count, 1);
+    }
+
+    /// PATTERN-1 / TASK-2210 AC #3: a pom.xml that ends inside a multi-line
+    /// `<project ...` opener must be reported rather than returning a
+    /// silently empty `PomData`.
+    #[test]
+    fn pom_ending_inside_multiline_project_opener_warns() {
+        let dir = tempfile::tempdir().unwrap();
+        std::fs::write(
+            dir.path().join("pom.xml"),
+            "<project xmlns=\"http://maven.apache.org/POM/4.0.0\"\n         xmlns:xsi=\"http://www.w3.org/2001/XMLSchema-instance\"\n",
+        )
+        .unwrap();
+
+        let (pom, warn_count) =
+            ops_about::test_support::count_warnings(|| parse_pom_xml(dir.path()));
+
+        let pom = pom.unwrap();
+        assert!(pom.artifact_id.is_none());
+        assert_eq!(warn_count, 1);
+    }
+
+    /// PATTERN-1 / TASK-2210 AC #4: a `<parent>` section that never closes
+    /// parks the parser in `Skip` for the rest of the file, so a following
+    /// top-level `<artifactId>` is absorbed. The diagnostic reports the
+    /// unterminated construct, and the fields after it are explicitly
+    /// dropped rather than silently swallowed.
+    #[test]
+    fn pom_with_unclosed_parent_section_warns_and_reports_dropped_fields() {
+        let dir = tempfile::tempdir().unwrap();
+        std::fs::write(
+            dir.path().join("pom.xml"),
+            "<project>\n<artifactId>before</artifactId>\n<parent>\n<groupId>com.example</groupId>\n<artifactId>child</artifactId>\n<version>1.0</version>\n",
+        )
+        .unwrap();
+
+        let (pom, warn_count) =
+            ops_about::test_support::count_warnings(|| parse_pom_xml(dir.path()));
+
+        let pom = pom.unwrap();
+        // Parsed before the section opened: kept.
+        assert_eq!(pom.artifact_id, Some("before".to_string()));
+        // Parked inside `<parent>` at EOF: dropped, with exactly one warn.
+        assert_eq!(pom.version, None);
+        assert_eq!(warn_count, 1);
+    }
+
+    /// PATTERN-1 / TASK-2210 AC #4: the same holds for a tracked section
+    /// (`<scm>`), and AC #1: the rendered diagnostic names `pom.xml` and the
+    /// unterminated construct.
+    #[test]
+    fn pom_with_unclosed_scm_section_warns_naming_manifest_and_construct() {
+        let dir = tempfile::tempdir().unwrap();
+        std::fs::write(
+            dir.path().join("pom.xml"),
+            "<project>\n<artifactId>x</artifactId>\n<scm>\n<url>https://example.com/scm</url>\n<name>swallowed</name>\n",
+        )
+        .unwrap();
+
+        let rendered = ops_about::test_support::capture_warn(|| {
+            parse_pom_xml(dir.path());
+        });
+
+        assert!(
+            rendered.contains("pom.xml"),
+            "warn should name the manifest: {rendered}"
+        );
+        assert!(
+            rendered.contains("scm"),
+            "warn should name the unterminated construct: {rendered}"
+        );
+        assert!(
+            rendered.contains("unterminated"),
+            "warn should say what is wrong: {rendered}"
+        );
     }
 }
