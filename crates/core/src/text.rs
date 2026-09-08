@@ -243,6 +243,18 @@ fn refused_non_regular(path: &Path) -> std::io::Error {
 
 /// SEC-14 / TASK-1810 + SEC-33 / TASK-1853: component-by-component `openat`
 /// walk backing [`open_refusing_symlinks`] on Unix.
+///
+/// # Miri (UNSAFE-10 / TASK-2087)
+///
+/// This walk cannot run under Miri: every descriptor operation here is a
+/// direct foreign call into libc (`openat`, `fstat`, `fcntl`) for which
+/// Miri provides no shims. The substitute evidence required by UNSAFE-10
+/// is (1) the per-block `// SAFETY:` prose on each call below and (2) the
+/// symlink / FIFO / non-regular refusal tests in this file's test module,
+/// which exercise every refusal branch of the walk under the ordinary Test
+/// job. The pure-memory unsafe of this crate's atomic-write path
+/// (`config::edit::build_tmp_basename`) *is* run under Miri — see the
+/// `miri` job in `.github/workflows/ci.yml`.
 #[cfg(unix)]
 mod unix_open {
     use std::ffi::{CStr, CString};
