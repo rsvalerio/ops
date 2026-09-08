@@ -35,7 +35,12 @@ pub fn install_hook(
 ) -> anyhow::Result<PathBuf> {
     let git_dir = canonical_git_dir(git_dir)?;
     let hooks_dir = git_dir.join("hooks");
-    std::fs::create_dir_all(&hooks_dir).context("failed to create .git/hooks directory")?;
+    std::fs::create_dir_all(&hooks_dir).with_context(|| {
+        format!(
+            "failed to create .git/hooks directory {}",
+            hooks_dir.display()
+        )
+    })?;
     let hooks_dir = canonical_subdir(&git_dir, &hooks_dir)?;
     let hook_path = hooks_dir.join(config.hook_filename);
     reject_symlinked_hook(&hook_path)?;
@@ -157,7 +162,8 @@ fn handle_existing_hook(
     config: &HookConfig,
     w: &mut dyn Write,
 ) -> anyhow::Result<PathBuf> {
-    let existing = std::fs::read_to_string(hook_path).context("failed to read existing hook")?;
+    let existing = std::fs::read_to_string(hook_path)
+        .with_context(|| format!("failed to read existing hook {}", hook_path.display()))?;
     match classify_existing_hook(&existing, config) {
         ExistingHook::Current => {
             writeln!(w, "Hook already installed at {}", hook_path.display())?;
@@ -250,8 +256,12 @@ fn upgrade_legacy_hook(
 ) -> anyhow::Result<PathBuf> {
     let tmp = stage_hook_payload(hook_path, config)?;
 
-    let recheck = std::fs::read_to_string(hook_path)
-        .context("failed to re-read existing hook before upgrade")?;
+    let recheck = std::fs::read_to_string(hook_path).with_context(|| {
+        format!(
+            "failed to re-read existing hook {} before upgrade",
+            hook_path.display()
+        )
+    })?;
     let message = match classify_existing_hook(&recheck, config) {
         ExistingHook::Legacy => "Updating outdated ops hook at",
         // SEC-25 (TASK-1882): a truncated ops artefact is replaced, not
@@ -281,8 +291,15 @@ fn upgrade_legacy_hook(
     // `persist` consumes the NamedTempFile and renames its randomised
     // path over `hook_path`. On error the inner `(io::Error, NamedTempFile)`
     // pair lets the temp file fall back into Drop, unlinking the stage.
+    // Capture the randomised stage path before `persist` consumes `tmp` so
+    // the error can name both ends of the failed rename.
+    let staged_path = tmp.path().to_path_buf();
     tmp.persist(hook_path).map_err(|e| {
-        anyhow::Error::from(e.error).context("failed to rename temp hook into place")
+        anyhow::Error::from(e.error).context(format!(
+            "failed to rename staged hook {} into place at {}",
+            staged_path.display(),
+            hook_path.display()
+        ))
     })?;
     // SEC-25 (TASK-0713): fsync the parent so the rename hits disk; without
     // this a crash can leave the directory entry pointing at the temp
@@ -344,11 +361,11 @@ fn stage_hook_payload(
 ) -> anyhow::Result<tempfile::NamedTempFile> {
     let parent = hook_path
         .parent()
-        .context("hook path has no parent directory")?;
+        .with_context(|| format!("hook path {} has no parent directory", hook_path.display()))?;
     let file_name = hook_path
         .file_name()
         .and_then(|n| n.to_str())
-        .context("hook path has no filename")?;
+        .with_context(|| format!("hook path {} has no filename", hook_path.display()))?;
 
     let tmp = tempfile::Builder::new()
         .prefix(&format!(".{file_name}.ops-tmp."))
@@ -388,7 +405,7 @@ fn set_hook_executable(path: &Path) -> anyhow::Result<()> {
     {
         use std::os::unix::fs::PermissionsExt;
         std::fs::set_permissions(path, std::fs::Permissions::from_mode(0o755))
-            .context("failed to make hook executable")?;
+            .with_context(|| format!("failed to make hook {} executable", path.display()))?;
     }
     Ok(())
 }
@@ -441,6 +458,34 @@ mod tests {
 
         let output = String::from_utf8(buf).unwrap();
         assert!(output.contains("Installed hook"));
+    }
+
+    /// ERR-13 / TASK-2137: an install failure must name the offending path.
+    /// A regular file squatting where `.git/hooks` should be makes
+    /// `create_dir_all` fail deterministically regardless of euid; the
+    /// error must then carry the hooks directory path so an operator with
+    /// several worktrees can tell which install refused. The expected path
+    /// is canonicalized because `install_hook` resolves `.git` through
+    /// `canonical_git_dir` and macOS tempdirs sit behind a `/private`
+    /// symlink.
+    #[test]
+    fn install_failure_names_offending_path() {
+        let cfg = commit_config();
+        let dir = tempfile::tempdir().expect("tempdir");
+        let git_dir = dir.path().join(".git");
+        std::fs::create_dir(&git_dir).unwrap();
+        std::fs::write(git_dir.join("HEAD"), "ref: refs/heads/main\n").unwrap();
+        // A file where the hooks directory should be: create_dir_all fails.
+        std::fs::write(git_dir.join("hooks"), "not a directory").unwrap();
+
+        let mut buf = Vec::new();
+        let err = install_hook(&cfg, &git_dir, &mut buf).expect_err("install must fail");
+        let expected = git_dir.canonicalize().unwrap().join("hooks");
+        assert!(
+            err.to_string().contains(&expected.display().to_string()),
+            "error should name the offending hooks path {}, got: {err}",
+            expected.display()
+        );
     }
 
     /// SEC-25 / TASK-1882: if the create path fails, nothing may be left at
