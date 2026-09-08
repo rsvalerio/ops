@@ -8,6 +8,7 @@
     )
 )]
 
+pub mod bounded_read;
 pub mod config;
 pub mod expand;
 pub mod output;
