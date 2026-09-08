@@ -70,10 +70,73 @@ pub(crate) const CARGO_METADATA_TIMEOUT: Duration = Duration::from_mins(2);
 /// workspace sizes — and fail with a clear error when exceeded so operators
 /// learn before the OS kills the process. Override via
 /// `OPS_METADATA_MAX_BYTES`.
+///
+/// ERR-1 / TASK-2188: this cap governs the **post-ingest read only**. On the
+/// collect side the subprocess capture cap (4 MiB default,
+/// `OPS_OUTPUT_BYTE_CAP`) binds first — see [`metadata_output_cap`] — so a
+/// workspace above that cap never reaches this one until `OPS_OUTPUT_BYTE_CAP`
+/// is raised; the 64 MiB budget here is not a claim about what `cargo
+/// metadata` output can reach the reader.
 pub const METADATA_MAX_BYTES_DEFAULT: u64 = 64 * 1024 * 1024;
 
 /// Environment variable that overrides [`METADATA_MAX_BYTES_DEFAULT`].
 pub const METADATA_MAX_BYTES_ENV: &str = "OPS_METADATA_MAX_BYTES";
+
+/// ERR-1 / TASK-2188: the per-stream capture cap that actually bounds
+/// [`run_cargo_metadata`]'s stdout — resolved exactly the way
+/// `ops_core::subprocess` resolves it (same env var, same default, same
+/// clamping via [`ops_core::text::cached_byte_cap_env`]), so the value the
+/// guard compares against is the value the drain threads enforced.
+///
+/// AC#3 reconciliation: the subprocess cap (4 MiB default,
+/// `OPS_OUTPUT_BYTE_CAP`) binds **before** [`METADATA_MAX_BYTES_DEFAULT`]
+/// ever can — the drain discards bytes past its cap and returns a truncated
+/// buffer that never exceeds 4 MiB, so the 64 MiB reader cap governs only
+/// the post-ingest read. A workspace whose `cargo metadata` output exceeds
+/// the subprocess cap must raise `OPS_OUTPUT_BYTE_CAP`; the guard below
+/// refuses the truncated buffer instead of parsing it.
+fn metadata_output_cap() -> u64 {
+    static CAP: std::sync::OnceLock<u64> = std::sync::OnceLock::new();
+    ops_core::text::cached_byte_cap_env(
+        &CAP,
+        ops_core::subprocess::OUTPUT_CAP_ENV,
+        u64::try_from(ops_core::subprocess::DEFAULT_OUTPUT_BYTE_CAP).unwrap_or(u64::MAX),
+    )
+}
+
+/// ERR-1 / TASK-2188: refuse a `cargo metadata` stdout that hit the
+/// subprocess capture cap, instead of parsing (or staging) a silently
+/// truncated document.
+///
+/// `run_with_timeout`'s drain threads bound each stream at the cap and
+/// treat truncation as a `warn`-level breadcrumb, not an error — so a
+/// caller that goes on to `serde_json::from_slice` the buffer fails with a
+/// misattributed parse error, or worse stages the truncated bytes as
+/// ground truth. A captured length at the cap is the truncation signal
+/// available on `std::process::Output`: the drain never returns more than
+/// the cap, so a document that *genuinely* ends exactly at the cap is
+/// refused too — the conservative direction for a gate that certifies
+/// workspace data.
+pub(crate) fn check_metadata_not_capped(output: &Output) -> Result<(), anyhow::Error> {
+    let cap = metadata_output_cap();
+    let kept = u64::try_from(output.stdout.len()).unwrap_or(u64::MAX);
+    if kept >= cap {
+        tracing::warn!(
+            kept_bytes = kept,
+            cap,
+            env = ops_core::subprocess::OUTPUT_CAP_ENV,
+            "cargo metadata stdout hit the subprocess capture cap; refusing to parse it"
+        );
+        anyhow::bail!(
+            "cargo metadata stdout reached the {cap}-byte subprocess capture cap \
+             ({kept} bytes kept, anything beyond was discarded); refusing to parse a \
+             possibly-truncated document — raise the cap via \
+             {} if the workspace genuinely produces metadata this large",
+            ops_core::subprocess::OUTPUT_CAP_ENV
+        );
+    }
+    Ok(())
+}
 
 /// SEC-11 / TASK-1897: hard ceiling on the resolved cap.
 ///
@@ -430,6 +493,10 @@ fn provide_via_cargo_metadata(ctx: &Context) -> Result<serde_json::Value, anyhow
     use anyhow::Context as _;
     let output = run_cargo_metadata(ctx.working_directory())?;
     check_metadata_output(&output)?;
+    // ERR-1 / TASK-2188: a capped stdout is a truncated document — refuse it
+    // here rather than letting serde fail below with a misattributed parse
+    // error naming neither the cap nor its env var.
+    check_metadata_not_capped(&output)?;
     // ERR-4 (TASK-0938): attribute parse failures to the cargo-metadata
     // pipeline so operators see "parsing cargo metadata stdout" in the
     // chain, not a bare serde_json::Error. Sister pattern to

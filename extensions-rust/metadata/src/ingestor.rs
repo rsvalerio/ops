@@ -1,7 +1,7 @@
 //! `MetadataIngestor`: collect cargo metadata and load into `DuckDB`.
 
 use crate::views;
-use crate::{check_metadata_output, run_cargo_metadata};
+use crate::{check_metadata_not_capped, check_metadata_output, run_cargo_metadata};
 use ops_duckdb::sql::external_err;
 use ops_duckdb::{
     init_schema, upsert_data_source, DataIngestor, DbError, DbResult, DuckDb, IngestDir, LoadResult,
@@ -41,6 +41,11 @@ impl DataIngestor for MetadataIngestor {
             other => external_err(anyhow::Error::new(other).context("cargo metadata")),
         })?;
         check_metadata_output(&output).map_err(external_err)?;
+        // ERR-1 / TASK-2188: a capped stdout is a truncated document. Refuse
+        // it *before* `write_atomic`, so a truncated `metadata.json` is never
+        // staged, never handed to `read_json_auto`, and never checksummed
+        // into `data_sources` as certified ground truth.
+        check_metadata_not_capped(&output).map_err(external_err)?;
         // SEC-25 / TASK-0933: persist `cargo metadata` stdout atomically
         // (sibling temp + fsync + rename), matching the TASK-0911 fix for
         // `SidecarIngestorConfig::collect_sidecar`. A crash mid-write
