@@ -223,14 +223,49 @@ const REQUIRED_VERSION_MAX_LEN: usize = 64;
 fn extract_required_version(content: &str, source: &str) -> Option<String> {
     // PATTERN-1 / TASK-1020 + TASK-1768 + TASK-1771: blank every comment form
     // up front so the structural scan below never has to reason about them.
-    let stripped = strip_comments(content);
+    //
+    // PATTERN-1 / TASK-2214 AC#2: a `/*` or `"` that never closes is
+    // malformed input. Terraform's own lexer rejects the file; the scanner
+    // reports it and refuses, rather than silently blanking the remainder
+    // (`/*`) or silently passing it through while comment stripping stays
+    // disabled for the rest of the file (`"`).
+    let (stripped, strip_eof) = strip_comments(content);
+    match strip_eof {
+        StripEof::Clean => {}
+        StripEof::UnterminatedBlockComment => {
+            tracing::warn!(
+                source = ?source,
+                construct = "block-comment",
+                ".tf content ends inside an unterminated /* ... */ comment; skipping file"
+            );
+            return None;
+        }
+        StripEof::UnterminatedString => {
+            tracing::warn!(
+                source = ?source,
+                construct = "string",
+                ".tf content has a line ending inside an unterminated string; skipping file"
+            );
+            return None;
+        }
+    }
     // ERR-2 / TASK-0919: only accept `required_version = "…"` when it
     // appears at the top level of a `terraform { … }` block.
     let mut state = ScanState::new();
+    // PATTERN-1 / TASK-2214 AC#3: the first found value is *recorded*, not
+    // returned — it is only trustworthy if the rest of the file turns out to
+    // be structurally clean. A constraint read out of a file that never
+    // closes its `terraform {` block is a truncated file accepted as
+    // well-formed, which is what the EOF checks below exist to refuse.
+    let mut found: Option<String> = None;
     for line in stripped.lines() {
         match scan_line(line, &mut state) {
             LineScan::Continue => {}
-            LineScan::Found(value) => return sanitize_required_version(&value, source),
+            LineScan::Found(value) => {
+                if found.is_none() {
+                    found = Some(value);
+                }
+            }
             LineScan::Malformed => {
                 // PATTERN-1 / TASK-1765: a `}` with nothing to close means the
                 // braces do not balance, so every depth judgement after it
@@ -245,9 +280,47 @@ fn extract_required_version(content: &str, source: &str) -> Option<String> {
                 );
                 return None;
             }
+            LineScan::UnterminatedString => {
+                // PATTERN-1 / TASK-2214 AC#2/#4: the line ended inside a `"`
+                // that never closed. On the owned strip path `StripEof`
+                // already reported and refused it above; this arm is the only
+                // reporter for files that took the comment-stripper's
+                // no-comment fast path, where `strip_comments` never inspects
+                // strings.
+                tracing::warn!(
+                    source = ?source,
+                    construct = "string",
+                    ".tf content has a line ending inside an unterminated string; skipping file"
+                );
+                return None;
+            }
         }
     }
-    None
+    // PATTERN-1 / TASK-2214 AC#1: a heredoc still open at EOF means the
+    // terminator never arrived, so every line after the opener was consumed
+    // as body. Report it exactly like the unbalanced closing brace above —
+    // warn and refuse the file — instead of falling off the loop as a
+    // silent `None` indistinguishable from "no constraint declared".
+    if state.heredoc.is_some() {
+        tracing::warn!(
+            source = ?source,
+            construct = "heredoc",
+            ".tf content ends inside an unterminated heredoc; skipping file"
+        );
+        return None;
+    }
+    // PATTERN-1 / TASK-2214 AC#3: a non-empty brace stack at EOF means the
+    // file opened blocks it never closed — truncated or hand-mangled input,
+    // not a well-formed file that happens to declare nothing.
+    if !state.stack.is_empty() {
+        tracing::warn!(
+            source = ?source,
+            construct = "block",
+            ".tf content ends with an unclosed block; skipping file"
+        );
+        return None;
+    }
+    found.as_deref().and_then(|v| sanitize_required_version(v, source))
 }
 
 /// The HCL block nesting the scanner is currently inside.
@@ -322,6 +395,11 @@ enum LineScan {
     Found(String),
     /// A `}` appeared with an empty stack — the input is not balanced HCL.
     Malformed,
+    /// PATTERN-1 / TASK-2214: the line ended inside a `"` that never closed.
+    /// HCL quoted strings are line-local, so this is malformed input —
+    /// reported and the file refused, rather than the string state (and its
+    /// consequences) leaking into the rest of the file.
+    UnterminatedString,
 }
 
 /// Walk one line, updating `stack` for every structural brace and reporting a
@@ -353,6 +431,11 @@ fn scan_line(line: &str, state: &mut ScanState) -> LineScan {
     let mut segment_start = 0usize;
     let mut in_string = false;
     let mut escaped = false;
+    // PATTERN-1 / TASK-2214: a value found at a closing `}` is recorded, not
+    // returned on the spot — the brace still has to pop the stack so the
+    // caller's end-of-file balance check sees a consistent state. Reporting
+    // happens at end of line, after every brace on it has been tracked.
+    let mut found: Option<String> = None;
     for (idx, ch) in line.char_indices() {
         if in_string {
             if escaped {
@@ -392,8 +475,8 @@ fn scan_line(line: &str, state: &mut ScanState) -> LineScan {
                 segment_start = after_brace;
             }
             '}' => {
-                if let Some(found) = required_version_here(line, segment_start, idx, &state.stack) {
-                    return LineScan::Found(found);
+                if found.is_none() {
+                    found = required_version_here(line, segment_start, idx, &state.stack);
                 }
                 if state.stack.pop().is_none() {
                     return LineScan::Malformed;
@@ -403,8 +486,18 @@ fn scan_line(line: &str, state: &mut ScanState) -> LineScan {
             _ => {}
         }
     }
-    required_version_here(line, segment_start, line.len(), &state.stack)
-        .map_or(LineScan::Continue, LineScan::Found)
+    // PATTERN-1 / TASK-2214: `in_string` is line-local by construction, so
+    // it can only be true here if the line's closing `"` never arrived.
+    // Report it here rather than in `strip_comments`: this stage sees every
+    // line, including files that take the comment-stripper's no-comment fast
+    // path.
+    if in_string {
+        return LineScan::UnterminatedString;
+    }
+    if found.is_none() {
+        found = required_version_here(line, segment_start, line.len(), &state.stack);
+    }
+    found.map_or(LineScan::Continue, LineScan::Found)
 }
 
 /// Is `c` valid as the first character of a heredoc terminator?
@@ -597,22 +690,35 @@ fn block_open_ident(prefix: &str) -> Option<&str> {
 /// `/*` for the same reason.
 ///
 /// A `/*`, `#` or `//` inside a quoted HCL string stays literal —
-/// `required_version = "~> 1.5 # marker"` keeps its marker. An unterminated
-/// `/*` runs to EOF, the same behaviour as terraform's own parser.
+/// `required_version = "~> 1.5 # marker"` keeps its marker.
+///
+/// PATTERN-1 / TASK-2214: quoted strings are **line-local** in HCL — an
+/// unescaped newline inside one is malformed, not a string that continues on
+/// the next line. The string state resets at every newline (and the
+/// malformation is reported via [`StripEof::UnterminatedString`]), matching
+/// [`scan_line`], which has always treated strings as line-local. The
+/// previous cross-line state let one unbalanced `"` silently disable comment
+/// stripping for the remainder of the file — the two stages disagreed about
+/// where a string ends. An unterminated `/*` likewise runs to EOF *and* is
+/// reported ([`StripEof::UnterminatedBlockComment`]); terraform's own parser
+/// errors on both shapes rather than accepting them.
 ///
 /// PATTERN-1 / TASK-2031: a heredoc body is passed through **verbatim**. It is
 /// an unquoted string literal, so a `#` line inside it is shell or policy
 /// text, not an HCL comment, and blanking it would corrupt the very content
 /// the scanner is asked to reason about. [`scan_line`] recognises the same
 /// openers and skips the body, so nothing downstream reads it as structure.
+/// A heredoc still open at EOF is deliberately *not* part of [`StripEof`]:
+/// the structural scan owns that construct and reports it, so it has exactly
+/// one reporter.
 ///
 /// PERF-3 / TASK-1782: returns [`Cow::Borrowed`] when the content carries no
 /// comment introducer at all, so the common case allocates nothing. A file
 /// whose only "comments" live inside heredocs still takes the owned path —
 /// the fast check is deliberately syntax-free — and comes back unchanged.
-fn strip_comments(content: &str) -> Cow<'_, str> {
+fn strip_comments(content: &str) -> (Cow<'_, str>, StripEof) {
     if !content.contains("/*") && !content.contains('#') && !content.contains("//") {
-        return Cow::Borrowed(content);
+        return (Cow::Borrowed(content), StripEof::Clean);
     }
     let mut out = String::with_capacity(content.len());
     // DUP-1 / TASK-2057: a plain `Chars` rather than a `Peekable<Chars>`, so
@@ -622,6 +728,7 @@ fn strip_comments(content: &str) -> Cow<'_, str> {
     // covers the one-character lookahead `peek` used to provide.
     let mut chars = content.chars();
     let mut in_string = false;
+    let mut eof = StripEof::Clean;
     // Heredoc state. `pending` holds the terminator of an opener seen on the
     // current line; it becomes `heredoc` once the newline that begins the body
     // has been emitted. `body_line` accumulates the current body line so the
@@ -653,11 +760,25 @@ fn strip_comments(content: &str) -> Cow<'_, str> {
                     // Preserve `\"` and other escapes verbatim — we only
                     // care about not exiting the string on an escaped quote.
                     out.push(next);
+                    // PATTERN-1 / TASK-2214: an escaped newline still ends
+                    // the line, so the (line-local) string state must not
+                    // leak past it either.
+                    if next == '\n' {
+                        in_string = false;
+                        eof = StripEof::UnterminatedString;
+                    }
                 }
                 continue;
             }
             if c == '"' {
                 in_string = false;
+            } else if c == '\n' {
+                // PATTERN-1 / TASK-2214 AC#4: HCL quoted strings are
+                // line-local. An unescaped newline inside one is malformed
+                // input; report it and reset, instead of carrying the string
+                // state into the next line's comment stripping.
+                in_string = false;
+                eof = StripEof::UnterminatedString;
             }
             continue;
         }
@@ -673,7 +794,9 @@ fn strip_comments(content: &str) -> Cow<'_, str> {
             }
             '/' if chars.as_str().starts_with('*') => {
                 chars.next();
-                blank_block_comment(&mut chars, &mut out);
+                if !blank_block_comment(&mut chars, &mut out) {
+                    eof = StripEof::UnterminatedBlockComment;
+                }
             }
             '<' if chars.as_str().starts_with('<') => {
                 out.push('<');
@@ -703,7 +826,32 @@ fn strip_comments(content: &str) -> Cow<'_, str> {
             _ => out.push(c),
         }
     }
-    Cow::Owned(out)
+    // PATTERN-1 / TASK-2214 AC#2: a `"` still open at end of input — the file
+    // stopped mid-string with no final newline to trip the line-local reset
+    // above, or on a trailing backslash — is the same malformation the reset
+    // reports; eof must not stay Clean for it.
+    if in_string {
+        eof = StripEof::UnterminatedString;
+    }
+    (Cow::Owned(out), eof)
+}
+
+/// End-of-input state of [`strip_comments`] for the constructs only the
+/// stripping stage owns.
+///
+/// PATTERN-1 / TASK-2214: both variants describe input terraform's own lexer
+/// would reject. [`extract_required_version`] warns and refuses the file on
+/// either, instead of the silent degradation each used to produce (an
+/// unterminated `/*` blanking the remainder; an unterminated `"` disabling
+/// comment stripping for the rest of the file).
+#[derive(Debug, PartialEq, Eq)]
+enum StripEof {
+    /// No comment or string construct was left open at end of input.
+    Clean,
+    /// A `/* … */` block comment never closed.
+    UnterminatedBlockComment,
+    /// A line ended inside a `"` string that never closed.
+    UnterminatedString,
 }
 
 /// Blank a `#` / `//` comment through to (and excluding) the newline, which is
@@ -726,7 +874,11 @@ fn blank_line_comment(chars: &mut std::str::Chars<'_>, out: &mut String, marker_
 
 /// Blank a `/* … */` span, preserving newlines. The caller has already
 /// consumed the `/*`, whose two bytes are re-emitted as spaces.
-fn blank_block_comment(chars: &mut std::str::Chars<'_>, out: &mut String) {
+///
+/// PATTERN-1 / TASK-2214: returns whether the comment closed before end of
+/// input, so an unterminated `/*` is reported instead of silently blanking
+/// the remainder of the file.
+fn blank_block_comment(chars: &mut std::str::Chars<'_>, out: &mut String) -> bool {
     out.push(' ');
     out.push(' ');
     while let Some(inner) = chars.next() {
@@ -734,7 +886,7 @@ fn blank_block_comment(chars: &mut std::str::Chars<'_>, out: &mut String) {
             chars.next();
             out.push(' ');
             out.push(' ');
-            return;
+            return true;
         }
         if inner == '\n' {
             out.push('\n');
@@ -742,6 +894,7 @@ fn blank_block_comment(chars: &mut std::str::Chars<'_>, out: &mut String) {
             out.push(' ');
         }
     }
+    false
 }
 
 /// Count local modules under `modules/*/`.
@@ -1502,7 +1655,7 @@ terraform {
             // A `#` line is blanked unless it sits inside a heredoc body, so
             // its survival is the observable proof `strip_comments` opened one.
             let content = format!("x = <<{after_marker}\n# body\n");
-            let stripped = strip_comments(&content);
+            let (stripped, _) = strip_comments(&content);
             assert_eq!(
                 stripped.contains("# body"),
                 expected.is_some(),
@@ -1517,7 +1670,7 @@ terraform {
     #[test]
     fn strip_comments_emits_the_heredoc_opener_verbatim() {
         let content = "x = <<-終端\n# body\n終端\n# real\n";
-        let stripped = strip_comments(content);
+        let (stripped, _) = strip_comments(content);
         assert!(
             stripped.starts_with("x = <<-終端\n# body\n終端\n"),
             "opener and body must round-trip unchanged; got: {stripped}"
@@ -1543,7 +1696,7 @@ terraform {
             "}\n",
             "# a real comment\n",
         );
-        let stripped = strip_comments(content);
+        let (stripped, _) = strip_comments(content);
         assert!(
             stripped.contains("    # shell comment\n")
                 && stripped.contains("    glob=/*   // not a comment either\n"),
@@ -1696,7 +1849,7 @@ terraform {
             "# still inside the body\n",
             "EOT\n",
         );
-        let stripped = strip_comments(content);
+        let (stripped, _) = strip_comments(content);
         assert!(
             stripped.contains("# still inside the body"),
             "body must survive intact; got: {stripped}"
@@ -1880,11 +2033,144 @@ terraform {
     #[test]
     fn strip_comments_borrows_when_no_comment_present() {
         let content = "terraform {\n  required_version = \">= 1.5\"\n}\n";
-        assert!(matches!(strip_comments(content), Cow::Borrowed(_)));
+        assert!(matches!(strip_comments(content).0, Cow::Borrowed(_)));
         assert!(matches!(
-            strip_comments("terraform { # note\n}\n"),
+            strip_comments("terraform { # note\n}\n").0,
             Cow::Owned(_)
         ));
+    }
+
+    /// PATTERN-1 / TASK-2214 AC#1/#5: a heredoc whose terminator never
+    /// arrives consumes the rest of the file as body. The scanner must warn
+    /// and refuse the file — the same treatment an unbalanced closing brace
+    /// gets — rather than returning `None` silently, indistinguishable from
+    /// "no constraint declared".
+    #[test]
+    fn extract_required_version_reports_unterminated_heredoc() {
+        let content = concat!(
+            "locals {\n",
+            "  script = <<EOT\n",
+            "body that never sees its terminator\n",
+        );
+        let mut out = None;
+        let logs = capture_warn(|| out = extract_required_version(content, "test.tf"));
+        assert_eq!(out, None);
+        assert!(
+            logs.contains("unterminated heredoc"),
+            "warn should name the unterminated heredoc, got: {logs}"
+        );
+    }
+
+    /// PATTERN-1 / TASK-2214 AC#2/#5: an unterminated `/* … */` must be
+    /// reported and the file refused — terraform's own parser errors on it —
+    /// even when a syntactically valid constraint precedes the comment.
+    #[test]
+    fn extract_required_version_reports_unterminated_block_comment() {
+        let content = "terraform {\n  required_version = \">= 1.5\"\n}\n/* trailing note\n";
+        let mut out = None;
+        let logs = capture_warn(|| out = extract_required_version(content, "test.tf"));
+        assert_eq!(out, None);
+        assert!(
+            logs.contains("unterminated") && logs.contains("comment"),
+            "warn should name the unterminated block comment, got: {logs}"
+        );
+    }
+
+    /// PATTERN-1 / TASK-2214 AC#2/#5: a line ending inside an unterminated
+    /// `"` string must be reported and the file refused, rather than the old
+    /// behaviour of silently disabling comment stripping for the remainder.
+    #[test]
+    fn extract_required_version_reports_unterminated_string() {
+        let content = concat!(
+            "terraform {\n",
+            "  description = \"open\n",
+            "  required_version = \">= 1.5\"\n",
+            "}\n",
+        );
+        let mut out = None;
+        let logs = capture_warn(|| out = extract_required_version(content, "test.tf"));
+        assert_eq!(out, None);
+        assert!(
+            logs.contains("unterminated") && logs.contains("string"),
+            "warn should name the unterminated string, got: {logs}"
+        );
+    }
+
+    /// PATTERN-1 / TASK-2214 AC#3/#5: a non-empty brace stack at EOF means
+    /// the file opened blocks it never closed. Detected and reported rather
+    /// than accepted as a well-formed file that declares nothing.
+    #[test]
+    fn extract_required_version_reports_unclosed_block() {
+        let content = "locals {\n  x = 1\n";
+        let mut out = None;
+        let logs = capture_warn(|| out = extract_required_version(content, "test.tf"));
+        assert_eq!(out, None);
+        assert!(
+            logs.contains("unclosed block"),
+            "warn should name the unclosed block, got: {logs}"
+        );
+    }
+
+    /// PATTERN-1 / TASK-2214 AC#3/#5: the unclosed-block refusal also holds
+    /// when the constraint itself was found — a value read out of a `terraform
+    /// {` block that never closes is a truncated file accepted as
+    /// well-formed, so `Found` is only returned after the EOF checks pass.
+    #[test]
+    fn extract_required_version_refuses_constraint_from_unclosed_block() {
+        let content = "terraform {\n  required_version = \">= 1.5\"\n";
+        let mut out = None;
+        let logs = capture_warn(|| out = extract_required_version(content, "test.tf"));
+        assert_eq!(out, None);
+        assert!(
+            logs.contains("unclosed block"),
+            "warn should name the unclosed block, got: {logs}"
+        );
+    }
+
+    /// PATTERN-1 / TASK-2214 AC#2/#5: input that stops mid-string with no
+    /// final newline never trips the line-local reset, so the end-of-loop
+    /// `in_string` check must report it. The `#` line forces the owned strip
+    /// path — the no-comment fast path never inspects strings.
+    #[test]
+    fn extract_required_version_reports_string_open_at_eof_without_newline() {
+        let content = "# note\nterraform {\n  description = \"open";
+        let mut out = None;
+        let logs = capture_warn(|| out = extract_required_version(content, "test.tf"));
+        assert_eq!(out, None);
+        assert!(
+            logs.contains("unterminated") && logs.contains("string"),
+            "warn should name the unterminated string, got: {logs}"
+        );
+    }
+
+    /// PATTERN-1 / TASK-2214 AC#4: both stages treat a quoted string as
+    /// ending at its line's newline. `scan_line`'s string state is line-local
+    /// by construction; `strip_comments` now matches it, so one unbalanced
+    /// `"` no longer puts the two stages in disagreement about the rest of
+    /// the file.
+    #[test]
+    fn string_state_is_line_local_in_both_stages() {
+        // scan_line: an unterminated `"` on one line must not swallow the
+        // next line's structure.
+        let mut state = ScanState::new();
+        let _ = scan_line("desc = \"open", &mut state);
+        let _ = scan_line("terraform {", &mut state);
+        assert!(
+            matches!(state.stack.as_slice(), [Some(name)] if name == "terraform"),
+            "scan_line string state must not cross lines: {:?}",
+            state.stack
+        );
+
+        // strip_comments: the same line's string ends at the newline, so a
+        // comment on the next line is still blanked (previously the
+        // cross-line string state kept it verbatim for the rest of the
+        // file), and the malformation is reported.
+        let (stripped, eof) = strip_comments("desc = \"open\n# gone\n");
+        assert!(
+            !stripped.contains("# gone"),
+            "comment after an unterminated string line must still be blanked; got: {stripped}"
+        );
+        assert_eq!(eof, StripEof::UnterminatedString);
     }
 
     /// PERF-3 / TASK-1782: the fallback walk must not re-read a file the
