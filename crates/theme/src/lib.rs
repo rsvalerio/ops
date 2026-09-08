@@ -5,6 +5,12 @@
 //! [`ConfigurableTheme`] wraps a `ThemeConfig` and renders step lines and
 //! error details.
 
+// UNSAFE-12 / TASK-2085: this crate holds no `unsafe` and must stay that way.
+// `forbid` (not `deny`) so a later scoped `#[allow(unsafe_code)]` cannot lift
+// it. Crate-root attribute rather than a `[lints.rust]` table because ARCH-11
+// centralizes lint levels in `[workspace.lints]` and Cargo cannot merge a
+// per-crate lints table with `workspace = true` inheritance.
+#![forbid(unsafe_code)]
 #![cfg_attr(
     test,
     allow(

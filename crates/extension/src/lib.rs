@@ -1,5 +1,24 @@
 //! Extension trait and registries: `CommandRegistry`, `DataRegistry`, Context.
 
+// UNSAFE-12 / TASK-2104: this crate holds no hand-written `unsafe` and must
+// stay that way. Production builds carry the full `forbid` (unliftable, so a
+// well-meaning scoped `#[allow(unsafe_code)]` cannot reintroduce unsafe).
+// Test builds downgrade to `deny` because the `factory:` arms of
+// `impl_extension!` (used only by this crate's own test suite) expand, via
+// `linkme::distributed_slice`, to `#[link_section]` registry statics —
+// unsafe tokens the compiler counts into this crate, which `forbid` cannot
+// excuse at all. The `#[allow(unsafe_code)]` covering exactly that
+// expansion is emitted by the macro itself onto the generated static (see
+// `macros.rs`; rustc ignores `allow` applied to a macro invocation).
+// Crate-root attribute rather than a `[lints.rust]` table because ARCH-11
+// centralizes lint levels in `[workspace.lints]` and Cargo cannot merge a
+// per-crate lints table with `workspace = true` inheritance. Verified:
+// `cargo check -p ops-extension [--features duckdb]` clean under the
+// forbid, `cargo clippy -p ops-extension --all-targets` clean, and any
+// hand-written unsafe block fails the build.
+#![cfg_attr(not(test), forbid(unsafe_code))]
+#![cfg_attr(test, deny(unsafe_code))]
+
 mod data;
 mod error;
 mod extension;
