@@ -13,6 +13,29 @@
 //! even without a `.git` directory (`require_git(false)`), so a checked-out
 //! worktree without git installed behaves the same.
 //!
+//! # The two modes disagree about exclusions — deliberately (TASK-2165)
+//!
+//! Walk mode removes deny-listed directories and gitignored paths; tracked
+//! mode does **not** filter `git ls-files` output by either rule. That is a
+//! decision, not an oversight. `--tracked` means "what git knows", and the
+//! index is the user's reviewed choice of what belongs to the repository: a
+//! file inside a vendored `dist/` or `build/` is there on purpose (git
+//! requires `add -f` to start tracking an ignored path), and one still
+//! tracked under a gitignore rule added after it was committed is on its way
+//! out of the index by definition. In both cases the pre-commit hook
+//! flagging the file as dirty is information about a tracked set that
+//! disagrees with the repository's own rules, not overreach.
+//!
+//! The verify-idempotency rationale above does not carry over either: it
+//! exists for regenerated build artifacts, which are untracked *and*
+//! ignored, and therefore never appear in `git ls-files` output at all.
+//!
+//! What the modes do share is the candidate policy once a path is listed:
+//! the symlink/type rule in `is_candidate` applies identically to both. The
+//! exclusion disagreement is pinned by
+//! `tracked_mode_keeps_a_tracked_file_inside_a_skip_dirs_directory` and
+//! `tracked_mode_keeps_a_tracked_but_gitignored_file` in the tests below.
+//!
 //! # Symlink policy
 //!
 //! **Symlinks are out of scope for both modes.** Every candidate is filtered
