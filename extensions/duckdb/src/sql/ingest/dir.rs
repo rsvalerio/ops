@@ -802,14 +802,19 @@ pub const fn external_err(e: anyhow::Error) -> DbError {
 ///
 /// Streams in 64 KiB chunks so multi-megabyte ingests (coverage, tokei) do not
 /// allocate a full file-sized buffer (PERF-1).
-fn checksum_reader<R: std::io::Read>(source: R) -> DbResult<String> {
+///
+/// PERF-2 / TASK-2120: reads go directly from `source` into `buf` — no
+/// `BufReader` wrapper. `BufReader::read` bypasses its own buffer whenever
+/// the caller's slice is at least the internal buffer's size, so an
+/// equally-sized wrapper never buffered anything here; its only effect was
+/// a second 64 KiB allocation per checksum call plus indirection on every
+/// read.
+fn checksum_reader<R: std::io::Read>(mut source: R) -> DbResult<String> {
     use sha2::{Digest, Sha256};
-    use std::io::{BufReader, Read};
-    let mut reader = BufReader::with_capacity(64 * 1024, source);
     let mut hasher = Sha256::new();
     let mut buf = vec![0u8; 64 * 1024];
     loop {
-        let n = reader.read(&mut buf).map_err(DbError::Io)?;
+        let n = source.read(&mut buf).map_err(DbError::Io)?;
         if n == 0 {
             break;
         }
