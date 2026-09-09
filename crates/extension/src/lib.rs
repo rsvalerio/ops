@@ -19,15 +19,17 @@
 #![cfg_attr(not(test), forbid(unsafe_code))]
 #![cfg_attr(test, deny(unsafe_code))]
 
+mod context;
 mod data;
+mod db_handle;
+mod deadline;
 mod error;
 mod extension;
 mod macros;
 
-pub use data::{
-    Context, DataField, DataProvider, DataProviderSchema, DataRegistry, Deadline,
-    DEFAULT_PROVIDER_BUDGET,
-};
+pub use context::Context;
+pub use data::{DataField, DataProvider, DataProviderSchema, DataRegistry};
+pub use deadline::{Deadline, DEFAULT_PROVIDER_BUDGET};
 pub use error::{DataProviderError, SharedError};
 pub use extension::{
     sort_compiled_extensions, CommandRegistry, Extension, ExtensionFactory, ExtensionInfo,
@@ -35,7 +37,7 @@ pub use extension::{
 };
 
 #[cfg(feature = "duckdb")]
-pub use data::DuckDbHandle;
+pub use db_handle::DuckDbHandle;
 
 /// Duplicate-registration policy for the two registries this crate owns.
 ///
