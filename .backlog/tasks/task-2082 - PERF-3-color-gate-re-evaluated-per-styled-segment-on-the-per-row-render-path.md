@@ -1,10 +1,10 @@
 ---
 id: TASK-2082
 title: 'PERF-3: color gate re-evaluated per styled segment on the per-row render path'
-status: To Do
+status: Done
 assignee: []
 created_date: '2026-09-07 22:58'
-updated_date: '2026-09-08 20:00'
+updated_date: '2026-09-09 18:13'
 labels:
   - code-review-rust
   - performance
@@ -29,7 +29,8 @@ ordinal: 10000
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 The NO_COLOR env var is read at most once per public render entry point, not once per apply_with_prefix call
-- [ ] #2 EnvGuard-based tests (step_line_is_plain_when_stderr_is_redirected, label_color_does_not_affect_non_tty_output, summary_color_does_not_affect_non_tty_output) still pass without modification
-- [ ] #3 Rendered output is byte-identical before and after (existing 127-test suite green)
+- [x] #1 The NO_COLOR env var is read at most once per public render entry point, not once per apply_with_prefix call
+- [x] #2 EnvGuard-based tests (step_line_is_plain_when_stderr_is_redirected, label_color_does_not_affect_non_tty_output, summary_color_does_not_affect_non_tty_output) still pass without modification
+- [x] #3 Rendered output is byte-identical before and after (existing 127-test suite green)
+
 <!-- AC:END -->

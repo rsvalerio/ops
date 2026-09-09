@@ -1,10 +1,10 @@
 ---
 id: TASK-2168
 title: 'PERF-3: fix_trailing allocates and fills a full-size output buffer for every file, including the overwhelming majority that need no change'
-status: To Do
+status: Done
 assignee: []
 created_date: '2026-09-08 07:06'
-updated_date: '2026-09-08 20:00'
+updated_date: '2026-09-09 18:34'
 labels:
   - code-review-rust
   - performance
@@ -54,7 +54,8 @@ unchanged.
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 fix_trailing performs no heap allocation and no copy for an input that needs no change
-- [ ] #2 The newline-count invariant test (newline_count_is_invariant) and all existing trailing tests still pass unchanged
-- [ ] #3 The options.rs doc comment about peak memory is updated if the 2x claim no longer holds for clean files
+- [x] #1 fix_trailing performs no heap allocation and no copy for an input that needs no change
+- [x] #2 The newline-count invariant test (newline_count_is_invariant) and all existing trailing tests still pass unchanged
+- [x] #3 The options.rs doc comment about peak memory is updated if the 2x claim no longer holds for clean files
+
 <!-- AC:END -->

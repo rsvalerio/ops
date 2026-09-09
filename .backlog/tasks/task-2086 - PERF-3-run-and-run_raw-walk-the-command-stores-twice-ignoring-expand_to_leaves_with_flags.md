@@ -1,10 +1,10 @@
 ---
 id: TASK-2086
 title: 'PERF-3: run and run_raw walk the command stores twice, ignoring expand_to_leaves_with_flags'
-status: To Do
+status: Done
 assignee: []
 created_date: '2026-09-07 22:58'
-updated_date: '2026-09-08 20:00'
+updated_date: '2026-09-09 18:15'
 labels:
   - code-review-rust
   - performance
@@ -29,7 +29,8 @@ ordinal: 1000
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 run and run_raw obtain the plan and the scheduling flags from one expand_to_leaves_with_flags call and drop the separate resolve() of the root
-- [ ] #2 Existing behaviour is pinned: single-exec and composite plans, parallel and fail_fast variants, and the unknown-command error path keep their current event/result shapes (existing tests cover these and must pass unmodified)
-- [ ] #3 ops verify / ops qa gates pass
+- [x] #1 run and run_raw obtain the plan and the scheduling flags from one expand_to_leaves_with_flags call and drop the separate resolve() of the root
+- [x] #2 Existing behaviour is pinned: single-exec and composite plans, parallel and fail_fast variants, and the unknown-command error path keep their current event/result shapes (existing tests cover these and must pass unmodified)
+- [x] #3 ops verify / ops qa gates pass
+
 <!-- AC:END -->

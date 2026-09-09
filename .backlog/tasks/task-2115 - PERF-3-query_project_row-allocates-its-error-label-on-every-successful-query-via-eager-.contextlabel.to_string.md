@@ -1,10 +1,10 @@
 ---
 id: TASK-2115
 title: 'PERF-3: query_project_row allocates its error label on every successful query via eager .context(label.to_string())'
-status: To Do
+status: Done
 assignee: []
 created_date: '2026-09-08 06:53'
-updated_date: '2026-09-08 20:00'
+updated_date: '2026-09-09 18:22'
 labels:
   - code-review-rust
   - performance
@@ -51,6 +51,7 @@ form as the house style for exactly this reason.
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 query_project_row uses with_context(|| …) so no String is allocated on the success path
-- [ ] #2 the error message produced on failure is unchanged (still carries the query label)
+- [x] #1 query_project_row uses with_context(|| …) so no String is allocated on the success path
+- [x] #2 the error message produced on failure is unchanged (still carries the query label)
+
 <!-- AC:END -->

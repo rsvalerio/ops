@@ -1,10 +1,10 @@
 ---
 id: TASK-2244
 title: 'code-review-plan-wave10'
-status: To Do
+status: Done
 assignee: []
 created_date: '2026-09-08 10:51'
-updated_date: '2026-09-08 20:00'
+updated_date: '2026-09-09 18:51'
 labels:
   - code-review-wave
 dependencies:
@@ -43,4 +43,7 @@ code-review-plan-wave10: Redundant work and allocations on per-row/per-file path
 
 <!-- SECTION:NOTES:BEGIN -->
 Overlaps: TASK-2247 wave13 (4 files: crates/runner/src/command/mod.rs ...); TASK-2242 wave8 (2 files: extensions/create-review-tasks/src/backlog.rs ...); TASK-2243 wave9 (2 files: crates/backlog/src/store.rs ...); TASK-2246 wave12 (2 files: crates/theme/src/configurable.rs ...); TASK-2248 wave14 (2 files: crates/runner/src/command/mod.rs ...); TASK-2235 wave1 (1 file: extensions/duckdb/src/sql/ingest/dir.rs); TASK-2241 wave7 (1 file: crates/theme/src/configurable.rs); TASK-2249 wave15 (1 file: extensions/create-review-tasks/src/lib.rs)
+
+Branch: code-review/TASK-2244
+
 <!-- SECTION:NOTES:END -->

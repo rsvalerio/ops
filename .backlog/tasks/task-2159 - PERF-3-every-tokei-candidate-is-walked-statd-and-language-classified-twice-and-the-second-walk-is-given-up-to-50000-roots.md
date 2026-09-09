@@ -1,10 +1,10 @@
 ---
 id: TASK-2159
 title: 'PERF-3: every tokei candidate is walked, stat''d and language-classified twice, and the second walk is given up to 50,000 roots'
-status: To Do
+status: Done
 assignee: []
 created_date: '2026-09-08 07:04'
-updated_date: '2026-09-08 20:00'
+updated_date: '2026-09-09 18:32'
 labels:
   - code-review-rust
   - performance
@@ -34,7 +34,8 @@ Tokei does not treat that slice as a file list. `utils::fs::get_all_files` (toke
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 Candidate files are counted without handing tokei a second walker rooted at every candidate path
-- [ ] #2 A file tokei cannot open is reported directly rather than inferred from a records-vs-candidates shortfall
-- [ ] #3 Existing behaviour is preserved: the oversize, unreadable, truncated and depth-cap tests still pass unchanged
+- [x] #1 Candidate files are counted without handing tokei a second walker rooted at every candidate path
+- [x] #2 A file tokei cannot open is reported directly rather than inferred from a records-vs-candidates shortfall
+- [x] #3 Existing behaviour is preserved: the oversize, unreadable, truncated and depth-cap tests still pass unchanged
+
 <!-- AC:END -->

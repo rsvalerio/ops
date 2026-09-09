@@ -1,10 +1,10 @@
 ---
 id: TASK-2093
 title: 'PERF-16: CANONICALIZE_CACHE is the crate''s one unbounded process-lifetime cache (no cap, no eviction)'
-status: To Do
+status: Done
 assignee: []
 created_date: '2026-09-07 22:59'
-updated_date: '2026-09-08 20:00'
+updated_date: '2026-09-09 18:17'
 labels:
   - code-review-rust
   - performance
@@ -33,6 +33,7 @@ ordinal: 19000
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 CANONICALIZE_CACHE gains an explicit cap with oldest-entry eviction mirroring the OPS_ROOT_CACHE_CAP pattern, with a regression test asserting the map clamps at the cap, OR the static carries a comment documenting why distinct-start-path cardinality is structurally bounded in every process that reaches it
-- [ ] #2 The chosen bound (or the documented justification) is stated at the CANONICALIZE_CACHE definition so the next cache added to this crate copies the capped shape
+- [x] #1 CANONICALIZE_CACHE gains an explicit cap with oldest-entry eviction mirroring the OPS_ROOT_CACHE_CAP pattern, with a regression test asserting the map clamps at the cap, OR the static carries a comment documenting why distinct-start-path cardinality is structurally bounded in every process that reaches it
+- [x] #2 The chosen bound (or the documented justification) is stated at the CANONICALIZE_CACHE definition so the next cache added to this crate copies the capped shape
+
 <!-- AC:END -->

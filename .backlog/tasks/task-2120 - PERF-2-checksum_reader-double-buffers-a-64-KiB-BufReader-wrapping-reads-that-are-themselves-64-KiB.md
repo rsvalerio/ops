@@ -1,10 +1,10 @@
 ---
 id: TASK-2120
 title: 'PERF-2: checksum_reader double-buffers - a 64 KiB BufReader wrapping reads that are themselves 64 KiB'
-status: To Do
+status: Done
 assignee: []
 created_date: '2026-09-08 06:54'
-updated_date: '2026-09-08 20:00'
+updated_date: '2026-09-09 18:23'
 labels:
   - code-review-rust
   - performance
@@ -49,6 +49,7 @@ and preserves the streaming contract the two `checksum_*` tests pin.
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 checksum_reader reads directly into the 64 KiB buffer without an equally-sized BufReader wrapper, or the wrapper's role is justified in a comment
-- [ ] #2 checksum_streaming_matches_in_memory_for_large_input and checksum_is_deterministic still pass unchanged
+- [x] #1 checksum_reader reads directly into the 64 KiB buffer without an equally-sized BufReader wrapper, or the wrapper's role is justified in a comment
+- [x] #2 checksum_streaming_matches_in_memory_for_large_input and checksum_is_deterministic still pass unchanged
+
 <!-- AC:END -->

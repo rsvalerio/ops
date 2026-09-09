@@ -1,10 +1,10 @@
 ---
 id: TASK-2131
 title: 'PERF-3: each allocation attempt walks the whole backlog tree twice, and conflicting_claim keeps walking after it has found its answer'
-status: To Do
+status: Done
 assignee: []
 created_date: '2026-09-08 06:55'
-updated_date: '2026-09-08 20:00'
+updated_date: '2026-09-09 18:25'
 labels:
   - code-review-rust
   - performance
@@ -33,7 +33,8 @@ ordinal: 47000
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 conflicting_claim stops walking as soon as it has found a conflicting file, via an early-exit traversal rather than a flag checked per entry
-- [ ] #2 The existing conflicting_claim and next_ids tests still pass unchanged, including the own-file exemption and the completed/archive cases
-- [ ] #3 Any new early-exit traversal helper added to ops_backlog::store is documented and covered by a test
+- [x] #1 conflicting_claim stops walking as soon as it has found a conflicting file, via an early-exit traversal rather than a flag checked per entry
+- [x] #2 The existing conflicting_claim and next_ids tests still pass unchanged, including the own-file exemption and the completed/archive cases
+- [x] #3 Any new early-exit traversal helper added to ops_backlog::store is documented and covered by a test
+
 <!-- AC:END -->

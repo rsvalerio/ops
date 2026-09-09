@@ -1,10 +1,10 @@
 ---
 id: TASK-2117
 title: 'PERF-13: render_task_file issues one write syscall per frontmatter line against an unbuffered File'
-status: To Do
+status: Done
 assignee: []
 created_date: '2026-09-08 06:54'
-updated_date: '2026-09-08 20:00'
+updated_date: '2026-09-09 18:23'
 labels:
   - code-review-rust
   - performance
@@ -29,7 +29,8 @@ ordinal: 35000
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 Task-file rendering goes through a buffered writer so the document reaches the filesystem in one write rather than one per line
-- [ ] #2 The buffer is flushed explicitly and a flush failure is propagated with the same path-naming context as the current write errors, not swallowed by BufWriter's Drop
-- [ ] #3 The render_task_file doc comment no longer claims a PERF property the call site does not deliver
+- [x] #1 Task-file rendering goes through a buffered writer so the document reaches the filesystem in one write rather than one per line
+- [x] #2 The buffer is flushed explicitly and a flush failure is propagated with the same path-naming context as the current write errors, not swallowed by BufWriter's Drop
+- [x] #3 The render_task_file doc comment no longer claims a PERF property the call site does not deliver
+
 <!-- AC:END -->
