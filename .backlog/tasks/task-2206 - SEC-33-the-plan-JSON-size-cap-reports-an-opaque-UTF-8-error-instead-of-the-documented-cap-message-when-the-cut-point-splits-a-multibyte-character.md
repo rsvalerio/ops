@@ -4,7 +4,7 @@ title: 'SEC-33: the plan-JSON size cap reports an opaque UTF-8 error instead of 
 status: Done
 assignee: []
 created_date: '2026-09-08 07:20'
-updated_date: '2026-09-08 20:00'
+updated_date: '2026-09-09 18:12'
 labels:
   - code-review-rust
   - security
@@ -38,7 +38,8 @@ Reading into a `Vec<u8>` and doing the cap comparison before `String::from_utf8`
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 read_capped decides over-cap from the byte count before any UTF-8 validation, so an oversized payload always produces the 'exceeds N bytes (override via OPS_PLAN_JSON_MAX_BYTES)' error
-- [ ] #2 A payload that is under the cap but not valid UTF-8 still fails with a distinct, self-describing error naming the source
-- [ ] #3 A regression test feeds an oversized payload whose byte at cap+1 splits a multi-byte UTF-8 sequence and asserts the cap message, not a UTF-8 message
+- [x] #1 read_capped decides over-cap from the byte count before any UTF-8 validation, so an oversized payload always produces the 'exceeds N bytes (override via OPS_PLAN_JSON_MAX_BYTES)' error
+- [x] #2 A payload that is under the cap but not valid UTF-8 still fails with a distinct, self-describing error naming the source
+- [x] #3 A regression test feeds an oversized payload whose byte at cap+1 splits a multi-byte UTF-8 sequence and asserts the cap message, not a UTF-8 message
+
 <!-- AC:END -->

@@ -4,7 +4,7 @@ title: 'SEC-33: terraform subprocesses run with no wall-clock bound, so every re
 status: Done
 assignee: []
 created_date: '2026-09-08 07:20'
-updated_date: '2026-09-08 20:00'
+updated_date: '2026-09-09 18:12'
 labels:
   - code-review-rust
   - security
@@ -32,7 +32,8 @@ The crate's own doc comments name the threat model explicitly: "a wrapped `terra
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 Both terraform invocations are bounded by a configurable wall-clock timeout with a documented default and an env override, in the same style as OPS_PLAN_JSON_MAX_BYTES
-- [ ] #2 On timeout the child is killed and reaped, the error names which terraform invocation timed out and the limit that fired, and artifact cleanup still runs
-- [ ] #3 A test drives the timeout path with a stub child that never exits and asserts the error message plus that the recorded artifact was removed
+- [x] #1 Both terraform invocations are bounded by a configurable wall-clock timeout with a documented default and an env override, in the same style as OPS_PLAN_JSON_MAX_BYTES
+- [x] #2 On timeout the child is killed and reaped, the error names which terraform invocation timed out and the limit that fired, and artifact cleanup still runs
+- [x] #3 A test drives the timeout path with a stub child that never exits and asserts the error message plus that the recorded artifact was removed
+
 <!-- AC:END -->

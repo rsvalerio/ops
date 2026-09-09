@@ -4,7 +4,7 @@ title: 'READ-6: task-file writes are truncate-in-place, inconsistent with the cr
 status: Done
 assignee: []
 created_date: '2026-09-07 22:59'
-updated_date: '2026-09-08 20:00'
+updated_date: '2026-09-09 18:12'
 labels:
   - code-review-rust
   - readability
@@ -29,7 +29,8 @@ ordinal: 18000
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 Task-file rewrites are atomic: write to a temp file in the same directory then rename over the destination
-- [ ] #2 The title-rename path cannot leave two live files with one task id after a crash (or documents the same recovery story move_to_completed does)
-- [ ] #3 wave migrate either applies a file completely or not at all, or reports exactly which files were written before the failure
+- [x] #1 Task-file rewrites are atomic: write to a temp file in the same directory then rename over the destination
+- [x] #2 The title-rename path cannot leave two live files with one task id after a crash (or documents the same recovery story move_to_completed does)
+- [x] #3 wave migrate either applies a file completely or not at all, or reports exactly which files were written before the failure
+
 <!-- AC:END -->

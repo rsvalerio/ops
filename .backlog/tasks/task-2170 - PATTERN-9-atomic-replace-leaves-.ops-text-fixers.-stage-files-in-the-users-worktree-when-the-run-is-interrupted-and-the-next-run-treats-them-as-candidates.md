@@ -4,7 +4,7 @@ title: 'PATTERN-9: atomic::replace leaves .ops-text-fixers.* stage files in the 
 status: Done
 assignee: []
 created_date: '2026-09-08 07:07'
-updated_date: '2026-09-08 20:00'
+updated_date: '2026-09-09 18:12'
 labels:
   - code-review-rust
   - patterns
@@ -59,7 +59,8 @@ the other two accepted trades.
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 A leftover .ops-text-fixers.* stage file is never a candidate for a subsequent fixer run
-- [ ] #2 A test creates a stale stage file in a tree and asserts discovery does not return it
-- [ ] #3 The atomic.rs 'The trade this makes' section names the stale-stage residue alongside hard links and open file descriptors, or the residue is eliminated
+- [x] #1 A leftover .ops-text-fixers.* stage file is never a candidate for a subsequent fixer run
+- [x] #2 A test creates a stale stage file in a tree and asserts discovery does not return it
+- [x] #3 The atomic.rs 'The trade this makes' section names the stale-stage residue alongside hard links and open file descriptors, or the residue is eliminated
+
 <!-- AC:END -->

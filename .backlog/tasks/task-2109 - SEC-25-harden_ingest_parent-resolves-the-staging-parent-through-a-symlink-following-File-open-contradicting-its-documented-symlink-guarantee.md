@@ -4,7 +4,7 @@ title: 'SEC-25: harden_ingest_parent resolves the staging parent through a symli
 status: Done
 assignee: []
 created_date: '2026-09-08 06:53'
-updated_date: '2026-09-08 20:00'
+updated_date: '2026-09-09 18:12'
 labels:
   - code-review-rust
   - security
@@ -55,8 +55,9 @@ symlink case is handled.
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 harden_ingest_parent rejects a symlink (and any non-directory) at the staging parent path before opening it, using the same reject_untrusted_ingest_dir gate harden_existing_ingest_dir uses
-- [ ] #2 the fchmod is applied only through a handle whose (dev, ino) matches the lstat taken during rejection, matching harden_existing_ingest_dir
-- [ ] #3 a unix test plants a symlink-to-directory at the staging parent and asserts create_ingest_dir fails, the symlink target keeps its original mode, and no leaf ingest dir is created inside the target
-- [ ] #4 the doc block's symlink claim either becomes true or is corrected to state the residual
+- [x] #1 harden_ingest_parent rejects a symlink (and any non-directory) at the staging parent path before opening it, using the same reject_untrusted_ingest_dir gate harden_existing_ingest_dir uses
+- [x] #2 the fchmod is applied only through a handle whose (dev, ino) matches the lstat taken during rejection, matching harden_existing_ingest_dir
+- [x] #3 a unix test plants a symlink-to-directory at the staging parent and asserts create_ingest_dir fails, the symlink target keeps its original mode, and no leaf ingest dir is created inside the target
+- [x] #4 the doc block's symlink claim either becomes true or is corrected to state the residual
+
 <!-- AC:END -->

@@ -4,7 +4,7 @@ title: 'SEC-25: the registered cargo_toml provider auto-discovers its workspace 
 status: Done
 assignee: []
 created_date: '2026-09-08 07:02'
-updated_date: '2026-09-08 20:00'
+updated_date: '2026-09-09 18:12'
 labels:
   - code-review-rust
   - sec
@@ -45,7 +45,8 @@ Either make the provider use the strict variant (matching the rest of the repo),
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 CargoTomlProvider::resolve_root either calls find_workspace_root_strict, or carries a doc comment stating why the provider path deliberately keeps the lenient walk
-- [ ] #2 A test drives the registered provider (no explicit root) against a tree where the strict and lenient walks disagree, and pins the chosen behavior
-- [ ] #3 The relationship between the provider's root resolution and about/create-review-tasks' find_workspace_root_strict calls is documented at one place a reader will find
+- [x] #1 CargoTomlProvider::resolve_root either calls find_workspace_root_strict, or carries a doc comment stating why the provider path deliberately keeps the lenient walk
+- [x] #2 A test drives the registered provider (no explicit root) against a tree where the strict and lenient walks disagree, and pins the chosen behavior
+- [x] #3 The relationship between the provider's root resolution and about/create-review-tasks' find_workspace_root_strict calls is documented at one place a reader will find
+
 <!-- AC:END -->

@@ -4,7 +4,7 @@ title: 'SEC-25: rust-loc enforces its memory cap against a stat taken before an 
 status: Done
 assignee: []
 created_date: '2026-09-08 07:12'
-updated_date: '2026-09-08 20:00'
+updated_date: '2026-09-09 18:12'
 labels:
   - code-review-rust
   - security
@@ -38,8 +38,9 @@ Note the walker uses the default `follow_links(false)` and `count_entry` require
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 count_entry opens the file once and derives the size from that handle (File::open then handle.metadata()), rather than stat-ing the path and re-opening it
-- [ ] #2 The in-memory read is itself bounded (e.g. Read::take(MAX_SOURCE_BYTES) into a String), so a file that grows after the size decision cannot be read past the cap
-- [ ] #3 A file that turns out to exceed the cap after opening still degrades to the streaming blank-vs-non-blank count rather than being dropped, preserving the documented degradation policy
-- [ ] #4 A test covers the over-cap decision being made from the opened handle (an existing over-cap test may be extended rather than adding a race-based test)
+- [x] #1 count_entry opens the file once and derives the size from that handle (File::open then handle.metadata()), rather than stat-ing the path and re-opening it
+- [x] #2 The in-memory read is itself bounded (e.g. Read::take(MAX_SOURCE_BYTES) into a String), so a file that grows after the size decision cannot be read past the cap
+- [x] #3 A file that turns out to exceed the cap after opening still degrades to the streaming blank-vs-non-blank count rather than being dropped, preserving the documented degradation policy
+- [x] #4 A test covers the over-cap decision being made from the opened handle (an existing over-cap test may be extended rather than adding a race-based test)
+
 <!-- AC:END -->

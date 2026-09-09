@@ -4,7 +4,7 @@ title: 'SEC-25: write_plan_json follows a symlink at the plan-JSON path, writing
 status: Done
 assignee: []
 created_date: '2026-09-08 07:22'
-updated_date: '2026-09-08 20:00'
+updated_date: '2026-09-09 18:12'
 labels:
   - code-review-rust
   - security
@@ -32,8 +32,9 @@ Note the asymmetry with the rest of the crate: `cleanup_artifacts` was deliberat
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 The plan JSON is created without following a pre-existing symlink (O_NOFOLLOW on unix, or create_new into the artifact directory), and an existing symlink at the destination is a hard error naming the path rather than a silent write-through
-- [ ] #2 set_permissions is applied to the descriptor this run created, never to a path resolved a second time
-- [ ] #3 The artifact directory's mode is verified (not merely requested) before a secret-bearing artifact is written into a directory that already existed
-- [ ] #4 A unix test plants a symlink at the --json-out destination and asserts the run errors and the link target is neither written nor chmod-ed
+- [x] #1 The plan JSON is created without following a pre-existing symlink (O_NOFOLLOW on unix, or create_new into the artifact directory), and an existing symlink at the destination is a hard error naming the path rather than a silent write-through
+- [x] #2 set_permissions is applied to the descriptor this run created, never to a path resolved a second time
+- [x] #3 The artifact directory's mode is verified (not merely requested) before a secret-bearing artifact is written into a directory that already existed
+- [x] #4 A unix test plants a symlink at the --json-out destination and asserts the run errors and the link target is neither written nor chmod-ed
+
 <!-- AC:END -->
