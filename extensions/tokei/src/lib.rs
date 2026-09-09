@@ -297,28 +297,45 @@ pub(crate) fn scan_tokei(
         candidates.push(path.to_path_buf());
     }
 
-    // `Languages::get_statistics` unwraps the first path, so an empty
-    // candidate set must not reach it.
-    if candidates.is_empty() {
-        return Ok(TokeiScan {
-            records: Vec::new(),
-            skipped_oversize,
-            skipped_unreadable,
-            truncated,
-        });
-    }
-
+    // PERF-3 / TASK-2159: count the candidates directly with
+    // `LanguageType::parse` instead of handing them back to
+    // `Languages::get_statistics`. Tokei's `get_statistics` does not treat
+    // its slice as a file list — `utils::fs::get_all_files` (tokei 14.0.0)
+    // builds a second `WalkBuilder` with one root per candidate and re-runs
+    // the whole `ignore` pipeline on each (gitignore resolution, hidden
+    // rules, a fresh `stat`) plus a fresh `LanguageType::from_path`: the
+    // walk and classification this function already performed. Parsing each
+    // already-filtered candidate once removes the second walk and reports
+    // per-file open errors directly instead of inferring them from a
+    // records-vs-candidates shortfall.
     let mut languages = Languages::new();
-    // The candidate list is already filtered, so tokei gets no exclusions:
-    // every path handed to it is a file we decided to count.
-    languages.get_statistics(&candidates, &[], &config);
+    for path in candidates {
+        // SEC-33 / TASK-2052: the parse loop now owns the file opens too, so
+        // the cooperative cancellation point covers it — an open() on a
+        // wedged mount blocks exactly like the `read_dir` half above.
+        if let Some(deadline) = deadline {
+            deadline.check()?;
+        }
+        // Re-classify rather than trusting the walk's verdict: an extension
+        // lookup is cheap, and a file replaced between the walk and the open
+        // would otherwise be parsed under a stale language.
+        let Some(lang) = LanguageType::from_path(&path, &config) else {
+            continue;
+        };
+        match lang.parse(path, &config) {
+            Ok(report) => {
+                // Same accumulation tokei's own pipeline performs: group
+                // per-language, one `Report` per file.
+                languages.entry(lang).or_default().add_report(report);
+            }
+            Err((error, path)) => {
+                skipped_unreadable = skipped_unreadable.saturating_add(1);
+                // Debug-format the path per the project-wide path-log policy.
+                tracing::warn!(path = ?path, %error, "tokei: candidate could not be opened");
+            }
+        }
+    }
     let records = flatten_tokei_records(&languages, working_dir);
-
-    // Tokei drops any file it cannot open, with no counter of its own. Every
-    // candidate was a recognised language, so the shortfall is exactly the set
-    // of files it failed to read.
-    skipped_unreadable =
-        skipped_unreadable.saturating_add(candidates.len().saturating_sub(records.len()));
 
     Ok(TokeiScan {
         records,
