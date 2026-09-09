@@ -52,8 +52,29 @@ pub fn run_edit<W: Write>(store: &Store, opts: &EditOptions, out: &mut W) -> any
         .find(&opts.task_id)?
         .ok_or_else(|| anyhow::anyhow!("task {} not found", opts.task_id))?;
     let mut doc = entry.doc;
-    let fm = &mut doc.frontmatter;
+    apply_frontmatter_edits(&mut doc.frontmatter, opts);
+    apply_body_edits(&mut doc, opts)?;
 
+    let stamp = UtcStamp::now()?;
+    doc.frontmatter.updated_date = Some(format!("{} {}", stamp.date, stamp.minutes));
+    let rendered = doc.render();
+
+    if opts.title.is_some() {
+        // A title change moves the slug: write the new file and remove the
+        // old one so only one task owns the id.
+        rename_to_new_slug(store, &entry.path, &doc.frontmatter.title, &rendered)?;
+    } else {
+        atomic_write(&entry.path, &rendered)?;
+    }
+
+    writeln!(out, "Updated {}", doc.frontmatter.id).context("printing the updated task id")?;
+    Ok(())
+}
+
+/// The frontmatter-level field edits: scalar and list mutations on the
+/// document's header, in the historical option order. Infallible — every
+/// branch is a plain assignment or retain.
+fn apply_frontmatter_edits(fm: &mut crate::model::Frontmatter, opts: &EditOptions) {
     if let Some(status) = &opts.status {
         fm.status.clone_from(status);
     }
@@ -100,6 +121,12 @@ pub fn run_edit<W: Write>(store: &Store, opts: &EditOptions, out: &mut W) -> any
     if let Some(title) = &opts.title {
         fm.title.clone_from(title);
     }
+}
+
+/// The body-section edits: description, acceptance criteria, definition of
+/// done, and notes. Fails when a check/uncheck index names an item the
+/// section does not carry (the error names the section).
+fn apply_body_edits(doc: &mut crate::model::TaskDoc, opts: &EditOptions) -> anyhow::Result<()> {
     if let Some(description) = &opts.description {
         doc.body.set_description(description);
     }
@@ -124,20 +151,6 @@ pub fn run_edit<W: Write>(store: &Store, opts: &EditOptions, out: &mut W) -> any
     for note in &opts.append_notes {
         doc.body.append_notes(note);
     }
-
-    let stamp = UtcStamp::now()?;
-    doc.frontmatter.updated_date = Some(format!("{} {}", stamp.date, stamp.minutes));
-    let rendered = doc.render();
-
-    if opts.title.is_some() {
-        // A title change moves the slug: write the new file and remove the
-        // old one so only one task owns the id.
-        rename_to_new_slug(store, &entry.path, &doc.frontmatter.title, &rendered)?;
-    } else {
-        atomic_write(&entry.path, &rendered)?;
-    }
-
-    writeln!(out, "Updated {}", doc.frontmatter.id).context("printing the updated task id")?;
     Ok(())
 }
 
