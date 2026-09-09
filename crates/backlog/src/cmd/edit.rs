@@ -43,12 +43,13 @@ pub struct EditOptions {
 ///
 /// # Errors
 ///
-/// The task id resolves to nothing (the error names the id), the clock is
-/// unreadable, an acceptance-criterion or definition-of-done index is out of
-/// range, or the file cannot be written — write errors name the path.
+/// The task id resolves to nothing (the error names the id), a lookup
+/// directory cannot be read, the clock is unreadable, an acceptance-criterion
+/// or definition-of-done index is out of range, or the file cannot be written
+/// — write errors name the path.
 pub fn run_edit<W: Write>(store: &Store, opts: &EditOptions, out: &mut W) -> anyhow::Result<()> {
     let entry = store
-        .find(&opts.task_id)
+        .find(&opts.task_id)?
         .ok_or_else(|| anyhow::anyhow!("task {} not found", opts.task_id))?;
     let mut doc = entry.doc;
     let fm = &mut doc.frontmatter;

@@ -103,8 +103,9 @@ pub fn run_wave_list<W: Write>(
 ///
 /// # Errors
 ///
-/// The wave id resolves to nothing (the error names the id), a task file does
-/// not parse, or writing `out` failed.
+/// The wave id resolves to nothing (the error names the id), a lookup or scan
+/// directory cannot be read, a task file does not parse, or writing `out`
+/// failed.
 pub fn run_wave_members<W: Write>(
     store: &Store,
     cfg: &BacklogConfig,
@@ -112,7 +113,7 @@ pub fn run_wave_members<W: Write>(
     out: &mut W,
 ) -> anyhow::Result<()> {
     let wave = store
-        .find(&opts.wave_id)
+        .find(&opts.wave_id)?
         .ok_or_else(|| anyhow::anyhow!("task {} not found", opts.wave_id))?;
     let wave_id = wave.doc.frontmatter.id.clone();
 

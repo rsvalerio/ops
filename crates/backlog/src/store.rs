@@ -28,6 +28,7 @@ pub const TASK_DIRS: &[&str] = &["tasks", "completed", "archive/tasks", "archive
 const LOOKUP_DIRS: &[&str] = &["tasks", "completed", "archive/tasks"];
 
 /// One task file found by a scan: its path and parsed document.
+#[derive(Debug)]
 pub struct TaskEntry {
     pub path: PathBuf,
     pub doc: TaskDoc,
@@ -193,13 +194,29 @@ impl Store {
 
     /// Resolve one task id across [`LOOKUP_DIRS`] in precedence order.
     /// Matching is case-insensitive on the full `TASK-NNNN` id.
-    #[must_use = "looking up without using the result finds the file for nothing"]
-    pub fn find(&self, id: &str) -> Option<TaskEntry> {
+    ///
+    /// Tolerance rule: a lookup directory that is merely absent is skipped
+    /// (only `tasks/` is required, by [`Store::open`]), and a task file that
+    /// exists but fails to read or parse is skipped — a damaged neighbour
+    /// file must not hide an intact task elsewhere in the tree.
+    ///
+    /// # Errors
+    ///
+    /// A lookup directory exists but cannot be read (the error names the
+    /// directory), mirroring [`Store::scan_all_tasks`].
+    pub fn find(&self, id: &str) -> anyhow::Result<Option<TaskEntry>> {
         let wanted = id.to_ascii_lowercase();
         for dir in LOOKUP_DIRS {
             let dir_path = self.backlog_root.join(dir);
-            let Ok(read) = std::fs::read_dir(&dir_path) else {
-                continue;
+            // Only a missing directory is skippable; any other read failure —
+            // permissions, a file where a directory belongs — must surface
+            // rather than read as "not found".
+            let read = match std::fs::read_dir(&dir_path) {
+                Ok(read) => read,
+                Err(err) if err.kind() == std::io::ErrorKind::NotFound => continue,
+                Err(err) => {
+                    return Err(anyhow::anyhow!("reading {}: {err}", dir_path.display()));
+                }
             };
             for entry in read.flatten() {
                 let path = entry.path();
@@ -213,11 +230,11 @@ impl Store {
                     continue;
                 };
                 if doc.frontmatter.id.to_ascii_lowercase() == wanted {
-                    return Some(TaskEntry { path, doc });
+                    return Ok(Some(TaskEntry { path, doc }));
                 }
             }
         }
-        None
+        Ok(None)
     }
 
     /// Next free main-task number: one more than the highest `task-<n>` id
@@ -409,7 +426,7 @@ mod tests {
             ("archive/tasks", "task-0059 - archived.md"),
         ]);
         let store = Store::open(&dir.path().join(".backlog")).expect("open");
-        let found = store.find("TASK-0059").expect("must find");
+        let found = store.find("TASK-0059").expect("lookup").expect("must find");
         assert!(
             found.path.ends_with("task-0059 - live.md"),
             "tasks/ must win, got {}",
@@ -421,7 +438,7 @@ mod tests {
             ("archive/tasks", "task-0060 - archived.md"),
         ]);
         let store = Store::open(&dir.path().join(".backlog")).expect("open");
-        let found = store.find("task-0060").expect("must find");
+        let found = store.find("task-0060").expect("lookup").expect("must find");
         assert!(
             found.path.ends_with("task-0060 - done.md"),
             "completed/ must beat archive/, got {}",
@@ -433,8 +450,24 @@ mod tests {
     fn find_is_case_insensitive_and_misses_cleanly() {
         let dir = scratch_backlog(&[("tasks", "task-0012 - x.md")]);
         let store = Store::open(&dir.path().join(".backlog")).expect("open");
-        assert!(store.find("task-0012").is_some());
-        assert!(store.find("TASK-9999").is_none());
+        assert!(store.find("task-0012").expect("lookup").is_some());
+        assert!(store.find("TASK-9999").expect("lookup").is_none());
+    }
+
+    /// A `read_dir` failure other than `NotFound` must surface from `find`
+    /// naming the directory — here, a file squatting where `completed/`
+    /// belongs — instead of degrading to `None` and reading as "not found".
+    #[test]
+    fn find_read_failure_names_the_directory() {
+        let dir = scratch_backlog(&[("tasks", "task-0001 - live.md")]);
+        std::fs::write(dir.path().join(".backlog/completed"), "not a dir").expect("write file");
+        let store = Store::open(&dir.path().join(".backlog")).expect("open");
+        let err = store.find("TASK-9999").expect_err("must fail");
+        let rendered = format!("{err:#}");
+        assert!(
+            rendered.contains("completed"),
+            "error must name the unreadable directory, got: {rendered}"
+        );
     }
 
     #[test]
