@@ -250,9 +250,11 @@ pub fn view_json<W: Write>(
         entry,
         root,
         readiness,
-        task_type.as_deref(),
-        parent.as_deref(),
-        ordinal,
+        &ExtrasScalars {
+            task_type: task_type.as_deref(),
+            parent: parent.as_deref(),
+            ordinal,
+        },
     );
     push_field(&mut s, "dependencies", &str_list(&fm.dependencies), false);
     push_dependency_graph(&mut s, entry, resolved);
@@ -300,17 +302,24 @@ pub fn view_json<W: Write>(
     w.write_all(s.as_bytes())
 }
 
+/// The extras-derived scalars `view_json` pulls out of the frontmatter —
+/// `type`, `parent_task_id`, and the parsed `ordinal`. Grouped so the two
+/// adjacent `Option<&str>`s (`task_type`, `parent`) cannot be swapped at a
+/// call site by mistake.
+struct ExtrasScalars<'a> {
+    task_type: Option<&'a str>,
+    parent: Option<&'a str>,
+    ordinal: Option<u64>,
+}
+
 /// The identity-through-description scalar fields of the task-view JSON
 /// object, in the CLI's order (everything before `dependencies`).
-#[allow(clippy::too_many_arguments)]
 fn push_scalar_fields(
     s: &mut String,
     entry: &TaskEntry,
     root: &Path,
     readiness: &Readiness,
-    task_type: Option<&str>,
-    parent: Option<&str>,
-    ordinal: Option<u64>,
+    extras: &ExtrasScalars<'_>,
 ) {
     let fm = &entry.doc.frontmatter;
     let ac = entry.doc.body.ac_items();
@@ -318,14 +327,14 @@ fn push_scalar_fields(
     push_field(s, "id", &jstr(&fm.id), false);
     push_field(s, "title", &jstr(&fm.title), false);
     push_field(s, "status", &jstr(&fm.status), false);
-    push_field(s, "type", &opt_str(task_type), false);
+    push_field(s, "type", &opt_str(extras.task_type), false);
     push_field(s, "priority", &opt_str(fm.priority.as_deref()), false);
     push_field(s, "project", "null", false);
     push_field(s, "assignees", &str_list(&fm.assignees), false);
     push_field(s, "reporter", "null", false);
     push_field(s, "labels", &str_list(&fm.labels), false);
     push_field(s, "milestone", "null", false);
-    push_field(s, "parentTaskId", &opt_str(parent), false);
+    push_field(s, "parentTaskId", &opt_str(extras.parent), false);
     push_field(s, "acceptanceCriteriaCompleted", &done.to_string(), false);
     push_field(s, "acceptanceCriteriaCount", &ac.len().to_string(), false);
     push_field(s, "references", "[]", false);
@@ -333,7 +342,9 @@ fn push_scalar_fields(
     push_field(
         s,
         "ordinal",
-        &ordinal.map_or_else(|| "null".to_string(), |o| o.to_string()),
+        &extras
+            .ordinal
+            .map_or_else(|| "null".to_string(), |o| o.to_string()),
         false,
     );
     push_field(
