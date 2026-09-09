@@ -250,17 +250,6 @@ mod tests {
         );
     }
 
-    /// TEST-5 / TASK-1816: the registration key is a string constant shared
-    /// across a crate boundary; a mismatch degrades into a `NotFound` the
-    /// engine reports as a missing extension.
-    #[test]
-    fn provider_name_matches_the_engines_registration_key() {
-        assert_eq!(
-            RustReviewTargetsProvider.name(),
-            ops_create_review_tasks::DATA_PROVIDER_NAME
-        );
-    }
-
     /// A member without a usable manifest must not disappear — it falls back
     /// to the capitalized display name so it still gets a review subtask.
     #[serial_test::serial(fallback_breadcrumb)]

@@ -47,20 +47,21 @@ mod tests {
     use super::*;
     use ops_extension::{Context, DataRegistry, Extension};
 
-    /// TEST-5 / TASK-1816: the registration closure in `impl_extension!` had
-    /// no test at all. The key it registers under is what the engine looks
-    /// up; a mismatch surfaces at runtime as "the detected stack has no
-    /// create-review-tasks extension compiled in".
+    /// TEST-32 / TASK-2172: the registration closure in `impl_extension!` is
+    /// verified through the engine's own lookup path — `registry.provide`
+    /// under the *engine crate's* key constant — not by asserting the key
+    /// against the same constant the closure registers under (X == X, the
+    /// shape removed from `provider.rs` by the same task). The assertions
+    /// that carry the weight are behavioural: the provider that answers is
+    /// this crate's Rust provider (it emits `code-review-rust` and lists the
+    /// solo package as a target). Fails if this crate's registration key ever
+    /// drifts from the engine's constant (e.g. replaced by a decoupled
+    /// literal): the lookup then lands on `NotFound`.
     #[test]
     fn extension_registers_the_review_targets_provider_under_the_engine_key() {
         let mut registry = DataRegistry::new();
         CreateReviewTasksRustExtension.register_data_providers(&mut registry);
 
-        assert!(registry.provider_names().contains(&DATA_PROVIDER_NAME));
-
-        // Identity, not just presence: the registered provider must be this
-        // crate's Rust provider, which is what emitting `code-review-rust`
-        // for a real workspace proves.
         let dir = tempfile::tempdir().expect("tempdir");
         let root = dir.path();
         std::fs::write(
@@ -70,8 +71,16 @@ mod tests {
         .expect("root manifest");
         let mut ctx = Context::test_context(root.to_path_buf());
         let payload = registry
-            .provide(DATA_PROVIDER_NAME, &mut ctx)
-            .expect("registered provider must answer");
+            .provide(ops_create_review_tasks::DATA_PROVIDER_NAME, &mut ctx)
+            .expect("the engine's lookup key must resolve this provider");
         assert_eq!(payload["skill"], provider::SKILL_NAME);
+        // Identity, not just presence: the solo package appears as the one
+        // review target, proving the answering provider is this crate's.
+        assert_eq!(
+            payload["targets"][0]["name"],
+            serde_json::json!("solo"),
+            "got: {payload}"
+        );
+        assert_eq!(payload["targets"][0]["path"], serde_json::json!("."));
     }
 }
