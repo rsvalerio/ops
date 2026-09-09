@@ -1,17 +1,15 @@
 ---
 id: TASK-2134
-title: >-
-  API-2: find_git_dir silently stops walking after one level when given a
-  relative path, reporting 'not a git repository' inside a real repo
-status: To Do
-assignee:
-  - TASK-2234
+title: 'API-2: find_git_dir silently stops walking after one level when given a relative path, reporting ''not a git repository'' inside a real repo'
+status: Done
+assignee: []
 created_date: '2026-09-08 06:55'
-updated_date: '2026-09-08 10:53'
+updated_date: '2026-09-08 20:00'
 labels:
   - code-review-rust
   - api-design
 dependencies: []
+parent_task_id: 'TASK-2234'
 modified_files:
   - extensions/hook-common/src/git.rs
 priority: medium

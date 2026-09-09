@@ -2,14 +2,14 @@
 id: TASK-2145
 title: 'API-14: public items in ops-cargo-toml missing doc summaries'
 status: To Do
-assignee:
-  - TASK-2247
+assignee: []
 created_date: '2026-09-08 07:02'
-updated_date: '2026-09-08 11:00'
+updated_date: '2026-09-08 20:00'
 labels:
   - code-review-rust
   - api
 dependencies: []
+parent_task_id: 'TASK-2247'
 modified_files:
   - extensions-rust/cargo-toml/src/lib.rs
   - extensions-rust/cargo-toml/src/workspace_root.rs

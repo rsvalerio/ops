@@ -1,17 +1,15 @@
 ---
 id: TASK-2116
-title: >-
-  DUP-2: control / bidi codepoint rejection policy is reimplemented in ops-git
-  and diverges from the shared About helper
+title: 'DUP-2: control / bidi codepoint rejection policy is reimplemented in ops-git and diverges from the shared About helper'
 status: Done
-assignee:
-  - TASK-2236
+assignee: []
 created_date: '2026-09-08 06:54'
-updated_date: '2026-09-08 15:46'
+updated_date: '2026-09-08 20:00'
 labels:
   - code-review-rust
   - duplication
 dependencies: []
+parent_task_id: 'TASK-2236'
 modified_files:
   - extensions/git/src/config.rs
   - extensions/about/src/text_util.rs

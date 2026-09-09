@@ -1,17 +1,15 @@
 ---
 id: TASK-2223
-title: >-
-  READ-13: ops-about-java rustdoc is a changelog of TASK ids and past
-  regressions rather than a description of current behaviour
+title: 'READ-13: ops-about-java rustdoc is a changelog of TASK ids and past regressions rather than a description of current behaviour'
 status: To Do
-assignee:
-  - TASK-2248
+assignee: []
 created_date: '2026-09-08 07:22'
-updated_date: '2026-09-08 11:02'
+updated_date: '2026-09-08 20:00'
 labels:
   - code-review-rust
   - readability
 dependencies: []
+parent_task_id: 'TASK-2248'
 modified_files:
   - extensions-java/about/src/lib.rs
   - extensions-java/about/src/maven/pom.rs

@@ -1,17 +1,15 @@
 ---
 id: TASK-2113
-title: >-
-  TEST-15: missing-ops hook tests set PATH=/usr/bin:/bin, so a system-installed
-  ops makes them exec the real binary instead of failing
+title: 'TEST-15: missing-ops hook tests set PATH=/usr/bin:/bin, so a system-installed ops makes them exec the real binary instead of failing'
 status: To Do
-assignee:
-  - TASK-2241
+assignee: []
 created_date: '2026-09-08 06:53'
-updated_date: '2026-09-08 10:56'
+updated_date: '2026-09-08 20:00'
 labels:
   - code-review-rust
   - test-quality
 dependencies: []
+parent_task_id: 'TASK-2241'
 modified_files:
   - extensions/run-before-commit/src/lib.rs
 priority: medium

@@ -1,17 +1,15 @@
 ---
 id: TASK-2198
-title: >-
-  API-14: ops-test-coverage public consts lack doc summaries and 19
-  crate-internal items are pub despite lib.rs claiming they were demoted
+title: 'API-14: ops-test-coverage public consts lack doc summaries and 19 crate-internal items are pub despite lib.rs claiming they were demoted'
 status: To Do
-assignee:
-  - TASK-2247
+assignee: []
 created_date: '2026-09-08 07:15'
-updated_date: '2026-09-08 11:00'
+updated_date: '2026-09-08 20:00'
 labels:
   - code-review-rust
   - api
 dependencies: []
+parent_task_id: 'TASK-2247'
 modified_files:
   - extensions-rust/test-coverage/src/lib.rs
   - extensions-rust/test-coverage/src/parse.rs

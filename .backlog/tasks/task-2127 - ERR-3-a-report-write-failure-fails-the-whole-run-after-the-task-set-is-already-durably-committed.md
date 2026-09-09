@@ -1,17 +1,15 @@
 ---
 id: TASK-2127
-title: >-
-  ERR-3: a report write failure fails the whole run after the task set is
-  already durably committed
+title: 'ERR-3: a report write failure fails the whole run after the task set is already durably committed'
 status: Done
-assignee:
-  - TASK-2249
+assignee: []
 created_date: '2026-09-08 06:55'
-updated_date: '2026-09-08 15:45'
+updated_date: '2026-09-08 20:00'
 labels:
   - code-review-rust
   - error-handling
 dependencies: []
+parent_task_id: 'TASK-2249'
 modified_files:
   - extensions/create-review-tasks/src/lib.rs
 priority: low

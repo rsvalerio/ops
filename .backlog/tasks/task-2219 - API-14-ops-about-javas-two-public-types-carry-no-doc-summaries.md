@@ -2,14 +2,14 @@
 id: TASK-2219
 title: 'API-14: ops-about-java''s two public types carry no doc summaries'
 status: To Do
-assignee:
-  - TASK-2247
+assignee: []
 created_date: '2026-09-08 07:21'
-updated_date: '2026-09-08 11:00'
+updated_date: '2026-09-08 20:00'
 labels:
   - code-review-rust
   - api
 dependencies: []
+parent_task_id: 'TASK-2247'
 modified_files:
   - extensions-java/about/src/lib.rs
 priority: low

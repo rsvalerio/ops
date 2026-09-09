@@ -1,17 +1,15 @@
 ---
 id: TASK-2210
-title: >-
-  PATTERN-1: an unterminated XML comment, <project> opener or section in pom.xml
-  silently swallows the rest of the file
+title: 'PATTERN-1: an unterminated XML comment, <project> opener or section in pom.xml silently swallows the rest of the file'
 status: Done
-assignee:
-  - TASK-2238
+assignee: []
 created_date: '2026-09-08 07:20'
-updated_date: '2026-09-08 16:20'
+updated_date: '2026-09-08 20:00'
 labels:
   - code-review-rust
   - pattern
 dependencies: []
+parent_task_id: 'TASK-2238'
 modified_files:
   - extensions-java/about/src/maven/pom.rs
 priority: medium

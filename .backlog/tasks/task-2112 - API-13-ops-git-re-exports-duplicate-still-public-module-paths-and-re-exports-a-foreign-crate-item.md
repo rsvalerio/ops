@@ -1,17 +1,15 @@
 ---
 id: TASK-2112
-title: >-
-  API-13: ops-git re-exports duplicate still-public module paths and re-exports
-  a foreign crate item
+title: 'API-13: ops-git re-exports duplicate still-public module paths and re-exports a foreign crate item'
 status: To Do
-assignee:
-  - TASK-2247
+assignee: []
 created_date: '2026-09-08 06:53'
-updated_date: '2026-09-08 10:59'
+updated_date: '2026-09-08 20:00'
 labels:
   - code-review-rust
   - api
 dependencies: []
+parent_task_id: 'TASK-2247'
 modified_files:
   - extensions/git/src/lib.rs
   - extensions/git/src/config.rs

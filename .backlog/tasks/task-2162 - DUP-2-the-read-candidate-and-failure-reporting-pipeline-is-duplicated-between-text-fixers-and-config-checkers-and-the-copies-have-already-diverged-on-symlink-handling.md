@@ -1,19 +1,16 @@
 ---
 id: TASK-2162
-title: >-
-  DUP-2: the read-candidate and failure-reporting pipeline is duplicated between
-  text-fixers and config-checkers, and the copies have already diverged on
-  symlink handling
+title: 'DUP-2: the read-candidate and failure-reporting pipeline is duplicated between text-fixers and config-checkers, and the copies have already diverged on symlink handling'
 status: Done
-assignee:
-  - TASK-2237
+assignee: []
 created_date: '2026-09-08 07:05'
-updated_date: '2026-09-08 16:06'
+updated_date: '2026-09-08 20:00'
 labels:
   - code-review-rust
   - duplication
   - architecture
 dependencies: []
+parent_task_id: 'TASK-2237'
 modified_files:
   - extensions/text-fixers/src/runner.rs
   - extensions/text-fixers/src/report.rs

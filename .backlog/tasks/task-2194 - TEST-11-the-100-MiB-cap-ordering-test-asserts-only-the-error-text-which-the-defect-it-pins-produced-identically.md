@@ -1,17 +1,15 @@
 ---
 id: TASK-2194
-title: >-
-  TEST-11: the 100-MiB cap-ordering test asserts only the error text, which the
-  defect it pins produced identically
-status: To Do
-assignee:
-  - TASK-2240
+title: 'TEST-11: the 100-MiB cap-ordering test asserts only the error text, which the defect it pins produced identically'
+status: Done
+assignee: []
 created_date: '2026-09-08 07:14'
-updated_date: '2026-09-08 10:56'
+updated_date: '2026-09-08 20:00'
 labels:
   - code-review-rust
   - tests
 dependencies: []
+parent_task_id: 'TASK-2240'
 modified_files:
   - extensions-rust/metadata/src/tests/payload_cap.rs
 priority: medium
@@ -64,3 +62,9 @@ and fold the message assertions into the cheap test.
 - [ ] #2 The 100 MiB DuckDB fixture is either justified by the new assertion or removed in favour of the existing small-cap test
 - [ ] #3 The doc comment's claim matches what the assertions actually check
 <!-- AC:END -->
+
+## Implementation Notes
+
+<!-- SECTION:NOTES:BEGIN -->
+Landed in wave TASK-2240. Replaced the 100-MiB fixture with cap_guard_sql_nulls_the_payload_over_cap_before_it_crosses_ffi: small two-row fixture, asserts the CASE guard NULLs the over-cap payload at the FFI boundary and passes the under-cap payload through — the property the pre-TASK-1194 materialise-then-check shape cannot produce. Error-text assertions remain in the cheap sibling test; doc comment rewritten to match (AC3).
+<!-- SECTION:NOTES:END -->

@@ -1,17 +1,15 @@
 ---
 id: TASK-2214
-title: >-
-  PATTERN-1: an unterminated heredoc, block comment, string or block in a .tf
-  file silently swallows the rest of the scan with no warning
+title: 'PATTERN-1: an unterminated heredoc, block comment, string or block in a .tf file silently swallows the rest of the scan with no warning'
 status: Done
-assignee:
-  - TASK-2238
+assignee: []
 created_date: '2026-09-08 07:21'
-updated_date: '2026-09-08 16:55'
+updated_date: '2026-09-08 20:00'
 labels:
   - code-review-rust
   - pattern
 dependencies: []
+parent_task_id: 'TASK-2238'
 modified_files:
   - extensions-terraform/about/src/lib.rs
 priority: medium

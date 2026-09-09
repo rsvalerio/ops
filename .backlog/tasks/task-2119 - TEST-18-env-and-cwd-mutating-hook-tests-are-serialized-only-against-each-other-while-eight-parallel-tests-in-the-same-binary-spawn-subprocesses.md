@@ -1,17 +1,15 @@
 ---
 id: TASK-2119
-title: >-
-  TEST-18: env- and cwd-mutating hook tests are serialized only against each
-  other, while eight parallel tests in the same binary spawn subprocesses
+title: 'TEST-18: env- and cwd-mutating hook tests are serialized only against each other, while eight parallel tests in the same binary spawn subprocesses'
 status: To Do
-assignee:
-  - TASK-2241
+assignee: []
 created_date: '2026-09-08 06:54'
-updated_date: '2026-09-08 10:56'
+updated_date: '2026-09-08 20:00'
 labels:
   - code-review-rust
   - test-quality
 dependencies: []
+parent_task_id: 'TASK-2241'
 modified_files:
   - extensions/run-before-commit/src/lib.rs
 priority: medium

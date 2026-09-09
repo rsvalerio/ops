@@ -1,18 +1,15 @@
 ---
 id: TASK-2167
-title: >-
-  API-5: the #[must_use] on run_trailing_whitespace/run_end_of_file_fixer cannot
-  enforce what its message promises - the FixerReport is dropped silently after
-  `?`
+title: 'API-5: the #[must_use] on run_trailing_whitespace/run_end_of_file_fixer cannot enforce what its message promises - the FixerReport is dropped silently after `?`'
 status: To Do
-assignee:
-  - TASK-2247
+assignee: []
 created_date: '2026-09-08 07:06'
-updated_date: '2026-09-08 11:00'
+updated_date: '2026-09-08 20:00'
 labels:
   - code-review-rust
   - api-design
 dependencies: []
+parent_task_id: 'TASK-2247'
 modified_files:
   - extensions/text-fixers/src/runner.rs
   - extensions/text-fixers/src/report.rs

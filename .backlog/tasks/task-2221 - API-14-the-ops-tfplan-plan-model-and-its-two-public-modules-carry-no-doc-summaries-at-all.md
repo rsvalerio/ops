@@ -1,17 +1,15 @@
 ---
 id: TASK-2221
-title: >-
-  API-14: the ops-tfplan plan model and its two public modules carry no doc
-  summaries at all
+title: 'API-14: the ops-tfplan plan model and its two public modules carry no doc summaries at all'
 status: To Do
-assignee:
-  - TASK-2247
+assignee: []
 created_date: '2026-09-08 07:21'
-updated_date: '2026-09-08 11:00'
+updated_date: '2026-09-08 20:00'
 labels:
   - code-review-rust
   - api
 dependencies: []
+parent_task_id: 'TASK-2247'
 modified_files:
   - extensions-terraform/plan/src/model.rs
   - extensions-terraform/plan/src/lib.rs

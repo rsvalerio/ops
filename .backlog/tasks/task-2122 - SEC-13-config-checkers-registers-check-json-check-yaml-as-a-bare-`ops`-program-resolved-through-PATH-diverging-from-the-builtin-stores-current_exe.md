@@ -1,18 +1,15 @@
 ---
 id: TASK-2122
-title: >-
-  SEC-13: config-checkers registers check-json/check-yaml as a bare `ops`
-  program resolved through PATH, diverging from the builtin store's
-  current_exe()
-status: To Do
-assignee:
-  - TASK-2234
+title: 'SEC-13: config-checkers registers check-json/check-yaml as a bare `ops` program resolved through PATH, diverging from the builtin store''s current_exe()'
+status: Done
+assignee: []
 created_date: '2026-09-08 06:54'
-updated_date: '2026-09-08 10:53'
+updated_date: '2026-09-08 20:00'
 labels:
   - code-review-rust
   - security
 dependencies: []
+parent_task_id: 'TASK-2234'
 modified_files:
   - extensions/config-checkers/src/lib.rs
   - crates/runner/src/command/builtins.rs

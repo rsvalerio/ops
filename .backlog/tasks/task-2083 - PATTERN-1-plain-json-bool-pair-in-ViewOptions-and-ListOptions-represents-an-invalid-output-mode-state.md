@@ -1,17 +1,15 @@
 ---
 id: TASK-2083
-title: >-
-  PATTERN-1: plain/json bool pair in ViewOptions and ListOptions represents an
-  invalid output-mode state
-status: To Do
-assignee:
-  - TASK-2243
+title: 'PATTERN-1: plain/json bool pair in ViewOptions and ListOptions represents an invalid output-mode state'
+status: Done
+assignee: []
 created_date: '2026-09-07 22:58'
-updated_date: '2026-09-08 10:57'
+updated_date: '2026-09-08 20:00'
 labels:
   - code-review-rust
   - patterns
 dependencies: []
+parent_task_id: 'TASK-2243'
 modified_files:
   - crates/backlog/src/cmd/view.rs
   - crates/backlog/src/cmd/list.rs

@@ -1,17 +1,15 @@
 ---
 id: TASK-2154
-title: >-
-  TEST-5: per_crate_units and RustCoverageProvider::provide have no happy-path
-  test
-status: To Do
-assignee:
-  - TASK-2240
+title: 'TEST-5: per_crate_units and RustCoverageProvider::provide have no happy-path test'
+status: Done
+assignee: []
 created_date: '2026-09-08 07:03'
-updated_date: '2026-09-08 10:56'
+updated_date: '2026-09-08 20:00'
 labels:
   - code-review-rust
   - tests
 dependencies: []
+parent_task_id: 'TASK-2240'
 modified_files:
   - extensions-rust/about/src/coverage_provider.rs
 priority: medium
@@ -44,3 +42,9 @@ The sibling providers are all covered on these paths: `deps_provider.rs` has `pr
 - [ ] #4 The no-DuckDB and failed-query arms of `provide` are pinned to return a well-formed default `ProjectCoverage` (not an error), matching the shape `deps_provider`'s tests already establish
 - [ ] #5 The new tests are platform-independent (not gated on unix / non-macos) and carry `#[serial_test::serial(typed_manifest_cache, project_coverage_cache)]` per the cache modules' contract
 <!-- AC:END -->
+
+## Implementation Notes
+
+<!-- SECTION:NOTES:BEGIN -->
+Landed in wave TASK-2240. AC #2 required a bounded production change: query_crate_coverage zero-fills members whose LEFT JOIN matched no coverage_files row, so per_crate_units previously emitted no-data members as 0% rows. It now omits members with lines_count == 0 (no measurable coverage), per the AC intent. New tests: extensions-rust/about/src/coverage_provider.rs provider_tests (6 tests, platform-independent, serial(typed_manifest_cache, project_coverage_cache)).
+<!-- SECTION:NOTES:END -->

@@ -1,17 +1,15 @@
 ---
 id: TASK-2195
-title: >-
-  TEST-23: the provider schema's 15-field list can silently drift from
-  CoverageRow - nothing binds them
-status: To Do
-assignee:
-  - TASK-2240
+title: 'TEST-23: the provider schema''s 15-field list can silently drift from CoverageRow - nothing binds them'
+status: Done
+assignee: []
 created_date: '2026-09-08 07:14'
-updated_date: '2026-09-08 10:56'
+updated_date: '2026-09-08 20:00'
 labels:
   - code-review-rust
   - tests
 dependencies: []
+parent_task_id: 'TASK-2240'
 modified_files:
   - extensions-rust/test-coverage/src/provider.rs
   - extensions-rust/test-coverage/src/tests/provider.rs
@@ -39,3 +37,9 @@ A binding test is cheap: serialize a `CoverageRow` (it derives `Serialize`) and 
 - [ ] #2 The hardcoded 15-literal restatement in coverage_provider_schema_has_fields is replaced or reduced so that adding a CoverageRow field fails the suite rather than passing silently
 - [ ] #3 Field ordering expectations, if any, are stated explicitly in the test rather than assumed
 <!-- AC:END -->
+
+## Implementation Notes
+
+<!-- SECTION:NOTES:BEGIN -->
+Landed in wave TASK-2240. coverage_provider_schema_has_fields replaced by coverage_provider_schema_fields_match_covered_row_serialization: expected set derived from a serialized CoverageRow, set equality with schema().fields names; ordering explicitly not asserted (name-bound consumers), documented in the test.
+<!-- SECTION:NOTES:END -->

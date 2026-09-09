@@ -1,17 +1,15 @@
 ---
 id: TASK-2201
-title: >-
-  TEST-5: PythonUnitsProvider's DataProvider impl and the about-python provider
-  registration are never exercised
-status: To Do
-assignee:
-  - TASK-2240
+title: 'TEST-5: PythonUnitsProvider''s DataProvider impl and the about-python provider registration are never exercised'
+status: Done
+assignee: []
 created_date: '2026-09-08 07:18'
-updated_date: '2026-09-08 10:55'
+updated_date: '2026-09-08 20:00'
 labels:
   - code-review-rust
   - tests
 dependencies: []
+parent_task_id: 'TASK-2240'
 modified_files:
   - extensions-python/about/src/units.rs
   - extensions-python/about/src/lib.rs
@@ -40,3 +38,9 @@ The sibling Node crate pins exactly this surface (`extensions-node/about/src/uni
 - [ ] #3 A test asserts the no-workspace case serialises to an empty JSON array, not null
 - [ ] #4 A test exercises AboutPythonExtension's register_data_providers and asserts both project_identity and project_units are registered
 <!-- AC:END -->
+
+## Implementation Notes
+
+<!-- SECTION:NOTES:BEGIN -->
+Landed in wave TASK-2240. units.rs: units_provider_name, units_provider_serialises_workspace_members, units_provider_no_workspace_is_empty_array (AC1-3, Node pattern). lib.rs: extension_registers_identity_and_units_providers (AC4, distinct payload shapes).
+<!-- SECTION:NOTES:END -->

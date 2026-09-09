@@ -1,17 +1,15 @@
 ---
 id: TASK-2217
-title: >-
-  ERR-13: the .tf parser and sanitizer warnings name no file, so an operator
-  cannot tell which of the workspace's .tf files triggered them
+title: 'ERR-13: the .tf parser and sanitizer warnings name no file, so an operator cannot tell which of the workspace''s .tf files triggered them'
 status: Done
-assignee:
-  - TASK-2236
+assignee: []
 created_date: '2026-09-08 07:21'
-updated_date: '2026-09-08 15:56'
+updated_date: '2026-09-08 20:00'
 labels:
   - code-review-rust
   - error-handling
 dependencies: []
+parent_task_id: 'TASK-2236'
 modified_files:
   - extensions-terraform/about/src/lib.rs
 priority: medium

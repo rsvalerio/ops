@@ -1,17 +1,15 @@
 ---
 id: TASK-2078
-title: >-
-  FN-3: exec_command and exec_command_raw thread 6-7 positional params that
-  ExecTaskCtx already bundles
+title: 'FN-3: exec_command and exec_command_raw thread 6-7 positional params that ExecTaskCtx already bundles'
 status: To Do
-assignee:
-  - TASK-2246
+assignee: []
 created_date: '2026-09-07 22:57'
-updated_date: '2026-09-08 10:58'
+updated_date: '2026-09-08 20:00'
 labels:
   - code-review-rust
   - structure
 dependencies: []
+parent_task_id: 'TASK-2246'
 modified_files:
   - crates/runner/src/command/exec.rs
 priority: low

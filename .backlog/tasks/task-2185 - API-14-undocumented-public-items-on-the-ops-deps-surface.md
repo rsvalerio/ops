@@ -2,14 +2,14 @@
 id: TASK-2185
 title: 'API-14: undocumented public items on the ops-deps surface'
 status: To Do
-assignee:
-  - TASK-2247
+assignee: []
 created_date: '2026-09-08 07:13'
-updated_date: '2026-09-08 11:00'
+updated_date: '2026-09-08 20:00'
 labels:
   - code-review-rust
   - api-design
 dependencies: []
+parent_task_id: 'TASK-2247'
 modified_files:
   - extensions-rust/deps/src/lib.rs
   - extensions-rust/deps/src/types.rs

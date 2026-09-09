@@ -1,17 +1,15 @@
 ---
 id: TASK-2164
-title: >-
-  API-14: the ops-tokei public surface has no doc summaries, and its one
-  fallible public helper documents only its errors
+title: 'API-14: the ops-tokei public surface has no doc summaries, and its one fallible public helper documents only its errors'
 status: To Do
-assignee:
-  - TASK-2247
+assignee: []
 created_date: '2026-09-08 07:05'
-updated_date: '2026-09-08 11:00'
+updated_date: '2026-09-08 20:00'
 labels:
   - code-review-rust
   - api-design
 dependencies: []
+parent_task_id: 'TASK-2247'
 modified_files:
   - extensions/tokei/src/lib.rs
   - extensions/tokei/src/ingestor.rs

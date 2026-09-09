@@ -1,17 +1,15 @@
 ---
 id: TASK-2086
-title: >-
-  PERF-3: run and run_raw walk the command stores twice, ignoring
-  expand_to_leaves_with_flags
+title: 'PERF-3: run and run_raw walk the command stores twice, ignoring expand_to_leaves_with_flags'
 status: To Do
-assignee:
-  - TASK-2244
+assignee: []
 created_date: '2026-09-07 22:58'
-updated_date: '2026-09-08 10:58'
+updated_date: '2026-09-08 20:00'
 labels:
   - code-review-rust
   - performance
 dependencies: []
+parent_task_id: 'TASK-2244'
 modified_files:
   - crates/runner/src/command/mod.rs
   - crates/runner/src/command/sequential.rs

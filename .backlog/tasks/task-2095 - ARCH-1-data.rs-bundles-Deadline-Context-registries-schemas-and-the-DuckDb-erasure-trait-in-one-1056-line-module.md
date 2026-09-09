@@ -1,17 +1,15 @@
 ---
 id: TASK-2095
-title: >-
-  ARCH-1: data.rs bundles Deadline, Context, registries, schemas, and the DuckDb
-  erasure trait in one 1056-line module
+title: 'ARCH-1: data.rs bundles Deadline, Context, registries, schemas, and the DuckDb erasure trait in one 1056-line module'
 status: To Do
-assignee:
-  - TASK-2246
+assignee: []
 created_date: '2026-09-07 22:59'
-updated_date: '2026-09-08 10:59'
+updated_date: '2026-09-08 20:00'
 labels:
   - code-review-rust
   - structure
 dependencies: []
+parent_task_id: 'TASK-2246'
 modified_files:
   - crates/extension/src/data.rs
   - crates/extension/src/lib.rs

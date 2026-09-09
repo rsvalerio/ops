@@ -1,17 +1,15 @@
 ---
 id: TASK-2148
-title: >-
-  DUP-3: cargo-update maintains a second ANSI grammar that has already diverged
-  from ops-theme's strip_ansi
+title: 'DUP-3: cargo-update maintains a second ANSI grammar that has already diverged from ops-theme''s strip_ansi'
 status: To Do
-assignee:
-  - TASK-2242
+assignee: []
 created_date: '2026-09-08 07:03'
-updated_date: '2026-09-08 10:57'
+updated_date: '2026-09-08 20:00'
 labels:
   - code-review-rust
   - duplication
 dependencies: []
+parent_task_id: 'TASK-2242'
 modified_files:
   - extensions-rust/cargo-update/src/lib.rs
   - crates/theme/src/style/strip.rs

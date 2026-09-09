@@ -1,18 +1,15 @@
 ---
 id: TASK-2140
-title: >-
-  SEC-11: the pre-push hook fails open when its ref-update capture fails - an
-  empty OPS_PRE_PUSH_REFS is read as "nothing to push" and skips every
-  configured check
-status: To Do
-assignee:
-  - TASK-2234
+title: 'SEC-11: the pre-push hook fails open when its ref-update capture fails - an empty OPS_PRE_PUSH_REFS is read as "nothing to push" and skips every configured check'
+status: Done
+assignee: []
 created_date: '2026-09-08 07:01'
-updated_date: '2026-09-08 10:53'
+updated_date: '2026-09-08 20:00'
 labels:
   - code-review-rust
   - security
 dependencies: []
+parent_task_id: 'TASK-2234'
 modified_files:
   - extensions/run-before-push/src/lib.rs
 priority: high

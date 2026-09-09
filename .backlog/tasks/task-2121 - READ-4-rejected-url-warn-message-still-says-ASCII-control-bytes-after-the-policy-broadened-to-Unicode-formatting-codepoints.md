@@ -1,17 +1,15 @@
 ---
 id: TASK-2121
-title: >-
-  READ-4: rejected-url warn message still says "ASCII control bytes" after the
-  policy broadened to Unicode formatting codepoints
+title: 'READ-4: rejected-url warn message still says "ASCII control bytes" after the policy broadened to Unicode formatting codepoints'
 status: Done
-assignee:
-  - TASK-2236
+assignee: []
 created_date: '2026-09-08 06:54'
-updated_date: '2026-09-08 15:47'
+updated_date: '2026-09-08 20:00'
 labels:
   - code-review-rust
   - readability
 dependencies: []
+parent_task_id: 'TASK-2236'
 modified_files:
   - extensions/git/src/config.rs
 priority: low

@@ -1,17 +1,15 @@
 ---
 id: TASK-2179
-title: >-
-  ERR-1: cargo-upgrade row-shape drift is only caught when every row fails, so
-  partial row loss silently shrinks the upgrade list
-status: To Do
-assignee:
-  - TASK-2234
+title: 'ERR-1: cargo-upgrade row-shape drift is only caught when every row fails, so partial row loss silently shrinks the upgrade list'
+status: Done
+assignee: []
 created_date: '2026-09-08 07:12'
-updated_date: '2026-09-08 10:53'
+updated_date: '2026-09-08 20:00'
 labels:
   - code-review-rust
   - error-handling
 dependencies: []
+parent_task_id: 'TASK-2234'
 modified_files:
   - extensions-rust/deps/src/parse/upgrade.rs
 priority: medium

@@ -1,18 +1,15 @@
 ---
 id: TASK-2141
-title: >-
-  SEC-33: the whole ref-update stream is funneled through one env var, so a push
-  above ~1000 refs dies at exec with E2BIG and MAX_REF_UPDATE_LINES is
-  unreachable
-status: To Do
-assignee:
-  - TASK-2234
+title: 'SEC-33: the whole ref-update stream is funneled through one env var, so a push above ~1000 refs dies at exec with E2BIG and MAX_REF_UPDATE_LINES is unreachable'
+status: Done
+assignee: []
 created_date: '2026-09-08 07:01'
-updated_date: '2026-09-08 10:53'
+updated_date: '2026-09-08 20:00'
 labels:
   - code-review-rust
   - security
 dependencies: []
+parent_task_id: 'TASK-2234'
 modified_files:
   - extensions/run-before-push/src/lib.rs
 priority: medium

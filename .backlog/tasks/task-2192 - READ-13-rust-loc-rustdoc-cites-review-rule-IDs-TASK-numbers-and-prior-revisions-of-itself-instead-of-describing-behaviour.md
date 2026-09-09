@@ -1,17 +1,15 @@
 ---
 id: TASK-2192
-title: >-
-  READ-13: rust-loc rustdoc cites review rule IDs, TASK numbers and prior
-  revisions of itself instead of describing behaviour
+title: 'READ-13: rust-loc rustdoc cites review rule IDs, TASK numbers and prior revisions of itself instead of describing behaviour'
 status: To Do
-assignee:
-  - TASK-2248
+assignee: []
 created_date: '2026-09-08 07:14'
-updated_date: '2026-09-08 11:01'
+updated_date: '2026-09-08 20:00'
 labels:
   - code-review-rust
   - readability
 dependencies: []
+parent_task_id: 'TASK-2248'
 modified_files:
   - extensions-rust/loc/src/lib.rs
   - extensions-rust/loc/src/views.rs

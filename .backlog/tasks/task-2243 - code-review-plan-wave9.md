@@ -1,11 +1,10 @@
 ---
 id: TASK-2243
-title: code-review-plan-wave9
-status: To Do
-assignee:
-  - code-review-wave
+title: 'code-review-plan-wave9'
+status: In Progress
+assignee: []
 created_date: '2026-09-08 10:51'
-updated_date: '2026-09-08 10:57'
+updated_date: '2026-09-08 20:00'
 labels:
   - code-review-wave
 dependencies:
@@ -41,4 +40,6 @@ code-review-plan-wave9: Types and lookups that permit or hide invalid state
 
 <!-- SECTION:NOTES:BEGIN -->
 Overlaps: TASK-2247 wave13 (4 files: crates/extension/src/data.rs ...); TASK-2246 wave12 (3 files: crates/backlog/src/render.rs ...); TASK-2248 wave14 (3 files: crates/extension/src/data.rs ...); TASK-2242 wave8 (2 files: extensions-rust/cargo-update/src/lib.rs ...); TASK-2244 wave10 (2 files: crates/backlog/src/store.rs ...); TASK-2234 wave0 (1 file: extensions/tokei/src/tests.rs); TASK-2240 wave6 (1 file: extensions-rust/create-review-tasks/src/provider.rs)
+
+Branch: code-review/TASK-2243
 <!-- SECTION:NOTES:END -->

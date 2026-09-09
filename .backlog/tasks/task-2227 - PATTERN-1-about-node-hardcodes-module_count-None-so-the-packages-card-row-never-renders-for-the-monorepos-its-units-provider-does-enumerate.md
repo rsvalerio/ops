@@ -1,17 +1,15 @@
 ---
 id: TASK-2227
-title: >-
-  PATTERN-1: about-node hardcodes module_count = None, so the 'packages' card
-  row never renders for the monorepos its units provider does enumerate
+title: 'PATTERN-1: about-node hardcodes module_count = None, so the ''packages'' card row never renders for the monorepos its units provider does enumerate'
 status: Done
-assignee:
-  - TASK-2239
+assignee: []
 created_date: '2026-09-08 07:22'
-updated_date: '2026-09-08 17:08'
+updated_date: '2026-09-08 20:00'
 labels:
   - code-review-rust
   - correctness
 dependencies: []
+parent_task_id: 'TASK-2239'
 modified_files:
   - extensions-node/about/src/lib.rs
 priority: medium

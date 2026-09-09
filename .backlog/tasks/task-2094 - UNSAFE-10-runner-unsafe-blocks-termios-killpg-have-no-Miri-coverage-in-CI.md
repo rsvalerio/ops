@@ -2,14 +2,14 @@
 id: TASK-2094
 title: 'UNSAFE-10: runner unsafe blocks (termios, killpg) have no Miri coverage in CI'
 status: Done
-assignee:
-  - TASK-2245
+assignee: []
 created_date: '2026-09-07 22:59'
-updated_date: '2026-09-08 15:59'
+updated_date: '2026-09-08 20:00'
 labels:
   - code-review-rust
   - unsafe
 dependencies: []
+parent_task_id: 'TASK-2245'
 modified_files:
   - crates/runner/src/terminal.rs
   - crates/runner/src/command/process_group.rs

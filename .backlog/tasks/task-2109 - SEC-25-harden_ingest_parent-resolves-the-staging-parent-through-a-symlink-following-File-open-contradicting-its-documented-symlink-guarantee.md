@@ -1,17 +1,15 @@
 ---
 id: TASK-2109
-title: >-
-  SEC-25: harden_ingest_parent resolves the staging parent through a
-  symlink-following File::open, contradicting its documented symlink guarantee
-status: To Do
-assignee:
-  - TASK-2235
+title: 'SEC-25: harden_ingest_parent resolves the staging parent through a symlink-following File::open, contradicting its documented symlink guarantee'
+status: Done
+assignee: []
 created_date: '2026-09-08 06:53'
-updated_date: '2026-09-08 10:53'
+updated_date: '2026-09-08 20:00'
 labels:
   - code-review-rust
   - security
 dependencies: []
+parent_task_id: 'TASK-2235'
 modified_files:
   - extensions/duckdb/src/sql/ingest/dir.rs
 priority: medium

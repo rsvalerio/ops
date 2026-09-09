@@ -1,17 +1,15 @@
 ---
 id: TASK-2182
-title: >-
-  READ-13: ops-deps rustdoc is a change journal of TASK ids and past bugs rather
-  than a description of the current behaviour
+title: 'READ-13: ops-deps rustdoc is a change journal of TASK ids and past bugs rather than a description of the current behaviour'
 status: To Do
-assignee:
-  - TASK-2248
+assignee: []
 created_date: '2026-09-08 07:13'
-updated_date: '2026-09-08 11:01'
+updated_date: '2026-09-08 20:00'
 labels:
   - code-review-rust
   - readability
 dependencies: []
+parent_task_id: 'TASK-2248'
 modified_files:
   - extensions-rust/deps/src/lib.rs
   - extensions-rust/deps/src/parse/mod.rs

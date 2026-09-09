@@ -1,18 +1,15 @@
 ---
 id: TASK-2232
-title: >-
-  API-14: ops-about-node's only public type has no doc summary and
-  crate-internal helpers are pub, including a foreign re-export of
-  ops_about::text_util::trim_nonempty
+title: 'API-14: ops-about-node''s only public type has no doc summary and crate-internal helpers are pub, including a foreign re-export of ops_about::text_util::trim_nonempty'
 status: To Do
-assignee:
-  - TASK-2247
+assignee: []
 created_date: '2026-09-08 07:24'
-updated_date: '2026-09-08 11:00'
+updated_date: '2026-09-08 20:00'
 labels:
   - code-review-rust
   - api-design
 dependencies: []
+parent_task_id: 'TASK-2247'
 modified_files:
   - extensions-node/about/src/lib.rs
   - extensions-node/about/src/package_json.rs

@@ -1,18 +1,15 @@
 ---
 id: TASK-2129
-title: >-
-  SEC-33: existing git hook is slurped unbounded as UTF-8, so a binary or
-  non-UTF-8 hook fails install with an opaque error instead of being refused as
-  foreign
-status: To Do
-assignee:
-  - TASK-2234
+title: 'SEC-33: existing git hook is slurped unbounded as UTF-8, so a binary or non-UTF-8 hook fails install with an opaque error instead of being refused as foreign'
+status: Done
+assignee: []
 created_date: '2026-09-08 06:55'
-updated_date: '2026-09-08 10:53'
+updated_date: '2026-09-08 20:00'
 labels:
   - code-review-rust
   - security
 dependencies: []
+parent_task_id: 'TASK-2234'
 modified_files:
   - extensions/hook-common/src/install.rs
 priority: medium

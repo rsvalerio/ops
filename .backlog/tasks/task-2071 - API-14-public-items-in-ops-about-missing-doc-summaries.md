@@ -2,14 +2,14 @@
 id: TASK-2071
 title: 'API-14: public items in ops-about missing doc summaries'
 status: To Do
-assignee:
-  - TASK-2247
+assignee: []
 created_date: '2026-09-07 22:55'
-updated_date: '2026-09-08 10:59'
+updated_date: '2026-09-08 20:00'
 labels:
   - code-review-rust
   - api
 dependencies: []
+parent_task_id: 'TASK-2247'
 modified_files:
   - extensions/about/src/cards.rs
   - extensions/about/src/text_util.rs

@@ -1,17 +1,15 @@
 ---
 id: TASK-2080
-title: >-
-  API-1: looks_like_secret_value re-exported under the meaningless alias
-  looks_like_secret_value_public
+title: 'API-1: looks_like_secret_value re-exported under the meaningless alias looks_like_secret_value_public'
 status: To Do
-assignee:
-  - TASK-2247
+assignee: []
 created_date: '2026-09-07 22:57'
-updated_date: '2026-09-08 10:59'
+updated_date: '2026-09-08 20:00'
 labels:
   - code-review-rust
   - api
 dependencies: []
+parent_task_id: 'TASK-2247'
 modified_files:
   - crates/runner/src/command/mod.rs
   - crates/cli/src/run_cmd/dry_run.rs

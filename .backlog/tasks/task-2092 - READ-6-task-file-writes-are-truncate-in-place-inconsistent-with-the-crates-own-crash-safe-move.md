@@ -1,17 +1,15 @@
 ---
 id: TASK-2092
-title: >-
-  READ-6: task-file writes are truncate-in-place, inconsistent with the crate's
-  own crash-safe move
-status: To Do
-assignee:
-  - TASK-2235
+title: 'READ-6: task-file writes are truncate-in-place, inconsistent with the crate''s own crash-safe move'
+status: Done
+assignee: []
 created_date: '2026-09-07 22:59'
-updated_date: '2026-09-08 10:54'
+updated_date: '2026-09-08 20:00'
 labels:
   - code-review-rust
   - readability
 dependencies: []
+parent_task_id: 'TASK-2235'
 modified_files:
   - crates/backlog/src/cmd/edit.rs
   - crates/backlog/src/cmd/wave.rs

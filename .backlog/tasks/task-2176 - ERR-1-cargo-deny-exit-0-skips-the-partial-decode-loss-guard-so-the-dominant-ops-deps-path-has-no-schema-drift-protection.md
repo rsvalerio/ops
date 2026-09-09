@@ -1,17 +1,15 @@
 ---
 id: TASK-2176
-title: >-
-  ERR-1: cargo-deny exit 0 skips the partial-decode-loss guard, so the dominant
-  ops deps path has no schema-drift protection
-status: To Do
-assignee:
-  - TASK-2234
+title: 'ERR-1: cargo-deny exit 0 skips the partial-decode-loss guard, so the dominant ops deps path has no schema-drift protection'
+status: Done
+assignee: []
 created_date: '2026-09-08 07:12'
-updated_date: '2026-09-08 10:53'
+updated_date: '2026-09-08 20:00'
 labels:
   - code-review-rust
   - error-handling
 dependencies: []
+parent_task_id: 'TASK-2234'
 modified_files:
   - extensions-rust/deps/src/parse/deny.rs
 priority: high

@@ -1,17 +1,15 @@
 ---
 id: TASK-2216
-title: >-
-  READ-13: nearly every doc comment in ops-tfplan opens with a rule ID and TASK
-  number, so rustdoc shows the review history instead of what the item does
+title: 'READ-13: nearly every doc comment in ops-tfplan opens with a rule ID and TASK number, so rustdoc shows the review history instead of what the item does'
 status: To Do
-assignee:
-  - TASK-2248
+assignee: []
 created_date: '2026-09-08 07:21'
-updated_date: '2026-09-08 11:02'
+updated_date: '2026-09-08 20:00'
 labels:
   - code-review-rust
   - readability
 dependencies: []
+parent_task_id: 'TASK-2248'
 modified_files:
   - extensions-terraform/plan/src/lib.rs
   - extensions-terraform/plan/src/model.rs

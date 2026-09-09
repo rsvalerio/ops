@@ -1,18 +1,15 @@
 ---
 id: TASK-2143
-title: >-
-  SEC-25: the registered cargo_toml provider auto-discovers its workspace root
-  with the lenient walk while every in-repo consumer uses
-  find_workspace_root_strict
-status: To Do
-assignee:
-  - TASK-2235
+title: 'SEC-25: the registered cargo_toml provider auto-discovers its workspace root with the lenient walk while every in-repo consumer uses find_workspace_root_strict'
+status: Done
+assignee: []
 created_date: '2026-09-08 07:02'
-updated_date: '2026-09-08 10:54'
+updated_date: '2026-09-08 20:00'
 labels:
   - code-review-rust
   - sec
 dependencies: []
+parent_task_id: 'TASK-2235'
 modified_files:
   - extensions-rust/cargo-toml/src/lib.rs
   - extensions-rust/cargo-toml/src/workspace_root.rs

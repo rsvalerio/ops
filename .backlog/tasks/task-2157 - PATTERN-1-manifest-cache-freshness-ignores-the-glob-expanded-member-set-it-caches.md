@@ -1,17 +1,15 @@
 ---
 id: TASK-2157
-title: >-
-  PATTERN-1: manifest cache freshness ignores the glob-expanded member set it
-  caches
+title: 'PATTERN-1: manifest cache freshness ignores the glob-expanded member set it caches'
 status: Done
-assignee:
-  - TASK-2239
+assignee: []
 created_date: '2026-09-08 07:04'
-updated_date: '2026-09-08 16:53'
+updated_date: '2026-09-08 20:00'
 labels:
   - code-review-rust
   - pattern
 dependencies: []
+parent_task_id: 'TASK-2239'
 modified_files:
   - extensions-rust/about/src/manifest_cache.rs
   - extensions-rust/about/src/manifest.rs

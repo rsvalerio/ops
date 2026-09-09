@@ -1,17 +1,15 @@
 ---
 id: TASK-2124
-title: >-
-  API-14: public items in ops-run-before-commit have no doc summaries, and the
-  macro-generated fallible entry points have no # Errors section
+title: 'API-14: public items in ops-run-before-commit have no doc summaries, and the macro-generated fallible entry points have no # Errors section'
 status: To Do
-assignee:
-  - TASK-2247
+assignee: []
 created_date: '2026-09-08 06:54'
-updated_date: '2026-09-08 10:59'
+updated_date: '2026-09-08 20:00'
 labels:
   - code-review-rust
   - api-design
 dependencies: []
+parent_task_id: 'TASK-2247'
 modified_files:
   - extensions/run-before-commit/src/lib.rs
   - extensions/hook-common/src/lib.rs

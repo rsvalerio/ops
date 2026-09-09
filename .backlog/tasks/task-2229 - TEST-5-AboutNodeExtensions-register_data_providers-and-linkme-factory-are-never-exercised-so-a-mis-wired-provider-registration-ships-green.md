@@ -1,17 +1,15 @@
 ---
 id: TASK-2229
-title: >-
-  TEST-5: AboutNodeExtension's register_data_providers and linkme factory are
-  never exercised, so a mis-wired provider registration ships green
-status: To Do
-assignee:
-  - TASK-2240
+title: 'TEST-5: AboutNodeExtension''s register_data_providers and linkme factory are never exercised, so a mis-wired provider registration ships green'
+status: Done
+assignee: []
 created_date: '2026-09-08 07:23'
-updated_date: '2026-09-08 10:55'
+updated_date: '2026-09-08 20:00'
 labels:
   - code-review-rust
   - test-quality
 dependencies: []
+parent_task_id: 'TASK-2240'
 modified_files:
   - extensions-node/about/src/lib.rs
 priority: medium
@@ -59,3 +57,9 @@ TASK-2184 (about-go), TASK-2201 (about-python).
 - [ ] #2 a test asserts the register calls report no duplicate rejection (the discarded Option is None for both)
 - [ ] #3 a test exercises NODE_ABOUT_FACTORY and asserts the extension's name, shortname, stack and type
 <!-- AC:END -->
+
+## Implementation Notes
+
+<!-- SECTION:NOTES:BEGIN -->
+Landed in wave TASK-2240. lib.rs: extension_registers_both_providers_and_each_answers (AC1), factory_yields_the_node_about_extension_with_declared_metadata (AC3). AC2 substitution: the discarded Option inside the closure is unobservable from outside, so the test asserts the closest meaningful property — both keys land under a fresh registry with first-write-wins semantics (a collision inside the closure would reject one, leaving a key missing) and each key answers its own payload shape over a real fixture.
+<!-- SECTION:NOTES:END -->

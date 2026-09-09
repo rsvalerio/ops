@@ -1,17 +1,15 @@
 ---
 id: TASK-2108
-title: >-
-  DUP-1: the pre-commit and pre-push hook scripts duplicate the missing-ops
-  guard, and the copies have already diverged on the bypass
-status: To Do
-assignee:
-  - TASK-2234
+title: 'DUP-1: the pre-commit and pre-push hook scripts duplicate the missing-ops guard, and the copies have already diverged on the bypass'
+status: Done
+assignee: []
 created_date: '2026-09-08 06:53'
-updated_date: '2026-09-08 10:53'
+updated_date: '2026-09-08 20:00'
 labels:
   - code-review-rust
   - duplication
 dependencies: []
+parent_task_id: 'TASK-2234'
 modified_files:
   - extensions/run-before-commit/src/lib.rs
   - extensions/run-before-push/src/lib.rs

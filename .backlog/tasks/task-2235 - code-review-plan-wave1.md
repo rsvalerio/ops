@@ -1,11 +1,10 @@
 ---
 id: TASK-2235
-title: code-review-plan-wave1
-status: To Do
-assignee:
-  - code-review-wave
+title: 'code-review-plan-wave1'
+status: In Progress
+assignee: []
 created_date: '2026-09-08 10:50'
-updated_date: '2026-09-08 10:53'
+updated_date: '2026-09-08 20:00'
 labels:
   - code-review-wave
 dependencies:
@@ -40,4 +39,6 @@ code-review-plan-wave1: Symlink/TOCTOU path resolution, atomic writes, and unbou
 
 <!-- SECTION:NOTES:BEGIN -->
 Overlaps: TASK-2248 wave14 (5 files: extensions-rust/cargo-toml/src/lib.rs ...); TASK-2247 wave13 (4 files: extensions-rust/cargo-toml/src/lib.rs ...); TASK-2237 wave3 (2 files: extensions/text-fixers/src/atomic.rs ...); TASK-2242 wave8 (2 files: crates/backlog/src/cmd/edit.rs ...); TASK-2246 wave12 (2 files: crates/backlog/src/cmd/edit.rs ...); TASK-2241 wave7 (1 file: extensions-terraform/plan/src/lib.rs); TASK-2244 wave10 (1 file: extensions/duckdb/src/sql/ingest/dir.rs)
+
+Branch: code-review/TASK-2235
 <!-- SECTION:NOTES:END -->

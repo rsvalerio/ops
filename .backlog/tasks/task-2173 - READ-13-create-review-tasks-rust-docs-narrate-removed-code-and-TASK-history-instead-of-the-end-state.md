@@ -1,17 +1,15 @@
 ---
 id: TASK-2173
-title: >-
-  READ-13: create-review-tasks-rust docs narrate removed code and TASK history
-  instead of the end state
+title: 'READ-13: create-review-tasks-rust docs narrate removed code and TASK history instead of the end state'
 status: To Do
-assignee:
-  - TASK-2248
+assignee: []
 created_date: '2026-09-08 07:11'
-updated_date: '2026-09-08 11:01'
+updated_date: '2026-09-08 20:00'
 labels:
   - code-review-rust
   - readability
 dependencies: []
+parent_task_id: 'TASK-2248'
 modified_files:
   - extensions-rust/create-review-tasks/src/lib.rs
   - extensions-rust/create-review-tasks/src/provider.rs

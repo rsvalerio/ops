@@ -1,17 +1,15 @@
 ---
 id: TASK-2105
-title: >-
-  PATTERN-1: parse_remote_url silently drops the port from the normalized remote
-  URL
-status: To Do
-assignee:
-  - TASK-2243
+title: 'PATTERN-1: parse_remote_url silently drops the port from the normalized remote URL'
+status: Done
+assignee: []
 created_date: '2026-09-08 06:53'
-updated_date: '2026-09-08 10:57'
+updated_date: '2026-09-08 20:00'
 labels:
   - code-review-rust
   - pattern
 dependencies: []
+parent_task_id: 'TASK-2243'
 modified_files:
   - extensions/git/src/remote.rs
 priority: medium

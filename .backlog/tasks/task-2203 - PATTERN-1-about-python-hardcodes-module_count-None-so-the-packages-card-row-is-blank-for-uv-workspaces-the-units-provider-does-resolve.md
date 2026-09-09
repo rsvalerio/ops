@@ -1,17 +1,15 @@
 ---
 id: TASK-2203
-title: >-
-  PATTERN-1: about-python hardcodes module_count = None, so the 'packages' card
-  row is blank for uv workspaces the units provider does resolve
+title: 'PATTERN-1: about-python hardcodes module_count = None, so the ''packages'' card row is blank for uv workspaces the units provider does resolve'
 status: Done
-assignee:
-  - TASK-2239
+assignee: []
 created_date: '2026-09-08 07:19'
-updated_date: '2026-09-08 17:00'
+updated_date: '2026-09-08 20:00'
 labels:
   - code-review-rust
   - pattern
 dependencies: []
+parent_task_id: 'TASK-2239'
 modified_files:
   - extensions-python/about/src/lib.rs
   - extensions-python/about/src/units.rs

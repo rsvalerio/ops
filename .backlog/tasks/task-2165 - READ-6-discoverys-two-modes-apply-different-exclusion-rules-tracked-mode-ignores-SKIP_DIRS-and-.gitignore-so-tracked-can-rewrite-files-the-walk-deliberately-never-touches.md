@@ -1,19 +1,16 @@
 ---
 id: TASK-2165
-title: >-
-  READ-6: discovery's two modes apply different exclusion rules - tracked mode
-  ignores SKIP_DIRS and .gitignore, so --tracked can rewrite files the walk
-  deliberately never touches
+title: 'READ-6: discovery''s two modes apply different exclusion rules - tracked mode ignores SKIP_DIRS and .gitignore, so --tracked can rewrite files the walk deliberately never touches'
 status: Done
-assignee:
-  - TASK-2237
+assignee: []
 created_date: '2026-09-08 07:05'
-updated_date: '2026-09-08 16:08'
+updated_date: '2026-09-08 20:00'
 labels:
   - code-review-rust
   - readability
   - architecture
 dependencies: []
+parent_task_id: 'TASK-2237'
 modified_files:
   - extensions/text-fixers/src/discovery.rs
   - extensions/text-fixers/src/discovery/tests.rs

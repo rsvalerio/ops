@@ -1,17 +1,15 @@
 ---
 id: TASK-2096
-title: >-
-  TEST-33: ConfigurableTheme::new performs stderr I/O via
-  warn_on_running_template_overhead with no injection point
+title: 'TEST-33: ConfigurableTheme::new performs stderr I/O via warn_on_running_template_overhead with no injection point'
 status: To Do
-assignee:
-  - TASK-2241
+assignee: []
 created_date: '2026-09-07 22:59'
-updated_date: '2026-09-08 10:56'
+updated_date: '2026-09-08 20:00'
 labels:
   - code-review-rust
   - testability
 dependencies: []
+parent_task_id: 'TASK-2241'
 modified_files:
   - crates/theme/src/configurable.rs
 priority: low

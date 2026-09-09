@@ -1,17 +1,15 @@
 ---
 id: TASK-2183
-title: >-
-  DUP-1: relativize_path is duplicated verbatim between the tokei and rust-loc
-  extensions
+title: 'DUP-1: relativize_path is duplicated verbatim between the tokei and rust-loc extensions'
 status: To Do
-assignee:
-  - TASK-2242
+assignee: []
 created_date: '2026-09-08 07:13'
-updated_date: '2026-09-08 10:57'
+updated_date: '2026-09-08 20:00'
 labels:
   - code-review-rust
   - duplication
 dependencies: []
+parent_task_id: 'TASK-2242'
 modified_files:
   - extensions-rust/loc/src/lib.rs
   - extensions/tokei/src/lib.rs

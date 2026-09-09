@@ -1,17 +1,15 @@
 ---
 id: TASK-2196
-title: >-
-  DUP-1: set_module and set_go_version in go_mod.rs are the same
-  first-wins-unquote-nonempty routine written twice
+title: 'DUP-1: set_module and set_go_version in go_mod.rs are the same first-wins-unquote-nonempty routine written twice'
 status: To Do
-assignee:
-  - TASK-2242
+assignee: []
 created_date: '2026-09-08 07:15'
-updated_date: '2026-09-08 10:57'
+updated_date: '2026-09-08 20:00'
 labels:
   - code-review-rust
   - duplication
 dependencies: []
+parent_task_id: 'TASK-2242'
 modified_files:
   - extensions-go/about/src/go_mod.rs
 priority: low

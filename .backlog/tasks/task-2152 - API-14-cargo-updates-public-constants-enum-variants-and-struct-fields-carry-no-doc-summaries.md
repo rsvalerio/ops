@@ -1,17 +1,15 @@
 ---
 id: TASK-2152
-title: >-
-  API-14: cargo-update's public constants, enum variants and struct fields carry
-  no doc summaries
+title: 'API-14: cargo-update''s public constants, enum variants and struct fields carry no doc summaries'
 status: To Do
-assignee:
-  - TASK-2247
+assignee: []
 created_date: '2026-09-08 07:03'
-updated_date: '2026-09-08 11:00'
+updated_date: '2026-09-08 20:00'
 labels:
   - code-review-rust
   - api
 dependencies: []
+parent_task_id: 'TASK-2247'
 modified_files:
   - extensions-rust/cargo-update/src/lib.rs
 priority: low

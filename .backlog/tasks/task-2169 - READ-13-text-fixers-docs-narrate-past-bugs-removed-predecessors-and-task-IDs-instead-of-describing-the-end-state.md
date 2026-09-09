@@ -1,17 +1,15 @@
 ---
 id: TASK-2169
-title: >-
-  READ-13: text-fixers docs narrate past bugs, removed predecessors and task IDs
-  instead of describing the end state
+title: 'READ-13: text-fixers docs narrate past bugs, removed predecessors and task IDs instead of describing the end state'
 status: To Do
-assignee:
-  - TASK-2248
+assignee: []
 created_date: '2026-09-08 07:07'
-updated_date: '2026-09-08 11:01'
+updated_date: '2026-09-08 20:00'
 labels:
   - code-review-rust
   - readability
 dependencies: []
+parent_task_id: 'TASK-2248'
 modified_files:
   - extensions/text-fixers/src/lib.rs
   - extensions/text-fixers/src/trailing.rs

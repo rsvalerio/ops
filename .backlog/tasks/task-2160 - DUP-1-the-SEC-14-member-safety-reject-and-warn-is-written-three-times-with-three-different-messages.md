@@ -1,17 +1,15 @@
 ---
 id: TASK-2160
-title: >-
-  DUP-1: the SEC-14 member-safety reject-and-warn is written three times with
-  three different messages
+title: 'DUP-1: the SEC-14 member-safety reject-and-warn is written three times with three different messages'
 status: Done
-assignee:
-  - TASK-2236
+assignee: []
 created_date: '2026-09-08 07:05'
-updated_date: '2026-09-08 15:53'
+updated_date: '2026-09-08 20:00'
 labels:
   - code-review-rust
   - duplication
 dependencies: []
+parent_task_id: 'TASK-2236'
 modified_files:
   - extensions-rust/about/src/members.rs
   - extensions-rust/about/src/units.rs

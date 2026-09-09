@@ -1,17 +1,15 @@
 ---
 id: TASK-2168
-title: >-
-  PERF-3: fix_trailing allocates and fills a full-size output buffer for every
-  file, including the overwhelming majority that need no change
+title: 'PERF-3: fix_trailing allocates and fills a full-size output buffer for every file, including the overwhelming majority that need no change'
 status: To Do
-assignee:
-  - TASK-2244
+assignee: []
 created_date: '2026-09-08 07:06'
-updated_date: '2026-09-08 10:58'
+updated_date: '2026-09-08 20:00'
 labels:
   - code-review-rust
   - performance
 dependencies: []
+parent_task_id: 'TASK-2244'
 modified_files:
   - extensions/text-fixers/src/trailing.rs
 priority: low

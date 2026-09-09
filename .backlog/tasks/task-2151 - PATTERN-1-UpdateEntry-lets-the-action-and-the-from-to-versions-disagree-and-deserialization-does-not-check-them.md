@@ -1,17 +1,15 @@
 ---
 id: TASK-2151
-title: >-
-  PATTERN-1: UpdateEntry lets the action and the from/to versions disagree, and
-  deserialization does not check them
-status: To Do
-assignee:
-  - TASK-2243
+title: 'PATTERN-1: UpdateEntry lets the action and the from/to versions disagree, and deserialization does not check them'
+status: Done
+assignee: []
 created_date: '2026-09-08 07:03'
-updated_date: '2026-09-08 10:57'
+updated_date: '2026-09-08 20:00'
 labels:
   - code-review-rust
   - pattern
 dependencies: []
+parent_task_id: 'TASK-2243'
 modified_files:
   - extensions-rust/cargo-update/src/lib.rs
 priority: medium

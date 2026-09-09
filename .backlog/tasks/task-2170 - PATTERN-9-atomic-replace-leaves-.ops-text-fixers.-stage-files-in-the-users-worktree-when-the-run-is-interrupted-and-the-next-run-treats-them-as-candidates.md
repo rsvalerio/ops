@@ -1,18 +1,15 @@
 ---
 id: TASK-2170
-title: >-
-  PATTERN-9: atomic::replace leaves .ops-text-fixers.* stage files in the user's
-  worktree when the run is interrupted, and the next run treats them as
-  candidates
-status: To Do
-assignee:
-  - TASK-2235
+title: 'PATTERN-9: atomic::replace leaves .ops-text-fixers.* stage files in the user''s worktree when the run is interrupted, and the next run treats them as candidates'
+status: Done
+assignee: []
 created_date: '2026-09-08 07:07'
-updated_date: '2026-09-08 10:54'
+updated_date: '2026-09-08 20:00'
 labels:
   - code-review-rust
   - patterns
 dependencies: []
+parent_task_id: 'TASK-2235'
 modified_files:
   - extensions/text-fixers/src/atomic.rs
   - extensions/text-fixers/src/discovery.rs

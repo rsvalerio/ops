@@ -1,17 +1,15 @@
 ---
 id: TASK-2205
-title: >-
-  TEST-5: invalid_root_pyproject_yields_no_units documents a warn assertion it
-  does not make, and the warn it describes has no recovery field
+title: 'TEST-5: invalid_root_pyproject_yields_no_units documents a warn assertion it does not make, and the warn it describes has no recovery field'
 status: To Do
-assignee:
-  - TASK-2241
+assignee: []
 created_date: '2026-09-08 07:19'
-updated_date: '2026-09-08 10:56'
+updated_date: '2026-09-08 20:00'
 labels:
   - code-review-rust
   - tests
 dependencies: []
+parent_task_id: 'TASK-2241'
 modified_files:
   - extensions-python/about/src/units.rs
 priority: medium

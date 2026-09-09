@@ -1,17 +1,15 @@
 ---
 id: TASK-2188
-title: >-
-  ERR-1: ops-metadata accepts silently-truncated `cargo metadata` stdout as a
-  complete document
-status: To Do
-assignee:
-  - TASK-2234
+title: 'ERR-1: ops-metadata accepts silently-truncated `cargo metadata` stdout as a complete document'
+status: Done
+assignee: []
 created_date: '2026-09-08 07:14'
-updated_date: '2026-09-08 10:53'
+updated_date: '2026-09-08 20:00'
 labels:
   - code-review-rust
   - error-handling
 dependencies: []
+parent_task_id: 'TASK-2234'
 modified_files:
   - extensions-rust/metadata/src/ingestor.rs
   - extensions-rust/metadata/src/lib.rs

@@ -1,17 +1,15 @@
 ---
 id: TASK-2204
-title: >-
-  PATTERN-1: ops-about-java advertises a Homepage about field it can never fill,
-  while the POM's homepage <url> is emitted as the repository
+title: 'PATTERN-1: ops-about-java advertises a Homepage about field it can never fill, while the POM''s homepage <url> is emitted as the repository'
 status: Done
-assignee:
-  - TASK-2239
+assignee: []
 created_date: '2026-09-08 07:19'
-updated_date: '2026-09-08 17:03'
+updated_date: '2026-09-08 20:00'
 labels:
   - code-review-rust
   - pattern
 dependencies: []
+parent_task_id: 'TASK-2239'
 modified_files:
   - extensions-java/about/src/lib.rs
   - extensions-java/about/src/maven/pom.rs

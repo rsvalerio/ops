@@ -1,17 +1,15 @@
 ---
 id: TASK-2163
-title: >-
-  API-14: ops-about-rust public surface lacks doc summaries and leaks pub on
-  crate-internal helpers
+title: 'API-14: ops-about-rust public surface lacks doc summaries and leaks pub on crate-internal helpers'
 status: To Do
-assignee:
-  - TASK-2247
+assignee: []
 created_date: '2026-09-08 07:05'
-updated_date: '2026-09-08 11:00'
+updated_date: '2026-09-08 20:00'
 labels:
   - code-review-rust
   - api
 dependencies: []
+parent_task_id: 'TASK-2247'
 modified_files:
   - extensions-rust/about/src/lib.rs
   - extensions-rust/about/src/units.rs

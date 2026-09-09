@@ -1,17 +1,15 @@
 ---
 id: TASK-2150
-title: >-
-  DUP-1: three near-identical LRU cache scaffolds in ops-about-rust (manifest,
-  coverage, workspace-root)
+title: 'DUP-1: three near-identical LRU cache scaffolds in ops-about-rust (manifest, coverage, workspace-root)'
 status: To Do
-assignee:
-  - TASK-2242
+assignee: []
 created_date: '2026-09-08 07:03'
-updated_date: '2026-09-08 10:57'
+updated_date: '2026-09-08 20:00'
 labels:
   - code-review-rust
   - duplication
 dependencies: []
+parent_task_id: 'TASK-2242'
 modified_files:
   - extensions-rust/about/src/manifest_cache.rs
   - extensions-rust/about/src/coverage_provider.rs

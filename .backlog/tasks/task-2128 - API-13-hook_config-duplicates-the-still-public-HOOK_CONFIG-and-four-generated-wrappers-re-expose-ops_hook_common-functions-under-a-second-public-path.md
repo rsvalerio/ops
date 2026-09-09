@@ -1,18 +1,15 @@
 ---
 id: TASK-2128
-title: >-
-  API-13: hook_config() duplicates the still-public HOOK_CONFIG, and four
-  generated wrappers re-expose ops_hook_common functions under a second public
-  path
+title: 'API-13: hook_config() duplicates the still-public HOOK_CONFIG, and four generated wrappers re-expose ops_hook_common functions under a second public path'
 status: To Do
-assignee:
-  - TASK-2247
+assignee: []
 created_date: '2026-09-08 06:55'
-updated_date: '2026-09-08 10:59'
+updated_date: '2026-09-08 20:00'
 labels:
   - code-review-rust
   - api-design
 dependencies: []
+parent_task_id: 'TASK-2247'
 modified_files:
   - extensions/hook-common/src/lib.rs
   - extensions/run-before-commit/src/lib.rs

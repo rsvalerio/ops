@@ -1,18 +1,15 @@
 ---
 id: TASK-2231
-title: >-
-  PATTERN-1: the pnpm-workspace.yaml parser matches a nested packages: key and
-  only ends the block at column zero, so unrelated list entries become workspace
-  globs
+title: 'PATTERN-1: the pnpm-workspace.yaml parser matches a nested packages: key and only ends the block at column zero, so unrelated list entries become workspace globs'
 status: Done
-assignee:
-  - TASK-2238
+assignee: []
 created_date: '2026-09-08 07:23'
-updated_date: '2026-09-08 16:59'
+updated_date: '2026-09-08 20:00'
 labels:
   - code-review-rust
   - correctness
 dependencies: []
+parent_task_id: 'TASK-2238'
 modified_files:
   - extensions-node/about/src/units.rs
 priority: low

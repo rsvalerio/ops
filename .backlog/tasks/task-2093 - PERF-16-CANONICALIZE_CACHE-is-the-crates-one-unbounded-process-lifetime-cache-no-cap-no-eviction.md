@@ -1,17 +1,15 @@
 ---
 id: TASK-2093
-title: >-
-  PERF-16: CANONICALIZE_CACHE is the crate's one unbounded process-lifetime
-  cache (no cap, no eviction)
+title: 'PERF-16: CANONICALIZE_CACHE is the crate''s one unbounded process-lifetime cache (no cap, no eviction)'
 status: To Do
-assignee:
-  - TASK-2244
+assignee: []
 created_date: '2026-09-07 22:59'
-updated_date: '2026-09-08 10:58'
+updated_date: '2026-09-08 20:00'
 labels:
   - code-review-rust
   - performance
 dependencies: []
+parent_task_id: 'TASK-2244'
 modified_files:
   - crates/core/src/stack/detect.rs
 priority: low

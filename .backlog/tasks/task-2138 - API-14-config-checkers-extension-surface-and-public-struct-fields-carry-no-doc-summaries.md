@@ -1,17 +1,15 @@
 ---
 id: TASK-2138
-title: >-
-  API-14: config-checkers' extension surface and public struct fields carry no
-  doc summaries
+title: 'API-14: config-checkers'' extension surface and public struct fields carry no doc summaries'
 status: To Do
-assignee:
-  - TASK-2247
+assignee: []
 created_date: '2026-09-08 06:56'
-updated_date: '2026-09-08 11:00'
+updated_date: '2026-09-08 20:00'
 labels:
   - code-review-rust
   - api-design
 dependencies: []
+parent_task_id: 'TASK-2247'
 modified_files:
   - extensions/config-checkers/src/lib.rs
   - extensions/config-checkers/src/options.rs

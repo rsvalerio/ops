@@ -1,17 +1,15 @@
 ---
 id: TASK-2159
-title: >-
-  PERF-3: every tokei candidate is walked, stat'd and language-classified twice,
-  and the second walk is given up to 50,000 roots
+title: 'PERF-3: every tokei candidate is walked, stat''d and language-classified twice, and the second walk is given up to 50,000 roots'
 status: To Do
-assignee:
-  - TASK-2244
+assignee: []
 created_date: '2026-09-08 07:04'
-updated_date: '2026-09-08 10:58'
+updated_date: '2026-09-08 20:00'
 labels:
   - code-review-rust
   - performance
 dependencies: []
+parent_task_id: 'TASK-2244'
 modified_files:
   - extensions/tokei/src/lib.rs
 priority: low

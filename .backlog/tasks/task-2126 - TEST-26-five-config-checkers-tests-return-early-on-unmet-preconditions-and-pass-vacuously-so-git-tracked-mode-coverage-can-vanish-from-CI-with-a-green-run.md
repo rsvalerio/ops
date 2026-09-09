@@ -1,18 +1,15 @@
 ---
 id: TASK-2126
-title: >-
-  TEST-26: five config-checkers tests return early on unmet preconditions and
-  pass vacuously, so git-tracked-mode coverage can vanish from CI with a green
-  run
+title: 'TEST-26: five config-checkers tests return early on unmet preconditions and pass vacuously, so git-tracked-mode coverage can vanish from CI with a green run'
 status: Done
-assignee:
-  - TASK-2237
+assignee: []
 created_date: '2026-09-08 06:55'
-updated_date: '2026-09-08 15:54'
+updated_date: '2026-09-08 20:00'
 labels:
   - code-review-rust
   - tests
 dependencies: []
+parent_task_id: 'TASK-2237'
 modified_files:
   - extensions/config-checkers/src/tests.rs
 priority: medium

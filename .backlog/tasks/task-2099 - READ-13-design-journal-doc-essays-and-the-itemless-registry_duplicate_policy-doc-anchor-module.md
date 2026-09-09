@@ -1,17 +1,15 @@
 ---
 id: TASK-2099
-title: >-
-  READ-13: design-journal doc essays and the itemless registry_duplicate_policy
-  doc-anchor module
+title: 'READ-13: design-journal doc essays and the itemless registry_duplicate_policy doc-anchor module'
 status: To Do
-assignee:
-  - TASK-2248
+assignee: []
 created_date: '2026-09-08 06:38'
-updated_date: '2026-09-08 11:01'
+updated_date: '2026-09-08 20:00'
 labels:
   - code-review-rust
   - structure
 dependencies: []
+parent_task_id: 'TASK-2248'
 modified_files:
   - crates/extension/src/lib.rs
   - crates/extension/src/data.rs

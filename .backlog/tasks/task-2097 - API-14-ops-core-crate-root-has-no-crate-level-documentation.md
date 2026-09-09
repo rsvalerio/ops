@@ -2,14 +2,14 @@
 id: TASK-2097
 title: 'API-14: ops-core crate root has no crate-level documentation'
 status: To Do
-assignee:
-  - TASK-2247
+assignee: []
 created_date: '2026-09-07 22:59'
-updated_date: '2026-09-08 10:59'
+updated_date: '2026-09-08 20:00'
 labels:
   - code-review-rust
   - api
 dependencies: []
+parent_task_id: 'TASK-2247'
 modified_files:
   - crates/core/src/lib.rs
 priority: low

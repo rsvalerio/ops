@@ -1,17 +1,15 @@
 ---
 id: TASK-2091
-title: >-
-  TEST-3: ops-extension's 2236-line public-API test suite lives inline in src/
-  instead of tests/
+title: 'TEST-3: ops-extension''s 2236-line public-API test suite lives inline in src/ instead of tests/'
 status: To Do
-assignee:
-  - TASK-2241
+assignee: []
 created_date: '2026-09-07 22:58'
-updated_date: '2026-09-08 10:56'
+updated_date: '2026-09-08 20:00'
 labels:
   - code-review-rust
   - tests
 dependencies: []
+parent_task_id: 'TASK-2241'
 modified_files:
   - crates/extension/src/tests.rs
   - crates/extension/src/lib.rs

@@ -1,17 +1,15 @@
 ---
 id: TASK-2115
-title: >-
-  PERF-3: query_project_row allocates its error label on every successful query
-  via eager .context(label.to_string())
+title: 'PERF-3: query_project_row allocates its error label on every successful query via eager .context(label.to_string())'
 status: To Do
-assignee:
-  - TASK-2244
+assignee: []
 created_date: '2026-09-08 06:53'
-updated_date: '2026-09-08 10:58'
+updated_date: '2026-09-08 20:00'
 labels:
   - code-review-rust
   - performance
 dependencies: []
+parent_task_id: 'TASK-2244'
 modified_files:
   - extensions/duckdb/src/sql/query/helpers.rs
 priority: low

@@ -1,18 +1,15 @@
 ---
 id: TASK-2166
-title: >-
-  TEST-26: eighteen text-fixers tests return early on unmet preconditions and
-  pass vacuously, deleting every permission and git-mode safety assertion in a
-  root container
+title: 'TEST-26: eighteen text-fixers tests return early on unmet preconditions and pass vacuously, deleting every permission and git-mode safety assertion in a root container'
 status: Done
-assignee:
-  - TASK-2237
+assignee: []
 created_date: '2026-09-08 07:06'
-updated_date: '2026-09-08 16:11'
+updated_date: '2026-09-08 20:00'
 labels:
   - code-review-rust
   - tests
 dependencies: []
+parent_task_id: 'TASK-2237'
 modified_files:
   - extensions/text-fixers/src/tests.rs
   - extensions/text-fixers/src/discovery/tests.rs

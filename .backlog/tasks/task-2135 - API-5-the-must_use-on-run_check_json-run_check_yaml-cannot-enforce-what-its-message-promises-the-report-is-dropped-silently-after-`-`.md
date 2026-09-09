@@ -1,17 +1,15 @@
 ---
 id: TASK-2135
-title: >-
-  API-5: the #[must_use] on run_check_json/run_check_yaml cannot enforce what
-  its message promises - the report is dropped silently after `?`
+title: 'API-5: the #[must_use] on run_check_json/run_check_yaml cannot enforce what its message promises - the report is dropped silently after `?`'
 status: To Do
-assignee:
-  - TASK-2247
+assignee: []
 created_date: '2026-09-08 06:56'
-updated_date: '2026-09-08 11:00'
+updated_date: '2026-09-08 20:00'
 labels:
   - code-review-rust
   - api-design
 dependencies: []
+parent_task_id: 'TASK-2247'
 modified_files:
   - extensions/config-checkers/src/report.rs
   - extensions/config-checkers/src/runner.rs

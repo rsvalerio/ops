@@ -1,17 +1,15 @@
 ---
 id: TASK-2200
-title: >-
-  TEST-6: coverage_summary_view_handles_zero_counts writes its fixture with raw
-  std::fs::write while claiming to stage through the verified IngestDir anchor
+title: 'TEST-6: coverage_summary_view_handles_zero_counts writes its fixture with raw std::fs::write while claiming to stage through the verified IngestDir anchor'
 status: To Do
-assignee:
-  - TASK-2241
+assignee: []
 created_date: '2026-09-08 07:15'
-updated_date: '2026-09-08 10:56'
+updated_date: '2026-09-08 20:00'
 labels:
   - code-review-rust
   - tests
 dependencies: []
+parent_task_id: 'TASK-2241'
 modified_files:
   - extensions-rust/test-coverage/src/tests/views.rs
 priority: low

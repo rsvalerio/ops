@@ -2,14 +2,14 @@
 id: TASK-2224
 title: 'API-14: ops-about-terraform''s only public type has no doc summary'
 status: To Do
-assignee:
-  - TASK-2247
+assignee: []
 created_date: '2026-09-08 07:22'
-updated_date: '2026-09-08 11:00'
+updated_date: '2026-09-08 20:00'
 labels:
   - code-review-rust
   - api-design
 dependencies: []
+parent_task_id: 'TASK-2247'
 modified_files:
   - extensions-terraform/about/src/lib.rs
 priority: low

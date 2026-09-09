@@ -1,17 +1,15 @@
 ---
 id: TASK-2180
-title: >-
-  API-19: the public count_source clobbers thread-global proc-macro2 span state
-  as a side effect
+title: 'API-19: the public count_source clobbers thread-global proc-macro2 span state as a side effect'
 status: To Do
-assignee:
-  - TASK-2246
+assignee: []
 created_date: '2026-09-08 07:13'
-updated_date: '2026-09-08 10:59'
+updated_date: '2026-09-08 20:00'
 labels:
   - code-review-rust
   - api-design
 dependencies: []
+parent_task_id: 'TASK-2246'
 modified_files:
   - extensions-rust/loc/src/counter.rs
   - extensions-rust/loc/src/lib.rs

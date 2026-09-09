@@ -1,17 +1,15 @@
 ---
 id: TASK-2175
-title: >-
-  API-13: create-review-tasks-rust re-exports a foreign constant under a second
-  public path and exports a surface nothing consumes
+title: 'API-13: create-review-tasks-rust re-exports a foreign constant under a second public path and exports a surface nothing consumes'
 status: To Do
-assignee:
-  - TASK-2247
+assignee: []
 created_date: '2026-09-08 07:12'
-updated_date: '2026-09-08 11:00'
+updated_date: '2026-09-08 20:00'
 labels:
   - code-review-rust
   - api-design
 dependencies: []
+parent_task_id: 'TASK-2247'
 modified_files:
   - extensions-rust/create-review-tasks/src/lib.rs
   - extensions-rust/create-review-tasks/src/provider.rs

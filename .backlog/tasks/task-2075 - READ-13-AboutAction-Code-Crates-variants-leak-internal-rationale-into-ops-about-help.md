@@ -1,17 +1,15 @@
 ---
 id: TASK-2075
-title: >-
-  READ-13: AboutAction Code/Crates variants leak internal rationale into ops
-  about --help
+title: 'READ-13: AboutAction Code/Crates variants leak internal rationale into ops about --help'
 status: To Do
-assignee:
-  - TASK-2248
+assignee: []
 created_date: '2026-09-07 22:57'
-updated_date: '2026-09-08 11:01'
+updated_date: '2026-09-08 20:00'
 labels:
   - code-review-rust
   - readability
 dependencies: []
+parent_task_id: 'TASK-2248'
 modified_files:
   - crates/cli/src/args.rs
 priority: low

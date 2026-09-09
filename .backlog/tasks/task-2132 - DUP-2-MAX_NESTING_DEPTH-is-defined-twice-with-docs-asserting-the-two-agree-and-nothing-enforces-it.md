@@ -1,17 +1,15 @@
 ---
 id: TASK-2132
-title: >-
-  DUP-2: MAX_NESTING_DEPTH is defined twice with docs asserting the two agree,
-  and nothing enforces it
+title: 'DUP-2: MAX_NESTING_DEPTH is defined twice with docs asserting the two agree, and nothing enforces it'
 status: Done
-assignee:
-  - TASK-2237
+assignee: []
 created_date: '2026-09-08 06:55'
-updated_date: '2026-09-08 15:55'
+updated_date: '2026-09-08 20:00'
 labels:
   - code-review-rust
   - duplication
 dependencies: []
+parent_task_id: 'TASK-2237'
 modified_files:
   - extensions/config-checkers/src/json.rs
   - extensions/config-checkers/src/yaml.rs

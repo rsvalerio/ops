@@ -2,14 +2,14 @@
 id: TASK-2082
 title: 'PERF-3: color gate re-evaluated per styled segment on the per-row render path'
 status: To Do
-assignee:
-  - TASK-2244
+assignee: []
 created_date: '2026-09-07 22:58'
-updated_date: '2026-09-08 10:58'
+updated_date: '2026-09-08 20:00'
 labels:
   - code-review-rust
   - performance
 dependencies: []
+parent_task_id: 'TASK-2244'
 modified_files:
   - crates/theme/src/style/sgr.rs
   - crates/theme/src/configurable.rs

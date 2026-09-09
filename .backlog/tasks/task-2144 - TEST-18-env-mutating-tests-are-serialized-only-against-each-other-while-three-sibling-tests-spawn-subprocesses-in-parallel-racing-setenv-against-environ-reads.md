@@ -1,18 +1,15 @@
 ---
 id: TASK-2144
-title: >-
-  TEST-18: env-mutating tests are serialized only against each other while three
-  sibling tests spawn subprocesses in parallel, racing setenv against environ
-  reads
+title: 'TEST-18: env-mutating tests are serialized only against each other while three sibling tests spawn subprocesses in parallel, racing setenv against environ reads'
 status: To Do
-assignee:
-  - TASK-2241
+assignee: []
 created_date: '2026-09-08 07:02'
-updated_date: '2026-09-08 10:56'
+updated_date: '2026-09-08 20:00'
 labels:
   - code-review-rust
   - test-quality
 dependencies: []
+parent_task_id: 'TASK-2241'
 modified_files:
   - extensions/run-before-push/src/lib.rs
 priority: medium

@@ -1,17 +1,15 @@
 ---
 id: TASK-2225
-title: >-
-  SEC-25: write_plan_json follows a symlink at the plan-JSON path, writing the
-  stack's secrets through it and chmod-ing the attacker's target to 0600
-status: To Do
-assignee:
-  - TASK-2235
+title: 'SEC-25: write_plan_json follows a symlink at the plan-JSON path, writing the stack''s secrets through it and chmod-ing the attacker''s target to 0600'
+status: Done
+assignee: []
 created_date: '2026-09-08 07:22'
-updated_date: '2026-09-08 10:53'
+updated_date: '2026-09-08 20:00'
 labels:
   - code-review-rust
   - security
 dependencies: []
+parent_task_id: 'TASK-2235'
 modified_files:
   - extensions-terraform/plan/src/lib.rs
 priority: high

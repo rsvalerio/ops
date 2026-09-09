@@ -1,17 +1,15 @@
 ---
 id: TASK-2101
-title: >-
-  READ-13: runner doc comments narrate change history (TASK narratives)
-  alongside durable rationale
+title: 'READ-13: runner doc comments narrate change history (TASK narratives) alongside durable rationale'
 status: To Do
-assignee:
-  - TASK-2248
+assignee: []
 created_date: '2026-09-08 06:40'
-updated_date: '2026-09-08 11:01'
+updated_date: '2026-09-08 20:00'
 labels:
   - code-review-rust
   - readability
 dependencies: []
+parent_task_id: 'TASK-2248'
 modified_files:
   - crates/runner/src/command/build.rs
   - crates/runner/src/command/results.rs

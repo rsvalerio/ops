@@ -1,17 +1,15 @@
 ---
 id: TASK-2081
-title: >-
-  ERR-13: Store::find swallows IO and parse errors, reporting an existing task
-  as not found
-status: To Do
-assignee:
-  - TASK-2243
+title: 'ERR-13: Store::find swallows IO and parse errors, reporting an existing task as not found'
+status: Done
+assignee: []
 created_date: '2026-09-07 22:58'
-updated_date: '2026-09-08 10:57'
+updated_date: '2026-09-08 20:00'
 labels:
   - code-review-rust
   - error-handling
 dependencies: []
+parent_task_id: 'TASK-2243'
 modified_files:
   - crates/backlog/src/store.rs
 priority: medium

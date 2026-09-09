@@ -1,17 +1,15 @@
 ---
 id: TASK-2139
-title: >-
-  API-14: impl_hook_wrappers! emits five undocumented public items into both
-  hook extension crates
+title: 'API-14: impl_hook_wrappers! emits five undocumented public items into both hook extension crates'
 status: To Do
-assignee:
-  - TASK-2247
+assignee: []
 created_date: '2026-09-08 06:56'
-updated_date: '2026-09-08 11:00'
+updated_date: '2026-09-08 20:00'
 labels:
   - code-review-rust
   - api-design
 dependencies: []
+parent_task_id: 'TASK-2247'
 modified_files:
   - extensions/hook-common/src/lib.rs
 priority: low

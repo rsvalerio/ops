@@ -2,14 +2,14 @@
 id: TASK-2077
 title: 'DUP-1: unchecked_items duplicated verbatim in create.rs and edit.rs'
 status: To Do
-assignee:
-  - TASK-2242
+assignee: []
 created_date: '2026-09-07 22:57'
-updated_date: '2026-09-08 10:57'
+updated_date: '2026-09-08 20:00'
 labels:
   - code-review-rust
   - duplication
 dependencies: []
+parent_task_id: 'TASK-2242'
 modified_files:
   - crates/backlog/src/cmd/create.rs
   - crates/backlog/src/cmd/edit.rs

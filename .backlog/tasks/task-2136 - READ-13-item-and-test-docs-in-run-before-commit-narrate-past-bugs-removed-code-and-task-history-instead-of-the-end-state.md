@@ -1,17 +1,15 @@
 ---
 id: TASK-2136
-title: >-
-  READ-13: item and test docs in run-before-commit narrate past bugs, removed
-  code and task history instead of the end state
+title: 'READ-13: item and test docs in run-before-commit narrate past bugs, removed code and task history instead of the end state'
 status: To Do
-assignee:
-  - TASK-2248
+assignee: []
 created_date: '2026-09-08 06:56'
-updated_date: '2026-09-08 11:01'
+updated_date: '2026-09-08 20:00'
 labels:
   - code-review-rust
   - readability
 dependencies: []
+parent_task_id: 'TASK-2248'
 modified_files:
   - extensions/run-before-commit/src/lib.rs
 priority: low

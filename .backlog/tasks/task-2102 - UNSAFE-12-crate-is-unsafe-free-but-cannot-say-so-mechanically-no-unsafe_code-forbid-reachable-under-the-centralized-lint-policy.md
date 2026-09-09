@@ -1,17 +1,15 @@
 ---
 id: TASK-2102
-title: >-
-  UNSAFE-12: crate is unsafe-free but cannot say so mechanically - no
-  unsafe_code forbid reachable under the centralized lint policy
+title: 'UNSAFE-12: crate is unsafe-free but cannot say so mechanically - no unsafe_code forbid reachable under the centralized lint policy'
 status: Done
-assignee:
-  - TASK-2245
+assignee: []
 created_date: '2026-09-08 06:42'
-updated_date: '2026-09-08 15:45'
+updated_date: '2026-09-08 20:00'
 labels:
   - code-review-rust
   - unsafe
 dependencies: []
+parent_task_id: 'TASK-2245'
 modified_files:
   - crates/backlog/Cargo.toml
 priority: low

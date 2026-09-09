@@ -1,17 +1,15 @@
 ---
 id: TASK-2228
-title: >-
-  READ-13: ops-about-terraform's docs narrate 80 task IDs and past bug histories
-  instead of describing current behaviour
+title: 'READ-13: ops-about-terraform''s docs narrate 80 task IDs and past bug histories instead of describing current behaviour'
 status: To Do
-assignee:
-  - TASK-2248
+assignee: []
 created_date: '2026-09-08 07:22'
-updated_date: '2026-09-08 11:02'
+updated_date: '2026-09-08 20:00'
 labels:
   - code-review-rust
   - readability
 dependencies: []
+parent_task_id: 'TASK-2248'
 modified_files:
   - extensions-terraform/about/src/lib.rs
 priority: low

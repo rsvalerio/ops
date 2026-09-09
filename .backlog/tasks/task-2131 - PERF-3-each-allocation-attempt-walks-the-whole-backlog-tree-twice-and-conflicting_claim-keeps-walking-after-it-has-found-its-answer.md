@@ -1,17 +1,15 @@
 ---
 id: TASK-2131
-title: >-
-  PERF-3: each allocation attempt walks the whole backlog tree twice, and
-  conflicting_claim keeps walking after it has found its answer
+title: 'PERF-3: each allocation attempt walks the whole backlog tree twice, and conflicting_claim keeps walking after it has found its answer'
 status: To Do
-assignee:
-  - TASK-2244
+assignee: []
 created_date: '2026-09-08 06:55'
-updated_date: '2026-09-08 10:58'
+updated_date: '2026-09-08 20:00'
 labels:
   - code-review-rust
   - performance
 dependencies: []
+parent_task_id: 'TASK-2244'
 modified_files:
   - extensions/create-review-tasks/src/backlog.rs
   - crates/backlog/src/store.rs

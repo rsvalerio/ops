@@ -2,14 +2,14 @@
 id: TASK-2098
 title: 'API-14: undocumented public items across the ops-extension surface'
 status: To Do
-assignee:
-  - TASK-2247
+assignee: []
 created_date: '2026-09-07 22:59'
-updated_date: '2026-09-08 10:59'
+updated_date: '2026-09-08 20:00'
 labels:
   - code-review-rust
   - structure
 dependencies: []
+parent_task_id: 'TASK-2247'
 modified_files:
   - crates/extension/src/data.rs
   - crates/extension/src/extension.rs

@@ -1,11 +1,10 @@
 ---
 id: TASK-2244
-title: code-review-plan-wave10
+title: 'code-review-plan-wave10'
 status: To Do
-assignee:
-  - code-review-wave
+assignee: []
 created_date: '2026-09-08 10:51'
-updated_date: '2026-09-08 10:57'
+updated_date: '2026-09-08 20:00'
 labels:
   - code-review-wave
 dependencies:

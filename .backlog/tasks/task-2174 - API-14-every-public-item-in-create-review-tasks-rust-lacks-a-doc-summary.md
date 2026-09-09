@@ -2,14 +2,14 @@
 id: TASK-2174
 title: 'API-14: every public item in create-review-tasks-rust lacks a doc summary'
 status: To Do
-assignee:
-  - TASK-2247
+assignee: []
 created_date: '2026-09-08 07:12'
-updated_date: '2026-09-08 11:00'
+updated_date: '2026-09-08 20:00'
 labels:
   - code-review-rust
   - api-design
 dependencies: []
+parent_task_id: 'TASK-2247'
 modified_files:
   - extensions-rust/create-review-tasks/src/lib.rs
 priority: medium

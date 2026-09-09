@@ -1,17 +1,15 @@
 ---
 id: TASK-2125
-title: >-
-  READ-12: two ops-duckdb log sites interpolate values into the message instead
-  of emitting them as structured fields
+title: 'READ-12: two ops-duckdb log sites interpolate values into the message instead of emitting them as structured fields'
 status: To Do
-assignee:
-  - TASK-2248
+assignee: []
 created_date: '2026-09-08 06:54'
-updated_date: '2026-09-08 11:01'
+updated_date: '2026-09-08 20:00'
 labels:
   - code-review-rust
   - readability
 dependencies: []
+parent_task_id: 'TASK-2248'
 modified_files:
   - extensions/duckdb/src/sql/mod.rs
   - extensions/duckdb/src/sql/ingest/sidecar.rs

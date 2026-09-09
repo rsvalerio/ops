@@ -1,17 +1,15 @@
 ---
 id: TASK-2072
-title: >-
-  API-13: duplicate public paths for run_about_* entry points and a foreign
-  re-export of ops_core format_number
+title: 'API-13: duplicate public paths for run_about_* entry points and a foreign re-export of ops_core format_number'
 status: To Do
-assignee:
-  - TASK-2247
+assignee: []
 created_date: '2026-09-07 22:56'
-updated_date: '2026-09-08 10:59'
+updated_date: '2026-09-08 20:00'
 labels:
   - code-review-rust
   - api
 dependencies: []
+parent_task_id: 'TASK-2247'
 modified_files:
   - extensions/about/src/lib.rs
   - extensions/about/src/text_util.rs

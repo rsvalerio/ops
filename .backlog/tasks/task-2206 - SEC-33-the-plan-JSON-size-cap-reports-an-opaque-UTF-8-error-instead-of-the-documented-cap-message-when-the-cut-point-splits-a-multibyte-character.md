@@ -1,17 +1,15 @@
 ---
 id: TASK-2206
-title: >-
-  SEC-33: the plan-JSON size cap reports an opaque UTF-8 error instead of the
-  documented cap message when the cut point splits a multibyte character
-status: To Do
-assignee:
-  - TASK-2235
+title: 'SEC-33: the plan-JSON size cap reports an opaque UTF-8 error instead of the documented cap message when the cut point splits a multibyte character'
+status: Done
+assignee: []
 created_date: '2026-09-08 07:20'
-updated_date: '2026-09-08 10:54'
+updated_date: '2026-09-08 20:00'
 labels:
   - code-review-rust
   - security
 dependencies: []
+parent_task_id: 'TASK-2235'
 modified_files:
   - extensions-terraform/plan/src/lib.rs
 priority: medium

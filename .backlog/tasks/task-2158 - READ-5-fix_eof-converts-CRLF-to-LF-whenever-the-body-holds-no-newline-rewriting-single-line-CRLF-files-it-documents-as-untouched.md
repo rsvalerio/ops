@@ -1,18 +1,16 @@
 ---
 id: TASK-2158
-title: >-
-  READ-5: fix_eof converts CRLF to LF whenever the body holds no newline,
-  rewriting single-line CRLF files it documents as untouched
+title: 'READ-5: fix_eof converts CRLF to LF whenever the body holds no newline, rewriting single-line CRLF files it documents as untouched'
 status: Done
-assignee:
-  - TASK-2237
+assignee: []
 created_date: '2026-09-08 07:04'
-updated_date: '2026-09-08 15:56'
+updated_date: '2026-09-08 20:00'
 labels:
   - code-review-rust
   - readability
   - correctness
 dependencies: []
+parent_task_id: 'TASK-2237'
 modified_files:
   - extensions/text-fixers/src/eof.rs
 priority: high

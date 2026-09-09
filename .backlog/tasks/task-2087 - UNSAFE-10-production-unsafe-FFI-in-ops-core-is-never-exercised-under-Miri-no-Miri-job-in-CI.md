@@ -1,17 +1,15 @@
 ---
 id: TASK-2087
-title: >-
-  UNSAFE-10: production unsafe FFI in ops-core is never exercised under Miri (no
-  Miri job in CI)
+title: 'UNSAFE-10: production unsafe FFI in ops-core is never exercised under Miri (no Miri job in CI)'
 status: Done
-assignee:
-  - TASK-2245
+assignee: []
 created_date: '2026-09-07 22:58'
-updated_date: '2026-09-08 15:59'
+updated_date: '2026-09-08 20:00'
 labels:
   - code-review-rust
   - unsafe
 dependencies: []
+parent_task_id: 'TASK-2245'
 modified_files:
   - crates/core/src/text.rs
   - crates/core/src/config/edit.rs

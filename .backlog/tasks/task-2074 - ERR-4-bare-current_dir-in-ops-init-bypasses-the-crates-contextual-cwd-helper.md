@@ -1,17 +1,15 @@
 ---
 id: TASK-2074
-title: >-
-  ERR-4: bare current_dir() in ops init bypasses the crate's contextual cwd()
-  helper
+title: 'ERR-4: bare current_dir() in ops init bypasses the crate''s contextual cwd() helper'
 status: Done
-assignee:
-  - TASK-2249
+assignee: []
 created_date: '2026-09-07 22:56'
-updated_date: '2026-09-08 15:42'
+updated_date: '2026-09-08 20:00'
 labels:
   - code-review-rust
   - error-handling
 dependencies: []
+parent_task_id: 'TASK-2249'
 modified_files:
   - crates/cli/src/init_cmd.rs
 priority: low

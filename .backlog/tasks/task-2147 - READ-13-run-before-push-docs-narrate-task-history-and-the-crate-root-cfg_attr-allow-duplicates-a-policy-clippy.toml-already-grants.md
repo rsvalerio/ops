@@ -1,17 +1,15 @@
 ---
 id: TASK-2147
-title: >-
-  READ-13: run-before-push docs narrate task history, and the crate-root
-  cfg_attr allow duplicates a policy clippy.toml already grants
+title: 'READ-13: run-before-push docs narrate task history, and the crate-root cfg_attr allow duplicates a policy clippy.toml already grants'
 status: To Do
-assignee:
-  - TASK-2248
+assignee: []
 created_date: '2026-09-08 07:02'
-updated_date: '2026-09-08 11:01'
+updated_date: '2026-09-08 20:00'
 labels:
   - code-review-rust
   - readability
 dependencies: []
+parent_task_id: 'TASK-2248'
 modified_files:
   - extensions/run-before-push/src/lib.rs
 priority: low

@@ -1,17 +1,15 @@
 ---
 id: TASK-2233
-title: >-
-  READ-13: ops-about-node docs and comments are a change journal of TASK ids and
-  past bugs rather than a description of current behaviour
+title: 'READ-13: ops-about-node docs and comments are a change journal of TASK ids and past bugs rather than a description of current behaviour'
 status: To Do
-assignee:
-  - TASK-2248
+assignee: []
 created_date: '2026-09-08 07:24'
-updated_date: '2026-09-08 11:02'
+updated_date: '2026-09-08 20:00'
 labels:
   - code-review-rust
   - readability
 dependencies: []
+parent_task_id: 'TASK-2248'
 modified_files:
   - extensions-node/about/src/repo_url.rs
   - extensions-node/about/src/package_json.rs

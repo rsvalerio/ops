@@ -1,17 +1,15 @@
 ---
 id: TASK-2149
-title: >-
-  API-14: the four crate-local public items in ops-run-before-push have no doc
-  summaries
+title: 'API-14: the four crate-local public items in ops-run-before-push have no doc summaries'
 status: To Do
-assignee:
-  - TASK-2247
+assignee: []
 created_date: '2026-09-08 07:03'
-updated_date: '2026-09-08 11:00'
+updated_date: '2026-09-08 20:00'
 labels:
   - code-review-rust
   - api-design
 dependencies: []
+parent_task_id: 'TASK-2247'
 modified_files:
   - extensions/run-before-push/src/lib.rs
 priority: low

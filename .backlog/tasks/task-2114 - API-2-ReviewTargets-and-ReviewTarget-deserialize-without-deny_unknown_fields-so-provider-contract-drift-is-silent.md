@@ -1,17 +1,15 @@
 ---
 id: TASK-2114
-title: >-
-  API-2: ReviewTargets and ReviewTarget deserialize without deny_unknown_fields,
-  so provider contract drift is silent
+title: 'API-2: ReviewTargets and ReviewTarget deserialize without deny_unknown_fields, so provider contract drift is silent'
 status: To Do
-assignee:
-  - TASK-2247
+assignee: []
 created_date: '2026-09-08 06:53'
-updated_date: '2026-09-08 10:59'
+updated_date: '2026-09-08 20:00'
 labels:
   - code-review-rust
   - api-design
 dependencies: []
+parent_task_id: 'TASK-2247'
 modified_files:
   - extensions/create-review-tasks/src/lib.rs
 priority: low

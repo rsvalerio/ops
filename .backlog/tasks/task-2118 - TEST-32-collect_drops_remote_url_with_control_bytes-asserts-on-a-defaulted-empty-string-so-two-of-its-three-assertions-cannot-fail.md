@@ -1,17 +1,15 @@
 ---
 id: TASK-2118
-title: >-
-  TEST-32: collect_drops_remote_url_with_control_bytes asserts on a defaulted
-  empty string, so two of its three assertions cannot fail
+title: 'TEST-32: collect_drops_remote_url_with_control_bytes asserts on a defaulted empty string, so two of its three assertions cannot fail'
 status: To Do
-assignee:
-  - TASK-2241
+assignee: []
 created_date: '2026-09-08 06:54'
-updated_date: '2026-09-08 10:56'
+updated_date: '2026-09-08 20:00'
 labels:
   - code-review-rust
   - test
 dependencies: []
+parent_task_id: 'TASK-2241'
 modified_files:
   - extensions/git/src/provider.rs
 priority: low

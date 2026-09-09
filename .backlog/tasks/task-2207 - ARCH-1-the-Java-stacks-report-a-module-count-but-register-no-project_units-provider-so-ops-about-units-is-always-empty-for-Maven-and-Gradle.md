@@ -1,17 +1,15 @@
 ---
 id: TASK-2207
-title: >-
-  ARCH-1: the Java stacks report a module count but register no project_units
-  provider, so 'ops about units' is always empty for Maven and Gradle
+title: 'ARCH-1: the Java stacks report a module count but register no project_units provider, so ''ops about units'' is always empty for Maven and Gradle'
 status: Done
-assignee:
-  - TASK-2239
+assignee: []
 created_date: '2026-09-08 07:20'
-updated_date: '2026-09-08 17:06'
+updated_date: '2026-09-08 20:00'
 labels:
   - code-review-rust
   - architecture
 dependencies: []
+parent_task_id: 'TASK-2239'
 modified_files:
   - extensions-java/about/src/lib.rs
   - extensions-java/about/src/maven/mod.rs

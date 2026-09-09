@@ -1,17 +1,15 @@
 ---
 id: TASK-2123
-title: >-
-  ERR-3: StagedTasks rollback discards every remove_file error, so a failed
-  rollback leaves a partial task set with no trace
+title: 'ERR-3: StagedTasks rollback discards every remove_file error, so a failed rollback leaves a partial task set with no trace'
 status: Done
-assignee:
-  - TASK-2249
+assignee: []
 created_date: '2026-09-08 06:54'
-updated_date: '2026-09-08 15:42'
+updated_date: '2026-09-08 20:00'
 labels:
   - code-review-rust
   - error-handling
 dependencies: []
+parent_task_id: 'TASK-2249'
 modified_files:
   - extensions/create-review-tasks/src/lib.rs
 priority: low

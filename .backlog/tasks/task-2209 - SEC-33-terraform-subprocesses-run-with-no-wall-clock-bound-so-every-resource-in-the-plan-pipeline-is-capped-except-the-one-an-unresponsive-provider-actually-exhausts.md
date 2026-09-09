@@ -1,18 +1,15 @@
 ---
 id: TASK-2209
-title: >-
-  SEC-33: terraform subprocesses run with no wall-clock bound, so every resource
-  in the plan pipeline is capped except the one an unresponsive provider
-  actually exhausts
-status: To Do
-assignee:
-  - TASK-2235
+title: 'SEC-33: terraform subprocesses run with no wall-clock bound, so every resource in the plan pipeline is capped except the one an unresponsive provider actually exhausts'
+status: Done
+assignee: []
 created_date: '2026-09-08 07:20'
-updated_date: '2026-09-08 10:54'
+updated_date: '2026-09-08 20:00'
 labels:
   - code-review-rust
   - security
 dependencies: []
+parent_task_id: 'TASK-2235'
 modified_files:
   - extensions-terraform/plan/src/lib.rs
 priority: medium

@@ -1,17 +1,15 @@
 ---
 id: TASK-2178
-title: >-
-  PATTERN-1: go.mod local `replace` targets are counted as modules, so the About
-  card's module count disagrees with the units list
+title: 'PATTERN-1: go.mod local `replace` targets are counted as modules, so the About card''s module count disagrees with the units list'
 status: Done
-assignee:
-  - TASK-2239
+assignee: []
 created_date: '2026-09-08 07:12'
-updated_date: '2026-09-08 16:58'
+updated_date: '2026-09-08 20:00'
 labels:
   - code-review-rust
   - pattern
 dependencies: []
+parent_task_id: 'TASK-2239'
 modified_files:
   - extensions-go/about/src/lib.rs
   - extensions-go/about/src/modules.rs

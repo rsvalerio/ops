@@ -1,17 +1,15 @@
 ---
 id: TASK-2161
-title: >-
-  FN-1: scan_tokei is 88 statements spanning root validation, walking, four skip
-  policies, tokei dispatch and shortfall accounting
+title: 'FN-1: scan_tokei is 88 statements spanning root validation, walking, four skip policies, tokei dispatch and shortfall accounting'
 status: To Do
-assignee:
-  - TASK-2246
+assignee: []
 created_date: '2026-09-08 07:05'
-updated_date: '2026-09-08 10:58'
+updated_date: '2026-09-08 20:00'
 labels:
   - code-review-rust
   - complexity
 dependencies: []
+parent_task_id: 'TASK-2246'
 modified_files:
   - extensions/tokei/src/lib.rs
 priority: low

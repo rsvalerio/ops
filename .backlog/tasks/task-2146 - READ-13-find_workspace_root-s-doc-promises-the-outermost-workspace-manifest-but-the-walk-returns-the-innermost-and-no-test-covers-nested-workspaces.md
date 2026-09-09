@@ -1,17 +1,15 @@
 ---
 id: TASK-2146
-title: >-
-  READ-13: find_workspace_root's doc promises the outermost workspace manifest
-  but the walk returns the innermost, and no test covers nested workspaces
+title: 'READ-13: find_workspace_root''s doc promises the outermost workspace manifest but the walk returns the innermost, and no test covers nested workspaces'
 status: To Do
-assignee:
-  - TASK-2248
+assignee: []
 created_date: '2026-09-08 07:02'
-updated_date: '2026-09-08 11:01'
+updated_date: '2026-09-08 20:00'
 labels:
   - code-review-rust
   - readability
 dependencies: []
+parent_task_id: 'TASK-2248'
 modified_files:
   - extensions-rust/cargo-toml/src/workspace_root.rs
   - extensions-rust/cargo-toml/src/lib.rs

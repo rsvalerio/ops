@@ -1,17 +1,15 @@
 ---
 id: TASK-2181
-title: >-
-  PATTERN-1: an unterminated go.work `use (` / go.mod `replace (` block silently
-  swallows the rest of the file instead of being reported
+title: 'PATTERN-1: an unterminated go.work `use (` / go.mod `replace (` block silently swallows the rest of the file instead of being reported'
 status: Done
-assignee:
-  - TASK-2238
+assignee: []
 created_date: '2026-09-08 07:13'
-updated_date: '2026-09-08 16:16'
+updated_date: '2026-09-08 20:00'
 labels:
   - code-review-rust
   - pattern
 dependencies: []
+parent_task_id: 'TASK-2238'
 modified_files:
   - extensions-go/about/src/go_work.rs
   - extensions-go/about/src/go_mod.rs

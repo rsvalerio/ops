@@ -1,17 +1,15 @@
 ---
 id: TASK-2220
-title: >-
-  DUP-1: strip_comments re-implements the heredoc body tracking ScanState
-  already owns, inside a 94-line six-variable loop
+title: 'DUP-1: strip_comments re-implements the heredoc body tracking ScanState already owns, inside a 94-line six-variable loop'
 status: To Do
-assignee:
-  - TASK-2242
+assignee: []
 created_date: '2026-09-08 07:21'
-updated_date: '2026-09-08 10:57'
+updated_date: '2026-09-08 20:00'
 labels:
   - code-review-rust
   - duplication
 dependencies: []
+parent_task_id: 'TASK-2242'
 modified_files:
   - extensions-terraform/about/src/lib.rs
 priority: medium

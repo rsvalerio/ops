@@ -1,17 +1,15 @@
 ---
 id: TASK-2184
-title: >-
-  TEST-5: GoUnitsProvider's DataProvider impl and the extension's provider
-  registration are never exercised
-status: To Do
-assignee:
-  - TASK-2240
+title: 'TEST-5: GoUnitsProvider''s DataProvider impl and the extension''s provider registration are never exercised'
+status: Done
+assignee: []
 created_date: '2026-09-08 07:13'
-updated_date: '2026-09-08 10:55'
+updated_date: '2026-09-08 20:00'
 labels:
   - code-review-rust
   - test
 dependencies: []
+parent_task_id: 'TASK-2240'
 modified_files:
   - extensions-go/about/src/modules.rs
   - extensions-go/about/src/lib.rs
@@ -38,3 +36,9 @@ The `register_data_providers` closure in `impl_extension!` is likewise untested:
 - [ ] #3 A test builds a DataRegistry through the extension's register_data_providers and asserts both project_identity and project_units are present
 - [ ] #4 Cross-referenced with TASK-2154 so the Rust and Go stacks land the same provider-level coverage shape
 <!-- AC:END -->
+
+## Implementation Notes
+
+<!-- SECTION:NOTES:BEGIN -->
+Landed in wave TASK-2240. modules.rs: units_provider_name, units_provider_serialises_go_work_modules, units_provider_empty_project_is_empty_array. lib.rs: extension_registers_identity_and_units_providers (both keys, distinct payload shapes). Cross-referenced with TASK-2154 provider_tests per AC #4.
+<!-- SECTION:NOTES:END -->

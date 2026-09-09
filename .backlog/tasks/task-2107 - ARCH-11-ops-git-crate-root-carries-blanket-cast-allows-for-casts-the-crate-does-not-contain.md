@@ -1,17 +1,15 @@
 ---
 id: TASK-2107
-title: >-
-  ARCH-11: ops-git crate root carries blanket cast allows for casts the crate
-  does not contain
+title: 'ARCH-11: ops-git crate root carries blanket cast allows for casts the crate does not contain'
 status: To Do
-assignee:
-  - TASK-2246
+assignee: []
 created_date: '2026-09-08 06:53'
-updated_date: '2026-09-08 10:59'
+updated_date: '2026-09-08 20:00'
 labels:
   - code-review-rust
   - architecture
 dependencies: []
+parent_task_id: 'TASK-2246'
 modified_files:
   - extensions/git/src/lib.rs
 priority: low

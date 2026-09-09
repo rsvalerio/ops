@@ -1,17 +1,15 @@
 ---
 id: TASK-2079
-title: >-
-  FN-3: push_scalar_fields takes 7 parameters behind an allow instead of a param
-  struct
+title: 'FN-3: push_scalar_fields takes 7 parameters behind an allow instead of a param struct'
 status: To Do
-assignee:
-  - TASK-2246
+assignee: []
 created_date: '2026-09-07 22:57'
-updated_date: '2026-09-08 10:58'
+updated_date: '2026-09-08 20:00'
 labels:
   - code-review-rust
   - structure
 dependencies: []
+parent_task_id: 'TASK-2246'
 modified_files:
   - crates/backlog/src/render.rs
 priority: medium

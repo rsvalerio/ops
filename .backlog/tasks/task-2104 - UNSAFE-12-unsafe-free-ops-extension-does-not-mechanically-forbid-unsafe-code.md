@@ -2,14 +2,14 @@
 id: TASK-2104
 title: 'UNSAFE-12: unsafe-free ops-extension does not mechanically forbid unsafe code'
 status: Done
-assignee:
-  - TASK-2245
+assignee: []
 created_date: '2026-09-08 06:42'
-updated_date: '2026-09-08 15:47'
+updated_date: '2026-09-08 20:00'
 labels:
   - code-review-rust
   - idioms
 dependencies: []
+parent_task_id: 'TASK-2245'
 modified_files:
   - crates/extension/src/lib.rs
 priority: low

@@ -1,17 +1,15 @@
 ---
 id: TASK-2199
-title: >-
-  API-18: ops-metadata exports three pub consts no consumer outside the crate
-  can use
+title: 'API-18: ops-metadata exports three pub consts no consumer outside the crate can use'
 status: To Do
-assignee:
-  - TASK-2246
+assignee: []
 created_date: '2026-09-08 07:15'
-updated_date: '2026-09-08 10:59'
+updated_date: '2026-09-08 20:00'
 labels:
   - code-review-rust
   - api-design
 dependencies: []
+parent_task_id: 'TASK-2246'
 modified_files:
   - extensions-rust/metadata/src/lib.rs
 priority: low

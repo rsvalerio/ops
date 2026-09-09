@@ -1,17 +1,15 @@
 ---
 id: TASK-2230
-title: >-
-  READ-12: one malformed package.json emits two divergent 'failed to parse
-  package.json' warns per ops about run
+title: 'READ-12: one malformed package.json emits two divergent ''failed to parse package.json'' warns per ops about run'
 status: To Do
-assignee:
-  - TASK-2248
+assignee: []
 created_date: '2026-09-08 07:23'
-updated_date: '2026-09-08 11:02'
+updated_date: '2026-09-08 20:00'
 labels:
   - code-review-rust
   - readability
 dependencies: []
+parent_task_id: 'TASK-2248'
 modified_files:
   - extensions-node/about/src/package_json.rs
   - extensions-node/about/src/units.rs

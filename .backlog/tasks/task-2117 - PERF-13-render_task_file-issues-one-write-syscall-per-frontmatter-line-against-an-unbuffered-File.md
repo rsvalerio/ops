@@ -1,17 +1,15 @@
 ---
 id: TASK-2117
-title: >-
-  PERF-13: render_task_file issues one write syscall per frontmatter line
-  against an unbuffered File
+title: 'PERF-13: render_task_file issues one write syscall per frontmatter line against an unbuffered File'
 status: To Do
-assignee:
-  - TASK-2244
+assignee: []
 created_date: '2026-09-08 06:54'
-updated_date: '2026-09-08 10:58'
+updated_date: '2026-09-08 20:00'
 labels:
   - code-review-rust
   - performance
 dependencies: []
+parent_task_id: 'TASK-2244'
 modified_files:
   - extensions/create-review-tasks/src/backlog.rs
   - extensions/create-review-tasks/src/lib.rs

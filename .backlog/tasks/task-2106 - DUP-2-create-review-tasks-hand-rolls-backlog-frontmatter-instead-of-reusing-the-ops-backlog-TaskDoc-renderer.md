@@ -1,17 +1,15 @@
 ---
 id: TASK-2106
-title: >-
-  DUP-2: create-review-tasks hand-rolls backlog frontmatter instead of reusing
-  the ops-backlog TaskDoc renderer
+title: 'DUP-2: create-review-tasks hand-rolls backlog frontmatter instead of reusing the ops-backlog TaskDoc renderer'
 status: To Do
-assignee:
-  - TASK-2242
+assignee: []
 created_date: '2026-09-08 06:53'
-updated_date: '2026-09-08 10:57'
+updated_date: '2026-09-08 20:00'
 labels:
   - code-review-rust
   - duplication
 dependencies: []
+parent_task_id: 'TASK-2242'
 modified_files:
   - extensions/create-review-tasks/src/backlog.rs
   - crates/backlog/src/cmd/create.rs

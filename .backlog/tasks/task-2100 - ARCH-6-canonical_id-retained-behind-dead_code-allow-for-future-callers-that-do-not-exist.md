@@ -1,17 +1,15 @@
 ---
 id: TASK-2100
-title: >-
-  ARCH-6: canonical_id retained behind dead_code allow for future callers that
-  do not exist
+title: 'ARCH-6: canonical_id retained behind dead_code allow for future callers that do not exist'
 status: To Do
-assignee:
-  - TASK-2246
+assignee: []
 created_date: '2026-09-08 06:40'
-updated_date: '2026-09-08 10:59'
+updated_date: '2026-09-08 20:00'
 labels:
   - code-review-rust
   - architecture
 dependencies: []
+parent_task_id: 'TASK-2246'
 modified_files:
   - crates/runner/src/command/resolve.rs
 priority: low

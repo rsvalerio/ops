@@ -1,17 +1,15 @@
 ---
 id: TASK-2191
-title: >-
-  READ-13: ops-about-go docs narrate past bugs and task IDs instead of
-  describing the current behaviour
+title: 'READ-13: ops-about-go docs narrate past bugs and task IDs instead of describing the current behaviour'
 status: To Do
-assignee:
-  - TASK-2248
+assignee: []
 created_date: '2026-09-08 07:14'
-updated_date: '2026-09-08 11:01'
+updated_date: '2026-09-08 20:00'
 labels:
   - code-review-rust
   - readability
 dependencies: []
+parent_task_id: 'TASK-2248'
 modified_files:
   - extensions-go/about/src/lib.rs
   - extensions-go/about/src/go_mod.rs

@@ -2,14 +2,14 @@
 id: TASK-2130
 title: 'API-14: public items in ops-duckdb missing doc summaries'
 status: To Do
-assignee:
-  - TASK-2247
+assignee: []
 created_date: '2026-09-08 06:55'
-updated_date: '2026-09-08 10:59'
+updated_date: '2026-09-08 20:00'
 labels:
   - code-review-rust
   - api-design
 dependencies: []
+parent_task_id: 'TASK-2247'
 modified_files:
   - extensions/duckdb/src/lib.rs
   - extensions/duckdb/src/error.rs

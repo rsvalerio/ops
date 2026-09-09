@@ -1,17 +1,15 @@
 ---
 id: TASK-2090
-title: >-
-  API-18: render_summary_separator accepts a columns parameter it ignores, and
-  its output is never clamped to that budget
+title: 'API-18: render_summary_separator accepts a columns parameter it ignores, and its output is never clamped to that budget'
 status: To Do
-assignee:
-  - TASK-2246
+assignee: []
 created_date: '2026-09-07 22:58'
-updated_date: '2026-09-08 10:59'
+updated_date: '2026-09-08 20:00'
 labels:
   - code-review-rust
   - api-design
 dependencies: []
+parent_task_id: 'TASK-2246'
 modified_files:
   - crates/theme/src/configurable.rs
 priority: low

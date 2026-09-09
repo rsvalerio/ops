@@ -1,17 +1,15 @@
 ---
 id: TASK-2111
-title: >-
-  READ-11: create-review-tasks hardcodes the TASK prefix and 4-digit padding
-  that BacklogConfig makes configurable
+title: 'READ-11: create-review-tasks hardcodes the TASK prefix and 4-digit padding that BacklogConfig makes configurable'
 status: To Do
-assignee:
-  - TASK-2242
+assignee: []
 created_date: '2026-09-08 06:53'
-updated_date: '2026-09-08 10:57'
+updated_date: '2026-09-08 20:00'
 labels:
   - code-review-rust
   - readability
 dependencies: []
+parent_task_id: 'TASK-2242'
 modified_files:
   - extensions/create-review-tasks/src/backlog.rs
 priority: medium

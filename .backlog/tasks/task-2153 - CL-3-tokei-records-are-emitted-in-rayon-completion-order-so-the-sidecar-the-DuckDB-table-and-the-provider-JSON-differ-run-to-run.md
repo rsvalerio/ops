@@ -1,17 +1,15 @@
 ---
 id: TASK-2153
-title: >-
-  CL-3: tokei records are emitted in rayon completion order, so the sidecar, the
-  DuckDB table and the provider JSON differ run-to-run
-status: To Do
-assignee:
-  - TASK-2243
+title: 'CL-3: tokei records are emitted in rayon completion order, so the sidecar, the DuckDB table and the provider JSON differ run-to-run'
+status: In Progress
+assignee: []
 created_date: '2026-09-08 07:03'
-updated_date: '2026-09-08 10:57'
+updated_date: '2026-09-08 20:00'
 labels:
   - code-review-rust
   - pattern
 dependencies: []
+parent_task_id: 'TASK-2243'
 modified_files:
   - extensions/tokei/src/lib.rs
   - extensions/tokei/src/tests.rs

@@ -2,14 +2,14 @@
 id: TASK-2073
 title: 'API-5: bare #[must_use] attributes carry no explanatory message'
 status: To Do
-assignee:
-  - TASK-2247
+assignee: []
 created_date: '2026-09-07 22:56'
-updated_date: '2026-09-08 10:59'
+updated_date: '2026-09-08 20:00'
 labels:
   - code-review-rust
   - api
 dependencies: []
+parent_task_id: 'TASK-2247'
 modified_files:
   - extensions/about/src/text_util.rs
   - extensions/about/src/cards.rs

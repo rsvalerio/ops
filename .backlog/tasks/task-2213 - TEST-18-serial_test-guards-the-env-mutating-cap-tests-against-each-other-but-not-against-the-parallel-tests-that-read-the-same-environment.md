@@ -1,17 +1,15 @@
 ---
 id: TASK-2213
-title: >-
-  TEST-18: serial_test guards the env-mutating cap tests against each other but
-  not against the parallel tests that read the same environment
+title: 'TEST-18: serial_test guards the env-mutating cap tests against each other but not against the parallel tests that read the same environment'
 status: To Do
-assignee:
-  - TASK-2241
+assignee: []
 created_date: '2026-09-08 07:21'
-updated_date: '2026-09-08 10:56'
+updated_date: '2026-09-08 20:00'
 labels:
   - code-review-rust
   - test
 dependencies: []
+parent_task_id: 'TASK-2241'
 modified_files:
   - extensions-terraform/plan/src/lib.rs
 priority: medium

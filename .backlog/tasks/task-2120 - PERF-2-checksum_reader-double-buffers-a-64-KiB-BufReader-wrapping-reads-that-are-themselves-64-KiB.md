@@ -1,17 +1,15 @@
 ---
 id: TASK-2120
-title: >-
-  PERF-2: checksum_reader double-buffers - a 64 KiB BufReader wrapping reads
-  that are themselves 64 KiB
+title: 'PERF-2: checksum_reader double-buffers - a 64 KiB BufReader wrapping reads that are themselves 64 KiB'
 status: To Do
-assignee:
-  - TASK-2244
+assignee: []
 created_date: '2026-09-08 06:54'
-updated_date: '2026-09-08 10:58'
+updated_date: '2026-09-08 20:00'
 labels:
   - code-review-rust
   - performance
 dependencies: []
+parent_task_id: 'TASK-2244'
 modified_files:
   - extensions/duckdb/src/sql/ingest/dir.rs
 priority: low

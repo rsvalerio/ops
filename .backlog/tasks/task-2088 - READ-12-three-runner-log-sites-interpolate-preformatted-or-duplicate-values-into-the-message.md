@@ -1,17 +1,15 @@
 ---
 id: TASK-2088
-title: >-
-  READ-12: three runner log sites interpolate preformatted or duplicate values
-  into the message
+title: 'READ-12: three runner log sites interpolate preformatted or duplicate values into the message'
 status: To Do
-assignee:
-  - TASK-2248
+assignee: []
 created_date: '2026-09-07 22:58'
-updated_date: '2026-09-08 11:01'
+updated_date: '2026-09-08 20:00'
 labels:
   - code-review-rust
   - readability
 dependencies: []
+parent_task_id: 'TASK-2248'
 modified_files:
   - crates/runner/src/command/exec.rs
   - crates/runner/src/display.rs

@@ -1,17 +1,15 @@
 ---
 id: TASK-2218
-title: >-
-  API-13: ops-tfplan re-exports six items that are already reachable through its
-  public model and render modules
+title: 'API-13: ops-tfplan re-exports six items that are already reachable through its public model and render modules'
 status: To Do
-assignee:
-  - TASK-2247
+assignee: []
 created_date: '2026-09-08 07:21'
-updated_date: '2026-09-08 11:00'
+updated_date: '2026-09-08 20:00'
 labels:
   - code-review-rust
   - api
 dependencies: []
+parent_task_id: 'TASK-2247'
 modified_files:
   - extensions-terraform/plan/src/lib.rs
 priority: low

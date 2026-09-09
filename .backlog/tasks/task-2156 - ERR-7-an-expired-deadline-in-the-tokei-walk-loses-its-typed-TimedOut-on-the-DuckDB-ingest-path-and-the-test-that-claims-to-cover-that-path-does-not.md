@@ -1,17 +1,15 @@
 ---
 id: TASK-2156
-title: >-
-  ERR-7: an expired deadline in the tokei walk loses its typed TimedOut on the
-  DuckDB ingest path, and the test that claims to cover that path does not
-status: To Do
-assignee:
-  - TASK-2234
+title: 'ERR-7: an expired deadline in the tokei walk loses its typed TimedOut on the DuckDB ingest path, and the test that claims to cover that path does not'
+status: Done
+assignee: []
 created_date: '2026-09-08 07:04'
-updated_date: '2026-09-08 10:53'
+updated_date: '2026-09-08 20:00'
 labels:
   - code-review-rust
   - error-handling
 dependencies: []
+parent_task_id: 'TASK-2234'
 modified_files:
   - extensions/tokei/src/ingestor.rs
   - extensions/tokei/src/tests.rs

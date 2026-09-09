@@ -1,17 +1,15 @@
 ---
 id: TASK-2155
-title: >-
-  READ-13: cargo-update's public rustdoc is a change journal of TASK ids rather
-  than a description of the end state
+title: 'READ-13: cargo-update''s public rustdoc is a change journal of TASK ids rather than a description of the end state'
 status: To Do
-assignee:
-  - TASK-2248
+assignee: []
 created_date: '2026-09-08 07:04'
-updated_date: '2026-09-08 11:01'
+updated_date: '2026-09-08 20:00'
 labels:
   - code-review-rust
   - readability
 dependencies: []
+parent_task_id: 'TASK-2248'
 modified_files:
   - extensions-rust/cargo-update/src/lib.rs
 priority: low

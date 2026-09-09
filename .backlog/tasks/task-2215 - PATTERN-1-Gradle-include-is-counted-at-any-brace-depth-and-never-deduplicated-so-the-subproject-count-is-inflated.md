@@ -1,17 +1,15 @@
 ---
 id: TASK-2215
-title: >-
-  PATTERN-1: Gradle 'include' is counted at any brace depth and never
-  deduplicated, so the subproject count is inflated
+title: 'PATTERN-1: Gradle ''include'' is counted at any brace depth and never deduplicated, so the subproject count is inflated'
 status: Done
-assignee:
-  - TASK-2238
+assignee: []
 created_date: '2026-09-08 07:21'
-updated_date: '2026-09-08 16:57'
+updated_date: '2026-09-08 20:00'
 labels:
   - code-review-rust
   - pattern
 dependencies: []
+parent_task_id: 'TASK-2238'
 modified_files:
   - extensions-java/about/src/gradle/mod.rs
 priority: low

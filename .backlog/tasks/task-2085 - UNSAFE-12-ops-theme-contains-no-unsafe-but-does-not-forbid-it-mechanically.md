@@ -2,14 +2,14 @@
 id: TASK-2085
 title: 'UNSAFE-12: ops-theme contains no unsafe but does not forbid it mechanically'
 status: Done
-assignee:
-  - TASK-2245
+assignee: []
 created_date: '2026-09-07 22:58'
-updated_date: '2026-09-08 15:43'
+updated_date: '2026-09-08 20:00'
 labels:
   - code-review-rust
   - unsafe
 dependencies: []
+parent_task_id: 'TASK-2245'
 modified_files:
   - crates/theme/Cargo.toml
 priority: low

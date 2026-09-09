@@ -1,17 +1,15 @@
 ---
 id: TASK-2171
-title: >-
-  PATTERN-1: a root package that is also the workspace root is silently dropped
-  from the Rust review targets
+title: 'PATTERN-1: a root package that is also the workspace root is silently dropped from the Rust review targets'
 status: To Do
-assignee:
-  - TASK-2243
+assignee: []
 created_date: '2026-09-08 07:10'
-updated_date: '2026-09-08 10:57'
+updated_date: '2026-09-08 20:00'
 labels:
   - code-review-rust
   - patterns
 dependencies: []
+parent_task_id: 'TASK-2243'
 modified_files:
   - extensions-rust/create-review-tasks/src/provider.rs
 priority: high

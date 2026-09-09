@@ -1,17 +1,15 @@
 ---
 id: TASK-2076
-title: >-
-  TEST-18: results.rs env-mutation test races the process-global OUTPUT_BYTE_CAP
-  OnceLock without serial
+title: 'TEST-18: results.rs env-mutation test races the process-global OUTPUT_BYTE_CAP OnceLock without serial'
 status: To Do
-assignee:
-  - TASK-2241
+assignee: []
 created_date: '2026-09-07 22:57'
-updated_date: '2026-09-08 10:56'
+updated_date: '2026-09-08 20:00'
 labels:
   - code-review-rust
   - tests
 dependencies: []
+parent_task_id: 'TASK-2241'
 modified_files:
   - crates/runner/src/command/results.rs
 priority: medium

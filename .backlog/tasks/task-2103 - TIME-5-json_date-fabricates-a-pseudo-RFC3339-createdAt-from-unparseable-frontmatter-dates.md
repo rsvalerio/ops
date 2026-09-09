@@ -1,17 +1,15 @@
 ---
 id: TASK-2103
-title: >-
-  TIME-5: json_date fabricates a pseudo-RFC3339 createdAt from unparseable
-  frontmatter dates
-status: To Do
-assignee:
-  - TASK-2243
+title: 'TIME-5: json_date fabricates a pseudo-RFC3339 createdAt from unparseable frontmatter dates'
+status: Done
+assignee: []
 created_date: '2026-09-08 06:42'
-updated_date: '2026-09-08 10:57'
+updated_date: '2026-09-08 20:00'
 labels:
   - code-review-rust
   - time
 dependencies: []
+parent_task_id: 'TASK-2243'
 modified_files:
   - crates/backlog/src/render.rs
 priority: low

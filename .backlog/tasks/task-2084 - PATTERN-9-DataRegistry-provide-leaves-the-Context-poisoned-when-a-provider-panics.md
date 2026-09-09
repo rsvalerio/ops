@@ -1,17 +1,15 @@
 ---
 id: TASK-2084
-title: >-
-  PATTERN-9: DataRegistry::provide leaves the Context poisoned when a provider
-  panics
-status: To Do
-assignee:
-  - TASK-2243
+title: 'PATTERN-9: DataRegistry::provide leaves the Context poisoned when a provider panics'
+status: Done
+assignee: []
 created_date: '2026-09-07 22:58'
-updated_date: '2026-09-08 10:57'
+updated_date: '2026-09-08 20:00'
 labels:
   - code-review-rust
   - idioms
 dependencies: []
+parent_task_id: 'TASK-2243'
 modified_files:
   - crates/extension/src/data.rs
 priority: medium

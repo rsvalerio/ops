@@ -1,17 +1,15 @@
 ---
 id: TASK-2177
-title: >-
-  SEC-25: rust-loc enforces its memory cap against a stat taken before an
-  independent, unbounded read of the same path
-status: To Do
-assignee:
-  - TASK-2235
+title: 'SEC-25: rust-loc enforces its memory cap against a stat taken before an independent, unbounded read of the same path'
+status: Done
+assignee: []
 created_date: '2026-09-08 07:12'
-updated_date: '2026-09-08 10:54'
+updated_date: '2026-09-08 20:00'
 labels:
   - code-review-rust
   - security
 dependencies: []
+parent_task_id: 'TASK-2235'
 modified_files:
   - extensions-rust/loc/src/lib.rs
 priority: low

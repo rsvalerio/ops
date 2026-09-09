@@ -1,17 +1,15 @@
 ---
 id: TASK-2190
-title: >-
-  TEST-5: CoverageProvider::provide has no test, so a broken DB readback
-  silently degrades to a full cargo llvm-cov run
-status: To Do
-assignee:
-  - TASK-2240
+title: 'TEST-5: CoverageProvider::provide has no test, so a broken DB readback silently degrades to a full cargo llvm-cov run'
+status: Done
+assignee: []
 created_date: '2026-09-08 07:14'
-updated_date: '2026-09-08 10:56'
+updated_date: '2026-09-08 20:00'
 labels:
   - code-review-rust
   - tests
 dependencies: []
+parent_task_id: 'TASK-2240'
 modified_files:
   - extensions-rust/test-coverage/src/provider.rs
   - extensions-rust/test-coverage/src/tests/provider.rs
@@ -43,3 +41,9 @@ Related but distinct: TASK-2154 covers `RustCoverageProvider::provide` in `exten
 - [ ] #2 A test pins that provide takes the DB branch rather than the collect_coverage fallback when a DuckDb handle is attached (no cargo subprocess is spawned)
 - [ ] #3 provide_from_db is exercised against a DuckDb whose coverage_files table already holds rows, pinning the provide_via_ingestor short-circuit
 <!-- AC:END -->
+
+## Implementation Notes
+
+<!-- SECTION:NOTES:BEGIN -->
+Landed in wave TASK-2240. tests/provider.rs: provide_reads_rows_from_attached_db_without_running_cargo (AC1+2, bare non-cargo cwd discriminates the fallback), provide_from_db_short_circuits_when_table_has_rows (AC3).
+<!-- SECTION:NOTES:END -->

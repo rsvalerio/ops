@@ -1,17 +1,15 @@
 ---
 id: TASK-2226
-title: >-
-  SEC-11: normalize_repo_url preserves a userinfo authority, so package.json can
-  render https://github.com@evil.com/x as a github-looking About link
+title: 'SEC-11: normalize_repo_url preserves a userinfo authority, so package.json can render https://github.com@evil.com/x as a github-looking About link'
 status: Done
-assignee:
-  - TASK-2236
+assignee: []
 created_date: '2026-09-08 07:22'
-updated_date: '2026-09-08 15:59'
+updated_date: '2026-09-08 20:00'
 labels:
   - code-review-rust
   - security
 dependencies: []
+parent_task_id: 'TASK-2236'
 modified_files:
   - extensions-node/about/src/repo_url.rs
 priority: medium

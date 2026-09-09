@@ -1,17 +1,15 @@
 ---
 id: TASK-2172
-title: >-
-  TEST-32: both registration-key tests in create-review-tasks-rust compare a
-  constant to itself and cannot fail
-status: To Do
-assignee:
-  - TASK-2240
+title: 'TEST-32: both registration-key tests in create-review-tasks-rust compare a constant to itself and cannot fail'
+status: Done
+assignee: []
 created_date: '2026-09-08 07:11'
-updated_date: '2026-09-08 10:56'
+updated_date: '2026-09-08 20:00'
 labels:
   - code-review-rust
   - tests
 dependencies: []
+parent_task_id: 'TASK-2240'
 modified_files:
   - extensions-rust/create-review-tasks/src/provider.rs
   - extensions-rust/create-review-tasks/src/lib.rs
@@ -41,3 +39,9 @@ The second half of test 2 — decoding the payload and asserting `payload["skill
 - [ ] #2 extension_registers_the_review_targets_provider_under_the_engine_key no longer asserts presence of a key against the same constant used to register it; its behavioural half (payload skill == SKILL_NAME) is preserved
 - [ ] #3 Doc comments on the retained tests describe what they actually verify, with no claim of covering a mismatch that cannot occur
 <!-- AC:END -->
+
+## Implementation Notes
+
+<!-- SECTION:NOTES:BEGIN -->
+Landed in wave TASK-2240. Deleted provider_name_matches_the_engines_registration_key (X==X by construction); rewrote extension_registers_the_review_targets_provider_under_the_engine_key to drive registry.provide under the engine crate key constant with behavioural assertions (skill + solo target name/path), doc comments updated to describe what is actually verified.
+<!-- SECTION:NOTES:END -->

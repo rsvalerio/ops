@@ -1,18 +1,15 @@
 ---
 id: TASK-2133
-title: >-
-  TEST-5: run-before-commit never pins its own HOOK_CONFIG wiring - hook
-  filename, skip variable and legacy markers are asserted only in the sibling
-  crate
+title: 'TEST-5: run-before-commit never pins its own HOOK_CONFIG wiring - hook filename, skip variable and legacy markers are asserted only in the sibling crate'
 status: To Do
-assignee:
-  - TASK-2241
+assignee: []
 created_date: '2026-09-08 06:55'
-updated_date: '2026-09-08 10:56'
+updated_date: '2026-09-08 20:00'
 labels:
   - code-review-rust
   - test-quality
 dependencies: []
+parent_task_id: 'TASK-2241'
 modified_files:
   - extensions/run-before-commit/src/lib.rs
 priority: low

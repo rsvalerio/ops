@@ -1,17 +1,15 @@
 ---
 id: TASK-2070
-title: >-
-  READ-12: tracing warns interpolate values positionally instead of named
-  structured fields
+title: 'READ-12: tracing warns interpolate values positionally instead of named structured fields'
 status: To Do
-assignee:
-  - TASK-2248
+assignee: []
 created_date: '2026-09-07 22:55'
-updated_date: '2026-09-08 11:01'
+updated_date: '2026-09-08 20:00'
 labels:
   - code-review-rust
   - readability
 dependencies: []
+parent_task_id: 'TASK-2248'
 modified_files:
   - extensions/about/src/lib.rs
   - extensions/about/src/code.rs
