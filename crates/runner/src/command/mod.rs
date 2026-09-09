@@ -496,25 +496,25 @@ impl CommandRunner {
         command_id: &str,
         on_event: &mut impl FnMut(RunnerEvent),
     ) -> anyhow::Result<Vec<StepResult>> {
-        let spec = self
-            .resolve(command_id)
-            .ok_or_else(|| ExpandError::Unknown(UnknownCommand::new(command_id)))?;
-        let plan = self
-            .expand_to_leaves(command_id)
+        // PERF-3 / TASK-2086: one walk of the command stores. The plan and
+        // the scheduling flags both come from `expand_to_leaves_with_flags`
+        // (PATTERN-1 / TASK-1283); a separate `resolve` of the root was a
+        // second traversal and a second source of truth for the same
+        // decision. The aggregated flags are equivalent to the root spec's
+        // own: TASK-1657's agreement check errors on any tree that declares
+        // conflicting values, and an Exec root contributes
+        // `(any_parallel=false, fail_fast_disabled=false)` — the single
+        // fail-fast sequential step it always ran as.
+        let (plan, any_parallel, fail_fast_disabled) = self
+            .expand_to_leaves_with_flags(command_id)
             .map_err(anyhow::Error::from)?;
         debug!(command_id, steps = plan.len(), "running command");
 
-        // API-9: CommandSpec is #[non_exhaustive] in ops-core, so the
-        // wildcard arm below is required, not a lazy catch-all.
-        #[allow(clippy::match_wildcard_for_single_variants)]
-        let results = match spec {
-            CommandSpec::Composite(c) if c.parallel => {
-                self.run_plan_parallel(&plan, c.fail_fast, on_event).await
-            }
-            CommandSpec::Composite(c) => self.run_plan(&plan, c.fail_fast, on_event).await,
-            // API-9: CommandSpec is #[non_exhaustive]; Exec and any future
-            // variant run as a single fail-fast step.
-            _ => self.run_plan(&plan, true, on_event).await,
+        let fail_fast = !fail_fast_disabled;
+        let results = if any_parallel {
+            self.run_plan_parallel(&plan, fail_fast, on_event).await
+        } else {
+            self.run_plan(&plan, fail_fast, on_event).await
         };
         Ok(results)
     }
