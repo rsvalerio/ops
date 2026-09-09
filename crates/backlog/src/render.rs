@@ -39,17 +39,22 @@ fn priority_capitalized(priority: &str) -> String {
     })
 }
 
-/// `'2026-08-29 18:21'` → `"2026-08-29T18:21:00Z"`; seconds kept when the
-/// raw value carries them (the 24 oldest files do).
-fn json_date(raw: &str) -> String {
-    let with_t = raw.replace(' ', "T");
-    let (date, time) = with_t.split_once('T').unwrap_or((with_t.as_str(), ""));
-    let time = if time.split(':').count() == 2 {
-        format!("{time}:00")
-    } else {
-        time.to_string()
-    };
-    format!("{date}T{time}Z")
+/// TIME-5 / TASK-2103: an RFC 3339 timestamp is emitted only when the raw
+/// frontmatter value actually parses as one — both the `HH:MM` and the
+/// `HH:MM:SS` form, via [`crate::cmd::cleanup::parse_frontmatter_date`].
+/// A value that does not parse yields `None` (rendered as JSON `null`): the
+/// pre-fix string surgery reshaped any scalar into something timestamp-shaped
+/// (`"back then"` → `"backTthenZ"`), which fails downstream parsing far from
+/// its cause — worse than an honest null.
+fn json_date(raw: &str) -> Option<String> {
+    crate::cmd::cleanup::parse_frontmatter_date(raw)
+        .map(|dt| dt.to_rfc3339_opts(chrono::SecondsFormat::Secs, true))
+}
+
+/// `Some(date)` as a JSON string literal, `None` as `null` — the envelope's
+/// null convention shared by every optional scalar.
+fn opt_jstr_date(date: Option<String>) -> String {
+    date.map_or_else(|| "null".to_string(), |d| jstr(&d))
 }
 
 /// A JSON string literal, escaped by `serde_json` (infallible for `&str`).
@@ -331,13 +336,16 @@ fn push_scalar_fields(
         &ordinal.map_or_else(|| "null".to_string(), |o| o.to_string()),
         false,
     );
-    push_field(s, "createdAt", &jstr(&json_date(&fm.created_date)), false);
+    push_field(
+        s,
+        "createdAt",
+        &opt_jstr_date(json_date(&fm.created_date)),
+        false,
+    );
     push_field(
         s,
         "updatedAt",
-        &fm.updated_date
-            .as_ref()
-            .map_or_else(|| "null".to_string(), |d| jstr(&json_date(d))),
+        &opt_jstr_date(fm.updated_date.as_ref().and_then(|d| json_date(d))),
         false,
     );
     push_field(s, "dueDate", "null", false);
@@ -631,15 +639,13 @@ pub fn list_json<W: Write>(
         push_row_field(
             &mut s,
             "createdAt",
-            &jstr(&json_date(&fm.created_date)),
+            &opt_jstr_date(json_date(&fm.created_date)),
             false,
         );
         push_row_field(
             &mut s,
             "updatedAt",
-            &fm.updated_date
-                .as_ref()
-                .map_or_else(|| "null".to_string(), |d| jstr(&json_date(d))),
+            &opt_jstr_date(fm.updated_date.as_ref().and_then(|d| json_date(d))),
             false,
         );
         push_row_field(&mut s, "dueDate", "null", false);
@@ -956,8 +962,22 @@ priority: low
 
     #[test]
     fn json_date_handles_seconds_and_minutes() {
-        assert_eq!(json_date("2026-08-29 18:21"), "2026-08-29T18:21:00Z");
-        assert_eq!(json_date("2026-04-10 07:15:00"), "2026-04-10T07:15:00Z");
+        assert_eq!(
+            json_date("2026-08-29 18:21").as_deref(),
+            Some("2026-08-29T18:21:00Z")
+        );
+        assert_eq!(
+            json_date("2026-04-10 07:15:00").as_deref(),
+            Some("2026-04-10T07:15:00Z")
+        );
+    }
+
+    /// TIME-5 / TASK-2103: an unparseable frontmatter date must not be
+    /// reshaped into a pseudo-timestamp — pre-fix, `"back then"` rendered as
+    /// `"backTthenZ"` in the JSON envelopes' `createdAt`/`updatedAt`.
+    #[test]
+    fn json_date_rejects_unparseable_dates() {
+        assert_eq!(json_date("back then"), None);
     }
 
     #[test]
