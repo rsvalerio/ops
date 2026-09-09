@@ -499,8 +499,9 @@ impl DataRegistry {
     /// catchable error. Both public entry points now cross this function, so
     /// the guard cannot be bypassed by picking the other one.
     ///
-    /// The marker is cleared on both the success and the failure path so a
-    /// provider that fails does not poison later requests for the same key.
+    /// The marker is cleared on every exit path — success, error return, and
+    /// panic (via the dispatch Drop guard, TASK-2084) — so a provider that
+    /// fails or panics does not poison later requests for the same key.
     ///
     /// SEC-33 / TASK-2017: the wall-clock bound lives here too, for the same
     /// reason the re-entrancy guard does — it is the one place both public
@@ -536,11 +537,19 @@ impl DataRegistry {
             .ok_or_else(|| DataProviderError::not_found(name))?;
         ctx.enter_provider(name)?;
         let owns_deadline = ctx.begin_deadline(name);
-        let result = provider.provide(ctx);
-        // Read the overrun before clearing: the deadline is gone afterwards.
-        let overrun = ctx.overrun();
-        ctx.clear_deadline_if_owned(owns_deadline);
-        ctx.exit_provider(name);
+        // PATTERN-9 / TASK-2084: teardown lives in the DispatchGuard's Drop,
+        // not in fall-through code below — a panicking provider unwinds
+        // through this frame, and statements after the call would never run.
+        let dispatch = DispatchGuard {
+            ctx,
+            name,
+            owns_deadline,
+        };
+        let result = provider.provide(&mut *dispatch.ctx);
+        // Read the overrun before the guard drops: the deadline is gone
+        // afterwards.
+        let overrun = dispatch.ctx.overrun();
+        drop(dispatch);
         match (result, overrun) {
             // A provider error is the specific answer and is returned
             // verbatim, whether or not the dispatch also ran past its budget.
@@ -553,6 +562,27 @@ impl DataRegistry {
             (Ok(_), Some(timed_out)) => Err(timed_out),
             (Ok(value), None) => Ok(value),
         }
+    }
+}
+
+/// PATTERN-9 / TASK-2084: unwind-safe teardown for one provider dispatch.
+/// [`DataRegistry::provide`] sets up in-flight and deadline state before the
+/// provider runs and must tear it down afterwards; holding that teardown in
+/// `Drop` rather than in statements after the call means a panicking provider
+/// — extension-supplied code this workspace cannot audit — cannot leak the
+/// in-flight marker (which would make every later request for the key read as
+/// a phantom [`DataProviderError::Cycle`]) or strand a deadline this dispatch
+/// owned (which would shadow every later dispatch's budget).
+struct DispatchGuard<'a> {
+    ctx: &'a mut Context,
+    name: &'a str,
+    owns_deadline: bool,
+}
+
+impl Drop for DispatchGuard<'_> {
+    fn drop(&mut self) {
+        self.ctx.clear_deadline_if_owned(self.owns_deadline);
+        self.ctx.exit_provider(self.name);
     }
 }
 
@@ -824,9 +854,10 @@ impl Context {
         }
     }
 
-    /// Clear the in-flight marker set by [`Context::enter_provider`]. Called
-    /// on both the success and the failure path so a failed provider does not
-    /// poison later requests for the same key.
+    /// Clear the in-flight marker set by [`Context::enter_provider`]. Runs in
+    /// the dispatch Drop guard, so every exit path — success, error return,
+    /// and panic — clears it and a failed provider does not poison later
+    /// requests for the same key.
     pub(crate) fn exit_provider(&mut self, key: &str) {
         self.in_flight.remove(key);
     }

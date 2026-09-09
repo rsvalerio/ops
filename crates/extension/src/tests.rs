@@ -97,6 +97,63 @@ fn data_registry_provide_returns_value() {
     assert_eq!(value, serde_json::json!({"key": "value"}));
 }
 
+/// PATTERN-9 / TASK-2084: teardown around a provider dispatch must run on
+/// the panic path too, not only on return. Pre-fix, a panicking provider
+/// unwound past the `exit_provider` / `clear_deadline_if_owned` statements,
+/// so the leaked in-flight marker made every later request for the key read
+/// as a phantom `Cycle` and the stranded deadline shadowed later budgets.
+/// The dispatch Drop guard clears both, so the same key dispatches again.
+#[test]
+fn provider_panic_does_not_poison_the_context() {
+    use std::sync::atomic::{AtomicUsize, Ordering};
+
+    struct PanickingFirstProvider {
+        calls: AtomicUsize,
+    }
+    impl DataProvider for PanickingFirstProvider {
+        fn name(&self) -> &'static str {
+            "panic-first"
+        }
+        // The panic is the fixture under test, not an assertion failure:
+        // returning `Err` would exercise the error path, not the unwind
+        // path the Drop guard exists for (`clippy::panic_in_result_fn`,
+        // `clippy::manual_assert`).
+        #[allow(clippy::panic_in_result_fn, clippy::manual_assert)]
+        fn provide(&self, _ctx: &mut Context) -> Result<serde_json::Value, DataProviderError> {
+            if self.calls.fetch_add(1, Ordering::SeqCst) == 0 {
+                panic!("first dispatch panics");
+            }
+            Ok(serde_json::json!({ "ok": true }))
+        }
+    }
+
+    let mut registry = DataRegistry::new();
+    let _ = registry.register(
+        "panic-first",
+        Box::new(PanickingFirstProvider {
+            calls: AtomicUsize::new(0),
+        }),
+    );
+    let mut ctx = test_context();
+
+    let unwound = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+        registry.provide("panic-first", &mut ctx)
+    }));
+    assert!(
+        unwound.is_err(),
+        "the first dispatch must unwind, not return"
+    );
+
+    assert!(
+        ctx.deadline().is_none(),
+        "no deadline may survive the panicked dispatch"
+    );
+
+    let second = registry.provide("panic-first", &mut ctx);
+    let value = second.expect("second dispatch of the same key must succeed, not Cycle");
+    assert_eq!(value, serde_json::json!({ "ok": true }));
+}
+
 /// ERR-1 / TASK-1170: a Context built with `with_refresh()` (or any caller
 /// flipping `refresh = true`) must bypass the `data_cache` fast path so the
 /// provider is re-invoked. Pre-fix, `get_or_provide` returned the cached
