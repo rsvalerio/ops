@@ -4,7 +4,7 @@ title: 'TEST-5: CoverageProvider::provide has no test, so a broken DB readback s
 status: Done
 assignee: []
 created_date: '2026-09-08 07:14'
-updated_date: '2026-09-08 20:00'
+updated_date: '2026-09-09 18:14'
 labels:
   - code-review-rust
   - tests
@@ -37,9 +37,10 @@ Related but distinct: TASK-2154 covers `RustCoverageProvider::provide` in `exten
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 A test attaches a DuckDb loaded via setup_loaded_db() to a Context and calls CoverageProvider.provide, asserting the two fixture rows come back
-- [ ] #2 A test pins that provide takes the DB branch rather than the collect_coverage fallback when a DuckDb handle is attached (no cargo subprocess is spawned)
-- [ ] #3 provide_from_db is exercised against a DuckDb whose coverage_files table already holds rows, pinning the provide_via_ingestor short-circuit
+- [x] #1 A test attaches a DuckDb loaded via setup_loaded_db() to a Context and calls CoverageProvider.provide, asserting the two fixture rows come back
+- [x] #2 A test pins that provide takes the DB branch rather than the collect_coverage fallback when a DuckDb handle is attached (no cargo subprocess is spawned)
+- [x] #3 provide_from_db is exercised against a DuckDb whose coverage_files table already holds rows, pinning the provide_via_ingestor short-circuit
+
 <!-- AC:END -->
 
 ## Implementation Notes

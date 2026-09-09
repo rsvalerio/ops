@@ -4,7 +4,7 @@ title: 'TEST-5: PythonUnitsProvider''s DataProvider impl and the about-python pr
 status: Done
 assignee: []
 created_date: '2026-09-08 07:18'
-updated_date: '2026-09-08 20:00'
+updated_date: '2026-09-09 18:14'
 labels:
   - code-review-rust
   - tests
@@ -33,10 +33,11 @@ The sibling Node crate pins exactly this surface (`extensions-node/about/src/uni
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 A test asserts PythonUnitsProvider.name() == "project_units"
-- [ ] #2 A test drives PythonUnitsProvider::provide() against a uv workspace tempdir and asserts the deserialised JSON payload (name, path, version, description)
-- [ ] #3 A test asserts the no-workspace case serialises to an empty JSON array, not null
-- [ ] #4 A test exercises AboutPythonExtension's register_data_providers and asserts both project_identity and project_units are registered
+- [x] #1 A test asserts PythonUnitsProvider.name() == "project_units"
+- [x] #2 A test drives PythonUnitsProvider::provide() against a uv workspace tempdir and asserts the deserialised JSON payload (name, path, version, description)
+- [x] #3 A test asserts the no-workspace case serialises to an empty JSON array, not null
+- [x] #4 A test exercises AboutPythonExtension's register_data_providers and asserts both project_identity and project_units are registered
+
 <!-- AC:END -->
 
 ## Implementation Notes

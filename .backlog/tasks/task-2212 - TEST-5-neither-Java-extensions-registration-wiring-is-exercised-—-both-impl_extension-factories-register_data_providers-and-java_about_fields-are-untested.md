@@ -4,7 +4,7 @@ title: 'TEST-5: neither Java extension''s registration wiring is exercised — b
 status: Done
 assignee: []
 created_date: '2026-09-08 07:20'
-updated_date: '2026-09-08 20:00'
+updated_date: '2026-09-09 18:24'
 labels:
   - code-review-rust
   - test
@@ -37,13 +37,17 @@ Twin: TASK-2184 files the same gap for the Go extension's provider registration.
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 A test builds each extension through its factory and asserts name, shortname, description, types and stack
-- [ ] #2 A test runs each register_data_providers closure against a test DataRegistry and asserts the 'project_identity' provider present is the matching stack's provider (Maven for AboutMavenExtension, Gradle for AboutGradleExtension), not merely that some provider registered
-- [ ] #3 A test asserts java_about_fields() contains a 'homepage' field positioned immediately before 'coverage'
+- [x] #1 A test builds each extension through its factory and asserts name, shortname, description, types and stack
+- [x] #2 A test runs each register_data_providers closure against a test DataRegistry and asserts the 'project_identity' provider present is the matching stack's provider (Maven for AboutMavenExtension, Gradle for AboutGradleExtension), not merely that some provider registered
+- [x] #3 A test asserts java_about_fields() contains a 'homepage' field positioned immediately before 'coverage'
+
 <!-- AC:END -->
 
 ## Implementation Notes
 
 <!-- SECTION:NOTES:BEGIN -->
 Landed in wave TASK-2240. lib.rs gained a tests module (previously none): factories_build_extensions_with_declared_metadata (AC1), each_extension_registers_its_own_stack_identity_provider (AC2, provider identified by stack_detail Maven/Gradle over real fixtures), java_about_fields_places_homepage_immediately_before_coverage (AC3).
+
+AC #3 substitution (recorded during merge, TASK-2240): the landing branch had split java_about_fields into maven_about_fields (homepage filled from the POM url) and gradle_about_fields (no homepage) via TASK-2204 after this task was triaged. The test now pins both halves of the split: homepage sits immediately before coverage in maven_about_fields, and gradle_about_fields carries no homepage row — the closest still-meaningful check on the post-split API. Test renamed to about_fields_place_homepage_before_coverage_only_where_fillable.
+
 <!-- SECTION:NOTES:END -->

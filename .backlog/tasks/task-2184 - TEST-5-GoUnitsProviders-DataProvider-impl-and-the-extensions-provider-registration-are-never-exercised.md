@@ -4,7 +4,7 @@ title: 'TEST-5: GoUnitsProvider''s DataProvider impl and the extension''s provid
 status: Done
 assignee: []
 created_date: '2026-09-08 07:13'
-updated_date: '2026-09-08 20:00'
+updated_date: '2026-09-09 18:14'
 labels:
   - code-review-rust
   - test
@@ -31,10 +31,11 @@ The `register_data_providers` closure in `impl_extension!` is likewise untested:
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 A test drives GoUnitsProvider::provide through a Context::test_context over a go.work fixture and deserializes the returned Value back into Vec<ProjectUnit>, asserting names, paths and versions
-- [ ] #2 A test asserts GoUnitsProvider::name() == modules::PROVIDER_NAME == "project_units"
-- [ ] #3 A test builds a DataRegistry through the extension's register_data_providers and asserts both project_identity and project_units are present
-- [ ] #4 Cross-referenced with TASK-2154 so the Rust and Go stacks land the same provider-level coverage shape
+- [x] #1 A test drives GoUnitsProvider::provide through a Context::test_context over a go.work fixture and deserializes the returned Value back into Vec<ProjectUnit>, asserting names, paths and versions
+- [x] #2 A test asserts GoUnitsProvider::name() == modules::PROVIDER_NAME == "project_units"
+- [x] #3 A test builds a DataRegistry through the extension's register_data_providers and asserts both project_identity and project_units are present
+- [x] #4 Cross-referenced with TASK-2154 so the Rust and Go stacks land the same provider-level coverage shape
+
 <!-- AC:END -->
 
 ## Implementation Notes

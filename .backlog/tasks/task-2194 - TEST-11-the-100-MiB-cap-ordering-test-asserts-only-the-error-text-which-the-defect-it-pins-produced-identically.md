@@ -4,7 +4,7 @@ title: 'TEST-11: the 100-MiB cap-ordering test asserts only the error text, whic
 status: Done
 assignee: []
 created_date: '2026-09-08 07:14'
-updated_date: '2026-09-08 20:00'
+updated_date: '2026-09-09 18:14'
 labels:
   - code-review-rust
   - tests
@@ -58,9 +58,10 @@ and fold the message assertions into the cheap test.
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 The test asserts a property that the pre-TASK-1194 materialise-then-check implementation would fail (e.g. the cap-guard SQL returns NULL for the payload when over cap, or a plan/shape assertion), not only the rendered error text
-- [ ] #2 The 100 MiB DuckDB fixture is either justified by the new assertion or removed in favour of the existing small-cap test
-- [ ] #3 The doc comment's claim matches what the assertions actually check
+- [x] #1 The test asserts a property that the pre-TASK-1194 materialise-then-check implementation would fail (e.g. the cap-guard SQL returns NULL for the payload when over cap, or a plan/shape assertion), not only the rendered error text
+- [x] #2 The 100 MiB DuckDB fixture is either justified by the new assertion or removed in favour of the existing small-cap test
+- [x] #3 The doc comment's claim matches what the assertions actually check
+
 <!-- AC:END -->
 
 ## Implementation Notes

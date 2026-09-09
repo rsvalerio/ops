@@ -4,7 +4,7 @@ title: 'TEST-5: AboutNodeExtension''s register_data_providers and linkme factory
 status: Done
 assignee: []
 created_date: '2026-09-08 07:23'
-updated_date: '2026-09-08 20:00'
+updated_date: '2026-09-09 18:14'
 labels:
   - code-review-rust
   - test-quality
@@ -53,9 +53,10 @@ TASK-2184 (about-go), TASK-2201 (about-python).
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 a test drives AboutNodeExtension::register_data_providers against a real DataRegistry and asserts both project_identity and project_units resolve
-- [ ] #2 a test asserts the register calls report no duplicate rejection (the discarded Option is None for both)
-- [ ] #3 a test exercises NODE_ABOUT_FACTORY and asserts the extension's name, shortname, stack and type
+- [x] #1 a test drives AboutNodeExtension::register_data_providers against a real DataRegistry and asserts both project_identity and project_units resolve
+- [x] #2 a test asserts the register calls report no duplicate rejection (the discarded Option is None for both)
+- [x] #3 a test exercises NODE_ABOUT_FACTORY and asserts the extension's name, shortname, stack and type
+
 <!-- AC:END -->
 
 ## Implementation Notes

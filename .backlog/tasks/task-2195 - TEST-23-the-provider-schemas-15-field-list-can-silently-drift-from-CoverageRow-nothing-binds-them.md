@@ -4,7 +4,7 @@ title: 'TEST-23: the provider schema''s 15-field list can silently drift from Co
 status: Done
 assignee: []
 created_date: '2026-09-08 07:14'
-updated_date: '2026-09-08 20:00'
+updated_date: '2026-09-09 18:14'
 labels:
   - code-review-rust
   - tests
@@ -33,9 +33,10 @@ A binding test is cheap: serialize a `CoverageRow` (it derives `Serialize`) and 
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 A test derives the expected field-name set from a serialized CoverageRow and asserts it equals the name set in CoverageProvider::schema()
-- [ ] #2 The hardcoded 15-literal restatement in coverage_provider_schema_has_fields is replaced or reduced so that adding a CoverageRow field fails the suite rather than passing silently
-- [ ] #3 Field ordering expectations, if any, are stated explicitly in the test rather than assumed
+- [x] #1 A test derives the expected field-name set from a serialized CoverageRow and asserts it equals the name set in CoverageProvider::schema()
+- [x] #2 The hardcoded 15-literal restatement in coverage_provider_schema_has_fields is replaced or reduced so that adding a CoverageRow field fails the suite rather than passing silently
+- [x] #3 Field ordering expectations, if any, are stated explicitly in the test rather than assumed
+
 <!-- AC:END -->
 
 ## Implementation Notes

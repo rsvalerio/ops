@@ -4,7 +4,7 @@ title: 'TEST-5: per_crate_units and RustCoverageProvider::provide have no happy-
 status: Done
 assignee: []
 created_date: '2026-09-08 07:03'
-updated_date: '2026-09-08 20:00'
+updated_date: '2026-09-09 18:14'
 labels:
   - code-review-rust
   - tests
@@ -36,11 +36,12 @@ The sibling providers are all covered on these paths: `deps_provider.rs` has `pr
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 A test seeds an in-memory DuckDb with `coverage_files` rows for two workspace members and asserts `per_crate_units` returns one `UnitCoverage` per member with the right unit name, member path, and (percent, covered, count) triple in the right order
-- [ ] #2 A test pins that a member with no coverage row is omitted from the per-crate list rather than emitted with zeroed stats
-- [ ] #3 A test drives `RustCoverageProvider::provide` end to end against a real workspace fixture plus a seeded DuckDb and asserts both the project total and the per-crate table
-- [ ] #4 The no-DuckDB and failed-query arms of `provide` are pinned to return a well-formed default `ProjectCoverage` (not an error), matching the shape `deps_provider`'s tests already establish
-- [ ] #5 The new tests are platform-independent (not gated on unix / non-macos) and carry `#[serial_test::serial(typed_manifest_cache, project_coverage_cache)]` per the cache modules' contract
+- [x] #1 A test seeds an in-memory DuckDb with `coverage_files` rows for two workspace members and asserts `per_crate_units` returns one `UnitCoverage` per member with the right unit name, member path, and (percent, covered, count) triple in the right order
+- [x] #2 A test pins that a member with no coverage row is omitted from the per-crate list rather than emitted with zeroed stats
+- [x] #3 A test drives `RustCoverageProvider::provide` end to end against a real workspace fixture plus a seeded DuckDb and asserts both the project total and the per-crate table
+- [x] #4 The no-DuckDB and failed-query arms of `provide` are pinned to return a well-formed default `ProjectCoverage` (not an error), matching the shape `deps_provider`'s tests already establish
+- [x] #5 The new tests are platform-independent (not gated on unix / non-macos) and carry `#[serial_test::serial(typed_manifest_cache, project_coverage_cache)]` per the cache modules' contract
+
 <!-- AC:END -->
 
 ## Implementation Notes

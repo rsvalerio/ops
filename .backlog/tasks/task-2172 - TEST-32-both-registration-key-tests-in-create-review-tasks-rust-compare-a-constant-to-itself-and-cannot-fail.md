@@ -4,7 +4,7 @@ title: 'TEST-32: both registration-key tests in create-review-tasks-rust compare
 status: Done
 assignee: []
 created_date: '2026-09-08 07:11'
-updated_date: '2026-09-08 20:00'
+updated_date: '2026-09-09 18:14'
 labels:
   - code-review-rust
   - tests
@@ -35,9 +35,10 @@ The second half of test 2 — decoding the payload and asserting `payload["skill
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 provider_name_matches_the_engines_registration_key is either deleted or rewritten to assert a property that is not true by construction (e.g. the engine's own lookup path resolves this provider)
-- [ ] #2 extension_registers_the_review_targets_provider_under_the_engine_key no longer asserts presence of a key against the same constant used to register it; its behavioural half (payload skill == SKILL_NAME) is preserved
-- [ ] #3 Doc comments on the retained tests describe what they actually verify, with no claim of covering a mismatch that cannot occur
+- [x] #1 provider_name_matches_the_engines_registration_key is either deleted or rewritten to assert a property that is not true by construction (e.g. the engine's own lookup path resolves this provider)
+- [x] #2 extension_registers_the_review_targets_provider_under_the_engine_key no longer asserts presence of a key against the same constant used to register it; its behavioural half (payload skill == SKILL_NAME) is preserved
+- [x] #3 Doc comments on the retained tests describe what they actually verify, with no claim of covering a mismatch that cannot occur
+
 <!-- AC:END -->
 
 ## Implementation Notes
