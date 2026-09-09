@@ -4,6 +4,7 @@ use std::io::Write;
 
 use anyhow::Context as _;
 
+use crate::cmd::OutputFormat;
 use crate::config::BacklogConfig;
 use crate::render;
 use crate::store::Store;
@@ -25,8 +26,9 @@ pub struct ListOptions {
     /// Keep tasks whose `dependencies:` include this id (case-insensitive) —
     /// the reverse query ("dependents of X") the backlog CLI lacks.
     pub dependents: Option<String>,
-    pub plain: bool,
-    pub json: bool,
+    /// Which renderer to use; the CLI rejects `--plain --json` at parse
+    /// time, so exactly one mode always reaches here.
+    pub format: OutputFormat,
 }
 
 /// List tasks grouped by status (plain) or as the `task-list` JSON envelope.
@@ -50,12 +52,16 @@ pub fn run_list<W: Write>(
         .filter(|e| parent_matches(opts, e))
         .filter(|e| dependents_match(opts, e))
         .collect();
-    if opts.json {
-        render::list_json(out, &filtered, &cfg.statuses).context("writing task list JSON")?;
-    } else {
-        // `--plain` and the default render identically here: the interactive
-        // board is out of scope, so plain is always the shape.
-        render::list_plain(out, &filtered, &cfg.statuses).context("writing task list")?;
+    match opts.format {
+        OutputFormat::Json => {
+            render::list_json(out, &filtered, &cfg.statuses).context("writing task list JSON")?;
+        }
+        OutputFormat::Plain => {
+            // `--plain` and the default render identically here: the
+            // interactive board is out of scope, so plain is always the
+            // shape.
+            render::list_plain(out, &filtered, &cfg.statuses).context("writing task list")?;
+        }
     }
     Ok(())
 }
@@ -172,7 +178,7 @@ mod tests {
             &cfg,
             &ListOptions {
                 statuses: vec!["done".to_string()],
-                plain: true,
+                format: OutputFormat::Plain,
                 ..ListOptions::default()
             },
             &mut out,
@@ -193,7 +199,7 @@ mod tests {
             &cfg,
             &ListOptions {
                 assignees: vec!["code-review-wave".to_string()],
-                plain: true,
+                format: OutputFormat::Plain,
                 ..ListOptions::default()
             },
             &mut out,
@@ -215,7 +221,7 @@ mod tests {
             &cfg,
             &ListOptions {
                 labels: vec!["code-review-rust".to_string()],
-                plain: true,
+                format: OutputFormat::Plain,
                 ..ListOptions::default()
             },
             &mut out,
@@ -232,7 +238,7 @@ mod tests {
             &cfg,
             &ListOptions {
                 labels: vec!["code-review-rust".to_string(), "SECURITY".to_string()],
-                plain: true,
+                format: OutputFormat::Plain,
                 ..ListOptions::default()
             },
             &mut out,
@@ -260,7 +266,7 @@ mod tests {
             &cfg,
             &ListOptions {
                 parent: Some("TASK-0002".to_string()),
-                plain: true,
+                format: OutputFormat::Plain,
                 ..ListOptions::default()
             },
             &mut out,
@@ -282,7 +288,7 @@ mod tests {
             &cfg,
             &ListOptions {
                 dependents: Some("TASK-0002".to_string()),
-                plain: true,
+                format: OutputFormat::Plain,
                 ..ListOptions::default()
             },
             &mut out,
@@ -302,7 +308,7 @@ mod tests {
             &store,
             &cfg,
             &ListOptions {
-                json: true,
+                format: OutputFormat::Json,
                 ..ListOptions::default()
             },
             &mut out,

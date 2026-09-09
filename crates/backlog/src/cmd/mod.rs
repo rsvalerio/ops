@@ -27,6 +27,21 @@ pub use wave::{
 
 use std::io::Write;
 
+/// Output mode for `task view` / `task list`: exactly one renderer.
+///
+/// The two-bool (`plain`, `json`) form this replaces could represent
+/// "plain and json at once", a state that is not a valid output mode;
+/// the enum makes it unrepresentable, and the CLI rejects `--plain --json`
+/// at parse time.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub enum OutputFormat {
+    /// Human-readable rendering; also the mode when no flag is passed.
+    #[default]
+    Plain,
+    /// The machine-readable JSON envelope.
+    Json,
+}
+
 /// Ask `<prompt> [y/N] ` and read one answer line. `y`/`yes`
 /// (case-insensitive) proceeds; empty input — including EOF on a closed
 /// stdin — and anything else cancels. No is the default, matching the

@@ -6,6 +6,7 @@ use std::path::Path;
 
 use anyhow::Context as _;
 
+use crate::cmd::OutputFormat;
 use crate::render;
 use crate::store::Store;
 
@@ -13,17 +14,17 @@ use crate::store::Store;
 #[derive(Debug, Clone, Default)]
 pub struct ViewOptions {
     pub task_id: String,
-    pub plain: bool,
-    pub json: bool,
+    /// Which renderer to use; the CLI rejects `--plain --json` at parse
+    /// time, so exactly one mode always reaches here.
+    pub format: OutputFormat,
 }
 
-/// Show one task. `--plain` and `--json` are mutually exclusive — the CLI
-/// enforces it; both set here is a caller bug rendered as plain.
+/// Show one task in the requested [`OutputFormat`].
 ///
 /// # Errors
 ///
-/// The task id resolves to nothing (the error names the id), a scan of
-/// `tasks/` fails, or writing `out` failed.
+/// The task id resolves to nothing (the error names the id), a lookup or scan
+/// directory cannot be read, or writing `out` failed.
 pub fn run_view<W: Write>(
     store: &Store,
     opts: &ViewOptions,
@@ -31,7 +32,7 @@ pub fn run_view<W: Write>(
     out: &mut W,
 ) -> anyhow::Result<()> {
     let entry = store
-        .find(&opts.task_id)
+        .find(&opts.task_id)?
         .ok_or_else(|| anyhow::anyhow!("task {} not found", opts.task_id))?;
     let statuses = store.scan_tasks()?;
     let lookup = |id: &str| -> Option<String> {
@@ -41,11 +42,14 @@ pub fn run_view<W: Write>(
             .map(|e| e.doc.frontmatter.status.clone())
     };
     let readiness = render::readiness_of(&entry.doc, &lookup);
-    if opts.json {
-        render::view_json(out, &entry, workspace_root, &readiness, &lookup)
-            .context("writing task view JSON")?;
-    } else {
-        render::view_plain(out, &entry, &readiness).context("writing task view")?;
+    match opts.format {
+        OutputFormat::Json => {
+            render::view_json(out, &entry, workspace_root, &readiness, &lookup)
+                .context("writing task view JSON")?;
+        }
+        OutputFormat::Plain => {
+            render::view_plain(out, &entry, &readiness).context("writing task view")?;
+        }
     }
     Ok(())
 }
@@ -90,8 +94,7 @@ the body
             &store,
             &ViewOptions {
                 task_id: "TASK-0001".to_string(),
-                plain: true,
-                ..ViewOptions::default()
+                format: OutputFormat::Plain,
             },
             dir.path(),
             &mut out,
@@ -110,8 +113,7 @@ the body
             &store,
             &ViewOptions {
                 task_id: "task-0001".to_string(),
-                json: true,
-                ..ViewOptions::default()
+                format: OutputFormat::Json,
             },
             dir.path(),
             &mut out,
@@ -130,8 +132,7 @@ the body
             &store,
             &ViewOptions {
                 task_id: "TASK-4242".to_string(),
-                plain: true,
-                ..ViewOptions::default()
+                format: OutputFormat::Plain,
             },
             dir.path(),
             &mut out,

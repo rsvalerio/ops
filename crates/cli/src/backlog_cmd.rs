@@ -208,20 +208,28 @@ fn run_task_action(
                 labels,
                 parent,
                 dependents,
-                plain: true,
-                json,
+                // `--plain` and the default render identically, so only
+                // `--json` selects the format.
+                format: if json {
+                    cmd::OutputFormat::Json
+                } else {
+                    cmd::OutputFormat::Plain
+                },
             };
             cmd::run_list(store, cfg, &opts, &mut std::io::stdout())
         }
         BacklogTaskAction::View {
             task_id,
-            plain,
+            plain: _,
             json,
         } => {
             let opts = cmd::ViewOptions {
                 task_id,
-                plain,
-                json,
+                format: if json {
+                    cmd::OutputFormat::Json
+                } else {
+                    cmd::OutputFormat::Plain
+                },
             };
             cmd::run_view(store, &opts, cwd, &mut std::io::stdout())
         }
