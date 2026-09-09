@@ -138,57 +138,17 @@ impl CommandRunner {
         self.find_in_stores(id).or_else(|| self.resolve_alias(id))
     }
 
-    /// Return the canonical command name for a given ID or alias, borrowed
-    /// from the runner's stores (lifetime tied to `&self`). Returns `None`
-    /// if the id is not known.
-    ///
-    /// Borrowed return lets `expand_inner` track the active recursion stack
-    /// in a `HashSet<&str>` without allocating a new String per visit
-    /// (OWN-8 / TASK-0714).
-    ///
-    /// PERF-3 / TASK-0766: `expand_inner` no longer calls this (it uses
-    /// `canonical_with_spec` which folds the canonical lookup with the
-    /// spec fetch into one pass), but the signature is preserved as part
-    /// of the public-ish helper surface that tests and future callers may
-    /// depend on for canonical-name normalization without requiring the
-    /// spec.
-    #[allow(dead_code)]
-    pub(super) fn canonical_id<'a>(&'a self, id: &str) -> Option<&'a str> {
-        #[cfg(test)]
-        record_store_walk();
-        if let Some((k, _)) = self.config.commands.get_key_value(id) {
-            return Some(k.as_str());
-        }
-        if let Some((k, _)) = self.stack_commands.get_key_value(id) {
-            return Some(k.as_str());
-        }
-        if let Some((k, _)) = self.extension_commands.get_key_value(id) {
-            return Some(k.as_str());
-        }
-        if let Some((k, _)) = self.builtin_commands.get_key_value(id) {
-            return Some(k.as_str());
-        }
-        if let Some(name) = self.config.resolve_alias(id) {
-            return Some(name);
-        }
-        if let Some(name) = self.non_config_alias_map.get(id) {
-            return Some(name.as_str());
-        }
-        None
-    }
-
     /// Resolve a command id (or alias) to its `(canonical_name, spec)` pair
-    /// in a single pass over the same stores [`Self::canonical_id`] and
-    /// [`Self::resolve`]
-    /// each walk independently.
+    /// in a single pass over the command stores and alias maps, where
+    /// [`Self::resolve`] and [`Self::resolve_alias`] each walk independently.
     ///
-    /// PERF-3 / TASK-0766: composite expansion previously called both
-    /// `canonical_id(id)` and then `resolve(canonical)`, which traversed the
-    /// config → stack → extension → alias chain twice per node. For a
-    /// recursion-heavy composite graph the duplication scales linearly with
-    /// graph size; this helper folds the work into one walk while keeping
-    /// the public `canonical_id` / `resolve` shapes untouched for callers
-    /// (and tests) that depend on them individually.
+    /// PERF-3 / TASK-0766: composite expansion previously called a
+    /// canonical-name-only lookup (`canonical_id`, removed by ARCH-6 /
+    /// TASK-2100 once no caller remained) and then `resolve(canonical)`,
+    /// which traversed the config → stack → extension → alias chain twice
+    /// per node. For a recursion-heavy composite graph the duplication
+    /// scales linearly with graph size; this helper folds the work into
+    /// one walk.
     pub(super) fn canonical_with_spec<'a>(
         &'a self,
         id: &str,
