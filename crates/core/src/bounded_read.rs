@@ -35,11 +35,13 @@ use anyhow::Context;
 ///
 /// Files larger than this are skipped and reported rather than read. The
 /// consumers hold the whole file in memory (and the fixers allocate a second
-/// buffer of the same size), so peak resident memory is roughly twice the
-/// largest candidate — and the candidate set is repository-controlled. A
-/// multi-gigabyte NUL-free file (a CSV export, an ndjson dump, a `.sql` seed,
-/// a minified bundle) is ordinary in a repo and would otherwise OOM-kill a
-/// `git commit`.
+/// buffer of the same size when a file actually changes — since TASK-2168
+/// `fix_trailing` scans first and allocates only on a needed trim, so a
+/// clean file, the steady state, stays at roughly 1x), so worst-case peak
+/// resident memory is roughly twice the largest candidate — and the
+/// candidate set is repository-controlled. A multi-gigabyte NUL-free file
+/// (a CSV export, an ndjson dump, a `.sql` seed, a minified bundle) is
+/// ordinary in a repo and would otherwise OOM-kill a `git commit`.
 ///
 /// DUP-2 / TASK-2162: defined once here so `ops-text-fixers` and
 /// `ops-config-checkers` cannot drift on what "too big to hold" means.
