@@ -5,14 +5,11 @@
 //! file isn't carrying both sequential and parallel scheduling concerns.
 
 use super::abort::AbortSignal;
-use super::build::CwdEscapePolicy;
 use super::events::PlanLifecycle;
 use super::exec::{exec_standalone, resolution_failure, ExecTaskCtx};
 use super::{CommandRunner, RunnerEvent, StepResult};
 use ops_core::config::{CommandId, ExecCommandSpec};
-use ops_core::expand::Variables;
 use std::collections::HashMap;
-use std::path::PathBuf;
 use std::sync::Arc;
 use std::sync::OnceLock;
 use std::time::Duration;
@@ -265,10 +262,7 @@ impl CommandRunner {
     /// resource exhaustion with large parallel groups.
     pub(crate) fn spawn_parallel_tasks(
         steps: Vec<(CommandId, ExecCommandSpec)>,
-        cwd: &Arc<PathBuf>,
-        vars: &Arc<Variables>,
-        policy: CwdEscapePolicy,
-        workspace_cache: &Arc<super::build::WorkspaceCanonicalCache>,
+        env: &super::exec::ExecEnv,
     ) -> (
         mpsc::Receiver<RunnerEvent>,
         Arc<AbortSignal>,
@@ -311,9 +305,10 @@ impl CommandRunner {
             let spec = Arc::new(spec);
             let tx = tx.clone();
             let abort = Arc::clone(&abort);
-            let cwd = Arc::clone(cwd);
-            let vars = Arc::clone(vars);
-            let cache = Arc::clone(workspace_cache);
+            // OWN-2 / TASK-0462: one ExecEnv clone per task — an Arc
+            // refcount bump per field, the allocation profile the parallel
+            // hot path has always had.
+            let env = env.clone();
             let sem = Arc::clone(&semaphore);
             let task_id = id.clone();
             let cmd_id = id.clone();
@@ -335,19 +330,7 @@ impl CommandRunner {
                     );
                 };
                 let _permit = permit;
-                exec_standalone(
-                    id,
-                    spec,
-                    ExecTaskCtx {
-                        cwd,
-                        vars,
-                        tx,
-                        abort,
-                        policy,
-                        workspace_cache: cache,
-                    },
-                )
-                .await
+                exec_standalone(id, spec, ExecTaskCtx { env, tx, abort }).await
             });
             // READ-5 / TASK-0767: remember which tokio task carries which
             // CommandId so `collect_join_results` can preserve the id even
@@ -403,13 +386,7 @@ impl CommandRunner {
             }
         };
 
-        let (rx, abort, mut join_set, id_map) = Self::spawn_parallel_tasks(
-            steps,
-            &self.cwd,
-            &self.vars,
-            self.cwd_escape_policy,
-            &self.workspace_cache,
-        );
+        let (rx, abort, mut join_set, id_map) = Self::spawn_parallel_tasks(steps, &self.exec_env());
         // CONC-6 / TASK-0204: when fail_fast sees the first failure, set
         // the abort flag **and** actively `abort_all()` the JoinSet so
         // siblings stop rendering output. Previously the loop kept

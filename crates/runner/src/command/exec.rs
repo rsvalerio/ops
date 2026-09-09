@@ -565,14 +565,10 @@ pub fn build_step_result(id: &str, duration: Duration, output: CommandOutput) ->
 /// the dominant cause of `ops run` failures.
 ///
 /// Core command execution: build, run, collect output, emit events, return result.
-#[allow(clippy::too_many_arguments)]
 pub async fn exec_command(
     id: &str,
     spec: &Arc<ExecCommandSpec>,
-    workspace_cache: &Arc<WorkspaceCanonicalCache>,
-    cwd: &Arc<PathBuf>,
-    vars: &Arc<Variables>,
-    policy: CwdEscapePolicy,
+    env: &ExecEnv,
     emit: &mut impl FnMut(RunnerEvent),
 ) -> StepResult {
     let display_cmd = Some(spec.display_cmd().into_owned());
@@ -587,11 +583,11 @@ pub async fn exec_command(
     // PERF-3 / TASK-1125: spec is now `Arc<ExecCommandSpec>` end-to-end;
     // only an atomic refcount bump per spawn, no deep clone of args/env.
     let mut cmd = match build_command_async(
-        Arc::clone(workspace_cache),
+        Arc::clone(&env.workspace_cache),
         Arc::clone(spec),
-        Arc::clone(cwd),
-        Arc::clone(vars),
-        policy,
+        Arc::clone(&env.cwd),
+        Arc::clone(&env.vars),
+        env.policy,
     )
     .await
     {
@@ -661,23 +657,15 @@ pub async fn exec_command(
 /// emitted and the returned `StepResult` has empty stdout/stderr.
 ///
 /// Exit code and timeout behavior are preserved. Used by `--raw` mode.
-#[allow(clippy::too_many_arguments)]
-pub async fn exec_command_raw(
-    id: &str,
-    spec: &Arc<ExecCommandSpec>,
-    workspace_cache: &Arc<WorkspaceCanonicalCache>,
-    cwd: &Arc<PathBuf>,
-    vars: &Arc<Variables>,
-    policy: CwdEscapePolicy,
-) -> StepResult {
+pub async fn exec_command_raw(id: &str, spec: &Arc<ExecCommandSpec>, env: &ExecEnv) -> StepResult {
     // CONC-5 / TASK-0330: see exec_command above.
     // PERF-3 / TASK-1125: Arc::clone — no spec deep clone per spawn.
     let mut cmd = match build_command_async(
-        Arc::clone(workspace_cache),
+        Arc::clone(&env.workspace_cache),
         Arc::clone(spec),
-        Arc::clone(cwd),
-        Arc::clone(vars),
-        policy,
+        Arc::clone(&env.cwd),
+        Arc::clone(&env.vars),
+        env.policy,
     )
     .await
     {
@@ -724,15 +712,36 @@ pub async fn exec_command_raw(
     }
 }
 
+/// FN-3 / TASK-2078: the runner-scoped execution handles every spawn path
+/// shares — sequential (`run_exec`), raw (`run_plan_raw`), and parallel
+/// ([`ExecTaskCtx`]) alike. Adding a runner-scoped handle (the next
+/// `workspace_cache`-style addition) touches this one struct and every
+/// path picks it up; previously it had to be threaded through three
+/// positional signatures. Cloning is an `Arc` refcount bump per field.
+#[derive(Clone)]
+pub struct ExecEnv {
+    pub cwd: Arc<PathBuf>,
+    pub vars: Arc<Variables>,
+    /// SEC-14 / TASK-0886: cwd-escape policy threaded down from
+    /// `CommandRunner` so every spawn shares the same fail-closed
+    /// guarantee.
+    pub policy: CwdEscapePolicy,
+    /// ARCH-9 / TASK-1126: runner-scoped workspace canonicalize cache so
+    /// spawns share the same cache that
+    /// `CommandRunner::invalidate_workspace_cache` mutates. Previously the
+    /// spawn path read a process-global static, which made the public
+    /// invalidate API a no-op against the cache that decided escape outcomes.
+    pub workspace_cache: Arc<WorkspaceCanonicalCache>,
+}
+
 /// FN-9 / TASK-0778: shared infrastructure passed to every parallel task.
 ///
-/// Groups the runner-scoped handles (`cwd`, `vars`, the outbound event
-/// `tx`, the `abort` signal, the cwd-escape policy, and the workspace
-/// canonicalize cache) so each parallel spawn site clones the bag once
-/// via `Clone` rather than threading positional arguments through
-/// `spawn_parallel_tasks`. The struct uses `Arc`/`Sender` semantics so
-/// cloning is a refcount bump per field — the parallel hot path retains
-/// the allocation profile that TASK-0462 established.
+/// Groups [`ExecEnv`] with the parallel-only handles — the outbound event
+/// `tx` and the `abort` signal — so each parallel spawn site clones the
+/// bag once via `Clone` rather than threading positional arguments
+/// through `spawn_parallel_tasks`. The struct uses `Arc`/`Sender`
+/// semantics so cloning is a refcount bump per field — the parallel hot
+/// path retains the allocation profile that TASK-0462 established.
 ///
 /// # Stability contract
 ///
@@ -748,20 +757,9 @@ pub async fn exec_command_raw(
 #[derive(Clone)]
 #[non_exhaustive]
 pub struct ExecTaskCtx {
-    pub cwd: Arc<PathBuf>,
-    pub vars: Arc<Variables>,
+    pub env: ExecEnv,
     pub tx: mpsc::Sender<RunnerEvent>,
     pub abort: Arc<AbortSignal>,
-    /// SEC-14 / TASK-0886: cwd-escape policy threaded down from
-    /// `CommandRunner` so parallel tasks share the same fail-closed
-    /// guarantee that the sequential path applies via `exec_command`.
-    pub policy: CwdEscapePolicy,
-    /// ARCH-9 / TASK-1126: runner-scoped workspace canonicalize cache so
-    /// parallel spawns share the same cache that
-    /// `CommandRunner::invalidate_workspace_cache` mutates. Previously the
-    /// spawn path read a process-global static, which made the public
-    /// invalidate API a no-op against the cache that decided escape outcomes.
-    pub workspace_cache: Arc<WorkspaceCanonicalCache>,
 }
 
 #[allow(dead_code)]
@@ -772,23 +770,8 @@ impl ExecTaskCtx {
     /// execution budget) can land without churning every embedder's
     /// call site.
     #[must_use]
-    #[allow(clippy::too_many_arguments)]
-    pub const fn new(
-        cwd: Arc<PathBuf>,
-        vars: Arc<Variables>,
-        tx: mpsc::Sender<RunnerEvent>,
-        abort: Arc<AbortSignal>,
-        policy: CwdEscapePolicy,
-        workspace_cache: Arc<WorkspaceCanonicalCache>,
-    ) -> Self {
-        Self {
-            cwd,
-            vars,
-            tx,
-            abort,
-            policy,
-            workspace_cache,
-        }
+    pub const fn new(env: ExecEnv, tx: mpsc::Sender<RunnerEvent>, abort: Arc<AbortSignal>) -> Self {
+        Self { env, tx, abort }
     }
 }
 
@@ -851,14 +834,7 @@ pub async fn exec_standalone(
     spec: Arc<ExecCommandSpec>,
     ctx: ExecTaskCtx,
 ) -> StepResult {
-    let ExecTaskCtx {
-        cwd,
-        vars,
-        tx,
-        abort,
-        policy,
-        workspace_cache,
-    } = ctx;
+    let ExecTaskCtx { env, tx, abort } = ctx;
     if abort.is_set() {
         // ERR-1 / TASK-0408: this branch fires only when fail_fast already
         // tripped the abort flag — i.e. a sibling task failed. Use
@@ -903,32 +879,24 @@ pub async fn exec_standalone(
     // that explain a failure.
     let mut dropped_outputs: u64 = 0;
     // PERF-3 / TASK-1125: spec passed by &Arc; Arc::clone on the spawn path.
-    let result = exec_command(
-        &id,
-        &spec,
-        &workspace_cache,
-        &cwd,
-        &vars,
-        policy,
-        &mut |ev| {
-            // OWN-2 / TASK-0462: cwd/vars are already Arcs in this scope; the
-            // `&Arc<…>` ref forwards through exec_command → build_command_async
-            // without a deep clone.
-            if matches!(
-                ev,
-                RunnerEvent::StepFinished { .. }
-                    | RunnerEvent::StepFailed { .. }
-                    | RunnerEvent::StepSkipped { .. }
-            ) {
-                terminal = Some(ev);
-                return;
-            }
-            if let Err(mpsc::error::TrySendError::Full(_)) = local_tx.try_send(ev) {
-                dropped_outputs = dropped_outputs.saturating_add(1);
-                tracing::debug!("per-task event buffer full; dropping event under backpressure");
-            }
-        },
-    )
+    let result = exec_command(&id, &spec, &env, &mut |ev| {
+        // OWN-2 / TASK-0462: cwd/vars are already Arcs inside `env`;
+        // the `&ExecEnv` ref forwards through exec_command →
+        // build_command_async without a deep clone.
+        if matches!(
+            ev,
+            RunnerEvent::StepFinished { .. }
+                | RunnerEvent::StepFailed { .. }
+                | RunnerEvent::StepSkipped { .. }
+        ) {
+            terminal = Some(ev);
+            return;
+        }
+        if let Err(mpsc::error::TrySendError::Full(_)) = local_tx.try_send(ev) {
+            dropped_outputs = dropped_outputs.saturating_add(1);
+            tracing::debug!("per-task event buffer full; dropping event under backpressure");
+        }
+    })
     .await;
     drop(local_tx);
     // Drain the forwarder. JoinSet drops the JoinHandle on completion; if we

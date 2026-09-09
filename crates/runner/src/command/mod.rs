@@ -157,10 +157,11 @@ pub struct CommandRunner {
     /// shadow.
     pub(super) builtin_commands: IndexMap<CommandId, CommandSpec>,
     /// OWN-6 / TASK-0200: pre-built `alias → canonical` map over the
-    /// stack + extension command stores so `canonical_id` / `resolve_alias`
-    /// are O(1) instead of O(N·A) per lookup. Config aliases are served by
-    /// `Config::resolve_alias` which maintains its own map. Rebuilt when
-    /// `register_commands` mutates the extension store.
+    /// stack + extension command stores so `canonical_with_spec` /
+    /// `resolve_alias` are O(1) instead of O(N·A) per lookup. Config
+    /// aliases are served by `Config::resolve_alias` which maintains its
+    /// own map. Rebuilt when `register_commands` mutates the extension
+    /// store.
     pub(super) non_config_alias_map: std::collections::HashMap<String, String>,
     pub(super) data_registry: DataRegistry,
     /// ARCH-9 / TASK-0993: single source of truth for the per-runner data
@@ -457,6 +458,18 @@ impl CommandRunner {
         }
     }
 
+    /// FN-3 / TASK-2078: the runner-scoped execution handles, grouped for
+    /// the spawn paths this runner owns (`run_exec`, `run_plan_raw`,
+    /// `spawn_parallel_tasks`). Cloning is an `Arc` refcount bump per field.
+    fn exec_env(&self) -> exec::ExecEnv {
+        exec::ExecEnv {
+            cwd: Arc::clone(&self.cwd),
+            vars: Arc::clone(&self.vars),
+            policy: self.cwd_escape_policy,
+            workspace_cache: Arc::clone(&self.workspace_cache),
+        }
+    }
+
     /// Run a single exec command; returns result and can stream output via callback.
     #[instrument(skip(self, on_event), fields(id = ?id))]
     pub async fn run_exec(
@@ -465,20 +478,11 @@ impl CommandRunner {
         spec: &std::sync::Arc<ExecCommandSpec>,
         on_event: &mut impl FnMut(RunnerEvent),
     ) -> StepResult {
-        exec_command(
-            id,
-            spec,
-            &self.workspace_cache,
-            // ↑ PERF-3 / TASK-1125: `&Arc<ExecCommandSpec>` — Arc::clone per
-            // build_command_async dispatch, no spec deep clone per spawn.
-            &self.cwd,
-            &self.vars,
-            self.cwd_escape_policy,
-            on_event,
-        )
-        .await
-        // ↑ `&Arc<PathBuf>` / `&Arc<Variables>` — exec_command Arc::clones
-        // once if the build needs to spawn_blocking, no deep clone.
+        // PERF-3 / TASK-1125: `&Arc<ExecCommandSpec>` — Arc::clone per
+        // build_command_async dispatch, no spec deep clone per spawn. The
+        // `ExecEnv` handles Arc::clone once each if the build needs to
+        // spawn_blocking, no deep clone.
+        exec_command(id, spec, &self.exec_env(), on_event).await
     }
 
     /// Run a named command (single or composite); returns step results.

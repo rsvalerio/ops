@@ -85,15 +85,7 @@ impl CommandRunner {
             // PERF-3 / TASK-1125: wrap once at the boundary; build_command_async
             // dispatch is then Arc::clone, not deep clone of args/env.
             let spec = std::sync::Arc::new(spec);
-            let result = exec_command_raw(
-                id.as_str(),
-                &spec,
-                &self.workspace_cache,
-                &self.cwd,
-                &self.vars,
-                self.cwd_escape_policy,
-            )
-            .await;
+            let result = exec_command_raw(id.as_str(), &spec, &self.exec_env()).await;
             let should_stop = !result.success;
             results.push(result);
             if fail_fast && should_stop {

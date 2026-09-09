@@ -314,12 +314,9 @@ async fn exec_standalone_delivers_terminal_event_under_high_volume_load() {
         "buffer_full".into(),
         spec,
         ExecTaskCtx {
-            cwd: Arc::new(PathBuf::from(".")),
-            vars: Arc::new(test_vars()),
+            env: test_exec_env(),
             tx,
             abort,
-            policy: crate::command::CwdEscapePolicy::WarnAndAllow,
-            workspace_cache: Arc::new(WorkspaceCanonicalCache::new()),
         },
     ));
 
@@ -375,12 +372,9 @@ async fn exec_standalone_aborts_forwarder_on_outer_cancellation() {
         "leak_test".into(),
         spec,
         ExecTaskCtx {
-            cwd: Arc::new(PathBuf::from(".")),
-            vars: Arc::new(test_vars()),
+            env: test_exec_env(),
             tx,
             abort,
-            policy: crate::command::CwdEscapePolicy::WarnAndAllow,
-            workspace_cache: Arc::new(WorkspaceCanonicalCache::new()),
         },
     ));
 
@@ -421,12 +415,9 @@ async fn exec_standalone_emits_step_output_dropped_under_burst() {
         "burst".into(),
         spec,
         ExecTaskCtx {
-            cwd: Arc::new(PathBuf::from(".")),
-            vars: Arc::new(test_vars()),
+            env: test_exec_env(),
             tx,
             abort: Arc::clone(&abort),
-            policy: crate::command::CwdEscapePolicy::WarnAndAllow,
-            workspace_cache: Arc::new(WorkspaceCanonicalCache::new()),
         },
     ));
 
@@ -516,12 +507,9 @@ async fn exec_standalone_logs_dropped_count_when_outer_receiver_closed() {
             "drop-target".into(),
             spec,
             ExecTaskCtx {
-                cwd: Arc::new(PathBuf::from(".")),
-                vars: Arc::new(test_vars()),
+                env: test_exec_env(),
                 tx,
                 abort,
-                policy: crate::command::CwdEscapePolicy::WarnAndAllow,
-                workspace_cache: Arc::new(WorkspaceCanonicalCache::new()),
             },
         )
         .with_subscriber(dispatch),
@@ -568,12 +556,9 @@ async fn exec_standalone_terminal_send_aborts_on_full_outer_channel() {
         "stuck".into(),
         spec,
         ExecTaskCtx {
-            cwd: Arc::new(PathBuf::from(".")),
-            vars: Arc::new(test_vars()),
+            env: test_exec_env(),
             tx,
             abort: abort_clone,
-            policy: crate::command::CwdEscapePolicy::WarnAndAllow,
-            workspace_cache: Arc::new(WorkspaceCanonicalCache::new()),
         },
     ));
 
@@ -604,12 +589,9 @@ async fn exec_standalone_skips_when_abort_set() {
         "skipped".into(),
         spec,
         ExecTaskCtx {
-            cwd: Arc::new(PathBuf::from(".")),
-            vars: Arc::new(test_vars()),
+            env: test_exec_env(),
             tx,
             abort,
-            policy: crate::command::CwdEscapePolicy::WarnAndAllow,
-            workspace_cache: Arc::new(WorkspaceCanonicalCache::new()),
         },
     )
     .await;
