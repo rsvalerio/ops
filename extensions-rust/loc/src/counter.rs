@@ -54,7 +54,7 @@ use quote::ToTokens;
 ///
 /// Hand-written Rust does not come close to this depth; the cap exists
 /// only to turn an unrecoverable abort into a warned fallback.
-pub const MAX_NESTING_DEPTH: usize = 128;
+pub(crate) const MAX_NESTING_DEPTH: usize = 128;
 
 /// How a single source line is classified.
 ///
@@ -217,7 +217,7 @@ pub fn region_from_path(path: &Path) -> Region {
 /// This invalidates every previously issued `Span`, which is safe here
 /// because spans never escape a single `count_source` call.
 #[must_use]
-pub fn count_source(src: &str, base: Region) -> FileCounts {
+pub(crate) fn count_source(src: &str, base: Region) -> FileCounts {
     // Must precede the parses below, not follow them: the spans this
     // function reads have to stay valid for the rest of the body.
     proc_macro2::extra::invalidate_current_thread_spans();
@@ -291,7 +291,7 @@ fn has_shebang(src: &str) -> bool {
 
 /// Degraded counting for input the lexer or parser rejects.
 #[must_use]
-pub fn count_fallback(src: &str, base: Region) -> FileCounts {
+pub(crate) fn count_fallback(src: &str, base: Region) -> FileCounts {
     let mut counts = FileCounts::default();
     for line in src.lines() {
         counts.add_fallback_line(base, line.trim().is_empty());
