@@ -91,7 +91,10 @@ impl DataProvider for TokeiProvider {
 fn query_tokei_files(db: &DuckDb) -> Result<serde_json::Value, anyhow::Error> {
     ops_duckdb::sql::query_rows_to_json(
         db,
-        "SELECT language, file, code, comments, blanks, lines FROM tokei_files",
+        // CL-3 / TASK-2153: explicit ORDER BY so the queried path is ordered
+        // too, not only the ingested one — DuckDB makes no row-order promise
+        // for an unordered SELECT.
+        "SELECT language, file, code, comments, blanks, lines FROM tokei_files ORDER BY file, language",
         |row| {
             Ok(serde_json::json!({
                 "language": row.get::<_, String>(0)?,
@@ -370,17 +373,28 @@ pub fn collect_tokei(
     Ok(serde_json::Value::Array(scan.records))
 }
 
-/// Flatten tokei's per-language report tree into one JSON record per file.
+/// Flatten tokei's per-language report tree into one JSON record per file,
+/// sorted by [`row_key`] — file path with language as tiebreak.
 ///
 /// The public `flatten_tokei_to_json` wrapper that used to sit in front of
 /// this was left with no production caller once `collect_tokei` started
 /// counting skipped files (ERR-2, TASK-1972), so it went with the change
 /// rather than staying as unreferenced public surface.
+///
+/// CL-3 / TASK-2153: tokei fills each language's `reports` in arbitrary
+/// order — its `get_all_files` drives a crossbeam channel through
+/// `par_bridge()` and `add_report`s from whichever rayon worker finishes
+/// first (tokei 14.0.0, `src/utils/fs.rs`) — so the stored order is
+/// worker-scheduling dependent and differed run to run. Sorting here, with
+/// the same policy as `extensions-rust/loc`'s `row_key`, keeps the JSON
+/// sidecar and the `DuckDB` ingest byte-stable across runs: a diff of two
+/// collections shows real changes only, and `data_sources.checksum` stays a
+/// useful change signal instead of churning on scheduler noise.
 pub(crate) fn flatten_tokei_records(
     languages: &Languages,
     workspace_root: &Path,
 ) -> Vec<serde_json::Value> {
-    languages
+    let mut records: Vec<serde_json::Value> = languages
         .iter()
         .flat_map(|(lang_type, language)| {
             language
@@ -388,7 +402,19 @@ pub(crate) fn flatten_tokei_records(
                 .iter()
                 .map(move |report| report_to_json(lang_type.name(), report, workspace_root))
         })
-        .collect()
+        .collect();
+    records.sort_by(|a, b| row_key(a).cmp(&row_key(b)));
+    records
+}
+
+/// Sort key giving the emitted records a deterministic order: file path,
+/// with language as tiebreak, matching the `row_key` policy in
+/// `extensions-rust/loc` (CL-3 / TASK-2153).
+fn row_key(record: &serde_json::Value) -> (&str, &str) {
+    (
+        record["file"].as_str().unwrap_or_default(),
+        record["language"].as_str().unwrap_or_default(),
+    )
 }
 
 fn report_to_json(

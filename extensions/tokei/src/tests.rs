@@ -262,6 +262,45 @@ fn scan_tokei_truncates_at_the_file_cap() {
     assert!(scan.truncated, "a truncated result must say so");
 }
 
+/// CL-3 / TASK-2153: records are emitted sorted by file path (language as
+/// tiebreak), not in tokei's rayon completion order. The exact sequence is
+/// pinned — not just the count — so a regression to worker order fails here
+/// and with it the byte-stable sidecar/DuckDB-ingest contract the sort
+/// exists to keep.
+#[test]
+fn scan_tokei_orders_records_by_file_path() {
+    let dir = tempfile::tempdir().expect("tempdir");
+    std::fs::create_dir_all(dir.path().join("src")).expect("mkdir src");
+    // Three files across two languages, written in an order deliberately
+    // unlike the expected output order.
+    std::fs::write(dir.path().join("src/lib.rs"), "// comment\nfn a() {}\n").expect("write rust");
+    std::fs::write(dir.path().join("zeta.py"), "# c\nprint(1)\n").expect("write zeta");
+    std::fs::write(dir.path().join("app.py"), "# c\nprint(1)\n").expect("write app");
+
+    let scan = super::scan_tokei(dir.path(), super::ScanLimits::DEFAULT, None).expect("scan");
+
+    let sequence: Vec<String> = scan
+        .records
+        .iter()
+        .map(|r| {
+            format!(
+                "{}:{}",
+                r["language"].as_str().unwrap_or_default(),
+                r["file"].as_str().unwrap_or_default()
+            )
+        })
+        .collect();
+    assert_eq!(
+        sequence,
+        vec![
+            "Python:app.py".to_string(),
+            "Rust:src/lib.rs".to_string(),
+            "Python:zeta.py".to_string(),
+        ],
+        "records must be sorted by file path, language as tiebreak — not worker order"
+    );
+}
+
 /// The file cap counts **candidates**, not directory entries: a file tokei has
 /// no language for is never opened, counted, or materialised, so it must not
 /// consume the budget. Counting every regular file instead would make an
