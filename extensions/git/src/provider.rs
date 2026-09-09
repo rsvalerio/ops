@@ -123,7 +123,9 @@ impl DataProvider for GitInfoProvider {
                     // the same claim PATTERN-1 / TASK-1237 invalidated on
                     // `RemoteInfo.url`. The schema string is the description
                     // consumers read, so it must not promise TLS either.
-                    "Normalized origin remote URL, preserving the input scheme (https/http/ssh/git; scp-style becomes ssh)"
+                    // PATTERN-1 / TASK-2105: an explicit port is preserved so
+                    // the URL keeps naming the endpoint the remote points at.
+                    "Normalized origin remote URL, preserving the input scheme (https/http/ssh/git; scp-style becomes ssh) and any explicit port"
                 ),
                 data_field!(
                     "branch",

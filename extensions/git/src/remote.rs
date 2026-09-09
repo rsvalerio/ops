@@ -34,6 +34,11 @@ pub struct RemoteInfo {
     /// "normalized https URL", which contradicted the struct-level invariant
     /// above after PATTERN-1 / TASK-1237 stopped rewriting every scheme to
     /// `https` — the exact misreading that change was filed to prevent.
+    /// PATTERN-1 / TASK-2105: an explicit non-default port is preserved
+    /// (`ssh://git.example.com:2222/o/r`), so the URL names the endpoint the
+    /// remote actually points at; `host` above carries the bare hostname —
+    /// consumers compare and group by it — so the port lives only here.
+    /// A port that is not digits in 1–65535 rejects the whole remote.
     pub url: String,
 }
 
@@ -50,7 +55,7 @@ pub fn parse_remote_url(raw: &str) -> Option<RemoteInfo> {
         return None;
     }
 
-    let (scheme, host, path) = split_scheme_host_and_path(raw)?;
+    let (scheme, host, port, path) = split_scheme_host_and_path(raw)?;
     if !is_valid_host(host) {
         return None;
     }
@@ -71,7 +76,11 @@ pub fn parse_remote_url(raw: &str) -> Option<RemoteInfo> {
     // lowercasing them would synthesise a URL that 404s.
     let host = host.to_ascii_lowercase();
 
-    let url = format!("{scheme}://{host}/{owner}/{repo}");
+    // PATTERN-1 / TASK-2105: the explicit port, when present, rides into the
+    // URL — dropping it re-pointed `ssh://host:2222/o/r` at port 22, an
+    // endpoint the remote never named.
+    let port_suffix = port.map_or_else(String::new, |p| format!(":{p}"));
+    let url = format!("{scheme}://{host}{port_suffix}/{owner}/{repo}");
 
     Some(RemoteInfo {
         host,
@@ -139,8 +148,11 @@ const SCHEME_LIKE_HOSTS: &[&str] = &[
 /// PATTERN-1 (TASK-1237): return the original scheme alongside the host/path
 /// split, so the synthesised `RemoteInfo.url` can preserve it. scp form has
 /// no scheme syntax — return `"ssh"` for it, matching how every Git client
-/// dispatches scp-style remotes.
-fn split_scheme_host_and_path(raw: &str) -> Option<(&'static str, &str, &str)> {
+/// dispatches scp-style remotes. On the `scheme://` form the third element is
+/// the explicit port, validated to digits 1–65535 (PATTERN-1 / TASK-2105):
+/// a malformed port fails closed to `None` rather than being silently
+/// dropped.
+fn split_scheme_host_and_path(raw: &str) -> Option<(&'static str, &str, Option<u16>, &str)> {
     // scp-style: [user@]host:owner/repo (implicitly ssh). The user prefix is
     // optional — `redact_userinfo` strips it before this point on scp inputs
     // that pass through `read_origin_url_from`, so the parser must accept the
@@ -165,7 +177,7 @@ fn split_scheme_host_and_path(raw: &str) -> Option<(&'static str, &str, &str)> {
         {
             return None;
         }
-        return Some(("ssh", host, path));
+        return Some(("ssh", host, None, path));
     }
 
     // URL form: scheme://[user@]host[:port]/path
@@ -176,8 +188,16 @@ fn split_scheme_host_and_path(raw: &str) -> Option<(&'static str, &str, &str)> {
         .copied()?;
     let (authority, path) = after_scheme.split_once('/')?;
     let host_part = authority.rsplit('@').next()?;
-    let host = host_part.split(':').next()?;
-    Some((canonical_scheme, host, path))
+    // PATTERN-1 / TASK-2105: preserve an explicit `:port` instead of
+    // discarding it — the URL rebuilt downstream must name the endpoint the
+    // remote actually points at. Anything after the `:` that is not a port
+    // in 1–65535 fails closed, matching the posture of every other
+    // malformed shape.
+    let (host, port) = match host_part.split_once(':') {
+        Some((host, port)) => (host, Some(port.parse::<u16>().ok().filter(|p| *p != 0)?)),
+        None => (host_part, None),
+    };
+    Some((canonical_scheme, host, port, path))
 }
 
 /// Permissive RFC 3986 reg-name check: ASCII alphanumeric plus `.` and `-`.
@@ -397,12 +417,51 @@ mod tests {
         );
     }
 
+    /// PATTERN-1 / TASK-2105: an explicit port is preserved in `url` — the
+    /// pre-fix behaviour silently re-pointed this remote at port 22 — while
+    /// `host` stays the bare hostname consumers compare and group by.
     #[test]
     fn ssh_scheme_with_port() {
         assert_eq!(
             parse_remote_url("ssh://git@git.example.com:2222/o/r.git"),
-            Some(info_scheme("ssh", "git.example.com", "o", "r")),
+            Some(RemoteInfo {
+                host: "git.example.com".into(),
+                owner: "o".into(),
+                repo: "r".into(),
+                url: "ssh://git.example.com:2222/o/r".into(),
+            }),
         );
+    }
+
+    /// PATTERN-1 / TASK-2105: same preservation on the TLS branch — a
+    /// self-hosted forge on a non-default port must not be re-pointed at 443.
+    #[test]
+    fn https_scheme_with_port() {
+        assert_eq!(
+            parse_remote_url("https://gitea.internal:8443/o/r.git"),
+            Some(RemoteInfo {
+                host: "gitea.internal".into(),
+                owner: "o".into(),
+                repo: "r".into(),
+                url: "https://gitea.internal:8443/o/r".into(),
+            }),
+        );
+    }
+
+    /// PATTERN-1 / TASK-2105: a port that is not digits in 1–65535 fails
+    /// closed — non-numeric, out of range, and zero are all rejected rather
+    /// than silently dropped or re-emitted.
+    #[test]
+    fn invalid_port_fails_closed() {
+        assert_eq!(
+            parse_remote_url("ssh://git@git.example.com:22x/o/r.git"),
+            None
+        );
+        assert_eq!(
+            parse_remote_url("https://gitea.internal:99999/o/r.git"),
+            None
+        );
+        assert_eq!(parse_remote_url("https://gitea.internal:0/o/r.git"), None);
     }
 
     /// PATTERN-1 (TASK-1237): an `http://` remote keeps its scheme — audit
