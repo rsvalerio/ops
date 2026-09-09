@@ -366,4 +366,46 @@ mod tests {
         // No slashes, so name is the whole module path
         assert_eq!(id.name, "myutil");
     }
+
+    /// TEST-5 / TASK-2184: the `register_data_providers` closure in
+    /// `impl_extension!` had no test — a dropped `registry.register` line
+    /// (its result is discarded with `let _ =`) silently unregistered a
+    /// provider. Run the real closure and assert both providers land under
+    /// their keys and each answers with its own payload shape, so a key
+    /// collision between the two registers (which the registry resolves by
+    /// first-write-wins rejection) cannot pass either.
+    #[test]
+    fn extension_registers_identity_and_units_providers() {
+        use ops_extension::{DataRegistry, Extension};
+
+        let mut registry = DataRegistry::new();
+        AboutGoExtension.register_data_providers(&mut registry);
+        assert_eq!(
+            registry.provider_names(),
+            vec!["project_identity", "project_units"],
+            "both providers must land under distinct keys"
+        );
+
+        // Distinct payloads prove distinct providers, not one key answering
+        // twice: identity is a ProjectIdentity object, units an array.
+        let dir = tempfile::tempdir().unwrap();
+        std::fs::write(
+            dir.path().join("go.mod"),
+            "module example.com/app\n\ngo 1.22\n",
+        )
+        .unwrap();
+        std::fs::write(dir.path().join("go.work"), "go 1.22\n\nuse (\n\t.\n)\n").unwrap();
+        let mut ctx = ops_extension::Context::test_context(dir.path().to_path_buf());
+        let identity = registry
+            .provide("project_identity", &mut ctx)
+            .expect("identity provider must answer");
+        assert_eq!(identity["stack_label"], serde_json::json!("Go"));
+        let units = registry
+            .provide("project_units", &mut ctx)
+            .expect("units provider must answer");
+        assert!(
+            units.as_array().is_some_and(|a| !a.is_empty()),
+            "units payload must be a non-empty array over a go.work fixture: {units}"
+        );
+    }
 }

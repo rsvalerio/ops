@@ -575,4 +575,68 @@ mod tests {
         let units = collect_units(dir.path());
         assert!(units.is_empty());
     }
+
+    /// TEST-5 / TASK-2184: `PROVIDER_NAME` is the key the registry indexes
+    /// this provider under (`lib.rs`'s `register_data_providers`), so a typo
+    /// there silently unregisters the Go units card. The literal on the
+    /// right is the cross-stack registry contract, shared with the Node
+    /// (`units_provider_name`) and Rust stacks.
+    #[test]
+    fn units_provider_name() {
+        assert_eq!(GoUnitsProvider.name(), PROVIDER_NAME);
+        assert_eq!(PROVIDER_NAME, "project_units");
+    }
+
+    /// TEST-5 / TASK-2184: drive `GoUnitsProvider::provide` through a real
+    /// `Context` over a `go.work` fixture and deserialise the returned
+    /// `Value` back into `Vec<ProjectUnit>` — the `serde_json::to_value`
+    /// step and the JSON shape consumers read are pinned, not just the
+    /// private `collect_units` helper. Rust-stack twin: the
+    /// `provider_tests` in `extensions-rust/about/src/coverage_provider.rs`
+    /// (TASK-2154) — keep both stacks at the same provider-level coverage.
+    #[test]
+    fn units_provider_serialises_go_work_modules() {
+        let dir = tempfile::tempdir().unwrap();
+        std::fs::write(
+            dir.path().join("go.work"),
+            "go 1.21\n\nuse (\n\t./api\n\t./cmd\n)\n",
+        )
+        .unwrap();
+        for (name, module, version) in [
+            ("api", "example.com/api", "1.21"),
+            ("cmd", "example.com/cmd", "1.22"),
+        ] {
+            std::fs::create_dir_all(dir.path().join(name)).unwrap();
+            std::fs::write(
+                dir.path().join(name).join("go.mod"),
+                format!("module {module}\n\ngo {version}\n"),
+            )
+            .unwrap();
+        }
+
+        let mut ctx = ops_extension::Context::test_context(dir.path().to_path_buf());
+        let value = GoUnitsProvider.provide(&mut ctx).unwrap();
+        let units: Vec<ProjectUnit> = serde_json::from_value(value).unwrap();
+
+        assert_eq!(units.len(), 2, "one unit per go.work use dir: {units:?}");
+        assert_eq!(units[0].name, "api");
+        assert_eq!(units[0].path, "api");
+        assert_eq!(units[0].version.as_deref(), Some("1.21"));
+        assert_eq!(units[0].description.as_deref(), Some("example.com/api"));
+        assert_eq!(units[1].name, "cmd");
+        assert_eq!(units[1].path, "cmd");
+        assert_eq!(units[1].version.as_deref(), Some("1.22"));
+    }
+
+    /// TEST-5 / TASK-2184: a directory with no `go.work` / `go.mod` must
+    /// serialise to an empty JSON array — not `null`, and not an error.
+    #[test]
+    fn units_provider_empty_project_is_empty_array() {
+        let dir = tempfile::tempdir().unwrap();
+        let mut ctx = ops_extension::Context::test_context(dir.path().to_path_buf());
+        let value = GoUnitsProvider.provide(&mut ctx).unwrap();
+        assert_eq!(value, serde_json::json!([]));
+        let units: Vec<ProjectUnit> = serde_json::from_value(value).unwrap();
+        assert!(units.is_empty());
+    }
 }
