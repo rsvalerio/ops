@@ -11,7 +11,7 @@ use std::path::Path;
 
 use ops_backlog::clock::UtcStamp;
 use ops_backlog::model::yaml_scalar;
-use ops_backlog::store::{for_each_task_file, TaskFileName};
+use ops_backlog::store::{find_task_file, for_each_task_file, TaskFileName};
 
 /// Main-task frontmatter labels, in order.
 const MAIN_LABELS: &[&str] = &["code-review-request", "code-review", "qa"];
@@ -121,31 +121,31 @@ pub struct MainTaskClaim<'a> {
 pub fn conflicting_claim(workspace_root: &Path, claim: &MainTaskClaim<'_>) -> Option<String> {
     let backlog_root = workspace_root.join(".backlog");
     let own_slug = ops_backlog::model::slugify(claim.title);
-    let mut conflict = None;
-    for_each_task_file(&backlog_root, |dir, file_name| {
+    // PERF-3 / TASK-2131: early-exit traversal — the walk stops at the first
+    // conflicting file instead of flag-checking every remaining entry.
+    find_task_file(&backlog_root, |dir, file_name| {
         // The claimant's own reservation lives in `tasks`; an identically
         // named file in `completed` or an archive is somebody else's.
-        if conflict.is_some() || (dir == "tasks" && file_name == claim.file_name) {
-            return;
+        if dir == "tasks" && file_name == claim.file_name {
+            return None;
         }
-        let Some(parsed) = TaskFileName::parse(file_name) else {
-            return;
-        };
+        let parsed = TaskFileName::parse(file_name)?;
         // A dotted subtask counts too: it means another run owns the number.
         let claims_number = parsed.number == Some(claim.number);
         let claims_title = parsed.slug == own_slug;
-        if claims_number || claims_title {
-            conflict = Some(file_name.to_string());
-        }
-    });
-    conflict
+        (claims_number || claims_title).then(|| file_name.to_string())
+    })
 }
 
 /// Render one task markdown file (frontmatter only, no body sections) into
 /// `w`. `subtask_of` is the parent's zero-padded id (`"TASK-1671"`) plus the
 /// 1-based subtask position for a subtask, or `None` for the main task.
 ///
-/// PERF-13: writes go straight into `w`; no intermediate `String` per line.
+/// PERF-13 / TASK-2117: writes go straight into `w`; no intermediate
+/// `String` per line. `w` must be buffered (e.g. a `BufWriter` around the
+/// `File`) — a raw `File` would turn each `writeln!` into its own
+/// `write(2)` syscall, so the buffering at the call site is what delivers
+/// the one-write-per-document property this comment promises.
 pub fn render_task_file<W: Write>(
     w: &mut W,
     id: &str,

@@ -430,7 +430,7 @@ fn stage_task_file(
     let path = tasks_dir.join(&file.name);
     // SEC-25: `create_new` is the atomic check-and-create. `File::create`
     // would silently truncate a task file another run just wrote.
-    let mut handle = match std::fs::File::create_new(&path) {
+    let handle = match std::fs::File::create_new(&path) {
         Ok(handle) => handle,
         Err(err) if err.kind() == std::io::ErrorKind::AlreadyExists => return Ok(false),
         Err(err) => {
@@ -439,7 +439,14 @@ fn stage_task_file(
         }
     };
     staged.track(path.clone());
-    backlog::render_task_file(&mut handle, file.id, file.title, stamp, file.subtask_of)
+    // PERF-13 / TASK-2117: buffer the handle so the ~14 `writeln!` calls in
+    // `render_task_file` reach the filesystem as one write instead of one
+    // `write(2)` per line. The flush is explicit and checked — `BufWriter`'s
+    // `Drop` discards errors — and a flush failure carries the same
+    // path-naming context as the write errors above.
+    let mut writer = std::io::BufWriter::new(handle);
+    backlog::render_task_file(&mut writer, file.id, file.title, stamp, file.subtask_of)
+        .and_then(|()| writer.flush())
         .with_context(|| format!("writing {}", path.display()))?;
     Ok(true)
 }

@@ -338,6 +338,34 @@ pub fn for_each_task_file(backlog_root: &Path, mut f: impl FnMut(&str, &str)) {
     }
 }
 
+/// Find the first task file for which `f` returns `Some`, stopping the walk
+/// at that entry.
+///
+/// PERF-3 / TASK-2131: early-exit twin of [`for_each_task_file`] — a
+/// conflict re-check only needs the first match, and a real backlog tree
+/// holds thousands of files, so enumerating the rest of the tree after the
+/// answer is decided is pure I/O (retried up to 32 times per contended
+/// allocation). Directory order, silent error skipping and non-UTF-8
+/// handling match [`for_each_task_file`].
+pub fn find_task_file<B>(
+    backlog_root: &Path,
+    mut f: impl FnMut(&str, &str) -> Option<B>,
+) -> Option<B> {
+    for dir in TASK_DIRS {
+        let Ok(entries) = std::fs::read_dir(backlog_root.join(dir)) else {
+            continue;
+        };
+        for entry in entries.flatten() {
+            if let Ok(name) = entry.file_name().into_string() {
+                if let Some(found) = f(dir, &name) {
+                    return Some(found);
+                }
+            }
+        }
+    }
+    None
+}
+
 /// Zero-padded task id string (`TASK-0042`) for a main-task number under the
 /// configured prefix and padding.
 #[must_use = "formatting without using the string is dead work"]
@@ -413,6 +441,49 @@ mod tests {
         let dir = scratch_backlog(&[("tasks", "task-0007.09 - child.md")]);
         let store = Store::open(&dir.path().join(".backlog")).expect("open");
         assert_eq!(store.next_task_number(), 8);
+    }
+
+    /// PERF-3 / TASK-2131: `find_task_file` must stop the walk at the first
+    /// match. The target sits in `tasks` and the non-matches in `completed`
+    /// (a later [`TASK_DIRS`] directory), so if the walk continued past the
+    /// match the closure would be invoked for the `completed` entries too —
+    /// pinned by the visited count, which is immune to `read_dir`'s
+    /// intra-directory ordering.
+    #[test]
+    fn find_task_file_stops_at_first_match() {
+        let dir = scratch_backlog(&[
+            ("tasks", "task-0002 - beta.md"),
+            ("completed", "task-0001 - alpha.md"),
+            ("completed", "task-0003 - gamma.md"),
+        ]);
+        let mut visited = 0usize;
+        let found = find_task_file(&dir.path().join(".backlog"), |_dir, name| {
+            visited += 1;
+            (name == "task-0002 - beta.md").then(|| name.to_string())
+        });
+        assert_eq!(found.as_deref(), Some("task-0002 - beta.md"));
+        assert_eq!(
+            visited, 1,
+            "walk must stop at the match, not enumerate the rest of the tree"
+        );
+    }
+
+    /// PERF-3 / TASK-2131: no match means `None`, with every entry in every
+    /// existing directory visited — the full-walk contract when nothing
+    /// matches.
+    #[test]
+    fn find_task_file_returns_none_when_nothing_matches() {
+        let dir = scratch_backlog(&[
+            ("tasks", "task-0001 - alpha.md"),
+            ("completed", "task-0003 - gamma.md"),
+        ]);
+        let mut visited = 0usize;
+        let found = find_task_file(&dir.path().join(".backlog"), |_dir, _name| {
+            visited += 1;
+            None::<String>
+        });
+        assert!(found.is_none());
+        assert_eq!(visited, 2, "both entries must have been examined");
     }
 
     #[test]
