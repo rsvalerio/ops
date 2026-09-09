@@ -4,7 +4,7 @@ title: 'ERR-13: Store::find swallows IO and parse errors, reporting an existing 
 status: Done
 assignee: []
 created_date: '2026-09-07 22:58'
-updated_date: '2026-09-08 20:00'
+updated_date: '2026-09-09 18:36'
 labels:
   - code-review-rust
   - error-handling
@@ -28,7 +28,8 @@ ordinal: 9000
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 A read_dir failure other than NotFound propagates from Store::find (or a find_with seam) naming the directory, mirroring scan_all_tasks
-- [ ] #2 The doc comment on Store::find states the tolerance rule for files that fail to read or parse
-- [ ] #3 A test pins that an unreadable directory surfaces an error naming it rather than None
+- [x] #1 A read_dir failure other than NotFound propagates from Store::find (or a find_with seam) naming the directory, mirroring scan_all_tasks
+- [x] #2 The doc comment on Store::find states the tolerance rule for files that fail to read or parse
+- [x] #3 A test pins that an unreadable directory surfaces an error naming it rather than None
+
 <!-- AC:END -->

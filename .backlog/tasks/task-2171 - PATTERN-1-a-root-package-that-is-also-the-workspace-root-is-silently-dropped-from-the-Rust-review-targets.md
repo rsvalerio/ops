@@ -1,10 +1,10 @@
 ---
 id: TASK-2171
 title: 'PATTERN-1: a root package that is also the workspace root is silently dropped from the Rust review targets'
-status: To Do
+status: Done
 assignee: []
 created_date: '2026-09-08 07:10'
-updated_date: '2026-09-08 20:00'
+updated_date: '2026-09-09 18:36'
 labels:
   - code-review-rust
   - patterns
@@ -43,8 +43,9 @@ There is also no test for the hybrid shape: `single_package_project_yields_the_r
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 A Cargo.toml declaring both [package] and a non-empty [workspace].members yields a review target for the root package in addition to every resolved member
-- [ ] #2 The root-package target is emitted at path ROOT_PACKAGE_PATH (".") and is not duplicated when the root path also appears in the resolved member list
-- [ ] #3 A test covers the hybrid shape (root [package] + [workspace] members) and asserts both the root package and every member appear exactly once
-- [ ] #4 The existing pure-workspace and pure-single-package behaviours are unchanged and still covered by their tests
+- [x] #1 A Cargo.toml declaring both [package] and a non-empty [workspace].members yields a review target for the root package in addition to every resolved member
+- [x] #2 The root-package target is emitted at path ROOT_PACKAGE_PATH (".") and is not duplicated when the root path also appears in the resolved member list
+- [x] #3 A test covers the hybrid shape (root [package] + [workspace] members) and asserts both the root package and every member appear exactly once
+- [x] #4 The existing pure-workspace and pure-single-package behaviours are unchanged and still covered by their tests
+
 <!-- AC:END -->

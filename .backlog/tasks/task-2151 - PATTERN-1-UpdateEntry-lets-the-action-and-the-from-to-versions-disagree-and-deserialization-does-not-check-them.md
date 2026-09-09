@@ -4,7 +4,7 @@ title: 'PATTERN-1: UpdateEntry lets the action and the from/to versions disagree
 status: Done
 assignee: []
 created_date: '2026-09-08 07:03'
-updated_date: '2026-09-08 20:00'
+updated_date: '2026-09-09 18:36'
 labels:
   - code-review-rust
   - pattern
@@ -38,8 +38,9 @@ An enum carrying exactly the versions each action has — e.g. `Update { from, t
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 An UpdateEntry whose action and version presence disagree is unrepresentable in the type, not merely undocumented
-- [ ] #2 Deserializing a payload with a mismatched action/version combination fails or is normalized, rather than producing a silently invalid entry
-- [ ] #3 The serialized JSON shape the about page consumes is unchanged, or the change is covered by the existing serde_default back-compatibility test
-- [ ] #4 A test covers each action's version presence on both the serialize and deserialize direction
+- [x] #1 An UpdateEntry whose action and version presence disagree is unrepresentable in the type, not merely undocumented
+- [x] #2 Deserializing a payload with a mismatched action/version combination fails or is normalized, rather than producing a silently invalid entry
+- [x] #3 The serialized JSON shape the about page consumes is unchanged, or the change is covered by the existing serde_default back-compatibility test
+- [x] #4 A test covers each action's version presence on both the serialize and deserialize direction
+
 <!-- AC:END -->

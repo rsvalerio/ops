@@ -1,10 +1,10 @@
 ---
 id: TASK-2153
 title: 'CL-3: tokei records are emitted in rayon completion order, so the sidecar, the DuckDB table and the provider JSON differ run-to-run'
-status: In Progress
+status: Done
 assignee: []
 created_date: '2026-09-08 07:03'
-updated_date: '2026-09-08 20:00'
+updated_date: '2026-09-09 18:36'
 labels:
   - code-review-rust
   - pattern
@@ -36,8 +36,9 @@ The sibling extension already treats this as a defect and fixes it: `extensions-
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 scan_tokei (or flatten_tokei_records) sorts records by a total key — file path, with language as a tiebreak — before they are returned, matching the row_key policy in extensions-rust/loc/src/lib.rs
-- [ ] #2 query_tokei_files carries an explicit ORDER BY so the queried path is ordered too, not only the ingested one
-- [ ] #3 A test builds a multi-file, multi-language fixture and asserts the exact record sequence (not just the count), so a regression to worker order fails the suite
-- [ ] #4 The chosen ordering is documented next to the sort, referencing the byte-stable-sidecar rationale
+- [x] #1 scan_tokei (or flatten_tokei_records) sorts records by a total key — file path, with language as a tiebreak — before they are returned, matching the row_key policy in extensions-rust/loc/src/lib.rs
+- [x] #2 query_tokei_files carries an explicit ORDER BY so the queried path is ordered too, not only the ingested one
+- [x] #3 A test builds a multi-file, multi-language fixture and asserts the exact record sequence (not just the count), so a regression to worker order fails the suite
+- [x] #4 The chosen ordering is documented next to the sort, referencing the byte-stable-sidecar rationale
+
 <!-- AC:END -->

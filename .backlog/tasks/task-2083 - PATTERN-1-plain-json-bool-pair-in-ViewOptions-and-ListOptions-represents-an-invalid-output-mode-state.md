@@ -4,7 +4,7 @@ title: 'PATTERN-1: plain/json bool pair in ViewOptions and ListOptions represent
 status: Done
 assignee: []
 created_date: '2026-09-07 22:58'
-updated_date: '2026-09-08 20:00'
+updated_date: '2026-09-09 18:36'
 labels:
   - code-review-rust
   - patterns
@@ -29,6 +29,7 @@ ordinal: 11000
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 ViewOptions and ListOptions carry one output-mode field from which exactly one mode is always derivable (enum or equivalent), not two independent bools
-- [ ] #2 The both-set case is a compile-time or parse-time error rather than a documented fallback
+- [x] #1 ViewOptions and ListOptions carry one output-mode field from which exactly one mode is always derivable (enum or equivalent), not two independent bools
+- [x] #2 The both-set case is a compile-time or parse-time error rather than a documented fallback
+
 <!-- AC:END -->

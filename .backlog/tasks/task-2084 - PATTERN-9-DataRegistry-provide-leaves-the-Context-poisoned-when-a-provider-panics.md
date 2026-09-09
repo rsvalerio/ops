@@ -4,7 +4,7 @@ title: 'PATTERN-9: DataRegistry::provide leaves the Context poisoned when a prov
 status: Done
 assignee: []
 created_date: '2026-09-07 22:58'
-updated_date: '2026-09-08 20:00'
+updated_date: '2026-09-09 18:36'
 labels:
   - code-review-rust
   - idioms
@@ -33,8 +33,9 @@ The docs on `exit_provider` claim the marker is cleared "on both the success and
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 A provider panic during DataRegistry::provide no longer poisons the context: a later dispatch of the same key succeeds (or fails for its own reason), not Cycle
-- [ ] #2 No stale deadline remains after a panicked dispatch: ctx.deadline() is None between dispatches and a later dispatch installs its own
-- [ ] #3 Teardown (exit_provider + clear_deadline_if_owned) is performed by a Drop guard or equivalent unwind-safe mechanism, not only fall-through code
-- [ ] #4 Regression test: a panicking provider, unwound via catch_unwind around registry.provide, followed by a second provide of the same key that succeeds
+- [x] #1 A provider panic during DataRegistry::provide no longer poisons the context: a later dispatch of the same key succeeds (or fails for its own reason), not Cycle
+- [x] #2 No stale deadline remains after a panicked dispatch: ctx.deadline() is None between dispatches and a later dispatch installs its own
+- [x] #3 Teardown (exit_provider + clear_deadline_if_owned) is performed by a Drop guard or equivalent unwind-safe mechanism, not only fall-through code
+- [x] #4 Regression test: a panicking provider, unwound via catch_unwind around registry.provide, followed by a second provide of the same key that succeeds
+
 <!-- AC:END -->

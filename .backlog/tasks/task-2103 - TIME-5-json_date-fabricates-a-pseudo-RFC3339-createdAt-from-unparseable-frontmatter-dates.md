@@ -4,7 +4,7 @@ title: 'TIME-5: json_date fabricates a pseudo-RFC3339 createdAt from unparseable
 status: Done
 assignee: []
 created_date: '2026-09-08 06:42'
-updated_date: '2026-09-08 20:00'
+updated_date: '2026-09-09 18:36'
 labels:
   - code-review-rust
   - time
@@ -28,6 +28,7 @@ ordinal: 26000
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 createdAt/updatedAt in the JSON envelopes are emitted only from a frontmatter date that actually parses, with a defined fallback (null or raw string) otherwise
-- [ ] #2 A test pins the unparseable-date behaviour (today it would emit backTthenZ)
+- [x] #1 createdAt/updatedAt in the JSON envelopes are emitted only from a frontmatter date that actually parses, with a defined fallback (null or raw string) otherwise
+- [x] #2 A test pins the unparseable-date behaviour (today it would emit backTthenZ)
+
 <!-- AC:END -->

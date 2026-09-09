@@ -4,7 +4,7 @@ title: 'PATTERN-1: parse_remote_url silently drops the port from the normalized 
 status: Done
 assignee: []
 created_date: '2026-09-08 06:53'
-updated_date: '2026-09-08 20:00'
+updated_date: '2026-09-09 18:36'
 labels:
   - code-review-rust
   - pattern
@@ -30,7 +30,8 @@ ordinal: 1000
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 parse_remote_url either preserves an explicit port in RemoteInfo.host/url or rejects ported remotes; the chosen behaviour is documented in the RemoteInfo.url invariant and the git_info schema description
-- [ ] #2 Tests cover ssh://host:2222/o/r, https://host:8443/o/r, and an invalid port (non-numeric, out of range)
-- [ ] #3 ssh_scheme_with_port is updated so it no longer pins the lossy behaviour
+- [x] #1 parse_remote_url either preserves an explicit port in RemoteInfo.host/url or rejects ported remotes; the chosen behaviour is documented in the RemoteInfo.url invariant and the git_info schema description
+- [x] #2 Tests cover ssh://host:2222/o/r, https://host:8443/o/r, and an invalid port (non-numeric, out of range)
+- [x] #3 ssh_scheme_with_port is updated so it no longer pins the lossy behaviour
+
 <!-- AC:END -->
