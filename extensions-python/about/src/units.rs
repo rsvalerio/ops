@@ -415,4 +415,66 @@ members = ["packages/quiet"]
         assert_eq!(units.len(), 1);
         assert_eq!(units[0].name, "Quiet");
     }
+
+    /// TEST-5 / TASK-2201: `PROVIDER_NAME` is the key the registry indexes
+    /// this provider under (`lib.rs`'s `register_data_providers`), so a typo
+    /// there silently unregisters the Python packages card. Mirrors the Node
+    /// crate's `units_provider_name` (TASK-1732).
+    #[test]
+    fn units_provider_name() {
+        assert_eq!(PythonUnitsProvider.name(), PROVIDER_NAME);
+        assert_eq!(PROVIDER_NAME, "project_units");
+    }
+
+    /// TEST-5 / TASK-2201: drive `PythonUnitsProvider::provide` against a uv
+    /// workspace tempdir and assert the deserialised JSON payload — the
+    /// `serde_json::to_value` step and the shape consumers read are pinned,
+    /// not just the private `collect_units` helper. Mirrors the Node crate's
+    /// `units_provider_serialises_workspace_members` (TASK-1732).
+    #[test]
+    fn units_provider_serialises_workspace_members() {
+        let dir = tempfile::tempdir().unwrap();
+        write(
+            &dir.path().join("pyproject.toml"),
+            r#"
+[project]
+name = "root"
+
+[tool.uv.workspace]
+members = ["packages/*"]
+"#,
+        );
+        write(
+            &dir.path().join("packages/alpha/pyproject.toml"),
+            "[project]\nname = \"alpha\"\nversion = \"1.0.0\"\ndescription = \"A\"\n",
+        );
+
+        let mut ctx = ops_extension::Context::test_context(dir.path().to_path_buf());
+        let value = PythonUnitsProvider.provide(&mut ctx).unwrap();
+        let units: Vec<ProjectUnit> = serde_json::from_value(value).unwrap();
+
+        assert_eq!(units.len(), 1, "unexpected units: {units:?}");
+        assert_eq!(units[0].name, "alpha");
+        assert_eq!(units[0].path, "packages/alpha");
+        assert_eq!(units[0].version.as_deref(), Some("1.0.0"));
+        assert_eq!(units[0].description.as_deref(), Some("A"));
+    }
+
+    /// TEST-5 / TASK-2201: a project with no `[tool.uv.workspace]` must
+    /// serialise to an empty JSON array — not `null`, and not an error.
+    /// Mirrors the Node crate's `units_provider_empty_workspace_is_empty_array`.
+    #[test]
+    fn units_provider_no_workspace_is_empty_array() {
+        let dir = tempfile::tempdir().unwrap();
+        write(
+            &dir.path().join("pyproject.toml"),
+            "[project]\nname = \"single\"\nversion = \"0.1.0\"\n",
+        );
+
+        let mut ctx = ops_extension::Context::test_context(dir.path().to_path_buf());
+        let value = PythonUnitsProvider.provide(&mut ctx).unwrap();
+        assert_eq!(value, serde_json::json!([]));
+        let units: Vec<ProjectUnit> = serde_json::from_value(value).unwrap();
+        assert!(units.is_empty());
+    }
 }

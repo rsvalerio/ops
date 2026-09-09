@@ -1334,4 +1334,58 @@ version = "0.1.0"
 
         assert_eq!(id.repository.as_deref(), Some("https://github.com/o/r"));
     }
+
+    /// TEST-5 / TASK-2201 AC #4: the `register_data_providers` closure in
+    /// `impl_extension!` had no test — a dropped `registry.register` line
+    /// (its result is discarded with `let _ =`) silently unregistered the
+    /// packages card. Run the real closure and assert both providers land
+    /// under distinct keys and each answers with its own payload shape.
+    #[test]
+    fn extension_registers_identity_and_units_providers() {
+        use ops_extension::{DataRegistry, Extension};
+
+        let mut registry = DataRegistry::new();
+        AboutPythonExtension.register_data_providers(&mut registry);
+        assert_eq!(
+            registry.provider_names(),
+            vec!["project_identity", "project_units"],
+            "both providers must land under distinct keys"
+        );
+
+        // Distinct payloads prove distinct providers, not one key answering
+        // twice: identity is a ProjectIdentity object, units an array.
+        let dir = tempfile::tempdir().unwrap();
+        ops_about::test_support::write_file(
+            &dir.path().join("pyproject.toml"),
+            r#"
+[project]
+name = "demo"
+version = "0.1.0"
+
+[tool.uv.workspace]
+members = ["packages/alpha"]
+"#,
+        );
+        ops_about::test_support::write_file(
+            &dir.path().join("packages/alpha/pyproject.toml"),
+            "[project]\nname = \"alpha\"\nversion = \"1.0.0\"\n",
+        );
+        let mut ctx = ops_extension::Context::test_context(dir.path().to_path_buf());
+        let identity = registry
+            .provide("project_identity", &mut ctx)
+            .expect("identity provider must answer");
+        assert_eq!(identity["stack_label"], serde_json::json!("Python"));
+        let units = registry
+            .provide("project_units", &mut ctx)
+            .expect("units provider must answer");
+        assert_eq!(
+            units
+                .as_array()
+                .and_then(|a| a.first())
+                .and_then(|u| u.get("name"))
+                .and_then(serde_json::Value::as_str),
+            Some("alpha"),
+            "units payload must list the workspace member: {units}"
+        );
+    }
 }
