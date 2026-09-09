@@ -105,9 +105,31 @@ pub fn precompute_sgr_prefix(spec: &str) -> Option<String> {
 /// API-2 / TASK-0893: takes `Option<&str>` rather than `&Option<String>`
 /// so callers aren't locked into `String` storage and can pass borrowed
 /// slices, `Cow`s, or accessor returns via `.as_deref()`.
+///
+/// PERF-3 / TASK-2082: this convenience form resolves the colour gate —
+/// including a live `NO_COLOR` env read — on every call. Render entry
+/// points that style several segments per invocation (a report row styles
+/// label, separator and trailing) must instead resolve the gate once via
+/// [`color_enabled`] and use [`apply_with_prefix_gated`] per segment.
 #[must_use]
 pub fn apply_with_prefix<'a>(text: &'a str, prefix: Option<&str>) -> Cow<'a, str> {
-    if !color_enabled() {
+    apply_with_prefix_gated(text, prefix, color_enabled())
+}
+
+/// [`apply_with_prefix`] with an explicit colour gate.
+///
+/// PERF-3 / TASK-2082: the same injection seam [`apply_style_gated`] and
+/// `render_error_block_gated` established (TEST-25 / TASK-1979) — lets a
+/// render entry point resolve [`color_enabled`] once and thread the boolean
+/// through its private helpers instead of re-reading `NO_COLOR` per styled
+/// segment.
+#[must_use]
+pub fn apply_with_prefix_gated<'a>(
+    text: &'a str,
+    prefix: Option<&str>,
+    enabled: bool,
+) -> Cow<'a, str> {
+    if !enabled {
         return Cow::Borrowed(text);
     }
     prefix.map_or(Cow::Borrowed(text), |pfx| {

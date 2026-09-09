@@ -29,7 +29,9 @@
 use ops_core::output::{StepLine, StepStatus, ALL_STATUSES};
 
 use super::step_line_theme::{format_duration, SlotLine, StepPrefixParts};
-use super::style::{apply_with_prefix, precompute_sgr_prefix, truncate_to_width, visible_width};
+use super::style::{
+    apply_with_prefix_gated, color_enabled, precompute_sgr_prefix, truncate_to_width, visible_width,
+};
 use super::{PlanHeaderStyle, ThemeConfig};
 
 mod boxed;
@@ -136,18 +138,21 @@ impl ConfigurableTheme {
 
     #[must_use]
     pub fn render_plan_header(&self, command_ids: &[String]) -> Vec<String> {
+        // PERF-3 / TASK-2082: resolve the colour gate (which reads
+        // `NO_COLOR`) once per entry point, not once per styled segment.
+        let color = color_enabled();
         let pad = self.left_pad_str();
         let ids = command_ids.join(", ");
         match self.config.plan_header_style {
             PlanHeaderStyle::Plain => {
                 let body = format!("{}Running: {}", self.config.plan_header_prefix, ids);
-                let colored = apply_with_prefix(&body, self.header_prefix.as_deref());
+                let colored = apply_with_prefix_gated(&body, self.header_prefix.as_deref(), color);
                 let header = format!("{pad}{colored}");
                 vec![String::new(), header, String::new()]
             }
             PlanHeaderStyle::Tree => {
                 let body = format!("┌ Running: {ids}");
-                let colored = apply_with_prefix(&body, self.header_prefix.as_deref());
+                let colored = apply_with_prefix_gated(&body, self.header_prefix.as_deref(), color);
                 vec![
                     String::new(),
                     format!("{}{}", pad, colored),
@@ -304,8 +309,17 @@ impl ConfigurableTheme {
     /// (trailing = duration) and report rows (trailing = result string) call
     /// here so the prefix layout, dotted separator, and color application have a
     /// single source of truth.
+    ///
+    /// PERF-3 / TASK-2082: the colour gate is resolved once here — not once
+    /// per styled segment — and threaded through [`Self::render_slot_gated`],
+    /// the same injection pattern `render_error_block_gated` established.
     #[must_use]
     pub fn render_slot(&self, slot: &SlotLine<'_>, columns: u16) -> String {
+        self.render_slot_gated(slot, columns, color_enabled())
+    }
+
+    /// [`Self::render_slot`] with an explicit colour gate.
+    fn render_slot_gated(&self, slot: &SlotLine<'_>, columns: u16, color: bool) -> String {
         let parts = self.icon_prefix_parts(slot.icon, slot.is_running);
         let budget = usize::from(columns);
         let template_overhead = if slot.is_running {
@@ -326,18 +340,19 @@ impl ConfigurableTheme {
             self.left_pad_str()
         };
 
-        let colored_label = apply_with_prefix(&label, self.label_prefix.as_deref());
+        let colored_label = apply_with_prefix_gated(&label, self.label_prefix.as_deref(), color);
         let colored_prefix = format!(
             "{}{}{} {}",
             parts.indent, parts.icon, parts.pad, colored_label
         );
         let colored_separator =
-            apply_with_prefix(&plain_separator, self.separator_prefix.as_deref());
+            apply_with_prefix_gated(&plain_separator, self.separator_prefix.as_deref(), color);
 
         let line = if slot.trailing.is_empty() {
             format!("{pad}{colored_prefix}{colored_separator}")
         } else {
-            let colored_trailing = apply_with_prefix(slot.trailing, slot.trailing_prefix);
+            let colored_trailing =
+                apply_with_prefix_gated(slot.trailing, slot.trailing_prefix, color);
             format!("{pad}{colored_prefix}{colored_separator} {colored_trailing}")
         };
         if budget == 0 {
@@ -396,9 +411,18 @@ impl ConfigurableTheme {
     /// Render an arbitrary summary body with the theme's summary chrome
     /// (left pad + summary glyph/separator + colored body). The runner passes
     /// `"Done in 1.20s"`; reports pass their `footer_text()`.
+    ///
+    /// PERF-3 / TASK-2082: resolves the colour gate once per call via
+    /// [`Self::render_summary_text_gated`].
     #[must_use]
     pub fn render_summary_text(&self, body: &str) -> String {
-        let colored = apply_with_prefix(body, self.summary_prefix.as_deref());
+        self.render_summary_text_gated(body, color_enabled())
+    }
+
+    /// [`Self::render_summary_text`] with an explicit colour gate, so
+    /// `render_report` can resolve the gate once for its whole output.
+    fn render_summary_text_gated(&self, body: &str, color: bool) -> String {
+        let colored = apply_with_prefix_gated(body, self.summary_prefix.as_deref(), color);
         format!(
             "{}{}{}",
             self.left_pad_str(),
