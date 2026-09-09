@@ -9,6 +9,12 @@
 //! - **Single-package project** (a `Cargo.toml` with `[package]` and no
 //!   `[workspace]` table, ERR-6 / TASK-1812): the root package itself is the
 //!   single review target, at path `.`.
+//! - **Hybrid manifest** (PATTERN-1 / TASK-2171): a root `Cargo.toml`
+//!   carrying both `[package]` and `[workspace].members`. Cargo never
+//!   requires the root package to be listed in `members` — a root
+//!   `[package]` is an implicit member of its own workspace — so the root
+//!   package is emitted as a target at path `.` in addition to every
+//!   resolved member (unless the member list already names the root path).
 //!
 //! A manifest that declares neither reviewable shape — no resolvable
 //! `[workspace]` members and no `[package].name` — is a typed error naming
@@ -43,17 +49,30 @@ impl DataProvider for RustReviewTargetsProvider {
         let manifest = CargoTomlProvider::with_root(root.clone()).provide_typed(ctx)?;
         let members = resolved_workspace_members(&manifest, &root);
 
-        let mut targets: Vec<(String, String)> = if members.is_empty() {
-            vec![(
-                root_package_name(&manifest, &root)?,
-                ROOT_PACKAGE_PATH.to_string(),
-            )]
-        } else {
+        // PATTERN-1 / TASK-2171: Cargo treats a root `[package]` as an
+        // implicit member of its own workspace — it never has to appear in
+        // `[workspace].members` — so the root package is a review target in
+        // its own right whenever it exists and the member list does not
+        // already name the root path. Pre-fix, any non-empty member list
+        // silently dropped the root package, and on the hybrid shape (a
+        // library plus an xtask/fuzz member) the crate holding most of the
+        // code was the one that never got a review subtask.
+        let mut targets: Vec<(String, String)> = Vec::new();
+        if !members.iter().any(|m| m == ROOT_PACKAGE_PATH) {
+            if let Some(name) = manifest.package_name() {
+                targets.push((name.to_string(), ROOT_PACKAGE_PATH.to_string()));
+            }
+        }
+        if members.is_empty() && targets.is_empty() {
+            // ERR-6 / TASK-1812: neither reviewable shape is a typed error
+            // naming that condition — never an empty target list.
+            return Err(neither_reviewable_shape(&manifest, &root));
+        }
+        targets.extend(
             members
                 .iter()
-                .map(|member| (member_target_name(member, &root), member.clone()))
-                .collect()
-        };
+                .map(|member| (member_target_name(member, &root), member.clone())),
+        );
         disambiguate_target_names(&mut targets);
 
         let targets: Vec<serde_json::Value> = targets
@@ -71,26 +90,25 @@ impl DataProvider for RustReviewTargetsProvider {
     }
 }
 
-/// Review-target name for a single-package project: the root `[package].name`.
+/// The typed error for a manifest with neither reviewable shape.
 ///
 /// ERR-6 / TASK-1812: `find_workspace_root_strict` accepts the first
 /// `Cargo.toml` it finds even when that manifest declares no `[workspace]`,
 /// and `resolved_workspace_members` returns an empty `Vec` for such a
 /// manifest. Returning that empty list made the engine report "nothing to
-/// review" for the most common Rust project shape. The root package is the
-/// review target; only a manifest with neither shape is an error, and it says
-/// so in its own words rather than through an empty-list sentinel.
-fn root_package_name(
-    manifest: &CargoToml,
-    root: &std::path::Path,
-) -> Result<String, DataProviderError> {
-    manifest.package_name().map(str::to_string).ok_or_else(|| {
-        DataProviderError::computation_failed(format!(
-            "manifest at {:?} declares no [workspace] members and no [package].name; \
-             create-review-tasks needs at least one review target",
-            root.display()
-        ))
-    })
+/// review" for the most common Rust project shape. Only a manifest with
+/// neither shape is an error, and it says so in its own words rather than
+/// through an empty-list sentinel.
+fn neither_reviewable_shape(manifest: &CargoToml, root: &std::path::Path) -> DataProviderError {
+    debug_assert!(
+        manifest.package_name().is_none(),
+        "caller must only reach here when the root package does not exist"
+    );
+    DataProviderError::computation_failed(format!(
+        "manifest at {:?} declares no [workspace] members and no [package].name; \
+         create-review-tasks needs at least one review target",
+        root.display()
+    ))
 }
 
 /// Review-target name for one workspace member: its cargo package name, or
@@ -343,6 +361,80 @@ mod tests {
         assert_eq!(decoded.targets.len(), 1);
         assert_eq!(decoded.targets[0].name, "solo");
         assert_eq!(decoded.targets[0].path, ROOT_PACKAGE_PATH);
+    }
+
+    /// PATTERN-1 / TASK-2171: a hybrid manifest — a root `[package]` plus
+    /// `[workspace].members` — must yield the root package as a target in
+    /// addition to every resolved member. Cargo never requires the root
+    /// package to be listed in `members` (a root package is an implicit
+    /// member of its own workspace), and `resolved_workspace_members` reads
+    /// only the listed entries — so pre-fix, the crate holding most of the
+    /// code was silently dropped from the review targets. Both the root
+    /// package and every member must appear exactly once.
+    #[serial_test::serial(fallback_breadcrumb)]
+    #[test]
+    fn hybrid_manifest_yields_the_root_package_and_every_member() {
+        let (_dir, root) = scratch_workspace(
+            "\"crates/*\", \"xtask\"",
+            &[
+                ("crates/core", Some("ops-core")),
+                ("crates/cli", Some("ops-cli")),
+                ("xtask", Some("xtask")),
+            ],
+        );
+        // The hybrid root: the same manifest also declares the root package.
+        std::fs::write(
+            root.join("Cargo.toml"),
+            "[package]\nname = \"ops-lib\"\nversion = \"0.1.0\"\n\n\
+             [workspace]\nmembers = [\"crates/*\", \"xtask\"]\n",
+        )
+        .expect("hybrid root manifest");
+        let value = provide(&root).expect("provide");
+        let decoded: ops_create_review_tasks::ReviewTargets =
+            serde_json::from_value(value).expect("decode");
+        let pairs: Vec<(&str, &str)> = decoded
+            .targets
+            .iter()
+            .map(|t| (t.name.as_str(), t.path.as_str()))
+            .collect();
+        assert_eq!(
+            pairs,
+            vec![
+                ("ops-lib", ROOT_PACKAGE_PATH),
+                ("ops-cli", "crates/cli"),
+                ("ops-core", "crates/core"),
+                ("xtask", "xtask"),
+            ],
+            "the root package and every member must each appear exactly once"
+        );
+    }
+
+    /// PATTERN-1 / TASK-2171: when the member list already names the root
+    /// path (`.`), the root package must not be emitted twice.
+    #[serial_test::serial(fallback_breadcrumb)]
+    #[test]
+    fn hybrid_manifest_does_not_duplicate_a_root_listed_as_member() {
+        let (_dir, root) = scratch_workspace("\".\", \"xtask\"", &[("xtask", Some("xtask"))]);
+        std::fs::write(
+            root.join("Cargo.toml"),
+            "[package]\nname = \"ops-lib\"\nversion = \"0.1.0\"\n\n\
+             [workspace]\nmembers = [\".\", \"xtask\"]\n",
+        )
+        .expect("hybrid root manifest");
+        let value = provide(&root).expect("provide");
+        let decoded: ops_create_review_tasks::ReviewTargets =
+            serde_json::from_value(value).expect("decode");
+        let root_hits = decoded
+            .targets
+            .iter()
+            .filter(|t| t.path == ROOT_PACKAGE_PATH)
+            .count();
+        assert_eq!(
+            root_hits, 1,
+            "the root path must appear exactly once, got {:?}",
+            decoded.targets
+        );
+        assert_eq!(decoded.targets.len(), 2, "root plus xtask, no duplicates");
     }
 
     /// ERR-6 / TASK-1812: neither shape is a typed error naming the actual
