@@ -169,7 +169,11 @@ where
     }
 
     conn.query_row(spec.sql, [], row_mapper)
-        .context(label.to_string())
+        // PERF-3 / TASK-2115: lazy `with_context` so the success path of
+        // every project-level query allocates nothing — same house style as
+        // the other `?` sites in this module. The failure message is
+        // unchanged: still the bare query label.
+        .with_context(|| label.to_string())
 }
 
 /// Shared scaffolding: lock db, check table exists, run a scalar aggregate query.
