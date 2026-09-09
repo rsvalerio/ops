@@ -422,4 +422,75 @@ mod tests {
             serde_json::from_value(provider.provide(&mut ctx).unwrap()).unwrap();
         assert_eq!(id.license.as_deref(), Some("Apache-2.0"));
     }
+
+    /// TEST-5 / TASK-2229 AC #1 + #2: the `register_data_providers` closure
+    /// is the crate's only wiring to the rest of `ops`, and both
+    /// `registry.register` results are discarded with `let _ =` — under the
+    /// registry's first-write-wins policy a name collision inside the closure
+    /// silently drops a provider. The discarded `Option` is not observable
+    /// from outside the closure, so the closest meaningful pin is asserted
+    /// instead (substitution recorded in the task notes): *both* keys must
+    /// land (a collision would leave one rejected and missing) and each must
+    /// answer with its own payload shape over a real fixture.
+    #[test]
+    fn extension_registers_both_providers_and_each_answers() {
+        use ops_extension::{DataRegistry, Extension};
+
+        let mut registry = DataRegistry::new();
+        AboutNodeExtension.register_data_providers(&mut registry);
+        assert_eq!(
+            registry.provider_names(),
+            vec!["project_identity", "project_units"],
+            "both providers must land under distinct keys — a key collision \
+             inside the closure would reject one with no failure anywhere"
+        );
+
+        let dir = tempfile::tempdir().unwrap();
+        write(
+            &dir.path().join("package.json"),
+            r#"{ "name": "root", "workspaces": ["packages/*"] }"#,
+        );
+        write(
+            &dir.path().join("packages/alpha/package.json"),
+            r#"{ "name": "alpha", "version": "1.0.0" }"#,
+        );
+        let mut ctx = ops_extension::Context::test_context(dir.path().to_path_buf());
+
+        let identity = registry
+            .provide("project_identity", &mut ctx)
+            .expect("identity provider must answer");
+        assert_eq!(identity["stack_label"], serde_json::json!("Node"));
+
+        let units = registry
+            .provide("project_units", &mut ctx)
+            .expect("units provider must answer");
+        assert_eq!(
+            units
+                .as_array()
+                .and_then(|a| a.first())
+                .and_then(|u| u.get("name")),
+            Some(&serde_json::json!("alpha")),
+            "units payload must list the workspace member: {units}"
+        );
+    }
+
+    /// TEST-5 / TASK-2229 AC #3: `NODE_ABOUT_FACTORY` is the linkme entry the
+    /// CLI discovers the extension through; assert it yields the extension
+    /// with the declared metadata (name, shortname, stack, type). A stack
+    /// mismatch here ships the Node providers under the wrong stack tag while
+    /// every provider-level test stays green.
+    #[test]
+    fn factory_yields_the_node_about_extension_with_declared_metadata() {
+        use ops_extension::Extension;
+
+        let cfg = ops_core::config::Config::empty();
+        let (name, ext) = (super::NODE_ABOUT_FACTORY)(&cfg, std::path::Path::new("."))
+            .expect("factory must yield the extension");
+        assert_eq!(name, NAME);
+        assert_eq!(Extension::name(ext.as_ref()), "about-node");
+        assert_eq!(ext.shortname(), SHORTNAME);
+        assert_eq!(ext.stack(), Some(ops_extension::Stack::Node));
+        assert!(ext.types().is_datasource());
+        assert_eq!(ext.data_provider_name(), Some(DATA_PROVIDER_NAME));
+    }
 }
