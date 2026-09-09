@@ -77,10 +77,10 @@ pub(crate) const CARGO_METADATA_TIMEOUT: Duration = Duration::from_mins(2);
 /// workspace above that cap never reaches this one until `OPS_OUTPUT_BYTE_CAP`
 /// is raised; the 64 MiB budget here is not a claim about what `cargo
 /// metadata` output can reach the reader.
-pub const METADATA_MAX_BYTES_DEFAULT: u64 = 64 * 1024 * 1024;
+pub(crate) const METADATA_MAX_BYTES_DEFAULT: u64 = 64 * 1024 * 1024;
 
 /// Environment variable that overrides [`METADATA_MAX_BYTES_DEFAULT`].
-pub const METADATA_MAX_BYTES_ENV: &str = "OPS_METADATA_MAX_BYTES";
+pub(crate) const METADATA_MAX_BYTES_ENV: &str = "OPS_METADATA_MAX_BYTES";
 
 /// ERR-1 / TASK-2188: the per-stream capture cap that actually bounds
 /// [`run_cargo_metadata`]'s stdout — resolved exactly the way
@@ -158,7 +158,7 @@ pub(crate) fn check_metadata_not_capped(output: &Output) -> Result<(), anyhow::E
 /// initialiser and `u32::MAX as u64` would need an `as_conversions`
 /// exception (`docs/clippy.md`); the equality with `u32::MAX` is pinned by
 /// `ceiling_is_exactly_duckdb_uinteger_max` in `tests/payload_cap.rs`.
-pub const METADATA_MAX_BYTES_CEILING: u64 = 4_294_967_295;
+pub(crate) const METADATA_MAX_BYTES_CEILING: u64 = 4_294_967_295;
 
 /// SEC-11 / TASK-1897: validate and bound the raw `OPS_METADATA_MAX_BYTES`
 /// value at the boundary, warning on every value that is not honoured
