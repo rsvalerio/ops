@@ -74,43 +74,79 @@ fn query_metadata_raw_errors_when_payload_exceeds_cap() {
     assert!(msg.contains(METADATA_MAX_BYTES_ENV), "got: {msg}");
 }
 
-/// SEC-33 / TASK-1194: an oversized payload must fail the byte cap
-/// **before** the full text is materialised into a Rust `String`.
-/// Pre-TASK-1194 the check ran on `json_text.len()` after the
-/// `query_row` had already pulled the entire payload across the FFI
-/// boundary — by the time the cap fired, the very allocation it was
-/// meant to prevent had already happened. We verify the new ordering
-/// by wiring up a ~100-MiB synthetic payload with a 1-MiB cap: if
-/// the implementation regressed to materialising-then-checking, peak
-/// RSS would balloon by ~100 MiB during this test (and on a
-/// memory-tight CI runner the OS would kill the process the AC
-/// describes).
+/// SEC-33 / TASK-1194 (TEST-11 / TASK-2194): the cap must fire **inside the
+/// SQL**, before the payload is materialised into a Rust `String`. The
+/// mechanism — and the property that distinguishes this implementation from
+/// the pre-TASK-1194 materialise-then-check shape — is `CAP_GUARD_SQL`'s
+/// `CASE`: an over-cap row crosses the FFI boundary with `payload = NULL`,
+/// so the oversized text never becomes a Rust allocation. The pre-fix shape
+/// had no such guard: it pulled the full `String` across first and reported
+/// the *same error text*, which is why the error-message assertions alone
+/// (kept in `query_metadata_raw_errors_when_payload_exceeds_cap` above)
+/// certified nothing.
+///
+/// This test asserts the guard's observable behaviour with a small fixture:
+/// over cap → `payload` is NULL and `bytes` is the exact length; under cap →
+/// the payload arrives intact. The 100-MiB fixture the previous version
+/// materialised on every run was removed (TASK-2194 AC #2) — the NULL shape
+/// does not depend on the payload's size, only on the CASE branch. The
+/// single-serialisation cost claim for the same SQL is pinned separately by
+/// `cap_guard_sql_serialises_to_json_once` below.
 #[test]
-fn query_metadata_raw_rejects_oversized_payload_before_materialising() {
+fn cap_guard_sql_nulls_the_payload_over_cap_before_it_crosses_ffi() {
     let db = ops_duckdb::DuckDb::open_in_memory().expect("open in-memory");
     {
         let conn = db.lock().expect("lock");
-        // 100 MiB of 'a' bytes wrapped in a singleton row. DuckDB's
-        // repeat() builds the value server-side so the seed itself
-        // does not pull 100 MiB across the FFI boundary.
         conn.execute_batch(
-            "CREATE TABLE metadata_raw (workspace_root VARCHAR, blob VARCHAR);
-             INSERT INTO metadata_raw \
-             SELECT '/workspace', repeat('a', 100 * 1024 * 1024);",
+            "CREATE TABLE metadata_raw (workspace_root VARCHAR, payload VARCHAR);
+             INSERT INTO metadata_raw VALUES \
+             ('/over', 'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa'), \
+             ('/under', 'ok');",
         )
         .expect("seed");
     }
-    let cap: u64 = 1024 * 1024;
-    let err = query_metadata_raw_with_cap(&db, cap)
-        .expect_err("100-MiB payload must fail under a 1-MiB cap");
-    let msg = format!("{err:#}");
+    let conn = db.lock().expect("lock");
+    // Cap 64 sits between the two rows' serialized sizes: the under-cap
+    // row's `to_json(m)` text (~39 bytes) and the over-cap row's (95 bytes,
+    // 58 payload bytes + the JSON envelope).
+    let sql = crate::CAP_GUARD_SQL.replace('?', "64");
+    let rows: Vec<(i64, Option<String>)> = {
+        let mut stmt = conn.prepare(&sql).expect("prepare cap-guard SQL");
+        let mapped = stmt
+            .query_map([], |row| {
+                Ok((row.get::<_, i64>(0)?, row.get::<_, Option<String>>(1)?))
+            })
+            .expect("query cap-guard SQL");
+        mapped.collect::<Result<Vec<_>, _>>().expect("collect rows")
+    };
+    drop(conn);
+
+    // Over-cap row (58 payload bytes → 95 serialized): the payload must be
+    // NULL — a materialise-then-check implementation cannot produce this
+    // shape, and the error it renders is byte-identical (see doc comment).
+    let over = rows
+        .iter()
+        .find(|(len, _)| *len > 64)
+        .expect("over-cap row present");
     assert!(
-        msg.contains("exceeds") && msg.contains("byte cap"),
-        "error message must cite the cap, got: {msg}"
+        over.1.is_none(),
+        "over-cap payload must be NULL at the FFI boundary, got: {:?}",
+        over.1
     );
+
+    // Under-cap row: the payload arrives intact (the CASE's ELSE branch) —
+    // the full `to_json(m)` text, envelope included.
+    let under = rows
+        .iter()
+        .find(|(len, _)| *len <= 64)
+        .expect("under-cap row present");
+    let text = under
+        .1
+        .as_deref()
+        .expect("under-cap payload must not be nulled");
     assert!(
-        msg.contains(METADATA_MAX_BYTES_ENV),
-        "error message must cite the override env var, got: {msg}"
+        text.contains("\"payload\": \"ok\"") || text.contains("\"payload\":\"ok\""),
+        "under-cap payload must carry the row's JSON text, got: {text}"
     );
 }
 
