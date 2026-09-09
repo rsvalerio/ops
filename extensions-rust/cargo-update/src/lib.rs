@@ -44,16 +44,107 @@ pub enum UpdateAction {
     Remove,
 }
 
-/// A single dependency update entry parsed from `cargo update --dry-run` output.
+/// PATTERN-1 / TASK-2151: one variant per cargo lockfile verb, each
+/// carrying exactly the version presence that verb has.
+///
+/// `Update`/`Downgrade` carry both versions, `Add` only `to`, `Remove` only
+/// `from`. The previous `{ action, from: Option<_>, to: Option<_> }` struct
+/// permitted sixteen presence combinations per action of which four are
+/// valid, and its derived `Deserialize` (the about page reads this JSON
+/// back from a cache) accepted the other twelve silently, as entries the
+/// parser itself can never build.
+///
+/// Serialized as an internally-tagged JSON object with the same field names
+/// and lowercase verbs the previous struct emitted
+/// (`{"action":"update","name":…,"from":…,"to":…}`); a variant's absent
+/// version is omitted rather than emitted as `null`. Deserialization is
+/// validating: a payload whose action and version presence disagree either
+/// fails (a version the action requires is missing or `null`) or normalizes
+/// (a version foreign to the action is ignored) — never a silently invalid
+/// entry.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(tag = "action", rename_all = "lowercase")]
 #[non_exhaustive]
-pub struct UpdateEntry {
-    pub action: UpdateAction,
-    pub name: String,
-    /// Version being updated from (None for Add actions).
-    pub from: Option<String>,
-    /// Version being updated to (None for Remove actions).
-    pub to: Option<String>,
+pub enum UpdateEntry {
+    /// `Updating <name> <from> -> <to>`.
+    Update {
+        /// Crate name.
+        name: String,
+        /// Version being updated from.
+        from: String,
+        /// Version being updated to.
+        to: String,
+    },
+    /// `Downgrading <name> <from> -> <to>` (PATTERN-1 / TASK-1778).
+    Downgrade {
+        /// Crate name.
+        name: String,
+        /// Version being downgraded from.
+        from: String,
+        /// Version being downgraded to.
+        to: String,
+    },
+    /// `Adding <name> <to>` — no prior version exists.
+    Add {
+        /// Crate name.
+        name: String,
+        /// Version being added.
+        to: String,
+    },
+    /// `Removing <name> <from>` — no replacement version exists.
+    Remove {
+        /// Crate name.
+        name: String,
+        /// Version being removed.
+        from: String,
+    },
+}
+
+impl UpdateEntry {
+    /// The lockfile verb this entry was parsed from.
+    #[must_use]
+    pub const fn action(&self) -> UpdateAction {
+        match self {
+            Self::Update { .. } => UpdateAction::Update,
+            Self::Downgrade { .. } => UpdateAction::Downgrade,
+            Self::Add { .. } => UpdateAction::Add,
+            Self::Remove { .. } => UpdateAction::Remove,
+        }
+    }
+
+    /// The crate name.
+    #[must_use]
+    pub fn name(&self) -> &str {
+        self.name_and_versions().0
+    }
+
+    /// Version moved from — `None` exactly on [`UpdateEntry::Add`], the one
+    /// action that has no prior version.
+    #[must_use]
+    pub fn from(&self) -> Option<&str> {
+        let (_, from, _) = self.name_and_versions();
+        from
+    }
+
+    /// Version moved to — `None` exactly on [`UpdateEntry::Remove`], the one
+    /// action that removes without replacing.
+    #[must_use]
+    pub fn to(&self) -> Option<&str> {
+        let (_, _, to) = self.name_and_versions();
+        to
+    }
+
+    /// Single destructure point for the accessors: `(name, from, to)` with
+    /// the absent sides `None`, mirroring the variant structure.
+    fn name_and_versions(&self) -> (&str, Option<&str>, Option<&str>) {
+        match self {
+            Self::Update { name, from, to } | Self::Downgrade { name, from, to } => {
+                (name, Some(from), Some(to))
+            }
+            Self::Add { name, to } => (name, None, Some(to)),
+            Self::Remove { name, from } => (name, Some(from), None),
+        }
+    }
 }
 
 /// Result of parsing `cargo update --dry-run` output.
@@ -185,7 +276,7 @@ pub fn parse_update_output(stderr: &[u8]) -> CargoUpdateResult {
                 // At most one increment per line of the in-memory `stderr`
                 // string, whose length is bounded by `isize::MAX`, so
                 // `saturating_add` equals `+= 1` exactly.
-                match entry.action {
+                match entry.action() {
                     UpdateAction::Update => update_count = update_count.saturating_add(1),
                     UpdateAction::Downgrade => downgrade_count = downgrade_count.saturating_add(1),
                     UpdateAction::Add => add_count = add_count.saturating_add(1),
@@ -408,7 +499,7 @@ fn consume_nf(chars: EscapeScan<'_, '_>, result: &mut String, first: char) {
 }
 
 /// Shape of the version portion that follows the crate name on an action line.
-#[derive(Clone, Copy)]
+#[derive(Clone, Copy, Debug)]
 enum VersionShape {
     /// `<from> -> <to>` — both versions present, separated by the arrow.
     Arrow,
@@ -594,12 +685,27 @@ fn parse_action_line(line: &str) -> ActionLineOutcome {
         if !is_version_shaped(from) || !is_version_shaped(to) {
             return ActionLineOutcome::Rejected("version token is not shaped like a version");
         }
-        return ActionLineOutcome::Parsed(UpdateEntry {
-            action,
-            name: name.to_string(),
-            from: Some(strip_v_prefix(from).to_string()),
-            to: Some(strip_v_prefix(to).to_string()),
-        });
+        // PATTERN-1 / TASK-2151: the variant — not a doc comment — now states
+        // which versions this action carries.
+        let entry = match action {
+            UpdateAction::Update => UpdateEntry::Update {
+                name: name.to_string(),
+                from: strip_v_prefix(from).to_string(),
+                to: strip_v_prefix(to).to_string(),
+            },
+            UpdateAction::Downgrade => UpdateEntry::Downgrade {
+                name: name.to_string(),
+                from: strip_v_prefix(from).to_string(),
+                to: strip_v_prefix(to).to_string(),
+            },
+            // ACTION_PREFIXES pairs the Arrow shape only with Update and
+            // Downgrade; Add/Remove carry single-version shapes below. There
+            // is no non-panicking body for this arm — per docs/clippy.md the
+            // invariant lives in ACTION_PREFIXES, not here.
+            #[allow(clippy::unreachable)]
+            other => unreachable!("Arrow shape paired with {other:?} in ACTION_PREFIXES"),
+        };
+        return ActionLineOutcome::Parsed(entry);
     }
 
     // TASK-0949: mirror the `Updating` arm — reject `<name> <version>
@@ -624,18 +730,26 @@ fn parse_action_line(line: &str) -> ActionLineOutcome {
     if !is_version_shaped(version_raw) {
         return ActionLineOutcome::Rejected("version token is not shaped like a version");
     }
-    let version = Some(strip_v_prefix(version_raw).to_string());
-    let (from, to) = match shape {
-        VersionShape::From => (version, None),
-        // The arrow shape returned above; `To` is the only remaining case.
-        VersionShape::Arrow | VersionShape::To => (None, version),
+    // PATTERN-1 / TASK-2151: the variant — not a doc comment — states which
+    // versions each action carries.
+    let entry = match shape {
+        VersionShape::From => UpdateEntry::Remove {
+            name: name.to_string(),
+            from: strip_v_prefix(version_raw).to_string(),
+        },
+        VersionShape::To => UpdateEntry::Add {
+            name: name.to_string(),
+            to: strip_v_prefix(version_raw).to_string(),
+        },
+        // The arrow shape returned above, so this arm cannot run; there is
+        // no non-panicking body for it — per docs/clippy.md the invariant
+        // lives in the early return above, not here.
+        #[allow(clippy::unreachable)]
+        other @ VersionShape::Arrow => {
+            unreachable!("single-version branch reached with {other:?} shape")
+        }
     };
-    ActionLineOutcome::Parsed(UpdateEntry {
-        action,
-        name: name.to_string(),
-        from,
-        to,
-    })
+    ActionLineOutcome::Parsed(entry)
 }
 
 /// API-9 / TASK-0922: construct via the registered extension factory only.

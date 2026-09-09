@@ -68,10 +68,10 @@ fn parse_single_update() {
     assert_eq!(result.remove_count, 0);
 
     let entry = &result.entries[0];
-    assert_eq!(entry.action, UpdateAction::Update);
-    assert_eq!(entry.name, "serde");
-    assert_eq!(entry.from, Some("1.0.0".to_string()));
-    assert_eq!(entry.to, Some("1.0.1".to_string()));
+    assert_eq!(entry.action(), UpdateAction::Update);
+    assert_eq!(entry.name(), "serde");
+    assert_eq!(entry.from(), Some("1.0.0"));
+    assert_eq!(entry.to(), Some("1.0.1"));
 }
 
 #[test]
@@ -82,10 +82,10 @@ fn parse_single_add() {
     assert_eq!(result.add_count, 1);
 
     let entry = &result.entries[0];
-    assert_eq!(entry.action, UpdateAction::Add);
-    assert_eq!(entry.name, "new-crate");
-    assert_eq!(entry.from, None);
-    assert_eq!(entry.to, Some("0.1.0".to_string()));
+    assert_eq!(entry.action(), UpdateAction::Add);
+    assert_eq!(entry.name(), "new-crate");
+    assert_eq!(entry.from(), None);
+    assert_eq!(entry.to(), Some("0.1.0"));
 }
 
 #[test]
@@ -96,10 +96,10 @@ fn parse_single_remove() {
     assert_eq!(result.remove_count, 1);
 
     let entry = &result.entries[0];
-    assert_eq!(entry.action, UpdateAction::Remove);
-    assert_eq!(entry.name, "old-crate");
-    assert_eq!(entry.from, Some("0.2.0".to_string()));
-    assert_eq!(entry.to, None);
+    assert_eq!(entry.action(), UpdateAction::Remove);
+    assert_eq!(entry.name(), "old-crate");
+    assert_eq!(entry.from(), Some("0.2.0"));
+    assert_eq!(entry.to(), None);
 }
 
 /// PATTERN-1 / TASK-1778: `Downgrading` is one of the verbs cargo's
@@ -115,10 +115,10 @@ fn parse_single_downgrade() {
     assert_eq!(result.update_count, 0);
 
     let entry = &result.entries[0];
-    assert_eq!(entry.action, UpdateAction::Downgrade);
-    assert_eq!(entry.name, "serde");
-    assert_eq!(entry.from.as_deref(), Some("1.0.220"));
-    assert_eq!(entry.to.as_deref(), Some("1.0.219"));
+    assert_eq!(entry.action(), UpdateAction::Downgrade);
+    assert_eq!(entry.name(), "serde");
+    assert_eq!(entry.from(), Some("1.0.220"));
+    assert_eq!(entry.to(), Some("1.0.219"));
 }
 
 /// PATTERN-1 / TASK-1778: a `Downgrading` line must never reach the
@@ -186,11 +186,11 @@ fn parse_mixed_output() {
     assert_eq!(result.remove_count, 1);
     assert_eq!(result.downgrade_count, 1);
 
-    assert_eq!(result.entries[0].name, "serde");
-    assert_eq!(result.entries[1].name, "new-dep");
-    assert_eq!(result.entries[2].name, "old-dep");
-    assert_eq!(result.entries[3].name, "down-dep");
-    assert_eq!(result.entries[4].name, "tokio");
+    assert_eq!(result.entries[0].name(), "serde");
+    assert_eq!(result.entries[1].name(), "new-dep");
+    assert_eq!(result.entries[2].name(), "old-dep");
+    assert_eq!(result.entries[3].name(), "down-dep");
+    assert_eq!(result.entries[4].name(), "tokio");
 }
 
 #[test]
@@ -218,16 +218,16 @@ fn parse_no_updates_available() {
 fn parse_strips_v_prefix() {
     let stderr = b"    Updating serde v1.0.0 -> v1.0.1\n";
     let result = parse_update_output(stderr);
-    assert_eq!(result.entries[0].from, Some("1.0.0".to_string()));
-    assert_eq!(result.entries[0].to, Some("1.0.1".to_string()));
+    assert_eq!(result.entries[0].from(), Some("1.0.0"));
+    assert_eq!(result.entries[0].to(), Some("1.0.1"));
 }
 
 #[test]
 fn parse_no_v_prefix_passthrough() {
     let stderr = b"    Updating serde 1.0.0 -> 1.0.1\n";
     let result = parse_update_output(stderr);
-    assert_eq!(result.entries[0].from, Some("1.0.0".to_string()));
-    assert_eq!(result.entries[0].to, Some("1.0.1".to_string()));
+    assert_eq!(result.entries[0].from(), Some("1.0.0"));
+    assert_eq!(result.entries[0].to(), Some("1.0.1"));
 }
 
 #[test]
@@ -239,7 +239,7 @@ note: some note
 ";
     let result = parse_update_output(stderr);
     assert_eq!(result.entries.len(), 1);
-    assert_eq!(result.entries[0].name, "serde");
+    assert_eq!(result.entries[0].name(), "serde");
 }
 
 #[test]
@@ -281,7 +281,7 @@ fn arrow_drift_and_extra_tokens_warn_fires_with_expected_entries() {
         let stderr = b"      Adding new-crate v0.1.0 (locked)\n";
         let result = parse_update_output(stderr);
         assert_eq!(result.entries.len(), 1);
-        assert_eq!(result.entries[0].to.as_deref(), Some("0.1.0"));
+        assert_eq!(result.entries[0].to(), Some("0.1.0"));
     });
     assert!(
         logged.contains("WARN") && logged.contains("unexpected trailing tokens"),
@@ -293,7 +293,7 @@ fn arrow_drift_and_extra_tokens_warn_fires_with_expected_entries() {
         let stderr = b"    Removing old-crate v0.2.0 (yanked)\n";
         let result = parse_update_output(stderr);
         assert_eq!(result.entries.len(), 1);
-        assert_eq!(result.entries[0].from.as_deref(), Some("0.2.0"));
+        assert_eq!(result.entries[0].from(), Some("0.2.0"));
     });
     assert!(
         logged.contains("WARN") && logged.contains("unexpected trailing tokens"),
@@ -342,9 +342,9 @@ fn verb_prefix_requires_whitespace_boundary() {
     let stderr_ok = b"    Updating serde v1.0.0 -> v1.0.1\n";
     let result_ok = parse_update_output(stderr_ok);
     assert_eq!(result_ok.entries.len(), 1);
-    assert_eq!(result_ok.entries[0].name, "serde");
-    assert_eq!(result_ok.entries[0].from.as_deref(), Some("1.0.0"));
-    assert_eq!(result_ok.entries[0].to.as_deref(), Some("1.0.1"));
+    assert_eq!(result_ok.entries[0].name(), "serde");
+    assert_eq!(result_ok.entries[0].from(), Some("1.0.0"));
+    assert_eq!(result_ok.entries[0].to(), Some("1.0.1"));
 }
 
 /// DUP-1 / TASK-1797: `starts_with_known_verb` and `parse_action_line` consume
@@ -378,17 +378,14 @@ fn parse_skips_locking_line() {
 fn serialization_round_trip() {
     let result = CargoUpdateResult {
         entries: vec![
-            UpdateEntry {
-                action: UpdateAction::Update,
+            UpdateEntry::Update {
                 name: "serde".to_string(),
-                from: Some("1.0.0".to_string()),
-                to: Some("1.0.1".to_string()),
+                from: "1.0.0".to_string(),
+                to: "1.0.1".to_string(),
             },
-            UpdateEntry {
-                action: UpdateAction::Add,
+            UpdateEntry::Add {
                 name: "new-crate".to_string(),
-                from: None,
-                to: Some("0.1.0".to_string()),
+                to: "0.1.0".to_string(),
             },
         ],
         update_count: 1,
@@ -479,7 +476,7 @@ fn parse_output_with_ansi_codes() {
     let stderr = b"\x1b[1m\x1b[32m    Updating\x1b[0m serde v1.0.0 -> v1.0.1\n";
     let result = parse_update_output(stderr);
     assert_eq!(result.entries.len(), 1);
-    assert_eq!(result.entries[0].name, "serde");
+    assert_eq!(result.entries[0].name(), "serde");
 }
 
 /// SEC-21 / TASK-1790: an OSC-8 hyperlink wrapping a real update line still
@@ -491,7 +488,7 @@ fn osc8_wrapped_update_line_parses_with_no_escape_in_json() {
             .as_bytes();
     let result = parse_update_output(stderr);
     assert_eq!(result.entries.len(), 1);
-    assert_eq!(result.entries[0].name, "serde");
+    assert_eq!(result.entries[0].name(), "serde");
     let json = serde_json::to_string(&result).expect("serialize");
     assert!(
         !json.contains('\u{1b}'),
@@ -571,9 +568,9 @@ fn parse_adding_line_with_trailing_annotation_does_not_glue_into_version() {
     let result = parse_update_output(stderr);
     assert_eq!(result.entries.len(), 1);
     let entry = &result.entries[0];
-    assert_eq!(entry.name, "new-crate");
-    assert_eq!(entry.to.as_deref(), Some("0.1.0"));
-    assert!(entry.from.is_none());
+    assert_eq!(entry.name(), "new-crate");
+    assert_eq!(entry.to(), Some("0.1.0"));
+    assert!(entry.from().is_none());
 }
 
 #[test]
@@ -582,9 +579,9 @@ fn parse_removing_line_with_trailing_annotation_does_not_glue_into_version() {
     let result = parse_update_output(stderr);
     assert_eq!(result.entries.len(), 1);
     let entry = &result.entries[0];
-    assert_eq!(entry.name, "old-crate");
-    assert_eq!(entry.from.as_deref(), Some("0.1.0"));
-    assert!(entry.to.is_none());
+    assert_eq!(entry.name(), "old-crate");
+    assert_eq!(entry.from(), Some("0.1.0"));
+    assert!(entry.to().is_none());
 }
 
 /// SEC-11 / TASK-1799: the version position is validated. Before this, any
@@ -741,10 +738,10 @@ fn parse_update_for_crate_name_containing_index_is_not_dropped() {
         "all three crates whose names contain 'index' must be parsed"
     );
     assert_eq!(result.update_count, 3);
-    let names: Vec<&str> = result.entries.iter().map(|e| e.name.as_str()).collect();
+    let names: Vec<&str> = result.entries.iter().map(UpdateEntry::name).collect();
     assert_eq!(names, vec!["indexer", "index-map", "reindex"]);
     // Sanity-check the index-noise line is still filtered (no entry with that shape).
-    assert!(!result.entries.iter().any(|e| e.name == "crates.io"));
+    assert!(!result.entries.iter().any(|e| e.name() == "crates.io"));
 }
 
 /// PATTERN-1 / TASK-1054: alternate-registry index-progress noise lines
@@ -820,9 +817,95 @@ fn cargo_update_result_deserialization() {
     });
     let result: CargoUpdateResult = serde_json::from_value(json).unwrap();
     assert_eq!(result.entries.len(), 1);
-    assert_eq!(result.entries[0].action, UpdateAction::Update);
+    assert_eq!(result.entries[0].action(), UpdateAction::Update);
     assert_eq!(result.update_count, 1);
     assert_eq!(result.downgrade_count, 0);
+}
+
+/// PATTERN-1 / TASK-2151: each variant serializes with the same `action`
+/// tag, field names and lowercase verbs the previous `{action, name, from,
+/// to}` struct emitted — the JSON the about page consumes from a cache —
+/// and each variant round-trips through its own serialized form.
+#[test]
+fn update_entry_serde_per_action() {
+    let cases = [
+        (
+            UpdateEntry::Update {
+                name: "serde".into(),
+                from: "1.0.0".into(),
+                to: "1.0.1".into(),
+            },
+            serde_json::json!({"action": "update", "name": "serde", "from": "1.0.0", "to": "1.0.1"}),
+        ),
+        (
+            UpdateEntry::Downgrade {
+                name: "serde".into(),
+                from: "1.0.220".into(),
+                to: "1.0.219".into(),
+            },
+            serde_json::json!({"action": "downgrade", "name": "serde", "from": "1.0.220", "to": "1.0.219"}),
+        ),
+        (
+            UpdateEntry::Add {
+                name: "new-crate".into(),
+                to: "0.1.0".into(),
+            },
+            serde_json::json!({"action": "add", "name": "new-crate", "to": "0.1.0"}),
+        ),
+        (
+            UpdateEntry::Remove {
+                name: "old-crate".into(),
+                from: "0.2.0".into(),
+            },
+            serde_json::json!({"action": "remove", "name": "old-crate", "from": "0.2.0"}),
+        ),
+    ];
+    for (entry, json) in cases {
+        assert_eq!(serde_json::to_value(&entry).unwrap(), json);
+        let back: UpdateEntry = serde_json::from_value(json).unwrap();
+        assert_eq!(back, entry);
+    }
+}
+
+/// PATTERN-1 / TASK-2151: deserializing a payload whose action and version
+/// presence disagree — the states the old derived `Deserialize` accepted
+/// silently — either fails or normalizes, never producing an entry the
+/// parser itself cannot build. The about page reads this JSON from a cache,
+/// so the direction is reachable, not theoretical.
+#[test]
+fn update_entry_rejects_or_normalizes_mismatched_presence() {
+    // A version the action requires is missing or null: fails.
+    assert!(serde_json::from_value::<UpdateEntry>(serde_json::json!({
+        "action": "update", "name": "serde", "from": "1.0.0", "to": null
+    }))
+    .is_err());
+    assert!(serde_json::from_value::<UpdateEntry>(serde_json::json!({
+        "action": "update", "name": "serde", "from": "1.0.0"
+    }))
+    .is_err());
+    assert!(serde_json::from_value::<UpdateEntry>(serde_json::json!({
+        "action": "add", "name": "new-crate", "from": "1.0.0", "to": null
+    }))
+    .is_err());
+    assert!(serde_json::from_value::<UpdateEntry>(serde_json::json!({
+        "action": "remove", "name": "old-crate", "from": null, "to": "0.2.0"
+    }))
+    .is_err());
+
+    // A version foreign to the action is present alongside valid ones:
+    // normalized — ignored — rather than re-emitted as an invalid entry.
+    let normalized: UpdateEntry = serde_json::from_value(serde_json::json!({
+        "action": "add", "name": "new-crate", "from": "1.0.0", "to": "0.1.0"
+    }))
+    .unwrap();
+    assert_eq!(
+        normalized,
+        UpdateEntry::Add {
+            name: "new-crate".into(),
+            to: "0.1.0".into(),
+        }
+    );
+    assert_eq!(normalized.from(), None);
 }
 
 // -- Provider tests (TEST-5 / TASK-1787, TEST-25 / TASK-1783) --
@@ -1012,7 +1095,7 @@ fn parse_ignores_unknown_lines() {
 ";
     let result = parse_update_output(stderr);
     assert_eq!(result.entries.len(), 1);
-    assert_eq!(result.entries[0].name, "serde");
+    assert_eq!(result.entries[0].name(), "serde");
 }
 
 /// ERR-1 / TASK-0882: `strip_ansi` must round-trip non-ASCII UTF-8 input
@@ -1214,39 +1297,19 @@ mod properties {
             let (line, expected) = match verb_index {
                 0 => (
                     format!("    Updating {name} v{from} -> v{to}"),
-                    UpdateEntry {
-                        action: UpdateAction::Update,
-                        name,
-                        from: Some(from),
-                        to: Some(to),
-                    },
+                    UpdateEntry::Update { name, from, to },
                 ),
                 1 => (
                     format!(" Downgrading {name} v{from} -> v{to}"),
-                    UpdateEntry {
-                        action: UpdateAction::Downgrade,
-                        name,
-                        from: Some(from),
-                        to: Some(to),
-                    },
+                    UpdateEntry::Downgrade { name, from, to },
                 ),
                 2 => (
                     format!("      Adding {name} v{to}"),
-                    UpdateEntry {
-                        action: UpdateAction::Add,
-                        name,
-                        from: None,
-                        to: Some(to),
-                    },
+                    UpdateEntry::Add { name, to },
                 ),
                 _ => (
                     format!("    Removing {name} v{from}"),
-                    UpdateEntry {
-                        action: UpdateAction::Remove,
-                        name,
-                        from: Some(from),
-                        to: None,
-                    },
+                    UpdateEntry::Remove { name, from },
                 ),
             };
             let result = parse_update_output(line.as_bytes());
