@@ -163,11 +163,20 @@ impl ConfigurableTheme {
     }
 
     #[must_use]
-    pub fn render_summary_separator(&self, _columns: u16) -> String {
+    pub fn render_summary_separator(&self, columns: u16) -> String {
         if self.config.summary_separator.is_empty() {
             String::new()
         } else {
-            format!("{}{}", self.left_pad_str(), self.config.summary_separator)
+            let line = format!("{}{}", self.left_pad_str(), self.config.summary_separator);
+            // API-18 / TASK-2090: honour the column budget like every other
+            // render path in this crate — a user-configured separator wider
+            // than the terminal must not wrap past the last column. A
+            // `columns` of 0 means "no budget known"; leave the line alone.
+            if columns > 0 {
+                truncate_to_width(&line, usize::from(columns)).into_owned()
+            } else {
+                line
+            }
         }
     }
 
