@@ -6,15 +6,12 @@
 //! This extension is stack-agnostic — it's useful in any project with a `.git`
 //! directory, regardless of language.
 
-#![cfg_attr(
-    test,
-    allow(
-        clippy::unwrap_used,
-        clippy::cast_possible_truncation,
-        clippy::cast_precision_loss,
-        clippy::cast_sign_loss
-    )
-)]
+// ARCH-11 / TASK-2107: the three cast allows this root used to carry are
+// gone -- the crate contains no `as` cast, and the workspace denies
+// `clippy::as_conversions` anyway -- so they suppressed nothing while
+// pre-authorizing future lossy casts with no reviewer signal. The test
+// unwrap allow stays: fixture assertions read better as `.unwrap()`.
+#![cfg_attr(test, allow(clippy::unwrap_used))]
 
 pub mod config;
 pub mod provider;
