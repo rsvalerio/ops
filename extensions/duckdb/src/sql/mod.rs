@@ -100,6 +100,30 @@ fn is_hard_failure(err: &anyhow::Error) -> bool {
     false
 }
 
+/// Render `path` as a workspace-relative UTF-8 string for a JSON-sidecar
+/// column.
+///
+/// DUP-1 / TASK-2183: the `tokei` and `rust-loc` extensions each carried a
+/// byte-identical copy of this helper; the policy now lives here, once,
+/// for every extension that feeds a `DuckDB` view from a JSON sidecar.
+///
+/// READ-5 (TASK-0504): intentionally lossy. The sidecar-backed views
+/// (`tokei_files`, `rust_loc_files`) are read-only at the value level —
+/// they never round-trip the path back to disk — so corrupting an invalid
+/// UTF-8 byte to `U+FFFD` only affects display and join-by-string-prefix
+/// attribution. The strict `DbError::NonUtf8Path` policy used by
+/// `upsert_data_source` applies to **paths interpolated into SQL**; these
+/// columns are populated from a JSON sidecar, not a SQL string literal, so
+/// the risks differ. The trade-off is recorded here so future refactors
+/// stop at this comment instead of "fixing" the lossy call.
+#[must_use]
+pub fn relativize_path(path: &std::path::Path, workspace_root: &std::path::Path) -> String {
+    path.strip_prefix(workspace_root)
+        .unwrap_or(path)
+        .to_string_lossy()
+        .into_owned()
+}
+
 pub use ingest::{
     create_table_from_json_sql, data_dir_for_db, default_db_path, external_err,
     provide_via_ingestor, query_rows_to_json, read_workspace_sidecar, remove_workspace_sidecar,
@@ -127,6 +151,32 @@ pub use validation::{quoted_ident, ExtraOpts, SqlError, TableName};
 mod tests {
     use super::*;
     use crate::error::DbError;
+
+    /// READ-5 (TASK-0504), moved from the `tokei` extension by DUP-1 /
+    /// TASK-2183: pin the lossy contract — non-UTF-8 bytes in a relative
+    /// path round-trip as `U+FFFD`. Avoids silent regressions if the
+    /// `to_string_lossy` is later "fixed" to a strict path policy without
+    /// updating the surrounding caller chain.
+    #[cfg(unix)]
+    #[test]
+    fn relativize_path_replaces_invalid_utf8_with_replacement_char() {
+        use std::ffi::OsStr;
+        use std::os::unix::ffi::OsStrExt;
+        use std::path::PathBuf;
+
+        let root = PathBuf::from("/ws");
+        let invalid = OsStr::from_bytes(b"/ws/bad\xFFname");
+        let path = PathBuf::from(invalid);
+        let rendered = relativize_path(&path, &root);
+        assert!(
+            rendered.contains('\u{FFFD}'),
+            "expected lossy U+FFFD substitution, got {rendered:?}"
+        );
+        assert!(
+            rendered.starts_with("bad") && rendered.ends_with("name"),
+            "stripped + lossy result: {rendered:?}"
+        );
+    }
 
     #[test]
     fn is_hard_failure_classifies_mutex_poisoned() {

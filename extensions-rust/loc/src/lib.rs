@@ -258,7 +258,10 @@ fn count_entry(entry: &DirEntry, working_dir: &Path, deadline: Option<&Deadline>
         return EntryCount::Skipped;
     }
 
-    let relative = relativize_path(path, working_dir);
+    // DUP-1 / TASK-2183: the shared sidecar-path policy lives in
+    // `ops_duckdb::sql::relativize_path`, with the lossy-conversion
+    // rationale documented on it once.
+    let relative = ops_duckdb::sql::relativize_path(path, working_dir);
     let region = region_from_path(Path::new(&relative));
 
     // SEC-25 / TASK-2177: one open, one size decision. A stat on the path
@@ -461,20 +464,6 @@ fn push_records(records: &mut Vec<serde_json::Value>, file: &str, counts: &FileC
             "lines": locs.lines(),
         }));
     }
-}
-
-/// Render a path as a workspace-relative UTF-8 string.
-///
-/// Intentionally lossy, for the same reason documented on the `tokei`
-/// extension's `relativize_path`: the `rust_loc_files` column is
-/// read-only at the value level and is populated from a JSON sidecar
-/// rather than interpolated into SQL, so a `U+FFFD` substitution
-/// affects display and prefix-join attribution only.
-fn relativize_path(path: &Path, workspace_root: &Path) -> String {
-    path.strip_prefix(workspace_root)
-        .unwrap_or(path)
-        .to_string_lossy()
-        .into_owned()
 }
 
 fn query_rust_loc_files(db: &DuckDb) -> Result<serde_json::Value, anyhow::Error> {
