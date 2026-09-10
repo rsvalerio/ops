@@ -10,7 +10,7 @@ use std::io::Write;
 use std::path::Path;
 
 use ops_backlog::clock::UtcStamp;
-use ops_backlog::model::yaml_scalar;
+use ops_backlog::model::{Body, FmValue, Frontmatter, TaskDoc};
 use ops_backlog::store::{find_task_file, for_each_task_file, TaskFileName};
 
 /// Main-task frontmatter labels, in order.
@@ -22,6 +22,22 @@ const SUBTASK_LABELS: &[&str] = &["code-review", "qa"];
 const MAIN_ORDINAL: u32 = 1_000;
 /// Ordinal base the backlog CLI assigns to subtasks (child i → 2000 + i).
 const SUBTASK_ORDINAL_BASE: u32 = 2_000;
+
+/// Id prefix and zero-padding width for every id and filename this module
+/// writes (READ-11: one named pair, not four repeated literals).
+///
+/// These deliberately do not follow `BacklogConfig::task_prefix` /
+/// `zero_padded_ids` per run: the `review-request-<date>-<n>` scheme
+/// allocates from the same `task-<n>` numbering the backlog CLI already
+/// owns in the target tree, so the ids and filenames written here must be
+/// byte-identical to the ones `ops backlog task create` writes beside them.
+/// Every existing task file was allocated under the values below — the
+/// backlog.md defaults this repo's `backlog.config.yml` pins explicitly —
+/// and a tree that reconfigured them would need this extension taught to
+/// discover the width from the files on disk, not just from the config's
+/// claim. Until then the coupling is pinned here, in one place.
+const TASK_PREFIX: &str = "TASK";
+const ID_WIDTH: usize = 4;
 
 /// Ensure the backlog tree this writer targets actually exists. ERR-13: the
 /// error names the missing directory so the operator knows what to create.
@@ -141,11 +157,17 @@ pub fn conflicting_claim(workspace_root: &Path, claim: &MainTaskClaim<'_>) -> Op
 /// `w`. `subtask_of` is the parent's zero-padded id (`"TASK-1671"`) plus the
 /// 1-based subtask position for a subtask, or `None` for the main task.
 ///
-/// PERF-13 / TASK-2117: writes go straight into `w`; no intermediate
-/// `String` per line. `w` must be buffered (e.g. a `BufWriter` around the
-/// `File`) — a raw `File` would turn each `writeln!` into its own
-/// `write(2)` syscall, so the buffering at the call site is what delivers
-/// the one-write-per-document property this comment promises.
+/// DUP-2: the bytes come from the shared `ops_backlog` task-document
+/// renderer — the same encoder `ops backlog task create` uses — so the two
+/// writers cannot drift. Everything specific to review requests (label
+/// sets, ordinals, `parent_task_id`) enters as a [`Frontmatter`] field
+/// here, not as a second frontmatter implementation.
+///
+/// PERF-13 / TASK-2117: the rendered document reaches `w` as one
+/// `write_all` of the shared renderer's `String` — the one-write-per-
+/// document property — and `w` must still be buffered (e.g. a `BufWriter`
+/// around the `File`) at the call site for the surrounding task-writing
+/// loop to keep that property across a whole request's files.
 pub fn render_task_file<W: Write>(
     w: &mut W,
     id: &str,
@@ -163,46 +185,64 @@ pub fn render_task_file<W: Write>(
             SUBTASK_ORDINAL_BASE.saturating_add(u32::try_from(index).unwrap_or(u32::MAX)),
         ),
     };
-    writeln!(w, "---")?;
-    writeln!(w, "id: {id}")?;
-    writeln!(w, "title: {}", yaml_scalar(title))?;
-    writeln!(w, "status: To Do")?;
-    writeln!(w, "assignee: []")?;
-    writeln!(w, "created_date: '{} {}'", stamp.date, stamp.minutes)?;
-    writeln!(w, "labels:")?;
-    for label in labels {
-        writeln!(w, "  - {label}")?;
-    }
-    writeln!(w, "dependencies: []")?;
-    if let Some((parent_id, _)) = subtask_of {
-        writeln!(w, "parent_task_id: {parent_id}")?;
-    }
-    writeln!(w, "priority: low")?;
-    writeln!(w, "ordinal: {ordinal}")?;
-    writeln!(w, "---")?;
-    Ok(())
+    let doc = TaskDoc {
+        frontmatter: Frontmatter {
+            id: id.to_string(),
+            title: title.to_string(),
+            status: "To Do".to_string(),
+            assignees: Vec::new(),
+            created_date: format!("{} {}", stamp.date, stamp.minutes),
+            updated_date: None,
+            labels: labels.iter().map(|label| (*label).to_string()).collect(),
+            dependencies: Vec::new(),
+            priority: Some("low".to_string()),
+            modified_files: Vec::new(),
+            ordinal: Some(ordinal.to_string()),
+            extras: match subtask_of {
+                None => Vec::new(),
+                Some((parent_id, _)) => {
+                    vec![(
+                        "parent_task_id".to_string(),
+                        FmValue::Scalar(parent_id.to_string()),
+                    )]
+                }
+            },
+        },
+        // Plan tasks carry their content as subtasks; the file ends at the
+        // closing `---` with no body sections.
+        body: Body::default(),
+    };
+    w.write_all(doc.render().as_bytes())
 }
 
 /// Zero-padded task id string (`TASK-0042`) for a main-task number.
 pub fn main_task_id(number: u32) -> String {
-    ops_backlog::store::format_task_id("TASK", number, 4)
+    ops_backlog::store::format_task_id(TASK_PREFIX, number, ID_WIDTH)
 }
 
 /// Filename for a main task: `task-0042 - <slug>.md`.
 pub fn main_task_file_name(number: u32, title: &str) -> String {
-    ops_backlog::store::main_task_file_name(number, 4, title)
+    ops_backlog::store::main_task_file_name(number, ID_WIDTH, title)
 }
 
 /// Id for the subtask at 1-based `index` under main-task `number`:
-/// `TASK-0042.03`.
+/// `TASK-0042.03` — the shared main-task id plus the dotted position, so
+/// the prefix and padding come from `format_task_id` with the pinned
+/// `TASK_PREFIX`/`ID_WIDTH` above, not from an inline format spec.
 pub fn subtask_id(number: u32, index: usize) -> String {
-    format!("TASK-{number:04}.{index:02}")
+    format!(
+        "{}.{index:02}",
+        ops_backlog::store::format_task_id(TASK_PREFIX, number, ID_WIDTH)
+    )
 }
 
-/// Filename for a subtask: `task-0042.03 - <slug>.md`.
+/// Filename for a subtask: `task-0042.03 - <slug>.md` — the subtask id in
+/// the filename's lowercase form, so the number's padding is derived, not
+/// re-implemented.
 pub fn subtask_file_name(number: u32, index: usize, title: &str) -> String {
     format!(
-        "task-{number:04}.{index:02} - {}.md",
+        "{} - {}.md",
+        subtask_id(number, index).to_ascii_lowercase(),
         ops_backlog::model::file_slug(title)
     )
 }
@@ -397,8 +437,10 @@ mod tests {
         require_backlog_tasks_dir(dir.path()).expect("must pass");
     }
 
-    /// Byte-shape of a main-task file as the backlog CLI writes it
-    /// (golden test against the shapes captured from `backlog task create`).
+    /// Byte-shape of a main-task file as the backlog CLI writes it (golden
+    /// test against the shared renderer's output — the same encoder
+    /// `backlog task create` uses, hence the `modified_files: []` key every
+    /// CLI-created task carries).
     #[test]
     fn render_main_task_matches_cli_shape() {
         let stamp = UtcStamp {
@@ -426,6 +468,7 @@ mod tests {
             "  - code-review\n",
             "  - qa\n",
             "dependencies: []\n",
+            "modified_files: []\n",
             "priority: low\n",
             "ordinal: 1000\n",
             "---\n",
@@ -459,7 +502,8 @@ mod tests {
             "  - code-review\n",
             "  - qa\n",
             "dependencies: []\n",
-            "parent_task_id: TASK-1671\n",
+            "parent_task_id: 'TASK-1671'\n",
+            "modified_files: []\n",
             "priority: low\n",
             "ordinal: 2001\n",
             "---\n",

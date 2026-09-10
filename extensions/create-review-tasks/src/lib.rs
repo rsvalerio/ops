@@ -618,7 +618,7 @@ mod tests {
         )
         .expect("subtask 1 file");
         assert!(sub1.contains("id: TASK-0001.01\n"), "got: {sub1}");
-        assert!(sub1.contains("parent_task_id: TASK-0001\n"));
+        assert!(sub1.contains("parent_task_id: 'TASK-0001'\n"));
         assert!(sub1.contains("ordinal: 2001\n"));
 
         let sub2 = std::fs::read_to_string(
