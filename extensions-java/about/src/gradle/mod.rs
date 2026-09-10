@@ -1,9 +1,9 @@
 //! Gradle `project_identity` provider — parses `settings.gradle` + `gradle.properties`.
 //!
-//! FN-1 / TASK-0847: lexer primitives (quote-aware tokenisation, comment
-//! stripping, paren matching) live in [`lexer`]; this module owns the
-//! Gradle DSL semantics on top of them and the [`GradleIdentityProvider`]
-//! impl. Mirrors the maven/pom split.
+//! Lexer primitives (quote-aware tokenisation, comment stripping, paren
+//! matching) live in [`lexer`]; this module owns the Gradle DSL semantics built
+//! on top of them and the [`GradleIdentityProvider`] impl. Mirrors the
+//! maven/pom split.
 
 mod lexer;
 
@@ -80,14 +80,14 @@ struct GradleBuild {
 /// Parse `settings.gradle` (or its `.kts` sibling) for the root project name
 /// and the `include`d subprojects.
 ///
-/// CL-3 / TASK-1733: `rootProject.name` is only accepted at brace depth 0 —
-/// an assignment inside a block belongs to that block, not to the root
-/// project. Duplicate resolution is **first writer wins**, matching the
-/// sibling Maven parser's `try_set_once` (`maven/pom.rs`), so the two parsers
-/// in this crate resolve duplicates the same way (READ-6).
+/// `rootProject.name` is only accepted at brace depth 0: an assignment inside
+/// a block belongs to that block, not to the root project. Duplicate
+/// resolution is **first writer wins**, matching the sibling Maven parser's
+/// `try_set_once` (`maven/pom.rs`), so the two parsers in this crate resolve
+/// duplicates the same way.
 ///
-/// PATTERN-1 / TASK-2215: `include` directives get the same two protections
-/// the count feeds `module_count` directly:
+/// `include` directives get two further protections, because their count feeds
+/// `module_count` directly:
 ///
 /// - **Depth-gated**, like `rootProject.name` above. An `include` inside a
 ///   multi-line block (`gradle.beforeSettings { … }`, an `if (…) { … }`
@@ -98,8 +98,8 @@ struct GradleBuild {
 /// - **Deduplicated on the normalised project path** ([`normalise_include`]):
 ///   Gradle treats `include` as idempotent on the project path, so
 ///   `include ':app'` followed by `include 'app'` is one subproject, not two.
-///   The first raw spelling is kept (first writer wins, READ-6); only the
-///   dedup key is canonical.
+///   The first raw spelling is kept (first writer wins); only the dedup key is
+///   canonical.
 fn parse_gradle_settings(project_root: &Path) -> Option<GradleSettings> {
     let mut root_project_name: Option<String> = None;
     let mut includes = Vec::new();
@@ -118,7 +118,7 @@ fn parse_gradle_settings(project_root: &Path) -> Option<GradleSettings> {
     for_each_trimmed_line(&project_root.join("settings.gradle"), &mut scan)
         .or_else(|| for_each_trimmed_line(&project_root.join("settings.gradle.kts"), &mut scan))?;
 
-    // PATTERN-1 / TASK-2215: dedup on the normalised path, first writer wins.
+    // Dedup on the normalised path, first writer wins.
     let mut seen = std::collections::HashSet::new();
     let mut deduped = Vec::with_capacity(includes.len());
     for include in includes {
@@ -133,9 +133,10 @@ fn parse_gradle_settings(project_root: &Path) -> Option<GradleSettings> {
     })
 }
 
-/// PATTERN-1 / TASK-2215: canonical form of a Gradle project path, used as
-/// the include dedup key. Gradle's path separator is `:` and the leading
-/// `:` of an absolute project path is optional, so `":a"` and `"a"` denote
+/// Canonical form of a Gradle project path, used as the include dedup key.
+///
+/// Gradle's path separator is `:` and the leading `:` of an absolute project
+/// path is optional, so `":a"` and `"a"` denote
 /// the same subproject, and `/`- or `\`-separated spellings of the same path
 /// (`"apps/web"` for `"apps:web"`) collapse onto the `:` form.
 fn normalise_include(entry: &str) -> String {
@@ -147,14 +148,13 @@ fn normalise_include(entry: &str) -> String {
 
 /// Parse `gradle.properties` for the project `version`.
 ///
-/// READ-6 / TASK-1733: this parser deliberately keeps **last writer wins**,
+/// This parser resolves duplicates **last writer wins**, deliberately
 /// diverging from the first-wins policy of [`parse_gradle_settings`],
-/// [`parse_gradle_build`] and the Maven `try_set_once`. `gradle.properties`
-/// is a `java.util.Properties` file, and `Properties::load` lets a later
-/// entry override an earlier one for the same key — matching Gradle's own
-/// behaviour matters more here than matching the sibling DSL parsers. There
-/// is no brace nesting in a properties file, so the depth rule does not
-/// apply either.
+/// [`parse_gradle_build`] and the Maven `try_set_once`. `gradle.properties` is
+/// a `java.util.Properties` file, and `Properties::load` lets a later entry
+/// override an earlier one for the same key: matching Gradle's own behaviour
+/// matters more here than matching the sibling DSL parsers. A properties file
+/// has no brace nesting, so the depth rule does not apply either.
 fn parse_gradle_properties(project_root: &Path) -> Option<GradleProperties> {
     let mut version = None;
 
@@ -179,7 +179,7 @@ fn parse_gradle_properties(project_root: &Path) -> Option<GradleProperties> {
 /// Parse `build.gradle` (or its `.kts` sibling) for the root project's
 /// `description`.
 ///
-/// CL-3 / TASK-1733: `description` is a standard `Task` property, so a
+/// `description` is a standard `Task` property, so a
 /// `tasks.register(…) { description = … }` or `subprojects { description = … }`
 /// block routinely sets it too. Only an assignment at brace depth 0 belongs to
 /// the root project; nested ones are ignored. [`brace_delta`] counts braces
@@ -188,7 +188,7 @@ fn parse_gradle_properties(project_root: &Path) -> Option<GradleProperties> {
 ///
 /// Duplicate resolution is **first writer wins**, matching the sibling Maven
 /// parser's `try_set_once` (`maven/pom.rs`) so both parsers in this crate
-/// resolve duplicates the same way (READ-6).
+/// resolve duplicates the same way.
 fn parse_gradle_build(project_root: &Path) -> Option<GradleBuild> {
     let mut description: Option<String> = None;
     let mut depth = 0_i32;
@@ -211,7 +211,8 @@ fn parse_gradle_build(project_root: &Path) -> Option<GradleBuild> {
     Some(GradleBuild { description })
 }
 
-/// READ-2 / TASK-0817: handles every Gradle `include` shape on a single line:
+/// Collect the project paths from every Gradle `include` shape that fits on a
+/// single line:
 ///
 /// - `include 'a'`                     — Groovy bare
 /// - `include 'a', 'b'`                — Groovy multi-arg
@@ -219,18 +220,15 @@ fn parse_gradle_build(project_root: &Path) -> Option<GradleBuild> {
 /// - `include("a"); include("b")`      — Kotlin DSL, multiple per line
 /// - `include 'core' // comment`       — trailing comments stripped first
 ///
-/// PATTERN-1 / TASK-0619: split once on the structural `)` rather than
-/// `trim_end_matches(')')`, so a quoted argument containing `)` (e.g.
-/// `include("legacy)module")`) is preserved.
+/// The Kotlin form splits once on the structural `)` rather than trimming
+/// trailing `)` characters, so a quoted argument containing `)` (e.g.
+/// `include("legacy)module")`) is preserved, and the loop visits every
+/// `include(` occurrence so chained invocations on one line all contribute.
 ///
-/// PATTERN-1 / TASK-0687: iterate over every `include(` occurrence so chained
-/// Kotlin DSL invocations on the same line don't silently drop all but one
-/// call.
-///
-/// READ-6 / TASK-1744: this is the **only** point on the include path where
-/// comments are stripped, and [`strip_trailing_comment`] is quote-aware, so
-/// an argument containing `//` (`include('a//b')`) survives. `extract_quoted_list`
-/// deliberately does not strip again.
+/// This is the **only** point on the include path where comments are stripped,
+/// and [`strip_trailing_comment`] is quote-aware, so an argument containing
+/// `//` (`include('a//b')`) survives; `extract_quoted_list` deliberately does
+/// not strip again.
 fn parse_include_line(line: &str, includes: &mut Vec<String>) {
     let stripped = strip_trailing_comment(line).trim_end();
     if stripped.starts_with("include(") {
@@ -270,11 +268,11 @@ fn extract_assignment(line: &str, key: &str) -> Option<String> {
 /// `key 'value'` (no `=`). Rejects `keyTask { … }` and similar by requiring
 /// whitespace after `key` and a quoted value immediately after.
 ///
-/// READ-2 / TASK-0647: do NOT pre-strip `// …` from `rest` — that chops a
-/// quoted URL (`description "see https://example.com"`) at the URL's `//`
-/// and silently drops the value. `extract_quoted` terminates at the closing
-/// quote, leaving any trailing `// comment` outside the result, which is
-/// the same invariant `extract_assignment` relies on.
+/// `// …` is deliberately not pre-stripped from `rest`: that would chop a
+/// quoted URL (`description "see https://example.com"`) at the URL's `//` and
+/// drop the value. `extract_quoted` terminates at the closing quote, leaving
+/// any trailing `// comment` outside the result — the same invariant
+/// `extract_assignment` relies on.
 fn extract_bare_method(line: &str, key: &str) -> Option<String> {
     let line = line.trim();
     let rest = line.strip_prefix(key)?;
@@ -285,10 +283,11 @@ fn extract_bare_method(line: &str, key: &str) -> Option<String> {
     extract_quoted(rest).map(str::to_string)
 }
 
-/// TASK-2207: the Gradle `project_units` provider. The identity card counts
-/// `include` entries, so the units page must list exactly those
-/// subprojects — one `ProjectUnit` per include — or the card's "N
-/// subprojects" and the units table disagree by construction.
+/// Gradle `project_units` provider: one [`ProjectUnit`] per `include` entry.
+///
+/// The identity card counts `include` entries, so the units page lists exactly
+/// those subprojects; otherwise the card's "N subprojects" and the units table
+/// would disagree by construction.
 pub struct GradleUnitsProvider;
 
 impl DataProvider for GradleUnitsProvider {

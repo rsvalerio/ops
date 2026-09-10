@@ -1,15 +1,13 @@
 //! Ad-hoc string-lexer helpers for the Gradle DSL parser.
 //!
-//! Split out from the parent `gradle` module per FN-1 / TASK-0847 so
-//! Gradle DSL semantics (settings/properties/build parsers) live in
-//! `super::parse` while the quote-aware tokenisation primitives that
-//! produce string slices live here. The pom.rs / pom/ split established
-//! the same shape for Maven.
+//! Gradle DSL semantics (the settings/properties/build parsers) live in the
+//! parent `gradle` module; the quote-aware tokenisation primitives that produce
+//! string slices live here. The Maven side is split the same way.
 
 /// Extract a quoted string value: `"foo"` or `'foo'`.
 ///
-/// PATTERN-1 (TASK-1047): the closing-quote scan is backslash-aware so that
-/// Groovy / Kotlin string literals containing escaped quotes (e.g.
+/// The closing-quote scan is backslash-aware, so Groovy / Kotlin string
+/// literals containing escaped quotes (e.g.
 /// `"see \"v2\" docs"`, `'O\'Brien'`) round-trip without silent truncation.
 /// `\\` is treated as a literal backslash run (so a trailing `\\` does not
 /// escape the closing quote). Inner escape sequences are preserved verbatim
@@ -46,11 +44,11 @@ fn find_unescaped(s: &str, quote: char) -> Option<usize> {
 /// character of every character that is **not** inside a quoted span. `f`
 /// returns `Some(v)` to stop the scan early and yield `v`.
 ///
-/// READ-6 / TASK-1744: quoted spans are skipped via [`find_unescaped`], so
-/// backslash escaping lives in exactly one place. Every structural scanner in
-/// this module (paren matching, comment stripping, brace depth) is built on
-/// this primitive instead of hand-rolling its own quote rules — the previous
-/// divergence made the Kotlin and Groovy spellings of `include` disagree.
+/// Quoted spans are skipped via [`find_unescaped`], so backslash escaping
+/// lives in exactly one place. Every structural scanner in this module (paren
+/// matching, comment stripping, brace depth) is built on this primitive rather
+/// than its own quote rules, which is what keeps the Kotlin and Groovy
+/// spellings of a directive agreeing on where a string ends.
 ///
 /// An unterminated string literal ends the scan: everything after the opening
 /// quote is inside a string, so there is nothing structural left to find.
@@ -77,9 +75,8 @@ fn scan_unquoted<T>(s: &str, mut f: impl FnMut(usize, char) -> Option<T>) -> Opt
 /// Net brace balance of `line`, counting only `{` / `}` that sit outside
 /// string literals and outside a trailing `// …` comment.
 ///
-/// CL-3 / TASK-1733: `parse_gradle_build` uses this to tell a top-level
-/// `description` assignment from one nested inside a `task` / `subprojects`
-/// block.
+/// `parse_gradle_build` uses this to tell a top-level `description` assignment
+/// from one nested inside a `task` / `subprojects` block.
 pub(super) fn brace_delta(line: &str) -> i32 {
     let mut delta = 0_i32;
     let stopped = scan_unquoted(strip_trailing_comment(line), |_, c| {
@@ -97,16 +94,15 @@ pub(super) fn brace_delta(line: &str) -> i32 {
 /// Extract every quoted token from a comma-separated list of values:
 /// `'a', 'b', "c"`. Pushes each unquoted token into `out`.
 ///
-/// PATTERN-1 (TASK-0630): when a malformed remainder is encountered (a bare
-/// token without an opening quote, or an unbalanced opening quote), log at
-/// `tracing::debug` so a partially-parsed include is visible. Tokens already
-/// pushed are kept (best-effort recovery, matching the surrounding parser).
+/// A malformed remainder — a bare token without an opening quote, or an
+/// unbalanced opening quote — is logged at `tracing::debug` so a
+/// partially-parsed include is visible. Tokens already pushed are kept, which
+/// is the best-effort recovery the surrounding parser uses throughout.
 ///
-/// READ-6 / TASK-1744: this function does **not** strip trailing comments.
-/// The include path strips them exactly once, in `parse_include_line`, using
-/// the quote-aware [`strip_trailing_comment`]; stripping again here re-ran a
-/// naive cut over already-tokenised input and truncated any argument
-/// containing `//` (e.g. `include('a//b')`).
+/// This function does **not** strip trailing comments. The include path strips
+/// them exactly once, in `parse_include_line`, using the quote-aware
+/// [`strip_trailing_comment`]; a second cut over already-tokenised input would
+/// truncate any argument containing `//` (e.g. `include('a//b')`).
 pub(super) fn extract_quoted_list(s: &str, out: &mut Vec<String>) {
     let original = s;
     let mut rest = s.trim();
@@ -159,11 +155,11 @@ pub(super) fn extract_quoted_list(s: &str, out: &mut Vec<String>) {
 /// ignoring `)` characters that appear inside double or single quotes. Returns
 /// `(args_inside, remainder_after_close)` or `None` if no closing paren is
 /// found outside of a string.
-/// READ-6 / TASK-1744: the quote scan is backslash-aware, sharing
-/// [`find_unescaped`] via [`scan_unquoted`]. The previous hand-rolled byte
-/// scan treated `\"` as a closing quote, so `include("legacy\")module")`
-/// split at the wrong `)` and the module was silently dropped — while the
-/// equivalent Groovy bare-include form kept it.
+///
+/// The quote scan is backslash-aware, sharing [`find_unescaped`] via
+/// [`scan_unquoted`], so an escaped quote inside an argument
+/// (`include("legacy\")module")`) does not end the string early and split the
+/// line at the wrong `)`.
 pub(super) fn split_at_unquoted_close_paren(s: &str) -> Option<(&str, &str)> {
     let close = scan_unquoted(s, |i, c| (c == ')').then_some(i))?;
     // `)` is ASCII, so `close` and `close + 1` are char boundaries and
@@ -174,11 +170,11 @@ pub(super) fn split_at_unquoted_close_paren(s: &str) -> Option<(&str, &str)> {
 
 /// Strip a trailing `// ...` Groovy/Kotlin comment from a line fragment.
 ///
-/// READ-6 / TASK-1744: the `//` must sit outside a string literal — a naive
-/// `split_once("//")` chops quoted values that contain `//` (a URL, or a
-/// module path such as `include('a//b')`). Shares the escape-aware quote scan
-/// with [`find_unescaped`] via [`scan_unquoted`], and is now the single point
-/// at which the include path strips comments.
+/// The `//` must sit outside a string literal: a naive `split_once("//")`
+/// chops quoted values that contain `//` (a URL, or a module path such as
+/// `include('a//b')`). Shares the escape-aware quote scan with
+/// [`find_unescaped`] via [`scan_unquoted`], and is the single point at which
+/// the include path strips comments.
 pub(super) fn strip_trailing_comment(s: &str) -> &str {
     let cut = scan_unquoted(s, |i, c| {
         let opens_comment = c == '/'
@@ -193,12 +189,11 @@ pub(super) fn strip_trailing_comment(s: &str) -> &str {
 
 /// Strip a trailing `# ...` or `! ...` java.util.Properties comment.
 ///
-/// READ-2 / TASK-0812: only treat `#` / `!` as a comment introducer when it
-/// appears at the start of (the already-trimmed) value or is preceded by
-/// whitespace. The Java .properties spec recognises these markers only at the
-/// beginning of a logical line, so a real value like `1.0!beta` or
-/// `pwd=foo#bar` must round-trip unchanged. The whitespace-prefix relaxation
-/// preserves the long-standing `version=1.2 # release` extraction.
+/// `#` / `!` introduce a comment only at the start of the (already-trimmed)
+/// value or when preceded by whitespace. The Java .properties spec recognises
+/// these markers only at the beginning of a logical line, so a real value such
+/// as `1.0!beta` or `pwd=foo#bar` round-trips unchanged, while the
+/// whitespace-prefix relaxation still extracts `version=1.2 # release`.
 pub(super) fn strip_properties_comment(s: &str) -> &str {
     let mut prev_ws = true;
     for (i, b) in s.bytes().enumerate() {

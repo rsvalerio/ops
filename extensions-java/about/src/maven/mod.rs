@@ -36,11 +36,10 @@ impl DataProvider for MavenIdentityProvider {
                 m.description = pom.description;
                 m.license = pom.license;
                 m.authors = pom.developers;
-                // TASK-2204: the POM's top-level `<url>` is the project
-                // homepage; `<scm><url>` is the repository. Mapping the
-                // former to `homepage` (not `repository`) lets a POM that
-                // declares only `<url>` keep the git-remote fallback for
-                // the repository instead of mislabelling its homepage.
+                // The POM's top-level `<url>` is the project homepage;
+                // `<scm><url>` is the repository. Keeping them on separate
+                // fields lets a POM that declares only `<url>` still fall
+                // back to the git remote for the repository.
                 m.homepage = pom.project_url;
                 m.repository = pom.scm_url;
                 m.stack_label = "Java";
@@ -52,10 +51,12 @@ impl DataProvider for MavenIdentityProvider {
     }
 }
 
-/// TASK-2207: the Maven `project_units` provider. The identity card counts
-/// `<modules><module>` entries, so the units page must list exactly those
-/// modules — one `ProjectUnit` per `<module>`, in declaration order — or the
-/// card's "N modules" and the units table disagree by construction.
+/// Maven `project_units` provider: one [`ProjectUnit`] per `<module>`, in
+/// declaration order.
+///
+/// The identity card counts `<modules><module>` entries, so the units page
+/// lists exactly those modules; otherwise the card's "N modules" and the units
+/// table would disagree by construction.
 pub struct MavenUnitsProvider;
 
 impl DataProvider for MavenUnitsProvider {
@@ -80,11 +81,11 @@ fn collect_units(cwd: &Path) -> Vec<ProjectUnit> {
     pom.modules
         .into_iter()
         .map(|module| {
-            // SEC-14 (sibling policy: `go_work`/`use` directives,
-            // `resolved_workspace_members`): a `<module>` entry is untrusted
-            // manifest text, so an absolute or `..`-carrying path never
-            // reaches `join` + read. The unit is still emitted (count
-            // parity); only the child-pom enrichment is skipped.
+            // A `<module>` entry is untrusted manifest text, so an absolute
+            // or `..`-carrying path never reaches `join` + read — the same
+            // policy the Go stack applies to `go.work` `use` directives. The
+            // unit is still emitted (count parity); only the child-pom
+            // enrichment is skipped.
             let in_tree = !Path::new(&module).is_absolute()
                 && !Path::new(&module)
                     .components()
@@ -118,7 +119,7 @@ mod tests {
         assert!(!fields.is_empty());
     }
 
-    /// TEST-11 / TASK-1751: with **no `pom.xml` at all** the provider still
+    /// With **no `pom.xml` at all** the provider still
     /// yields an identity whose `name` is the working-directory name — not
     /// merely "some non-empty string", which every realistic breakage of the
     /// fallback (wrong ancestor, hardcoded placeholder, whitespace) would
@@ -135,7 +136,7 @@ mod tests {
         assert!(result["version"].is_null());
     }
 
-    /// TEST-11 / TASK-1751: a `pom.xml` that exists but carries **no name and
+    /// A `pom.xml` that exists but carries **no name and
     /// no artifactId** takes the same fallback — a distinct scenario from the
     /// missing-manifest case above, since here the parser did run (its
     /// `<version>` comes through).
@@ -176,7 +177,7 @@ mod tests {
         assert!(result["homepage"].is_null());
     }
 
-    /// TASK-2204 AC #2: a POM declaring only a top-level `<url>` yields that
+    /// A POM declaring only a top-level `<url>` yields that
     /// URL as the homepage and leaves `repository` to the git-remote fallback
     /// (null here — the fixture has no `.git`), instead of mislabelling the
     /// homepage as the repository.
@@ -200,7 +201,7 @@ mod tests {
         );
     }
 
-    /// TASK-2204 AC #3: a POM declaring both a top-level `<url>` and an
+    /// A POM declaring both a top-level `<url>` and an
     /// `<scm><url>` maps the former to homepage and the latter to
     /// repository, in either source order.
     #[test]
@@ -229,7 +230,7 @@ mod tests {
         }
     }
 
-    /// TASK-2207 AC #2: the units provider's list length must equal the
+    /// The units provider's list length must equal the
     /// identity card's `module_count` on the same fixture — one unit per
     /// `<module>` entry, whether or not the child `pom.xml` exists.
     #[test]
@@ -272,10 +273,9 @@ mod tests {
         assert_eq!(units[1].version, None);
     }
 
-    /// TASK-2207: an out-of-tree `<module>` entry (absolute or `..`-carrying)
-    /// still becomes a unit — count parity — but its child `pom.xml` is
-    /// never read, mirroring the SEC-14 policy the Go stack applies to `use`
-    /// directives.
+    /// An out-of-tree `<module>` entry (absolute or `..`-carrying) still
+    /// becomes a unit — count parity — but its child `pom.xml` is never read,
+    /// mirroring the policy the Go stack applies to `use` directives.
     #[test]
     fn maven_units_out_of_tree_module_is_listed_but_not_read() {
         let dir = tempfile::tempdir().unwrap();
