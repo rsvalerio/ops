@@ -10,6 +10,13 @@ use std::path::PathBuf;
 pub use ops_core::bounded_read::{FailedFile, FailureKind, SkipReason};
 
 /// Outcome of a fixer run.
+///
+/// API-5 / TASK-2167: the `#[must_use]` sits on the *type*, not on the
+/// `run_*` functions, so it survives `?` — discarding the report after
+/// unwrapping the `Result` is still a warning, because the report (via
+/// [`FixerReport::changed`] and [`FixerReport::failed`]) is what drives the
+/// process exit code.
+#[must_use = "the report drives the process exit code; dropping it after `?` exits 0 on a dirty tree"]
 #[derive(Debug, Default)]
 pub struct FixerReport {
     /// Files read in full and examined as text. A file that was skipped or

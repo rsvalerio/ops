@@ -16,13 +16,16 @@ use crate::{atomic, binary, discovery, eof, trailing};
 
 /// Strip trailing whitespace from every text file under `opts.root`.
 ///
+/// The returned [`FixerReport`] is `#[must_use]` on the type, so a
+/// discarded report warns even after `?` unwraps the `Result`
+/// (API-5 / TASK-2167).
+///
 /// # Errors
 ///
 /// If the candidate file set cannot be discovered (including a failing
 /// `git ls-files` when `tracked_only` is set), or if the writer fails.
 /// Per-file read and write failures are recorded in the report, not returned;
 /// see [`run_fixer`].
-#[must_use = "the FixerReport drives the process exit code; ignoring it defeats the fixer"]
 pub fn run_trailing_whitespace(
     opts: &FixerOptions,
     writer: &mut dyn Write,
@@ -32,13 +35,16 @@ pub fn run_trailing_whitespace(
 
 /// Ensure every text file under `opts.root` ends with exactly one newline.
 ///
+/// The returned [`FixerReport`] is `#[must_use]` on the type, so a
+/// discarded report warns even after `?` unwraps the `Result`
+/// (API-5 / TASK-2167).
+///
 /// # Errors
 ///
 /// If the candidate file set cannot be discovered (including a failing
 /// `git ls-files` when `tracked_only` is set), or if the writer fails.
 /// Per-file read and write failures are recorded in the report, not returned;
 /// see [`run_fixer`].
-#[must_use = "the FixerReport drives the process exit code; ignoring it defeats the fixer"]
 pub fn run_end_of_file_fixer(
     opts: &FixerOptions,
     writer: &mut dyn Write,

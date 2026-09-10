@@ -144,8 +144,11 @@ fn both_fixers_over_a_mixed_tree_reach_a_fixed_point() {
 
     let o = opts(root);
     let mut buf = Vec::new();
-    run_trailing_whitespace(&o, &mut buf).unwrap();
-    run_end_of_file_fixer(&o, &mut buf).unwrap();
+    // API-5 / TASK-2167: `FixerReport` is `#[must_use]`, so the first-pass
+    // reports are consumed rather than discarded.
+    let first = run_trailing_whitespace(&o, &mut buf).unwrap();
+    let first_eof = run_end_of_file_fixer(&o, &mut buf).unwrap();
+    assert!(first.changed() || first_eof.changed());
     let after_first = snapshot(root);
 
     let mut buf = Vec::new();
