@@ -1,32 +1,23 @@
 //! Repository URL normalisation for `package.json::repository` values.
 //!
-//! ARCH-1 / TASK-0848: the `repository.url` rewriting surface is the
-//! highest-risk code in the `package_json` module — see SEC-14 / TASK-0811
-//! for the path-traversal fix that motivated this split. Living in its
-//! own module makes future adversarial-input fixes have a clear test
-//! target and a documented boundary, separate from the serde model and
-//! the parse orchestrator in [`super::package_json`].
+//! This is the crate's adversarial-input surface: a `repository` value is
+//! untrusted manifest text that ends up as a clickable link in About cards,
+//! markdown and HTML. It lives in its own module, separate from the serde
+//! model and the parse orchestrator in [`super::package_json`], so that
+//! boundary has one test target.
+//!
+//! Every rejection **drops the whole field** — [`normalize_repo_url`] returns
+//! an empty string and the caller renders the repository as missing — rather
+//! than stripping the offending part, because a partially rewritten URL is
+//! still a link someone will follow. The rejections are: any control byte in
+//! the body, a scheme outside the `http(s)` allowlist, userinfo in the
+//! authority, a hostless SSH body, and `..` path traversal.
 
-// SEC-2 / TASK-1165: a repository URL body carrying any control byte is
-// treated as evidence of tampering and the caller drops the field entirely
-// (returns an empty `String` from [`normalize_repo_url`]), so the About card
-// surfaces no link at all rather than a silently rewritten one. Previously
-// these were filtered, so `"github:owner/repo\nINJECT"` became
-// `"https://github.com/owner/repoINJECT"` — a clickable URL pointing at an
-// attacker-named repo.
-//
-// DUP-3 / TASK-1758: the predicate itself is shared with the Python provider
-// via `ops_about::text_util`, so the sanitisation boundary has one definition
-// across stacks instead of two copies that can drift apart silently.
-use ops_about::text_util::contains_control_chars;
-
-// SEC-11 / TASK-1722: whatever the rewrite branches produce is finally checked
-// against an `http(s)` scheme allowlist, so `javascript:`, `data:`,
-// `vbscript:`, `file:` and their `git+`-prefixed twins cannot reach the
-// rendered About card. DUP-3 / TASK-1758: the allowlist itself is shared with
-// the Python provider via `ops_about::text_util`, so the policy has one
-// definition across stacks.
-use ops_about::text_util::has_allowed_url_scheme;
+// The control-character predicate and the scheme allowlist are shared with
+// the Python provider through `ops_about::text_util`, so the sanitisation
+// boundary has one definition across stacks rather than two copies that can
+// drift apart.
+use ops_about::text_util::{contains_control_chars, has_allowed_url_scheme};
 
 /// Normalise a `repository` URL value: turn npm shorthand
 /// (`github:owner/repo`), git+ssh, ssh scp form, git+https, and the bare
@@ -35,43 +26,26 @@ use ops_about::text_util::has_allowed_url_scheme;
 ///
 /// SSH URL handling is delegated to [`ssh_to_https`].
 ///
-/// SEC-2 / TASK-1080: control characters (CR, LF, ANSI escape, other
-/// C0 / DEL) are stripped from the URL body before any prefix logic
-/// runs, so a `"github:owner/repo\nINJECT"` repository field cannot
-/// inject a newline into the rendered link or a debug-log line.
+/// Returns an empty string for a value that fails any of the module's
+/// rejection rules; `package_json::parse_package_json` treats that exactly
+/// like a missing `repository` field. A control byte anywhere in the body is
+/// evidence of tampering — `"github:owner/repo\nINJECT"` would otherwise
+/// normalise to a clickable `https://github.com/owner/repoINJECT` pointing at
+/// an attacker-chosen repo — and the scheme allowlist keeps
+/// `javascript:alert(1)`, `data:text/html;…`, `vbscript:x`,
+/// `file:///etc/passwd` and their `git+`-prefixed twins out of the About card
+/// and `ops about --json`. The rewrite branches only ever emit `https://`, so
+/// the allowlist is what guards the clean-URL fall-through and the
+/// `git+<body>` branch, which pass their input through.
 ///
-/// SEC-2 / TASK-1165: a `repository` containing any control byte is
-/// dropped entirely (returns an empty `String`) rather than silently
-/// concatenated. The previous filter let `"github:owner/repo\nINJECT"`
-/// normalise to `"https://github.com/owner/repoINJECT"` — a clickable
-/// URL pointing at an attacker-chosen repo. Returning empty surfaces
-/// the field as missing in the About card / markdown / HTML and avoids
-/// the silent-rewrite. Callers (`package_json::parse_package_json`)
-/// treat the empty result the same as a missing repository field.
-/// PERF-3 / TASK-1257: returns `Cow<'_, str>` so a well-formed
-/// `https://github.com/owner/repo` URL with no rewrites required passes
-/// straight through as `Cow::Borrowed`. Callers that need owned `String`
-/// can `.into_owned()`. Branches that rewrite the URL (npm shorthand,
-/// SSH form, scrubbing) still allocate; only the fall-through clean path
-/// stays alloc-free, where it dominates the per-`parse_package_json`
-/// invocation count.
-///
-/// SEC-11 / TASK-1722: whatever the rewrite branches produce is finally
-/// checked against an `http://` / `https://` scheme allowlist. The rewrite
-/// branches themselves only ever emit `https://`, so the check exists for
-/// the fall-through and the `git+<body>` branch, which previously returned
-/// the input verbatim: `javascript:alert(1)`, `data:text/html;…`,
-/// `vbscript:x`, `file:///etc/passwd`, and their `git+`-prefixed twins all
-/// reached the parsed `PackageJson::repository` field and were
-/// rendered into the About card and `ops about --json`. Anything outside
-/// the allowlist returns an empty `String`, which callers already treat as
-/// a missing field — the same drop-the-field defence used for control
-/// characters (TASK-1165), path traversal (TASK-1111) and hostless
-/// authorities (TASK-1256).
+/// The return type is `Cow<'_, str>`: a well-formed
+/// `https://github.com/owner/repo` needing no rewrite passes straight through
+/// borrowed, and only the rewriting branches (npm shorthand, SSH form,
+/// scrubbing) allocate. Callers needing an owned value can `.into_owned()`.
 pub fn normalize_repo_url(raw: &str) -> std::borrow::Cow<'_, str> {
     let normalized = normalize_repo_url_shape(raw);
-    // SEC-11 / TASK-2226: the scheme allowlist inspects only the leading
-    // bytes, so an authority carrying RFC 3986 userinfo
+    // The scheme allowlist inspects only the leading bytes, so an authority
+    // carrying RFC 3986 userinfo
     // (`https://github.com@evil.com/o/r`) reads as an allowlisted `https://`
     // URL while the effective host is `evil.com`. Any `@` in the authority
     // drops the field, the same drop-not-strip policy applied to control
@@ -89,8 +63,8 @@ pub fn normalize_repo_url(raw: &str) -> std::borrow::Cow<'_, str> {
     }
 }
 
-/// SEC-11 / TASK-2226: whether the authority segment of a `<scheme>://…`
-/// URL carries RFC 3986 userinfo (`user@host` or `user:pass@host`) —
+/// Whether the authority segment of a `<scheme>://…` URL carries RFC 3986
+/// userinfo (`user@host` or `user:pass@host`) —
 /// everything before the `@` is not the host, so a value like
 /// `github.com@evil.com` presents a github-looking authority whose
 /// effective host is `evil.com`. The authority ends at the first `/`;
@@ -104,9 +78,9 @@ fn authority_has_userinfo(url: &str) -> bool {
 }
 
 /// Apply the shorthand / SSH / `git+` rewrite branches, without the scheme
-/// allowlist. Split out of [`normalize_repo_url`] for SEC-11 / TASK-1722 so
-/// the allowlist guards every branch's result in one place rather than being
-/// repeated at each `return`.
+/// allowlist. Kept separate from [`normalize_repo_url`] so the allowlist
+/// guards every branch's result in one place rather than being repeated at
+/// each `return`.
 fn normalize_repo_url_shape(raw: &str) -> std::borrow::Cow<'_, str> {
     /// (shorthand prefix, host) for npm hostname shortcuts.
     const HOST_PREFIXES: &[(&str, &str)] = &[
@@ -155,9 +129,8 @@ fn normalize_repo_url_shape(raw: &str) -> std::borrow::Cow<'_, str> {
         }
         return Cow::Owned(format!("https://github.com/{cleaned}"));
     }
-    // PERF-3 / TASK-1257: clean URL fall-through — borrow the trimmed slice
-    // so a well-formed `https://github.com/owner/repo` (no `.git` suffix)
-    // returns `Cow::Borrowed` and the per-call allocation drops to zero.
+    // Clean-URL fall-through: borrow the trimmed slice so a well-formed
+    // `https://github.com/owner/repo` (no `.git` suffix) needs no allocation.
     Cow::Borrowed(s.trim_end_matches(".git"))
 }
 
@@ -192,23 +165,19 @@ fn is_bare_github_shorthand(s: &str) -> bool {
 /// separator with `/`, and strip any trailing `.git` suffix. A numeric port
 /// (e.g. `host:22/path`) is preserved verbatim.
 ///
-/// PATTERN-1 / TASK-0692: distinguish a numeric port from an scp-form path
-/// whose first segment merely begins with a digit (e.g. `host:42-archive/x`)
-/// by requiring **all** characters before the next `/` to be digits — a
-/// `host:42/foo` is a port, `host:42-archive/x` is an scp-form path.
+/// A numeric port is distinguished from an scp-form path whose first segment
+/// merely begins with a digit by requiring **all** characters before the next
+/// `/` to be digits: `host:42/foo` is a port, `host:42-archive/x` is a path.
 ///
-/// API / TASK-1256: a hostless input (`ssh:///path`, `ssh://git@/path`, or
-/// scp-form `git@:foo` with an empty host segment) returns an empty
-/// `String` so the caller drops the field rather than surfacing a
-/// syntactically broken `https:///<path>` URL with empty authority on
-/// the About card. The previous shape passed the hostless body through
-/// verbatim, producing a clickable but malformed link from any hostile
-/// or typoed `package.json::repository.url`. Same operator-surface
-/// concern as TASK-1080 (control chars) and TASK-1111 (traversal).
+/// A hostless input (`ssh:///path`, `ssh://git@/path`, or scp-form `git@:foo`
+/// with an empty host segment) returns an empty `String`, so the caller drops
+/// the field rather than rendering a syntactically broken `https:///<path>`
+/// with an empty authority — a clickable but malformed link out of any
+/// hostile or typoed `repository.url`.
 pub fn ssh_to_https(rest: &str) -> String {
     let no_user = rest.strip_prefix("git@").unwrap_or(rest);
     let trimmed = no_user.trim_end_matches(".git");
-    // API / TASK-1256: drop hostless inputs deterministically.
+    // Drop hostless inputs deterministically.
     if trimmed.is_empty() || trimmed.starts_with('/') {
         return String::new();
     }
@@ -226,14 +195,13 @@ pub fn ssh_to_https(rest: &str) -> String {
 /// member packages render distinguishable links. Strips a leading `./` from
 /// the directory and canonicalises slashes.
 ///
-/// SEC-14 / TASK-0811: any path component equal to `..` (or any leading
-/// absolute slash) is dropped before the suffix is built. An adversarial
-/// `package.json` can otherwise emit a directory like `../../../etc/passwd`,
-/// which the previous implementation passed through verbatim and produced a
-/// traversal-shaped URL rendered into About cards / markdown / HTML. Empty
-/// segments and `.` segments are also collapsed for the same reason. If
-/// every component is filtered out, the directory suffix is omitted and the
-/// base URL is returned unchanged.
+/// Any path component equal to `..` — and any leading absolute slash — is
+/// dropped before the suffix is built: an adversarial `package.json` can
+/// otherwise emit a directory like `../../../etc/passwd` and get a
+/// traversal-shaped URL rendered into About cards, markdown and HTML. Empty
+/// and `.` segments are collapsed for the same reason. If every component is
+/// filtered out, the directory suffix is omitted and the base URL is returned
+/// unchanged.
 pub fn append_tree_directory(base: &str, directory: &str) -> String {
     let normalized = directory.trim().trim_start_matches("./");
     let cleaned = scrub_path_segments(normalized);
@@ -244,11 +212,11 @@ pub fn append_tree_directory(base: &str, directory: &str) -> String {
     format!("{trimmed_base}/tree/HEAD/{cleaned}")
 }
 
-/// Drop empty, `.`, and `..` segments from a `/`-separated path. SEC-14 /
-/// TASK-1111: shared scrub used by the npm-shorthand and `git://` branches
-/// of [`normalize_repo_url`]. Mirrors the segment filter in
-/// [`append_tree_directory`] (SEC-14 / TASK-0811) so adversarial
-/// `repository` values like `github:../../etc/passwd` cannot produce a
+/// Drop empty, `.`, and `..` segments from a `/`-separated path.
+///
+/// The single scrub shared by the npm-shorthand and `git://` branches of
+/// [`normalize_repo_url`] and by [`append_tree_directory`], so an adversarial
+/// `repository` value like `github:../../etc/passwd` cannot produce a
 /// traversal-shaped URL in rendered About output.
 fn scrub_path_segments(path: &str) -> String {
     path.replace('\\', "/")
@@ -260,8 +228,9 @@ fn scrub_path_segments(path: &str) -> String {
 
 /// Scrub path traversal from a `host[/path]` body where the leading
 /// segment is the authority (`host[:port]`) and must be preserved verbatim.
-/// SEC-14 / TASK-1111: the `git://`, `git+git://`, and `git+<scheme>://`
-/// branches of [`normalize_repo_url`] all carry an authority followed by a
+///
+/// The `git://`, `git+git://`, and `git+<scheme>://` branches of
+/// [`normalize_repo_url`] all carry an authority followed by a
 /// path component; only the path is scrubbed, the host is kept intact so
 /// `git://github.com/o/r` continues to round-trip to `https://github.com/o/r`.
 fn scrub_authority_and_path(authority_and_path: &str) -> String {
@@ -279,11 +248,11 @@ fn scrub_authority_and_path(authority_and_path: &str) -> String {
 }
 
 /// Scrub path traversal from a full URL of the form `<scheme>://<host>/<path>`.
-/// SEC-14 / TASK-1111: the `git+<scheme>://` branch of [`normalize_repo_url`]
-/// returns the URL with the scheme intact; we must only scrub the path
-/// portion, leaving `scheme://` and the authority alone (otherwise `https://`
-/// collapses to `https:/` because the empty segment between the two slashes
-/// is filtered).
+///
+/// The `git+<scheme>://` branch of [`normalize_repo_url`] keeps the scheme
+/// intact, so only the path portion is scrubbed: scrubbing `scheme://` too
+/// would collapse `https://` to `https:/`, the empty segment between the two
+/// slashes being filtered like any other.
 fn scrub_full_url_path(url: &str) -> String {
     if let Some((scheme, rest)) = url.split_once("://") {
         format!("{scheme}://{}", scrub_authority_and_path(rest))
@@ -301,9 +270,9 @@ pub fn is_numeric_port_prefix(path: &str) -> bool {
 mod tests {
     use super::*;
 
-    /// PERF-3 / TASK-1257: a well-formed `https://github.com/...` URL with
-    /// no rewrites required must pass through as `Cow::Borrowed`, leaving
-    /// the per-call allocation count at zero on the dominant clean path.
+    /// A well-formed `https://github.com/...` URL needing no rewrite passes
+    /// through as `Cow::Borrowed`, keeping the dominant clean path
+    /// allocation-free.
     #[test]
     fn normalize_clean_https_url_returns_borrowed() {
         let raw = "https://github.com/owner/repo";
@@ -349,11 +318,10 @@ mod tests {
         );
     }
 
-    /// API / TASK-1256: hostless `ssh:///path` and `ssh://git@/path`
-    /// inputs must NOT produce a syntactically broken
-    /// `https:///<path>` URL on the About card. The function now drops
-    /// the field (returns empty), and `normalize_repo_url` propagates
-    /// the empty result so `parse_package_json` treats it as missing.
+    /// Hostless `ssh:///path` and `ssh://git@/path` inputs must not produce
+    /// a syntactically broken `https:///<path>` URL on the About card: the
+    /// function returns empty, and `normalize_repo_url` propagates that so
+    /// `parse_package_json` treats the field as missing.
     #[test]
     fn ssh_to_https_drops_hostless_inputs() {
         assert_eq!(ssh_to_https("/path"), "");
@@ -363,8 +331,8 @@ mod tests {
         assert_eq!(ssh_to_https(":foo"), "");
     }
 
-    /// API / TASK-1256: the `ssh://`/`git+ssh://` branch of
-    /// `normalize_repo_url` propagates the empty result from
+    /// The `ssh://` / `git+ssh://` branch of `normalize_repo_url`
+    /// propagates the empty result from
     /// [`ssh_to_https`], so a hostless URL never reaches the About
     /// card as `https:///<path>`.
     #[test]
@@ -383,8 +351,8 @@ mod tests {
         );
     }
 
-    /// SEC-14 / TASK-0811: a `directory` that escapes the repository root via
-    /// `..` segments must be sanitized — the URL is rendered into About cards
+    /// A `directory` that escapes the repository root via `..` segments must
+    /// be sanitized — the URL is rendered into About cards
     /// (and downstream markdown/HTML), so a traversal-shaped suffix is a
     /// real surface for path-shape attacks.
     #[test]
@@ -421,16 +389,15 @@ mod tests {
 
     #[test]
     fn append_tree_directory_pure_traversal_etc_passwd_is_neutralised() {
-        // The motivating case from the SEC-14 finding: an adversarial
-        // package.json must not produce a URL whose path component contains
-        // `../../etc/passwd` style traversal.
+        // An adversarial package.json must not produce a URL whose path
+        // component contains `../../etc/passwd` style traversal.
         let url = append_tree_directory("https://github.com/o/r", "../../../../etc/passwd");
         assert!(!url.contains(".."), "url still contains ..: {url}");
         assert_eq!(url, "https://github.com/o/r/tree/HEAD/etc/passwd");
     }
 
-    /// PATTERN-1 / TASK-1049: `git+git://` must be rewritten to `https://`
-    /// — otherwise the About card renders an unclickable `git://` URL.
+    /// `git+git://` is rewritten to `https://` — otherwise the About card
+    /// renders an unclickable `git://` URL.
     #[test]
     fn normalize_git_plus_git_scheme_to_https() {
         assert_eq!(
@@ -447,9 +414,8 @@ mod tests {
         );
     }
 
-    /// PATTERN-1 / TASK-1060: bare `owner/repo` npm shorthand must be
-    /// rewritten to a GitHub URL — otherwise the About card emits a
-    /// non-URL link.
+    /// Bare `owner/repo` npm shorthand is rewritten to a GitHub URL —
+    /// otherwise the About card emits a non-URL link.
     #[test]
     fn normalize_bare_owner_repo_shorthand() {
         assert_eq!(
@@ -458,16 +424,12 @@ mod tests {
         );
     }
 
-    /// SEC-14 / TASK-1205: the bare-shorthand branch must not surface a
-    /// traversal-shaped URL. Pre-TASK-1205 a `package.json` with
-    /// `"repository": "../etc"` produced `https://github.com/../etc`
-    /// — sister branches (`github:`/`git://`/`git+*://`) all routed
-    /// through `scrub_path_segments` per SEC-14 / TASK-1111, but the
-    /// bare branch was added by PATTERN-1 / TASK-1060 without the same
-    /// scrub. We pin both AC outcomes here:
-    /// 1. The rendered URL contains no literal `..`.
-    /// 2. `../etc` lands on `https://github.com/etc` (the `..` segment
-    ///    is filtered, `etc` survives).
+    /// The bare-shorthand branch routes through `scrub_path_segments` like
+    /// its `github:` / `git://` / `git+*://` siblings, so a `"repository":
+    /// "../etc"` cannot surface a traversal-shaped URL. Two properties:
+    /// 1. the rendered URL contains no literal `..`;
+    /// 2. `../etc` lands on `https://github.com/etc` — the `..` segment is
+    ///    filtered and `etc` survives.
     #[test]
     fn normalize_bare_shorthand_strips_traversal() {
         let out = normalize_repo_url("../etc");
@@ -475,7 +437,7 @@ mod tests {
         assert_eq!(out, "https://github.com/etc");
     }
 
-    /// SEC-14 / TASK-1205: a bare shorthand whose every segment is
+    /// A bare shorthand whose every segment is
     /// `.`/`..` collapses to the bare host, mirroring the shape
     /// `normalize_github_shorthand_pure_traversal_collapses_to_host`
     /// already pins for the explicit `github:` branch.
@@ -484,20 +446,18 @@ mod tests {
         assert_eq!(normalize_repo_url("../.."), "https://github.com");
     }
 
-    /// PATTERN-1 / TASK-1060: a scoped npm package name like `@scope/name`
-    /// is NOT a repo shorthand and must not be rewritten into a github URL.
-    /// SEC-11 / TASK-1722: it is not an `http(s)` URL either, so the scheme
-    /// allowlist now drops the field instead of surfacing the raw value.
+    /// A scoped npm package name like `@scope/name` is not a repo shorthand
+    /// and is not rewritten into a github URL. It is not an `http(s)` URL
+    /// either, so the scheme allowlist drops the field rather than surfacing
+    /// the raw value.
     #[test]
     fn normalize_scoped_npm_name_is_dropped() {
         assert_eq!(normalize_repo_url("@scope/name"), "");
     }
 
-    /// SEC-2 / TASK-1080 + TASK-1165: an embedded LF inside a `github:`
-    /// shorthand must not survive into the rendered URL — and per
-    /// TASK-1165 the field is now dropped entirely so the silent
-    /// concatenation `repo\nINJECT → repoINJECT` (a clickable
-    /// attacker-chosen URL) cannot reach About cards / markdown / HTML.
+    /// An embedded LF inside a `github:` shorthand drops the field entirely,
+    /// so the silent concatenation `repo\nINJECT → repoINJECT` — a clickable
+    /// attacker-chosen URL — cannot reach About cards, markdown or HTML.
     #[test]
     fn normalize_drops_field_on_embedded_lf_in_shorthand() {
         let out = normalize_repo_url("github:owner/repo\nINJECT");
@@ -508,8 +468,8 @@ mod tests {
         );
     }
 
-    /// SEC-2 / TASK-1080 + TASK-1165: a CR inside a git+https URL
-    /// (Object{url} shape) drops the field. Pins the behaviour for the
+    /// A CR inside a git+https URL (Object{url} shape) drops the field.
+    /// Pins the behaviour for the
     /// `repository: { url: "..." }` parse path, which routes through the
     /// same `normalize_repo_url` entry point.
     #[test]
@@ -522,7 +482,7 @@ mod tests {
         );
     }
 
-    /// SEC-2 / TASK-1080 + TASK-1165: ANSI escape (U+001B) bytes drop
+    /// ANSI escape (U+001B) bytes drop
     /// the field — they would otherwise flow into operator-facing
     /// surfaces (About cards, log lines) and be interpreted as terminal
     /// escapes, or silently concatenate into a clickable URL.
@@ -536,7 +496,7 @@ mod tests {
         );
     }
 
-    /// SEC-2 / TASK-1080 + TASK-1165: the Text shape
+    /// The Text shape
     /// (`repository: "github:..."`) is treated identically.
     #[test]
     fn normalize_drops_field_on_control_chars_in_text_shape() {
@@ -551,10 +511,10 @@ mod tests {
         );
     }
 
-    /// SEC-2 / TASK-1165: a tampered URL containing a control byte must
-    /// NOT produce a syntactically valid URL pointing at attacker-chosen
-    /// path segments. Pins the broader contract directly so future
-    /// changes that re-introduce silent concatenation regress here.
+    /// A tampered URL containing a control byte must not produce a
+    /// syntactically valid URL pointing at attacker-chosen path segments.
+    /// Pins the contract directly, so a change that re-introduces silent
+    /// concatenation fails here.
     #[test]
     fn normalize_drops_field_yields_no_attacker_chosen_url() {
         for raw in [
@@ -571,10 +531,10 @@ mod tests {
         }
     }
 
-    /// SEC-14 / TASK-1111: a `github:` shorthand carrying `..` segments
-    /// must not produce a traversal-shaped URL — the same threat model as
-    /// [`append_tree_directory`] (TASK-0811). The scrub drops every empty,
-    /// `.`, and `..` segment before interpolation.
+    /// A `github:` shorthand carrying `..` segments must not produce a
+    /// traversal-shaped URL — the same threat model as
+    /// [`append_tree_directory`]. The scrub drops every empty, `.`, and `..`
+    /// segment before interpolation.
     #[test]
     fn normalize_github_shorthand_strips_traversal() {
         let out = normalize_repo_url("github:../../etc/passwd");
@@ -596,7 +556,7 @@ mod tests {
         assert_eq!(out, "https://bitbucket.org/foo/bar");
     }
 
-    /// SEC-14 / TASK-1111: a shorthand whose suffix is purely traversal
+    /// A shorthand whose suffix is purely traversal
     /// collapses to the bare host — same shape as
     /// `append_tree_directory` returning the base URL when every
     /// component filters out.
@@ -605,7 +565,7 @@ mod tests {
         assert_eq!(normalize_repo_url("github:../../.."), "https://github.com");
     }
 
-    /// SEC-14 / TASK-1111: the bare `git://` branch must scrub `..` too.
+    /// The bare `git://` branch scrubs `..` too.
     #[test]
     fn normalize_git_scheme_strips_traversal() {
         let out = normalize_repo_url("git://github.com/../../etc/passwd");
@@ -613,8 +573,8 @@ mod tests {
         assert_eq!(out, "https://github.com/etc/passwd");
     }
 
-    /// SEC-14 / TASK-1111: `git+git://` shares the scrub policy with the
-    /// bare `git://` branch (PATTERN-1 / TASK-1049 rewrites to https).
+    /// `git+git://` shares the scrub policy with the bare `git://` branch,
+    /// which rewrites to `https://`.
     #[test]
     fn normalize_git_plus_git_scheme_strips_traversal() {
         let out = normalize_repo_url("git+git://github.com/../../etc/passwd");
@@ -622,7 +582,7 @@ mod tests {
         assert_eq!(out, "https://github.com/etc/passwd");
     }
 
-    /// SEC-14 / TASK-1111: `git+<scheme>://` (e.g. `git+https://`) also
+    /// `git+<scheme>://` (e.g. `git+https://`) also
     /// scrubs `..` from the path component before rendering into the
     /// About card.
     #[test]
@@ -632,11 +592,11 @@ mod tests {
         assert_eq!(out, "https://github.com/o/etc/passwd");
     }
 
-    /// DUP-3 / TASK-1122: both `normalize_repo_url`'s shorthand branch and
+    /// Both `normalize_repo_url`'s shorthand branch and
     /// `append_tree_directory` route segment scrubbing through
-    /// [`scrub_path_segments`], so a future tightening of the SEC-14 filter
-    /// (Unicode bidi controls, encoded `..`, etc.) only needs to land in
-    /// one place. Pin equivalence on a `..`-laden input.
+    /// [`scrub_path_segments`], so a future tightening of the filter (Unicode
+    /// bidi controls, encoded `..`, …) only needs to land in one place. Pins
+    /// that equivalence on a `..`-laden input.
     #[test]
     fn append_tree_directory_and_shorthand_share_segment_filter() {
         // Both entry points must drop `..` and `.` segments identically.
@@ -646,7 +606,7 @@ mod tests {
         assert_eq!(shorthand, "https://github.com/a/b/c");
     }
 
-    /// SEC-2 / TASK-1080: a debug-log of the normalised URL must remain
+    /// A debug-log of the normalised URL must remain
     /// single-line — i.e. the `Debug`/`Display` rendering after
     /// normalisation contains no embedded newlines.
     #[test]
@@ -656,15 +616,15 @@ mod tests {
         let display = out.to_string();
         assert!(!debug.contains('\n') && !debug.contains('\r'));
         assert!(!display.contains('\n') && !display.contains('\r'));
-        // SEC-2 / TASK-1165: the dropped-field policy means the rendered
-        // string is empty, not a silent rewrite to attacker-chosen segments.
+        // The dropped-field policy means the rendered string is empty, not
+        // a silent rewrite to attacker-chosen segments.
         assert!(out.is_empty(), "field must be dropped on control byte");
     }
 
-    /// SEC-11 / TASK-1722: the verbatim fall-through used to hand any
-    /// non-URL scheme straight to the rendered `repository` field. Each of
-    /// these is a live injection or local-resource-disclosure sink for a
-    /// consumer that renders the value as a hyperlink.
+    /// The verbatim fall-through would otherwise hand any non-URL scheme
+    /// straight to the rendered `repository` field. Each of these is a live
+    /// injection or local-resource-disclosure sink for a consumer that
+    /// renders the value as a hyperlink.
     #[test]
     fn normalize_drops_non_http_schemes() {
         for raw in [
@@ -678,7 +638,7 @@ mod tests {
         }
     }
 
-    /// SEC-11 / TASK-1722: the `git+` branch strips the prefix and then
+    /// The `git+` branch strips the prefix and then
     /// returns the body through `scrub_full_url_path`, which preserves any
     /// scheme it finds (and passes a scheme-less body through untouched).
     #[test]
@@ -688,7 +648,7 @@ mod tests {
         }
     }
 
-    /// SEC-11 / TASK-1722: the allowlist must not disturb any accepted
+    /// The allowlist must not disturb any accepted
     /// shape — every rewrite branch already emits `https://`.
     #[test]
     fn normalize_accepted_shapes_still_round_trip() {
@@ -704,11 +664,11 @@ mod tests {
         }
     }
 
-    /// SEC-11 / TASK-2226: a repository URL whose authority carries RFC 3986
-    /// userinfo presents a github-looking host whose *effective* host is the
-    /// attacker's. The clean-URL fall-through (`repo_url.rs` returns the
-    /// trimmed input verbatim) must drop it, matching the drop-the-field
-    /// policy every other authority-shaped defect already gets.
+    /// A repository URL whose authority carries RFC 3986 userinfo presents a
+    /// github-looking host whose *effective* host is the attacker's. The
+    /// clean-URL fall-through returns the trimmed input verbatim, so the
+    /// final gate must drop it — the same drop-the-field policy every other
+    /// authority-shaped defect gets.
     #[test]
     fn normalize_drops_userinfo_authority_in_clean_url() {
         assert_eq!(normalize_repo_url("https://github.com@evil.com/o/r"), "");
@@ -718,11 +678,11 @@ mod tests {
         );
     }
 
-    /// SEC-11 / TASK-2226: the `git://` branch rewrites through
-    /// `scrub_authority_and_path`, which preserves the leading authority
-    /// segment verbatim — so `git://github.com@evil.com/o/r` used to become
-    /// a clickable `https://github.com@evil.com/o/r`. The final gate must
-    /// drop it; the `git+git://` twin routes through the same scrub.
+    /// The `git://` branch rewrites through `scrub_authority_and_path`,
+    /// which preserves the leading authority segment verbatim — so without
+    /// the final gate `git://github.com@evil.com/o/r` would become a
+    /// clickable `https://github.com@evil.com/o/r`. The `git+git://` twin
+    /// routes through the same scrub.
     #[test]
     fn normalize_drops_userinfo_authority_in_git_scheme_branches() {
         assert_eq!(normalize_repo_url("git://github.com@evil.com/o/r"), "");
@@ -732,7 +692,7 @@ mod tests {
         );
     }
 
-    /// SEC-11 / TASK-2226: an `@` in the **path** is legitimate (branch and
+    /// An `@` in the **path** is legitimate (branch and
     /// tag names may carry it), and a numeric port in the authority
     /// (`host:22`) has no userinfo — both must keep round-tripping.
     #[test]
