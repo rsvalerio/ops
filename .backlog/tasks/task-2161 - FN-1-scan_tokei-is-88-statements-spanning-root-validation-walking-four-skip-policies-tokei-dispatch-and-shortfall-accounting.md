@@ -1,10 +1,10 @@
 ---
 id: TASK-2161
 title: 'FN-1: scan_tokei is 88 statements spanning root validation, walking, four skip policies, tokei dispatch and shortfall accounting'
-status: To Do
+status: Done
 assignee: []
 created_date: '2026-09-08 07:05'
-updated_date: '2026-09-08 20:00'
+updated_date: '2026-09-09 18:54'
 labels:
   - code-review-rust
   - complexity
@@ -36,8 +36,9 @@ Each of the three `skipped_*` counters is mutated from more than one branch, whi
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 The candidate-collection walk (root validation through the file cap) is extracted into its own function, leaving scan_tokei as the composition of validate, collect, count, account
-- [ ] #2 Each extracted function is under 50 non-comment lines
-- [ ] #3 The skip counters are returned as one value from the walk rather than three separately mutated locals
-- [ ] #4 No behavioural change: the existing scan-bound, error-root and unreadable-file tests pass unmodified
+- [x] #1 The candidate-collection walk (root validation through the file cap) is extracted into its own function, leaving scan_tokei as the composition of validate, collect, count, account
+- [x] #2 Each extracted function is under 50 non-comment lines
+- [x] #3 The skip counters are returned as one value from the walk rather than three separately mutated locals
+- [x] #4 No behavioural change: the existing scan-bound, error-root and unreadable-file tests pass unmodified
+
 <!-- AC:END -->

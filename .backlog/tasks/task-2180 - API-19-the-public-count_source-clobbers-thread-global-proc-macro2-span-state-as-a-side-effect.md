@@ -1,10 +1,10 @@
 ---
 id: TASK-2180
 title: 'API-19: the public count_source clobbers thread-global proc-macro2 span state as a side effect'
-status: To Do
+status: Done
 assignee: []
 created_date: '2026-09-08 07:13'
-updated_date: '2026-09-08 20:00'
+updated_date: '2026-09-09 18:57'
 labels:
   - code-review-rust
   - api-design
@@ -41,7 +41,8 @@ Options, in preference order:
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 The function that calls invalidate_current_thread_spans is not reachable from outside the crate, or its public doc summary states the thread-global side effect in its first line
-- [ ] #2 Items narrowed to pub(crate) are confirmed unused outside ops-rust-loc (grep the workspace) before narrowing
-- [ ] #3 cargo check and the crate's test suite pass unchanged
+- [x] #1 The function that calls invalidate_current_thread_spans is not reachable from outside the crate, or its public doc summary states the thread-global side effect in its first line
+- [x] #2 Items narrowed to pub(crate) are confirmed unused outside ops-rust-loc (grep the workspace) before narrowing
+- [x] #3 cargo check and the crate's test suite pass unchanged
+
 <!-- AC:END -->

@@ -1,10 +1,10 @@
 ---
 id: TASK-2199
 title: 'API-18: ops-metadata exports three pub consts no consumer outside the crate can use'
-status: To Do
+status: Done
 assignee: []
 created_date: '2026-09-08 07:15'
-updated_date: '2026-09-08 20:00'
+updated_date: '2026-09-09 18:59'
 labels:
   - code-review-rust
   - api-design
@@ -48,7 +48,8 @@ the `OPS_METADATA_MAX_BYTES` environment variable at runtime.
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 METADATA_MAX_BYTES_DEFAULT, METADATA_MAX_BYTES_ENV and METADATA_MAX_BYTES_CEILING are pub(crate), matching every other non-extension item in the crate
-- [ ] #2 The crate still builds and its tests still reach the constants via use crate::…
-- [ ] #3 MetadataExtension remains pub so the linkme factory registration is unaffected
+- [x] #1 METADATA_MAX_BYTES_DEFAULT, METADATA_MAX_BYTES_ENV and METADATA_MAX_BYTES_CEILING are pub(crate), matching every other non-extension item in the crate
+- [x] #2 The crate still builds and its tests still reach the constants via use crate::…
+- [x] #3 MetadataExtension remains pub so the linkme factory registration is unaffected
+
 <!-- AC:END -->

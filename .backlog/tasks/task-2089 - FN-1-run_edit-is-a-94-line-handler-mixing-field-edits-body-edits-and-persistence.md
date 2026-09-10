@@ -1,10 +1,10 @@
 ---
 id: TASK-2089
 title: 'FN-1: run_edit is a 94-line handler mixing field edits, body edits, and persistence'
-status: To Do
+status: Done
 assignee: []
 created_date: '2026-09-07 22:58'
-updated_date: '2026-09-08 20:00'
+updated_date: '2026-09-09 18:26'
 labels:
   - code-review-rust
   - structure
@@ -28,7 +28,8 @@ ordinal: 15000
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 run_edit orchestrates named helpers (frontmatter edits, body edits, persistence) and is itself under 50 lines
-- [ ] #2 Each extracted helper operates at a single abstraction level
-- [ ] #3 Existing edit tests pass unchanged (behaviour is identical)
+- [x] #1 run_edit orchestrates named helpers (frontmatter edits, body edits, persistence) and is itself under 50 lines
+- [x] #2 Each extracted helper operates at a single abstraction level
+- [x] #3 Existing edit tests pass unchanged (behaviour is identical)
+
 <!-- AC:END -->

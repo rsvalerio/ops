@@ -1,10 +1,10 @@
 ---
 id: TASK-2100
 title: 'ARCH-6: canonical_id retained behind dead_code allow for future callers that do not exist'
-status: To Do
+status: Done
 assignee: []
 created_date: '2026-09-08 06:40'
-updated_date: '2026-09-08 20:00'
+updated_date: '2026-09-09 18:41'
 labels:
   - code-review-rust
   - architecture
@@ -28,7 +28,8 @@ ordinal: 1000
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 canonical_id is deleted, or the allow is removed by giving the function a real caller (test or production) in the same change
-- [ ] #2 If deleted, the config/stack/extension/alias precedence chain exists in exactly two places (canonical_with_spec, resolve_alias)
-- [ ] #3 ops verify / ops qa gates pass
+- [x] #1 canonical_id is deleted, or the allow is removed by giving the function a real caller (test or production) in the same change
+- [x] #2 If deleted, the config/stack/extension/alias precedence chain exists in exactly two places (canonical_with_spec, resolve_alias)
+- [x] #3 ops verify / ops qa gates pass
+
 <!-- AC:END -->

@@ -1,10 +1,10 @@
 ---
 id: TASK-2079
 title: 'FN-3: push_scalar_fields takes 7 parameters behind an allow instead of a param struct'
-status: To Do
+status: Done
 assignee: []
 created_date: '2026-09-07 22:57'
-updated_date: '2026-09-08 20:00'
+updated_date: '2026-09-09 18:25'
 labels:
   - code-review-rust
   - structure
@@ -28,6 +28,7 @@ ordinal: 8000
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 push_scalar_fields takes at most 5 parameters, or the extras-derived values travel in one named struct
-- [ ] #2 The #[allow(clippy::too_many_arguments)] is gone
+- [x] #1 push_scalar_fields takes at most 5 parameters, or the extras-derived values travel in one named struct
+- [x] #2 The #[allow(clippy::too_many_arguments)] is gone
+
 <!-- AC:END -->

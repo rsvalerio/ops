@@ -1,10 +1,10 @@
 ---
 id: TASK-2095
 title: 'ARCH-1: data.rs bundles Deadline, Context, registries, schemas, and the DuckDb erasure trait in one 1056-line module'
-status: To Do
+status: Done
 assignee: []
 created_date: '2026-09-07 22:59'
-updated_date: '2026-09-08 20:00'
+updated_date: '2026-09-09 18:40'
 labels:
   - code-review-rust
   - structure
@@ -29,7 +29,8 @@ ordinal: 20000
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 data.rs split by concern (e.g. context.rs for Context + Deadline, data.rs retaining DataProvider/DataRegistry/schema types); no module exceeds ~500 lines
-- [ ] #2 Public API unchanged: lib.rs re-exports the same paths, downstream crates compile without modification
-- [ ] #3 cargo test -p ops-extension passes unchanged
+- [x] #1 data.rs split by concern (e.g. context.rs for Context + Deadline, data.rs retaining DataProvider/DataRegistry/schema types); no module exceeds ~500 lines
+- [x] #2 Public API unchanged: lib.rs re-exports the same paths, downstream crates compile without modification
+- [x] #3 cargo test -p ops-extension passes unchanged
+
 <!-- AC:END -->

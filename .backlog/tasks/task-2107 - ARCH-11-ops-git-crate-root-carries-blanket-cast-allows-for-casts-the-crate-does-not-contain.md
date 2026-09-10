@@ -1,10 +1,10 @@
 ---
 id: TASK-2107
 title: 'ARCH-11: ops-git crate root carries blanket cast allows for casts the crate does not contain'
-status: To Do
+status: Done
 assignee: []
 created_date: '2026-09-08 06:53'
-updated_date: '2026-09-08 20:00'
+updated_date: '2026-09-09 18:42'
 labels:
   - code-review-rust
   - architecture
@@ -41,7 +41,8 @@ There is not a single `as` cast anywhere in `extensions/git/src` (grep for ` as 
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 The three cast_* allows are removed from the ops-git crate root
-- [ ] #2 cargo clippy --all-targets -p ops-git -- -D warnings still passes
-- [ ] #3 The remaining clippy::unwrap_used test allow keeps (or gains) a one-line reason comment
+- [x] #1 The three cast_* allows are removed from the ops-git crate root
+- [x] #2 cargo clippy --all-targets -p ops-git -- -D warnings still passes
+- [x] #3 The remaining clippy::unwrap_used test allow keeps (or gains) a one-line reason comment
+
 <!-- AC:END -->

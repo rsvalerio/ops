@@ -1,10 +1,10 @@
 ---
 id: TASK-2246
 title: 'code-review-plan-wave12'
-status: To Do
+status: Done
 assignee: []
 created_date: '2026-09-08 10:52'
-updated_date: '2026-09-08 20:00'
+updated_date: '2026-09-10 16:13'
 labels:
   - code-review-wave
 dependencies:
@@ -44,4 +44,7 @@ code-review-plan-wave12: Oversized functions, positional params, and items publi
 
 <!-- SECTION:NOTES:BEGIN -->
 Overlaps: TASK-2247 wave13 (5 files: crates/extension/src/data.rs ...); TASK-2248 wave14 (5 files: crates/extension/src/data.rs ...); TASK-2242 wave8 (3 files: crates/backlog/src/cmd/edit.rs ...); TASK-2243 wave9 (3 files: crates/backlog/src/render.rs ...); TASK-2235 wave1 (2 files: crates/backlog/src/cmd/edit.rs ...); TASK-2241 wave7 (2 files: crates/extension/src/lib.rs ...); TASK-2244 wave10 (2 files: crates/theme/src/configurable.rs ...); TASK-2234 wave0 (1 file: extensions-rust/metadata/src/lib.rs); TASK-2245 wave11 (1 file: crates/extension/src/lib.rs)
+
+Branch: code-review/TASK-2246
+
 <!-- SECTION:NOTES:END -->

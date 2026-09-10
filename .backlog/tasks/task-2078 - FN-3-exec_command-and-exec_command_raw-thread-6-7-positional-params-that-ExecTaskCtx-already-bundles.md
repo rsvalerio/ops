@@ -1,10 +1,10 @@
 ---
 id: TASK-2078
 title: 'FN-3: exec_command and exec_command_raw thread 6-7 positional params that ExecTaskCtx already bundles'
-status: To Do
+status: Done
 assignee: []
 created_date: '2026-09-07 22:57'
-updated_date: '2026-09-08 20:00'
+updated_date: '2026-09-09 18:33'
 labels:
   - code-review-rust
   - structure
@@ -28,7 +28,8 @@ ordinal: 1000
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 The shared runner-scoped handles (workspace_cache, cwd, vars, policy) reach exec_command / exec_command_raw through a single grouped parameter (extend ExecTaskCtx with an emit-sink variant, or introduce the equivalent bag for the sequential/raw paths)
-- [ ] #2 The remaining signatures are at or under clippy's threshold, or every retained too_many_arguments allow carries an adjacent reason per docs/clippy.md
-- [ ] #3 Sequential, raw, and parallel spawn paths share one bag type, so adding a handle touches one struct
+- [x] #1 The shared runner-scoped handles (workspace_cache, cwd, vars, policy) reach exec_command / exec_command_raw through a single grouped parameter (extend ExecTaskCtx with an emit-sink variant, or introduce the equivalent bag for the sequential/raw paths)
+- [x] #2 The remaining signatures are at or under clippy's threshold, or every retained too_many_arguments allow carries an adjacent reason per docs/clippy.md
+- [x] #3 Sequential, raw, and parallel spawn paths share one bag type, so adding a handle touches one struct
+
 <!-- AC:END -->
