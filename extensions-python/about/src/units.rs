@@ -50,10 +50,10 @@ struct RawWorkspace {
 
 /// One entry of `[tool.uv.workspace].members` / `.exclude`.
 ///
-/// PATTERN-1 / TASK-1774: a plain `Vec<String>` makes the whole workspace
-/// shape fail on a single non-string element, which zeroes the unit list for a
-/// manifest whose remaining globs are perfectly good. Tolerating the bad
-/// element — with a warn naming the field — degrades that entry only.
+/// A plain `Vec<String>` would make the whole workspace shape fail on a
+/// single non-string element, zeroing the unit list for a manifest whose
+/// remaining globs are perfectly good. Tolerating the bad element — with a
+/// warn naming the field — degrades that entry alone.
 #[derive(Debug, Deserialize)]
 #[serde(untagged)]
 enum RawGlob {
@@ -68,8 +68,8 @@ fn string_globs(entries: Vec<RawGlob>, field: &str, manifest_path: &Path) -> Vec
         .filter_map(|entry| match entry {
             RawGlob::Pattern(p) => Some(p),
             RawGlob::Unsupported(value) => {
-                // ERR-7 / TASK-0974: Debug-format the path so embedded
-                // newlines / ANSI cannot forge log records.
+                // Debug-format the path so embedded newlines / ANSI cannot
+                // forge log records.
                 tracing::warn!(
                     path = ?manifest_path.display(),
                     field = %format!("tool.uv.workspace.{field}"),
@@ -85,29 +85,25 @@ fn string_globs(entries: Vec<RawGlob>, field: &str, manifest_path: &Path) -> Vec
 
 /// Resolve `[tool.uv.workspace].members` globs to concrete member dirs.
 ///
-/// TASK-2203: `pub(crate)` so the identity provider can set
-/// `module_count` from the *same* resolved member list this provider builds
-/// `ProjectUnit`s from — the card's packages row and the units table must
-/// count the same things (the convention `extensions-rust/about` gets by
-/// setting `module_count` from `manifest.resolved_members().len()`).
+/// Crate-visible so the identity provider can set `module_count` from the
+/// *same* resolved member list this provider builds `ProjectUnit`s from: the
+/// card's packages row and the units table must count the same things, as
+/// they do in `extensions-rust/about`.
 pub fn read_workspace_members(root: &Path) -> Vec<(String, String)> {
-    // DUP-3 / TASK-0816: share the parsed `toml::Value` with the identity
-    // provider via the per-process cache rather than re-reading and
-    // re-parsing the same `pyproject.toml`.
-    // PERF-3 / TASK-0854: parse directly from the cached raw text into
-    // the workspace shape, skipping the toml::Value intermediate clone.
+    // The manifest text is shared with the identity provider through the
+    // per-process cache rather than re-read, and the workspace shape is
+    // parsed straight from that text with no `toml::Value` intermediate.
     let Some(text) = ops_about::manifest_cache::for_filename("pyproject.toml").read(root) else {
         return Vec::new();
     };
     let raw: RawRoot = match toml::from_str(&text) {
         Ok(r) => r,
         Err(e) => {
-            // ERR-7 / TASK-0974: include the manifest path so multi-root
-            // `ops about` runs can attribute the parse failure. Debug-format
-            // so embedded newlines / ANSI cannot forge log records.
-            // TEST-5 / TASK-2205: `recovery` states the degradation like
-            // every other warn in this crate, so operators can filter
-            // Python About degradations uniformly.
+            // The manifest path is included so a multi-root `ops about` run
+            // can attribute the failure, and Debug-formatted so embedded
+            // newlines / ANSI cannot forge log records. `recovery` states the
+            // degradation, as every warn in this crate does, so operators can
+            // filter Python About degradations uniformly.
             tracing::warn!(
                 path = ?root.join("pyproject.toml").display(),
                 error = %e,
@@ -138,9 +134,9 @@ fn collect_units(cwd: &Path) -> Vec<ProjectUnit> {
         .into_iter()
         .map(|(member, manifest)| {
             let manifest_path = cwd.join(&member).join("pyproject.toml");
-            // DUP-3 / TASK-0987: call the shared `parse_package_metadata`
-            // directly so the per-stack `PackageProbe` lives next to the
-            // deserialiser, not behind a parallel shim function.
+            // The shared `parse_package_metadata` is called directly, so
+            // the per-stack `PackageProbe` lives next to its deserialiser
+            // rather than behind a parallel shim.
             let meta =
                 ops_about::workspace::parse_package_metadata(&manifest_path, &manifest, |c| {
                     toml::from_str::<PackageProbe>(c).map(|p| {
@@ -153,12 +149,11 @@ fn collect_units(cwd: &Path) -> Vec<ProjectUnit> {
                             .unwrap_or_default()
                     })
                 });
-            // ERR-2 / TASK-1254: trim and drop whitespace-only fields before
-            // constructing the ProjectUnit so the workspace card matches the
-            // policy already enforced by the Python identity provider
-            // (TASK-0566/0813). Without this guard a `name = "  "` field
-            // bypassed the `format_unit_name` directory fallback and a
-            // whitespace-only version/description rendered as a blank bullet.
+            // Trim and drop whitespace-only fields before constructing the
+            // ProjectUnit, matching the policy the identity provider applies:
+            // a whitespace-only `name` must still reach the
+            // `format_unit_name` directory fallback, and a whitespace-only
+            // version or description must not render as a blank bullet.
             let name = ops_about::text_util::trim_nonempty(meta.name)
                 .unwrap_or_else(|| format_unit_name(&member));
             let version = ops_about::text_util::trim_nonempty(meta.version);
@@ -186,18 +181,14 @@ struct ProjectProbe {
 #[cfg(test)]
 mod tests {
     use super::*;
-    // DUP-1 / TASK-2211: the crate's fixture writer is the shared
-    // `ops_about::test_support::write_file` the `lib.rs` test module already
-    // uses, rather than a second local spelling of the same helper.
+    // The fixture writer is the shared `ops_about::test_support::write_file`
+    // the `lib.rs` test module uses, not a second local spelling of it.
     use ops_about::test_support::write_file;
 
-    /// ERR-7 / TASK-0974: workspace-shape parse warn now includes the
-    /// manifest path. Pin the formatter so embedded newlines / ANSI in an
-    /// attacker-controlled checkout path cannot forge log records.
-    /// DUP-3 / TASK-1766: share the assertion with its `lib.rs` sibling via
-    /// `ops_about::test_support::assert_debug_escapes_control_chars` rather
-    /// than re-deriving it inline, so tightening the shared helper upgrades
-    /// both sites at once.
+    /// The workspace-shape parse warn carries the manifest path through the
+    /// `?` formatter, so embedded newlines / ANSI in an attacker-controlled
+    /// checkout path cannot forge log records. The assertion is shared with
+    /// its `lib.rs` sibling, so tightening the helper upgrades both sites.
     #[test]
     fn workspace_pyproject_path_debug_escapes_control_characters() {
         let p = Path::new("a\nb\u{1b}[31mc/pyproject.toml");
@@ -297,9 +288,9 @@ exclude = ["packages/internal-*"]
         assert_eq!(units[0].name, "public");
     }
 
-    /// ERR-2 / TASK-1254: a member whose `name`/`version`/`description`
-    /// fields are whitespace-only must trim+drop to None so the directory
-    /// fallback fires and blank fields don't leak into rendered cards.
+    /// A member whose `name`/`version`/`description` fields are
+    /// whitespace-only trims and drops to `None`, so the directory fallback
+    /// fires and blank fields do not leak into rendered cards.
     #[test]
     fn whitespace_only_metadata_falls_back_and_drops_blank_fields() {
         let dir = tempfile::tempdir().unwrap();
@@ -325,12 +316,11 @@ members = ["libs/blank"]
         assert!(units[0].description.is_none());
     }
 
-    /// TEST-5 / TASK-1756 + TASK-2205: the crate doc promises that a
-    /// malformed root manifest degrades to *no units* rather than looking
-    /// like a project without a workspace, and says so via `tracing::warn!`
-    /// (TASK-0394 / TASK-0974). The warn half is asserted here too: it must
-    /// fire, name `pyproject.toml`, and state its recovery — deleting the
-    /// warn fails this test, not just the doc promise.
+    /// The crate doc promises that a malformed root manifest degrades to
+    /// *no units* rather than looking like a project without a workspace, and
+    /// says so via `tracing::warn!`. The warn half is asserted here too: it
+    /// must fire, name `pyproject.toml`, and state its recovery, so deleting
+    /// the warn fails this test and not just the doc promise.
     #[test]
     fn invalid_root_pyproject_yields_no_units() {
         let dir = tempfile::tempdir().unwrap();
@@ -355,10 +345,10 @@ members = ["libs/blank"]
         );
     }
 
-    /// TEST-5 / TASK-1756: a *member* whose own manifest is unparseable must
-    /// still appear as a unit, falling back to the `format_unit_name`
-    /// directory name — the shared `parse_package_metadata` warn-and-default
-    /// path was never exercised from this crate.
+    /// A *member* whose own manifest is unparseable still appears as a unit,
+    /// falling back to the `format_unit_name` directory name — the shared
+    /// `parse_package_metadata` warn-and-default path, exercised from this
+    /// crate.
     #[test]
     fn invalid_member_pyproject_falls_back_to_the_directory_name() {
         let dir = tempfile::tempdir().unwrap();
@@ -384,10 +374,9 @@ members = ["packages/broken"]
         assert!(units[0].version.is_none());
     }
 
-    /// PATTERN-1 / TASK-1774: one non-string element in `members` /
-    /// `exclude` must degrade that entry only. A plain `Vec<String>` failed
-    /// the whole workspace shape and zeroed a unit list whose remaining globs
-    /// were perfectly good.
+    /// One non-string element in `members` / `exclude` degrades that entry
+    /// only: it must not fail the whole workspace shape and zero a unit list
+    /// whose remaining globs are perfectly good.
     #[test]
     fn non_string_workspace_glob_entry_does_not_zero_the_unit_list() {
         let dir = tempfile::tempdir().unwrap();
@@ -436,21 +425,21 @@ members = ["packages/quiet"]
         assert_eq!(units[0].name, "Quiet");
     }
 
-    /// TEST-5 / TASK-2201: `PROVIDER_NAME` is the key the registry indexes
-    /// this provider under (`lib.rs`'s `register_data_providers`), so a typo
-    /// there silently unregisters the Python packages card. Mirrors the Node
-    /// crate's `units_provider_name` (TASK-1732).
+    /// `PROVIDER_NAME` is the key the registry indexes this provider under
+    /// (`lib.rs`'s `register_data_providers`), so a typo there silently
+    /// unregisters the Python packages card. Mirrors the Node crate's
+    /// `units_provider_name`.
     #[test]
     fn units_provider_name() {
         assert_eq!(PythonUnitsProvider.name(), PROVIDER_NAME);
         assert_eq!(PROVIDER_NAME, "project_units");
     }
 
-    /// TEST-5 / TASK-2201: drive `PythonUnitsProvider::provide` against a uv
-    /// workspace tempdir and assert the deserialised JSON payload — the
+    /// Drives `PythonUnitsProvider::provide` against a uv workspace tempdir
+    /// and asserts the deserialised JSON payload, so the
     /// `serde_json::to_value` step and the shape consumers read are pinned,
     /// not just the private `collect_units` helper. Mirrors the Node crate's
-    /// `units_provider_serialises_workspace_members` (TASK-1732).
+    /// `units_provider_serialises_workspace_members`.
     #[test]
     fn units_provider_serialises_workspace_members() {
         let dir = tempfile::tempdir().unwrap();
@@ -480,7 +469,7 @@ members = ["packages/*"]
         assert_eq!(units[0].description.as_deref(), Some("A"));
     }
 
-    /// TEST-5 / TASK-2201: a project with no `[tool.uv.workspace]` must
+    /// A project with no `[tool.uv.workspace]` must
     /// serialise to an empty JSON array — not `null`, and not an error.
     /// Mirrors the Node crate's `units_provider_empty_workspace_is_empty_array`.
     #[test]
