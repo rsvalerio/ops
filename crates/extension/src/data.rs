@@ -1,9 +1,10 @@
 //! Data provider surface: the [`DataProvider`] trait, the [`DataRegistry`],
 //! and the schema descriptor types providers publish.
 //!
-//! ARCH-1 / TASK-2095: the per-invocation state ([`crate::context::Context`],
-//! [`crate::context::Deadline`], and the feature-gated
-//! [`crate::context::DuckDbHandle`]) lives in `context.rs`; this module keeps
+//! ARCH-1 / TASK-2095: the per-invocation state ([`crate::context::Context`])
+//! lives in `context.rs`, the dispatch budget ([`crate::deadline::Deadline`])
+//! in `deadline.rs`, and the feature-gated database erasure trait
+//! ([`crate::db_handle::DuckDbHandle`]) in `db_handle.rs`; this module keeps
 //! the registry and schema surface.
 
 use crate::context::Context;
