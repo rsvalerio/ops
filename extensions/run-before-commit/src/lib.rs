@@ -47,8 +47,8 @@ ops_extension::impl_extension! {
 ///    bash dependency breaks the hook on busybox/Alpine images, minimal
 ///    container builds and BSD/Nix setups without bash in scope, where `env`
 ///    exits 127 and git blocks every commit with a message naming bash rather
-///    than ops (CL-3 / TASK-1910). The legacy hooks this crate recognises and
-///    replaces are all `#!/bin/sh` already.
+///    than ops. The legacy hooks this crate recognises and replaces are all
+///    `#!/bin/sh` already.
 /// 2. **`ops` is probed before it is exec'd** — git hooks inherit the
 ///    environment of whatever invoked git, and GUI clients (IDE VCS panes,
 ///    GitHub Desktop, `SourceTree`, Fork) launch from the desktop session, so
@@ -60,14 +60,13 @@ ops_extension::impl_extension! {
 ///    diagnostic advertises `SKIP_OPS_RUN_BEFORE_COMMIT`, so it has to work
 ///    in exactly the situation the diagnostic describes. The bypass-then-
 ///    probe prologue is shared with the pre-push hook through
-///    [`ops_hook_common::hook_script!`], not copy-pasted (DUP-1 / TASK-2108).
+///    [`ops_hook_common::hook_script!`], not copy-pasted.
 /// 4. **`--changed-only`** — that flag is what arms the [`has_staged_files`]
 ///    preflight (`crates/cli/src/subcommands.rs`), so an empty index skips the
 ///    configured command chain instead of paying for a full check suite.
 ///    Without it the bounded-wait probe this crate parameterises below is
 ///    unreachable from the installed hook, and the README's "skips when
-///    nothing is staged" is a promise the hook does not keep (ARCH-6 /
-///    TASK-1905).
+///    nothing is staged" would be a promise the hook does not keep.
 const HOOK_SCRIPT: &str = ops_hook_common::hook_script! {
     name: "run-before-commit",
     hook_filename: "pre-commit",
@@ -80,8 +79,7 @@ const HOOK_SCRIPT: &str = ops_hook_common::hook_script! {
 /// Recognized values are `1`, `true`, `yes` and `on`, matched
 /// case-insensitively; anything else — including the empty string, `0` and
 /// `false` — means "do not skip". [`ops_hook_common::should_skip`] is the
-/// source of truth for that list; keep this doc in step with it
-/// (READ-5 / TASK-1916).
+/// source of truth for that list; keep this doc in step with it.
 pub const SKIP_ENV_VAR: &str = "SKIP_OPS_RUN_BEFORE_COMMIT";
 
 ops_hook_common::impl_hook_wrappers! {
@@ -97,23 +95,24 @@ ops_hook_common::impl_hook_wrappers! {
     command_help: "Run run-before-commit checks before committing",
 }
 
-/// ASYNC-6 / TASK-0589: pre-commit hooks run on the developer's critical
-/// path. The bounded-wait probe lives in `ops_hook_common::git_state`; this
-/// crate parameterises it with hook-specific constants.
+/// Pre-commit hooks run on the developer's critical path, so the git probe
+/// is bounded-wait. The bounded-wait probe lives in
+/// `ops_hook_common::git_state`; this crate parameterises it with
+/// hook-specific constants.
 const DEFAULT_GIT_TIMEOUT: Duration = Duration::from_secs(5);
 const TIMEOUT_ENV_VAR: &str = "OPS_RUN_BEFORE_COMMIT_GIT_TIMEOUT_SECS";
 
-/// ASYNC-6 / TASK-0783: upper bound on `OPS_RUN_BEFORE_COMMIT_GIT_TIMEOUT_SECS`.
-/// 300 s is generous for even the slowest FUSE-backed worktree while still
-/// bounding the hook.
+/// Upper bound on `OPS_RUN_BEFORE_COMMIT_GIT_TIMEOUT_SECS`. 300 s is
+/// generous for even the slowest FUSE-backed worktree while still bounding
+/// the hook.
 const MAX_GIT_TIMEOUT_SECS: u64 = 300;
 
 /// Returns `true` if the git index holds any staged change.
 ///
 /// Every staged change kind counts — additions, modifications, renames,
 /// **deletions**, type changes and unmerged paths — so a delete-only or
-/// conflicted index never reads as "nothing staged" and never skips the gate
-/// (SEC-31 / TASK-1903). See
+/// conflicted index never reads as "nothing staged" and never skips the
+/// gate. See
 /// [`ops_hook_common::git_state::has_staged_files_with_timeout`].
 ///
 /// # Errors
@@ -134,17 +133,10 @@ fn git_timeout_from_env() -> Option<Duration> {
 
 #[cfg(test)]
 mod tests {
-    // READ-10 / TASK-1917: `clippy.toml` sets `allow-unwrap-in-tests`, so the
-    // crate-root `#![cfg_attr(test, allow(...))]` block that used to sit at the
-    // top of this file was dead weight — and three of its four entries
-    // suppressed cast lints in a crate with no `as` cast at all. Test code is
-    // exempt from the panic-adjacent lints by policy, at the narrowest scope
-    // clippy offers, with no crate-wide allow to outlive the reason for it.
-
     use super::*;
-    // ARCH-9 / TASK-1915: import the shared probe from its own crate rather
-    // than through a re-export from this one — these tests exercise
-    // `ops_hook_common`'s bounded wait, not this crate's contribution to it.
+    // Import the shared probe from its own crate rather than through a
+    // re-export from this one — these tests exercise `ops_hook_common`'s
+    // bounded wait, not this crate's contribution to it.
     use ops_hook_common::git_state::{has_staged_files_with_timeout, HasStagedFilesError};
     use ops_hook_common::test_helpers::{CwdGuard, EnvGuard};
     use std::path::Path;
@@ -162,9 +154,9 @@ mod tests {
 
     /// Run the shared probe against an explicit `program`/`dir` pair.
     ///
-    /// TEST-5 / TASK-1908: this covers **only** `ops_hook_common`'s bounded
-    /// wait. It bypasses everything `has_staged_files` itself contributes —
-    /// the `current_dir()` lookup, the env-driven timeout, the hardcoded
+    /// This covers **only** `ops_hook_common`'s bounded wait. It bypasses
+    /// everything `has_staged_files` itself contributes — the
+    /// `current_dir()` lookup, the env-driven timeout, the hardcoded
     /// `"git"`, the `anyhow` conversion — so it is not coverage of the
     /// production preflight. Those four lines are pinned by the
     /// "the production preflight" tests further down.
@@ -179,8 +171,8 @@ mod tests {
         assert!(HOOK_SCRIPT.contains("ops run-before-commit"));
     }
 
-    /// CL-3 / TASK-1910 AC#1+#4: the script must not depend on bash being
-    /// installed, and no future edit may reintroduce the dependency.
+    /// The script must not depend on bash being installed, and no future
+    /// edit may reintroduce the dependency.
     #[test]
     fn hook_script_uses_posix_sh_shebang() {
         assert!(
@@ -190,8 +182,8 @@ mod tests {
         assert!(!HOOK_SCRIPT.contains("bash"));
     }
 
-    /// CL-3 / TASK-1910 AC#2+#3: `ops` is resolved through an explicit probe
-    /// that reports what is missing, not by exec'ing it and hoping.
+    /// `ops` is resolved through an explicit probe that reports what is
+    /// missing, not by exec'ing it and hoping.
     #[test]
     fn hook_script_guards_missing_ops_binary() {
         assert!(HOOK_SCRIPT.contains("command -v ops"));
@@ -199,9 +191,9 @@ mod tests {
         assert!(HOOK_SCRIPT.contains("exit 1"));
     }
 
-    /// TASK-2108: the shared prologue is generated from string literals, so
-    /// the `SKIP_ENV_VAR` const and the literal spelled into the script must
-    /// be pinned together — a macro cannot reference the const and stay
+    /// The shared prologue is generated from string literals, so the
+    /// `SKIP_ENV_VAR` const and the literal spelled into the script must be
+    /// pinned together — a macro cannot reference the const and stay
     /// `const`-evaluable.
     #[test]
     fn skip_env_var_const_matches_the_literal_spelled_into_the_script() {
@@ -209,8 +201,8 @@ mod tests {
         assert!(HOOK_SCRIPT.contains("case \"${SKIP_OPS_RUN_BEFORE_COMMIT:-}\""));
     }
 
-    /// ARCH-6 / TASK-1905 AC#2: the installed hook arms the preflight, so the
-    /// README's "skips when nothing is staged" describes the shipped hook.
+    /// The installed hook arms the preflight, so the README's "skips when
+    /// nothing is staged" describes the shipped hook.
     #[test]
     fn hook_script_passes_changed_only() {
         assert!(
@@ -234,8 +226,8 @@ mod tests {
         assert!(status.success(), "HOOK_SCRIPT must parse under `sh -n`");
     }
 
-    /// CL-3 / TASK-1910 AC#3: with `ops` off PATH the hook must name ops and
-    /// the reinstall command on stderr rather than surfacing a bare 127.
+    /// With `ops` off PATH the hook must name ops and the reinstall
+    /// command on stderr rather than surfacing a bare 127.
     #[cfg(unix)]
     #[test]
     #[serial_test::serial]
@@ -390,8 +382,9 @@ mod tests {
         assert!(output.contains("Updating outdated"));
     }
 
-    /// TEST-5 / TASK-2133: the third legacy marker — `ops run-before-commit`,
-    /// the name this crate itself installs — must also upgrade in place.
+    /// A pre-commit hook carrying the `ops run-before-commit` marker — the
+    /// name this crate itself installs — is upgraded in place rather than
+    /// left alone as an unrecognised hook.
     #[test]
     fn install_hook_updates_run_before_commit_hook() {
         let dir = tempfile::tempdir().expect("tempdir");
@@ -419,9 +412,12 @@ mod tests {
             .contains("Updating outdated"));
     }
 
-    /// TEST-5 / TASK-2133: `HOOK_CONFIG` is the macro-argument bundle a
-    /// copy-paste of this crate into a new hook gets wrong — mirror of
-    /// `run-before-push`'s `hook_config_pins_every_macro_argument`.
+    /// Every field of `HOOK_CONFIG` names the commit hook: the filename, the
+    /// skip env var, the crate name, the script, and help text that mentions
+    /// commits and not pushes. `HOOK_CONFIG` is the macro-argument bundle a
+    /// copy-paste of this crate into a new hook gets wrong, so each argument
+    /// is pinned here — the mirror of `run-before-push`'s test of the same
+    /// name.
     #[test]
     fn hook_config_pins_every_macro_argument() {
         assert_eq!(HOOK_CONFIG.hook_filename, "pre-commit");
@@ -439,9 +435,10 @@ mod tests {
         );
     }
 
-    /// TEST-5 / TASK-2133: a `legacy_markers` list copied from the push
-    /// crate would make `install` refuse to upgrade a real legacy
-    /// pre-commit hook — or claim an unrelated one.
+    /// Every entry in `legacy_markers` refers to a commit hook, and the list
+    /// matches the exact upgrade contract. A list carrying push-hook markers
+    /// would make `install` refuse to upgrade a real legacy pre-commit hook,
+    /// or claim an unrelated one.
     #[test]
     fn hook_config_legacy_markers_only_match_commit_hooks() {
         assert!(!HOOK_CONFIG.legacy_markers.is_empty());
@@ -503,12 +500,11 @@ mod tests {
     /// answers `execve` on a file that is open for writing with `ETXTBSY`.
     /// The window is short, so retry briefly instead of failing the run.
     ///
-    /// TEST-15 / TASK-1913 AC#4: the retry is sleep-based, so its worst case
-    /// is 50 x 20 ms = **1 s of added runtime per test** — paid only when the
-    /// race actually fires, which is rare. The deterministic alternative
-    /// (closing the write fd before any sibling thread can fork) is not
-    /// expressible through `std::fs::write`, so the bound is documented
-    /// rather than removed.
+    /// The retry is sleep-based, so its worst case is 50 x 20 ms = **1 s of
+    /// added runtime per test** — paid only when the race actually fires,
+    /// which is rare. The deterministic alternative (closing the write fd
+    /// before any sibling thread can fork) is not expressible through
+    /// `std::fs::write`, so the bound is documented rather than removed.
     #[cfg(unix)]
     fn retry_while_text_file_busy(
         mut probe: impl FnMut() -> Result<bool, HasStagedFilesError>,
@@ -563,10 +559,10 @@ mod tests {
         }
     }
 
-    /// SEC-31 / TASK-1903 AC#1+#3: a delete-only index is staged work. The
-    /// probe used to filter on `--diff-filter=ACMR`, so `git rm` read as
-    /// "nothing staged" and skipped the whole pre-commit gate with exit 0 —
-    /// on exactly the commits most likely to break a build.
+    /// A delete-only index is staged work: a probe filtered to
+    /// adds/modifications/renames would make `git rm` read as "nothing
+    /// staged" and skip the whole pre-commit gate with exit 0 — on exactly
+    /// the commits most likely to break a build.
     #[test]
     #[serial_test::serial]
     fn has_staged_files_true_when_only_a_deletion_is_staged() {
@@ -587,8 +583,8 @@ mod tests {
         );
     }
 
-    /// SEC-31 / TASK-1903 AC#2: a type change (`T`) is staged work too — the
-    /// old `ACMR` filter excluded it alongside `D` and `U`.
+    /// A type change (`T`) is staged work too, alongside deletions and
+    /// unmerged paths.
     #[cfg(unix)]
     #[test]
     #[serial_test::serial]
@@ -652,9 +648,8 @@ mod tests {
         assert!(matches!(err, HasStagedFilesError::Spawn { .. }));
     }
 
-    /// ASYNC-6 / TASK-0589 AC#3: a fake git that hangs forever must
-    /// trigger the bounded-wait timeout rather than blocking the commit
-    /// indefinitely.
+    /// A fake git that hangs forever must trigger the bounded-wait timeout
+    /// rather than blocking the commit indefinitely.
     #[cfg(unix)]
     #[test]
     #[serial_test::serial]
@@ -687,7 +682,7 @@ mod tests {
         );
     }
 
-    /// ASYNC-6 / TASK-0864: late stderr captured within drain grace.
+    /// Late stderr is captured within the drain grace.
     #[cfg(unix)]
     #[test]
     #[serial_test::serial]
@@ -725,15 +720,12 @@ mod tests {
         }
     }
 
-    /// CONC-3 / TASK-0650 AC#2: large output over pipe buffer doesn't deadlock.
+    /// Large output over the pipe buffer doesn't deadlock.
     ///
-    /// TEST-15 / TASK-1913: the timeout is deliberately generous. A deadlock
-    /// hangs forever, so any bound distinguishes it from slowness equally
-    /// well — but the old 1500 ms bound also raced the fake git's four forks
-    /// and 40 000 lines on a loaded CI box, turning a slow-but-correct run
-    /// into `Err(Timeout)` reported as a deadlock regression. The property
-    /// under test is `Ok(true)`, not machine speed, so there is no wall-clock
-    /// assertion here at all: the timeout itself is the hang detector.
+    /// The timeout is deliberately generous and there is no wall-clock
+    /// assertion: a deadlock hangs forever, so any bound distinguishes it
+    /// from slowness equally well, and the property under test is `Ok(true)`,
+    /// not machine speed — the timeout itself is the hang detector.
     #[cfg(unix)]
     #[test]
     #[serial_test::serial]
@@ -764,11 +756,11 @@ mod tests {
 
     // -- has_staged_files: the production preflight --
     //
-    // TEST-5 / TASK-1908: every test above goes through the shared probe with
-    // an explicit program and directory. These pin the four lines
-    // `has_staged_files` itself contributes — the `current_dir()` lookup, the
-    // env-driven timeout reaching the probe, the hardcoded `"git"`, and the
-    // `anyhow` conversion — which no test touched before.
+    // Every test above goes through the shared probe with an explicit
+    // program and directory. These pin the four lines `has_staged_files`
+    // itself contributes — the `current_dir()` lookup, the env-driven
+    // timeout reaching the probe, the hardcoded `"git"`, and the `anyhow`
+    // conversion.
 
     /// The `anyhow`-typed twin of [`retry_while_text_file_busy`], for the
     /// production entry point. Same ETXTBSY race, same worst case (1 s).
@@ -792,7 +784,7 @@ mod tests {
         probe()
     }
 
-    /// AC#1: the shipped predicate reads the process working directory.
+    /// The shipped predicate reads the process working directory.
     #[test]
     #[serial_test::serial]
     fn has_staged_files_reads_the_process_working_directory() {
@@ -819,9 +811,9 @@ mod tests {
         );
     }
 
-    /// AC#2: the env override is not merely parsed — it is the timeout the
-    /// probe actually applies. The assertion reads the timeout back out of
-    /// the error rather than timing the call, so it pins the value without
+    /// The env override is not merely parsed — it is the timeout the probe
+    /// actually applies. The assertion reads the timeout back out of the
+    /// error rather than timing the call, so it pins the value without
     /// depending on machine speed.
     #[cfg(unix)]
     #[test]
@@ -851,7 +843,7 @@ mod tests {
         );
     }
 
-    /// AC#3: the typed probe error survives the `anyhow` conversion, so the
+    /// The typed probe error survives the `anyhow` conversion, so the
     /// chain the CLI prints still names what actually failed.
     #[test]
     #[serial_test::serial]
@@ -874,7 +866,7 @@ mod tests {
 
     // -- Extension metadata --
 
-    /// TEST-11 / TASK-0720: pin the public identifier against external sources of truth.
+    /// Pin the public identifier against external sources of truth.
     #[test]
     fn extension_constants() {
         assert!(
@@ -920,7 +912,7 @@ mod tests {
         assert_eq!(git_timeout_from_env(), None);
     }
 
-    /// ASYNC-6 / TASK-0783 AC#2: an overlarge value is clamped, not honoured.
+    /// An overlarge value is clamped, not honoured.
     #[test]
     #[serial_test::serial]
     fn git_timeout_from_env_clamps_to_ceiling() {
@@ -931,9 +923,8 @@ mod tests {
         );
     }
 
-    /// TEST-1 / TASK-0897: capture the WARN emission so a future refactor
-    /// that drops the diagnostic while preserving the clamp does not pass
-    /// silently.
+    /// Capture the WARN emission so a future refactor that drops the
+    /// diagnostic while preserving the clamp does not pass silently.
     mod clamp_log_emission {
         use super::*;
         use ops_core::test_utils::capture_warn as capture;

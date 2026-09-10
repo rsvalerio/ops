@@ -1,12 +1,5 @@
 //! Run-before-push hook extension: install and manage git pre-push hooks.
 
-#![cfg_attr(
-    test,
-    // Test-only policy exception: assertions on known-good fixtures read
-    // better as `.unwrap()` than as error-handling ceremony.
-    allow(clippy::unwrap_used)
-)]
-
 use ops_extension::ExtensionType;
 
 /// Extension identifier used to register this crate in the engine's
@@ -52,7 +45,7 @@ ops_extension::impl_extension! {
 ///
 /// 1. **`#!/bin/sh`, not bash** — the body uses nothing bash provides, and a
 ///    bash dependency breaks the hook on busybox/Alpine images and NixOS
-///    shells without bash in scope (CL-3 / TASK-1911).
+///    shells without bash in scope.
 /// 2. **`ops` is probed before it is exec'd** — git hooks fired from GUI
 ///    clients inherit a truncated PATH, and a bare `command not found` names
 ///    neither ops nor the fix, so users reach for `git push --no-verify`.
@@ -61,23 +54,23 @@ ops_extension::impl_extension! {
 ///    to work with `ops` off PATH, the exact situation the diagnostic
 ///    describes. The bypass-then-probe prologue is shared with the
 ///    pre-commit hook through [`ops_hook_common::hook_script!`], not
-///    copy-pasted (DUP-1 / TASK-2108).
+///    copy-pasted.
 /// 4. **git's ref-update stream never reaches a spawned command** — git
 ///    writes one `<local ref> <local oid> <remote ref> <remote oid>` line per
 ///    ref update to the hook's stdin. The script captures it into
 ///    [`REF_UPDATES_ENV_VAR`] and redirects `ops` from `/dev/null`, so no
-///    configured command can consume it (SEC-11 / TASK-1906).
+///    configured command can consume it.
 /// 5. **The capture is bounded, and a failed or truncated capture fails
 ///    closed** — `$(...)` yields the empty string on *any* capture failure,
 ///    and the empty stream means "nothing to push", which skips every
 ///    configured check downstream; so the capture's exit status is checked
-///    and a failed read aborts the hook (SEC-11 / TASK-2140). And `execve`
-///    caps a single environment string at 131072 bytes, so a whole-stream
-///    capture died at exec with `E2BIG` on pushes beyond ~1000 refs
-///    (SEC-33 / TASK-2141); the read is bounded to a byte budget, and a
-///    stream that exceeds it is forwarded with [`REFS_TRUNCATED_ENV_VAR`]
-///    set, which makes ops run every configured check — never a silent
-///    skip, never a bare "Argument list too long".
+///    and a failed read aborts the hook. And `execve` caps a single
+///    environment string at 131072 bytes, so a whole-stream capture would
+///    die at exec with `E2BIG` on pushes beyond ~1000 refs; the read is
+///    bounded to a byte budget, and a stream that exceeds it is forwarded
+///    with [`REFS_TRUNCATED_ENV_VAR`] set, which makes ops run every
+///    configured check — never a silent skip, never a bare "Argument list
+///    too long".
 const HOOK_SCRIPT: &str = ops_hook_common::hook_script! {
     name: "run-before-push",
     hook_filename: "pre-push",
@@ -89,14 +82,13 @@ const HOOK_SCRIPT: &str = ops_hook_common::hook_script! {
         "#\n",
         "# - The capture's exit status is checked because $(...) collapses 'no ref\n",
         "#   updates' and 'could not read the stream' into the same empty string —\n",
-        "#   and the empty stream skips every configured check downstream\n",
-        "#   (SEC-11 / TASK-2140).\n",
-        "# - execve caps one environment string at 131072 bytes, so reading the\n",
-        "#   whole stream used to die at exec with E2BIG on pushes beyond ~1000\n",
-        "#   refs (SEC-33 / TASK-2141). The read is bounded to 96000 bytes plus\n",
-        "#   one sentinel byte: a result longer than the budget means the stream\n",
-        "#   was truncated, which sets the truncation marker below so ops runs\n",
-        "#   every configured check instead of classifying a prefix.\n",
+        "#   and the empty stream skips every configured check downstream.\n",
+        "# - execve caps one environment string at 131072 bytes, so a whole-stream\n",
+        "#   capture would die at exec with E2BIG on pushes beyond ~1000 refs. The\n",
+        "#   read is bounded to 96000 bytes plus one sentinel byte: a result longer\n",
+        "#   than the budget means the stream was truncated, which sets the\n",
+        "#   truncation marker below so ops runs every configured check instead of\n",
+        "#   classifying a prefix.\n",
         "OPS_PRE_PUSH_REFS=$(head -c 96001)\n",
         "capture_status=$?\n",
         "if [ \"$capture_status\" -ne 0 ]; then\n",
@@ -129,16 +121,16 @@ pub const SKIP_ENV_VAR: &str = "SKIP_OPS_RUN_BEFORE_PUSH";
 /// [`classify_ref_updates`] tells "git said nothing is being pushed" apart
 /// from "there is no push to reason about".
 ///
-/// SEC-11 / TASK-2140: a *present* value always means the stream was
-/// actually read. The installed hook checks the capture's exit status and
-/// aborts before exec'ing `ops` when it is non-zero, so "no ref updates"
-/// (empty string, successful capture) and "capture failed" can never arrive
-/// here as the same value — the latter never arrives at all.
+/// A *present* value always means the stream was actually read. The
+/// installed hook checks the capture's exit status and aborts before
+/// exec'ing `ops` when it is non-zero, so "no ref updates" (empty string,
+/// successful capture) and "capture failed" can never arrive here as the
+/// same value — the latter never arrives at all.
 ///
-/// SEC-33 / TASK-2141: the value is a *bounded prefix* of the stream. The
-/// hook reads at most its 96000-byte capture budget, so a push too large to
-/// forward whole still reaches ops; a truncation is signalled separately
-/// through [`REFS_TRUNCATED_ENV_VAR`], never by quietly clipping the value.
+/// The value is a *bounded prefix* of the stream. The hook reads at most
+/// its 96000-byte capture budget, so a push too large to forward whole
+/// still reaches ops; a truncation is signalled separately through
+/// [`REFS_TRUNCATED_ENV_VAR`], never by quietly clipping the value.
 pub const REF_UPDATES_ENV_VAR: &str = "OPS_PRE_PUSH_REFS";
 
 /// Environment variable through which the installed hook signals that the
@@ -148,22 +140,20 @@ pub const REF_UPDATES_ENV_VAR: &str = "OPS_PRE_PUSH_REFS";
 /// Set to `1` only by the hook, only on truncation. [`push_refs`] maps that
 /// straight to [`PushRefs::Run`] without consulting the truncated value, so
 /// a push too large to classify runs every configured check instead of
-/// classifying a prefix that might happen to look delete-only (SEC-33 /
-/// TASK-2141). A push large enough to hit this is a mirror or tag-heavy
-/// push; running the checks is the fail-safe direction for a verification
-/// gate.
+/// classifying a prefix that might happen to look delete-only. A push large
+/// enough to hit this is a mirror or tag-heavy push; running the checks is
+/// the fail-safe direction for a verification gate.
 pub const REFS_TRUNCATED_ENV_VAR: &str = "OPS_PRE_PUSH_REFS_TRUNCATED";
 
-/// Upper bound on the ref-update lines parsed from the stream (SEC-11: bound
-/// external input). A push above this is not worth classifying — run the
-/// checks.
+/// Upper bound on the ref-update lines parsed from the stream (external
+/// input, so it is bounded). A push above this is not worth classifying —
+/// run the checks.
 ///
-/// SEC-33 / TASK-2141: sized to stay within reach of the hook's byte budget.
-/// The previous `10_000` was dead code on the installed-hook path: `10_000` ref
-/// lines are ~1.3 MB, far past both the hook's 96000-byte capture budget and
-/// `execve`'s 131072-byte per-string cap, so no stream that size could ever
-/// arrive. At `1_000`, a stream of short ref lines (~90 bytes each) fits the
-/// byte budget and still trips this line bound, so both bounds are live.
+/// Sized to stay within reach of the hook's byte budget. At `1_000`, a
+/// stream of short ref lines (~90 bytes each) fits the hook's 96000-byte
+/// capture budget and still trips this line bound, so both bounds are
+/// live; a larger line bound could never be reached, because a stream
+/// long enough to hit it would already exceed the capture budget.
 const MAX_REF_UPDATE_LINES: usize = 1_000;
 
 /// What git's pre-push ref-update stream says about this push.
@@ -206,14 +196,14 @@ fn is_zero_object_id(field: &str) -> bool {
 /// `ops run-before-push`, where there is no push to reason about.
 ///
 /// Every line must be four whitespace-separated fields with well-formed
-/// object ids (SEC-11: validate shape before acting on it). Anything else —
-/// a malformed line, or more than [`MAX_REF_UPDATE_LINES`] of them — yields
+/// object ids (shape is validated before acting on it). Anything else — a
+/// malformed line, or more than [`MAX_REF_UPDATE_LINES`] of them — yields
 /// [`PushRefs::Run`]: the classifier only ever *skips* work on input it
 /// fully understood, so a parser gap can never silently disable the gate.
 /// The same invariant holds one boundary up: the installed hook aborts
 /// rather than forwarding a stream whose capture failed, so
 /// [`PushRefs::NothingToPush`] is reachable only from a stream that was
-/// genuinely read as empty (SEC-11 / TASK-2140).
+/// genuinely read as empty.
 #[must_use]
 pub fn classify_ref_updates(stream: Option<&str>) -> PushRefs {
     let Some(stream) = stream else {
@@ -255,10 +245,10 @@ pub fn classify_ref_updates(stream: Option<&str>) -> PushRefs {
 /// Classify the ref-update stream the installed hook forwarded through
 /// [`REF_UPDATES_ENV_VAR`].
 ///
-/// SEC-33 / TASK-2141: a set truncation marker short-circuits to
-/// [`PushRefs::Run`] — the forwarded value is a prefix, and classifying a
-/// prefix of a too-large push could read a delete-only remainder as
-/// "delete-only push" and skip the checks.
+/// A set truncation marker short-circuits to [`PushRefs::Run`] — the
+/// forwarded value is a prefix, and classifying a prefix of a too-large
+/// push could read a delete-only remainder as "delete-only push" and skip
+/// the checks.
 #[must_use]
 pub fn push_refs() -> PushRefs {
     if refs_truncated() {
@@ -293,7 +283,7 @@ mod tests {
     use super::*;
     use ops_hook_common::test_helpers::EnvGuard;
 
-    // TEST-18 / TASK-2144: `EnvGuard` mutates process-global state (environ)
+    // `EnvGuard` mutates process-global state (environ)
     // and `std::process::Command` snapshots the environment while building a
     // child, so a spawning test running on another harness thread races the
     // serial env mutators — a setenv/getenv data race, not mere flakiness.
@@ -319,12 +309,13 @@ mod tests {
         std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o755)).unwrap();
     }
 
-    /// Run `HOOK_SCRIPT` under `/bin/sh` with `stdin`, the caller-chosen
-    /// `path` (the child's `PATH`), and any extra `envs` under test.
+    /// Run `HOOK_SCRIPT` under `/bin/sh` from the scratch directory `path`,
+    /// with `stdin`, the caller-chosen `path_value` (the child's `PATH`) and
+    /// any extra `envs` under test.
     ///
-    /// TEST-15 / TASK-2142: `path` is passed through verbatim — the caller
-    /// decides what the child can resolve, because the two situations under
-    /// test need opposite PATHs:
+    /// `path_value` is passed through verbatim — the caller decides what the
+    /// child can resolve, because the two situations under test need opposite
+    /// PATHs:
     ///
     /// - The missing-ops guard and the bypass fire before any external
     ///   command (`case`, `command -v` and `echo` are `sh` builtins), so
@@ -358,7 +349,7 @@ mod tests {
             command.env(key, value);
         }
         let mut child = command.spawn().unwrap();
-        // SEC-33 / TASK-2141: the bounded capture stops reading once its
+        // The bounded capture stops reading once its
         // byte budget is met, so an oversized stream legitimately closes
         // the pipe under the writer — only BrokenPipe is tolerated.
         if let Err(e) = child.stdin.take().unwrap().write_all(stdin.as_bytes()) {
@@ -383,7 +374,7 @@ mod tests {
         assert!(HOOK_SCRIPT.contains("ops run-before-push"));
     }
 
-    /// CL-3 / TASK-1911: the script must not depend on bash being installed.
+    /// The script must not depend on bash being installed.
     #[test]
     fn hook_script_uses_posix_sh_shebang() {
         assert!(
@@ -400,8 +391,8 @@ mod tests {
         assert!(HOOK_SCRIPT.contains("exit 1"));
     }
 
-    /// SEC-11 / TASK-1906: `ops` — and therefore every command it spawns —
-    /// must be handed `/dev/null`, never git's ref-update pipe.
+    /// `ops` — and therefore every command it spawns — must be handed
+    /// `/dev/null`, never git's ref-update pipe.
     #[test]
     fn hook_script_redirects_ops_stdin_from_dev_null() {
         assert!(HOOK_SCRIPT.contains("exec ops run-before-push </dev/null"));
@@ -423,8 +414,8 @@ mod tests {
         assert!(status.success(), "HOOK_SCRIPT must parse under `sh -n`");
     }
 
-    /// TASK-1906 AC#1: a command reading stdin sees EOF, not git's ref lines,
-    /// and the ref lines arrive through the environment instead.
+    /// A command reading stdin sees EOF, not git's ref lines, and the ref
+    /// lines arrive through the environment instead.
     #[cfg(unix)]
     #[test]
     #[serial_test::serial]
@@ -453,11 +444,10 @@ mod tests {
         );
     }
 
-    /// CL-3 / TASK-1911 AC#2-3: a missing `ops` fails closed with a message
-    /// that names the binary, the hook and the escape hatch. TEST-15 /
-    /// TASK-2142: PATH holds only the empty tempdir, so the probe fails
-    /// unconditionally on every machine — no real `ops` can be found or
-    /// exec'd, and the guard below is always the code under test.
+    /// A missing `ops` fails closed with a message that names the binary,
+    /// the hook and the escape hatch. PATH holds only the empty tempdir, so
+    /// the probe fails unconditionally on every machine — no real `ops` can
+    /// be found or exec'd, and the guard below is always the code under test.
     #[cfg(unix)]
     #[test]
     #[serial_test::serial]
@@ -478,9 +468,9 @@ mod tests {
         );
     }
 
-    /// SEC-11 / TASK-2140 AC#2+#4: when the ref-update capture fails (here:
-    /// `head` unavailable on the truncated PATH the missing-ops probe two
-    /// lines up was written for), the hook must not exit 0 with the checks
+    /// When the ref-update capture fails (here: `head` unavailable on a
+    /// truncated PATH, the degraded-PATH shape of a GUI git client or
+    /// minimal container), the hook must not exit 0 with the checks
     /// skipped — `$(...)` yields the empty string on any capture failure,
     /// and the empty stream means "nothing to push", which skips every
     /// configured command downstream. `ops` is made resolvable and marked
@@ -536,9 +526,9 @@ mod tests {
         );
     }
 
-    /// SEC-33 / TASK-2141 AC#1+#4: a ref-update stream well past
-    /// `execve`'s 131072-byte per-string cap (a mirror or tag-heavy push)
-    /// must reach `ops` without an `E2BIG` at exec. The hook bounds the
+    /// A ref-update stream well past `execve`'s 131072-byte per-string cap
+    /// (a mirror or tag-heavy push) must reach `ops` without an `E2BIG` at
+    /// exec. The hook bounds the
     /// capture to its 96000-byte budget (plus the one sentinel byte that
     /// proves truncation), says so on stderr, and marks the truncation so
     /// [`push_refs`] runs every configured check instead of classifying a
@@ -553,8 +543,8 @@ mod tests {
             "#!/bin/sh\nprintf 'len=%s truncated=[%s]\\n' \"${#OPS_PRE_PUSH_REFS}\" \"$OPS_PRE_PUSH_REFS_TRUNCATED\"\n",
         );
 
-        // 2000 lines x ~131 bytes ≈ 262 KB — twice the per-string exec cap
-        // that used to kill the exec with E2BIG around n=1200.
+        // 2000 lines x ~131 bytes ≈ 262 KB — twice the per-string exec cap,
+        // which an unbounded capture would hit with E2BIG around n=1200.
         let line = format!(
             "refs/heads/branch-{:04} {SHA1_A} refs/heads/branch-{:04} {SHA1_B}",
             0, 0
@@ -591,14 +581,11 @@ mod tests {
         );
     }
 
-    /// TASK-2108 AC#2+#3: the missing-ops diagnostic names [`SKIP_ENV_VAR`]
-    /// as the escape hatch, so the bypass must fire before the probe that
-    /// prints it — otherwise the only advice a stuck user gets is advice
-    /// that does not work. Driven with `ops` off PATH, which is the
-    /// situation in question; mirrors
-    /// `run_before_commit`'s `hook_script_honours_the_bypass_when_ops_is_missing`.
-    /// TEST-15 / TASK-2142: PATH holds only the empty tempdir, so the probe
-    /// fails unconditionally and the fall-through can never exec a real ops.
+    /// The missing-ops diagnostic names [`SKIP_ENV_VAR`] as the escape
+    /// hatch, so the bypass must fire before the probe that prints it —
+    /// otherwise the only advice a stuck user gets is advice that does not
+    /// work. PATH holds only the empty tempdir, so the probe fails
+    /// unconditionally and the fall-through can never exec a real `ops`.
     #[cfg(unix)]
     #[test]
     #[serial_test::serial]
@@ -730,10 +717,9 @@ mod tests {
         }
     }
 
-    /// SEC-33 / TASK-2141: the truncation marker short-circuits to `Run`
-    /// before classification — a truncated stream is a prefix, and a prefix
-    /// of a delete-heavy mirror push could otherwise read as delete-only
-    /// and skip the checks.
+    /// The truncation marker short-circuits to `Run` before classification —
+    /// a truncated stream is a prefix, and a prefix of a delete-heavy
+    /// mirror push could otherwise read as delete-only and skip the checks.
     #[test]
     #[serial_test::serial]
     fn push_refs_runs_when_the_truncation_marker_is_set() {
@@ -799,10 +785,8 @@ mod tests {
 
     // -- Extension metadata --
 
-    /// TEST-11 / TASK-0720: pin the public identifier against external
-    /// sources of truth instead of comparing the const to a literal copy of
-    /// itself. Mirrors the structural checks in run-before-commit so both
-    /// crates stay in lockstep.
+    /// Pin the public identifier against external sources of truth instead
+    /// of comparing the const to a literal copy of itself.
     #[test]
     fn extension_constants() {
         assert!(
@@ -818,11 +802,11 @@ mod tests {
         assert!(!DESCRIPTION.is_empty());
     }
 
-    /// TEST-5 / TASK-1909: `HOOK_CONFIG` is the only thing distinguishing
-    /// this crate from `ops-run-before-commit`, and every field of it is a
-    /// copy-paste hazard. Pin each one — the identifiers against the literal
-    /// strings they must equal, so swapping in the sibling crate's constant
-    /// fails here instead of shipping green.
+    /// `HOOK_CONFIG` is the only thing distinguishing this crate from
+    /// `ops-run-before-commit`, and every field of it is a copy-paste
+    /// hazard. Pin each one — the identifiers against the literal strings
+    /// they must equal, so swapping in the sibling crate's constant fails
+    /// here instead of shipping green.
     #[test]
     fn hook_config_pins_every_macro_argument() {
         assert_eq!(HOOK_CONFIG.hook_filename, "pre-push");
@@ -840,9 +824,9 @@ mod tests {
         );
     }
 
-    /// TEST-5 / TASK-1909: a `legacy_markers` list copied from the commit
-    /// crate would make `install` refuse to upgrade a real legacy pre-push
-    /// hook — or claim an unrelated one.
+    /// A `legacy_markers` list copied from the commit crate would make
+    /// `install` refuse to upgrade a real legacy pre-push hook — or claim
+    /// an unrelated one.
     #[test]
     fn hook_config_legacy_markers_only_match_push_hooks() {
         assert!(!HOOK_CONFIG.legacy_markers.is_empty());
