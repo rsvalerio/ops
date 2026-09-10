@@ -30,11 +30,15 @@ use std::path::Path;
 #[must_use = "LoadResult carries the ingested record_count — discarding it silently hides whether any rows landed in DuckDB"]
 #[non_exhaustive]
 pub struct LoadResult {
+    /// Name of the pipeline whose data was loaded.
     pub source_name: &'static str,
+    /// Rows the load landed in the database.
     pub record_count: u64,
 }
 
 impl LoadResult {
+    /// Builds a successful result for `source_name` carrying `record_count`.
+    #[must_use = "return the result; building it logs nothing"]
     pub const fn success(source_name: &'static str, record_count: u64) -> Self {
         Self {
             source_name,

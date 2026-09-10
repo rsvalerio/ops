@@ -63,21 +63,29 @@ pub(crate) const MAX_NESTING_DEPTH: usize = 128;
 /// convention used by `tokei` and every other counter.
 #[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Debug)]
 pub enum LineKind {
+    /// A line holding only whitespace.
     Blank,
+    /// A line holding only a comment.
     Comment,
+    /// A line holding only a doc comment (`///` or `//!`).
     Doc,
+    /// A line holding executable code.
     Code,
 }
 
 /// Which bucket a line's counts land in.
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub enum Region {
+    /// Production code: everything outside `tests/` and `examples/`.
     Main,
+    /// Integration tests under `tests/`.
     Test,
+    /// Examples under `examples/`.
     Example,
 }
 
 impl Region {
+    /// The region's lowercased name, as stored in the `region` column.
     #[must_use]
     pub const fn as_str(self) -> &'static str {
         match self {
@@ -92,13 +100,19 @@ impl Region {
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 #[non_exhaustive]
 pub struct Locs {
+    /// Executable code lines.
     pub code: u64,
+    /// Doc-comment lines (`///`, `//!`).
     pub docs: u64,
+    /// Non-doc comment lines.
     pub comments: u64,
+    /// Whitespace-only lines.
     pub blanks: u64,
 }
 
 impl Locs {
+    /// Total lines across the four buckets for this region.
+    ///
     /// The four buckets partition the lines of a single file region: every
     /// line of the file bumps exactly one of them once (see `Locs::add`),
     /// so their sum equals that region's line count, which is bounded by the
@@ -112,6 +126,7 @@ impl Locs {
             .saturating_add(self.blanks)
     }
 
+    /// Whether every bucket is zero (the region has no counted lines).
     #[must_use]
     pub const fn is_empty(&self) -> bool {
         self.lines() == 0
@@ -135,8 +150,11 @@ impl Locs {
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 #[non_exhaustive]
 pub struct FileCounts {
+    /// Counts for production code (`src/` and the crate root).
     pub main: Locs,
+    /// Counts for integration tests (`tests/`).
     pub test: Locs,
+    /// Counts for examples (`examples/`).
     pub example: Locs,
 }
 

@@ -47,16 +47,23 @@ sql_ident_newtype!(ColumnAlias, "A validated SQL column/table alias.");
 sql_ident_newtype!(ColumnName, "A validated SQL column name.");
 
 /// Per-crate coverage data from `coverage_files`.
+///
+/// The counts are crate totals — regions do not overlap, each source line
+/// is attributed to exactly one crate.
 #[derive(Debug, Clone)]
 #[non_exhaustive]
 pub struct CrateCoverage {
+    /// Total measured lines in the crate (denominator).
     pub lines_count: i64,
+    /// Of those, the lines executed by the test suite (numerator).
     pub lines_covered: i64,
+    /// `lines_covered / lines_count` as a percentage (0–100).
     pub lines_percent: f64,
 }
 
 impl CrateCoverage {
-    #[must_use]
+    /// Builds a coverage record from its raw counts and percentage.
+    #[must_use = "store the returned record; it computes nothing"]
     pub const fn new(lines_count: i64, lines_covered: i64, lines_percent: f64) -> Self {
         Self {
             lines_count,
@@ -65,7 +72,8 @@ impl CrateCoverage {
         }
     }
 
-    #[must_use]
+    /// The all-zero record used when a crate has no coverage data at all.
+    #[must_use = "render the returned zero record instead of skipping the crate"]
     pub const fn zero() -> Self {
         Self {
             lines_count: 0,

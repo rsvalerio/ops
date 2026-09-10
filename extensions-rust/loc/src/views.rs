@@ -9,6 +9,9 @@
 use ops_duckdb::sql::{CreateTableSql, CreateViewSql, SqlError, TableName};
 use std::path::Path;
 
+/// Builds the `CREATE TABLE` statement loading `rust_loc_files.json` at
+/// `path` into the `rust_loc_files` table.
+///
 /// # Errors
 ///
 /// [`SqlError`] if `path` fails path validation; the table name is a valid
@@ -17,6 +20,9 @@ pub fn rust_loc_files_create_sql(path: &Path) -> Result<CreateTableSql, SqlError
     ops_duckdb::sql::create_table_from_json_sql("rust_loc_files", path, None)
 }
 
+/// Builds the `CREATE OR REPLACE VIEW` statement aggregating
+/// `rust_loc_files` into the per-region `rust_loc_summary` view.
+///
 /// SEC-12 / ERR-5: identifiers are routed through the const-validated
 /// [`TableName::from_static`] newtype, so the compile-time invariant
 /// replaces a runtime `Result` whose `Err` variant could never occur.

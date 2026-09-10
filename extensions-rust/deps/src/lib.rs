@@ -56,9 +56,15 @@ pub use types::{
     UpgradeEntry, UpgradeResult,
 };
 
+/// Extension identifier used to register this crate in the engine's
+/// extension registry.
 pub const NAME: &str = "deps";
+/// One-line description shown by `ops about` for this extension.
 pub const DESCRIPTION: &str = "Dependency health: upgrades, advisories, licenses, bans, sources";
+/// CLI-facing short name (`deps`) used in commands and user-facing output.
 pub const SHORTNAME: &str = "deps";
+/// Registry key of the `deps` data provider this crate registers — the key
+/// the about dependencies subpage looks the health report up by.
 pub const DATA_PROVIDER_NAME: &str = "deps";
 
 // ── Tool detection ──────────────────────────────────────────────────────────
@@ -377,6 +383,9 @@ ops_extension::impl_extension! {
     },
 }
 
+/// Data provider assembling the dependency health report by shelling out to
+/// `cargo upgrade --dry-run` and `cargo deny check`, served under the
+/// [`DATA_PROVIDER_NAME`] key.
 pub struct DepsProvider;
 
 impl DataProvider for DepsProvider {

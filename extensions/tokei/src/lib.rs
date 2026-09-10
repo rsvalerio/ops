@@ -34,11 +34,19 @@ use ops_extension::{
 use std::path::Path;
 use tokei::{Config as TokeiConfig, LanguageType, Languages};
 
+/// Extension identifier used to register this crate in the engine's
+/// extension registry.
 pub const NAME: &str = "tokei";
+/// One-line description shown by `ops about` for this extension.
 pub const DESCRIPTION: &str = "Code statistics provider (lines of code, comments, blanks)";
+/// CLI-facing short name (`tokei`) used in commands and user-facing output.
 pub const SHORTNAME: &str = "tokei";
+/// Registry key of the `tokei` data provider this crate registers —
+/// the key the about code/loc subpages look the statistics up by.
 pub const DATA_PROVIDER_NAME: &str = "tokei";
 
+/// Datasource extension exposing tokei-derived per-file code statistics
+/// under the [`DATA_PROVIDER_NAME`] key.
 pub struct TokeiExtension;
 
 ops_extension::impl_extension! {

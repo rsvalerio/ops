@@ -24,9 +24,15 @@ use std::path::Path;
 use std::process::Output;
 use std::time::Duration;
 
+/// Extension identifier used to register this crate in the engine's
+/// extension registry.
 pub const NAME: &str = "cargo-update";
+/// One-line description shown by `ops about` for this extension.
 pub const DESCRIPTION: &str = "Cargo update dry-run: available dependency updates";
+/// CLI-facing short name (`update`) used in commands and user-facing output.
 pub const SHORTNAME: &str = "update";
+/// Registry key of the `cargo_update` data provider this crate registers —
+/// the key the about page's `--update` view looks the parsed entries up by.
 pub const DATA_PROVIDER_NAME: &str = "cargo_update";
 
 /// The action type for a dependency update entry.
@@ -34,6 +40,7 @@ pub const DATA_PROVIDER_NAME: &str = "cargo_update";
 #[serde(rename_all = "lowercase")]
 #[non_exhaustive]
 pub enum UpdateAction {
+    /// A dependency moves from one version to another.
     Update,
     /// PATTERN-1 / TASK-1778: cargo's lockfile-change printer emits
     /// `Downgrading` alongside `Updating` / `Adding` / `Removing` whenever the
@@ -41,7 +48,9 @@ pub enum UpdateAction {
     /// tightened requirement, a lifted `[patch]`, a yanked release). It was
     /// previously dropped with no entry, no count and no log record.
     Downgrade,
+    /// A dependency appears in the lockfile with no prior version.
     Add,
+    /// A dependency leaves the lockfile with no replacement version.
     Remove,
 }
 
@@ -153,14 +162,18 @@ impl UpdateEntry {
 #[must_use = "CargoUpdateResult carries the parsed update entries and counts — silently dropping it makes the cargo update --dry-run invocation observe nothing"]
 #[non_exhaustive]
 pub struct CargoUpdateResult {
+    /// One entry per parsed action line, in cargo's output order.
     pub entries: Vec<UpdateEntry>,
+    /// Number of `Updating` lines in [`CargoUpdateResult::entries`].
     pub update_count: usize,
     /// PATTERN-1 / TASK-1778: dedicated count for `Downgrading` lines.
     /// `#[serde(default)]` so payloads produced before the field existed still
     /// deserialize — the about page consumes this JSON from a cache.
     #[serde(default)]
     pub downgrade_count: usize,
+    /// Number of `Adding` lines in [`CargoUpdateResult::entries`].
     pub add_count: usize,
+    /// Number of `Removing` lines in [`CargoUpdateResult::entries`].
     pub remove_count: usize,
 }
 
@@ -582,6 +595,9 @@ fn parse_action_line(line: &str) -> ActionLineOutcome {
     ActionLineOutcome::Parsed(entry)
 }
 
+/// Datasource extension exposing parsed `cargo update --dry-run` results
+/// under the [`DATA_PROVIDER_NAME`] key.
+///
 /// API-9 / TASK-0922: construct via the registered extension factory only.
 #[non_exhaustive]
 pub struct CargoUpdateExtension;

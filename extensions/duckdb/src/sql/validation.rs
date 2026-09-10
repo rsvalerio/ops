@@ -36,19 +36,28 @@
 use std::path::Path;
 use thiserror::Error;
 
+/// A path or identifier failed shared SQL-validation.
 #[derive(Debug, Error)]
 #[non_exhaustive]
 pub enum SqlError {
+    /// The path contains a character outside the accepted set.
     #[error("invalid character in path: {0:?}")]
     InvalidPathChar(char),
+    /// The path escapes its intended directory via `..` or an absolute
+    /// prefix.
     #[error("path traversal not allowed: {}", .0.display())]
     PathTraversalNotAllowed(std::path::PathBuf),
+    /// The identifier does not match the `[a-zA-Z_][a-zA-Z0-9_]*` shape.
     #[error("invalid SQL identifier: {0:?}")]
     InvalidIdentifier(String),
+    /// A fragment destined for `extra_opts` carries characters no `DuckDB`
+    /// option accepts.
     #[error("invalid extra_opts fragment: {0:?}")]
     InvalidExtraOpts(String),
+    /// The path is not valid UTF-8 and cannot be interpolated.
     #[error("path is not valid UTF-8: {0:?}")]
     InvalidUtf8Path(std::ffi::OsString),
+    /// The path is the empty string.
     #[error("path is empty")]
     EmptyPath,
 }

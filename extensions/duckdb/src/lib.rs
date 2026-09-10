@@ -91,9 +91,15 @@ pub fn get_db(ctx: &Context) -> Option<&DuckDb> {
 // READ-10 / TASK-1873: these are `pub const`s in a library crate, i.e. part of
 // the public surface — `dead_code` never fires on them, so the two
 // suppressions they used to carry silenced nothing.
+/// Extension identifier used to register this crate in the engine's
+/// extension registry.
 pub const NAME: &str = "duckdb";
+/// One-line description shown by `ops about` for this extension.
 pub const DESCRIPTION: &str = "Per-project DuckDB database for data collection";
+/// CLI-facing short name (`db`) used in commands and user-facing output.
 pub const SHORTNAME: &str = "db";
+/// Registry key of the `duckdb` data provider this crate registers —
+/// the key the about code/loc subpages look the database handle up by.
 pub const DATA_PROVIDER_NAME: &str = "duckdb";
 
 // TRAIT-9 / TASK-1227: `DuckDbHandle` now has a blanket impl over
@@ -102,12 +108,16 @@ pub const DATA_PROVIDER_NAME: &str = "duckdb";
 // longer customise the `as_any` body — the canonical `self` body is
 // the compile-time-enforced contract).
 
+/// Datasource extension opening the per-project `DuckDB` database at the
+/// configured path and attaching it to the run's [`Context`].
 pub struct DuckDbExtension {
     db_path: PathBuf,
 }
 
 impl DuckDbExtension {
-    #[must_use]
+    /// Creates an extension that opens (or creates) the database at
+    /// `db_path`.
+    #[must_use = "register the returned extension; constructing it opens nothing"]
     pub const fn new(db_path: PathBuf) -> Self {
         Self { db_path }
     }

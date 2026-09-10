@@ -105,9 +105,18 @@ use ops_core::text::read_capped_to_string;
 use ops_extension::{Context, DataProvider, DataProviderError, DataProviderSchema, ExtensionType};
 use std::path::{Path, PathBuf};
 
+/// Extension identifier used to register this crate in the engine's
+/// extension registry.
 pub const NAME: &str = "cargo-toml";
+/// One-line description shown by `ops about` for this extension.
 pub const DESCRIPTION: &str = "Cargo.toml manifest parser and workspace data provider";
+/// CLI-facing short name (`cargo`) used in commands and user-facing output.
 pub const SHORTNAME: &str = "cargo";
+/// Registry key of the `cargo_toml` data provider this crate registers.
+///
+/// Note the underscore spelling, unlike the hyphenated [`NAME`]: consumers
+/// such as ops-about-rust's manifest cache look the provider up by exactly
+/// this key.
 pub const DATA_PROVIDER_NAME: &str = "cargo_toml";
 
 /// Extension that provides Cargo.toml parsing capabilities.

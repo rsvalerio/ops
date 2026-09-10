@@ -25,6 +25,12 @@
     )
 )]
 
+// API-14 / TASK-2198: the five modules below are private, so the `pub`
+// items inside them are crate-internal — that spelling (rather than
+// `pub(crate)`) is the convention `clippy::redundant_pub_crate` enforces
+// workspace-wide; see the note in `ops-cargo-toml`'s lib.rs. The crate's
+// exported surface is the const quartet, `CoverageExtension` and
+// `load_coverage` below.
 mod ingestor;
 mod parse;
 mod provider;
@@ -36,17 +42,24 @@ mod views;
 // API-9 / TASK-1601: CoverageIngestor has no external callers; kept
 // crate-private (ingestor + provider reference it via crate-internal paths).
 // API-9 / TASK-1602: flatten_coverage_json / collect_coverage have no external
-// callers either; demoted to pub(crate) in parse.rs.
+// callers either; they stay in the private parse.rs, so nothing they declare
+// is reachable outside the crate.
 
 use crate::ingestor::CoverageIngestor;
 use ops_duckdb::{init_schema, DataIngestor, DuckDb, IngestDir, LoadResult};
 use ops_extension::ExtensionType;
 
+/// Extension identifier used to register this crate in the engine's
+/// extension registry.
 pub const NAME: &str = "coverage";
+/// One-line description shown by `ops about` for this extension.
 pub const DESCRIPTION: &str = "LLVM code coverage provider (per-file line, function, region, \
      branch coverage); requires cargo-llvm-cov (cargo install cargo-llvm-cov + \
      rustup component add llvm-tools-preview)";
+/// CLI-facing short name (`cov`) used in commands and user-facing output.
 pub const SHORTNAME: &str = "cov";
+/// Registry key of the `coverage` data provider this crate registers — the
+/// key the about coverage subpage looks the per-unit coverage table up by.
 pub const DATA_PROVIDER_NAME: &str = "coverage";
 
 /// API-9 / TASK-0922: construct via the registered extension factory only.

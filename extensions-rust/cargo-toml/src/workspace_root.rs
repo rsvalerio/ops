@@ -17,13 +17,24 @@ use std::path::{Path, PathBuf};
 #[derive(Debug, thiserror::Error)]
 #[non_exhaustive]
 pub enum FindWorkspaceRootError {
+    /// No `Cargo.toml` exists in the start directory or any ancestor within
+    /// the walked depth.
     #[error(
         "no Cargo.toml found in {start} or any parent directory (walked up to {depth} ancestors)"
     )]
-    NotFound { start: PathBuf, depth: usize },
+    NotFound {
+        /// Directory the ancestor walk started from.
+        start: PathBuf,
+        /// Number of ancestors walked before giving up.
+        depth: usize,
+    },
+    /// The start directory could not be canonicalized, so the walk never
+    /// began.
     #[error("failed to canonicalize {path}")]
     CanonicalizeFailed {
+        /// Directory whose canonicalization failed.
         path: PathBuf,
+        /// The underlying I/O error.
         #[source]
         source: std::io::Error,
     },

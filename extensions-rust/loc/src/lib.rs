@@ -33,11 +33,20 @@ use ops_extension::{
 
 use counter::{count_source, region_from_path, FileCounts, Region};
 
+/// Extension identifier used to register this crate in the engine's
+/// extension registry.
 pub const NAME: &str = "rust-loc";
+/// One-line description shown by `ops about` for this extension.
 pub const DESCRIPTION: &str = "Rust line counts split into production, test, and example code";
+/// CLI-facing short name (`rust-loc`) used in commands and user-facing
+/// output.
 pub const SHORTNAME: &str = "rust-loc";
+/// Registry key of the `rust-loc` data provider this crate registers —
+/// the key the about loc subpage looks the statistics up by.
 pub const DATA_PROVIDER_NAME: &str = "rust-loc";
 
+/// Datasource extension exposing per-region Rust line counts under the
+/// [`DATA_PROVIDER_NAME`] key.
 pub struct RustLocExtension;
 
 ops_extension::impl_extension! {

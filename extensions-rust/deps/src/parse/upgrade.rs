@@ -461,6 +461,11 @@ fn contains_ascii_ci(haystack: &str, needle: &str) -> bool {
 }
 
 /// Split upgrade entries into compatible and incompatible.
+///
+/// Classification rule: an entry whose [`UpgradeEntry::note`] contains
+/// `incompatible` (ASCII case-insensitive) is breaking; every other entry —
+/// including notes that use different wording or no note at all — counts as
+/// compatible.
 pub fn categorize_upgrades(entries: Vec<UpgradeEntry>) -> UpgradeResult {
     let mut compatible = Vec::new();
     let mut incompatible = Vec::new();

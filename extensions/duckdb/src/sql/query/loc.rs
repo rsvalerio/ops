@@ -151,12 +151,21 @@ pub fn query_project_languages(db: &DuckDb) -> anyhow::Result<Vec<LanguageStat>>
 /// published, so the compatibility guarantee it buys has no consumer.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct RustLocStat {
+    /// Region name (`main`, `test`, `example`); the three regions partition
+    /// a workspace's files, so counts never overlap between rows.
     pub region: String,
+    /// Number of files counted in the region.
     pub files: i64,
+    /// Lines of executable code.
     pub code: i64,
+    /// Doc-comment lines (`///`, `//!`) — a separate bucket from
+    /// `comments`.
     pub docs: i64,
+    /// Non-doc comment lines.
     pub comments: i64,
+    /// Whitespace-only lines.
     pub blanks: i64,
+    /// Total lines: `code + docs + comments + blanks`.
     pub lines: i64,
 }
 
