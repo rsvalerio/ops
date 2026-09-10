@@ -1,21 +1,25 @@
 //! `package.json` parsing and the npm-shorthand URL / person normalisers.
 
-use std::path::Path;
+use std::collections::HashSet;
+use std::path::{Path, PathBuf};
+use std::sync::{Mutex, OnceLock, PoisonError};
 
+use ops_about::text_util::trim_nonempty;
 use serde::Deserialize;
 
 use super::repo_url::{append_tree_directory, normalize_repo_url};
 
-/// The parsed `package.json` fields the about providers render.
+/// The `package.json` fields the Node about providers render, normalised.
 ///
-/// API-9 / TASK-1740: `#[non_exhaustive]` used to sit here, where it was
-/// inert — `mod package_json` is private, so the type is unreachable from
-/// outside the crate and the attribute constrains nobody (`lib.rs` in fact
-/// destructures it exhaustively). The attribute stays on
-/// `AboutNodeExtension`, which is genuinely public and constructed by
-/// consumers. The private module is the visibility boundary; the `pub`
-/// spelling on the type and its fields is the crate-internal convention
-/// `clippy::redundant_pub_crate` enforces workspace-wide (API-14 / TASK-2232).
+/// Every string is trimmed and dropped when empty, and the two URL fields
+/// have passed the manifest-URL policy in [`pick_manifest_url`]. A field the
+/// manifest omits — or one the policy rejects — is `None`, so the About card
+/// renders it as missing. `has_packagemanager` carries the raw
+/// `packageManager` value for [`crate::package_manager`] to interpret.
+///
+/// Crate-internal: `mod package_json` is private, so the `pub` spelling is
+/// the visibility the workspace-wide `clippy::redundant_pub_crate` policy
+/// expects rather than a public API surface.
 #[derive(Debug, Default)]
 pub struct PackageJson {
     pub name: Option<String>,
@@ -84,30 +88,25 @@ struct Engines {
     node: Option<String>,
 }
 
+/// Read and normalise the root `package.json`, or `None` when it is absent
+/// or unparseable.
 pub fn parse_package_json(project_root: &Path) -> Option<PackageJson> {
-    // DUP-3 (TASK-0931): route the read through the shared cache so the
-    // sister `workspace_member_globs` site does not pay for a second IO +
-    // re-parse on the same `package.json`. Mirrors the Python
-    // manifest_cache pattern (TASK-0816).
-    let path = project_root.join("package.json");
+    // The read goes through the shared cache so the sister
+    // `workspace_member_globs` site pays no second IO on the same file; each
+    // caller still deserialises its own projection.
     let content = ops_about::manifest_cache::for_filename("package.json").read(project_root)?;
     let raw: RawPackage = match serde_json::from_str(&content) {
         Ok(r) => r,
         Err(e) => {
-            tracing::warn!(
-                path = ?path.display(),
-                error = %e,
-                recovery = "default-identity",
-                "failed to parse package.json"
-            );
+            warn_parse_failure(&project_root.join("package.json"), &e);
             return None;
         }
     };
 
-    // PERF-2 / TASK-0819: bound is `1 (author) + contributors.len()`; allocate
-    // once instead of growing through repeated `push`.
-    // `contributors` came from a deserialised in-memory `Vec`, so its length
-    // is at most `isize::MAX` and the `+ 1` cannot overflow `usize`.
+    // The bound is `1 (author) + contributors.len()`, so one allocation
+    // replaces growth through repeated `push`. `contributors` came from a
+    // deserialised in-memory `Vec`, so its length is at most `isize::MAX` and
+    // the `+ 1` cannot overflow `usize`.
     let mut authors = Vec::with_capacity(raw.contributors.len().saturating_add(1));
     if let Some(a) = raw.author {
         if let Some(s) = format_person(a) {
@@ -124,34 +123,21 @@ pub fn parse_package_json(project_root: &Path) -> Option<PackageJson> {
         name: trim_nonempty(raw.name),
         version: trim_nonempty(raw.version),
         description: trim_nonempty(raw.description),
-        // ERR-2 / TASK-0813: trim+drop-empty for license text and object
-        // forms, mirroring the pattern applied to name/version/description
-        // and to pyproject's normalize_license — a whitespace-only license
-        // value should not render as a blank About bullet.
+        // Trim and drop-empty for both license forms: a whitespace-only
+        // license must not render as a blank About bullet.
         license: raw.license.and_then(|l| match l {
             LicenseField::Text(s) => trim_nonempty(Some(s)),
             LicenseField::Object { r#type } => trim_nonempty(r#type),
         }),
-        // SEC-2 / TASK-2222: `homepage` comes from the same untrusted
-        // `package.json` as `repository`, so it gets the same two policies
-        // via the shared `ops_about::text_util` helpers rather than a local
-        // copy: any control / Unicode formatting codepoint drops the field
-        // (mirroring SEC-2 / TASK-1165 on `repository` and TASK-1207 on the
-        // Python provider), and the scheme must be in the shared `http(s)`
-        // allowlist (SEC-11 / TASK-1755 / TASK-1722) — a `javascript:`,
-        // `data:`, or `file:` homepage renders as a clickable XSS /
-        // local-file link in every markdown / HTML consumer of
-        // `ops about --json`. Both rejections drop the field (rendered as
-        // missing), never strip, matching the drop-not-strip policy the
-        // crate already applies to `repository`.
+        // `homepage` is untrusted manifest text: see [`pick_manifest_url`]
+        // for the policy it must clear.
         homepage: pick_manifest_url(raw.homepage),
-        // SEC-2 / TASK-1165: `normalize_repo_url` returns "" when the input
-        // contains control bytes; surface that as a missing field rather than
-        // an empty link in the About card.
+        // `normalize_repo_url` returns "" for a value it rejects (control
+        // bytes, or a scheme outside the `http(s)` allowlist); surface that
+        // as a missing field rather than an empty link in the About card.
         repository: raw.repository.and_then(|r| match r {
-            // PERF-3 / TASK-1257: `normalize_repo_url` returns `Cow<str>` so
-            // the clean-URL hot path stays alloc-free; only `into_owned()`
-            // when we need to hand a String to the field.
+            // `normalize_repo_url` yields a `Cow<str>`, so the clean-URL path
+            // stays alloc-free and only the owned field forces a copy.
             RepositoryField::Text(s) => trim_nonempty(Some(normalize_repo_url(&s).into_owned())),
             RepositoryField::Object { url, directory } => url.and_then(|u| {
                 let base = normalize_repo_url(&u);
@@ -165,27 +151,57 @@ pub fn parse_package_json(project_root: &Path) -> Option<PackageJson> {
             }),
         }),
         authors,
-        // ERR-2 / TASK-0814: trim+drop-empty so a whitespace-only `engines.node`
-        // does not render as `Node    · …` in `build_stack_detail`.
+        // Trim and drop-empty so a whitespace-only `engines.node` does not
+        // render as `Node    · …` in `build_stack_detail`.
         engines_node: raw.engines.and_then(|e| trim_nonempty(e.node)),
         has_packagemanager: raw.package_manager,
     })
 }
 
-// DUP-3 / TASK-1258: import of the shared
-// `ops_about::text_util::trim_nonempty` so existing call sites keep their
-// short name. Both about-node and about-python previously redefined this
-// helper verbatim; the shared definition is the single drift surface for
-// future tightening of ERR-2 trim semantics. API-13 / TASK-2232: a plain
-// `use`, not a `pub use` — the foreign item keeps its single public path.
-use ops_about::text_util::trim_nonempty;
+/// Report a `package.json` that failed to deserialise, once per path for the
+/// life of the process.
+///
+/// Both providers this crate registers deserialise their own projection of
+/// the same manifest text, and `resolved_members` parses it again for the
+/// identity card's package count, so a single syntax error is observed
+/// several times per `ops about` run. Emitting one record per path keeps an
+/// operator from hunting for a second broken manifest that does not exist,
+/// and matches the process-lifetime caching of the manifest text itself in
+/// `ops_about::manifest_cache`.
+///
+/// The path flows through the `Debug` formatter so embedded newlines or ANSI
+/// escapes in an attacker-controlled checkout path cannot forge extra log
+/// records; the serde error uses `Display`, which is the readable form.
+pub fn warn_parse_failure(path: &Path, error: &serde_json::Error) {
+    static WARNED: OnceLock<Mutex<HashSet<PathBuf>>> = OnceLock::new();
+    let mut seen = WARNED
+        .get_or_init(|| Mutex::new(HashSet::new()))
+        .lock()
+        .unwrap_or_else(PoisonError::into_inner);
+    if !seen.insert(path.to_path_buf()) {
+        return;
+    }
+    drop(seen);
+    tracing::warn!(
+        path = ?path.display(),
+        error = %error,
+        recovery = "defaults",
+        "failed to parse package.json"
+    );
+}
 
-/// SEC-2 / SEC-11 / TASK-2222: apply the shared manifest-URL policies to a
-/// `package.json` URL field — trim / drop-empty, then drop the whole field
-/// on any control / Unicode formatting codepoint, then require an
-/// allowlisted `http(s)` scheme. Mirrors `pick_url` in the Python provider
-/// (`extensions-python/about/src/lib.rs`, TASK-1207 / TASK-1755) so both
-/// stacks apply the identical chain through the identical shared helpers.
+/// Apply the manifest-URL policy to a `package.json` URL field: trim and
+/// drop-empty, then drop the whole field when it carries any control or
+/// Unicode formatting codepoint, then require an allowlisted `http(s)`
+/// scheme.
+///
+/// Rejection drops the field — rendering as missing — rather than stripping
+/// the offending part, because a partially-scrubbed URL is still a link a
+/// consumer will follow. A `javascript:`, `data:` or `file:` URL is a live
+/// XSS or local-file sink in any markdown / HTML consumer of
+/// `ops about --json`, and a control character forges an extra line in the
+/// About card and in log records. The Python provider's `pick_url` applies
+/// the identical chain through the same `ops_about::text_util` helpers.
 fn pick_manifest_url(raw: Option<String>) -> Option<String> {
     use ops_about::text_util::{contains_control_chars, has_allowed_url_scheme};
     trim_nonempty(raw)
@@ -193,9 +209,10 @@ fn pick_manifest_url(raw: Option<String>) -> Option<String> {
         .filter(|s| has_allowed_url_scheme(s))
 }
 
+/// Render an npm `person` field (string or object form) as a display line,
+/// or `None` when it carries no non-whitespace content — a whitespace-only
+/// author must not render as an empty bullet in the About card.
 fn format_person(p: PersonField) -> Option<String> {
-    // ERR-2 (TASK-0566): trim and re-check empty so whitespace-only authors do
-    // not render as empty bullets in the About card.
     match p {
         PersonField::Text(s) => {
             let trimmed = s.trim();
@@ -218,20 +235,14 @@ fn format_person(p: PersonField) -> Option<String> {
     }
 }
 
-// ARCH-1 / TASK-0848: normalize_repo_url, ssh_to_https, append_tree_directory,
-// is_numeric_port_prefix moved to `super::repo_url` so the SEC-14
-// path-sanitisation surface lives in its own module with its own test target.
-
 #[cfg(test)]
 mod tests {
     use super::*;
 
-    /// ERR-7 (TASK-0818): manifest paths flow through `tracing::warn!` via
-    /// the `?` formatter so embedded newlines or ANSI escapes cannot forge
-    /// multi-line log records. DUP-3 / TASK-0985: defer the assertion to
-    /// the shared `ops_about::test_support::assert_debug_escapes_control_chars`
-    /// helper so removing one provider's per-site test still leaves the
-    /// property pinned somewhere.
+    /// Manifest paths reach `tracing::warn!` through the `?` formatter, so
+    /// embedded newlines or ANSI escapes cannot forge multi-line log
+    /// records. The assertion itself is shared, so the property stays pinned
+    /// even if one provider's per-site test goes away.
     #[test]
     fn package_json_path_debug_escapes_control_characters() {
         let p = Path::new("a\nb\u{1b}[31mc/package.json");
@@ -286,7 +297,6 @@ mod tests {
 
     #[test]
     fn parse_package_json_whitespace_only_license_text_dropped() {
-        // ERR-2 / TASK-0813
         let dir = tempfile::tempdir().expect("tempdir");
         std::fs::write(
             dir.path().join("package.json"),
@@ -299,7 +309,6 @@ mod tests {
 
     #[test]
     fn parse_package_json_whitespace_only_license_object_type_dropped() {
-        // ERR-2 / TASK-0813
         let dir = tempfile::tempdir().expect("tempdir");
         std::fs::write(
             dir.path().join("package.json"),
@@ -312,7 +321,6 @@ mod tests {
 
     #[test]
     fn parse_package_json_whitespace_only_engine_node_dropped() {
-        // ERR-2 / TASK-0814
         let dir = tempfile::tempdir().expect("tempdir");
         std::fs::write(
             dir.path().join("package.json"),
@@ -337,10 +345,9 @@ mod tests {
         assert_eq!(pkg.homepage, None);
     }
 
-    // ARCH-1 / TASK-0848: unit tests for normalize_repo_url and
-    // append_tree_directory live next to the implementation in
-    // `super::repo_url`. The parse-orchestrator integration tests below
-    // exercise the same code via the parse_package_json entry point.
+    // Unit tests for `normalize_repo_url` and `append_tree_directory` live
+    // next to the implementation in `super::repo_url`; the tests below drive
+    // the same code through the `parse_package_json` entry point.
 
     #[test]
     fn repository_object_with_directory_appends_tree_path() {
@@ -389,9 +396,9 @@ mod tests {
         );
     }
 
-    /// SEC-11 / TASK-1722: a `javascript:` (or `data:`, `file:`) repository
-    /// value is rejected by the scheme allowlist, and the parser must surface
-    /// that as a missing field rather than an empty string.
+    /// A `javascript:` (or `data:`, `file:`) repository value is rejected by
+    /// the scheme allowlist, and the parser surfaces that as a missing field
+    /// rather than an empty string.
     #[test]
     fn parse_drops_repository_with_disallowed_scheme() {
         let dir = tempfile::tempdir().unwrap();
@@ -408,8 +415,8 @@ mod tests {
         assert_eq!(parsed.repository, None);
     }
 
-    /// SEC-11 / TASK-1722: same for the object form, where a rejected base
-    /// URL must also suppress the `/tree/HEAD/<directory>` suffix.
+    /// Same for the object form, where a rejected base URL must also
+    /// suppress the `/tree/HEAD/<directory>` suffix.
     #[test]
     fn parse_drops_repository_object_with_disallowed_scheme() {
         let dir = tempfile::tempdir().unwrap();
@@ -426,10 +433,10 @@ mod tests {
         assert_eq!(parsed.repository, None);
     }
 
-    /// SEC-2 / SEC-11 / TASK-2222 AC #4: a `javascript:` homepage is a live
-    /// XSS sink in any consumer that renders `ops about --json` output as a
-    /// hyperlink. The field must be dropped (rendered as missing), not
-    /// stripped — mirroring what `repository` already gets.
+    /// A `javascript:` homepage is a live XSS sink in any consumer that
+    /// renders `ops about --json` output as a hyperlink. The field is dropped
+    /// (rendered as missing), not stripped — the same treatment `repository`
+    /// gets.
     #[test]
     fn parse_drops_homepage_with_javascript_scheme() {
         let dir = tempfile::tempdir().unwrap();
@@ -446,9 +453,8 @@ mod tests {
         assert_eq!(parsed.homepage, None);
     }
 
-    /// SEC-11 / TASK-2222 AC #4: `data:` and `file:` homepages are dropped —
-    /// the same sinks the scheme allowlist already closes for `repository`
-    /// (TASK-1722).
+    /// `data:` and `file:` homepages are dropped — the same sinks the scheme
+    /// allowlist closes for `repository`.
     #[test]
     fn parse_drops_homepage_with_data_and_file_schemes() {
         for homepage in [
@@ -467,8 +473,8 @@ mod tests {
         }
     }
 
-    /// SEC-2 / TASK-2222 AC #4: an embedded LF forges an extra line in the
-    /// About card (and in log records); the field is dropped entirely.
+    /// An embedded LF forges an extra line in the About card (and in log
+    /// records); the field is dropped entirely.
     #[test]
     fn parse_drops_homepage_with_embedded_lf() {
         let dir = tempfile::tempdir().unwrap();
@@ -482,8 +488,8 @@ mod tests {
         assert_eq!(parsed.homepage, None);
     }
 
-    /// SEC-2 / SEC-11 / TASK-2222: an allowed-scheme, control-free homepage
-    /// keeps flowing — the gate must not eat the legitimate field.
+    /// An allowed-scheme, control-free homepage keeps flowing — the gate must
+    /// not eat the legitimate field.
     #[test]
     fn parse_keeps_legitimate_homepage() {
         let dir = tempfile::tempdir().unwrap();
