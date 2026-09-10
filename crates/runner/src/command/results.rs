@@ -425,9 +425,12 @@ mod tests {
     /// that mutating the env after the first read does not change the cap
     /// observed by subsequent calls.
     #[test]
+    #[serial_test::serial(env_output_cap)]
     fn output_byte_cap_is_memoized_across_calls() {
         let first = output_byte_cap();
-        // SAFETY: tests under `cargo test` run on a single thread per binary.
+        // SAFETY: this test mutates a process-global env var, so it is
+        // serialised against other env-mutating tests via `serial_test`;
+        // the project's nextest gate additionally isolates per process.
         let prev = std::env::var(OUTPUT_CAP_ENV).ok();
         unsafe { std::env::set_var(OUTPUT_CAP_ENV, "1") };
         for _ in 0..100 {
