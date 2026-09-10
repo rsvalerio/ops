@@ -238,11 +238,19 @@ mod tests {
         );
     }
 
-    /// SEC-2 / TASK-1102: a `.git/config` whose `url = ...` value contains
-    /// ASCII control bytes (raw newline, ANSI escape) must not surface
-    /// those bytes through `info.remote_url`. The redaction layer drops
-    /// the line entirely, so the fallback at `GitInfo::collect` never
-    /// observes the poisoned value and `remote_url` ends up `None`.
+    /// SEC-2 / TASK-1102 + TEST-32 / TASK-2118: a `.git/config` whose
+    /// `url = ...` value contains ASCII control bytes (raw newline, ANSI
+    /// escape) must not surface those bytes through `info.remote_url`.
+    /// The redaction layer fails closed — `RedactedUrl::redact` returns
+    /// `None` for any control byte, so the fallback at `GitInfo::collect`
+    /// never observes the poisoned value and `remote_url` ends up `None`.
+    /// There is deliberately no "no raw newline / no ANSI escape in the
+    /// emitted value" assertion here: on this path no value is emitted at
+    /// all, and asserting against an `unwrap_or_default()` empty string
+    /// would be vacuous. The no-leak property against a value that *is*
+    /// emitted is pinned by the parse-level tests in `remote.rs`
+    /// (`rejects_owner_or_repo_with_smuggled_chars`,
+    /// `rejects_invalid_host_charset`).
     #[test]
     fn collect_drops_remote_url_with_control_bytes() {
         let dir = tempfile::tempdir().unwrap();
@@ -257,19 +265,15 @@ mod tests {
         std::fs::write(git_dir.join("config"), cfg.as_bytes()).unwrap();
 
         let info = GitInfo::collect(dir.path());
-        let url = info.remote_url.clone().unwrap_or_default();
-        assert!(
-            !url.contains('\n'),
-            "remote_url leaked raw newline: {url:?}"
-        );
-        assert!(
-            !url.contains('\u{1b}'),
-            "remote_url leaked ANSI escape: {url:?}"
-        );
         assert!(
             info.remote_url.is_none(),
-            "control-byte url= must be dropped, got: {:?}",
+            "control-byte url= must be dropped, not emitted: {:?}",
             info.remote_url
+        );
+        assert!(
+            info.host.is_none(),
+            "a dropped remote must not leave a host behind either, got: {:?}",
+            info.host
         );
     }
 
