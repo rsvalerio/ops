@@ -2,7 +2,7 @@
 
 use std::path::PathBuf;
 
-// DUP-2 / TASK-2162: one definition, re-exported — the shared cap lives in
+// One definition, re-exported — the shared cap lives in
 // `ops_core::bounded_read` next to the read that enforces it, so the fixers
 // and the config checkers cannot drift on what "too big to hold" means. The
 // full rationale (peak resident memory is roughly twice the largest

@@ -18,17 +18,15 @@
 //!
 //! > the output contains exactly as many `0x0A` bytes as the input.
 //!
-//! It previously did not. `has_crlf` was computed from the byte before
-//! `line_end`, and in the no-newline-found branch `line_end` is the length of
-//! the *file* — so a file ending in a bare `\r` took the CRLF branch and had a
-//! two-byte `\r\n` written where the input had one byte, inventing a newline
-//! the input never contained. Whether the invented byte appeared depended on
-//! whether some other part of the line happened to need trimming, so
-//! `"abc \r"` grew while `"abc\r"` did not.
+//! The delicate case is the final line of a file that ends without a
+//! newline: `\r\n` is recognised only where a `\n` was actually found, so a
+//! trailing bare `\r` is re-emitted as the single byte it is and never
+//! promoted to a two-byte `\r\n`. Trimming one line can therefore never
+//! invent a terminator the input did not contain.
 
 /// One line's scan result, produced by [`scan_line`].
 ///
-/// PERF-3 / TASK-2168: the per-line analysis lives here so the clean-file
+/// The per-line analysis lives here so the clean-file
 /// check pass and the rebuild pass share one definition of "this line's
 /// trailing whitespace" and cannot drift.
 struct LineSpan {
@@ -98,7 +96,7 @@ fn scan_line(input: &[u8], start: usize) -> LineSpan {
     }
 }
 
-/// PERF-3 / TASK-2168: scan first, allocate second.
+/// Strip trailing spaces and tabs: scan first, allocate second.
 ///
 /// The check pass walks the lines via [`scan_line`] and returns `None`
 /// without allocating or copying anything when the input is already clean —
@@ -201,8 +199,9 @@ mod tests {
 
     #[test]
     fn trailing_bare_cr_does_not_grow_the_file() {
-        // The regression: this used to become "abc\r\n" — the space stripped
-        // *and* an LF invented, one byte longer than the input.
+        // Reading the trailing `\r` as half of a CRLF would strip the space
+        // *and* invent an LF, making the output "abc\r\n" — one byte longer
+        // than the input.
         let out = fix_trailing(b"abc \r");
         assert_eq!(out.as_deref(), None, "a bare CR is content, not a newline");
     }

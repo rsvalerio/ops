@@ -38,7 +38,8 @@ pub fn fix_eof(input: &[u8]) -> Option<Vec<u8>> {
     // `end <= input.len()` by construction; `?` (i.e. "leave the file alone")
     // is the safe fallback if that invariant ever broke.
     let body = input.get(..end)?;
-    // READ-5 / TASK-2158: the whole input, body *and* terminator run. Asking
+    // The terminator is detected from the whole input, body *and* trailing
+    // newline run — not from the stripped `body`. Asking
     // the stripped `body` instead would see zero newlines for any
     // single-line file and append LF to a CRLF file that was already
     // correct — an unrequested line-ending conversion on the pre-commit
@@ -110,10 +111,9 @@ mod tests {
         assert_eq!(fix("a\r\nb\r\n\r\n").unwrap(), "a\r\nb\r\n");
     }
 
-    /// READ-5 / TASK-2158: the single-line CRLF class. The body of these
-    /// inputs holds no `\n` at all, so a terminator choice made from the
-    /// stripped body would always pick LF and convert the file's line
-    /// ending — the exact bug this pins shut.
+    /// The single-line CRLF class: the body of these inputs holds no `\n` at
+    /// all, so a terminator choice made from the stripped body would always
+    /// pick LF and convert the file's line ending.
     #[test]
     fn single_line_crlf_file_already_correct_is_not_a_change() {
         assert_eq!(fix_eof(b"abc\r\n"), None);

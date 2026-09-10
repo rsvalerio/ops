@@ -6,11 +6,11 @@
 //! cannot be simulated here" and skip, rather than asserting something the
 //! environment cannot make true.
 //!
-//! TEST-26 / TASK-2126, TASK-2166: a skip is never silent any more. Bail-outs
-//! surface a `skip:` line via [`skip_precondition`] (re-exported below), and
-//! the git helpers distinguish "git is absent here" (surfaced skip) from "git
-//! ran and refused" (panic — a broken fixture, not a missing capability), so
-//! a green run can no longer hide that its safety assertions never executed.
+//! No skip here is silent. Bail-outs surface a `skip:` line via
+//! [`skip_precondition`] (re-exported below), and the git helpers distinguish
+//! "git is absent here" (surfaced skip) from "git ran and refused" (panic — a
+//! broken fixture, not a missing capability), so a green run cannot hide that
+//! its safety assertions never executed.
 
 use std::path::{Path, PathBuf};
 
@@ -20,7 +20,7 @@ pub use ops_core::test_utils::skip_precondition;
 
 /// Create a git repository at `dir`.
 ///
-/// TEST-26 / TASK-2166: `false` means exactly one thing — this environment
+/// `false` means exactly one thing — this environment
 /// has no git binary — and the skip has already been surfaced on stderr, so
 /// a caller's `return` is visible in the test output instead of a vacuous
 /// pass. A git that *runs* and fails panics here.

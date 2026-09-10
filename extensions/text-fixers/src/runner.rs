@@ -16,9 +16,8 @@ use crate::{atomic, binary, discovery, eof, trailing};
 
 /// Strip trailing whitespace from every text file under `opts.root`.
 ///
-/// The returned [`FixerReport`] is `#[must_use]` on the type, so a
-/// discarded report warns even after `?` unwraps the `Result`
-/// (API-5 / TASK-2167).
+/// [`FixerReport`] carries `#[must_use]` on the type itself, so a discarded
+/// report warns even after `?` has unwrapped the `Result`.
 ///
 /// # Errors
 ///
@@ -35,9 +34,8 @@ pub fn run_trailing_whitespace(
 
 /// Ensure every text file under `opts.root` ends with exactly one newline.
 ///
-/// The returned [`FixerReport`] is `#[must_use]` on the type, so a
-/// discarded report warns even after `?` unwraps the `Result`
-/// (API-5 / TASK-2167).
+/// [`FixerReport`] carries `#[must_use]` on the type itself, so a discarded
+/// report warns even after `?` has unwrapped the `Result`.
 ///
 /// # Errors
 ///
@@ -56,9 +54,9 @@ pub fn run_end_of_file_fixer(
 ///
 /// # Per-file failures do not abort the run
 ///
-/// This is a deliberate policy, and it is the opposite of what the `?` on the
-/// old `fs::write` did. A batch rewriter that dies on the first unwritable
-/// file (a read-only fixture, a root-owned file, a read-only mount) leaves the
+/// This is a deliberate policy. A batch rewriter that dies on the first
+/// unwritable file (a read-only fixture, a root-owned file, a read-only
+/// mount) leaves the
 /// user with a half-fixed tree **and no record of what it already changed**,
 /// because the report is dropped by the propagating error. Instead each read
 /// or write failure is rendered on `writer` with the offending path and
@@ -101,7 +99,7 @@ fn run_fixer(
         .with_context(|| format!("{label}: writing the discovery fallback notice failed"))?;
     }
     let mut report = FixerReport::default();
-    // DUP-2 / TASK-2162: the walk-error accounting loop is shared with the
+    // The walk-error accounting loop is shared with the
     // config checkers; see `ops_core::bounded_read::report_walk_errors` for
     // why an untraversable directory must fail the run, not just print.
     report_walk_errors(
@@ -124,9 +122,9 @@ fn run_fixer(
     // and the `saturating_add` guards can never actually saturate.
     for path in discovered.files {
         let display = relative_to(&path, &opts.root);
-        // DUP-2 / TASK-2162: the bounded read pipeline is shared with the
-        // config checkers; one implementation in `ops_core::bounded_read`,
-        // so its symlink/type guards and read ceiling cannot diverge again.
+        // The bounded read pipeline is shared with the config checkers; one
+        // implementation in `ops_core::bounded_read`, so its symlink/type
+        // guards and read ceiling stay in one place.
         let (bytes, metadata) = match read_candidate(&path, opts.max_bytes) {
             Ok(candidate) => candidate,
             Err(Rejected::Skipped(reason)) => {

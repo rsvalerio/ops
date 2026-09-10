@@ -55,10 +55,10 @@ mod tests {
     }
 
     #[test]
-    fn nul_far_past_the_old_8_kib_sniff_window_is_still_not_text() {
-        // The predecessor of this function inspected only the first 8 KiB and
-        // called this buffer text; `run_fixer` then rewrote it. Pinning the
-        // opposite is the point of the whole-buffer scan.
+    fn nul_far_past_an_8_kib_sniff_window_is_still_not_text() {
+        // A sniff bounded to the first 8 KiB would call this buffer text and
+        // let `run_fixer` rewrite it. Pinning the opposite is the point of
+        // scanning the whole buffer.
         let mut v = vec![b'a'; 8 * 1024 + 1];
         *v.last_mut().unwrap() = 0;
         assert!(!is_text(&v));

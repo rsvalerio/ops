@@ -34,7 +34,7 @@
 //!   exists for. Each file that was mid-write then keeps one
 //!   [`STAGE_PREFIX`]-named sibling in the worktree (visible in `git status`
 //!   until deleted). The residue is inert: discovery rejects the prefix in
-//!   both walk and tracked modes (PATTERN-9 / TASK-2170), so a leftover is
+//!   both walk and tracked modes, so a leftover is
 //!   never walked, read, or rewritten as a candidate by a later run.
 //!
 //! All three are accepted. A whitespace fixer's failure mode has to be "did
@@ -49,7 +49,7 @@ use std::path::Path;
 /// Stage-file name prefix used by [`replace`].
 ///
 /// Discovery rejects file names starting with this prefix in both walk and
-/// tracked modes (PATTERN-9 / TASK-2170), so a stage file left behind by a
+/// tracked modes, so a stage file left behind by a
 /// killed run is never a candidate for a subsequent fixer run.
 pub const STAGE_PREFIX: &str = ".ops-text-fixers.";
 

@@ -13,7 +13,7 @@
 //! even without a `.git` directory (`require_git(false)`), so a checked-out
 //! worktree without git installed behaves the same.
 //!
-//! # The two modes disagree about exclusions — deliberately (TASK-2165)
+//! # The two modes disagree about exclusions — deliberately
 //!
 //! Walk mode removes deny-listed directories and gitignored paths; tracked
 //! mode does **not** filter `git ls-files` output by either rule. That is a
@@ -50,12 +50,12 @@
 //! from a git hook. It also keeps a link to a FIFO or a device out of the
 //! read path, where it would block or never reach EOF.
 //!
-//! Before this was centralised the two modes disagreed by accident: `walk`
-//! dropped symlinks only because `ignore` reports them with a symlink file
-//! type when `follow_links` is off, while `tracked` pushed every path
-//! `git ls-files` printed. `walk`'s per-entry type test is kept as a cheap
-//! pre-filter (it also removes directories without a second `stat`), but
-//! `is_candidate` is the authority for both modes.
+//! Centralising the rule is what keeps the two modes in agreement: `walk`
+//! would otherwise drop symlinks only incidentally, because `ignore` reports
+//! them with a symlink file type when `follow_links` is off, while `tracked`
+//! pushes every path `git ls-files` prints. `walk`'s per-entry type test is
+//! kept as a cheap pre-filter (it also removes directories without a second
+//! `stat`), but `is_candidate` is the authority for both modes.
 //!
 //! # Path encoding
 //!
@@ -154,8 +154,8 @@ enum Tracked {
 /// change which of the user's files get rewritten. `dubious ownership` (a repo
 /// checked out under another uid — the default in containers and on shared
 /// build agents) is exactly that case: git exits non-zero on a directory that
-/// *is* a repo, and a single `None` return used to turn that into "rewrite
-/// every untracked scratch file too".
+/// *is* a repo, and folding it into the fallback would turn that into
+/// "rewrite every untracked scratch file too".
 ///
 /// # Errors
 ///
@@ -205,13 +205,13 @@ fn walked(root: &Path, fallback: Option<Fallback>) -> io::Result<Discovery> {
 /// the layer that can report it. Dropping it here would put the path straight
 /// back into the class of files nobody is told about.
 ///
-/// The one type-based exception is [`crate::atomic::STAGE_PREFIX`] names
-/// (PATTERN-9 / TASK-2170): a stage file left behind by a killed run is this
-/// crate's own operational residue — a copy of already-fixed content — never
-/// repository content, so it is rejected in **both** modes. Unlike `SKIP_DIRS`
-/// this is not a TASK-2165 exclusion: that rule defers to the user's index
-/// for repository content, and a stage file is not that even when a
-/// post-interrupt `git add -A` staged it.
+/// The one name-based exception is [`crate::atomic::STAGE_PREFIX`]: a stage
+/// file left behind by a killed run is this crate's own operational residue —
+/// a copy of already-fixed content — never repository content, so it is
+/// rejected in **both** modes. That is not an exclusion of the `SKIP_DIRS`
+/// kind: those defer to the user's index for repository content, and a stage
+/// file is not repository content even when a post-interrupt `git add -A`
+/// staged it.
 fn is_candidate(path: &Path) -> bool {
     if path.file_name().is_some_and(|name| {
         name.to_string_lossy()
@@ -229,16 +229,16 @@ fn retain_regular_files(files: &mut Vec<PathBuf>) {
 /// Walk `root`, returning the candidate files and a rendered line for every
 /// entry the walk could not traverse.
 ///
-/// Per-entry errors used to be dropped by a bare `.flatten()`. An unreadable
-/// directory then contributed zero files in silence, which on a gate reads as
-/// "nothing to fix here".
+/// Per-entry errors are rendered rather than dropped: an unreadable directory
+/// that contributed zero files in silence would read, on a gate, as "nothing
+/// to fix here".
 ///
 /// # No dispatch deadline here
 ///
-/// SEC-33 / TASK-2052 grouped this walk with the ones in `tokei` and
-/// `rust-loc` and asked all three to poll `Context::check_deadline`. The other
-/// two are `DataProvider`s: they run inside `DataRegistry::provide`, which
-/// installs the budget on a `Context`. This walk is not — no `Context` reaches
+/// This walk does not poll `Context::check_deadline`, unlike the ones in
+/// `tokei` and `rust-loc`. Those two are `DataProvider`s: they run inside
+/// `DataRegistry::provide`, which installs the budget on a `Context`. This
+/// walk does not — no `Context` reaches
 /// it, and none exists to reach it: the fixers are exec commands the operator
 /// invoked directly, on the foreground thread of a run they can interrupt,
 /// with nothing composing them and no cached value a late return could
@@ -251,9 +251,7 @@ fn retain_regular_files(files: &mut Vec<PathBuf>) {
 #[allow(clippy::unnecessary_wraps)]
 fn walk(root: &Path) -> io::Result<(Vec<PathBuf>, Vec<String>)> {
     // `hidden(false)` keeps dotfiles (`.ops.toml`, `.gitignore`, …) in scope;
-    // only ignore rules and the deny-list remove entries. Filesystem errors on
-    // individual entries stay silently skipped, as in the previous hand-rolled
-    // walk.
+    // only ignore rules and the deny-list remove entries.
     let walker = WalkBuilder::new(root)
         .hidden(false)
         .require_git(false)

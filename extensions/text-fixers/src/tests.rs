@@ -95,10 +95,10 @@ fn every_discovered_file_is_accounted_for() {
     );
 }
 
-/// A file whose rewrite fails belongs in exactly one bucket. It used to be
-/// tallied as *scanned* on the way in and as *failed* on the way out, so the
-/// summary line double-counted it and `scanned + skipped + failed` overshot
-/// the number of paths discovery actually handed the runner.
+/// A file whose rewrite fails belongs in exactly one bucket. Tallying it as
+/// *scanned* on the way in and as *failed* on the way out would double-count
+/// it, making `scanned + skipped + failed` overshoot the number of paths
+/// discovery handed the runner.
 #[test]
 fn a_file_whose_write_fails_is_counted_once() {
     let dir = tempfile::tempdir().unwrap();
@@ -144,7 +144,7 @@ fn both_fixers_over_a_mixed_tree_reach_a_fixed_point() {
 
     let o = opts(root);
     let mut buf = Vec::new();
-    // API-5 / TASK-2167: `FixerReport` is `#[must_use]`, so the first-pass
+    // `FixerReport` is `#[must_use]`, so the first-pass
     // reports are consumed rather than discarded.
     let first = run_trailing_whitespace(&o, &mut buf).unwrap();
     let first_eof = run_end_of_file_fixer(&o, &mut buf).unwrap();
@@ -256,10 +256,10 @@ fn file_mode_survives_the_rewrite() {
 #[cfg(unix)]
 #[test]
 fn a_read_only_target_is_still_rewritten_with_its_mode_intact() {
-    // Pinning a consequence of the move to rename-based writes: `fs::write`
-    // used to fail with EACCES on a 0444 file, while `rename(2)` only needs a
-    // writable *directory*. The mode is carried onto the new inode, so the
-    // file stays read-only afterwards.
+    // A consequence of rename-based writes: an in-place `fs::write` fails
+    // with EACCES on a 0444 file, while `rename(2)` only needs a writable
+    // *directory*. The mode is carried onto the new inode, so the file stays
+    // read-only afterwards.
     use std::os::unix::fs::PermissionsExt;
 
     let dir = tempfile::tempdir().unwrap();

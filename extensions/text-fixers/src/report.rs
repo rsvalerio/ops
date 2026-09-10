@@ -3,7 +3,7 @@
 use std::io::{self, Write};
 use std::path::PathBuf;
 
-// DUP-2 / TASK-2162: the per-file outcome vocabulary — why a candidate was
+// The per-file outcome vocabulary — why a candidate was
 // skipped, why a file failed — is shared with the config checkers through one
 // definition in `ops_core::bounded_read`, so a hardening fix applied there
 // reaches both file-walking extensions at once.
@@ -11,7 +11,7 @@ pub use ops_core::bounded_read::{FailedFile, FailureKind, SkipReason};
 
 /// Outcome of a fixer run.
 ///
-/// API-5 / TASK-2167: the `#[must_use]` sits on the *type*, not on the
+/// The `#[must_use]` sits on the *type*, not on the
 /// `run_*` functions, so it survives `?` — discarding the report after
 /// unwrapping the `Result` is still a warning, because the report (via
 /// [`FixerReport::changed`] and [`FixerReport::failed`]) is what drives the
@@ -71,8 +71,7 @@ impl FixerReport {
 /// One-line summary for the CLI.
 ///
 /// `scanned + skipped + failed` accounts for every path discovery returned, so
-/// a file can never vanish from the summary the way a silently-skipped
-/// unreadable file used to.
+/// no file — an unreadable one included — can vanish from the summary.
 ///
 /// # Errors
 ///
@@ -128,9 +127,9 @@ mod tests {
     }
 
     /// A walk error means traversal silently omitted candidates, so the run
-    /// cannot honestly report "clean". Before this, the error was printed to
-    /// the writer and dropped: `failed()` stayed false and the CLI exited 0
-    /// over directories it never read.
+    /// cannot honestly report "clean". Printing the error to the writer and
+    /// dropping it would leave `failed()` false and exit the CLI 0 over
+    /// directories it never read, so the error is carried in the report.
     #[test]
     fn a_walk_error_alone_fails_the_run_and_shows_in_the_summary() {
         let report = FixerReport {

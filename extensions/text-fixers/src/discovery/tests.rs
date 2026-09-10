@@ -254,7 +254,7 @@ fn tracked_mode_drops_symlinks_and_agrees_with_the_walk() {
     );
 }
 
-/// TASK-2165 / READ-6: the exclusion disagreement, pinned deliberately. A
+/// The exclusion disagreement between the modes, pinned deliberately. A
 /// tracked file inside a deny-listed directory is in scope under `--tracked`
 /// — the index is the user's reviewed choice — while the walk never even
 /// descends into the directory. See the module header for the full rationale.
@@ -292,7 +292,7 @@ fn tracked_mode_keeps_a_tracked_file_inside_a_skip_dirs_directory() {
     );
 }
 
-/// TASK-2165 / READ-6: the tracked-but-gitignored half of the same
+/// The tracked-but-gitignored half of the same
 /// disagreement. The file is staged *before* the ignore rule exists — the
 /// only way this state arises in a real repository — and both modes are then
 /// pinned: `--tracked` keeps it (it is in the index), the walk drops it (the
@@ -352,8 +352,8 @@ fn tracked_mode_keeps_a_non_utf8_filename_and_agrees_with_the_walk() {
     // Latin-1 "café.txt": no valid UTF-8 decoding, a perfectly good path.
     let raw = OsStr::from_bytes(&[b'c', b'a', b'f', 0xE9, b'.', b't', b'x', b't']);
     std::fs::write(root.join(raw), b"a").unwrap();
-    // TEST-26 / TASK-2166: a refusing git panics inside the helper; an
-    // absent binary would have bailed at git_init above.
+    // A refusing git panics inside the helper; an absent binary would have
+    // bailed at git_init above.
     git_add(root, &[Path::new(raw)]);
 
     let tracked = discover(root, true).unwrap();
@@ -374,7 +374,7 @@ fn tracked_mode_keeps_a_non_utf8_filename_and_agrees_with_the_walk() {
     );
 }
 
-/// PATTERN-9 / TASK-2170: a stage file left behind by a killed run (Drop does
+/// A stage file left behind by a killed run (Drop does
 /// not run on SIGKILL) must never become a candidate — the walk skips it
 /// rather than reading a copy of already-fixed content.
 #[test]
@@ -397,11 +397,10 @@ fn walk_never_returns_a_stale_stage_file() {
     );
 }
 
-/// PATTERN-9 / TASK-2170, tracked half: the only way a stage file reaches the
-/// index is a `git add -A` after an interrupted run. Even then it is this
-/// crate's own residue, not the user's reviewed repository content, so
-/// `--tracked` drops it too — the one deliberate carve-out from the
-/// TASK-2165 "the index decides" rule.
+/// The tracked half: the only way a stage file reaches the index is a
+/// `git add -A` after an interrupted run. Even then it is this crate's own
+/// residue, not the user's reviewed repository content, so `--tracked` drops
+/// it too — the one deliberate carve-out from the "the index decides" rule.
 #[test]
 fn tracked_mode_never_returns_a_staged_stage_file() {
     let dir = tempfile::tempdir().unwrap();
