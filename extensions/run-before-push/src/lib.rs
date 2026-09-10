@@ -275,6 +275,17 @@ mod tests {
     use super::*;
     use ops_hook_common::test_helpers::EnvGuard;
 
+    // TEST-18 / TASK-2144: `EnvGuard` mutates process-global state (environ)
+    // and `std::process::Command` snapshots the environment while building a
+    // child, so a spawning test running on another harness thread races the
+    // serial env mutators — a setenv/getenv data race, not mere flakiness.
+    // `serial_test::serial` only serializes its members against *each
+    // other*, so every test in this module that spawns a child process
+    // (directly or through `run_hook_script`) MUST carry
+    // `#[serial_test::serial]`, same key as the mutating tests. A new
+    // spawning test that omits the attribute silently opts out of the
+    // guarantee.
+
     const SHA1_A: &str = "1111111111111111111111111111111111111111";
     const SHA1_B: &str = "2222222222222222222222222222222222222222";
     const ZERO: &str = "0000000000000000000000000000000000000000";
@@ -290,15 +301,26 @@ mod tests {
         std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o755)).unwrap();
     }
 
-    /// Run `HOOK_SCRIPT` under `/bin/sh` with `stdin`, PATH and any extra
-    /// `envs` under test.
+    /// Run `HOOK_SCRIPT` under `/bin/sh` with `stdin`, the caller-chosen
+    /// `path` (the child's `PATH`), and any extra `envs` under test.
     ///
-    /// PATH is `dir` plus the system bin directories — the script needs
-    /// `cat`, and the ambient PATH is deliberately excluded so a developer's
-    /// installed `ops` cannot satisfy the "ops missing" case.
+    /// TEST-15 / TASK-2142: `path` is passed through verbatim — the caller
+    /// decides what the child can resolve, because the two situations under
+    /// test need opposite PATHs:
+    ///
+    /// - The missing-ops guard and the bypass fire before any external
+    ///   command (`case`, `command -v` and `echo` are `sh` builtins), so
+    ///   their tests pass only an empty tempdir: `command -v ops` then fails
+    ///   unconditionally, on every machine, and the fall-through can never
+    ///   exec a real `ops`.
+    /// - The dispatch tests need `head` (the hook's bounded capture) and
+    ///   `cat` (their fake `ops` bodies), so they pass their tempdir *plus*
+    ///   the system bin directories — tempdir first, so the fake `ops`
+    ///   shadows any real one and the `exec` line resolves only the fake.
     #[cfg(unix)]
     fn run_hook_script(
         path: &std::path::Path,
+        path_value: &str,
         stdin: &str,
         envs: &[(&str, &str)],
     ) -> (std::process::ExitStatus, String, String) {
@@ -310,7 +332,7 @@ mod tests {
         let mut command = std::process::Command::new("/bin/sh");
         command
             .arg(&script)
-            .env("PATH", format!("{}:/usr/bin:/bin", path.display()))
+            .env("PATH", path_value)
             .stdin(std::process::Stdio::piped())
             .stdout(std::process::Stdio::piped())
             .stderr(std::process::Stdio::piped());
@@ -370,6 +392,7 @@ mod tests {
 
     #[cfg(unix)]
     #[test]
+    #[serial_test::serial]
     fn hook_script_is_valid_posix_sh() {
         let dir = tempfile::tempdir().expect("tempdir");
         let script = dir.path().join("pre-push");
@@ -386,6 +409,7 @@ mod tests {
     /// and the ref lines arrive through the environment instead.
     #[cfg(unix)]
     #[test]
+    #[serial_test::serial]
     fn hook_script_hands_ops_an_empty_stdin_and_forwards_refs_via_env() {
         let dir = tempfile::tempdir().expect("tempdir");
         fake_ops(
@@ -394,7 +418,11 @@ mod tests {
         );
 
         let line = format!("refs/heads/main {SHA1_A} refs/heads/main {SHA1_B}");
-        let (status, stdout, stderr) = run_hook_script(dir.path(), &format!("{line}\n"), &[]);
+        // The fake ops shadows any real one (tempdir first); `head` and `cat`
+        // come from the system bin dirs behind it.
+        let path_value = format!("{}:/usr/bin:/bin", dir.path().display());
+        let (status, stdout, stderr) =
+            run_hook_script(dir.path(), &path_value, &format!("{line}\n"), &[]);
 
         assert!(status.success(), "hook failed: {stderr}");
         assert!(
@@ -408,12 +436,17 @@ mod tests {
     }
 
     /// CL-3 / TASK-1911 AC#2-3: a missing `ops` fails closed with a message
-    /// that names the binary, the hook and the escape hatch.
+    /// that names the binary, the hook and the escape hatch. TEST-15 /
+    /// TASK-2142: PATH holds only the empty tempdir, so the probe fails
+    /// unconditionally on every machine — no real `ops` can be found or
+    /// exec'd, and the guard below is always the code under test.
     #[cfg(unix)]
     #[test]
+    #[serial_test::serial]
     fn hook_script_fails_closed_with_diagnostic_when_ops_is_missing() {
         let dir = tempfile::tempdir().expect("tempdir");
-        let (status, _stdout, stderr) = run_hook_script(dir.path(), "", &[]);
+        let path_value = dir.path().display().to_string();
+        let (status, _stdout, stderr) = run_hook_script(dir.path(), &path_value, "", &[]);
 
         assert!(!status.success(), "a hook that cannot verify must not pass");
         assert!(stderr.contains("ops"), "stderr must name ops: {stderr}");
@@ -436,6 +469,7 @@ mod tests {
     /// so the test can prove it was never reached.
     #[cfg(unix)]
     #[test]
+    #[serial_test::serial]
     fn hook_script_fails_closed_when_the_ref_capture_fails() {
         use std::io::Write as _;
 
@@ -493,6 +527,7 @@ mod tests {
     /// prefix.
     #[cfg(unix)]
     #[test]
+    #[serial_test::serial]
     fn hook_script_dispatches_an_oversized_stream_without_e2big() {
         let dir = tempfile::tempdir().expect("tempdir");
         fake_ops(
@@ -508,7 +543,10 @@ mod tests {
         );
         let stream = format!("{line}\n").repeat(2000);
 
-        let (status, stdout, stderr) = run_hook_script(dir.path(), &stream, &[]);
+        // The fake ops (printf only) shadows any real one; `head` for the
+        // hook's bounded capture comes from the system bin dirs behind it.
+        let path_value = format!("{}:/usr/bin:/bin", dir.path().display());
+        let (status, stdout, stderr) = run_hook_script(dir.path(), &path_value, &stream, &[]);
 
         assert_eq!(
             status.code(),
@@ -541,14 +579,18 @@ mod tests {
     /// that does not work. Driven with `ops` off PATH, which is the
     /// situation in question; mirrors
     /// `run_before_commit`'s `hook_script_honours_the_bypass_when_ops_is_missing`.
+    /// TEST-15 / TASK-2142: PATH holds only the empty tempdir, so the probe
+    /// fails unconditionally and the fall-through can never exec a real ops.
     #[cfg(unix)]
     #[test]
+    #[serial_test::serial]
     fn hook_script_honours_the_bypass_when_ops_is_missing() {
         let dir = tempfile::tempdir().expect("tempdir");
+        let path_value = dir.path().display().to_string();
 
         for value in ["1", "true", "TRUE", "Yes", "on"] {
             let (status, _stdout, stderr) =
-                run_hook_script(dir.path(), "", &[(SKIP_ENV_VAR, value)]);
+                run_hook_script(dir.path(), &path_value, "", &[(SKIP_ENV_VAR, value)]);
             assert_eq!(
                 status.code(),
                 Some(0),
@@ -558,7 +600,7 @@ mod tests {
 
         // A value `should_skip` rejects must still reach the probe and fail.
         let (status, _stdout, _stderr) =
-            run_hook_script(dir.path(), "", &[(SKIP_ENV_VAR, "maybe")]);
+            run_hook_script(dir.path(), &path_value, "", &[(SKIP_ENV_VAR, "maybe")]);
         assert_eq!(status.code(), Some(1));
     }
 
