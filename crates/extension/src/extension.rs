@@ -187,12 +187,17 @@ impl CommandRegistry {
     /// wiring layer can warn about within-extension self-shadowing instead
     /// of letting the silent overwrite swallow the first registration.
     ///
-    /// CL-5 / TASK-0661, CL-3 / TASK-1872: this registry is
-    /// **last-write-wins** (matching `IndexMap::insert` semantics). The
-    /// rationale and the contrast with [`crate::DataRegistry::register`]'s
-    /// first-write-wins policy are documented once, in
-    /// [`crate::registry_duplicate_policy`]; do not restate them here or on
-    /// the sibling method.
+    /// Duplicate-registration policy for the two registries in this crate:
+    ///
+    /// | Registry | Policy | Return value on collision | Why |
+    /// |---|---|---|---|
+    /// | [`crate::DataRegistry::register`] | **first-write-wins** | `Some(rejected)` | Providers are security-trusted built-ins (`identity`, `metadata`); a later extension must not be able to shadow one by registering the same name. |
+    /// | [`CommandRegistry::insert`] | **last-write-wins** | `Some(previous)` | Shadowing is the feature: config-defined `[commands.*]` are merged after extension commands specifically so a user can override them. |
+    ///
+    /// Both record the colliding key on a per-instance audit trail that the
+    /// CLI wiring layer drains via `take_duplicate_inserts` and reports as
+    /// one `tracing::warn!` per entry. The audit trail is the *aggregated*
+    /// signal; the return value is the per-call one.
     pub fn insert(&mut self, id: CommandId, spec: CommandSpec) -> Option<CommandSpec> {
         // PATTERN-3 / TASK-0753: route through `Entry` so a registration
         // consults the hash map exactly once. The previous shape did a
@@ -363,8 +368,8 @@ pub trait Extension: Send + Sync {
     ///
     /// Duplicate ids are **last-write-wins** so user config can shadow
     /// extension commands; each collision is recorded on the registry's audit
-    /// trail — see [`crate::registry_duplicate_policy`] for the full contract
-    /// and its contrast with data-provider registration.
+    /// trail — see [`DataRegistry::register`] for the full contract and its
+    /// contrast with data-provider registration.
     fn register_commands(&self, registry: &mut CommandRegistry);
 
     /// Registers the extension's data providers into `registry`.
@@ -372,7 +377,7 @@ pub trait Extension: Send + Sync {
     /// Duplicate names are **first-write-wins** so a later extension cannot
     /// shadow a trusted built-in provider; the rejected provider is returned
     /// to the caller and the collision is audited — see
-    /// [`crate::registry_duplicate_policy`]. The default implementation
+    /// [`DataRegistry::register`]. The default implementation
     /// registers nothing.
     fn register_data_providers(&self, _registry: &mut DataRegistry) {}
 }

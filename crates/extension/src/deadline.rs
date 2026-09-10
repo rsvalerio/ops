@@ -1,16 +1,15 @@
 //! The provider dispatch budget: [`Deadline`] and
 //! [`DEFAULT_PROVIDER_BUDGET`].
 //!
-//! ARCH-1 / TASK-2095: split out of `data.rs` — the budget type and its
-//! config resolution form a cohesive unit distinct from both the registry
-//! surface (`crate::data`) and the per-invocation state
-//! ([`crate::context::Context`]) that installs it.
+//! The budget type and its config resolution form a cohesive unit distinct
+//! from both the registry surface (`crate::data`) and the per-invocation
+//! state ([`crate::context::Context`]) that installs it.
 
 use crate::error::DataProviderError;
 use ops_core::config::Config;
 use std::time::{Duration, Instant};
 
-/// SEC-33 / TASK-2017: default wall-clock budget for one provider dispatch.
+/// Default wall-clock budget for one provider dispatch.
 ///
 /// [`crate::data::DataProvider::provide`] is synchronous, so this is a *cooperative*
 /// bound, not a preemptive one: it is enforced by
@@ -27,21 +26,16 @@ use std::time::{Duration, Instant};
 /// on a stall*, not a latency target. Callers that know their own tolerance
 /// narrow it with [`crate::context::Context::with_provider_budget`].
 ///
-/// CONC-9 / TASK-2068: this used to carry the ordering requirement as prose —
-/// the budget had to stay **above every subprocess timeout a provider can wait
-/// on**, or it would fire first and report a run still within its own limit as
-/// a failure. TASK-2056 made the budget operator-configurable
-/// (`[data] provider_budget_secs`), which put that invariant at the mercy of a
-/// config file no test could police. The binding subprocess wait,
-/// `ops-test-coverage`'s `CARGO_LLVM_COV_TIMEOUT` (15 minutes), now sizes
-/// itself from [`crate::context::Context::deadline`] instead, so the two agree by construction
-/// at whatever value this budget takes and the ordering no longer has to be
-/// maintained by hand.
-///
-/// The twenty minutes still buy headroom over that fifteen for the workspace
-/// walk and parsing either side of the subprocess. A provider that hands work
-/// to something with its own timeout knob should follow the coverage provider
-/// and size it from [`crate::context::Context::deadline`] rather than assume a floor here.
+/// The budget must stay **above every subprocess timeout a provider can wait
+/// on**, or it fires first and reports a run still within its own limit as a
+/// failure. The binding subprocess wait, `ops-test-coverage`'s
+/// `CARGO_LLVM_COV_TIMEOUT` (15 minutes), therefore sizes itself from
+/// [`crate::context::Context::deadline`], so the two agree by construction at
+/// whatever value this budget (or `[data] provider_budget_secs`) takes. The
+/// twenty minutes buy headroom over that fifteen for the workspace walk and
+/// parsing either side of the subprocess. A provider that hands work to
+/// something with its own timeout knob should size it from
+/// [`crate::context::Context::deadline`] rather than assume a floor here.
 pub const DEFAULT_PROVIDER_BUDGET: Duration = Duration::from_mins(20);
 
 /// The budget installed for the provider dispatch currently in flight.
@@ -50,7 +44,7 @@ pub const DEFAULT_PROVIDER_BUDGET: Duration = Duration::from_mins(20);
 /// [`crate::data::DataRegistry::provide`] call and inherited by every provider that one
 /// composes, so a provider graph cannot multiply its budget by nesting.
 ///
-/// SEC-33 / TASK-2052: public and detachable ([`crate::context::Context::deadline_handle`])
+/// Public and detachable ([`crate::context::Context::deadline_handle`])
 /// because the providers that most need to poll it are tree walkers whose
 /// walk lives in a free function — sometimes, as in `rust-loc`, one that runs
 /// on worker threads that cannot borrow `&Context` at all. A `Deadline` is
@@ -67,9 +61,9 @@ pub struct Deadline {
 }
 
 impl Deadline {
-    /// SEC-33 / TASK-2017: construct from parts. `pub(crate)` — the fields
-    /// stay private to this module (ARCH-1 / TASK-2095 split) so external
-    /// code cannot forge an already-expired or mis-attributed budget.
+    /// Construct from parts. `pub(crate)` — the fields stay private to
+    /// this module so external code cannot forge an already-expired or
+    /// mis-attributed budget.
     pub(crate) const fn from_parts(
         provider: String,
         budget: Duration,
@@ -112,8 +106,8 @@ impl Deadline {
     }
 }
 
-/// CONC-9 / TASK-2056: resolve the dispatch budget an operator configured,
-/// falling back to [`DEFAULT_PROVIDER_BUDGET`].
+/// Resolve the dispatch budget an operator configured, falling back to
+/// [`DEFAULT_PROVIDER_BUDGET`].
 ///
 /// `[data] provider_budget_secs = 0` is the documented opt-out and maps to
 /// `None` (unbounded), which is the one value that must not be confused with

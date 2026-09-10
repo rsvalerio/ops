@@ -118,13 +118,8 @@ impl DataProviderSchema {
 ///
 /// # Why no `Debug` supertrait
 ///
-/// TRAIT-4 / TASK-1879: adding `Debug` as a supertrait was considered and
-/// **rejected**. It would be a breaking change for every out-of-tree
-/// implementer for a benefit that is already covered: [`DataRegistry`]'s
-/// `Debug` impl names providers by their registered key, which is the
-/// identity every diagnostic in this crate (the duplicate-insert breadcrumb,
-/// `provider_names`, `DataProviderError::NotFound`) already reports. A
-/// concrete provider type name would add nothing a key does not, and
+/// [`DataRegistry`]'s `Debug` impl names providers by their registered key —
+/// the identity every diagnostic in this crate already reports — and
 /// providers commonly hold connection handles and credentials whose derived
 /// `Debug` output is exactly what should not reach a log. Implementers who
 /// want a representation may derive `Debug` on their own type; nothing here
@@ -132,31 +127,21 @@ impl DataProviderSchema {
 ///
 /// # Why [`DataProvider::provide`] stays synchronous and on the caller's thread
 ///
-/// SEC-33 / TASK-2052 asked this explicitly, so the answer is recorded here
-/// rather than left implicit in the shape of the trait. **Decision: it stays
-/// synchronous, and the bound stays cooperative.** Both alternatives were
-/// considered and rejected:
+/// The tree walkers behind providers are CPU- and syscall-bound, not
+/// `await`-bound, so making the trait `async` would move the cancellation
+/// point without creating one — they would still need exactly the per-entry
+/// [`Context::check_deadline`] the cooperative bound uses. Running the
+/// dispatch on a worker thread and timing out the join would bound the
+/// *caller* but not the *work*: a thread blocked in `readdir` on a wedged
+/// mount cannot be cancelled in Rust, so the stalled thread would be leaked,
+/// still holding the provider's resources — a visible stall converted into
+/// an invisible one.
 ///
-/// - *Make the trait `async`.* It is a breaking change for every in-tree and
-///   out-of-tree implementer, and it pulls an async runtime into
-///   `ops-extension`, which today has none. What it buys is nothing on its
-///   own: the tree walkers are CPU- and syscall-bound, not `await`-bound, so
-///   they would still need exactly the per-entry `check_deadline` this task
-///   adds in order to yield. Async moves the cancellation point; it does not
-///   create one.
-/// - *Run the dispatch on a worker thread and time-out the join.* This bounds
-///   the *caller* but not the *work*: a thread blocked in `readdir` on a
-///   wedged mount cannot be cancelled in Rust, so the stalled thread is
-///   leaked, still holding the provider's resources, and the process cannot
-///   exit while it lives. It converts a visible stall into an invisible one,
-///   and would make the fix a lie.
-///
-/// So the residual risk the finding names — a provider already blocked in a
-/// syscall — is accepted rather than solved. It is bounded in practice by the
+/// The residual risk — a provider already blocked in a syscall — is
+/// therefore accepted rather than solved. It is bounded in practice by the
 /// per-entry check (the walk stops at the *next* entry) and reported by
 /// [`DataRegistry::provide`], which refuses to return a value produced after
-/// the deadline. Revisit only if a provider appears whose single unit of work
-/// can itself outlast a budget.
+/// the deadline.
 pub trait DataProvider: Send + Sync {
     /// Returns the unique name of this data provider.
     ///
@@ -182,15 +167,15 @@ pub trait DataProvider: Send + Sync {
     ///   itself; it originates from `DataRegistry::provide` /
     ///   `Context::get_or_provide` when the requested provider name is not
     ///   registered.
-    /// - [`DataProviderError::Cycle`] (SEC-38 / TASK-0744, TASK-1865) is
-    ///   returned by [`DataRegistry::provide`] — and therefore by
+    /// - [`DataProviderError::Cycle`] is returned by
+    ///   [`DataRegistry::provide`] — and therefore by
     ///   [`Context::get_or_provide`], which dispatches through it — when a
     ///   provider transitively re-requests a key already in flight.
     ///   Implementations that compose other providers should propagate this
     ///   variant rather than swallowing it, so the cycle surfaces at the
     ///   originating call site.
-    /// - [`DataProviderError::TimedOut`] (SEC-33 / TASK-2017) when the
-    ///   dispatch outlives the budget on the context.
+    /// - [`DataProviderError::TimedOut`] when the dispatch outlives the
+    ///   budget on the context.
     ///
     /// # Honouring the deadline
     ///
@@ -260,11 +245,20 @@ impl DataRegistry {
     /// refused: the first provider wins and the second is recorded for the
     /// CLI wiring layer to surface as a `tracing::warn!`.
     ///
-    /// CL-5 / TASK-0661, CL-3 / TASK-1872: this registry is
-    /// **first-write-wins**. The rationale and the contrast with
-    /// [`crate::CommandRegistry::insert`]'s last-write-wins policy are
-    /// documented once, in [`crate::registry_duplicate_policy`]; do not
-    /// restate them here or on the sibling method.
+    /// Duplicate-registration policy for the two registries in this crate:
+    ///
+    /// | Registry | Policy | Return value on collision | Why |
+    /// |---|---|---|---|
+    /// | [`DataRegistry::register`] | **first-write-wins** | `Some(rejected)` | Providers are security-trusted built-ins (`identity`, `metadata`); a later extension must not be able to shadow one by registering the same name. |
+    /// | [`crate::CommandRegistry::insert`] | **last-write-wins** | `Some(previous)` | Shadowing is the feature: config-defined `[commands.*]` are merged after extension commands specifically so a user can override them. |
+    ///
+    /// Both record the colliding key on a per-instance audit trail that the
+    /// CLI wiring layer drains via `take_duplicate_inserts` and reports as
+    /// one `tracing::warn!` per entry. The audit trail is the *aggregated*
+    /// signal; the return value is the per-call one. `register` is
+    /// additionally `#[must_use]` because a dropped provider surfaces much
+    /// later as an unrelated `NotFound`, whereas a shadowed command at
+    /// least still runs something.
     ///
     /// CL-5 / TASK-0756: the previous implementation also fired a
     /// `debug_assert!(false)` on collision, which weaponised tests against

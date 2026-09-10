@@ -4,13 +4,13 @@ use std::sync::Arc;
 
 /// Cloneable wrapper for error sources, preserving the full error chain.
 ///
-/// EFF-002: `Arc` enables `Clone` on `DataProviderError` without discarding the
-/// original error's cause chain and Display output.
+/// The `Arc` is what lets `DataProviderError` be `Clone` without discarding
+/// the original error's cause chain and `Display` output.
 #[derive(Debug, Clone)]
 pub struct SharedError(Inner);
 
-/// ERR-1 / TASK-2024: an `anyhow::Error` is kept as itself rather than
-/// flattened into `Arc<dyn Error>`.
+/// An `anyhow::Error` is kept as itself rather than flattened into
+/// `Arc<dyn Error>`.
 ///
 /// `anyhow::Error` converts into `Box<dyn Error + Send + Sync>` by boxing its
 /// own internal `ErrorImpl<E>` wrapper, not the `E` it was built from. That
@@ -34,9 +34,9 @@ impl SharedError {
         Self(Inner::Std(Arc::new(err)))
     }
 
-    /// EFF-002: whether two handles share one allocation — the observable
-    /// signal that `Clone` reuses the wrapped error instead of rewrapping it.
-    /// Test-facing; the representation is private.
+    /// Whether two handles share one allocation — the observable signal that
+    /// `Clone` reuses the wrapped error instead of rewrapping it. Test-facing;
+    /// the representation is private.
     #[cfg(test)]
     pub(crate) fn shares_allocation_with(&self, other: &Self) -> bool {
         match (&self.0, &other.0) {
@@ -94,24 +94,24 @@ impl std::fmt::Display for SharedError {
 }
 
 impl std::error::Error for SharedError {
-    /// ERR-1 / TASK-2024: yields the **wrapped error itself**, not the wrapped
-    /// error's own source.
+    /// Yields the **wrapped error itself**, not the wrapped error's own
+    /// source.
     ///
-    /// This used to return `self.0.source()`, which skipped a link: the error
-    /// this type exists to preserve never appeared in the chain at all. Every
-    /// caller doing the standard typed-error classification —
+    /// The wrapped error is the whole point of this type, so it must appear
+    /// in the chain. Returning `self.0.source()` would skip that link, and
+    /// every caller doing the standard typed-error classification —
     /// `err.source().and_then(|s| s.downcast_ref::<T>())`, or a walk over
-    /// `source()` — therefore missed on the one object it was looking for.
-    /// `extensions-rust/about`'s `is_manifest_missing` is the concrete
-    /// casualty: it looks for `FindWorkspaceRootError::NotFound` to tell "this
-    /// is not a Rust project" from "the manifest failed to read", and returned
-    /// `false` for both, so every non-Rust directory produced a `warn`.
+    /// `source()` — would miss the one object it was looking for.
+    /// `extensions-rust/about`'s `is_manifest_missing` depends on this: it
+    /// looks for `FindWorkspaceRootError::NotFound` to tell "this is not a
+    /// Rust project" from "the manifest failed to read", and without the
+    /// wrapped error in the chain both answer `false`, turning every non-Rust
+    /// directory into a `warn`.
     ///
-    /// The mirror-image `Display` impl above already printed the wrapped error
-    /// as its first link and then walked *that* error's sources, so it stays
-    /// as it was: fixing `source()` neither duplicates nor drops anything in
-    /// `{:#}` output, it only makes a chain walk see what the message was
-    /// showing all along.
+    /// The `Display` impl above is the mirror image: it prints the wrapped
+    /// error as its first link and then walks *that* error's sources, so
+    /// `{:#}` output neither duplicates nor drops a link relative to a
+    /// `source()` walk.
     fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
         Some(self.as_error())
     }
@@ -119,10 +119,10 @@ impl std::error::Error for SharedError {
 
 impl From<anyhow::Error> for SharedError {
     fn from(err: anyhow::Error) -> Self {
-        // ERR-1 / TASK-2024: deliberately *not* `Box<dyn Error>`. That
-        // conversion hands back anyhow's own `ErrorImpl<E>` wrapper, which
-        // renders correctly but makes the originating `E` undowncastable, so
-        // every typed-error classification downstream missed. See `Inner`.
+        // Deliberately *not* `Box<dyn Error>`: that conversion hands back
+        // anyhow's own `ErrorImpl<E>` wrapper, which renders correctly but
+        // makes the originating `E` undowncastable, defeating every
+        // typed-error classification downstream. See `Inner`.
         Self(Inner::Anyhow(Arc::new(err)))
     }
 }
@@ -135,9 +135,10 @@ impl From<serde_json::Error> for SharedError {
 
 /// Error type for data provider operations.
 ///
-/// EFF-002: Uses `SharedError` (Arc-wrapped) for `ComputationFailed` and
-/// `Serialization` variants to preserve the full error chain while keeping
-/// `Clone`. The `#[source]` attribute enables `Error::source()` traversal.
+/// The `ComputationFailed` and `Serialization` variants wrap an
+/// `Arc`-backed [`SharedError`], which preserves the full error chain while
+/// keeping the enum `Clone`. Their `#[source]` attribute enables
+/// `Error::source()` traversal.
 #[derive(Debug, Clone, thiserror::Error)]
 #[non_exhaustive]
 pub enum DataProviderError {
@@ -161,43 +162,34 @@ pub enum DataProviderError {
     ///
     /// # Why the message interpolates its own `#[source]`
     ///
-    /// ERR-9 / TASK-1889: setting the message and the source to the same
-    /// value makes chain-walking printers render each link twice, which is
-    /// the textbook shape to avoid. It is kept deliberately, and the
-    /// re-derivation was done against the display paths this type actually
-    /// reaches in this workspace:
-    ///
-    /// | Path | Callers | Rendering |
-    /// |---|---|---|
-    /// | `{e:#}` in `tracing::warn!` | `extensions/about/src/providers.rs` (`warm_providers`), `extensions/about/src/lib.rs` (six enrichment sites) | needs the whole chain in one line |
-    /// | `{e}` / `to_string()` | this crate's tests; any operator log that forgets the `#` | needs the whole chain in one line |
-    /// | `{e:?}` via `anyhow::Error` | `extensions/create-review-tasks/src/lib.rs` (`fetch_review_targets`), `providers::load_or_default` | walks `source()` itself |
-    ///
-    /// The first two are the majority and they are the constraint: thiserror
-    /// generates `write!(f, "…: {}", self.0)` for a plain `{0}`, which does
-    /// **not** propagate the alternate flag to `SharedError`'s
-    /// chain-walking Display — so dropping the `#` loses everything past the
-    /// outermost context on every `{e:#}` and `{e}` site above. An
-    /// alternate-aware `SharedError` (`error.rs`) does not change that: the
-    /// flag never reaches it. The cost of keeping `{0:#}` is that
-    /// `anyhow`'s `{:?}` repeats the chain under `Caused by:`. Duplication in
-    /// one debug-formatted report is cheaper than a lost root cause in every
-    /// operator warning, so `{0:#}` stays. `tests.rs` pins the rendering of
-    /// all three paths.
+    /// Setting the message and the source to the same value makes
+    /// chain-walking printers render each link twice — the textbook shape
+    /// to avoid — but it is kept deliberately. This error reaches
+    /// operators predominantly through `{e:#}` in `tracing::warn!` and
+    /// plain `{e}` / `to_string()`, and thiserror generates
+    /// `write!(f, "…: {}", self.0)` for a plain `{0}`, which does **not**
+    /// propagate the alternate flag to `SharedError`'s chain-walking
+    /// Display — so dropping the `#` would lose everything past the
+    /// outermost context in every one of those logs. The cost of keeping
+    /// `{0:#}` is that `anyhow`'s `{:?}` repeats the chain under
+    /// `Caused by:`. Duplication in one debug-formatted report is cheaper
+    /// than a lost root cause in every operator warning, so `{0:#}`
+    /// stays. `tests.rs` pins the rendering of all three paths.
     #[error("data computation failed: {0:#}")]
     ComputationFailed(#[source] SharedError),
-    /// ERR-2 / TASK-1887: a computation failure described only by a message.
+    /// A computation failure described only by a message.
     ///
-    /// [`DataProviderError::computation_failed`] used to build a
-    /// `std::io::Error` purely as a container for its string, which put a
-    /// false claim into the error chain: the value was indistinguishable —
-    /// by type and by `ErrorKind` — from a real filesystem or process
-    /// failure, so a caller doing
-    /// `err.source().and_then(|s| s.downcast_ref::<std::io::Error>())` got a
-    /// hit for an error that never touched a file descriptor. This variant
-    /// carries the message directly, with no source at all. Its `Display`
-    /// output matches [`DataProviderError::ComputationFailed`]'s, so the
-    /// change is invisible to log readers.
+    /// The message is carried directly and the variant has **no source at
+    /// all**, so nothing false enters the error chain. Manufacturing a
+    /// carrier error — a `std::io::Error` built purely to hold the string,
+    /// say — would be indistinguishable by type and by `ErrorKind` from a
+    /// real filesystem or process failure, and a caller doing
+    /// `err.source().and_then(|s| s.downcast_ref::<std::io::Error>())` would
+    /// get a hit for an error that never touched a file descriptor.
+    ///
+    /// Its `Display` output matches
+    /// [`DataProviderError::ComputationFailed`]'s, so log readers see no
+    /// difference between the two.
     #[error("data computation failed: {0}")]
     ComputationMessage(String),
     /// Returned when a provider produced a value whose JSON shape could not
@@ -205,12 +197,12 @@ pub enum DataProviderError {
     /// `serde_json::from_value(...)`), or when constructing a JSON value
     /// itself failed.
     /// Mirrors [`DataProviderError::ComputationFailed`]'s `{0:#}` chain
-    /// rendering — see that variant for the ERR-9 / TASK-1889 re-derivation
-    /// — so serialization root causes stay visible in logs too.
+    /// rendering (see that variant for why) so serialization root causes
+    /// stay visible in logs too.
     #[error("data serialization error: {0:#}")]
     Serialization(#[source] SharedError),
-    /// SEC-33 / TASK-2017: returned when a dispatched provider ran past the
-    /// wall-clock budget carried by the [`crate::Context`].
+    /// Returned when a dispatched provider ran past the wall-clock budget
+    /// carried by the [`crate::Context`].
     ///
     /// The budget is installed by [`crate::DataRegistry::provide`] for the
     /// outermost provider of a traversal and inherited by everything that
@@ -229,8 +221,8 @@ pub enum DataProviderError {
         /// The wall-clock budget it was given.
         budget: std::time::Duration,
     },
-    /// SEC-38 / TASK-0744: returned when [`crate::Context::get_or_provide`]
-    /// detects a re-entrant request for a key whose provider is still
+    /// Returned when [`crate::Context::get_or_provide`] detects a
+    /// re-entrant request for a key whose provider is still
     /// in-flight on the same context. A misconfigured or hostile extension
     /// that registers circular provider dependencies (A → B → A) would
     /// otherwise recurse until stack overflow.
@@ -249,8 +241,8 @@ impl DataProviderError {
 
     /// Create a computation failure from a string message.
     ///
-    /// ERR-2 / TASK-1887: produces [`DataProviderError::ComputationMessage`],
-    /// which holds the message and nothing else. Reach for
+    /// Produces [`DataProviderError::ComputationMessage`], which holds the
+    /// message and nothing else. Reach for
     /// [`DataProviderError::computation_error`] instead whenever a real
     /// source error is available — that is what preserves a chain worth
     /// walking.
@@ -265,17 +257,17 @@ impl DataProviderError {
     }
 }
 
-/// ERR-3 / TASK-2052: unwrap a `DataProviderError` that merely travelled
-/// inside an `anyhow::Error` instead of re-wrapping it as
+/// Unwraps a `DataProviderError` that merely travelled inside an
+/// `anyhow::Error`, rather than re-wrapping it as
 /// [`DataProviderError::ComputationFailed`].
 ///
 /// Several provider entry points are `anyhow`-typed free functions —
 /// `collect_tokei`, `collect_rust_loc`, everything reached through
 /// `ops_duckdb::try_provide_from_db`'s fallback closure — so a deadline check
 /// inside one of them can only propagate its [`DataProviderError::TimedOut`]
-/// by boxing it into `anyhow`. Without this downcast the round trip degraded a
-/// *typed* timeout into an opaque computation failure: the message survived,
-/// but nothing could match on the variant, so a caller could no longer tell a
+/// by boxing it into `anyhow`. Without this downcast the round trip would
+/// degrade a *typed* timeout into an opaque computation failure: the message
+/// survives, but nothing can match on the variant, so a caller cannot tell a
 /// stall from a broken provider.
 ///
 /// **`anyhow::Error::downcast` searches the whole cause chain**, so this also
@@ -304,10 +296,10 @@ impl From<serde_json::Error> for DataProviderError {
     }
 }
 
-/// TEST-3 / TASK-2091: these tests stay beside `error.rs` because they need
-/// private access — `SharedError::new` and `SharedError::shares_allocation_with`
-/// — which the integration suite in `tests/public_api.rs` cannot reach. Every
-/// other error-type test lives there.
+/// These tests stay beside `error.rs` because they need private access —
+/// `SharedError::new` and `SharedError::shares_allocation_with` — which the
+/// integration suite in `tests/public_api.rs` cannot reach. Every other
+/// error-type test lives there.
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -365,10 +357,10 @@ mod tests {
         assert_eq!(format!("{shared:#}"), "disk full");
     }
 
-    /// AC #4 of ERR-1 / TASK-2024: `SharedError`'s alternate rendering walks
-    /// `self.0.source()` after printing `self.0`, which is independent of the
-    /// `Error::source()` impl. The fix must therefore leave `{:#}`
-    /// byte-identical — no link printed twice and none dropped.
+    /// `SharedError`'s alternate rendering walks `self.0.source()` after
+    /// printing `self.0`, independently of the `Error::source()` impl, so
+    /// `{:#}` prints no link twice and drops none even though `source()`
+    /// yields the wrapped error itself.
     #[test]
     fn source_fix_leaves_the_alternate_display_unchanged() {
         #[derive(Debug)]
