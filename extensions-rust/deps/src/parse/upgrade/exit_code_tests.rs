@@ -3,12 +3,11 @@
 
 use super::*;
 
-// -- Upgrade exit-code interpretation (ERR-1 / TASK-0913) --
+// -- Upgrade exit-code interpretation --
 
-/// ERR-1 / TASK-0913: `cargo upgrade --dry-run` exit 1 (lockfile contention,
-/// network error, etc.) must surface as an error rather than parsing an
-/// empty stdout into an empty `UpgradeResult`. Mirrors the cargo-deny exit-1
-/// fix in TASK-0612.
+/// `cargo upgrade --dry-run` exit 1 (lockfile contention, network error,
+/// etc.) surfaces as an error rather than parsing an empty stdout into an
+/// empty `UpgradeResult` — the same posture as the cargo-deny exit-1 arm.
 #[test]
 fn interpret_upgrade_output_errs_on_exit_one() {
     let stderr = b"error: failed to update registry: connection timed out\n";
@@ -61,17 +60,17 @@ fn interpret_upgrade_output_parses_on_clean_exit() {
     assert_eq!(result[0].name, "serde");
 }
 
-/// PATTERN-1 / TASK-1074: when cargo-edit emits a `====` separator row but
-/// the header line above it has been renamed (e.g. `Package` / `Current Req`
-/// instead of `name` / `old req`), the parser must NOT silently score the
-/// run as authoritative — even though the separator alone would still align
-/// columns and yield rows. `interpret_upgrade_output` must emit a warn and
-/// bail so the supply-chain gate fails loudly on cargo-edit format drift.
+/// When cargo-edit emits a `====` separator row but the header line above it
+/// has been renamed (e.g. `Package` / `Current Req` instead of `name` /
+/// `old req`), the run must NOT be scored as authoritative — even though the
+/// separator alone would still align columns and yield rows.
+/// `interpret_upgrade_output` warns and bails, so the supply-chain gate
+/// fails loudly on cargo-edit format drift.
 #[test]
 fn interpret_upgrade_output_bails_on_unrecognised_header_with_separator() {
     // Renamed header columns ("Package" / "Current Req" / "Available") with
-    // a real `====` separator and one body row. Pre-fix this would silently
-    // parse and return 1 entry; post-fix it bails with a TASK-1074 warn.
+    // a real `====` separator and one body row: alignable, but not a table
+    // this parser recognises.
     let stdout = b"Package Current Req Available Latest  Pinned Note\n\
                    ======= =========== ========= ======  ====== ====\n\
                    serde   1.0.100     1.0.228   1.0.228 1.0.228\n";
@@ -93,9 +92,9 @@ fn interpret_upgrade_output_bails_on_unrecognised_header_with_separator() {
     );
 }
 
-/// ERR-1 / TASK-1203: a second header-shaped line appearing between the
-/// separator and a body row must NOT re-arm `columns` to None. Pre-fix the
-/// post-second-header rows were dropped silently.
+/// A second header-shaped line appearing between the separator and a body
+/// row must NOT re-arm `columns` to `None`, which would drop every row after
+/// it silently.
 #[test]
 fn parse_upgrade_table_repeat_header_keeps_columns() {
     let stdout = "\
@@ -115,14 +114,14 @@ tokio  1.35.0  1.38.0     1.38.0  1.38.0
     assert_eq!(entries[1].name, "tokio");
 }
 
-/// ERR-1 / TASK-1202: if cargo-edit emits a recognised header and a `====`
-/// separator with body rows but every row fails the 5-column shape check
-/// (wholesale row-shape drift), `interpret_upgrade_output` must bail rather
-/// than silently scoring the run as "no upgrades available".
+/// If cargo-edit emits a recognised header and a `====` separator with body
+/// rows but every row fails the 5-column shape check (wholesale row-shape
+/// drift), `interpret_upgrade_output` bails rather than silently scoring the
+/// run as "no upgrades available".
 #[test]
 fn interpret_upgrade_output_bails_on_row_shape_drift() {
     // Recognised header, real separator, but every body row only fills 3
-    // columns — pre-fix: parse_upgrade_row drops them at debug, returns Ok([]).
+    // columns, so `parse_upgrade_row` drops all of them.
     let stdout = b"name   old req compatible latest  new req\n\
                    ====   ======= ========== ======  =======\n\
                    serde  1.0.100 1.0.228\n\
@@ -137,7 +136,46 @@ fn interpret_upgrade_output_bails_on_row_shape_drift() {
     );
 }
 
-/// TASK-1492: preamble lines before the header must not feed the `body_lines`
+/// The *partial* permutation of row-shape drift: most rows failing while one
+/// parses. An all-or-nothing check would see `entries_emitted > 0` and stay
+/// silent, so `ops deps` would report one available upgrade where there are
+/// four, on a green report.
+#[test]
+fn interpret_upgrade_output_bails_on_partial_row_loss() {
+    let stdout = b"name   old req compatible latest  new req\n\
+                   ====   ======= ========== ======  =======\n\
+                   serde  1.0.100 1.0.228    1.0.228 1.0.228\n\
+                   bad-a  1.0.0   1.0.1\n\
+                   bad-b  2.0.0   2.0.1\n\
+                   bad-c  3.0.0   3.0.1\n";
+
+    let result = crate::parse::interpret_upgrade_output(Some(0), stdout, b"");
+    let err = result.expect_err("partial row loss must bail, not return the survivor");
+    let msg = err.to_string();
+    assert!(
+        msg.contains("4 body row(s)") && msg.contains("1 filled") && msg.contains("3 dropped"),
+        "error must report the seen/parsed counts; got: {msg}"
+    );
+}
+
+/// The tolerance is a *share*, not zero — one dropped
+/// row among four or more is ordinary forward drift (a note or footer line
+/// that never filled five columns) and must keep the run `Ok`.
+#[test]
+fn interpret_upgrade_output_tolerates_one_dropped_row_among_many() {
+    let stdout = b"name   old req compatible latest  new req\n\
+                   ====   ======= ========== ======  =======\n\
+                   serde  1.0.100 1.0.228    1.0.228 1.0.228\n\
+                   anyio  1.0.0   1.0.1\n\
+                   tokio  1.35.0  1.38.0     1.38.0  1.38.0\n\
+                   clap   3.0.0   3.2.25     4.6.0   3.2.25\n";
+
+    let result = crate::parse::interpret_upgrade_output(Some(0), stdout, b"")
+        .expect("1-in-4 dropped rows must stay tolerated");
+    assert_eq!(result.len(), 3);
+}
+
+/// Preamble lines before the header must not feed the `body_lines`
 /// counter. A recognised header + separator with zero real body rows must
 /// return Ok([]), not bail with row-shape-drift.
 #[test]
@@ -151,12 +189,11 @@ fn interpret_upgrade_output_preamble_does_not_inflate_body_lines() {
     assert!(result.is_empty());
 }
 
-/// ERR-1 / TASK-1817: the third fail-open permutation. `check_header_drift`
-/// (TASK-1074) and `check_row_shape_drift` (TASK-1202) are both gated on
+/// `check_header_drift` and `check_row_shape_drift` are both gated on
 /// `saw_separator`, so output carrying a *recognised* header plus body rows
-/// but no `====` separator used to escape both guards: no row was ever
-/// sliced, `Ok(vec![])` came back, and `ops deps` rendered "no upgrades" on
-/// a zero exit. It must bail instead.
+/// but no `====` separator would escape both: no row sliced, `Ok(vec![])`
+/// returned, and `ops deps` rendering "no upgrades" on a zero exit.
+/// `check_missing_separator_drift` bails on it instead.
 #[test]
 fn interpret_upgrade_output_bails_on_missing_separator() {
     // Recognised header, real body rows, separator row dropped entirely
@@ -175,13 +212,13 @@ fn interpret_upgrade_output_bails_on_missing_separator() {
         msg.contains("separator"),
         "error must name the missing-separator case; got: {msg}"
     );
-    // Distinguishable from the header-drift (TASK-1074) and row-shape-drift
-    // (TASK-1202) messages, both of which describe a table we *could* align.
+    // Distinguishable from the header-drift and row-shape-drift messages,
+    // both of which describe a table that *could* be aligned.
     assert!(
         !msg.contains("header line was not recognised") && !msg.contains("5 fixed columns"),
         "missing-separator message must not read as header or row-shape drift; got: {msg}"
     );
-    // AC #3: the TASK-1026 breadcrumb stays observable in logs.
+    // The separator-drift breadcrumb stays observable in logs.
     assert!(
         logged.contains("TASK-1026") && logged.contains("separator"),
         "expected the TASK-1026 separator-drift warn to survive; got: {logged}"
@@ -197,7 +234,7 @@ fn interpret_upgrade_output_empty_stdout_is_not_separator_drift() {
     assert!(result.is_empty());
 }
 
-// -- ERR-7 / SEC-21 / TASK-1160: stderr tail Debug-escapes control bytes --
+// -- stderr tail Debug-escapes control bytes --
 
 /// `interpret_upgrade_output` and `interpret_deny_result` must format the
 /// stderr tail through the `?` formatter so embedded ANSI / newlines /

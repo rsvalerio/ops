@@ -13,6 +13,10 @@ anyhow = { workspace = true }
 ignore = { workspace = true }
 tempfile = { workspace = true }
 
+[dev-dependencies]
+# test-support surfaces ops_core::test_utils (surfaced skips, classified git
+# fixtures) to this crate's tests — TEST-26 / TASK-2126, TASK-2166.
+ops-core = { workspace = true, features = ["test-support"] }
 
 [lints]
 workspace = true

@@ -9,6 +9,9 @@
 use ops_duckdb::sql::{CreateTableSql, CreateViewSql, SqlError, TableName};
 use std::path::Path;
 
+/// Builds the `CREATE TABLE` statement loading `tokei_files.json` at `path`
+/// into the `tokei_files` table.
+///
 /// # Errors
 ///
 /// [`SqlError`] if `path` fails path validation; the table name is a valid

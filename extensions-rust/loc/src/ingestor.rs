@@ -8,6 +8,9 @@ use ops_extension::Context;
 const PIPELINE: SidecarIngestorConfig =
     SidecarIngestorConfig::new("rust-loc", "rust_loc_files.json", "rust_loc_files");
 
+/// Sidecar ingestor persisting Rust LOC statistics as `rust_loc_files.json`
+/// and loading them into the `rust_loc_files` table plus `rust_loc_summary`
+/// view.
 pub struct RustLocIngestor;
 
 impl DataIngestor for RustLocIngestor {

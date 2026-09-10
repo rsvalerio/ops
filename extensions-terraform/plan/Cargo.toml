@@ -15,10 +15,11 @@ comfy-table = { workspace = true }
 terminal_size = { workspace = true }
 shellexpand = { workspace = true, features = ["full"] }
 tracing = { workspace = true }
+wait-timeout = { workspace = true }
+libc = { workspace = true }
 
 [dev-dependencies]
 tempfile = { workspace = true }
-serial_test = { workspace = true }
 
 [lints]
 workspace = true

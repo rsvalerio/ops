@@ -41,10 +41,9 @@
 //! running providers in parallel against many distinct roots must move both
 //! caches to a sharded map before this single mutex becomes the bottleneck.
 
-use ops_about::lru::{next_lru_tick, LruVictimQueue};
-use std::collections::HashMap;
+use ops_about::lru::BoundedLruCache;
 use std::path::{Path, PathBuf};
-use std::sync::{Arc, Mutex, MutexGuard, OnceLock};
+use std::sync::{Arc, Mutex, OnceLock};
 
 /// Soft upper bound on memoized cwds. Matches
 /// [`crate::manifest_cache::MAX_TYPED_MANIFEST_CACHE_ENTRIES`]: a single
@@ -53,86 +52,29 @@ use std::sync::{Arc, Mutex, MutexGuard, OnceLock};
 /// host rather than trimming a realistic working set.
 pub const MAX_WORKSPACE_ROOT_CACHE_ENTRIES: usize = 64;
 
-/// Slack added to the victim-queue compaction threshold, for the reason given
-/// in [`crate::manifest_cache`] (PERF-16 / TASK-1723): without it a cache
-/// holding a single cwd compacts on every other access.
-const VICTIM_QUEUE_SLACK: usize = 16;
-
-struct Entry {
-    root: Arc<PathBuf>,
-    last_accessed: u64,
-    /// The map key, shared with the victim queue so an LRU tick refresh is an
-    /// `Arc::clone` rather than a `PathBuf` allocation (PERF-3 / TASK-1572).
-    key: Arc<PathBuf>,
-}
-
+/// DUP-1 / TASK-2150: the LRU scaffold (victim queue, compaction slack,
+/// record/evict loop, cap preamble) lives in
+/// [`ops_about::lru::BoundedLruCache`]; this struct names the key, value and
+/// cap for the cwd→root memoization. Queue keys are `Arc<PathBuf>` shared
+/// with the entry, so a hit-path restamp is an atomic bump (PERF-3 /
+/// TASK-1572).
 struct WorkspaceRootCache {
-    map: HashMap<PathBuf, Entry>,
-    victim_queue: LruVictimQueue<Arc<PathBuf>>,
+    cache: BoundedLruCache<PathBuf, Arc<PathBuf>, Arc<PathBuf>>,
 }
 
 impl WorkspaceRootCache {
     fn new() -> Self {
         Self {
-            map: HashMap::new(),
-            victim_queue: LruVictimQueue::new(),
-        }
-    }
-
-    /// Stamp an access and keep the victim queue proportional to the live
-    /// entry count. Call it *after* the map has been updated: compaction
-    /// validates each stamp against `map[key].last_accessed`, so a pre-update
-    /// call would discard the stamp it just pushed.
-    fn record_access(&mut self, key: Arc<PathBuf>, tick: u64) {
-        let Self { map, victim_queue } = self;
-        victim_queue.push(tick, key);
-        let threshold = map
-            .len()
-            .saturating_mul(2)
-            .saturating_add(VICTIM_QUEUE_SLACK);
-        if victim_queue.len() > threshold {
-            victim_queue.retain_fresh(|key, tick| {
-                map.get(key.as_ref())
-                    .is_some_and(|e| e.last_accessed == tick)
-            });
-        }
-    }
-
-    fn evict_lru(&mut self) {
-        let map = &mut self.map;
-        if let Some(victim) = self.victim_queue.pop_lru(|path, tick| {
-            map.get(path.as_ref())
-                .is_some_and(|e| e.last_accessed == tick)
-        }) {
-            map.remove(victim.as_ref());
+            cache: BoundedLruCache::new(MAX_WORKSPACE_ROOT_CACHE_ENTRIES),
         }
     }
 
     fn probe(&mut self, cwd: &Path) -> Option<Arc<PathBuf>> {
-        let entry = self.map.get_mut(cwd)?;
-        let tick = next_lru_tick();
-        entry.last_accessed = tick;
-        let key = Arc::clone(&entry.key);
-        let root = Arc::clone(&entry.root);
-        self.record_access(key, tick);
-        Some(root)
+        self.cache.touch(cwd).cloned()
     }
 
     fn insert(&mut self, cwd: &Path, root: &Arc<PathBuf>) {
-        if !self.map.contains_key(cwd) && self.map.len() >= MAX_WORKSPACE_ROOT_CACHE_ENTRIES {
-            self.evict_lru();
-        }
-        let key: Arc<PathBuf> = Arc::new(cwd.to_path_buf());
-        let tick = next_lru_tick();
-        self.map.insert(
-            cwd.to_path_buf(),
-            Entry {
-                root: Arc::clone(root),
-                last_accessed: tick,
-                key: Arc::clone(&key),
-            },
-        );
-        self.record_access(key, tick);
+        self.cache.insert(cwd.to_path_buf(), Arc::clone(root));
     }
 }
 
@@ -147,14 +89,10 @@ fn workspace_root_cache() -> &'static Mutex<WorkspaceRootCache> {
 /// would turn one unrelated panic into an `ops about` crash. The sibling
 /// typed-manifest cache warns on recovery because a poisoned lock there
 /// degrades a correctness-relevant freshness check; here the worst outcome is
-/// an extra ancestor walk, so recovery is silent.
-fn lock() -> MutexGuard<'static, WorkspaceRootCache> {
-    let cache = workspace_root_cache();
-    cache.lock().unwrap_or_else(|poison| {
-        let guard = poison.into_inner();
-        cache.clear_poison();
-        guard
-    })
+/// an extra ancestor walk, so recovery is silent. DUP-1 / TASK-2150: the
+/// shared helper carries the recovery scaffold.
+fn lock() -> std::sync::MutexGuard<'static, WorkspaceRootCache> {
+    ops_about::lru::lock_recovering(workspace_root_cache(), || {})
 }
 
 /// The memoized workspace root for `cwd`, if one has been resolved.
@@ -173,25 +111,24 @@ pub fn insert(cwd: &Path, root: &Arc<PathBuf>) {
 /// removing it, so eviction and re-resolution stay one step.
 #[cfg(test)]
 pub fn evict(cwd: &Path) {
-    lock().map.remove(cwd);
+    lock().cache.remove(cwd);
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+    use ops_about::lru::VICTIM_QUEUE_SLACK;
 
     fn clear_cache() {
-        let mut guard = lock();
-        guard.map.clear();
-        guard.victim_queue.clear();
+        lock().cache.clear();
     }
 
     fn cache_len() -> usize {
-        lock().map.len()
+        lock().cache.len()
     }
 
     fn victim_queue_len() -> usize {
-        lock().victim_queue.len()
+        lock().cache.victim_queue_len()
     }
 
     fn root_of(name: &str) -> Arc<PathBuf> {

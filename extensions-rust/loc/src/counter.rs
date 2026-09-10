@@ -26,13 +26,13 @@
 //!   inspected for test gates. A `#[cfg(test)]` on a statement inside a
 //!   function body is attributed to the enclosing region.
 //! - A file `proc_macro2` cannot lex, or `syn` cannot parse, falls back
-//!   to [`count_fallback`]: blank vs non-blank only, all attributed to
+//!   to `count_fallback`: blank vs non-blank only, all attributed to
 //!   the file-level region.
-//! - Delimiter nesting is bounded at [`MAX_NESTING_DEPTH`]. The token
+//! - Delimiter nesting is bounded at `MAX_NESTING_DEPTH`. The token
 //!   walkers recurse once per nesting level, so a pathologically nested
 //!   file would overflow the stack — which aborts the process with
 //!   `SIGSEGV` and cannot be caught. Anything deeper than the cap warns
-//!   and falls back to [`count_fallback`] instead, keeping the
+//!   and falls back to `count_fallback` instead, keeping the
 //!   never-fails contract for the scan as a whole.
 
 use std::path::Path;
@@ -54,7 +54,7 @@ use quote::ToTokens;
 ///
 /// Hand-written Rust does not come close to this depth; the cap exists
 /// only to turn an unrecoverable abort into a warned fallback.
-pub const MAX_NESTING_DEPTH: usize = 128;
+pub(crate) const MAX_NESTING_DEPTH: usize = 128;
 
 /// How a single source line is classified.
 ///
@@ -63,21 +63,29 @@ pub const MAX_NESTING_DEPTH: usize = 128;
 /// convention used by `tokei` and every other counter.
 #[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Debug)]
 pub enum LineKind {
+    /// A line holding only whitespace.
     Blank,
+    /// A line holding only a comment.
     Comment,
+    /// A line holding only a doc comment (`///` or `//!`).
     Doc,
+    /// A line holding executable code.
     Code,
 }
 
 /// Which bucket a line's counts land in.
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub enum Region {
+    /// Production code: everything outside `tests/` and `examples/`.
     Main,
+    /// Integration tests under `tests/`.
     Test,
+    /// Examples under `examples/`.
     Example,
 }
 
 impl Region {
+    /// The region's lowercased name, as stored in the `region` column.
     #[must_use]
     pub const fn as_str(self) -> &'static str {
         match self {
@@ -92,13 +100,19 @@ impl Region {
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 #[non_exhaustive]
 pub struct Locs {
+    /// Executable code lines.
     pub code: u64,
+    /// Doc-comment lines (`///`, `//!`).
     pub docs: u64,
+    /// Non-doc comment lines.
     pub comments: u64,
+    /// Whitespace-only lines.
     pub blanks: u64,
 }
 
 impl Locs {
+    /// Total lines across the four buckets for this region.
+    ///
     /// The four buckets partition the lines of a single file region: every
     /// line of the file bumps exactly one of them once (see `Locs::add`),
     /// so their sum equals that region's line count, which is bounded by the
@@ -112,6 +126,7 @@ impl Locs {
             .saturating_add(self.blanks)
     }
 
+    /// Whether every bucket is zero (the region has no counted lines).
     #[must_use]
     pub const fn is_empty(&self) -> bool {
         self.lines() == 0
@@ -135,8 +150,11 @@ impl Locs {
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 #[non_exhaustive]
 pub struct FileCounts {
+    /// Counts for production code (`src/` and the crate root).
     pub main: Locs,
+    /// Counts for integration tests (`tests/`).
     pub test: Locs,
+    /// Counts for examples (`examples/`).
     pub example: Locs,
 }
 
@@ -151,7 +169,7 @@ impl FileCounts {
 
     /// Record one line of degraded, blank-vs-non-blank counting.
     ///
-    /// The building block behind [`count_fallback`], exposed so a caller
+    /// The building block behind `count_fallback`, exposed so a caller
     /// that must not hold a whole file in memory (an over-cap file, read
     /// a line at a time) can produce the same shape of counts.
     ///
@@ -217,7 +235,7 @@ pub fn region_from_path(path: &Path) -> Region {
 /// This invalidates every previously issued `Span`, which is safe here
 /// because spans never escape a single `count_source` call.
 #[must_use]
-pub fn count_source(src: &str, base: Region) -> FileCounts {
+pub(crate) fn count_source(src: &str, base: Region) -> FileCounts {
     // Must precede the parses below, not follow them: the spans this
     // function reads have to stay valid for the rest of the body.
     proc_macro2::extra::invalidate_current_thread_spans();
@@ -291,7 +309,7 @@ fn has_shebang(src: &str) -> bool {
 
 /// Degraded counting for input the lexer or parser rejects.
 #[must_use]
-pub fn count_fallback(src: &str, base: Region) -> FileCounts {
+pub(crate) fn count_fallback(src: &str, base: Region) -> FileCounts {
     let mut counts = FileCounts::default();
     for line in src.lines() {
         counts.add_fallback_line(base, line.trim().is_empty());

@@ -78,8 +78,9 @@ pub use inheritance::InheritanceError;
 // `InheritableField` / `InheritableString` / `InheritableVec` are new here:
 // they are the declared types of eleven public `Package` fields, so without a
 // re-export a consumer could read `p.version.as_str()` but could not write the
-// type in a signature, match on `Value` vs `Inherited`, or construct a
-// `Package`. That is the `unnameable_types` shape, and it is why
+// type in a signature or match on `Value` vs `Inherited`. (Constructing a
+// `Package` is not possible for a downstream crate either way: the struct is
+// `#[non_exhaustive]`.) That is the `unnameable_types` shape, and it is why
 // `extensions-rust/about` expresses the Value/Inherited distinction through
 // accessors rather than a match.
 //
@@ -105,9 +106,18 @@ use ops_core::text::read_capped_to_string;
 use ops_extension::{Context, DataProvider, DataProviderError, DataProviderSchema, ExtensionType};
 use std::path::{Path, PathBuf};
 
+/// Extension identifier used to register this crate in the engine's
+/// extension registry.
 pub const NAME: &str = "cargo-toml";
+/// One-line description shown by `ops about` for this extension.
 pub const DESCRIPTION: &str = "Cargo.toml manifest parser and workspace data provider";
+/// CLI-facing short name (`cargo`) used in commands and user-facing output.
 pub const SHORTNAME: &str = "cargo";
+/// Registry key of the `cargo_toml` data provider this crate registers.
+///
+/// Note the underscore spelling, unlike the hyphenated [`NAME`]: consumers
+/// such as ops-about-rust's manifest cache look the provider up by exactly
+/// this key.
 pub const DATA_PROVIDER_NAME: &str = "cargo_toml";
 
 /// Extension that provides Cargo.toml parsing capabilities.
@@ -176,7 +186,7 @@ ops_extension::impl_extension! {
 /// Data provider that parses Cargo.toml and returns structured JSON.
 ///
 /// This provider:
-/// - Discovers workspace root by walking up from the working directory
+/// - Discovers workspace root with the strict ancestor walk ([`find_workspace_root_strict`])
 /// - Parses Cargo.toml into [`CargoToml`] types
 /// - Resolves workspace inheritance (`workspace = true`)
 /// - Returns fresh data on each call (no internal caching)
@@ -200,11 +210,22 @@ impl CargoTomlProvider {
         Self { root: Some(root) }
     }
 
+    /// SEC-25 / TASK-2143: the data-provider path resolves its root with the
+    /// **strict** ancestor walk — the same [`find_workspace_root_strict`]
+    /// every in-repo consumer that resolves a root itself calls
+    /// (`about`'s manifest loading and `create-review-tasks`' provider) — so
+    /// a `cargo_toml` query and those consumers target the same workspace
+    /// root for the identical working directory. The lenient
+    /// [`find_workspace_root`] differs exactly on attacker-plantable
+    /// candidates: a `Cargo.toml` that resolves outside its own directory is
+    /// recorded as the lenient walk's first-seen fallback instead of being
+    /// skipped, and a chain with no other manifest returns that fallback as
+    /// the root.
     fn resolve_root(&self, working_dir: &Path) -> Result<PathBuf, anyhow::Error> {
         if let Some(root) = &self.root {
             return Ok(root.clone());
         }
-        find_workspace_root(working_dir).with_context(|| {
+        find_workspace_root_strict(working_dir).with_context(|| {
             format!(
                 "resolving cargo_toml workspace root from {}",
                 working_dir.display()

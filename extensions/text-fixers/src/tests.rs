@@ -10,7 +10,7 @@ use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
 
 use super::*;
-use crate::test_support::{git_add, git_init, ReadOnlyDir, UnreadableFile};
+use crate::test_support::{git_add, git_init, skip_precondition, ReadOnlyDir, UnreadableFile};
 
 fn write(p: &Path, content: &[u8]) {
     if let Some(parent) = p.parent() {
@@ -95,10 +95,10 @@ fn every_discovered_file_is_accounted_for() {
     );
 }
 
-/// A file whose rewrite fails belongs in exactly one bucket. It used to be
-/// tallied as *scanned* on the way in and as *failed* on the way out, so the
-/// summary line double-counted it and `scanned + skipped + failed` overshot
-/// the number of paths discovery actually handed the runner.
+/// A file whose rewrite fails belongs in exactly one bucket. Tallying it as
+/// *scanned* on the way in and as *failed* on the way out would double-count
+/// it, making `scanned + skipped + failed` overshoot the number of paths
+/// discovery handed the runner.
 #[test]
 fn a_file_whose_write_fails_is_counted_once() {
     let dir = tempfile::tempdir().unwrap();
@@ -108,7 +108,11 @@ fn a_file_whose_write_fails_is_counted_once() {
     // Read-only root: the file is still readable and needs fixing, but the
     // atomic replace cannot stage its sibling.
     let Some(_guard) = ReadOnlyDir::new(root) else {
-        return; // Running as root, or the chmod did not deny anything.
+        skip_precondition(
+            "read-only directory fixture",
+            "running as root or the chmod did not deny; write-failure assertions did not run",
+        );
+        return;
     };
 
     let mut buf = Vec::new();
@@ -140,8 +144,11 @@ fn both_fixers_over_a_mixed_tree_reach_a_fixed_point() {
 
     let o = opts(root);
     let mut buf = Vec::new();
-    run_trailing_whitespace(&o, &mut buf).unwrap();
-    run_end_of_file_fixer(&o, &mut buf).unwrap();
+    // `FixerReport` is `#[must_use]`, so the first-pass
+    // reports are consumed rather than discarded.
+    let first = run_trailing_whitespace(&o, &mut buf).unwrap();
+    let first_eof = run_end_of_file_fixer(&o, &mut buf).unwrap();
+    assert!(first.changed() || first_eof.changed());
     let after_first = snapshot(root);
 
     let mut buf = Vec::new();
@@ -249,10 +256,10 @@ fn file_mode_survives_the_rewrite() {
 #[cfg(unix)]
 #[test]
 fn a_read_only_target_is_still_rewritten_with_its_mode_intact() {
-    // Pinning a consequence of the move to rename-based writes: `fs::write`
-    // used to fail with EACCES on a 0444 file, while `rename(2)` only needs a
-    // writable *directory*. The mode is carried onto the new inode, so the
-    // file stays read-only afterwards.
+    // A consequence of rename-based writes: an in-place `fs::write` fails
+    // with EACCES on a 0444 file, while `rename(2)` only needs a writable
+    // *directory*. The mode is carried onto the new inode, so the file stays
+    // read-only afterwards.
     use std::os::unix::fs::PermissionsExt;
 
     let dir = tempfile::tempdir().unwrap();
@@ -283,7 +290,11 @@ fn a_failing_write_names_the_path_keeps_going_and_leaves_the_file_intact() {
     write(&root.join("later.txt"), b"later   \n");
 
     let Some(guard) = ReadOnlyDir::new(&locked_dir) else {
-        return; // running as root: the directory is writable regardless.
+        skip_precondition(
+            "read-only directory fixture",
+            "running as root or the chmod did not deny; write-failure assertions did not run",
+        );
+        return;
     };
 
     let mut buf = Vec::new();
@@ -324,7 +335,11 @@ fn an_unreadable_file_is_reported_rather_than_making_the_run_look_clean() {
     write(&path, b"secret   \n");
 
     let Some(guard) = UnreadableFile::new(&path) else {
-        return; // running as root: the file is readable regardless.
+        skip_precondition(
+            "unreadable-file fixture",
+            "running as root or the chmod did not deny; read-failure assertions did not run",
+        );
+        return;
     };
 
     let mut buf = Vec::new();
@@ -360,10 +375,7 @@ fn tracked_mode_never_rewrites_through_a_symlink_out_of_the_root() {
     }
     std::os::unix::fs::symlink(&target, root.join("escape.conf")).unwrap();
     write(&root.join("inside.txt"), b"inside   \n");
-    assert!(git_add(
-        root,
-        &[Path::new("escape.conf"), Path::new("inside.txt")]
-    ));
+    git_add(root, &[Path::new("escape.conf"), Path::new("inside.txt")]);
 
     let o = FixerOptions::new(root.to_path_buf(), true);
     let mut buf = Vec::new();
@@ -389,7 +401,7 @@ fn tracked_mode_end_to_end_fixes_only_tracked_files() {
     }
     write(&root.join("tracked.txt"), b"tracked   \n");
     write(&root.join("untracked.txt"), b"untracked   \n");
-    assert!(git_add(root, &[Path::new("tracked.txt")]));
+    git_add(root, &[Path::new("tracked.txt")]);
 
     let o = FixerOptions::new(root.to_path_buf(), true);
     let mut buf = Vec::new();
@@ -441,7 +453,11 @@ fn a_walk_error_reaches_the_report_and_the_summary() {
     write(&locked.join("hidden.txt"), b"trailing   \n");
 
     let Some(guard) = crate::test_support::UnsearchableDir::new(&locked) else {
-        return; // running as root: the directory is searchable regardless.
+        skip_precondition(
+            "unsearchable-directory fixture",
+            "running as root or the chmod did not deny; walk-error assertions did not run",
+        );
+        return;
     };
 
     let mut buf = Vec::new();

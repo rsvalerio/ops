@@ -125,8 +125,9 @@ pub fn remove_workspace_sidecar(dir: &IngestDir, name: &str) {
         Err(DbError::Io(e)) if e.kind() == std::io::ErrorKind::NotFound => {}
         Err(e) => {
             tracing::warn!(
-                "remove_workspace_sidecar({}): {e}",
-                dir.entry_path(&entry).display()
+                path = %dir.entry_path(&entry).display(),
+                error = ?e,
+                "failed to remove workspace sidecar"
             );
         }
     }

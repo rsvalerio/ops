@@ -11,7 +11,12 @@ use std::collections::BTreeMap;
 /// Error returned by [`CargoToml::parse`].
 #[derive(Debug, thiserror::Error)]
 #[error("failed to parse Cargo.toml")]
-pub struct ParseError(#[from] toml::de::Error);
+pub struct ParseError(
+    /// The underlying `toml` deserialization error, carrying the exact
+    /// position and reason the manifest was rejected.
+    #[from]
+    toml::de::Error,
+);
 
 /// Root Cargo.toml structure.
 ///

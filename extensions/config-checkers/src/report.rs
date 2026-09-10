@@ -1,41 +1,30 @@
 //! What a checker run produces: per-file failures and the summary line.
 
-use std::io::{self, Write};
-use std::path::PathBuf;
+use std::io::Write;
 
-/// Why a file is in [`CheckerReport::files_failed`].
-///
-/// Only [`FailureKind::Parse`] is a *check* failure. The I/O kinds mean the
-/// checker never got to look at the content, which is a different verdict
-/// even though both are rendered on the same line — the CLI maps
-/// [`CheckerReport::failed`] onto a non-zero exit that is documented to mean
-/// "a file did not parse", so the distinction has to survive in the type
-/// rather than in a message prefix.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum FailureKind {
-    /// `metadata()` on the path failed.
-    Metadata(io::ErrorKind),
-    /// The file could not be opened or read.
-    Read(io::ErrorKind),
-    /// The parser rejected the content, or a checker bound was exceeded.
-    Parse,
-}
-
-/// A file that failed during a checker run.
-#[derive(Debug, Clone)]
-pub struct FailedFile {
-    pub path: PathBuf,
-    pub kind: FailureKind,
-    pub message: String,
-}
+// DUP-2 / TASK-2162: the per-file outcome vocabulary — failure kinds and the
+// failed-file record — is shared with the text fixers through one definition
+// in `ops_core::bounded_read`, so the two file-walking extensions cannot
+// drift on what a failure means. `FailureKind::Write` is the fixers' kind;
+// this crate never constructs it, and `Parse` is the one only checkers use.
+pub use ops_core::bounded_read::{FailedFile, FailureKind};
 
 /// Outcome of a checker run.
+///
+/// API-5 / TASK-2135: the `#[must_use]` sits on the *type*, not on the
+/// `run_check_*` functions, so it survives `?` — discarding the report after
+/// unwrapping the `Result` is still a warning, because the report (via
+/// [`CheckerReport::failed`]) is what drives the process exit code.
+#[must_use = "the report drives the process exit code; dropping it after `?` exits 0 on a failed run"]
 #[derive(Debug, Default)]
 pub struct CheckerReport {
     /// Files that were actually read *and* handed to the parser. A file whose
     /// metadata or read failed was not scanned in any sense and is not
     /// counted here.
     pub files_scanned: usize,
+    /// Files the run could not complete, with the failure kind and message.
+    /// Paths are relative to [`crate::CheckerOptions::root`]. Any entry at
+    /// all means the run failed — see [`CheckerReport::failed`].
     pub files_failed: Vec<FailedFile>,
     /// Files that were not validated: over [`crate::CheckerOptions::max_bytes`],
     /// not a regular file, or gone from the worktree by the time the checker
@@ -47,6 +36,16 @@ pub struct CheckerReport {
     /// not see the whole tree and must not report "clean" — see
     /// [`CheckerReport::failed`].
     pub walk_errors: Vec<String>,
+}
+
+impl ops_core::bounded_read::FileRunReport for CheckerReport {
+    fn push_failure(&mut self, failure: FailedFile) {
+        self.files_failed.push(failure);
+    }
+
+    fn adopt_walk_errors(&mut self, errors: Vec<String>) {
+        self.walk_errors = errors;
+    }
 }
 
 impl CheckerReport {

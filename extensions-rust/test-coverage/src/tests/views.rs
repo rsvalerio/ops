@@ -173,8 +173,14 @@ fn coverage_summary_view_handles_zero_counts() {
         "branches_count": 0, "branches_covered": 0, "branches_notcovered": 0, "branches_percent": 0.0
     }]);
     let json_bytes = serde_json::to_vec_pretty(&flat).expect("serialize");
-    std::fs::write(dir.entry_path("coverage_files.json"), &json_bytes).expect("write");
-    std::fs::write(dir.entry_path("coverage_workspace.txt"), "/test/workspace")
+    // TEST-6 / TASK-2200: stage through the anchor's verified writer — the
+    // same `write_atomic` path `write_coverage_fixture` and production's
+    // `provide_via_ingestor` use — not a raw `std::fs::write` on a bare
+    // `entry_path`, which bypasses exactly the anchored, atomic staging the
+    // comment above claims to exercise.
+    dir.write_atomic("coverage_files.json", &json_bytes)
+        .expect("write");
+    dir.write_atomic("coverage_workspace.txt", b"/test/workspace")
         .expect("write workspace");
 
     let ingestor = CoverageIngestor;

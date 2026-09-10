@@ -17,13 +17,24 @@ use std::path::{Path, PathBuf};
 #[derive(Debug, thiserror::Error)]
 #[non_exhaustive]
 pub enum FindWorkspaceRootError {
+    /// No `Cargo.toml` exists in the start directory or any ancestor within
+    /// the walked depth.
     #[error(
         "no Cargo.toml found in {start} or any parent directory (walked up to {depth} ancestors)"
     )]
-    NotFound { start: PathBuf, depth: usize },
+    NotFound {
+        /// Directory the ancestor walk started from.
+        start: PathBuf,
+        /// Number of ancestors walked before giving up.
+        depth: usize,
+    },
+    /// The start directory could not be canonicalized, so the walk never
+    /// began.
     #[error("failed to canonicalize {path}")]
     CanonicalizeFailed {
+        /// Directory whose canonicalization failed.
         path: PathBuf,
+        /// The underlying I/O error.
         #[source]
         source: std::io::Error,
     },
@@ -51,13 +62,14 @@ pub const MAX_ANCESTOR_DEPTH: usize = 64;
 
 /// Find the workspace root by walking up from `start` looking for Cargo.toml.
 ///
-/// TASK-0501: prefers the *outermost* `Cargo.toml` containing `[workspace]`
-/// over the first `Cargo.toml` encountered. Running from inside a member
-/// crate (e.g. `cd crates/foo`) used to return the member manifest; the new
-/// walk continues past member manifests until it finds the workspace root.
-/// If no manifest in the chain declares `[workspace]`, the first encountered
-/// `Cargo.toml` is returned — preserving the single-crate / non-workspace
-/// project behaviour.
+/// The walk prefers a workspace manifest over a nearer *member* manifest:
+/// climbing from `start` upward, it continues past manifests that declare no
+/// `[workspace]` and returns the **nearest** ancestor whose `Cargo.toml`
+/// declares `[workspace]` — for nested workspaces (a workspace root that is
+/// itself a member of an outer workspace), that is the innermost workspace,
+/// not the outermost. If no manifest in the chain declares `[workspace]`,
+/// the first `Cargo.toml` encountered is returned — preserving the
+/// single-crate / non-workspace project behaviour.
 ///
 /// The caller's `start` is canonicalized first so symlinks under `start` are
 /// resolved once up front, and the walk is capped at [`MAX_ANCESTOR_DEPTH`]

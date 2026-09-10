@@ -9,11 +9,19 @@ use serde::{Deserialize, Serialize};
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[non_exhaustive]
 pub struct UpgradeEntry {
+    /// Crate name, verbatim from cargo's output.
     pub name: String,
+    /// Version requirement currently in the manifest, verbatim.
     pub old_req: String,
+    /// Highest requirement satisfying the current spec, verbatim.
     pub compatible: String,
+    /// Latest release overall, verbatim.
     pub latest: String,
+    /// Requirement `cargo upgrade` would write, verbatim.
     pub new_req: String,
+    /// Cargo's remark line for the entry. Load-bearing: an entry whose note
+    /// contains `incompatible` (case-insensitive) is classified as breaking
+    /// by `categorize_upgrades` — every other wording counts as compatible.
     pub note: Option<String>,
 }
 
@@ -22,7 +30,9 @@ pub struct UpgradeEntry {
 #[must_use = "UpgradeResult carries compatible/incompatible upgrade entries — silently dropping it loses the parsed report"]
 #[non_exhaustive]
 pub struct UpgradeResult {
+    /// Entries classified as compatible upgrades.
     pub compatible: Vec<UpgradeEntry>,
+    /// Entries whose note marks them as breaking upgrades.
     pub incompatible: Vec<UpgradeEntry>,
 }
 
@@ -30,9 +40,13 @@ pub struct UpgradeResult {
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[non_exhaustive]
 pub struct AdvisoryEntry {
+    /// Advisory identifier (e.g. `RUSTSEC-2024-0001`).
     pub id: String,
+    /// Affected crate name.
     pub package: String,
+    /// Severity label as reported by cargo-deny.
     pub severity: String,
+    /// Advisory title.
     pub title: String,
 }
 
@@ -40,20 +54,26 @@ pub struct AdvisoryEntry {
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[non_exhaustive]
 pub struct DenyEntry {
+    /// Crate name the finding concerns.
     pub package: String,
+    /// Finding text as reported by cargo-deny.
     pub message: String,
+    /// Severity label as reported by cargo-deny.
     pub severity: String,
 }
 
-/// Distinct newtypes per diagnostic class — prevents cross-mixing at compile time.
+/// Distinct newtypes per diagnostic class — prevents cross-mixing at compile
+/// time. A cargo-deny license finding; see [`DenyEntry`] for the fields.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(transparent)]
 pub struct LicenseEntry(pub DenyEntry);
 
+/// A cargo-deny dependency-ban finding; see [`DenyEntry`] for the fields.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(transparent)]
 pub struct BanEntry(pub DenyEntry);
 
+/// A cargo-deny source-replacement finding; see [`DenyEntry`] for the fields.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(transparent)]
 pub struct SourceEntry(pub DenyEntry);
@@ -84,9 +104,13 @@ impl std::ops::Deref for SourceEntry {
 #[must_use = "DenyResult carries advisory/license/ban/source findings — silently dropping it hides cargo-deny output"]
 #[non_exhaustive]
 pub struct DenyResult {
+    /// Published security advisories affecting workspace crates.
     pub advisories: Vec<AdvisoryEntry>,
+    /// License-policy findings.
     pub licenses: Vec<LicenseEntry>,
+    /// Dependency-ban findings.
     pub bans: Vec<BanEntry>,
+    /// Source-replacement findings.
     pub sources: Vec<SourceEntry>,
 }
 
@@ -94,7 +118,9 @@ pub struct DenyResult {
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 #[non_exhaustive]
 pub struct DepsReport {
+    /// Available upgrades, split into compatible and breaking.
     pub upgrades: UpgradeResult,
+    /// cargo-deny findings across advisories, licenses, bans and sources.
     pub deny: DenyResult,
 }
 

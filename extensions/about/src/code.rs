@@ -30,13 +30,16 @@ pub fn query_language_stats(
         Ok(stats) if stats.is_empty() => None,
         Ok(stats) => Some(stats),
         Err(e) => {
-            tracing::warn!("language_stats: query_project_languages failed: {e:#}");
+            tracing::warn!(error = ?e, "language_stats: query_project_languages failed");
             None
         }
     }
 }
 
-#[must_use]
+/// Formats the per-language lines-of-code table for the `about code` subpage.
+///
+/// Returns an empty vector when `stats` is `None` or empty.
+#[must_use = "render the returned table lines; recomputing them re-reads the stats"]
 pub fn format_language_stats_section(stats: Option<&[LanguageStat]>) -> Vec<String> {
     let stats = match stats {
         Some(s) if !s.is_empty() => s,

@@ -35,7 +35,12 @@ pub fn install_hook(
 ) -> anyhow::Result<PathBuf> {
     let git_dir = canonical_git_dir(git_dir)?;
     let hooks_dir = git_dir.join("hooks");
-    std::fs::create_dir_all(&hooks_dir).context("failed to create .git/hooks directory")?;
+    std::fs::create_dir_all(&hooks_dir).with_context(|| {
+        format!(
+            "failed to create .git/hooks directory {}",
+            hooks_dir.display()
+        )
+    })?;
     let hooks_dir = canonical_subdir(&git_dir, &hooks_dir)?;
     let hook_path = hooks_dir.join(config.hook_filename);
     reject_symlinked_hook(&hook_path)?;
@@ -152,12 +157,94 @@ fn classify_existing_hook(content: &str, config: &HookConfig) -> ExistingHook {
     }
 }
 
+/// SEC-33 / TASK-2129: byte cap for reading an existing hook during
+/// classification, mirroring the bounded-read posture of `git.rs`'s
+/// `read_capped_to_string` (and its `MAX_GITDIR_BACKREFERENCE_BYTES`).
+/// Classification never needs more than
+/// [`HookConfig::hook_script`] plus a margin: `Current` is whole-script
+/// equality, `Partial` a strict prefix of the script, and legacy markers
+/// live in a hook's first lines. The margin absorbs an older ops script
+/// that was slightly longer than today's.
+const EXISTING_HOOK_READ_MARGIN_BYTES: usize = 4 * 1024;
+
+/// The classification read cap: no existing hook needs more bytes than
+/// this to be classified, so no existing hook is read beyond it.
+fn existing_hook_read_cap(config: &HookConfig) -> u64 {
+    u64::try_from(
+        config
+            .hook_script
+            .len()
+            .saturating_add(EXISTING_HOOK_READ_MARGIN_BYTES),
+    )
+    .unwrap_or(u64::MAX)
+}
+
+/// Read the existing hook for classification, bounded by
+/// [`existing_hook_read_cap`].
+///
+/// SEC-33 / TASK-2129: the hook file is operator- or attacker-controlled
+/// content on a path ops does not own, so it is read through a `take()`
+/// bound rather than slurped whole. Returns `Ok(None)` — meaning "can only
+/// be [`ExistingHook::Foreign`]" — when the content is over the cap or not
+/// valid UTF-8: ops scripts are `&'static str` (valid UTF-8, shorter than
+/// the cap), so either signal rules out every classification ops could act
+/// on, and refusing the hook is both safer and more actionable than an
+/// `InvalidData` error with no path in it. Genuine I/O failures are still
+/// errors, with the path in the message.
+fn read_existing_hook_capped(
+    hook_path: &Path,
+    config: &HookConfig,
+) -> anyhow::Result<Option<String>> {
+    use std::io::Read as _;
+
+    let cap = existing_hook_read_cap(config);
+    let mut file = std::fs::File::open(hook_path)
+        .with_context(|| format!("failed to read existing hook {}", hook_path.display()))?;
+    let mut bytes = Vec::new();
+    // Read one byte past the cap so an oversize hook is distinguishable from
+    // one that lands exactly on it.
+    let limit = cap.saturating_add(1);
+    (&mut file)
+        .take(limit)
+        .read_to_end(&mut bytes)
+        .with_context(|| format!("failed to read existing hook {}", hook_path.display()))?;
+    if bytes.len() > usize::try_from(cap).unwrap_or(usize::MAX) {
+        tracing::debug!(
+            path = ?hook_path.display(),
+            cap,
+            "existing hook exceeds byte cap; classifying as foreign",
+        );
+        return Ok(None);
+    }
+    if let Ok(content) = String::from_utf8(bytes) {
+        return Ok(Some(content));
+    }
+    tracing::debug!(
+        path = ?hook_path.display(),
+        "existing hook is not valid UTF-8; classifying as foreign",
+    );
+    Ok(None)
+}
+
 fn handle_existing_hook(
     hook_path: &Path,
     config: &HookConfig,
     w: &mut dyn Write,
 ) -> anyhow::Result<PathBuf> {
-    let existing = std::fs::read_to_string(hook_path).context("failed to read existing hook")?;
+    // SEC-33 / TASK-2129: over-cap or non-UTF-8 content can only be foreign
+    // — ops scripts are short valid UTF-8 — so it is refused with the same
+    // actionable message as any other user-authored hook, never surfaced as
+    // an opaque read error.
+    let Some(existing) = read_existing_hook_capped(hook_path, config)? else {
+        anyhow::bail!(
+            "a {} hook already exists at {} and was not installed by ops \
+             (content is not valid UTF-8 or exceeds the {}-byte read cap). \
+             Remove it manually or back it up before running install.",
+            config.hook_filename,
+            hook_path.display(),
+            existing_hook_read_cap(config),
+        );
+    };
     match classify_existing_hook(&existing, config) {
         ExistingHook::Current => {
             writeln!(w, "Hook already installed at {}", hook_path.display())?;
@@ -250,25 +337,30 @@ fn upgrade_legacy_hook(
 ) -> anyhow::Result<PathBuf> {
     let tmp = stage_hook_payload(hook_path, config)?;
 
-    let recheck = std::fs::read_to_string(hook_path)
-        .context("failed to re-read existing hook before upgrade")?;
-    let message = match classify_existing_hook(&recheck, config) {
-        ExistingHook::Legacy => "Updating outdated ops hook at",
+    // SEC-33 / TASK-2129: the re-read is bounded and UTF-8-guarded like the
+    // first one; over-cap or non-UTF-8 content mid-install is foreign (the
+    // `None` arm below), not a read error.
+    let message = match read_existing_hook_capped(hook_path, config)?
+        .as_deref()
+        .map(|content| classify_existing_hook(content, config))
+    {
+        Some(ExistingHook::Legacy) => "Updating outdated ops hook at",
         // SEC-25 (TASK-1882): a truncated ops artefact is replaced, not
         // reported as a foreign hook.
-        ExistingHook::Partial => "Replacing partially written ops hook at",
+        Some(ExistingHook::Partial) => "Replacing partially written ops hook at",
         // A concurrent installer won the race with the identical payload.
         // Nothing left to do: drop the stage and report the same success the
         // idempotent path would have. Erroring here would make two honest
         // simultaneous `ops <hook>-install` runs fail one of themselves.
-        ExistingHook::Current => {
+        Some(ExistingHook::Current) => {
             drop(tmp);
             writeln!(w, "Hook already installed at {}", hook_path.display())?;
             return Ok(hook_path.to_path_buf());
         }
-        ExistingHook::Foreign => {
-            // Drop runs on `tmp` and unlinks the staged file. Bail loudly so
-            // the user-authored content stays intact.
+        // Foreign, over-cap, or non-UTF-8: Drop runs on `tmp` and unlinks
+        // the staged file. Bail loudly so the user-authored content stays
+        // intact.
+        _ => {
             anyhow::bail!(
                 "refusing to upgrade {}: file changed during install and no longer \
                  looks like an ops-installed hook",
@@ -281,8 +373,15 @@ fn upgrade_legacy_hook(
     // `persist` consumes the NamedTempFile and renames its randomised
     // path over `hook_path`. On error the inner `(io::Error, NamedTempFile)`
     // pair lets the temp file fall back into Drop, unlinking the stage.
+    // Capture the randomised stage path before `persist` consumes `tmp` so
+    // the error can name both ends of the failed rename.
+    let staged_path = tmp.path().to_path_buf();
     tmp.persist(hook_path).map_err(|e| {
-        anyhow::Error::from(e.error).context("failed to rename temp hook into place")
+        anyhow::Error::from(e.error).context(format!(
+            "failed to rename staged hook {} into place at {}",
+            staged_path.display(),
+            hook_path.display()
+        ))
     })?;
     // SEC-25 (TASK-0713): fsync the parent so the rename hits disk; without
     // this a crash can leave the directory entry pointing at the temp
@@ -344,11 +443,11 @@ fn stage_hook_payload(
 ) -> anyhow::Result<tempfile::NamedTempFile> {
     let parent = hook_path
         .parent()
-        .context("hook path has no parent directory")?;
+        .with_context(|| format!("hook path {} has no parent directory", hook_path.display()))?;
     let file_name = hook_path
         .file_name()
         .and_then(|n| n.to_str())
-        .context("hook path has no filename")?;
+        .with_context(|| format!("hook path {} has no filename", hook_path.display()))?;
 
     let tmp = tempfile::Builder::new()
         .prefix(&format!(".{file_name}.ops-tmp."))
@@ -388,7 +487,7 @@ fn set_hook_executable(path: &Path) -> anyhow::Result<()> {
     {
         use std::os::unix::fs::PermissionsExt;
         std::fs::set_permissions(path, std::fs::Permissions::from_mode(0o755))
-            .context("failed to make hook executable")?;
+            .with_context(|| format!("failed to make hook {} executable", path.display()))?;
     }
     Ok(())
 }
@@ -441,6 +540,34 @@ mod tests {
 
         let output = String::from_utf8(buf).unwrap();
         assert!(output.contains("Installed hook"));
+    }
+
+    /// ERR-13 / TASK-2137: an install failure must name the offending path.
+    /// A regular file squatting where `.git/hooks` should be makes
+    /// `create_dir_all` fail deterministically regardless of euid; the
+    /// error must then carry the hooks directory path so an operator with
+    /// several worktrees can tell which install refused. The expected path
+    /// is canonicalized because `install_hook` resolves `.git` through
+    /// `canonical_git_dir` and macOS tempdirs sit behind a `/private`
+    /// symlink.
+    #[test]
+    fn install_failure_names_offending_path() {
+        let cfg = commit_config();
+        let dir = tempfile::tempdir().expect("tempdir");
+        let git_dir = dir.path().join(".git");
+        std::fs::create_dir(&git_dir).unwrap();
+        std::fs::write(git_dir.join("HEAD"), "ref: refs/heads/main\n").unwrap();
+        // A file where the hooks directory should be: create_dir_all fails.
+        std::fs::write(git_dir.join("hooks"), "not a directory").unwrap();
+
+        let mut buf = Vec::new();
+        let err = install_hook(&cfg, &git_dir, &mut buf).expect_err("install must fail");
+        let expected = git_dir.canonicalize().unwrap().join("hooks");
+        assert!(
+            err.to_string().contains(&expected.display().to_string()),
+            "error should name the offending hooks path {}, got: {err}",
+            expected.display()
+        );
     }
 
     /// SEC-25 / TASK-1882: if the create path fails, nothing may be left at
@@ -562,6 +689,79 @@ mod tests {
         assert_eq!(
             classify_existing_hook("#!/bin/sh\necho mine\n", &cfg),
             ExistingHook::Foreign
+        );
+    }
+
+    /// SEC-33 / TASK-2129 AC#2+#4: a hook that is not valid UTF-8 (a
+    /// compiled binary, a latin-1 script) is refused as a foreign hook with
+    /// the actionable "not installed by ops" message — not an opaque
+    /// `InvalidData` read error with no path — and is left byte-for-byte
+    /// intact.
+    #[test]
+    fn install_hook_refuses_non_utf8_hook_as_foreign_and_leaves_it_intact() {
+        let cfg = commit_config();
+        let dir = tempfile::tempdir().expect("tempdir");
+        let git_dir = dir.path().join(".git");
+        std::fs::create_dir_all(git_dir.join("hooks")).unwrap();
+        std::fs::write(git_dir.join("HEAD"), "ref: refs/heads/main\n").unwrap();
+        let hook_path = git_dir.join("hooks").join(cfg.hook_filename);
+        let content: &[u8] = b"#!/bin/sh\n\xff\xfe echo not utf8\n";
+        std::fs::write(&hook_path, content).unwrap();
+
+        let mut buf = Vec::new();
+        let err = install_hook(&cfg, &git_dir, &mut buf)
+            .expect_err("a non-UTF-8 hook must be refused as foreign");
+        let msg = format!("{err:#}");
+        assert!(
+            msg.contains("was not installed by ops"),
+            "must refuse with the foreign-hook message, got: {msg}"
+        );
+        assert!(
+            msg.contains("not valid UTF-8"),
+            "must say why it could not be classified, got: {msg}"
+        );
+        assert!(
+            msg.contains(hook_path.display().to_string().as_str()),
+            "must name the hook path, got: {msg}"
+        );
+        assert_eq!(
+            std::fs::read(&hook_path).unwrap(),
+            content,
+            "the refused hook must be left byte-for-byte intact"
+        );
+    }
+
+    /// SEC-33 / TASK-2129 AC#1+#3+#4: a hook larger than the classification
+    /// read cap is refused as foreign rather than read whole into memory,
+    /// and is left intact.
+    #[test]
+    fn install_hook_refuses_over_cap_hook_as_foreign_and_leaves_it_intact() {
+        let cfg = commit_config();
+        let dir = tempfile::tempdir().expect("tempdir");
+        let git_dir = dir.path().join(".git");
+        std::fs::create_dir_all(git_dir.join("hooks")).unwrap();
+        std::fs::write(git_dir.join("HEAD"), "ref: refs/heads/main\n").unwrap();
+        let hook_path = git_dir.join("hooks").join(cfg.hook_filename);
+        let cap = existing_hook_read_cap(&cfg);
+        let content = format!("# {}\n", "A".repeat(usize::try_from(cap).unwrap_or(0) + 1));
+        std::fs::write(&hook_path, &content).unwrap();
+
+        let mut buf = Vec::new();
+        let err = install_hook(&cfg, &git_dir, &mut buf)
+            .expect_err("an over-cap hook must be refused as foreign");
+        let msg = format!("{err:#}");
+        assert!(
+            msg.contains("was not installed by ops"),
+            "must refuse with the foreign-hook message, got: {msg}"
+        );
+        assert!(
+            msg.contains("read cap"),
+            "must say why it could not be classified, got: {msg}"
+        );
+        assert_eq!(
+            std::fs::read_to_string(&hook_path).unwrap(),
+            content,
+            "the refused hook must be left intact"
         );
     }
 

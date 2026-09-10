@@ -8,6 +8,8 @@ use ops_extension::Context;
 const PIPELINE: SidecarIngestorConfig =
     SidecarIngestorConfig::new("tokei", "tokei_files.json", "tokei_files");
 
+/// Sidecar ingestor persisting tokei statistics as `tokei_files.json` and
+/// loading them into the `tokei_files` table plus `tokei_languages` view.
 pub struct TokeiIngestor;
 
 impl DataIngestor for TokeiIngestor {

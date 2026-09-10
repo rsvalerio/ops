@@ -7,7 +7,7 @@
 
 use super::*;
 
-// -- TEST-5 / TASK-1845, ERR-4 / TASK-1827: the `ops deps` command path --
+// -- the `ops deps` command path --
 
 /// Drives `run_deps`, `ensure_tools` and `DepsProvider::provide` end to end
 /// without a real `cargo-edit` / `cargo-deny` installation and without
@@ -98,9 +98,8 @@ mod command_path_tests {
         .expect("serialize advisory report")
     }
 
-    /// TEST-5 / TASK-1845 AC#1: the happy path returns `Ok` — the command
-    /// wiring (config load → theme resolve → provider → decode → render)
-    /// holds together.
+    /// The happy path returns `Ok`: the command wiring (config load → theme
+    /// resolve → provider → decode → render) holds together.
     #[cfg(unix)]
     #[test]
     #[serial]
@@ -113,11 +112,10 @@ mod command_path_tests {
         run_deps(&registry, &DepsOptions::new(false)).expect("clean report must return Ok");
     }
 
-    /// TEST-5 / TASK-1845 AC#2: the product's actual contract — `ops deps`
-    /// fails CI when there are dependency issues. `has_issues` → `bail!` is
-    /// the only place "fail loudly" becomes a non-zero exit, and it was the
-    /// one place with no test: a refactor that rendered the report and
-    /// returned `Ok(())` regardless passed the entire suite.
+    /// The product's contract: `ops deps` fails CI when there are dependency
+    /// issues. `has_issues` → `bail!` is the only place "fail loudly" becomes
+    /// a non-zero exit, so without this test a refactor that rendered the
+    /// report and returned `Ok(())` regardless would pass the whole suite.
     #[cfg(unix)]
     #[test]
     #[serial]
@@ -135,9 +133,9 @@ mod command_path_tests {
         );
     }
 
-    /// TEST-5 / TASK-1845 AC#3: `opts.refresh` must reach `ctx.refresh` and
-    /// therefore the provider — otherwise `ops deps --refresh` silently
-    /// serves the cached payload it was asked to discard.
+    /// `opts.refresh` must reach `ctx.refresh` and therefore the provider —
+    /// otherwise `ops deps --refresh` silently serves the cached payload it
+    /// was asked to discard.
     #[cfg(unix)]
     #[test]
     #[serial]
@@ -161,11 +159,11 @@ mod command_path_tests {
         );
     }
 
-    /// ERR-4 / TASK-1827: `get_or_provide` serves a *previously persisted*
-    /// payload when one exists, and `DepsReport` keeps gaining fields, so a
-    /// cache written by an older `ops` is a live failure mode. Its bare `?`
-    /// used to surface serde's own message — `missing field \`upgrades\`` —
-    /// which reads as a bug in ops and hides the one-word remedy.
+    /// `get_or_provide` serves a persisted payload when one exists, and
+    /// `DepsReport` keeps gaining fields, so a cache written by an older
+    /// `ops` is a live failure mode. The decode error must name the report
+    /// and the `--refresh` remedy rather than surfacing serde's own
+    /// `missing field \`upgrades\``, which reads as a bug in ops.
     #[cfg(unix)]
     #[test]
     #[serial]
@@ -200,8 +198,8 @@ mod command_path_tests {
         );
     }
 
-    /// ERR-4 / TASK-1827 AC#3: a provider-registry failure must name the
-    /// provider being resolved rather than surfacing bare.
+    /// A provider-registry failure must name the provider being resolved
+    /// rather than surfacing bare.
     #[cfg(unix)]
     #[test]
     #[serial]
@@ -221,14 +219,14 @@ mod command_path_tests {
         );
     }
 
-    /// TEST-5 / TASK-1845 AC#5: `ensure_tools` reports a missing tool with
-    /// the `cargo install <crate>` hint. A non-zero probe exit is what
+    /// `ensure_tools` reports a missing tool with the
+    /// `cargo install <crate>` hint. A non-zero probe exit is what
     /// "not installed" looks like to `check_tool_in`.
     ///
-    /// CL-3 / TASK-2029 AC#3: no `CwdGuard` here — the probe directory is an
-    /// argument now, so the test points `ensure_tools` at a tempdir without
-    /// chdir-ing the whole process. `#[serial]` remains only for the
-    /// process-global `$CARGO` override.
+    /// No `CwdGuard` here: the probe directory is an argument, so the test
+    /// points `ensure_tools` at a tempdir without chdir-ing the whole
+    /// process. `#[serial]` covers only the process-global `$CARGO`
+    /// override.
     #[cfg(unix)]
     #[test]
     #[serial]
@@ -249,11 +247,10 @@ mod command_path_tests {
         );
     }
 
-    /// CL-3 / TASK-2029 AC#1: the probe is spawned in the directory the
-    /// caller named, not in the process CWD. Asserting on the *name* matters
-    /// because the old `Path::new(".")` passed this test's shape whenever the
-    /// two happened to coincide; here they deliberately do not — the process
-    /// stays in the crate directory while the probe is pointed at a tempdir.
+    /// The probe is spawned in the directory the caller named, not in the
+    /// process CWD. The two are deliberately kept apart — the process stays
+    /// in the crate directory while the probe is pointed at a tempdir — so a
+    /// probe that silently resolved against the CWD would fail here.
     #[cfg(unix)]
     #[test]
     #[serial]
@@ -282,12 +279,12 @@ mod command_path_tests {
         );
     }
 
-    /// TEST-5 / TASK-1845 AC#4: close the provider-to-consumer round trip.
-    /// `types/tests.rs` builds a `DepsReport` by hand, so it cannot catch a
-    /// provider emitting a shape `run_deps` then fails to decode. Drive the
-    /// real `DepsProvider::provide` against a fake cargo that emits a
-    /// parseable upgrade table and a clean `cargo deny`, then decode its
-    /// JSON exactly as `run_deps` does.
+    /// Closes the provider-to-consumer round trip. `types/tests.rs` builds a
+    /// `DepsReport` by hand, so it cannot catch a provider emitting a shape
+    /// `run_deps` then fails to decode. This drives the real
+    /// `DepsProvider::provide` against a fake cargo that emits a parseable
+    /// upgrade table and a clean `cargo deny`, then decodes its JSON exactly
+    /// as `run_deps` does.
     #[cfg(unix)]
     #[test]
     #[serial]
@@ -339,7 +336,7 @@ mod extension_tests {
     );
 }
 
-// -- ERR-4 / TASK-0405: user config reaches DepsProvider context --
+// -- user config reaches DepsProvider context --
 
 mod user_config_tests {
     use super::*;
@@ -356,11 +353,11 @@ mod user_config_tests {
         let dir = tempfile::tempdir().expect("tempdir");
         std::fs::write(dir.path().join(".ops.toml"), "stack = \"rust\"\n")
             .expect("write .ops.toml");
-        // TEST-23 / TASK-1842: the restore lives in a `Drop` guard so the
-        // panic this test can produce cannot leave the whole binary running
-        // in a tempdir that `TempDir::drop` then deletes.
+        // The restore lives in a `Drop` guard so the panic this test can
+        // produce cannot leave the whole binary running in a tempdir that
+        // `TempDir::drop` then deletes.
         let _cwd = crate::test_support::CwdGuard::new(dir.path()).expect("CwdGuard");
-        // TEST-23: `merge_env_vars` overlays any `OPS__*` variable on top of
+        // `merge_env_vars` overlays any `OPS__*` variable on top of
         // the on-disk config, so an ambient `OPS__STACK` would decide this
         // assertion instead of the `.ops.toml` the test just wrote. Clear it
         // for the call and restore whatever the developer had.
@@ -378,12 +375,11 @@ mod user_config_tests {
 
 // -- has_issues tests --
 
-/// DUP-3 / TASK-0989: a `warning` severity must be actionable on the
-/// strict gate (advisories / licenses / sources) and non-actionable on
-/// the relaxed gate (bans). Both branches now route through the same
-/// `is_actionable(severity, relax_warning)` helper instead of two
-/// near-identical match arms, so this test pins the contract by
-/// exercising both modes via the same `DepsReport` shape.
+/// A `warning` severity is actionable on the strict gate (advisories /
+/// licenses / sources) and non-actionable on the relaxed gate (bans). Both
+/// route through the same `severity_is_actionable(severity, relax_warning)`
+/// helper, so this pins the contract by exercising both modes through the
+/// same `DepsReport` shape.
 #[test]
 fn has_issues_warning_is_actionable_only_on_strict_gate() {
     // Strict gate (advisories): warning => actionable.
@@ -422,14 +418,13 @@ fn has_issues_warning_is_actionable_only_on_strict_gate() {
     );
 }
 
-/// DUP-3 / TASK-1821: the gate (`severity_is_actionable`) and the renderer
-/// (`SeverityClass`) must not be able to disagree. Both now classify through
-/// the same `SeverityClass::classify`, so this walks every severity string
-/// the crate can produce — the five cargo-deny values, the
-/// `<missing-severity>` sentinel, and an unknown one — and asserts the gate
-/// decision matches the rendered status. A one-sided edit to either module
-/// fails here rather than shipping a red report on a zero exit (or the
-/// reverse).
+/// The gate (`severity_is_actionable`) and the renderer (`SeverityClass`)
+/// must not be able to disagree. Both classify through the same
+/// `SeverityClass::classify`, so this walks every severity string the crate
+/// can produce — the five cargo-deny values, the `<missing-severity>`
+/// sentinel, and an unknown one — and asserts the gate decision matches the
+/// rendered status. A one-sided edit to either module fails here rather than
+/// shipping a red report on a zero exit, or the reverse.
 #[test]
 fn gate_and_renderer_agree_on_every_severity() {
     use crate::format::SeverityClass;
@@ -450,12 +445,12 @@ fn gate_and_renderer_agree_on_every_severity() {
 
     for &(severity, strict, relaxed, status) in cases {
         assert_eq!(
-            severity_is_actionable(severity, false),
+            severity_is_actionable(severity, false, &mut false),
             strict,
             "strict gate disagreed for severity {severity:?}"
         );
         assert_eq!(
-            severity_is_actionable(severity, true),
+            severity_is_actionable(severity, true, &mut false),
             relaxed,
             "relaxed (bans) gate disagreed for severity {severity:?}"
         );
@@ -469,13 +464,13 @@ fn gate_and_renderer_agree_on_every_severity() {
         // must not.
         if status == ReportStatus::Error {
             assert!(
-                severity_is_actionable(severity, false),
+                severity_is_actionable(severity, false, &mut false),
                 "renderer says Error but the gate passes for severity {severity:?}"
             );
         }
         if status == ReportStatus::Info {
             assert!(
-                !severity_is_actionable(severity, false),
+                !severity_is_actionable(severity, false, &mut false),
                 "renderer says Info but the gate fails for severity {severity:?}"
             );
         }
@@ -539,11 +534,10 @@ fn has_issues_advisory_info_not_actionable() {
     assert!(!has_issues(&report));
 }
 
-/// ERR-2 (TASK-0601): an unknown severity (e.g. cargo-deny adding a new
-/// `critical` severity in a future release) must fail the gate, not slip
-/// through silently. Combined with the missing-severity `error` default in
-/// `parse_deny_output`, this guarantees schema drift either surfaces or
-/// errs on the side of failing CI.
+/// An unknown severity (e.g. cargo-deny adding a `critical` severity in a
+/// future release) must fail the gate, not slip through silently. Together
+/// with the `<missing-severity>` sentinel `parse_deny_output` substitutes,
+/// this keeps schema drift on the "fail CI" side of the gate.
 #[test]
 fn has_issues_unknown_severity_fails_closed() {
     let report = DepsReport {
@@ -561,6 +555,49 @@ fn has_issues_unknown_severity_fails_closed() {
     assert!(
         has_issues(&report),
         "unknown severities must be treated as actionable"
+    );
+}
+
+/// Schema drift leaves one breadcrumb per gate evaluation, not one per
+/// finding. A report whose advisories, licenses, bans and sources all carry
+/// an unrecognised severity must still produce a single warn line — the same
+/// one-per-pass behaviour `format::severity_section_row` gives the renderer.
+#[test]
+fn has_issues_warns_once_across_unknown_severities() {
+    let unknown = |package: &str| DenyEntry {
+        package: package.to_string(),
+        message: "unrecognised".to_string(),
+        severity: "critical".to_string(),
+    };
+    let report = DepsReport {
+        deny: DenyResult {
+            advisories: (0..3)
+                .map(|i| AdvisoryEntry {
+                    id: format!("RUSTSEC-2024-000{i}"),
+                    package: format!("adv-{i}"),
+                    severity: "critical".into(),
+                    title: "future severity".into(),
+                })
+                .collect(),
+            licenses: vec![
+                LicenseEntry(unknown("lic-a")),
+                LicenseEntry(unknown("lic-b")),
+            ],
+            bans: vec![BanEntry(unknown("ban-a")), BanEntry(unknown("ban-b"))],
+            sources: vec![SourceEntry(unknown("src-a"))],
+            ..Default::default()
+        },
+        ..Default::default()
+    };
+
+    let (logs, actionable) =
+        crate::test_support::capture_tracing(tracing::Level::WARN, || has_issues(&report));
+
+    assert!(actionable, "unknown severities must fail the gate");
+    assert_eq!(
+        logs.matches("unknown cargo-deny severity").count(),
+        1,
+        "one drift warn per has_issues call, not per entry; got: {logs}"
     );
 }
 
@@ -628,9 +665,9 @@ fn has_issues_ban_warning_not_actionable() {
     assert!(!has_issues(&report));
 }
 
-/// TASK-0701: a ban with an unknown severity (e.g. 'critical') must be
-/// treated as actionable by `is_actionable`, not silently ignored as the
-/// old hardcoded `== "error"` check did.
+/// A ban with an unknown severity (e.g. `critical`) is actionable even on
+/// the relaxed bans gate: only `warning` is relaxed there, not everything
+/// that is not `error`.
 #[test]
 fn has_issues_ban_critical_severity_fails_closed() {
     let report = DepsReport {
@@ -698,8 +735,8 @@ fn schema_has_expected_fields() {
     assert!(field_names.contains(&"deny.sources"));
 }
 
-/// ASYNC-6 (TASK-0791): `check_tool_in` must surface a clear timeout error
-/// when the cargo probe hangs, rather than blocking the process indefinitely.
+/// `check_tool_in` surfaces a clear timeout error when the cargo probe
+/// hangs, rather than blocking the process indefinitely.
 /// Drive the timeout path via `OPS_SUBPROCESS_TIMEOUT_SECS=1` plus a fake
 /// `$CARGO` that sleeps far past the deadline.
 #[cfg(unix)]
@@ -725,18 +762,18 @@ fn check_tool_in_times_out_on_hung_probe() {
         probe_args: &["probe-test", "--version"],
     };
 
-    // TEST-23 / TASK-1842: the env mutations are reverted by `Drop`, which
-    // runs on the unwind path too. Without that, an assertion failure here
-    // leaked a `$CARGO` pointing at `exec sleep 30` plus a 1-second
-    // subprocess timeout into every later test in the binary, turning one
-    // clear failure into a cascade of unrelated timeout errors. The
-    // `unsafe`/SAFETY argument lives on the guard itself and covers
-    // restore-on-unwind, not just the `#[serial]` concurrency point.
+    // The env mutations are reverted by `Drop`, which runs on the unwind
+    // path too. Without that, an assertion failure here would leak a
+    // `$CARGO` pointing at `exec sleep 30` plus a 1-second subprocess
+    // timeout into every later test in the binary, turning one clear failure
+    // into a cascade of unrelated timeout errors. The `unsafe`/SAFETY
+    // argument lives on the guard itself and covers restore-on-unwind, not
+    // just the `#[serial]` concurrency point.
     let _cargo = crate::test_support::EnvVarGuard::set("CARGO", &fake);
     let _timeout = crate::test_support::EnvVarGuard::set(ops_core::subprocess::TIMEOUT_ENV, "1");
 
-    // Assertions can sit directly after the call now that cleanup no longer
-    // depends on reaching the end of the body.
+    // Assertions sit directly after the call: cleanup is the guards' job,
+    // not the end of the body's.
     let err =
         check_tool_in(&tool, dir.path()).expect_err("hung probe must error rather than block");
     let msg = format!("{err}");
@@ -746,7 +783,7 @@ fn check_tool_in_times_out_on_hung_probe() {
     );
 }
 
-// -- ERR-4 / TASK-1523: error source chain preserved through .context() --
+// -- error source chain preserved through .context() --
 
 #[test]
 fn provide_error_preserves_source_chain() {

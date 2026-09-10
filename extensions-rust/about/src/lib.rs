@@ -28,6 +28,12 @@
     )
 )]
 
+// API-14 / TASK-2163: the modules below are `pub(crate)`, so the `pub`
+// items inside them (e.g. `units::resolve_crate_display_name`,
+// `members::expand_member_glob`) are crate-internal already and reach no
+// external caller. Re-spelling them `pub(crate)` is what
+// `clippy::redundant_pub_crate` denies workspace-wide; the crate's
+// exported surface is the re-export block below plus `AboutRustExtension`.
 pub(crate) mod coverage_provider;
 pub(crate) mod deps_provider;
 pub(crate) mod identity;
@@ -37,9 +43,16 @@ pub(crate) mod members;
 pub(crate) mod units;
 pub(crate) mod workspace_root_cache;
 
+/// Extension identifier used to register this crate in the engine's
+/// extension registry.
 pub const NAME: &str = "about-rust";
+/// One-line description shown by `ops about` for this extension.
 pub const DESCRIPTION: &str = "Rust project identity and about pages";
+/// CLI-facing short name (`about-rs`) used in commands and user-facing
+/// output.
 pub const SHORTNAME: &str = "about-rs";
+/// Registry key of the `project_identity` data provider this crate
+/// registers — the provider the generic `ops about` identity page reads.
 pub const DATA_PROVIDER_NAME: &str = "project_identity";
 
 /// Re-exported for sibling Rust-stack extension crates: the resolved
@@ -55,6 +68,9 @@ pub use members::resolved_workspace_members;
 pub use members::member_path_is_workspace_safe;
 pub use units::{read_crate_metadata, CrateMetadata};
 
+/// Datasource extension supplying the Rust stack's about providers
+/// (identity, units, coverage, dependencies) to the generic
+/// `ops_about` renderers.
 pub struct AboutRustExtension;
 
 ops_extension::impl_extension! {

@@ -3,16 +3,26 @@
 //! Stack-agnostic helpers used by about subpages across stacks.
 
 use ops_core::output::{detect_terminal_width, display_width};
-pub use ops_core::text::format_number;
+// API-13 / TASK-2072: crate-private alias so sibling modules can share the
+// import without giving a foreign ops-core item a second public path.
+pub(crate) use ops_core::text::format_number;
 use std::io::IsTerminal;
 use unicode_segmentation::UnicodeSegmentation;
 
-#[must_use]
+/// Returns the terminal width for layout, preferring the OS window size and
+/// falling back to `COLUMNS`, then to a constant default.
+///
+/// When stdout is a TTY the OS is asked for the real window size first;
+/// `COLUMNS` is unset in many shells until the user resizes once, and the
+/// previous 120-column fallback wrapped badly on narrow terminals and
+/// under-utilised wide ones.
+#[must_use = "use the returned width for layout; it is not remembered between calls"]
 pub fn get_terminal_width() -> usize {
     // ARCH-2 / TASK-0667: when stdout is a TTY, ask the OS for the real
     // window size first; `COLUMNS` is unset in many shells until the user
     // resizes once, and the previous 120-column fallback wrapped badly on
-    // narrow terminals and under-utilised wide ones.
+    // narrow terminals and under-utilised wide ones. Rationale in the doc
+    // comment above.
     if std::io::stdout().is_terminal() {
         if let Some(width) = detect_terminal_width() {
             return width;
@@ -26,7 +36,7 @@ pub fn get_terminal_width() -> usize {
 /// Extracted from `get_terminal_width` so tests can exercise the parser
 /// without mutating process-global env, which otherwise races with any
 /// parallel test reading COLUMNS.
-#[must_use]
+#[must_use = "use the parsed width; the default fallback is applied here, not by the caller"]
 pub fn parse_terminal_width(raw: Option<&str>) -> usize {
     raw.and_then(|s| s.parse().ok()).unwrap_or(120)
 }
@@ -38,33 +48,39 @@ pub fn parse_terminal_width(raw: Option<&str>) -> usize {
 /// TASK-0566). Lifting it onto `ops_about` collapses the three drift surfaces
 /// onto one policy — tightening the trim semantics (e.g. dropping
 /// whitespace-only Unicode controls) lands once.
-#[must_use]
+#[must_use = "use the trimmed value; discarding it drops the sanitised string"]
 pub fn trim_nonempty(value: Option<String>) -> Option<String> {
     value
         .map(|s| s.trim().to_string())
         .filter(|s| !s.is_empty())
 }
 
-/// Detect ASCII / Unicode control characters in an attacker-controllable text
-/// value (manifest URLs, repository fields, package metadata).
+/// Detect codepoints the display-safety policy rejects in an
+/// attacker-controllable text value (manifest URLs, repository fields,
+/// package metadata).
 ///
-/// `char::is_control` matches the whole Unicode `Cc` category — C0
-/// (`U+0000..=U+001F`), DEL (`U+007F`) **and** C1 (`U+0080..=U+009F`) — so it
-/// is the complete test on its own; no separate DEL clause is required.
+/// DUP-2 / TASK-2116: delegates to the shared
+/// [`ops_core::text::is_unsafe_display_char`] predicate — the same one the
+/// git remote path uses — so an About-card manifest field rejects exactly
+/// what a git remote rejects: the whole `Cc` control category (C0, DEL, C1)
+/// plus the bidi / zero-width / BOM / separator codepoints (U+202E, U+200B,
+/// U+FEFF, U+2066..U+2069, U+2028 / U+2029, …). The name is kept for the
+/// node / python / terraform callers; the set is the shared one.
 ///
-/// SEC-2 / TASK-1165 / TASK-1207: any control byte in such a value is treated
-/// as evidence of tampering and the caller drops the field entirely rather
-/// than stripping it. Stripping silently concatenates the attacker-controlled
-/// tail (`https://demo.dev\nINJECT` → `https://demo.devINJECT`) into a
-/// clickable URL; dropping surfaces the field as missing.
+/// SEC-2 / TASK-1165 / TASK-1207: any rejected codepoint in such a value is
+/// treated as evidence of tampering and the caller drops the field entirely
+/// rather than stripping it. Stripping silently concatenates the
+/// attacker-controlled tail (`https://demo.dev\nINJECT` →
+/// `https://demo.devINJECT`) into a clickable URL; dropping surfaces the
+/// field as missing.
 ///
 /// DUP-3 / TASK-1758: about-node and about-python each carried a verbatim copy
 /// of this predicate for the same policy. Lifting it here keeps the
 /// sanitisation boundary pinned at one source location, so a tightening lands
 /// for every stack at once.
-#[must_use]
+#[must_use = "branch on the verdict; the input is left unvalidated"]
 pub fn contains_control_chars(raw: &str) -> bool {
-    raw.chars().any(char::is_control)
+    ops_core::text::contains_unsafe_display_chars(raw)
 }
 
 /// URL schemes an About-card link may carry.
@@ -90,7 +106,7 @@ const ALLOWED_URL_SCHEMES: [&str; 2] = ["https://", "http://"];
 /// URL is never emitted.
 ///
 /// Scheme comparison is ASCII-case-insensitive, per RFC 3986 §3.1.
-#[must_use]
+#[must_use = "branch on the verdict; the input is left unvalidated"]
 pub fn has_allowed_url_scheme(raw: &str) -> bool {
     let trimmed = raw.trim_start();
     ALLOWED_URL_SCHEMES.iter().any(|scheme| {
@@ -100,7 +116,7 @@ pub fn has_allowed_url_scheme(raw: &str) -> bool {
     })
 }
 
-#[must_use]
+#[must_use = "use the padded string; it is a new allocation, not an in-place edit"]
 pub fn pad_to_width_plain(s: &str, width: usize) -> String {
     // PATTERN-1 / TASK-1001: delegate to `display_width` so emoji ZWJ
     // sequences (`👨‍👩‍👧`), regional-indicator flag pairs, and variation
@@ -139,7 +155,7 @@ pub fn pad_to_width_plain(s: &str, width: usize) -> String {
 /// Iterating clusters fixes both at once: a cluster is kept whole or dropped
 /// whole, and its width is measured the way the terminal renders it. ASCII is
 /// unaffected — every ASCII `char` is its own one-column cluster.
-#[must_use]
+#[must_use = "use the truncated string; it is a new allocation, not an in-place edit"]
 pub fn truncate_to_width(s: &str, max_width: usize) -> String {
     // READ-6: a zero-column budget has room for nothing at all — not even the
     // ellipsis. Without this guard the loop below compares against
@@ -225,7 +241,7 @@ fn take_width_chars() -> usize {
 /// "ran out of lines" case.
 ///
 /// Empty input or `max_lines == 0` returns an empty vector unchanged.
-#[must_use]
+#[must_use = "render the returned lines; rewrapping the same input recomputes them"]
 pub fn wrap_text(text: &str, max_width: usize, max_lines: usize) -> Vec<String> {
     if text.is_empty() || max_lines == 0 {
         return vec![];
@@ -318,6 +334,9 @@ pub fn wrap_text(text: &str, max_width: usize, max_lines: usize) -> Vec<String> 
     lines
 }
 
+/// Applies `styler` to `text` only when the output is an interactive TTY.
+///
+/// Non-TTY callers get the plain text back so piped output stays unstyled.
 pub fn tty_style(
     text: &str,
     styler: fn(&str) -> std::borrow::Cow<'_, str>,
@@ -332,7 +351,7 @@ pub fn tty_style(
 
 /// Pad `left` and `right` with spaces so they span a content area of
 /// `target_content_width` columns (right-aligned right string, one trailing space).
-#[must_use]
+#[must_use = "use the padded header; it is a new allocation, not an in-place edit"]
 pub fn pad_header(left: &str, right: &str, target_content_width: usize) -> String {
     let left_display = display_width(left);
     let right_display = display_width(right);
@@ -371,6 +390,24 @@ mod tests {
             "C1 (NEL) must be rejected"
         );
         assert!(!contains_control_chars("https://demo.dev/owner/repo"));
+    }
+
+    /// DUP-2 / TASK-2116 AC #3: About-card manifest fields must reject the
+    /// same bidi / zero-width codepoints the git remote path rejects. The
+    /// predicate is shared with `ops_core::text::is_unsafe_display_char`
+    /// (consumed by `ops_git`), so pin both motivating codepoints here —
+    /// a U+202E that only the git copy rejected would be exactly the drift
+    /// the shared predicate exists to prevent.
+    #[test]
+    fn contains_control_chars_rejects_bidi_and_zero_width() {
+        assert!(
+            contains_control_chars("https://host/\u{202e}fake/repo"),
+            "U+202E RIGHT-TO-LEFT OVERRIDE must be rejected"
+        );
+        assert!(
+            contains_control_chars("https://host/\u{200b}repo"),
+            "U+200B ZERO WIDTH SPACE must be rejected"
+        );
     }
 
     /// SEC-11 / TASK-1755: only `http(s)` reach a rendered About link.

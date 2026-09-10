@@ -5,26 +5,26 @@
 //!
 //! # Manifest IO policy
 //!
-//! ERR-1 / TASK-0851: every `.tf` read goes through
-//! [`ops_about::manifest_io::read_optional_text`] so the project-wide rule
+//! Every `.tf` read goes through
+//! [`ops_about::manifest_io::read_optional_text`], so the project-wide rule
 //! "missing manifest is silent, real IO error is `tracing::warn!`-and-fall-
 //! back" applies here the same way it does in the Python / Go siblings.
 //! A permission-denied / EIO / "is a directory" failure on `versions.tf`
 //! is therefore distinguishable from "no version declared" in the logs.
-//! The directory enumeration in [`find_required_version`] mirrors the
-//! same policy — non-NotFound `read_dir` failures are logged at `warn`,
-//! and ERR-1 / TASK-1772 extends it to *per-entry* failures in both
-//! [`fallback_tf_paths`] and [`count_local_modules`], which previously
-//! dropped them through `flatten()` / `Path::exists()`.
+//! The directory enumeration in [`find_required_version`] mirrors the same
+//! policy: non-NotFound `read_dir` failures are logged at `warn`, and so are
+//! *per-entry* failures in both [`fallback_tf_paths`] and
+//! [`count_local_modules`], rather than being dropped through `flatten()` or
+//! an `exists()` probe.
 //!
 //! # Rendered values are untrusted
 //!
-//! SEC-11 / TASK-1775: `ops about` runs inside repositories the operator
+//! `ops about` runs inside repositories the operator
 //! cloned but did not audit, and `stack_detail` reaches the terminal with no
 //! escaping layer in between. [`sanitize_required_version`] is the single
-//! producing-side gate: a value carrying control characters is dropped, not
-//! stripped, matching `ops_about::text_util`'s policy for manifest URL and
-//! repository fields.
+//! producing-side gate: a value carrying a control or Unicode formatting
+//! codepoint is dropped, not stripped, matching `ops_about::text_util`'s
+//! policy for manifest URL and repository fields.
 
 #![cfg_attr(
     test,
@@ -48,6 +48,8 @@ const DESCRIPTION: &str = "Terraform project identity";
 const SHORTNAME: &str = "about-terraform";
 const DATA_PROVIDER_NAME: &str = "project_identity";
 
+/// Datasource extension supplying the Terraform stack's about providers
+/// (identity, read from `.tf` files) to the generic `ops_about` renderers.
 #[non_exhaustive]
 pub struct AboutTerraformExtension;
 
@@ -105,11 +107,11 @@ const CANDIDATE_FILES: [&str; 4] = ["versions.tf", "main.tf", "terraform.tf", "v
 fn find_required_version(root: &Path) -> Option<String> {
     for candidate in CANDIDATE_FILES {
         let path = root.join(candidate);
-        // ERR-1 / TASK-0851: route through the shared helper so a
+        // Route through the shared helper so a
         // permission-denied / EIO / "is a directory" failure surfaces as
         // tracing::warn! instead of silently degrading to "no version".
         if let Some(content) = ops_about::manifest_io::read_optional_text(&path, candidate) {
-            if let Some(v) = extract_required_version(&content) {
+            if let Some(v) = extract_required_version(&content, candidate) {
                 return Some(v);
             }
         }
@@ -120,7 +122,7 @@ fn find_required_version(root: &Path) -> Option<String> {
             |n| n.to_string_lossy().into_owned(),
         );
         if let Some(content) = ops_about::manifest_io::read_optional_text(&path, &kind) {
-            if let Some(v) = extract_required_version(&content) {
+            if let Some(v) = extract_required_version(&content, &kind) {
                 return Some(v);
             }
         }
@@ -131,21 +133,19 @@ fn find_required_version(root: &Path) -> Option<String> {
 /// The `.tf` files in `root` that [`find_required_version`]'s fallback walk
 /// should read, in a deterministic order.
 ///
-/// CL-3 / TASK-0852: `read_dir` ordering is platform-dependent (ext4 hash
-/// order, APFS insertion-ish order, Windows alphabetical) so the
-/// first-match-wins fallback used to produce non-deterministic results across
-/// operators when several `.tf` files declared different `required_version`
-/// strings. Sorting by path makes the alphabetically-first `.tf` carrying a
-/// constraint the documented, reproducible winner.
+/// The order is deterministic because `read_dir` ordering is not: ext4 hashes,
+/// APFS is insertion-ish, Windows is alphabetical. Sorting by path makes the
+/// alphabetically-first `.tf` carrying a constraint the reproducible winner
+/// when several `.tf` files declare different `required_version` strings.
 ///
-/// ERR-1 / TASK-1772: per-entry `read_dir` failures are logged rather than
-/// dropped by `flatten()`, matching the module-level IO policy and
+/// Per-entry `read_dir` failures are logged rather than dropped by
+/// `flatten()`, matching the module-level IO policy and
 /// [`count_local_modules`].
 ///
-/// PERF-3 / TASK-1782: files already probed by the named-candidate loop are
-/// skipped, so the common "a `main.tf` with no constraint" project reads and
-/// parses that file once instead of twice. The comparison is exact-name: on a
-/// case-sensitive filesystem a `Main.TF` is a genuinely different file that
+/// Files already probed by the named-candidate loop are skipped, so the common
+/// "a `main.tf` with no constraint" project reads and parses that file once
+/// instead of twice. The comparison is exact-name: on a case-sensitive
+/// filesystem a `Main.TF` is a genuinely different file that
 /// `root.join("main.tf")` never opened.
 fn fallback_tf_paths(root: &Path) -> Vec<PathBuf> {
     // A non-NotFound read_dir failure deserves a warn — same rationale as the
@@ -182,10 +182,12 @@ fn fallback_tf_paths(root: &Path) -> Vec<PathBuf> {
     tf_paths
 }
 
-/// PATTERN-1 / TASK-1025: compare the extension ASCII-case-insensitively so a
-/// `Custom.TF` / `Versions.Tf` file (preserved-case on macOS APFS, Windows
-/// NTFS) is found by the fallback walk, matching the targeted candidate list
-/// which already resolves case-insensitively via the filesystem.
+/// Whether `path` has a `.tf` extension, compared ASCII-case-insensitively.
+///
+/// A `Custom.TF` / `Versions.Tf` file (preserved-case on macOS APFS, Windows
+/// NTFS) is therefore found by the fallback walk, matching the targeted
+/// candidate list, which already resolves case-insensitively via the
+/// filesystem.
 fn has_tf_extension(path: &Path) -> bool {
     path.extension()
         .and_then(|e| e.to_str())
@@ -199,69 +201,152 @@ fn is_named_candidate(path: &Path) -> bool {
         .is_some_and(|n| CANDIDATE_FILES.contains(&n))
 }
 
-/// SEC-11 / TASK-0853: cap on the rendered `required_version` string.
-/// HCL constraints in real configs are short (`~> 1.5`, `>= 1.0, < 2.0`,
-/// etc.) — well under 64 chars. An adversarial `.tf` could otherwise
-/// embed a long string that ends up rendered into the About card; we
-/// truncate at this cap and log so the truncation is observable.
+/// Cap on the rendered `required_version` string.
+///
+/// HCL constraints in real configs are short (`~> 1.5`, `>= 1.0, < 2.0`) —
+/// well under 64 chars. Without the cap an adversarial `.tf` could embed a
+/// long string that ends up rendered into the About card; values over it are
+/// truncated and the truncation is logged so it stays observable.
 const REQUIRED_VERSION_MAX_LEN: usize = 64;
 
 /// Extract the `required_version` value from a single `.tf` file's content.
 ///
-/// FN-1 / TASK-1779: the scan is three separable stages, each independently
-/// testable, rather than one loop body mixing all of them —
-/// [`strip_comments`] blanks every comment form, [`scan_line`] tracks block
-/// structure and locates the assignment, and [`sanitize_required_version`]
-/// applies the SEC-11 policy to the extracted string. The three correctness
-/// bugs this shape replaced (brace-stack desync, unrecognised block openers,
-/// comment-unaware stripping) all lived in the seams between those stages.
-fn extract_required_version(content: &str) -> Option<String> {
-    // PATTERN-1 / TASK-1020 + TASK-1768 + TASK-1771: blank every comment form
-    // up front so the structural scan below never has to reason about them.
-    let stripped = strip_comments(content);
-    // ERR-2 / TASK-0919: only accept `required_version = "…"` when it
-    // appears at the top level of a `terraform { … }` block.
+/// `source` names the file the content came from (candidate name or
+/// fallback-walk file name) so the warnings emitted here and in
+/// [`sanitize_required_version`] identify which of the workspace's `.tf`
+/// files triggered them.
+///
+/// The scan is three separable, independently testable stages rather than one
+/// loop body mixing all of them: [`strip_comments`] blanks every comment form,
+/// [`scan_line`] tracks block structure and locates the assignment, and
+/// [`sanitize_required_version`] applies the rendering policy to the extracted
+/// string.
+fn extract_required_version(content: &str, source: &str) -> Option<String> {
+    // Blank every comment form up front so the structural scan below never
+    // has to reason about them.
+    //
+    // A `/*` or `"` that never closes is
+    // malformed input. Terraform's own lexer rejects the file; the scanner
+    // reports it and refuses, rather than silently blanking the remainder
+    // (`/*`) or silently passing it through while comment stripping stays
+    // disabled for the rest of the file (`"`).
+    let (stripped, strip_eof) = strip_comments(content);
+    match strip_eof {
+        StripEof::Clean => {}
+        StripEof::UnterminatedBlockComment => {
+            tracing::warn!(
+                source = ?source,
+                construct = "block-comment",
+                ".tf content ends inside an unterminated /* ... */ comment; skipping file"
+            );
+            return None;
+        }
+        StripEof::UnterminatedString => {
+            tracing::warn!(
+                source = ?source,
+                construct = "string",
+                ".tf content has a line ending inside an unterminated string; skipping file"
+            );
+            return None;
+        }
+    }
+    // Only accept `required_version = "…"` when it appears at the top level
+    // of a `terraform { … }` block.
     let mut state = ScanState::new();
+    // The first found value is *recorded*, not
+    // returned — it is only trustworthy if the rest of the file turns out to
+    // be structurally clean. A constraint read out of a file that never
+    // closes its `terraform {` block is a truncated file accepted as
+    // well-formed, which is what the EOF checks below exist to refuse.
+    let mut found: Option<String> = None;
     for line in stripped.lines() {
         match scan_line(line, &mut state) {
             LineScan::Continue => {}
-            LineScan::Found(value) => return sanitize_required_version(&value),
+            LineScan::Found(value) => {
+                if found.is_none() {
+                    found = Some(value);
+                }
+            }
             LineScan::Malformed => {
-                // PATTERN-1 / TASK-1765: a `}` with nothing to close means the
-                // braces do not balance, so every depth judgement after it
-                // would be guesswork. Refuse the file rather than render a
-                // constraint read at an unknown nesting level.
-                tracing::warn!("unbalanced closing brace in .tf content; skipping file");
+                // A `}` with nothing to close means the braces do not
+                // balance, so every depth judgement after it would be
+                // guesswork. Refuse the file rather than render a constraint
+                // read at an unknown nesting level. The warn names the file:
+                // the fallback walk feeds every root `.tf` through here, so
+                // without `source` the repeats are indistinguishable.
+                tracing::warn!(
+                    source = ?source,
+                    "unbalanced closing brace in .tf content; skipping file"
+                );
+                return None;
+            }
+            LineScan::UnterminatedString => {
+                // The line ended inside a `"`
+                // that never closed. On the owned strip path `StripEof`
+                // already reported and refused it above; this arm is the only
+                // reporter for files that took the comment-stripper's
+                // no-comment fast path, where `strip_comments` never inspects
+                // strings.
+                tracing::warn!(
+                    source = ?source,
+                    construct = "string",
+                    ".tf content has a line ending inside an unterminated string; skipping file"
+                );
                 return None;
             }
         }
     }
-    None
+    // A heredoc still open at EOF means the
+    // terminator never arrived, so every line after the opener was consumed
+    // as body. Report it exactly like the unbalanced closing brace above —
+    // warn and refuse the file — instead of falling off the loop as a
+    // silent `None` indistinguishable from "no constraint declared".
+    if state.heredoc.is_open() {
+        tracing::warn!(
+            source = ?source,
+            construct = "heredoc",
+            ".tf content ends inside an unterminated heredoc; skipping file"
+        );
+        return None;
+    }
+    // A non-empty brace stack at EOF means the
+    // file opened blocks it never closed — truncated or hand-mangled input,
+    // not a well-formed file that happens to declare nothing.
+    if !state.stack.is_empty() {
+        tracing::warn!(
+            source = ?source,
+            construct = "block",
+            ".tf content ends with an unclosed block; skipping file"
+        );
+        return None;
+    }
+    found
+        .as_deref()
+        .and_then(|v| sanitize_required_version(v, source))
 }
 
 /// The HCL block nesting the scanner is currently inside.
 ///
-/// PATTERN-1 / TASK-1765: an entry is `Some(ident)` for a named block opener
-/// (`terraform {`, `provider "aws" {`) and `None` for any *other* brace — an
-/// object-valued attribute (`aws = {`), a `default = { … }`, an expression.
-/// The earlier implementation pushed only named openers while popping on every
-/// `}`, so a single `aws = {` desynchronised the stack and closed the
-/// enclosing `terraform` block early. Pushing a sentinel keeps pushes and pops
-/// balanced whatever the brace was.
+/// An entry is `Some(ident)` for a named block opener (`terraform {`,
+/// `provider "aws" {`) and `None` for any *other* brace — an object-valued
+/// attribute (`aws = {`), a `default = { … }`, an expression. Pushing a
+/// sentinel for the unnamed case keeps pushes and pops balanced whatever the
+/// brace was, so a single `aws = {` cannot desynchronise the stack and close
+/// the enclosing `terraform` block early.
 type BlockStack = Vec<Option<String>>;
 
 /// Everything [`scan_line`] carries from one line to the next.
 ///
-/// PATTERN-1 / TASK-2031: the block stack alone was not enough state. An HCL
-/// heredoc (`<<EOT` / `<<-EOT` … `EOT`) is an unquoted multi-line string, so
-/// its body is not HCL at all: a bare `}` in a shell snippet is not a
-/// structural close, and `#` starts nothing. Tracking the pending terminator
-/// beside the stack is what lets the scanner skip those lines instead of
-/// reading them as structure.
+/// The block stack alone is not enough state. An HCL heredoc (`<<EOT` /
+/// `<<-EOT` … `EOT`) is an unquoted multi-line string, so its body is not HCL
+/// at all: a bare `}` in a shell snippet is not a structural close, and `#`
+/// starts nothing. Tracking the pending terminator beside the stack is what
+/// lets the scanner skip those lines instead of reading them as structure.
 struct ScanState {
     stack: BlockStack,
-    /// `Some(open)` while the scanner is inside a heredoc body.
-    heredoc: Option<Heredoc>,
+    /// Heredoc body tracking, shared with [`strip_comments`] — see
+    /// [`HeredocTracker`].
+    heredoc: HeredocTracker,
 }
 
 /// An open heredoc body: the terminator that closes it, and whether the
@@ -270,8 +355,8 @@ struct ScanState {
 /// HCL only allows the terminator of a `<<-` heredoc to be indented; for the
 /// plain `<<` spelling it must start the line. Tracking which spelling opened
 /// the body is what lets [`Heredoc::closes`] apply the right rule, so a body
-/// line that merely *looks* like an indented terminator no longer ends an
-/// ordinary heredoc early.
+/// line that merely *looks* like an indented terminator cannot end an ordinary
+/// heredoc early.
 #[derive(Debug, Clone)]
 struct Heredoc {
     terminator: String,
@@ -294,11 +379,69 @@ impl Heredoc {
     }
 }
 
+/// The heredoc *body* state machine — open, consume, close — in exactly one
+/// place, shared by [`scan_line`] (structure scan) and [`strip_comments`]
+/// (comment blanking).
+///
+/// Both stages are line-oriented against it: each asks
+/// [`Self::consumes_line`] about the line it is about to process, and a
+/// `true` means the line belongs to a heredoc body (the terminator line
+/// included) — skipped whole by the scanner, passed through verbatim by the
+/// stripper. The opener-to-body handoff (HCL allows nothing after the
+/// opener, so the opener's own line is never body) is owned here rather than
+/// re-derived per stage, which is what keeps the two stages from disagreeing
+/// about where a body begins.
+#[derive(Default)]
+struct HeredocTracker {
+    /// An opener recognised on the current line; becomes `body` when the
+    /// next line is classified.
+    pending: Option<Heredoc>,
+    /// The body being consumed; `Some` from the first body line until the
+    /// terminator line closes it.
+    body: Option<Heredoc>,
+}
+
+impl HeredocTracker {
+    /// Record a heredoc opener recognised on the current line (by
+    /// [`heredoc_terminator`], the shared opener grammar).
+    fn open(&mut self, open: Heredoc) {
+        self.pending = Some(open);
+    }
+
+    /// Does `line` belong to a heredoc body (the terminator line included)?
+    ///
+    /// Advances the state machine: promotes a pending opener to an open
+    /// body, and closes the body when `line` is the terminator (spacing
+    /// rules per [`Heredoc::closes`], so a CRLF file and an indented `<<-`
+    /// terminator both behave).
+    fn consumes_line(&mut self, line: &str) -> bool {
+        if let Some(open) = self.pending.take() {
+            self.body = Some(open);
+        }
+        let Some(open) = self.body.as_ref() else {
+            return false;
+        };
+        if open.closes(line) {
+            self.body = None;
+        }
+        true
+    }
+
+    /// Whether a heredoc is open or pending at end of input — the premise of
+    /// the structural scan's unterminated-heredoc refusal.
+    const fn is_open(&self) -> bool {
+        self.pending.is_some() || self.body.is_some()
+    }
+}
+
 impl ScanState {
     const fn new() -> Self {
         Self {
             stack: BlockStack::new(),
-            heredoc: None,
+            heredoc: HeredocTracker {
+                pending: None,
+                body: None,
+            },
         }
     }
 }
@@ -311,37 +454,46 @@ enum LineScan {
     Found(String),
     /// A `}` appeared with an empty stack — the input is not balanced HCL.
     Malformed,
+    /// The line ended inside a `"` that never closed. HCL quoted strings are
+    /// line-local, so this is malformed input: it is reported and the file
+    /// refused, rather than letting the string state leak into the rest of
+    /// the file.
+    UnterminatedString,
 }
 
 /// Walk one line, updating `stack` for every structural brace and reporting a
 /// `required_version` assignment found at the top level of `terraform { … }`.
 ///
-/// PATTERN-1 / TASK-1768: braces and assignments are located per *token*, not
-/// per line, so `terraform { # comment`, `required_version = "…" }` and
-/// `locals { x = 1 }` all track correctly. Quoted strings are skipped so a
-/// brace or quote inside a value is never structural.
+/// Braces and assignments are located per *token*, not per line, so
+/// `terraform { # comment`, `required_version = "…" }` and `locals { x = 1 }`
+/// all track correctly. Quoted strings are skipped so a brace or quote inside
+/// a value is never structural.
 ///
-/// PATTERN-1 / TASK-2031: heredoc bodies are skipped whole. A `<<EOT` opener
-/// outside a string switches the scanner into `state.heredoc` until a line
-/// whose trimmed content is the terminator; nothing in between updates the
-/// block stack or yields a value. Without that, a `}` in a shell snippet
-/// popped a level the file never opened, and with the TASK-1765 balance check
-/// in place that silently dropped the whole file.
+/// Heredoc bodies are skipped whole. A `<<EOT` opener outside a string
+/// switches the scanner into `state.heredoc` until a line whose trimmed
+/// content is the terminator; nothing in between updates the block stack or
+/// yields a value. Otherwise a `}` in a shell snippet would pop a level the
+/// file never opened, which the balance check would then read as malformed
+/// input and drop the whole file.
 fn scan_line(line: &str, state: &mut ScanState) -> LineScan {
-    if let Some(open) = state.heredoc.as_ref() {
-        // The opener's spelling decides whether an indented terminator counts
-        // (`<<-`) or only one that starts the line (`<<`). Matching HCL here
-        // matters because a body line whose *trimmed* text happens to equal
-        // the terminator would otherwise end an ordinary heredoc early, and
-        // the rest of that body would then be read as structure.
-        if open.closes(line) {
-            state.heredoc = None;
-        }
+    // Heredoc bodies are skipped whole, classified by
+    // the same tracker [`strip_comments`] consults for each of its lines.
+    // The opener's spelling decides whether an indented terminator counts
+    // (`<<-`) or only one that starts the line (`<<`) — [`Heredoc::closes`],
+    // shared — so a body line whose *trimmed* text happens to equal the
+    // terminator cannot end an ordinary heredoc early and leak the rest of
+    // that body back in as structure.
+    if state.heredoc.consumes_line(line) {
         return LineScan::Continue;
     }
     let mut segment_start = 0usize;
     let mut in_string = false;
     let mut escaped = false;
+    // A value found at a closing `}` is recorded, not
+    // returned on the spot — the brace still has to pop the stack so the
+    // caller's end-of-file balance check sees a consistent state. Reporting
+    // happens at end of line, after every brace on it has been tracked.
+    let mut found: Option<String> = None;
     for (idx, ch) in line.char_indices() {
         if in_string {
             if escaped {
@@ -366,7 +518,9 @@ fn scan_line(line: &str, state: &mut ScanState) -> LineScan {
                     .and_then(|rest| rest.strip_prefix('<'))
                     .and_then(heredoc_terminator)
                 {
-                    state.heredoc = Some(Heredoc {
+                    // The opener-to-body handoff is the
+                    // tracker's business; the body starts on the next line.
+                    state.heredoc.open(Heredoc {
                         terminator: terminator.to_owned(),
                         indented,
                     });
@@ -381,8 +535,8 @@ fn scan_line(line: &str, state: &mut ScanState) -> LineScan {
                 segment_start = after_brace;
             }
             '}' => {
-                if let Some(found) = required_version_here(line, segment_start, idx, &state.stack) {
-                    return LineScan::Found(found);
+                if found.is_none() {
+                    found = required_version_here(line, segment_start, idx, &state.stack);
                 }
                 if state.stack.pop().is_none() {
                     return LineScan::Malformed;
@@ -392,8 +546,18 @@ fn scan_line(line: &str, state: &mut ScanState) -> LineScan {
             _ => {}
         }
     }
-    required_version_here(line, segment_start, line.len(), &state.stack)
-        .map_or(LineScan::Continue, LineScan::Found)
+    // `in_string` is line-local by construction, so
+    // it can only be true here if the line's closing `"` never arrived.
+    // Report it here rather than in `strip_comments`: this stage sees every
+    // line, including files that take the comment-stripper's no-comment fast
+    // path.
+    if in_string {
+        return LineScan::UnterminatedString;
+    }
+    if found.is_none() {
+        found = required_version_here(line, segment_start, line.len(), &state.stack);
+    }
+    found.map_or(LineScan::Continue, LineScan::Found)
 }
 
 /// Is `c` valid as the first character of a heredoc terminator?
@@ -407,8 +571,7 @@ fn scan_line(line: &str, state: &mut ScanState) -> LineScan {
 /// those carrying `Other_Alphabetic` (a Devanagari vowel sign passes,
 /// `U+0301 COMBINING ACUTE ACCENT` does not). A decomposed `<<é` would then
 /// have its terminator truncated to `e`, the real closing line would never
-/// match, and the rest of the file would be swallowed as heredoc body — the
-/// failure PATTERN-1 / TASK-2031 exists to prevent.
+/// match, and the rest of the file would be swallowed as heredoc body.
 ///
 /// `unicode-ident` carries the generated tables. It resolves `XID_Start` /
 /// `XID_Continue`, the normalisation-closed profile `UAX #31` recommends;
@@ -461,7 +624,7 @@ fn heredoc_terminator(after_marker: &str) -> Option<(&str, bool)> {
 /// fragment is an assignment *and* `stack` says we are at the top level of a
 /// `terraform` block.
 ///
-/// ERR-2 / TASK-0919: anywhere else (top level, nested deeper, or inside a
+/// Anywhere else (top level, nested deeper, or inside a
 /// `module` / `provider` block) the key is HCL-valid but is not the terraform
 /// stack constraint we want to render.
 fn required_version_here(
@@ -479,7 +642,7 @@ fn required_version_here(
 
 /// Parse a `required_version = "…"` assignment out of a brace-free fragment.
 ///
-/// SEC-11 / TASK-0853: HCL standardises the value as a double-quoted string,
+/// HCL standardises the value as a double-quoted string,
 /// so a bare or single-quoted value is rejected — surfacing it would mislead
 /// the operator about what the manifest actually says. Comments are already
 /// blanked by [`strip_comments`], so anything left after the closing quote is
@@ -500,7 +663,7 @@ fn parse_required_version_assignment(fragment: &str) -> Option<&str> {
     }
 }
 
-/// SEC-11 / TASK-1775 + TASK-0853: make an extracted value safe to render.
+/// Makes an extracted value safe to render, or drops it.
 ///
 /// Control characters are *dropped*, not stripped: the value reaches the
 /// operator's terminal through `ProjectIdentity::stack_detail` with no
@@ -510,17 +673,24 @@ fn parse_required_version_assignment(fragment: &str) -> Option<&str> {
 /// tail onto the legitimate prefix; dropping surfaces the field as missing.
 /// This is the same drop-not-strip policy `ops_about::text_util` applies to
 /// manifest URL and repository fields, reusing its shared predicate.
-fn sanitize_required_version(value: &str) -> Option<String> {
+///
+/// `source` names the `.tf` file the value came from so both warnings are
+/// attributable to a file: the control-character warn is a smuggling signal an
+/// operator would actually investigate, and a workspace root can carry a dozen
+/// otherwise indistinguishable `.tf` files.
+fn sanitize_required_version(value: &str, source: &str) -> Option<String> {
     if ops_about::text_util::contains_control_chars(value) {
         tracing::warn!(
+            source = ?source,
             len = value.len(),
-            "required_version contains control characters; dropping the value"
+            "required_version contains control or Unicode formatting codepoints; dropping the value"
         );
         return None;
     }
     if value.chars().count() > REQUIRED_VERSION_MAX_LEN {
         let truncated: String = value.chars().take(REQUIRED_VERSION_MAX_LEN).collect();
         tracing::warn!(
+            source = ?source,
             original_len = value.chars().count(),
             cap = REQUIRED_VERSION_MAX_LEN,
             "required_version value exceeds cap; truncating before rendering"
@@ -530,7 +700,7 @@ fn sanitize_required_version(value: &str) -> Option<String> {
     Some(value.to_string())
 }
 
-/// ERR-2 / TASK-0919: extract the leading identifier of an HCL block opener
+/// Extract the leading identifier of an HCL block opener
 /// from the text preceding its `{` — `terraform`, `provider "aws"`,
 /// `required_providers`. Returns `None` when the brace is not a named block
 /// opener, which [`scan_line`] records as an anonymous stack entry.
@@ -566,7 +736,7 @@ fn block_open_ident(prefix: &str) -> Option<&str> {
     prefix.get(..end)
 }
 
-/// PATTERN-1 / TASK-1020 + TASK-1771: blank every HCL comment — `#`, `//` and
+/// Blank every HCL comment — `#`, `//` and
 /// `/* … */` — with spaces, preserving newlines, so the downstream scanner
 /// sees a structurally-equivalent file with the comment bodies removed.
 ///
@@ -579,56 +749,134 @@ fn block_open_ident(prefix: &str) -> Option<&str> {
 /// `/*` for the same reason.
 ///
 /// A `/*`, `#` or `//` inside a quoted HCL string stays literal —
-/// `required_version = "~> 1.5 # marker"` keeps its marker. An unterminated
-/// `/*` runs to EOF, the same behaviour as terraform's own parser.
+/// `required_version = "~> 1.5 # marker"` keeps its marker.
 ///
-/// PATTERN-1 / TASK-2031: a heredoc body is passed through **verbatim**. It is
-/// an unquoted string literal, so a `#` line inside it is shell or policy
-/// text, not an HCL comment, and blanking it would corrupt the very content
-/// the scanner is asked to reason about. [`scan_line`] recognises the same
-/// openers and skips the body, so nothing downstream reads it as structure.
+/// Quoted strings are **line-local** in HCL: an unescaped newline inside one
+/// is malformed, not a string that continues on the next line. The string
+/// state resets at every newline and the malformation is reported via
+/// [`StripEof::UnterminatedString`], matching [`scan_line`], so the two stages
+/// agree on where a string ends and one unbalanced `"` cannot silently disable
+/// comment stripping for the remainder of the file. An unterminated `/*`
+/// likewise runs to EOF *and* is reported
+/// ([`StripEof::UnterminatedBlockComment`]); terraform's own parser errors on
+/// both shapes rather than accepting them.
 ///
-/// PERF-3 / TASK-1782: returns [`Cow::Borrowed`] when the content carries no
+/// The walk is line-oriented — [`strip_one_line`] per line — and heredoc
+/// bodies are classified by the same [`HeredocTracker`] [`scan_line`] consults
+/// for each of its lines, so this stage carries no opener-to-body rule of its
+/// own. A heredoc body is passed through **verbatim**: it is an unquoted
+/// string literal, so a `#` line inside it is shell or policy text, not an
+/// HCL comment. A heredoc still open at EOF is deliberately *not* part of
+/// [`StripEof`]: the structural scan owns that construct and reports it, so
+/// it has exactly one reporter.
+///
+/// Returns [`Cow::Borrowed`] when the content carries no
 /// comment introducer at all, so the common case allocates nothing. A file
 /// whose only "comments" live inside heredocs still takes the owned path —
 /// the fast check is deliberately syntax-free — and comes back unchanged.
-fn strip_comments(content: &str) -> Cow<'_, str> {
+fn strip_comments(content: &str) -> (Cow<'_, str>, StripEof) {
     if !content.contains("/*") && !content.contains('#') && !content.contains("//") {
-        return Cow::Borrowed(content);
+        return (Cow::Borrowed(content), StripEof::Clean);
     }
     let mut out = String::with_capacity(content.len());
-    // DUP-1 / TASK-2057: a plain `Chars` rather than a `Peekable<Chars>`, so
-    // `chars.as_str()` hands the *remaining slice* to [`heredoc_terminator`]
-    // and this stage recognises openers with the same function [`scan_line`]
-    // uses instead of re-walking the grammar inline. `as_str().starts_with(…)`
-    // covers the one-character lookahead `peek` used to provide.
-    let mut chars = content.chars();
-    let mut in_string = false;
-    // Heredoc state. `pending` holds the terminator of an opener seen on the
-    // current line; it becomes `heredoc` once the newline that begins the body
-    // has been emitted. `body_line` accumulates the current body line so the
-    // terminator can be recognised on it.
-    let mut pending: Option<Heredoc> = None;
-    let mut heredoc: Option<Heredoc> = None;
-    let mut body_line = String::new();
+    let mut state = StripState::default();
+    for line in content.split_inclusive('\n') {
+        strip_one_line(line, &mut state, &mut out);
+    }
+    // A `"` still open at end of input — the
+    // file stopped mid-string with no final newline to trip the line-local
+    // reset in [`strip_one_line`], or on a trailing backslash — is the same
+    // malformation the reset reports; eof must not stay Clean for it.
+    if state.in_string {
+        state.eof = StripEof::UnterminatedString;
+    }
+    // A `/*` still open at end of input
+    // blanked the remainder as comment — the file is refused, not silently
+    // accepted with the tail missing.
+    if state.in_block_comment {
+        state.eof = StripEof::UnterminatedBlockComment;
+    }
+    (Cow::Owned(out), state.eof)
+}
+
+/// Cross-line state [`strip_one_line`] carries from one line to the next: the
+/// shared heredoc tracker, the line-local string flag, the cross-line
+/// block-comment flag, and the first malformation seen.
+#[derive(Default)]
+struct StripState {
+    heredoc: HeredocTracker,
+    in_string: bool,
+    in_block_comment: bool,
+    eof: StripEof,
+}
+
+/// Strip comments from one line (with its trailing newline, when present) —
+/// the one named stage of [`strip_comments`].
+///
+/// The line is classified against the shared [`HeredocTracker`] first —
+/// exactly the question [`scan_line`] asks of each of its lines — so a heredoc
+/// body passes through verbatim before any comment grammar is consulted. A
+/// `/*` left open by an earlier line is blanked as comment continuation
+/// *before* that classification, so a block comment that straddles the
+/// opener-to-body handoff swallows the body's first lines.
+fn strip_one_line(line: &str, state: &mut StripState, out: &mut String) {
+    // The match names both arms' payloads symmetrically (the line with and
+    // without its newline); `map_or` would bury the common shaped pair in a
+    // closure.
+    #[allow(clippy::option_if_let_else)]
+    let (text, newline) = match line.strip_suffix('\n') {
+        Some(text) => (text, "\n"),
+        None => (line, ""),
+    };
+    let started_in_block_comment = state.in_block_comment;
+    let mut chars = text.chars();
+    if state.in_block_comment {
+        // A `/*` on an earlier line: blank this line's continuation up to
+        // the closing `*/`; until it arrives the whole line is comment.
+        if !blank_block_comment_line(&mut chars, out) {
+            out.push_str(newline);
+            return;
+        }
+        state.in_block_comment = false;
+    }
+    // Classification is a *line-start* question: a line that began inside a
+    // block comment and closed it mid-line is still partly comment, so its
+    // tail is walked as code below and a pending heredoc hands off to its
+    // body on the next line.
+    if !started_in_block_comment && state.heredoc.consumes_line(text) {
+        // A heredoc body is an unquoted string
+        // literal — a `#` line inside it is shell or policy text, not an
+        // HCL comment, and blanking it would corrupt the very content the
+        // scanner is asked to reason about.
+        out.push_str(text);
+        out.push_str(newline);
+        return;
+    }
+    strip_code_chars(&mut chars, state, out);
+    // Quoted strings are line-local in HCL. A string
+    // still open at the line's newline is malformed input: report it and
+    // reset, instead of carrying the string state into the next line's
+    // comment stripping. A final line without a trailing newline is left
+    // open here for [`strip_comments`]' end-of-input check.
+    if state.in_string && !newline.is_empty() {
+        state.in_string = false;
+        state.eof = StripEof::UnterminatedString;
+    }
+    out.push_str(newline);
+}
+
+/// Walk the code portion of one already-classified line, blanking the
+/// comment forms it carries and recording opener/string state — the
+/// char-level stage of [`strip_one_line`].
+///
+/// All three comment forms are resolved in the same pass, outside
+/// double-quoted strings, because they interact: a `/*` inside a `# …`
+/// comment must not open a block comment that blanks the rest of the file
+/// (terraform's own lexer resolves `#` / `//` before `/*` for the same
+/// reason), and a `/*`, `#` or `//` inside a quoted string stays literal.
+fn strip_code_chars(chars: &mut std::str::Chars<'_>, state: &mut StripState, out: &mut String) {
     while let Some(c) = chars.next() {
-        if pending.is_some() && out.ends_with('\n') {
-            heredoc = pending.take();
-            body_line.clear();
-        }
-        if let Some(open) = heredoc.as_ref() {
-            out.push(c);
-            if c == '\n' {
-                if open.closes(&body_line) {
-                    heredoc = None;
-                }
-                body_line.clear();
-            } else {
-                body_line.push(c);
-            }
-            continue;
-        }
-        if in_string {
+        if state.in_string {
             out.push(c);
             if c == '\\' {
                 if let Some(next) = chars.next() {
@@ -636,106 +884,141 @@ fn strip_comments(content: &str) -> Cow<'_, str> {
                     // care about not exiting the string on an escaped quote.
                     out.push(next);
                 }
-                continue;
-            }
-            if c == '"' {
-                in_string = false;
+            } else if c == '"' {
+                state.in_string = false;
             }
             continue;
         }
         match c {
             '"' => {
-                in_string = true;
+                state.in_string = true;
                 out.push('"');
             }
-            '#' => blank_line_comment(&mut chars, &mut out, 1),
+            '#' => blank_line_comment(chars, out, 1),
             '/' if chars.as_str().starts_with('/') => {
                 chars.next();
-                blank_line_comment(&mut chars, &mut out, 2);
+                blank_line_comment(chars, out, 2);
             }
             '/' if chars.as_str().starts_with('*') => {
                 chars.next();
-                blank_block_comment(&mut chars, &mut out);
+                out.push(' ');
+                out.push(' ');
+                if !blank_block_comment_line(chars, out) {
+                    // The comment runs past this
+                    // line; the flag makes the next line blank as comment
+                    // continuation, and a `/*` that never closes is
+                    // reported at end of input.
+                    state.in_block_comment = true;
+                }
             }
             '<' if chars.as_str().starts_with('<') => {
-                out.push('<');
-                let _ = chars.next();
-                out.push('<');
-                // DUP-1 / TASK-2057: one recogniser for the opener grammar.
-                // `Chars::as_str` borrows the *content*, not the iterator, so
-                // the matched terminator outlives the reassignment below.
-                let after_marker = chars.as_str();
-                if let Some((terminator, indented)) = heredoc_terminator(after_marker) {
-                    // The match is a prefix of `after_marker` — the optional
-                    // `-` plus the terminator — and both ends sit on char
-                    // boundaries, so the two `get`s always succeed.
-                    let consumed = usize::from(indented).saturating_add(terminator.len());
-                    if let (Some(opener), Some(rest)) =
-                        (after_marker.get(..consumed), after_marker.get(consumed..))
-                    {
-                        out.push_str(opener);
-                        pending = Some(Heredoc {
-                            terminator: terminator.to_owned(),
-                            indented,
-                        });
-                        chars = rest.chars();
-                    }
-                }
+                push_heredoc_opener(chars, out, &mut state.heredoc);
             }
             _ => out.push(c),
         }
     }
-    Cow::Owned(out)
 }
 
-/// Blank a `#` / `//` comment through to (and excluding) the newline, which is
-/// emitted verbatim so line-based logic downstream stays aligned.
+/// Recognise and emit a `<<EOT` / `<<-EOT` heredoc opener at the current
+/// position, handing it to the shared [`HeredocTracker`].
 ///
-/// `marker_len` is the width of the introducer already consumed by the caller,
-/// replaced with the same number of spaces so byte offsets do not shift.
+/// The opener grammar comes from [`heredoc_terminator`], the single
+/// recogniser, shared with [`scan_line`]; this helper consumes and re-emits
+/// whatever it matches so byte offsets do not shift. The opener-to-body
+/// handoff is the tracker's business — the body starts on the *next* line.
+fn push_heredoc_opener(
+    chars: &mut std::str::Chars<'_>,
+    out: &mut String,
+    heredoc: &mut HeredocTracker,
+) {
+    out.push('<');
+    let _ = chars.next();
+    out.push('<');
+    // `Chars::as_str` borrows the line, not the iterator, so the matched
+    // terminator outlives the reassignment below.
+    let after_marker = chars.as_str();
+    if let Some((terminator, indented)) = heredoc_terminator(after_marker) {
+        // The match is a prefix of `after_marker` — the optional `-` plus
+        // the terminator — and both ends sit on char boundaries, so the
+        // two `get`s always succeed.
+        let consumed = usize::from(indented).saturating_add(terminator.len());
+        if let (Some(opener), Some(rest)) =
+            (after_marker.get(..consumed), after_marker.get(consumed..))
+        {
+            out.push_str(opener);
+            heredoc.open(Heredoc {
+                terminator: terminator.to_owned(),
+                indented,
+            });
+            *chars = rest.chars();
+        }
+    }
+}
+
+/// End-of-input state of [`strip_comments`] for the constructs only the
+/// stripping stage owns.
+///
+/// Both variants describe input terraform's own lexer would reject.
+/// [`extract_required_version`] warns and refuses the file on either, rather
+/// than degrading silently — an unterminated `/*` would otherwise blank the
+/// remainder, and an unterminated `"` would disable comment stripping for the
+/// rest of the file.
+#[derive(Debug, Default, PartialEq, Eq)]
+enum StripEof {
+    /// No comment or string construct was left open at end of input.
+    #[default]
+    Clean,
+    /// A `/* … */` block comment never closed.
+    UnterminatedBlockComment,
+    /// A line ended inside a `"` string that never closed.
+    UnterminatedString,
+}
+
+/// Blank a `#` / `//` comment through to the end of its line.
+///
+/// `marker_len` is the width of the introducer already consumed by the
+/// caller, replaced with the same number of spaces so byte offsets do not
+/// shift. The walk is line-local, so the line's newline (when present) is
+/// appended by the caller after this returns.
 fn blank_line_comment(chars: &mut std::str::Chars<'_>, out: &mut String, marker_len: usize) {
     for _ in 0..marker_len {
         out.push(' ');
     }
-    for inner in chars.by_ref() {
-        if inner == '\n' {
-            out.push('\n');
-            return;
-        }
+    for _ in chars.by_ref() {
         out.push(' ');
     }
 }
 
-/// Blank a `/* … */` span, preserving newlines. The caller has already
-/// consumed the `/*`, whose two bytes are re-emitted as spaces.
-fn blank_block_comment(chars: &mut std::str::Chars<'_>, out: &mut String) {
-    out.push(' ');
-    out.push(' ');
+/// Blank the rest of a `/* … */` block comment on the current line. The
+/// caller has already consumed and re-emitted the `/*` as two spaces.
+///
+/// Returns whether the closing `*/` was found on this line; `false` means
+/// the comment continues on the next line, which the caller records as
+/// cross-line state. Newlines are preserved by the caller appending the
+/// line's own newline — the helper never sees one.
+fn blank_block_comment_line(chars: &mut std::str::Chars<'_>, out: &mut String) -> bool {
     while let Some(inner) = chars.next() {
         if inner == '*' && chars.as_str().starts_with('/') {
             chars.next();
             out.push(' ');
             out.push(' ');
-            return;
+            return true;
         }
-        if inner == '\n' {
-            out.push('\n');
-        } else {
-            out.push(' ');
-        }
+        out.push(' ');
     }
+    false
 }
 
 /// Count local modules under `modules/*/`.
 ///
-/// PATTERN-1 / TASK-1796: a subdirectory counts as a module when it contains
-/// at least one `.tf` (or `.tf.json`) file. Terraform's own definition is
-/// exactly that — `main.tf` is a convention, not a requirement — so the
-/// previous `modules/*/main.tf` probe reported `modules/network/network.tf`
-/// and `modules/vpc/{variables,outputs,resources}.tf` layouts as zero modules,
-/// which renders as no `modules` line at all rather than an undercount.
+/// A subdirectory counts as a module when it contains at least one `.tf` (or
+/// `.tf.json`) file. That is terraform's own definition — `main.tf` is a
+/// convention, not a requirement — so `modules/network/network.tf` and
+/// `modules/vpc/{variables,outputs,resources}.tf` layouts count, where probing
+/// for `modules/*/main.tf` would report them as zero modules and render no
+/// `modules` line at all.
 ///
-/// ERR-1 / TASK-1018 + TASK-1772: distinguish a missing `modules/` directory
+/// A missing `modules/` directory is distinguished
 /// (the expected "no local modules" case) from a real IO failure (permission
 /// denied, EIO, "is not a directory") so operators see a `tracing::warn!`
 /// instead of silently rendering "no modules". Per-entry and per-subdirectory
@@ -779,9 +1062,9 @@ fn count_local_modules(root: &Path) -> Option<usize> {
 ///
 /// Uses `fs::metadata` (which follows symlinks) rather than
 /// `DirEntry::file_type` (which does not): a `modules/` entry that is a
-/// symlink to a real module directory is a normal terraform layout —
-/// shared modules vendored once and linked per stack — and `file_type`
-/// reported it as `Symlink`, not `Dir`, so the count silently omitted it.
+/// symlink to a real module directory is a normal terraform layout — shared
+/// modules vendored once and linked per stack — and `file_type` would report
+/// it as `Symlink`, not `Dir`, silently omitting it from the count.
 /// This function only *counts* modules for the about report; it never opens
 /// or writes anything under the target, and `contains_terraform_source`
 /// likewise only lists names, so following the link grants no capability an
@@ -792,7 +1075,7 @@ fn is_module_dir(entry: &std::fs::DirEntry) -> bool {
         Ok(_) => {}
         Err(e) if e.kind() == std::io::ErrorKind::NotFound => return false,
         Err(e) => {
-            // ERR-1 / TASK-1772: an unreadable entry is an IO failure, not
+            // An unreadable entry is an IO failure, not
             // evidence that it is not a module. A dangling symlink resolves
             // to `NotFound` above and is simply not a module.
             tracing::warn!(
@@ -808,9 +1091,8 @@ fn is_module_dir(entry: &std::fs::DirEntry) -> bool {
 
 /// Whether `dir` directly contains at least one `.tf` / `.tf.json` file.
 ///
-/// One `read_dir` answers the question the old `main.tf` `exists()` probe
-/// could only approximate, and `Path::exists()` folded every non-NotFound
-/// error into `false` by contract — this reports them.
+/// One `read_dir` answers the question directly and, unlike `Path::exists()`,
+/// reports non-NotFound errors instead of folding them into `false`.
 fn contains_terraform_source(dir: &Path) -> bool {
     let entries = match std::fs::read_dir(dir) {
         Ok(e) => e,
@@ -839,8 +1121,8 @@ fn contains_terraform_source(dir: &Path) -> bool {
         .any(|entry| is_terraform_source_name(&entry.file_name()))
 }
 
-/// PATTERN-1 / TASK-1796: `.tf` and `.tf.json` (terraform's native JSON
-/// syntax), compared ASCII-case-insensitively for consistency with
+/// Whether `name` is a terraform source file: `.tf` or `.tf.json` (terraform's
+/// native JSON syntax), compared ASCII-case-insensitively for consistency with
 /// [`has_tf_extension`].
 fn is_terraform_source_name(name: &std::ffi::OsStr) -> bool {
     let path = Path::new(name);
@@ -862,27 +1144,25 @@ fn is_terraform_source_name(name: &std::ffi::OsStr) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
-    // DUP-1 / TASK-1788: the six-line `write` fixture helper used to be
-    // copied verbatim here and in three sibling about crates. One shared
-    // definition keeps a future tightening (error propagation, a setup
-    // message) from having to land four times.
+    // The `write` fixture helper is shared with the sibling about crates, so
+    // a future tightening (error propagation, a setup message) lands once
+    // rather than four times.
     use ops_about::test_support::{capture_warn, write_file as write};
     use ops_core::project_identity::ProjectIdentity;
     use ops_extension::{DataRegistry, Extension, Stack};
 
-    // TEST-5 / TASK-1792: the crate's public surface is the `Extension` impl,
-    // and nothing used to touch it — every test drove the private provider.
-    // A drift between `DATA_PROVIDER_NAME` and the registration key produces
-    // an extension that compiles, links into the `linkme` registry and
-    // silently provides nothing.
+    // The crate's public surface is the `Extension` impl, so it is exercised
+    // directly here: a drift between `DATA_PROVIDER_NAME` and the
+    // registration key produces an extension that compiles, links into the
+    // `linkme` registry and silently provides nothing.
     ops_extension::test_datasource_extension!(
         AboutTerraformExtension,
         name: "about-terraform",
         data_provider: "project_identity"
     );
 
-    /// TEST-5 / TASK-1792: the remaining half of the host contract — the
-    /// metadata the extension host dispatches on.
+    /// The other half of the host contract: the metadata the extension host
+    /// dispatches on.
     #[test]
     fn extension_metadata_matches_contract() {
         let ext = AboutTerraformExtension;
@@ -893,7 +1173,7 @@ mod tests {
         assert_eq!(ext.data_provider_name(), Some("project_identity"));
     }
 
-    /// TEST-5 / TASK-1792: the registered provider must be the terraform one,
+    /// The registered provider must be the terraform one,
     /// not merely *a* provider under the right key.
     #[test]
     fn registered_provider_is_the_terraform_identity_provider() {
@@ -1036,7 +1316,7 @@ mod tests {
         assert_eq!(id.repository.as_deref(), Some("https://github.com/o/r"));
     }
 
-    /// CL-3 / TASK-0852: when none of the well-known candidates matches
+    /// When none of the well-known candidates matches
     /// and the fallback walks every `*.tf` in the workspace root, the
     /// chosen winner must be deterministic across platforms — we sort the
     /// directory listing by filename so the alphabetically-first .tf
@@ -1063,10 +1343,9 @@ mod tests {
         );
     }
 
-    /// PATTERN-1 / TASK-1025: a `.tf` file with a mixed-case extension
-    /// (e.g. `Custom.TF`) carrying a `required_version` must be picked up
-    /// by the fallback walk. Pre-fix the `OsStr` comparison was case-sensitive
-    /// and silently skipped these files on case-preserving filesystems.
+    /// A `.tf` file with a mixed-case extension (e.g. `Custom.TF`) carrying a
+    /// `required_version` is picked up by the fallback walk — a case-sensitive
+    /// comparison would skip these files on case-preserving filesystems.
     #[test]
     fn find_required_version_fallback_matches_uppercase_extension() {
         let dir = tempfile::tempdir().unwrap();
@@ -1084,7 +1363,7 @@ mod tests {
         );
     }
 
-    /// ERR-1 / TASK-0851: a non-NotFound IO failure on `versions.tf`
+    /// A non-NotFound IO failure on `versions.tf`
     /// (e.g. the path is a directory) must surface a `tracing::warn!`
     /// instead of silently degrading to "no version declared".
     #[test]
@@ -1094,8 +1373,8 @@ mod tests {
         // with a non-NotFound error (IsADirectory / Other on most OSes).
         std::fs::create_dir(dir.path().join("versions.tf")).unwrap();
 
-        // DUP-3 / TASK-1794: the shared tracing-capture harness replaces the
-        // per-crate `BufWriter` + `MakeWriter` shim this test used to inline.
+        // The shared tracing-capture harness stands in for a per-crate
+        // `BufWriter` + `MakeWriter` shim.
         let mut found = None;
         let logs = capture_warn(|| found = find_required_version(dir.path()));
         assert!(found.is_none(), "no required_version should be returned");
@@ -1105,7 +1384,7 @@ mod tests {
         );
     }
 
-    /// ERR-1 / TASK-1772: the counterpart for `count_local_modules` — a
+    /// The counterpart for `count_local_modules`: a
     /// `modules` path that is a *file* fails `read_dir` with a non-NotFound
     /// error, which must be reported rather than folded into "no modules".
     #[test]
@@ -1129,7 +1408,7 @@ mod tests {
 }
 "#;
         assert_eq!(
-            extract_required_version(content),
+            extract_required_version(content, "test.tf"),
             Some("~> 1.0".to_string())
         );
     }
@@ -1143,7 +1422,7 @@ required_version = ">= 1.5"
 }
 "#;
         assert_eq!(
-            extract_required_version(content),
+            extract_required_version(content, "test.tf"),
             Some(">= 1.5".to_string())
         );
     }
@@ -1151,16 +1430,15 @@ required_version = ">= 1.5"
     #[test]
     fn extract_required_version_none_when_absent() {
         assert_eq!(
-            extract_required_version("resource \"test\" \"x\" {}\n"),
+            extract_required_version("resource \"test\" \"x\" {}\n", "test.tf"),
             None
         );
     }
 
-    /// ERR-2 / TASK-0919: a `required_version` declared inside a non-
-    /// terraform block (e.g. a `module` or `provider`) must be ignored.
-    /// Pre-fix the parser would happily return that string and the
-    /// About card would advertise a stack version that wasn't actually
-    /// the project's terraform constraint.
+    /// A `required_version` declared inside a non-terraform block (e.g. a
+    /// `module` or `provider`) is ignored: returning it would make the About
+    /// card advertise a stack version that is not the project's terraform
+    /// constraint.
     #[test]
     fn extract_required_version_ignores_non_terraform_blocks() {
         let content = r#"
@@ -1174,12 +1452,12 @@ terraform {
 }
 "#;
         assert_eq!(
-            extract_required_version(content),
+            extract_required_version(content, "test.tf"),
             Some("~> 1.5".to_string())
         );
     }
 
-    /// ERR-2 / TASK-0919: when the only `required_version` lives in a
+    /// When the only `required_version` lives in a
     /// non-terraform block, we surface "no version" (None) — the About
     /// card should fall back rather than report the wrong constraint.
     #[test]
@@ -1189,10 +1467,10 @@ provider "aws" {
   required_version = ">= 1.0"
 }
 "#;
-        assert_eq!(extract_required_version(content), None);
+        assert_eq!(extract_required_version(content, "test.tf"), None);
     }
 
-    /// ERR-2 / TASK-0919: `required_version` nested deeper than depth 1
+    /// A `required_version` nested deeper than depth 1
     /// inside terraform (e.g. inside `required_providers` { … }) is also
     /// rejected — the top-level depth-1 declaration is the only valid
     /// shape.
@@ -1205,89 +1483,96 @@ terraform {
   }
 }
 "#;
-        assert_eq!(extract_required_version(content), None);
+        assert_eq!(extract_required_version(content, "test.tf"), None);
     }
 
-    /// SEC-11 / TASK-0853: a trailing `# ...` comment after the quoted
-    /// value must be stripped before rendering — previously the entire
-    /// remainder including the comment was returned verbatim.
+    /// A trailing `# ...` comment after the quoted value is stripped before
+    /// rendering, rather than returned as part of the value.
     #[test]
     fn extract_required_version_strips_trailing_hash_comment() {
         assert_eq!(
             extract_required_version(
-                "terraform {\nrequired_version = \">= 1.5\" # patch needed\n}\n"
+                "terraform {\nrequired_version = \">= 1.5\" # patch needed\n}\n",
+                "test.tf"
             ),
             Some(">= 1.5".to_string())
         );
     }
 
-    /// SEC-11 / TASK-0853: same for `// …`.
+    /// Same for the `// …` comment spelling.
     #[test]
     fn extract_required_version_strips_trailing_slash_comment() {
         assert_eq!(
-            extract_required_version("terraform {\nrequired_version = \">= 1.5\" // note\n}\n"),
+            extract_required_version(
+                "terraform {\nrequired_version = \">= 1.5\" // note\n}\n",
+                "test.tf"
+            ),
             Some(">= 1.5".to_string())
         );
     }
 
-    /// SEC-11 / TASK-0853: a `#` inside the quoted value is part of the
+    /// A `#` inside the quoted value is part of the
     /// value, not a comment introducer.
     #[test]
     fn extract_required_version_keeps_hash_inside_quotes() {
         assert_eq!(
-            extract_required_version("terraform {\nrequired_version = \">= 1.5 # marker\"\n}\n"),
+            extract_required_version(
+                "terraform {\nrequired_version = \">= 1.5 # marker\"\n}\n",
+                "test.tf"
+            ),
             Some(">= 1.5 # marker".to_string())
         );
     }
 
-    /// SEC-11 / TASK-0853: HCL standardises double-quoted; a bare value
+    /// HCL standardises double-quoted; a bare value
     /// (`required_version = >= 1.5 # comment`) must NOT be returned —
     /// surfacing it would mislead the operator about what the manifest
     /// actually says.
     #[test]
     fn extract_required_version_rejects_bare_value() {
         assert_eq!(
-            extract_required_version("terraform {\nrequired_version = >= 1.5 # comment\n}\n"),
+            extract_required_version(
+                "terraform {\nrequired_version = >= 1.5 # comment\n}\n",
+                "test.tf"
+            ),
             None
         );
     }
 
-    /// SEC-11 / TASK-0853: single-quoted values are not standard HCL and
+    /// Single-quoted values are not standard HCL and
     /// are rejected.
     #[test]
     fn extract_required_version_rejects_single_quoted() {
         assert_eq!(
-            extract_required_version("terraform {\nrequired_version = '>= 1.5'\n}\n"),
+            extract_required_version("terraform {\nrequired_version = '>= 1.5'\n}\n", "test.tf"),
             None
         );
     }
 
-    /// SEC-11 / TASK-0853: an excessively long value is truncated to
+    /// An excessively long value is truncated to
     /// `REQUIRED_VERSION_MAX_LEN` before being rendered into the About card.
     #[test]
     fn extract_required_version_caps_overlong_value() {
         let long = "v".repeat(200);
         let content = format!("terraform {{\nrequired_version = \"{long}\"\n}}\n");
-        let v = extract_required_version(&content).expect("Some");
+        let v = extract_required_version(&content, "test.tf").expect("Some");
         assert_eq!(v.len(), REQUIRED_VERSION_MAX_LEN);
         assert!(v.chars().all(|c| c == 'v'));
     }
 
-    /// PATTERN-1 / TASK-1020: a `required_version` declaration that lives
-    /// entirely inside an HCL `/* … */` block comment must NOT be
-    /// extracted — block-commented declarations are by definition not
-    /// the active terraform constraint. Pre-fix the parser ignored
-    /// only `#` and `//` line comments and would surface ">= 99.0".
+    /// A `required_version` declaration that lives entirely inside an HCL
+    /// `/* … */` block comment is not extracted — a block-commented
+    /// declaration is by definition not the active terraform constraint.
     #[test]
     fn extract_required_version_skips_block_comment() {
         let content = r#"terraform {
   /* required_version = ">= 99.0" */
 }
 "#;
-        assert_eq!(extract_required_version(content), None);
+        assert_eq!(extract_required_version(content, "test.tf"), None);
     }
 
-    /// PATTERN-1 / TASK-1020: when a block comment wraps a stale
+    /// When a block comment wraps a stale
     /// declaration but a live `required_version` follows on the same
     /// (or a subsequent) line, the live value must win. The block
     /// comment also must not corrupt block-depth tracking — the
@@ -1296,28 +1581,27 @@ terraform {
     fn extract_required_version_uses_live_value_after_block_comment() {
         let content = "terraform {\n  /* TODO bump\n     required_version = \">= 99\" */ required_version = \"~> 1.5\"\n}\n";
         assert_eq!(
-            extract_required_version(content),
+            extract_required_version(content, "test.tf"),
             Some("~> 1.5".to_string())
         );
     }
 
-    /// PATTERN-1 / TASK-1020: a `/*` that appears inside a quoted HCL
+    /// A `/*` that appears inside a quoted HCL
     /// string is part of the value, not a comment introducer — strip
     /// must not eat it.
     #[test]
     fn extract_required_version_keeps_block_comment_marker_inside_quotes() {
         let content = "terraform {\nrequired_version = \"~> 1.5 /* not a comment */\"\n}\n";
         assert_eq!(
-            extract_required_version(content),
+            extract_required_version(content, "test.tf"),
             Some("~> 1.5 /* not a comment */".to_string())
         );
     }
 
-    /// PATTERN-1 / TASK-1765: the canonical terraform block — object-valued
-    /// providers in `required_providers`, then `required_version`. Each
-    /// `aws = {` opens a brace that is not a named block; pre-fix the stack
-    /// popped one level too many on its `}` and closed `terraform` early, so
-    /// this returned `None`.
+    /// The canonical terraform block: object-valued providers in
+    /// `required_providers`, then `required_version`. Each `aws = {` opens a
+    /// brace that is not a named block, and the sentinel push keeps its `}`
+    /// from popping a level too many and closing `terraform` early.
     #[test]
     fn extract_required_version_after_object_valued_required_providers() {
         let content = r#"terraform {
@@ -1334,14 +1618,13 @@ terraform {
 }
 "#;
         assert_eq!(
-            extract_required_version(content),
+            extract_required_version(content, "test.tf"),
             Some(">= 1.5".to_string())
         );
     }
 
-    /// PATTERN-1 / TASK-1765: the same file with the declaration order
-    /// reversed. Both orders must work — pre-fix only this one did, which
-    /// made the bug look like flakiness.
+    /// The same file with the declaration order reversed: both orders must
+    /// yield the constraint.
     #[test]
     fn extract_required_version_before_object_valued_required_providers() {
         let content = r#"terraform {
@@ -1354,14 +1637,14 @@ terraform {
 }
 "#;
         assert_eq!(
-            extract_required_version(content),
+            extract_required_version(content, "test.tf"),
             Some(">= 1.5".to_string())
         );
     }
 
-    /// PATTERN-1 / TASK-1765: nested object-valued attributes at any depth
-    /// keep the brace stack balanced — `cloud { workspaces = { … } }` is the
-    /// other shape that used to desynchronise it.
+    /// Nested object-valued attributes at any depth keep the brace stack
+    /// balanced — `cloud { workspaces = { … } }` is the other shape that can
+    /// desynchronise it.
     #[test]
     fn extract_required_version_after_nested_object_attributes() {
         let content = r#"terraform {
@@ -1373,25 +1656,24 @@ terraform {
 }
 "#;
         assert_eq!(
-            extract_required_version(content),
+            extract_required_version(content, "test.tf"),
             Some("~> 1.6".to_string())
         );
     }
 
-    /// PATTERN-1 / TASK-1765: a `}` with nothing to close means the braces do
+    /// A `}` with nothing to close means the braces do
     /// not balance, so no depth judgement after it is trustworthy — the file
     /// is refused rather than yielding a constraint read at unknown nesting.
     #[test]
     fn extract_required_version_rejects_unbalanced_closing_brace() {
         let content = "}\nterraform {\n  required_version = \">= 1.5\"\n}\n";
-        assert_eq!(extract_required_version(content), None);
+        assert_eq!(extract_required_version(content, "test.tf"), None);
     }
 
-    /// PATTERN-1 / TASK-2031 AC#3/#4: a heredoc body containing a bare `}` is
-    /// a string, not structure. Pre-fix the `}` popped a level the file never
-    /// opened, which — with the TASK-1765 balance check — emptied the stack and
-    /// refused the whole file, so the `terraform` block declared afterwards
-    /// lost its constraint.
+    /// A heredoc body containing a bare `}` is a string, not structure.
+    /// Reading it as structure would pop a level the file never opened, and
+    /// the balance check would then refuse the whole file, losing the
+    /// constraint the `terraform` block declares afterwards.
     #[test]
     fn extract_required_version_after_heredoc_with_a_bare_closing_brace() {
         let content = concat!(
@@ -1407,12 +1689,12 @@ terraform {
             "}\n",
         );
         assert_eq!(
-            extract_required_version(content),
+            extract_required_version(content, "test.tf"),
             Some(">= 1.5".to_string())
         );
     }
 
-    /// PATTERN-1 / TASK-2031 AC#4: the `#` half of the same shape. The `#`
+    /// The `#` half of the same shape. The `#`
     /// line is shell text inside a string value; treating it as an HCL comment
     /// would blank the `}` that closes the heredoc's own `locals` block.
     #[test]
@@ -1428,17 +1710,17 @@ terraform {
             "}\n",
         );
         assert_eq!(
-            extract_required_version(content),
+            extract_required_version(content, "test.tf"),
             Some("~> 1.6".to_string())
         );
     }
 
-    /// DUP-1 / TASK-2057 AC#2: the two pipeline stages must agree on what
-    /// opens a heredoc. `strip_comments` passing a body through verbatim while
-    /// `scan_line` does not consider itself inside a heredoc puts raw shell
-    /// text back into the structural scan — the failure TASK-2031 fixed.
+    /// The two pipeline stages must agree on what opens a heredoc.
+    /// `strip_comments` passing a body through verbatim while `scan_line` does
+    /// not consider itself inside a heredoc would put raw shell text back into
+    /// the structural scan.
     ///
-    /// Both stages now call [`heredoc_terminator`], so this test drives all
+    /// Both stages call [`heredoc_terminator`], so this test drives all
     /// three against one table of opener spellings: the shared recogniser is
     /// the oracle, `scan_line`'s heredoc state and the survival of a `#` line
     /// under `strip_comments` are the two observations. A future widening
@@ -1452,7 +1734,7 @@ terraform {
             "_x",           // `_` is a legal start
             "a-b",          // HCL adds `-` to XID_Continue
             "終端",         // identifiers are Unicode
-            "e\u{301}nd",   // …including decomposed forms (TASK-2031)
+            "e\u{301}nd",   // …including decomposed forms
             "EOT trailing", // the terminator stops at the first non-ident
             "\"EOT\"",      // quoted openers are not supported by either side
             " EOT",         // no space is allowed before the terminator
@@ -1466,7 +1748,7 @@ terraform {
             let mut state = ScanState::new();
             let _ = scan_line(&format!("x = <<{after_marker}"), &mut state);
             assert_eq!(
-                state.heredoc.is_some(),
+                state.heredoc.is_open(),
                 expected.is_some(),
                 "scan_line disagrees with heredoc_terminator on `<<{after_marker}`"
             );
@@ -1474,7 +1756,7 @@ terraform {
             // A `#` line is blanked unless it sits inside a heredoc body, so
             // its survival is the observable proof `strip_comments` opened one.
             let content = format!("x = <<{after_marker}\n# body\n");
-            let stripped = strip_comments(&content);
+            let (stripped, _) = strip_comments(&content);
             assert_eq!(
                 stripped.contains("# body"),
                 expected.is_some(),
@@ -1483,13 +1765,13 @@ terraform {
         }
     }
 
-    /// DUP-1 / TASK-2057: recognising the opener through the shared function
+    /// Recognising the opener through the shared function
     /// must still emit it verbatim — `strip_comments` preserves byte offsets
     /// for everything that is not a comment, the `<<-` marker included.
     #[test]
     fn strip_comments_emits_the_heredoc_opener_verbatim() {
         let content = "x = <<-終端\n# body\n終端\n# real\n";
-        let stripped = strip_comments(content);
+        let (stripped, _) = strip_comments(content);
         assert!(
             stripped.starts_with("x = <<-終端\n# body\n終端\n"),
             "opener and body must round-trip unchanged; got: {stripped}"
@@ -1500,7 +1782,7 @@ terraform {
         );
     }
 
-    /// PATTERN-1 / TASK-2031 AC#1: `strip_comments` passes a heredoc body
+    /// `strip_comments` passes a heredoc body
     /// through verbatim. The body is an unquoted string literal, so blanking
     /// its `#` line or opening a block comment on its `/*` would corrupt the
     /// content rather than remove a comment.
@@ -1515,7 +1797,7 @@ terraform {
             "}\n",
             "# a real comment\n",
         );
-        let stripped = strip_comments(content);
+        let (stripped, _) = strip_comments(content);
         assert!(
             stripped.contains("    # shell comment\n")
                 && stripped.contains("    glob=/*   // not a comment either\n"),
@@ -1527,7 +1809,42 @@ terraform {
         );
     }
 
-    /// PATTERN-1 / TASK-2031: an unbalanced `{` inside a heredoc is inert too,
+    /// A `/*` that straddles the opener-to-body handoff blanks the comment
+    /// continuation (including the tail after a mid-line `*/`), and the
+    /// heredoc body starts on the line *after* the comment closes —
+    /// classification is a line-start question, so a partly-comment line is
+    /// never half body. The exact bytes are pinned because the line-oriented
+    /// walk could regress this by classifying the closing line as body.
+    #[test]
+    fn strip_comments_block_comment_straddling_the_heredoc_handoff() {
+        let content = "x = <<EOT /* c\nc */ t\nbody\nEOT\n# real\n";
+        let (stripped, eof) = strip_comments(content);
+        assert_eq!(eof, StripEof::Clean);
+        assert_eq!(
+            stripped, "x = <<EOT     \n     t\nbody\nEOT\n      \n",
+            "comment continuation blanked, body verbatim from the next line; got: {stripped:?}"
+        );
+    }
+
+    /// CRLF input: the shared tracker classifies the
+    /// line without its `\n`, and `Heredoc::closes` trims the trailing `\r`,
+    /// so a CRLF terminator closes the body and `\r` bytes round-trip.
+    #[test]
+    fn strip_comments_passes_crlf_heredoc_bodies_through() {
+        let content = "x = <<EOT\r\nbody\r\nEOT\r\n# real\r\n";
+        let (stripped, eof) = strip_comments(content);
+        assert_eq!(eof, StripEof::Clean);
+        assert!(
+            stripped.contains("body\r\nEOT\r\n"),
+            "CRLF body and terminator must survive verbatim; got: {stripped:?}"
+        );
+        assert!(
+            !stripped.contains("real"),
+            "a CRLF comment after the heredoc must still be blanked; got: {stripped:?}"
+        );
+    }
+
+    /// An unbalanced `{` inside a heredoc is inert too,
     /// so the `terraform` block after it is still read at depth 1 rather than
     /// one level deeper.
     #[test]
@@ -1543,14 +1860,14 @@ terraform {
             "}\n",
         );
         assert_eq!(
-            extract_required_version(content),
+            extract_required_version(content, "test.tf"),
             Some(">= 1.9".to_string())
         );
     }
 
     /// HCL identifiers are Unicode, so `<<終端` opens a heredoc like any other.
-    /// Pre-fix the ASCII-only ident test rejected the opener, the body was
-    /// read as structure, and its `{` / `}` / `#` unbalanced the file.
+    /// An ASCII-only ident test would reject the opener, read the body as
+    /// structure, and let its `{` / `}` / `#` unbalance the file.
     #[test]
     fn extract_required_version_after_a_unicode_heredoc_terminator() {
         let content = concat!(
@@ -1565,7 +1882,7 @@ terraform {
             "}\n",
         );
         assert_eq!(
-            extract_required_version(content),
+            extract_required_version(content, "test.tf"),
             Some(">= 1.7".to_string())
         );
     }
@@ -1588,7 +1905,7 @@ terraform {
             "}\n",
         );
         assert_eq!(
-            extract_required_version(content),
+            extract_required_version(content, "test.tf"),
             Some(">= 1.10".to_string())
         );
     }
@@ -1610,15 +1927,15 @@ terraform {
             "}\n",
         );
         assert_eq!(
-            extract_required_version(content),
+            extract_required_version(content, "test.tf"),
             Some(">= 1.11".to_string())
         );
     }
 
     /// An *indented* line equal to the terminator does not close a plain `<<`
-    /// heredoc — only `<<-` permits that. Pre-fix both spellings matched on a
-    /// trimmed line, so this body ended four lines early and the shell `}`
-    /// after it popped a block the file never opened.
+    /// heredoc — only `<<-` permits that. Matching both spellings on a trimmed
+    /// line would end this body four lines early, letting the shell `}` after
+    /// it pop a block the file never opened.
     #[test]
     fn a_plain_heredoc_is_not_closed_by_an_indented_terminator() {
         let content = concat!(
@@ -1633,7 +1950,7 @@ terraform {
             "}\n",
         );
         assert_eq!(
-            extract_required_version(content),
+            extract_required_version(content, "test.tf"),
             Some(">= 1.8".to_string())
         );
     }
@@ -1653,7 +1970,7 @@ terraform {
             "}\n",
         );
         assert_eq!(
-            extract_required_version(content),
+            extract_required_version(content, "test.tf"),
             Some(">= 1.9".to_string())
         );
     }
@@ -1668,14 +1985,14 @@ terraform {
             "# still inside the body\n",
             "EOT\n",
         );
-        let stripped = strip_comments(content);
+        let (stripped, _) = strip_comments(content);
         assert!(
             stripped.contains("# still inside the body"),
             "body must survive intact; got: {stripped}"
         );
     }
 
-    /// PATTERN-1 / TASK-2031: `a < <b` and other non-openers must not put the
+    /// `a < <b` and other non-openers must not put the
     /// scanner into heredoc state — that would swallow the rest of the file.
     #[test]
     fn extract_required_version_after_a_non_heredoc_less_than() {
@@ -1688,60 +2005,59 @@ terraform {
             "}\n",
         );
         assert_eq!(
-            extract_required_version(content),
+            extract_required_version(content, "test.tf"),
             Some(">= 1.4".to_string())
         );
     }
 
-    /// PATTERN-1 / TASK-1768: a trailing `#` comment on the block opener is
-    /// ordinary human-written HCL. Pre-fix `terraform` was never pushed
-    /// because the line did not *end* with `{`, and the whole file went dark.
+    /// A trailing `#` comment on the block opener is ordinary human-written
+    /// HCL: `terraform` is pushed on the token, not on the line ending with
+    /// `{`.
     #[test]
     fn extract_required_version_with_commented_block_opener() {
         let content =
             "terraform { # pinned for the shared modules\n  required_version = \">= 1.5\"\n}\n";
         assert_eq!(
-            extract_required_version(content),
+            extract_required_version(content, "test.tf"),
             Some(">= 1.5".to_string())
         );
     }
 
-    /// PATTERN-1 / TASK-1768: the `//` spelling of the same shape.
+    /// The `//` spelling of the same shape.
     #[test]
     fn extract_required_version_with_slash_commented_block_opener() {
         let content = "terraform { // pinned\n  required_version = \"~> 1.5\"\n}\n";
         assert_eq!(
-            extract_required_version(content),
+            extract_required_version(content, "test.tf"),
             Some("~> 1.5".to_string())
         );
     }
 
-    /// PATTERN-1 / TASK-1768: a closing brace on the same line as the value.
+    /// A closing brace on the same line as the value.
     #[test]
     fn extract_required_version_with_same_line_closing_brace() {
         let content = "terraform {\n  required_version = \">= 1.5\" }\n";
         assert_eq!(
-            extract_required_version(content),
+            extract_required_version(content, "test.tf"),
             Some(">= 1.5".to_string())
         );
     }
 
-    /// PATTERN-1 / TASK-1771: a `/*` inside a `#` line comment — a URL with a
-    /// glob is enough — must not open a block comment. Pre-fix it blanked the
-    /// remainder of the file and the constraint disappeared.
+    /// A `/*` inside a `#` line comment — a URL with a glob is enough — must
+    /// not open a block comment and blank the remainder of the file.
     #[test]
     fn extract_required_version_ignores_block_marker_inside_line_comment() {
         let content =
             "terraform {\n  # see https://example.com/*note\n  required_version = \"~> 1.5\"\n}\n";
         assert_eq!(
-            extract_required_version(content),
+            extract_required_version(content, "test.tf"),
             Some("~> 1.5".to_string())
         );
     }
 
-    /// PATTERN-1 / TASK-1771: an unbalanced `"` inside a line comment must not
-    /// put the scanner into string state for the rest of the file — pre-fix a
-    /// subsequent `/* … */` was then no longer stripped.
+    /// An unbalanced `"` inside a line comment must not put the scanner into
+    /// string state for the rest of the file, which would leave a subsequent
+    /// `/* … */` unstripped.
     #[test]
     fn extract_required_version_ignores_unbalanced_quote_in_line_comment() {
         let content = concat!(
@@ -1752,12 +2068,12 @@ terraform {
             "}\n"
         );
         assert_eq!(
-            extract_required_version(content),
+            extract_required_version(content, "test.tf"),
             Some("~> 1.5".to_string())
         );
     }
 
-    /// SEC-11 / TASK-1775: an ANSI escape sequence well under the 64-char cap
+    /// An ANSI escape sequence well under the 64-char cap
     /// must never reach `stack_detail` — `ops about` runs inside repositories
     /// the operator cloned but did not audit, and nothing between the `.tf`
     /// file and stdout escapes it. Drop, do not strip.
@@ -1766,40 +2082,232 @@ terraform {
         let content =
             "terraform {\n  required_version = \"1.0\u{1b}[2J\u{1b}[31mCOMPROMISED\"\n}\n";
         assert!(content.len() < 128, "the payload fits under the cap");
-        assert_eq!(extract_required_version(content), None);
+        assert_eq!(extract_required_version(content, "test.tf"), None);
     }
 
-    /// SEC-11 / TASK-1775: carriage return and BEL are control bytes too.
+    /// Carriage return and BEL are control bytes too.
     #[test]
     fn extract_required_version_drops_value_with_cr_and_bel() {
         assert_eq!(
-            extract_required_version("terraform {\n  required_version = \"1.0\rfake\u{7}\"\n}\n"),
+            extract_required_version(
+                "terraform {\n  required_version = \"1.0\rfake\u{7}\"\n}\n",
+                "test.tf"
+            ),
             None
         );
     }
 
-    /// SEC-11 / TASK-1775: the sanitiser must not reject ordinary constraints.
+    /// The control-character drop is the smuggling signal an operator would
+    /// actually investigate, and the workspace root
+    /// can carry a dozen `.tf` files — the warn must name which one carried
+    /// the payload. Drives the full `find_required_version` entry point via
+    /// a candidate file so the `source` field is the real probe name.
+    #[test]
+    fn extract_required_version_control_char_warn_names_the_file() {
+        let dir = tempfile::tempdir().unwrap();
+        write(
+            &dir.path().join("versions.tf"),
+            "terraform {\n  required_version = \"1.0\u{1b}[2J\u{1b}[31mCOMPROMISED\"\n}\n",
+        );
+
+        let logs = capture_warn(|| {
+            let found = find_required_version(dir.path());
+            assert!(found.is_none(), "the control-char value must be dropped");
+        });
+
+        assert!(
+            logs.contains("required_version"),
+            "expected the drop breadcrumb, got: {logs}"
+        );
+        assert!(
+            logs.contains("versions.tf"),
+            "the warn must name the offending .tf file, got: {logs}"
+        );
+    }
+
+    /// The malformed-brace warn names the file too — it
+    /// fires once per bad file during the fallback walk with nothing else to
+    /// distinguish the repeats.
+    #[test]
+    fn extract_required_version_unbalanced_brace_warn_names_the_file() {
+        let dir = tempfile::tempdir().unwrap();
+        write(
+            &dir.path().join("weird.tf"),
+            "}\n\"unbalanced from the start\"\n",
+        );
+
+        let logs = capture_warn(|| {
+            let found = find_required_version(dir.path());
+            assert!(found.is_none());
+        });
+
+        assert!(
+            logs.contains("unbalanced closing brace"),
+            "expected the brace breadcrumb, got: {logs}"
+        );
+        assert!(
+            logs.contains("weird.tf"),
+            "the warn must name the offending .tf file, got: {logs}"
+        );
+    }
+
+    /// The sanitiser must not reject ordinary constraints.
     #[test]
     fn extract_required_version_keeps_ordinary_constraint() {
         assert_eq!(
-            extract_required_version("terraform {\n  required_version = \">= 1.0, < 2.0\"\n}\n"),
+            extract_required_version(
+                "terraform {\n  required_version = \">= 1.0, < 2.0\"\n}\n",
+                "test.tf"
+            ),
             Some(">= 1.0, < 2.0".to_string())
         );
     }
 
-    /// PERF-3 / TASK-1782: the no-comment fast path must borrow rather than
+    /// The no-comment fast path must borrow rather than
     /// allocate a second full copy of every `.tf` file read.
     #[test]
     fn strip_comments_borrows_when_no_comment_present() {
         let content = "terraform {\n  required_version = \">= 1.5\"\n}\n";
-        assert!(matches!(strip_comments(content), Cow::Borrowed(_)));
+        assert!(matches!(strip_comments(content).0, Cow::Borrowed(_)));
         assert!(matches!(
-            strip_comments("terraform { # note\n}\n"),
+            strip_comments("terraform { # note\n}\n").0,
             Cow::Owned(_)
         ));
     }
 
-    /// PERF-3 / TASK-1782: the fallback walk must not re-read a file the
+    /// A heredoc whose terminator never
+    /// arrives consumes the rest of the file as body. The scanner must warn
+    /// and refuse the file — the same treatment an unbalanced closing brace
+    /// gets — rather than returning `None` silently, indistinguishable from
+    /// "no constraint declared".
+    #[test]
+    fn extract_required_version_reports_unterminated_heredoc() {
+        let content = concat!(
+            "locals {\n",
+            "  script = <<EOT\n",
+            "body that never sees its terminator\n",
+        );
+        let mut out = None;
+        let logs = capture_warn(|| out = extract_required_version(content, "test.tf"));
+        assert_eq!(out, None);
+        assert!(
+            logs.contains("unterminated heredoc"),
+            "warn should name the unterminated heredoc, got: {logs}"
+        );
+    }
+
+    /// An unterminated `/* … */` must be
+    /// reported and the file refused — terraform's own parser errors on it —
+    /// even when a syntactically valid constraint precedes the comment.
+    #[test]
+    fn extract_required_version_reports_unterminated_block_comment() {
+        let content = "terraform {\n  required_version = \">= 1.5\"\n}\n/* trailing note\n";
+        let mut out = None;
+        let logs = capture_warn(|| out = extract_required_version(content, "test.tf"));
+        assert_eq!(out, None);
+        assert!(
+            logs.contains("unterminated") && logs.contains("comment"),
+            "warn should name the unterminated block comment, got: {logs}"
+        );
+    }
+
+    /// A line ending inside an unterminated `"` string is reported and the
+    /// file refused, rather than silently disabling comment stripping for the
+    /// remainder.
+    #[test]
+    fn extract_required_version_reports_unterminated_string() {
+        let content = concat!(
+            "terraform {\n",
+            "  description = \"open\n",
+            "  required_version = \">= 1.5\"\n",
+            "}\n",
+        );
+        let mut out = None;
+        let logs = capture_warn(|| out = extract_required_version(content, "test.tf"));
+        assert_eq!(out, None);
+        assert!(
+            logs.contains("unterminated") && logs.contains("string"),
+            "warn should name the unterminated string, got: {logs}"
+        );
+    }
+
+    /// A non-empty brace stack at EOF means
+    /// the file opened blocks it never closed. Detected and reported rather
+    /// than accepted as a well-formed file that declares nothing.
+    #[test]
+    fn extract_required_version_reports_unclosed_block() {
+        let content = "locals {\n  x = 1\n";
+        let mut out = None;
+        let logs = capture_warn(|| out = extract_required_version(content, "test.tf"));
+        assert_eq!(out, None);
+        assert!(
+            logs.contains("unclosed block"),
+            "warn should name the unclosed block, got: {logs}"
+        );
+    }
+
+    /// The unclosed-block refusal also holds
+    /// when the constraint itself was found — a value read out of a `terraform
+    /// {` block that never closes is a truncated file accepted as
+    /// well-formed, so `Found` is only returned after the EOF checks pass.
+    #[test]
+    fn extract_required_version_refuses_constraint_from_unclosed_block() {
+        let content = "terraform {\n  required_version = \">= 1.5\"\n";
+        let mut out = None;
+        let logs = capture_warn(|| out = extract_required_version(content, "test.tf"));
+        assert_eq!(out, None);
+        assert!(
+            logs.contains("unclosed block"),
+            "warn should name the unclosed block, got: {logs}"
+        );
+    }
+
+    /// Input that stops mid-string with no
+    /// final newline never trips the line-local reset, so the end-of-loop
+    /// `in_string` check must report it. The `#` line forces the owned strip
+    /// path — the no-comment fast path never inspects strings.
+    #[test]
+    fn extract_required_version_reports_string_open_at_eof_without_newline() {
+        let content = "# note\nterraform {\n  description = \"open";
+        let mut out = None;
+        let logs = capture_warn(|| out = extract_required_version(content, "test.tf"));
+        assert_eq!(out, None);
+        assert!(
+            logs.contains("unterminated") && logs.contains("string"),
+            "warn should name the unterminated string, got: {logs}"
+        );
+    }
+
+    /// Both stages treat a quoted string as ending at its line's newline.
+    /// `scan_line`'s string state is line-local by construction and
+    /// `strip_comments` matches it, so one unbalanced `"` cannot put the two
+    /// stages in disagreement about the rest of the file.
+    #[test]
+    fn string_state_is_line_local_in_both_stages() {
+        // scan_line: an unterminated `"` on one line must not swallow the
+        // next line's structure.
+        let mut state = ScanState::new();
+        let _ = scan_line("desc = \"open", &mut state);
+        let _ = scan_line("terraform {", &mut state);
+        assert!(
+            matches!(state.stack.as_slice(), [Some(name)] if name == "terraform"),
+            "scan_line string state must not cross lines: {:?}",
+            state.stack
+        );
+
+        // strip_comments: the same line's string ends at the newline, so a
+        // comment on the next line is still blanked — cross-line string
+        // state would keep it verbatim for the rest of the file — and the
+        // malformation is reported.
+        let (stripped, eof) = strip_comments("desc = \"open\n# gone\n");
+        assert!(
+            !stripped.contains("# gone"),
+            "comment after an unterminated string line must still be blanked; got: {stripped}"
+        );
+        assert_eq!(eof, StripEof::UnterminatedString);
+    }
+
+    /// The fallback walk must not re-read a file the
     /// named-candidate loop already opened.
     #[test]
     fn fallback_tf_paths_skips_named_candidates() {
@@ -1812,7 +2320,7 @@ terraform {
         assert_eq!(paths, vec![dir.path().join("extra.tf")]);
     }
 
-    /// ERR-1 / TASK-1018: a missing `modules/` dir is the expected "no
+    /// A missing `modules/` dir is the expected "no
     /// local modules" case and returns None silently.
     #[test]
     fn count_local_modules_missing_dir_returns_none() {
@@ -1820,7 +2328,7 @@ terraform {
         assert_eq!(count_local_modules(dir.path()), None);
     }
 
-    /// ERR-1 / TASK-1018: counts only subdirectories that hold terraform
+    /// Counts only subdirectories that hold terraform
     /// sources. Empty dirs and stray files are ignored.
     #[test]
     fn count_local_modules_counts_module_dirs() {
@@ -1832,9 +2340,9 @@ terraform {
         assert_eq!(count_local_modules(dir.path()), Some(2));
     }
 
-    /// PATTERN-1 / TASK-1796: `main.tf` is a terraform convention, not a
-    /// requirement — any `.tf` file makes the directory a module. Pre-fix
-    /// these layouts rendered no `modules` line at all.
+    /// `main.tf` is a terraform convention, not a requirement — any `.tf`
+    /// file makes the directory a module, so these layouts still render a
+    /// `modules` line.
     #[test]
     fn count_local_modules_counts_modules_without_main_tf() {
         let dir = tempfile::tempdir().unwrap();

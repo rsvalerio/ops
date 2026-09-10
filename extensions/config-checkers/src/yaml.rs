@@ -28,9 +28,13 @@ use saphyr_parser::{Event, Parser};
 
 use crate::error::{CheckError, LimitExceeded};
 
-/// Maximum collection nesting. Matches [`crate::json::MAX_NESTING_DEPTH`] so
-/// the two checkers agree on what "too deep" means.
-pub const MAX_NESTING_DEPTH: u64 = 128;
+/// Maximum collection nesting.
+///
+/// DUP-2 / TASK-2132: one constant, not two documented to be equal. This is
+/// a re-export of [`crate::json::MAX_NESTING_DEPTH`] — the two checkers agree
+/// on what "too deep" means because there is a single definition, so raising
+/// one limit cannot leave the other behind with the suite still green.
+pub use crate::json::MAX_NESTING_DEPTH;
 
 /// Maximum number of nodes the **stream** would hold once every alias is
 /// expanded.

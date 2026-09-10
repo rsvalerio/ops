@@ -12,9 +12,9 @@ use super::truncate_for_log;
 /// `OPS_SUBPROCESS_TIMEOUT_SECS`. Advisory DB refresh can dominate runtime.
 const CARGO_DENY_TIMEOUT: Duration = Duration::from_mins(4);
 
-/// FN-1 (TASK-0793): cargo-deny diagnostic class. Centralises the code →
-/// section mapping so adding a new class is one row in `CODE_CLASSES`
-/// rather than a fifth `if … contains` branch in `parse_deny_output`.
+/// cargo-deny diagnostic class. The code → section mapping lives once, in
+/// [`classify_code`], so adding a class is one match arm rather than another
+/// branch inside `parse_deny_output`.
 #[derive(Copy, Clone)]
 enum DiagClass {
     Advisory,
@@ -74,13 +74,24 @@ pub fn run_cargo_deny(working_dir: &Path) -> anyhow::Result<DenyResult> {
 /// unrecognised status.
 pub fn interpret_deny_result(exit_code: Option<i32>, stderr: &str) -> anyhow::Result<DenyResult> {
     match exit_code {
-        Some(0) => Ok(parse_deny_output(stderr)),
+        // Exit 0 is not the rare case — cargo-deny exits 0 whenever every
+        // finding is at `warning` level (the default for `[bans]
+        // multiple-versions`, and for `unmaintained` / `yanked` configured as
+        // `warn`). It goes through the same guarded parse as exit 1 so
+        // `check_partial_decode_loss` runs on the code path the gate normally
+        // takes. On a genuinely clean run there are no diagnostic envelopes
+        // and the guard is a no-op.
+        Some(0) => {
+            let (parsed, diag) = parse_deny_output_inner(stderr);
+            check_partial_decode_loss(&diag, stderr)?;
+            Ok(parsed)
+        }
         Some(1) => {
-            // ERR-1 / TASK-0612: cargo-deny's contract for exit 1 is "stderr
-            // has the JSON diagnostic stream". An empty/whitespace-only
-            // stderr at exit 1 means the binary crashed before printing
-            // diagnostics — treating it as "no issues parsed" silently masks
-            // a supply-chain pipeline failure.
+            // cargo-deny's contract for exit 1 is "stderr has the JSON
+            // diagnostic stream". An empty/whitespace-only stderr at exit 1
+            // means the binary crashed before printing diagnostics — treating
+            // it as "no issues parsed" would silently mask a supply-chain
+            // pipeline failure.
             if stderr.trim().is_empty() {
                 anyhow::bail!(
                     "cargo deny exited with status 1 but produced no diagnostics on stderr; \
@@ -88,14 +99,13 @@ pub fn interpret_deny_result(exit_code: Option<i32>, stderr: &str) -> anyhow::Re
                 );
             }
             let (parsed, diag) = parse_deny_output_inner(stderr);
-            // ERR-1 / TASK-0958: cargo-deny's contract for exit 1 is "stderr
-            // has at least one JSON diagnostic line". If the parse decoded
-            // zero diagnostics from a non-empty stderr, the stream is text-mode
-            // (forgotten `--format json`, future cargo-deny default change, or
-            // a wrapper that swallowed JSON) — every line was logged at debug
-            // by `decode_diagnostic` and the gate would otherwise score green.
-            // Fail closed so schema drift surfaces instead of silently muting
-            // the supply-chain gate.
+            // Exit 1 also promises at least one JSON diagnostic line. Zero
+            // diagnostics decoded from a non-empty stderr means the stream is
+            // text-mode (a forgotten `--format json`, a cargo-deny default
+            // change, or a wrapper that swallowed the JSON) — every line was
+            // logged at debug by `decode_diagnostic` and the gate would
+            // otherwise score green. Fail closed so schema drift surfaces
+            // instead of silently muting the supply-chain gate.
             if parsed.advisories.is_empty()
                 && parsed.licenses.is_empty()
                 && parsed.bans.is_empty()
@@ -128,11 +138,11 @@ pub fn interpret_deny_result(exit_code: Option<i32>, stderr: &str) -> anyhow::Re
     }
 }
 
-/// ERR-1 / TASK-1840: what [`parse_deny_output_inner`] saw versus what it
-/// kept. Mirrors `UpgradeParseDiagnostics` in `parse/upgrade.rs`, which
-/// solved the same problem for the cargo-upgrade table: "we saw N candidate
-/// rows and emitted zero entries" is the shape of drift the result value
-/// alone cannot express.
+/// What [`parse_deny_output_inner`] saw versus what it kept. Mirrors
+/// `UpgradeParseDiagnostics` in `parse/upgrade.rs`, which carries the same
+/// information for the cargo-upgrade table: "we saw N candidate lines and
+/// emitted zero entries" is the shape of drift the result value alone cannot
+/// express.
 struct DenyParseDiagnostics {
     /// Lines whose envelope decoded with `type == "diagnostic"` — cargo-deny
     /// telling us "this is a finding". `log` / `summary` envelopes and
@@ -152,16 +162,16 @@ impl DenyParseDiagnostics {
     }
 }
 
-/// ERR-1 / TASK-1840: the share of candidate diagnostics that may be dropped
-/// before the stream stops being trustworthy, as `NUM / DEN`.
+/// The share of candidate diagnostics that may be dropped before the stream
+/// stops being trustworthy, as `NUM / DEN`.
 ///
 /// cargo-deny emits its four check classes (advisories, licenses, bans,
 /// sources) from four different implementations with different field shapes,
 /// so a schema change usually takes out *one whole class* while the other
-/// three keep decoding. The zero-diagnostics guard above only sees total
-/// loss, so that partial loss passed straight through: every advisory
-/// dropped, one unrelated ban still decoded, `ops deps` rendered "Advisories:
-/// None" in green and exited 0 with an unpatched RUSTSEC vulnerability in the
+/// three keep decoding. The zero-diagnostics check above sees only total
+/// loss; without a share-based guard, every advisory could drop while one
+/// unrelated ban still decoded, and `ops deps` would render "Advisories:
+/// None" in green and exit 0 with an unpatched RUSTSEC vulnerability in the
 /// tree.
 ///
 /// One unrecognised code among many findings is ordinary forward drift and
@@ -191,7 +201,7 @@ fn check_partial_decode_loss(diag: &DenyParseDiagnostics, stderr: &str) -> anyho
              refusing to treat the surviving subset as the complete finding set"
         );
         anyhow::bail!(
-            "cargo deny exited with status 1 and emitted {candidates} diagnostic line(s) but only \
+            "cargo deny emitted {candidates} diagnostic line(s) but only \
              {emitted} could be decoded and classified ({dropped} dropped); refusing to score the \
              surviving subset as the complete finding set — suspect a per-code cargo-deny schema \
              change that silently removed a whole diagnostic class. \
@@ -207,11 +217,10 @@ fn check_partial_decode_loss(diag: &DenyParseDiagnostics, stderr: &str) -> anyho
 
 /// JSON structures for cargo deny output (newline-delimited JSON on stderr).
 ///
-/// ERR-1 / TASK-1840: the envelope is deliberately decoded on its own, with
-/// `fields` left as an undecoded `Value`. Recognising a line as a diagnostic
-/// must not depend on this crate agreeing with cargo-deny about the *shape*
-/// of `fields` — that is exactly the schema drift the candidate counter
-/// exists to expose.
+/// The envelope is deliberately decoded on its own, with `fields` left as an
+/// undecoded `Value`. Recognising a line as a diagnostic must not depend on
+/// this crate agreeing with cargo-deny about the *shape* of `fields` — that
+/// is exactly the schema drift the candidate counter exists to expose.
 #[derive(Deserialize)]
 struct DenyLine {
     #[serde(rename = "type")]
@@ -256,10 +265,10 @@ struct DecodedDiagnostic {
 
 /// Decode one stderr line.
 ///
-/// ERR-1 / TASK-1840: `diag` records whether the line was a *candidate*
-/// diagnostic (`type == "diagnostic"`), which is what makes a later drop
-/// countable. Unparseable lines and `log` / `summary` envelopes are not
-/// candidates — cargo-deny is not claiming a finding on those.
+/// `diag` records whether the line was a *candidate* diagnostic
+/// (`type == "diagnostic"`), which is what makes a later drop countable.
+/// Unparseable lines and `log` / `summary` envelopes are not candidates —
+/// cargo-deny is not claiming a finding on those.
 fn decode_diagnostic(trimmed: &str, diag: &mut DenyParseDiagnostics) -> Option<DecodedDiagnostic> {
     let deny_line: DenyLine = match serde_json::from_str(trimmed) {
         Ok(l) => l,
@@ -278,13 +287,13 @@ fn decode_diagnostic(trimmed: &str, diag: &mut DenyParseDiagnostics) -> Option<D
     // One increment per line of an in-memory string, whose length is bounded
     // by `isize::MAX`, so `saturating_add` equals `+= 1` exactly.
     //
-    // ERR-1 / TASK-1840: count the candidate as soon as the *envelope* says
-    // `type == "diagnostic"`, before `fields` is decoded. Decoding the whole
-    // line in one step meant a diagnostic whose `fields` no longer matched
-    // `DiagnosticFields` — a renamed key, a scalar where an object is
-    // expected — fell into the malformed-JSON arm above and was dropped
-    // without ever being counted, so the drop-rate guard the counter feeds
-    // stayed silent through precisely the schema drift it watches for.
+    // The candidate is counted as soon as the *envelope* says
+    // `type == "diagnostic"`, before `fields` is decoded. Counting only after
+    // a successful `fields` decode would let a diagnostic whose `fields` no
+    // longer match `DiagnosticFields` — a renamed key, a scalar where an
+    // object is expected — be dropped without ever being counted, keeping the
+    // drop-rate guard silent through precisely the schema drift it watches
+    // for.
     diag.candidate_diagnostics = diag.candidate_diagnostics.saturating_add(1);
     let Some(raw_fields) = deny_line.fields else {
         tracing::debug!(
@@ -305,9 +314,9 @@ fn decode_diagnostic(trimmed: &str, diag: &mut DenyParseDiagnostics) -> Option<D
         }
     };
     let Some(code) = fields.code else {
-        // ERR-1 / TASK-1840 AC#4: this was the only drop path in the crate
-        // with no tracing breadcrumb, so a schema change that moved `code`
-        // under a nested object dropped diagnostics in complete silence.
+        // Every drop path in this parser leaves a tracing breadcrumb,
+        // including this one: a schema change that moves `code` under a
+        // nested object must not drop diagnostics silently.
         tracing::debug!(
             severity = %fields.severity.as_deref().unwrap_or(MISSING_SEVERITY_SENTINEL),
             message = %truncate_for_log(fields.message.as_deref().unwrap_or("")),
@@ -335,27 +344,25 @@ fn decode_diagnostic(trimmed: &str, diag: &mut DenyParseDiagnostics) -> Option<D
     })
 }
 
-/// ERR-2 / TASK-0845: shared sentinel used by [`decode_diagnostic`] when a
-/// cargo-deny diagnostic line lacks a `severity` field. Routed through
-/// `has_issues`'s fail-closed `_other` branch so the unknown-severity warn
-/// fires and the gate still fails — preserving the safety property of
-/// "schema drift surfaces, doesn't silently mute the gate".
+/// Sentinel substituted by [`decode_diagnostic`] when a cargo-deny diagnostic
+/// line lacks a `severity` field. It classifies as
+/// `SeverityClass::Unknown`, so the unknown-severity warn fires and the
+/// `has_issues` gate still fails: schema drift surfaces rather than silently
+/// muting the gate.
 pub const MISSING_SEVERITY_SENTINEL: &str = "<missing-severity>";
 
 /// Answer "which package is this diagnostic about".
 ///
-/// OWN-1 / TASK-1848: this borrows immutably and clones. It used to take
-/// `&mut` and *hollow out* what it read — `advisory.package.take()`,
-/// `mem::take(&mut krate.name)` — leaving the `DecodedDiagnostic` in a state
-/// no reader could tell apart from genuine missing data, so a second call
-/// returned the `<no package>` sentinel for a diagnostic with a perfectly
-/// good package name and logged a false TASK-0597 warning to match. Nothing
-/// called it twice, but the only thing preventing that was an unwritten
-/// agreement between this function and [`push_diagnostic`] about which
-/// fields had been emptied — invisible in the types, and a wrong-data bug
-/// (not a compile error) the moment either side moved. The mutation bought
-/// one `String` clone per cargo-deny diagnostic on a path that already
-/// allocates a `String` per field.
+/// Falls back to the advisory's package, then to `graphs[0].krate.name`, then
+/// to a `<no package>` sentinel.
+///
+/// The read is immutable and clones the name: leaving `diag` untouched makes
+/// the function idempotent, so no caller has to know which fields a previous
+/// call emptied. Hollowing the fields out instead would cost nothing at the
+/// type level and produce wrong data — a second call would report
+/// `<no package>` for a diagnostic that has one — for the sake of one
+/// `String` clone per diagnostic on a path that already allocates a `String`
+/// per field.
 fn resolve_package(diag: &DecodedDiagnostic) -> String {
     diag.advisory
         .as_ref()
@@ -384,7 +391,7 @@ fn resolve_package(diag: &DecodedDiagnostic) -> String {
 /// Drops undecodable lines one at a time. Callers that need to know *how
 /// many* were dropped — the difference between "clean" and "a whole
 /// diagnostic class stopped decoding" — must go through
-/// [`interpret_deny_result`], which applies [`check_partial_decode_loss`].
+/// [`interpret_deny_result`], which applies `check_partial_decode_loss`.
 pub fn parse_deny_output(stderr: &str) -> DenyResult {
     parse_deny_output_inner(stderr).0
 }
@@ -421,9 +428,8 @@ fn parse_deny_output_inner(stderr: &str) -> (DenyResult, DenyParseDiagnostics) {
 }
 
 fn push_diagnostic(result: &mut DenyResult, class: DiagClass, diag: DecodedDiagnostic) {
-    // OWN-1 / TASK-1848: an immutable read, so the fields consumed below are
-    // still whatever cargo-deny sent. No agreement with `resolve_package`
-    // about which of them it emptied is needed, because it empties none.
+    // `resolve_package` reads immutably, so the fields consumed below are
+    // still whatever cargo-deny sent.
     let package = resolve_package(&diag);
     match class {
         DiagClass::Advisory => {
