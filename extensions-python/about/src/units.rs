@@ -105,9 +105,13 @@ pub fn read_workspace_members(root: &Path) -> Vec<(String, String)> {
             // ERR-7 / TASK-0974: include the manifest path so multi-root
             // `ops about` runs can attribute the parse failure. Debug-format
             // so embedded newlines / ANSI cannot forge log records.
+            // TEST-5 / TASK-2205: `recovery` states the degradation like
+            // every other warn in this crate, so operators can filter
+            // Python About degradations uniformly.
             tracing::warn!(
                 path = ?root.join("pyproject.toml").display(),
                 error = %e,
+                recovery = "no-units",
                 "failed to project pyproject.toml into workspace shape"
             );
             return Vec::new();
@@ -324,15 +328,34 @@ members = ["libs/blank"]
         assert!(units[0].description.is_none());
     }
 
-    /// TEST-5 / TASK-1756: the crate doc promises that a malformed root
-    /// manifest degrades to *no units* rather than looking like a project
-    /// without a workspace, and says so via `tracing::warn!` (TASK-0394 /
-    /// TASK-0974). Both halves were previously unasserted.
+    /// TEST-5 / TASK-1756 + TASK-2205: the crate doc promises that a
+    /// malformed root manifest degrades to *no units* rather than looking
+    /// like a project without a workspace, and says so via `tracing::warn!`
+    /// (TASK-0394 / TASK-0974). The warn half is asserted here too: it must
+    /// fire, name `pyproject.toml`, and state its recovery — deleting the
+    /// warn fails this test, not just the doc promise.
     #[test]
     fn invalid_root_pyproject_yields_no_units() {
         let dir = tempfile::tempdir().unwrap();
         write(&dir.path().join("pyproject.toml"), "[tool.uv.workspace\n");
-        assert!(collect_units(dir.path()).is_empty());
+
+        let (logs, units) = ops_about::test_support::capture_tracing(tracing::Level::WARN, || {
+            collect_units(dir.path())
+        });
+
+        assert!(units.is_empty());
+        assert!(
+            logs.contains("failed to project pyproject.toml into workspace shape"),
+            "the degradation warn must fire: {logs}"
+        );
+        assert!(
+            logs.contains("pyproject.toml"),
+            "the warn must name the manifest: {logs}"
+        );
+        assert!(
+            logs.contains("recovery=\"no-units\""),
+            "the warn must state its recovery: {logs}"
+        );
     }
 
     /// TEST-5 / TASK-1756: a *member* whose own manifest is unparseable must
