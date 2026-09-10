@@ -1,5 +1,15 @@
-use super::*;
+//! TEST-3 / TASK-2091: the crate's public-API suite, as an integration test.
+//! Everything here drives `ops-extension` the way a downstream extension
+//! crate does — through its exported items only. Tests that need private
+//! access (`SharedError::new`, `SharedError::shares_allocation_with`) live
+//! in `#[cfg(test)]` modules beside the code they cover.
 use ops_core::config::{CommandId, CommandSpec, Config, ExecCommandSpec};
+use ops_extension::{
+    data_field, impl_extension, sort_compiled_extensions, test_datasource_extension,
+    CommandRegistry, Context, DataProvider, DataProviderError, DataProviderSchema, DataRegistry,
+    Extension, ExtensionInfo, ExtensionType, SharedError, DEFAULT_PROVIDER_BUDGET,
+    EXTENSION_REGISTRY,
+};
 use std::path::PathBuf;
 use std::sync::Arc;
 
@@ -14,7 +24,7 @@ impl DataProvider for StubProvider {
 }
 
 fn test_context() -> Context {
-    Context::test_context(PathBuf::from("."))
+    Context::new(Arc::new(Config::empty()), PathBuf::from("."))
 }
 
 #[test]
@@ -353,50 +363,11 @@ fn extension_registers_commands() {
 }
 
 // --- SharedError tests ---
-
-#[test]
-fn shared_error_display_shows_inner_message() {
-    let inner = std::io::Error::other("disk full");
-    let shared = SharedError::new(inner);
-    assert_eq!(shared.to_string(), "disk full");
-}
-
-#[test]
-fn shared_error_source_chain_preserved() {
-    use std::error::Error;
-    // A custom error with a source
-    #[derive(Debug)]
-    struct Outer(std::io::Error);
-    impl std::fmt::Display for Outer {
-        fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-            write!(f, "outer")
-        }
-    }
-    impl std::error::Error for Outer {
-        fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
-            Some(&self.0)
-        }
-    }
-    let outer = Outer(std::io::Error::other("root cause"));
-    let shared = SharedError::new(outer);
-
-    // ERR-1 / TASK-2024: the first link is the *wrapped error itself*. This
-    // test previously asserted that `source()` skipped straight to "root
-    // cause", which is exactly the missing link the fix restores — the
-    // wrapped `Outer` was unreachable by any chain walk or downcast.
-    let first = shared
-        .source()
-        .expect("the wrapped error is the first link");
-    assert_eq!(first.to_string(), "outer");
-    assert!(
-        first.downcast_ref::<Outer>().is_some(),
-        "the wrapped error must be downcastable through the chain"
-    );
-
-    // …and the rest of the chain still follows from there.
-    let root = first.source().expect("the wrapped error's own source");
-    assert!(root.to_string().contains("root cause"), "got: {root}");
-}
+// (`shared_error_display_shows_inner_message`,
+// `shared_error_source_chain_preserved`, and
+// `shared_error_alternate_display_matches_plain_when_no_sources` construct
+// `SharedError` through the private `SharedError::new`, so they live in the
+// `#[cfg(test)]` module beside `src/error.rs`.)
 
 #[test]
 fn shared_error_from_anyhow() {
@@ -464,15 +435,6 @@ fn shared_error_alternate_display_walks_source_chain() {
     let shared = SharedError::from(inner);
     assert_eq!(shared.to_string(), "top");
     assert_eq!(format!("{shared:#}"), "top: middle: root");
-}
-
-/// A sourceless error renders identically with and without the alternate
-/// flag — the chain walk must not append separators to nothing.
-#[test]
-fn shared_error_alternate_display_matches_plain_when_no_sources() {
-    let shared = SharedError::new(std::io::Error::other("disk full"));
-    assert_eq!(shared.to_string(), "disk full");
-    assert_eq!(format!("{shared:#}"), "disk full");
 }
 
 // --- ExtensionType tests ---
@@ -555,13 +517,13 @@ impl DataProvider for SchemaProvider {
         Ok(serde_json::json!({}))
     }
     fn schema(&self) -> DataProviderSchema {
-        DataProviderSchema {
-            description: "A test schema",
-            fields: vec![
+        DataProviderSchema::new(
+            "A test schema",
+            vec![
                 data_field!("field_a", "str", "First field"),
                 data_field!("field_b", "int", "Second field"),
             ],
-        }
+        )
     }
 }
 
@@ -610,7 +572,7 @@ fn context_default_refresh_is_false() {
 
 #[test]
 fn context_working_directory() {
-    let ctx = Context::test_context(PathBuf::from("/tmp/test"));
+    let ctx = Context::new(Arc::new(Config::empty()), PathBuf::from("/tmp/test"));
     assert_eq!(ctx.working_directory(), PathBuf::from("/tmp/test"));
 }
 
@@ -728,40 +690,6 @@ fn impl_extension_macro_info() {
     assert!(info.types.is_command());
     assert_eq!(info.command_names, &["cmd1", "cmd2"]);
     assert_eq!(info.data_provider_name, Some("macro_data"));
-}
-
-// --- DataProviderError is Clone ---
-
-#[test]
-fn data_provider_error_is_clone() {
-    #[derive(Debug)]
-    struct WithSource(std::io::Error);
-    impl std::fmt::Display for WithSource {
-        fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-            f.write_str("outer")
-        }
-    }
-    impl std::error::Error for WithSource {
-        fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
-            Some(&self.0)
-        }
-    }
-
-    let err = DataProviderError::computation_error(WithSource(std::io::Error::other("inner")));
-    let cloned = err.clone();
-
-    assert_eq!(err.to_string(), cloned.to_string());
-    assert!(matches!(cloned, DataProviderError::ComputationFailed(_)));
-    // Source chain survives the clone.
-    assert!(std::error::Error::source(&cloned).is_some());
-
-    // EFF-002: Clone reuses the inner Arc rather than rewrapping the error.
-    let (DataProviderError::ComputationFailed(orig), DataProviderError::ComputationFailed(copy)) =
-        (&err, &cloned)
-    else {
-        panic!("expected ComputationFailed variants");
-    };
-    assert!(orig.shares_allocation_with(copy));
 }
 
 // --- DataRegistry::about_fields ---
@@ -920,6 +848,10 @@ struct RegistryChainProvider {
     registry: Arc<std::sync::Mutex<Option<Arc<DataRegistry>>>>,
 }
 
+// The helpers below are not `#[test]` fns, so clippy's
+// `allow-unwrap-in-tests` does not reach them here; scoped allows keep the
+// suite's lock/expect idioms (same pattern as `crates/backlog/tests/corpus.rs`).
+#[allow(clippy::expect_used, clippy::unwrap_used)]
 impl DataProvider for RegistryChainProvider {
     fn name(&self) -> &'static str {
         self.name
@@ -939,6 +871,7 @@ impl DataProvider for RegistryChainProvider {
 
 /// Wire an A -> B -> A cycle whose providers compose through
 /// `DataRegistry::provide` rather than `Context::get_or_provide`.
+#[allow(clippy::unwrap_used)]
 fn cyclic_registry() -> Arc<DataRegistry> {
     let shared: Arc<std::sync::Mutex<Option<Arc<DataRegistry>>>> =
         Arc::new(std::sync::Mutex::new(None));
@@ -1164,7 +1097,7 @@ fn provider_cannot_change_the_context_its_siblings_observe() {
     *shared.lock().unwrap() = Some(Arc::clone(&registry));
 
     let cwd = PathBuf::from("/tmp/wave-1874");
-    let mut ctx = Context::test_context(cwd.clone()).with_refresh();
+    let mut ctx = Context::new(Arc::new(Config::empty()), cwd.clone()).with_refresh();
     ctx.get_or_provide("outer", &registry).expect("outer");
 
     let seen = observed.lock().unwrap().clone();
@@ -1224,7 +1157,7 @@ fn data_registry_debug_names_its_providers_and_pending_audit_entries() {
 fn context_debug_lists_keys_but_never_cached_values() {
     let mut registry = DataRegistry::new();
     let _ = registry.register("stub", Box::new(StubProvider));
-    let mut ctx = Context::test_context(PathBuf::from("/tmp/debug-ctx"));
+    let mut ctx = Context::new(Arc::new(Config::empty()), PathBuf::from("/tmp/debug-ctx"));
     ctx.get_or_provide("stub", &registry).expect("provide");
 
     let rendered = format!("{ctx:?}");
@@ -1417,9 +1350,9 @@ fn factory_arms_decline_when_prerequisites_are_unmet() {
 /// here means a syntax or path regression in it fails at its source instead of
 /// in N downstream crates at once.
 mod test_datasource_extension_macro {
-    use super::{FactoryShortExt, StubProvider};
+    use super::{test_datasource_extension, DataProvider, FactoryShortExt, StubProvider};
 
-    crate::test_datasource_extension!(
+    test_datasource_extension!(
         FactoryShortExt,
         name: "factory-short",
         data_provider: "factory_short_data"
@@ -1428,7 +1361,7 @@ mod test_datasource_extension_macro {
     // Silence the unused-import warning when the macro body changes shape.
     #[test]
     fn stub_provider_is_reachable() {
-        assert_eq!(crate::DataProvider::name(&StubProvider), "stub");
+        assert_eq!(DataProvider::name(&StubProvider), "stub");
     }
 }
 
@@ -1525,7 +1458,8 @@ fn clear_provider_results_drops_cached_values() {
 
 #[cfg(feature = "duckdb")]
 mod duckdb_feature {
-    use super::{test_context, DuckDbHandle};
+    use super::test_context;
+    use ops_extension::DuckDbHandle;
     use std::sync::Arc;
 
     #[derive(Debug, PartialEq, Eq)]
@@ -2065,36 +1999,6 @@ fn typed_error_is_reachable_through_data_provider_error_source_chain() {
 fn typed_error_from_computation_error_is_reachable_too() {
     let err = DataProviderError::computation_error(TypedMarker::NotFound);
     assert_eq!(find_typed_marker(&err), Some(&TypedMarker::NotFound));
-}
-
-/// AC #4: `SharedError`'s alternate rendering walks `self.0.source()` after
-/// printing `self.0`, which is independent of the `Error::source()` impl. The
-/// fix must therefore leave `{:#}` byte-identical — no link printed twice and
-/// none dropped.
-#[test]
-fn source_fix_leaves_the_alternate_display_unchanged() {
-    #[derive(Debug)]
-    struct Layered(std::io::Error);
-    impl std::fmt::Display for Layered {
-        fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-            f.write_str("outer context")
-        }
-    }
-    impl std::error::Error for Layered {
-        fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
-            Some(&self.0)
-        }
-    }
-
-    let shared = SharedError::new(Layered(std::io::Error::other("root cause")));
-    assert_eq!(format!("{shared}"), "outer context");
-    assert_eq!(format!("{shared:#}"), "outer context: root cause");
-
-    let e = DataProviderError::ComputationFailed(shared);
-    assert_eq!(
-        e.to_string(),
-        "data computation failed: outer context: root cause"
-    );
 }
 
 // ---------------------------------------------------------------------------

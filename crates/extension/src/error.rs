@@ -303,3 +303,129 @@ impl From<serde_json::Error> for DataProviderError {
         Self::Serialization(SharedError::from(err))
     }
 }
+
+/// TEST-3 / TASK-2091: these tests stay beside `error.rs` because they need
+/// private access — `SharedError::new` and `SharedError::shares_allocation_with`
+/// — which the integration suite in `tests/public_api.rs` cannot reach. Every
+/// other error-type test lives there.
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn shared_error_display_shows_inner_message() {
+        let inner = std::io::Error::other("disk full");
+        let shared = SharedError::new(inner);
+        assert_eq!(shared.to_string(), "disk full");
+    }
+
+    #[test]
+    fn shared_error_source_chain_preserved() {
+        use std::error::Error;
+        // A custom error with a source
+        #[derive(Debug)]
+        struct Outer(std::io::Error);
+        impl std::fmt::Display for Outer {
+            fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+                write!(f, "outer")
+            }
+        }
+        impl std::error::Error for Outer {
+            fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
+                Some(&self.0)
+            }
+        }
+        let outer = Outer(std::io::Error::other("root cause"));
+        let shared = SharedError::new(outer);
+
+        // ERR-1 / TASK-2024: the first link is the *wrapped error itself*. This
+        // test previously asserted that `source()` skipped straight to "root
+        // cause", which is exactly the missing link the fix restores — the
+        // wrapped `Outer` was unreachable by any chain walk or downcast.
+        let first = shared
+            .source()
+            .expect("the wrapped error is the first link");
+        assert_eq!(first.to_string(), "outer");
+        assert!(
+            first.downcast_ref::<Outer>().is_some(),
+            "the wrapped error must be downcastable through the chain"
+        );
+
+        // …and the rest of the chain still follows from there.
+        let root = first.source().expect("the wrapped error's own source");
+        assert!(root.to_string().contains("root cause"), "got: {root}");
+    }
+
+    /// A sourceless error renders identically with and without the alternate
+    /// flag — the chain walk must not append separators to nothing.
+    #[test]
+    fn shared_error_alternate_display_matches_plain_when_no_sources() {
+        let shared = SharedError::new(std::io::Error::other("disk full"));
+        assert_eq!(shared.to_string(), "disk full");
+        assert_eq!(format!("{shared:#}"), "disk full");
+    }
+
+    /// AC #4 of ERR-1 / TASK-2024: `SharedError`'s alternate rendering walks
+    /// `self.0.source()` after printing `self.0`, which is independent of the
+    /// `Error::source()` impl. The fix must therefore leave `{:#}`
+    /// byte-identical — no link printed twice and none dropped.
+    #[test]
+    fn source_fix_leaves_the_alternate_display_unchanged() {
+        #[derive(Debug)]
+        struct Layered(std::io::Error);
+        impl std::fmt::Display for Layered {
+            fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+                f.write_str("outer context")
+            }
+        }
+        impl std::error::Error for Layered {
+            fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
+                Some(&self.0)
+            }
+        }
+
+        let shared = SharedError::new(Layered(std::io::Error::other("root cause")));
+        assert_eq!(format!("{shared}"), "outer context");
+        assert_eq!(format!("{shared:#}"), "outer context: root cause");
+
+        let e = DataProviderError::ComputationFailed(shared);
+        assert_eq!(
+            e.to_string(),
+            "data computation failed: outer context: root cause"
+        );
+    }
+
+    #[test]
+    fn data_provider_error_is_clone() {
+        #[derive(Debug)]
+        struct WithSource(std::io::Error);
+        impl std::fmt::Display for WithSource {
+            fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+                f.write_str("outer")
+            }
+        }
+        impl std::error::Error for WithSource {
+            fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
+                Some(&self.0)
+            }
+        }
+
+        let err = DataProviderError::computation_error(WithSource(std::io::Error::other("inner")));
+        let cloned = err.clone();
+
+        assert_eq!(err.to_string(), cloned.to_string());
+        assert!(matches!(cloned, DataProviderError::ComputationFailed(_)));
+        // Source chain survives the clone.
+        assert!(std::error::Error::source(&cloned).is_some());
+
+        // EFF-002: Clone reuses the inner Arc rather than rewrapping the error.
+        let (
+            DataProviderError::ComputationFailed(orig),
+            DataProviderError::ComputationFailed(copy),
+        ) = (&err, &cloned)
+        else {
+            panic!("expected ComputationFailed variants");
+        };
+        assert!(orig.shares_allocation_with(copy));
+    }
+}
