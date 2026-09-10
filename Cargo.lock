@@ -2180,7 +2180,6 @@ dependencies = [
  "ops-core",
  "serde",
  "serde_json",
- "serial_test",
  "shellexpand",
  "tempfile",
  "terminal_size",

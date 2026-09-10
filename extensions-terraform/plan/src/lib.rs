@@ -147,15 +147,35 @@ pub fn run_plan_pipeline_to_with_tty(
 /// the process exit status CI gates branch on — had no test. The code is
 /// computed and returned as a plain `u8` here and only widened to
 /// `ExitCode` at the public boundary, so it can be asserted directly.
+///
+/// TEST-18 / TASK-2213: the environment is resolved once here — the
+/// pipeline entry point — and threaded down as [`PipelineEnv`] values, so
+/// nothing below re-reads the process environment mid-run and tests steer
+/// the cap / timeout / terraform program by injection instead of
+/// `set_var`.
 fn run_plan_pipeline_code(
     opts: &PlanOptions,
     out: &mut dyn std::io::Write,
     is_tty: bool,
 ) -> anyhow::Result<u8> {
+    run_plan_pipeline_code_with(opts, out, is_tty, &PipelineEnv::from_env())
+}
+
+/// TEST-18 / TASK-2213: the injectable twin of [`run_plan_pipeline_code`]
+/// — same pipeline, caller-supplied environment. Production calls resolve
+/// [`PipelineEnv::from_env`]; tests pass explicit values so they never
+/// mutate the process environment (a `setenv` racing a sibling test's
+/// `environ` read is a data race, not flakiness).
+fn run_plan_pipeline_code_with(
+    opts: &PlanOptions,
+    out: &mut dyn std::io::Write,
+    is_tty: bool,
+    env: &PipelineEnv,
+) -> anyhow::Result<u8> {
     // SEC-32 / TASK-1927: artifacts are recorded as this run creates them
     // so cleanup can run on *every* exit path below, not only on success.
     let mut created: Vec<PathBuf> = Vec::new();
-    let result = plan_pipeline_body(opts, out, is_tty, &mut created);
+    let result = plan_pipeline_body(opts, out, is_tty, &mut created, env);
     with_artifact_cleanup(opts, &created, result)
 }
 
@@ -164,13 +184,14 @@ fn plan_pipeline_body(
     out: &mut dyn std::io::Write,
     is_tty: bool,
     created: &mut Vec<PathBuf>,
+    env: &PipelineEnv,
 ) -> anyhow::Result<u8> {
     let use_color = !opts.no_color;
 
     let json_str = match opts.json_file.as_deref() {
-        Some("-") => read_stdin()?,
-        Some(path) => read_json_file(path)?,
-        None => run_terraform_pipeline(opts, created)?,
+        Some("-") => read_stdin(env.json_cap)?,
+        Some(path) => read_json_file(path, env.json_cap)?,
+        None => run_terraform_pipeline(opts, created, env)?,
     };
 
     if json_str.trim().is_empty() {
@@ -254,8 +275,8 @@ fn classify_plan(plan: &Plan) -> Vec<ClassifiedChange> {
         .unwrap_or_default()
 }
 
-fn read_stdin() -> anyhow::Result<String> {
-    read_capped(&mut std::io::stdin().lock(), "on stdin")
+fn read_stdin(cap: u64) -> anyhow::Result<String> {
+    read_capped(&mut std::io::stdin().lock(), "on stdin", cap)
 }
 
 /// SEC-33 (TASK-0915 / TASK-0924 / TASK-1933) + DUP-1 (TASK-1950): the
@@ -270,9 +291,13 @@ fn read_stdin() -> anyhow::Result<String> {
 ///
 /// `source` supplies the "on stdin" / "at {path}" fragment of the
 /// messages. Reads up to `cap + 1` bytes so overage is detectable.
-fn read_capped<R: std::io::Read>(reader: &mut R, source: &str) -> anyhow::Result<String> {
+///
+/// TEST-18 / TASK-2213: `cap` is a parameter, not an env read — the caller
+/// (the pipeline entry point, or a test injecting a value) resolves
+/// [`plan_json_max_bytes`] exactly once, so steering the cap never requires
+/// mutating the process environment mid-run.
+fn read_capped<R: std::io::Read>(reader: &mut R, source: &str, cap: u64) -> anyhow::Result<String> {
     use std::io::Read as _;
-    let cap = plan_json_max_bytes();
     let limit = cap.saturating_add(1);
     // SEC-33 / TASK-2206: read **bytes** and decide the cap before any
     // UTF-8 validation. `read_to_string` validated the whole truncated
@@ -341,11 +366,14 @@ fn terraform_timeout() -> std::time::Duration {
 /// keeps its pipes open — and the error names the invocation and the limit
 /// that fired, so a hang surfaces as an actionable error instead of
 /// consuming a CI runner slot until the job-level timeout fires.
+///
+/// TEST-18 / TASK-2213: the bound arrives as a value resolved once at the
+/// pipeline entry ([`PipelineEnv::from_env`]), not as an env read here.
 fn wait_for_child(
     child: &mut std::process::Child,
     invocation: &str,
+    timeout: std::time::Duration,
 ) -> anyhow::Result<std::process::ExitStatus> {
-    let timeout = terraform_timeout();
     match wait_timeout::ChildExt::wait_timeout(child, timeout) {
         Ok(Some(status)) => Ok(status),
         Ok(None) => {
@@ -369,11 +397,43 @@ fn plan_json_max_bytes() -> u64 {
         .unwrap_or(DEFAULT_PLAN_JSON_MAX_BYTES)
 }
 
-fn read_json_file(path: &str) -> anyhow::Result<String> {
+/// TEST-18 / TASK-2213: everything this pipeline reads from the process
+/// environment, resolved **once** at the pipeline entry point and threaded
+/// down as plain values. Production builds use [`PipelineEnv::from_env`];
+/// tests construct one directly, so steering the byte cap, the wall-clock
+/// bound, or which `terraform` binary runs never requires mutating the
+/// process environment — a `setenv` racing a sibling test's `environ`
+/// read during spawn is a data race, not flakiness.
+#[derive(Debug, Clone)]
+struct PipelineEnv {
+    /// The plan-JSON byte cap ([`plan_json_max_bytes`]).
+    json_cap: u64,
+    /// The per-child wall-clock bound ([`terraform_timeout`]).
+    timeout: std::time::Duration,
+    /// The terraform binary to invoke. Production uses `"terraform"`
+    /// (resolved through `PATH` by `Command::new`); tests point at a stub
+    /// script directly, which is why it lives here and not as a `PATH`
+    /// mutation.
+    terraform_program: String,
+}
+
+impl PipelineEnv {
+    /// The production resolution: documented env overrides where set,
+    /// documented defaults otherwise.
+    fn from_env() -> Self {
+        Self {
+            json_cap: plan_json_max_bytes(),
+            timeout: terraform_timeout(),
+            terraform_program: "terraform".to_string(),
+        }
+    }
+}
+
+fn read_json_file(path: &str, cap: u64) -> anyhow::Result<String> {
     let expanded = shellexpand::full(path).with_context(|| format!("invalid path: {path}"))?;
     let mut file = std::fs::File::open(expanded.as_ref())
         .with_context(|| format!("failed to open plan JSON {path}"))?;
-    read_capped(&mut file, &format!("at {path}"))
+    read_capped(&mut file, &format!("at {path}"), cap)
 }
 
 /// SEC-25 / TASK-1942: the artifact paths for one run, expanded exactly
@@ -631,14 +691,15 @@ fn reject_reserved_passthrough(passthrough: &[String]) -> anyhow::Result<()> {
 fn run_terraform_pipeline(
     opts: &PlanOptions,
     created: &mut Vec<PathBuf>,
+    env: &PipelineEnv,
 ) -> anyhow::Result<String> {
     reject_reserved_passthrough(&opts.passthrough)?;
     let paths = prepare_artifact_paths(opts)?;
     // `run_terraform_plan` hardens the binary plan itself, immediately after
     // recording the path and before it interprets terraform's exit status, so
     // a partial artifact from a failed run is covered too.
-    run_terraform_plan(opts, &paths.binary, created)?;
-    let json_str = capture_plan_json(&paths.binary)?;
+    run_terraform_plan(opts, &paths.binary, created, env)?;
+    let json_str = capture_plan_json(&paths.binary, env)?;
 
     if opts.keep_plan {
         write_plan_json(&paths.json, &json_str)
@@ -653,8 +714,9 @@ fn run_terraform_plan(
     opts: &PlanOptions,
     binary_path: &Path,
     created: &mut Vec<PathBuf>,
+    env: &PipelineEnv,
 ) -> anyhow::Result<()> {
-    let mut plan_cmd = std::process::Command::new("terraform");
+    let mut plan_cmd = std::process::Command::new(&env.terraform_program);
     plan_cmd
         .arg("plan")
         .arg(format!("-out={}", binary_path.display()))
@@ -690,7 +752,7 @@ fn run_terraform_plan(
     // from deleting a pre-existing file at `--out`.
     created.push(binary_path.to_path_buf());
 
-    let status = match wait_for_child(&mut child, "terraform plan") {
+    let status = match wait_for_child(&mut child, "terraform plan", env.timeout) {
         Ok(status) => status,
         Err(error) => {
             // SEC-29: the run is over without a usable exit status (timeout
@@ -749,8 +811,8 @@ fn plan_status_result(
 /// child that opens its pipes and never writes cannot wedge the read
 /// itself, and an over-cap read closing the pipe makes the child's next
 /// write fail instead of blocking.
-fn capture_plan_json(binary_path: &Path) -> anyhow::Result<String> {
-    let mut child = std::process::Command::new("terraform")
+fn capture_plan_json(binary_path: &Path, env: &PipelineEnv) -> anyhow::Result<String> {
+    let mut child = std::process::Command::new(&env.terraform_program)
         .args(["show", "-json"])
         .arg(binary_path)
         .stdout(Stdio::piped())
@@ -777,10 +839,11 @@ fn capture_plan_json(binary_path: &Path) -> anyhow::Result<String> {
         .stdout
         .take()
         .context("`terraform show -json` stdout was not captured")?;
+    let cap = env.json_cap;
     let stdout_reader =
-        std::thread::spawn(move || read_capped(&mut stdout, "from `terraform show -json`"));
+        std::thread::spawn(move || read_capped(&mut stdout, "from `terraform show -json`", cap));
 
-    let status = wait_for_child(&mut child, "terraform show -json")?;
+    let status = wait_for_child(&mut child, "terraform show -json", env.timeout)?;
     let stderr_bytes = stderr_reader.join().unwrap_or_default();
     let json_str = stdout_reader.join().unwrap_or_else(|_| {
         Err(anyhow::anyhow!(
@@ -1007,23 +1070,15 @@ mod tests {
     /// rejected without being slurped into memory. Override the cap to
     /// 64 bytes via `OPS_PLAN_JSON_MAX_BYTES` so the test stays fast.
     #[test]
-    #[serial_test::serial(plan_json_max_bytes_env)]
     fn read_json_file_rejects_oversized_payload() {
         let dir = tempfile::tempdir().unwrap();
         let path = dir.path().join("big.json");
         // Payload well over the 64-byte cap below.
         std::fs::write(&path, "x".repeat(1024)).unwrap();
 
-        // SAFETY: serial-style local override; restored at end.
-        let saved = std::env::var(PLAN_JSON_MAX_BYTES_ENV).ok();
-        unsafe { std::env::set_var(PLAN_JSON_MAX_BYTES_ENV, "64") };
-        let result = read_json_file(path.to_string_lossy().as_ref());
-        unsafe {
-            match saved {
-                Some(v) => std::env::set_var(PLAN_JSON_MAX_BYTES_ENV, v),
-                None => std::env::remove_var(PLAN_JSON_MAX_BYTES_ENV),
-            }
-        }
+        // TEST-18 / TASK-2213: the cap is injected as a value — no
+        // process-env mutation, no serialisation needed.
+        let result = read_json_file(path.to_string_lossy().as_ref(), 64);
         let err = result.expect_err("oversized plan JSON must error");
         let msg = format!("{err}");
         assert!(
@@ -1037,18 +1092,9 @@ mod tests {
     /// (`cat /dev/zero | ops terraform plan --json-file=-`) would OOM the
     /// renderer despite the file branch being capped in TASK-0915.
     #[test]
-    #[serial_test::serial(plan_json_max_bytes_env)]
     fn read_stdin_rejects_oversized_payload() {
-        let saved = std::env::var(PLAN_JSON_MAX_BYTES_ENV).ok();
-        unsafe { std::env::set_var(PLAN_JSON_MAX_BYTES_ENV, "64") };
         let mut reader = std::io::Cursor::new(vec![b'x'; 1024]);
-        let result = read_capped(&mut reader, "on stdin");
-        unsafe {
-            match saved {
-                Some(v) => std::env::set_var(PLAN_JSON_MAX_BYTES_ENV, v),
-                None => std::env::remove_var(PLAN_JSON_MAX_BYTES_ENV),
-            }
-        }
+        let result = read_capped(&mut reader, "on stdin", 64);
         let err = result.expect_err("oversized stdin plan JSON must error");
         let msg = format!("{err}");
         assert!(
@@ -1066,18 +1112,9 @@ mod tests {
     /// named for that source too — the default invocation used to be the
     /// one ingress point `OPS_PLAN_JSON_MAX_BYTES` did nothing for.
     #[test]
-    #[serial_test::serial(plan_json_max_bytes_env)]
     fn read_capped_rejects_oversized_terraform_show_output() {
-        let saved = std::env::var(PLAN_JSON_MAX_BYTES_ENV).ok();
-        unsafe { std::env::set_var(PLAN_JSON_MAX_BYTES_ENV, "32") };
         let mut reader = std::io::Cursor::new(vec![b'x'; 4096]);
-        let result = read_capped(&mut reader, "from `terraform show -json`");
-        unsafe {
-            match saved {
-                Some(v) => std::env::set_var(PLAN_JSON_MAX_BYTES_ENV, v),
-                None => std::env::remove_var(PLAN_JSON_MAX_BYTES_ENV),
-            }
-        }
+        let result = read_capped(&mut reader, "from `terraform show -json`", 32);
         let msg = format!("{}", result.expect_err("oversized show output must error"));
         assert!(
             msg.contains("from `terraform show -json`"),
@@ -1100,22 +1137,13 @@ mod tests {
     /// `OPS_PLAN_JSON_MAX_BYTES`. Non-ASCII content is routine in real plan
     /// output, and the three ASCII-only cap tests above could not see this.
     #[test]
-    #[serial_test::serial(plan_json_max_bytes_env)]
     fn read_capped_reports_the_cap_when_the_cut_splits_a_multibyte_character() {
-        let saved = std::env::var(PLAN_JSON_MAX_BYTES_ENV).ok();
-        unsafe { std::env::set_var(PLAN_JSON_MAX_BYTES_ENV, "64") };
         // 62 ASCII bytes, then `€` (3 bytes each): byte 65 — the first byte
-        // read past the 64-byte cap — is the *first* byte of the second `€`,
-        // so the truncated window ends mid-sequence.
+        // read past the 64-byte cap below — is the *first* byte of the
+        // second `€`, so the truncated window ends mid-sequence.
         let payload = format!("{}{}", "x".repeat(62), "€".repeat(8));
         let mut reader = std::io::Cursor::new(payload.into_bytes());
-        let result = read_capped(&mut reader, "from `terraform show -json`");
-        unsafe {
-            match saved {
-                Some(v) => std::env::set_var(PLAN_JSON_MAX_BYTES_ENV, v),
-                None => std::env::remove_var(PLAN_JSON_MAX_BYTES_ENV),
-            }
-        }
+        let result = read_capped(&mut reader, "from `terraform show -json`", 64);
         let msg = format!(
             "{}",
             result.expect_err("oversized payload must be a cap error")
@@ -1140,7 +1168,8 @@ mod tests {
     #[test]
     fn read_capped_gives_non_utf8_under_the_cap_its_own_error() {
         let mut reader = std::io::Cursor::new(vec![0xff, 0xfe, 0x01]);
-        let err = read_capped(&mut reader, "on stdin").expect_err("non-UTF-8 must error");
+        let err = read_capped(&mut reader, "on stdin", DEFAULT_PLAN_JSON_MAX_BYTES)
+            .expect_err("non-UTF-8 must error");
         let msg = format!("{err}");
         assert!(
             msg.contains("not valid UTF-8"),
@@ -1257,7 +1286,6 @@ mod tests {
     /// long as the hang lasted.
     #[cfg(unix)]
     #[test]
-    #[serial_test::serial(terraform_timeout_env)]
     fn a_hung_terraform_plan_is_killed_cleaned_up_and_reported() {
         use std::os::unix::fs::PermissionsExt as _;
 
@@ -1284,32 +1312,20 @@ mod tests {
             ..test_opts()
         };
 
-        let saved_path = std::env::var("PATH").ok();
-        let saved_timeout = std::env::var(TERRAFORM_TIMEOUT_SECS_ENV).ok();
-        // SAFETY: serial-style local override; restored below.
-        unsafe {
-            std::env::set_var(
-                "PATH",
-                format!(
-                    "{}:{}",
-                    dir.path().display(),
-                    saved_path.as_deref().unwrap_or("")
-                ),
-            );
-            std::env::set_var(TERRAFORM_TIMEOUT_SECS_ENV, "1");
-        }
+        // TEST-18 / TASK-2213: the stub is injected as the terraform
+        // program and the bound as a value — no PATH or timeout env
+        // mutation, so no serialisation against sibling tests is needed.
         let mut out = Vec::new();
-        let result = run_plan_pipeline_code(&opts, &mut out, false);
-        unsafe {
-            match saved_timeout {
-                Some(v) => std::env::set_var(TERRAFORM_TIMEOUT_SECS_ENV, v),
-                None => std::env::remove_var(TERRAFORM_TIMEOUT_SECS_ENV),
-            }
-            match saved_path {
-                Some(v) => std::env::set_var("PATH", v),
-                None => std::env::remove_var("PATH"),
-            }
-        }
+        let result = run_plan_pipeline_code_with(
+            &opts,
+            &mut out,
+            false,
+            &PipelineEnv {
+                json_cap: DEFAULT_PLAN_JSON_MAX_BYTES,
+                timeout: std::time::Duration::from_secs(1),
+                terraform_program: stub.display().to_string(),
+            },
+        );
 
         let msg = format!(
             "{:#}",
@@ -1335,7 +1351,6 @@ mod tests {
     /// cap bounds a child that writes nothing.
     #[cfg(unix)]
     #[test]
-    #[serial_test::serial(terraform_timeout_env)]
     fn a_hung_terraform_show_is_killed_cleaned_up_and_reported() {
         use std::os::unix::fs::PermissionsExt as _;
 
@@ -1358,32 +1373,18 @@ mod tests {
             ..test_opts()
         };
 
-        let saved_path = std::env::var("PATH").ok();
-        let saved_timeout = std::env::var(TERRAFORM_TIMEOUT_SECS_ENV).ok();
-        // SAFETY: serial-style local override; restored below.
-        unsafe {
-            std::env::set_var(
-                "PATH",
-                format!(
-                    "{}:{}",
-                    dir.path().display(),
-                    saved_path.as_deref().unwrap_or("")
-                ),
-            );
-            std::env::set_var(TERRAFORM_TIMEOUT_SECS_ENV, "1");
-        }
+        // TEST-18 / TASK-2213: stub program + timeout injected as values.
         let mut out = Vec::new();
-        let result = run_plan_pipeline_code(&opts, &mut out, false);
-        unsafe {
-            match saved_timeout {
-                Some(v) => std::env::set_var(TERRAFORM_TIMEOUT_SECS_ENV, v),
-                None => std::env::remove_var(TERRAFORM_TIMEOUT_SECS_ENV),
-            }
-            match saved_path {
-                Some(v) => std::env::set_var("PATH", v),
-                None => std::env::remove_var("PATH"),
-            }
-        }
+        let result = run_plan_pipeline_code_with(
+            &opts,
+            &mut out,
+            false,
+            &PipelineEnv {
+                json_cap: DEFAULT_PLAN_JSON_MAX_BYTES,
+                timeout: std::time::Duration::from_secs(1),
+                terraform_program: stub.display().to_string(),
+            },
+        );
 
         let msg = format!("{:#}", result.expect_err("a hung show must time out"));
         assert!(
@@ -1399,18 +1400,9 @@ mod tests {
     /// SEC-33 (TASK-0924): a stdin payload at or below the cap must read
     /// through unchanged.
     #[test]
-    #[serial_test::serial(plan_json_max_bytes_env)]
     fn read_stdin_at_cap_returns_payload() {
-        let saved = std::env::var(PLAN_JSON_MAX_BYTES_ENV).ok();
-        unsafe { std::env::set_var(PLAN_JSON_MAX_BYTES_ENV, "8") };
         let mut reader = std::io::Cursor::new(b"12345678".to_vec());
-        let result = read_capped(&mut reader, "on stdin");
-        unsafe {
-            match saved {
-                Some(v) => std::env::set_var(PLAN_JSON_MAX_BYTES_ENV, v),
-                None => std::env::remove_var(PLAN_JSON_MAX_BYTES_ENV),
-            }
-        }
+        let result = read_capped(&mut reader, "on stdin", 8);
         assert_eq!(result.expect("at-cap stdin payload reads ok"), "12345678");
     }
 
@@ -1418,7 +1410,6 @@ mod tests {
     /// to the provided sink instead of global stdout, and the pipeline
     /// returns `ExitCode` based on `detailed_exitcode` + `changes_present`.
     #[test]
-    #[serial_test::serial(plan_json_max_bytes_env)]
     fn run_plan_pipeline_to_writes_to_supplied_buffer() {
         // Stage the minimal fixture as a file and feed it via opts.json_file
         // so we don't depend on a `terraform` binary on PATH.
@@ -1446,7 +1437,6 @@ mod tests {
     /// the exit code CI gates branch on. A silent flip of 2 to 0 would
     /// let a gate report "no changes" for a plan that has them.
     #[test]
-    #[serial_test::serial(plan_json_max_bytes_env)]
     fn detailed_exitcode_yields_two_when_changes_present() {
         let dir = tempfile::tempdir().unwrap();
         let path = stage_fixture(dir.path(), include_str!("../tests/fixtures/minimal.json"));
@@ -1462,7 +1452,6 @@ mod tests {
 
     /// TEST-31 / TASK-1952: the other two corners of the same contract.
     #[test]
-    #[serial_test::serial(plan_json_max_bytes_env)]
     fn exit_code_is_zero_without_changes_or_without_detailed_exitcode() {
         let dir = tempfile::tempdir().unwrap();
 
@@ -1493,7 +1482,6 @@ mod tests {
     /// TEST-31 / TASK-1952: `--show-outputs` and `render_outputs_table`
     /// were never reached from a pipeline test.
     #[test]
-    #[serial_test::serial(plan_json_max_bytes_env)]
     fn show_outputs_renders_the_outputs_table() {
         let dir = tempfile::tempdir().unwrap();
         let path = stage_fixture(dir.path(), include_str!("../tests/fixtures/outputs.json"));
@@ -1527,7 +1515,6 @@ mod tests {
 
     /// TEST-31 / TASK-1952: the empty-plan-JSON guard.
     #[test]
-    #[serial_test::serial(plan_json_max_bytes_env)]
     fn empty_plan_json_is_rejected() {
         let dir = tempfile::tempdir().unwrap();
         let path = stage_fixture(dir.path(), "   \n\t  ");
@@ -1551,7 +1538,6 @@ mod tests {
     /// detection decoupled, `run_plan_pipeline_to` now defaults
     /// `is_tty=false` for buffered sinks and the output is stable.
     #[test]
-    #[serial_test::serial(plan_json_max_bytes_env)]
     fn run_plan_pipeline_to_buffered_sink_is_terminal_width_independent() {
         let dir = tempfile::tempdir().unwrap();
         let path = stage_fixture(dir.path(), include_str!("../tests/fixtures/minimal.json"));
@@ -1796,7 +1782,8 @@ mod tests {
 
         let json_msg = format!(
             "{}",
-            read_json_file(unexpandable).expect_err("unexpandable --json-file must error")
+            read_json_file(unexpandable, DEFAULT_PLAN_JSON_MAX_BYTES)
+                .expect_err("unexpandable --json-file must error")
         );
         assert!(
             json_msg.contains("invalid path"),
@@ -1884,8 +1871,8 @@ mod tests {
             ..test_opts()
         };
         let mut created = Vec::new();
-        let err =
-            run_terraform_pipeline(&opts, &mut created).expect_err("reserved flag must error");
+        let err = run_terraform_pipeline(&opts, &mut created, &PipelineEnv::from_env())
+            .expect_err("reserved flag must error");
         assert!(format!("{err}").contains("reserved by `ops plans`"));
         assert!(
             created.is_empty(),
