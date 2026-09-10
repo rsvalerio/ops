@@ -26,18 +26,6 @@ pub struct CreateOptions {
     pub dependencies: Vec<String>,
 }
 
-/// Fresh, unchecked checkbox items from their texts — the shape both `--ac`
-/// and `--dod` arrive in at create time.
-fn unchecked_items(texts: &[String]) -> Vec<AcItem> {
-    texts
-        .iter()
-        .map(|text| AcItem {
-            checked: false,
-            text: text.clone(),
-        })
-        .collect()
-}
-
 /// How many allocation attempts `run_create` makes before conceding that
 /// the backlog tree is too contended to place a task.
 const CREATE_ATTEMPTS: usize = 8;
@@ -87,8 +75,8 @@ pub fn run_create<W: Write>(
             ordinal: Some("1000".to_string()),
             extras: Vec::new(),
         };
-        let ac = unchecked_items(&opts.ac);
-        let dod = unchecked_items(&opts.dod);
+        let ac = AcItem::unchecked_all(&opts.ac);
+        let dod = AcItem::unchecked_all(&opts.dod);
         let body = render_body(
             opts.description.as_deref().unwrap_or(""),
             &ac,

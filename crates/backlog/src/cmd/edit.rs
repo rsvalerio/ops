@@ -131,7 +131,7 @@ fn apply_body_edits(doc: &mut crate::model::TaskDoc, opts: &EditOptions) -> anyh
         doc.body.set_description(description);
     }
     if let Some(ac) = &opts.ac {
-        doc.body.set_ac(&unchecked_items(ac));
+        doc.body.set_ac(&crate::model::AcItem::unchecked_all(ac));
     }
     for index in &opts.check_ac {
         doc.body.set_ac_checked(*index, true)?;
@@ -140,7 +140,7 @@ fn apply_body_edits(doc: &mut crate::model::TaskDoc, opts: &EditOptions) -> anyh
         doc.body.set_ac_checked(*index, false)?;
     }
     if let Some(dod) = &opts.dod {
-        doc.body.set_dod(&unchecked_items(dod));
+        doc.body.set_dod(&crate::model::AcItem::unchecked_all(dod));
     }
     for index in &opts.check_dod {
         doc.body.set_dod_checked(*index, true)?;
@@ -152,18 +152,6 @@ fn apply_body_edits(doc: &mut crate::model::TaskDoc, opts: &EditOptions) -> anyh
         doc.body.append_notes(note);
     }
     Ok(())
-}
-
-/// Fresh, unchecked checkbox items — `--ac` and `--dod` both replace their
-/// section wholesale, so a replacement always starts unchecked.
-fn unchecked_items(texts: &[String]) -> Vec<crate::model::AcItem> {
-    texts
-        .iter()
-        .map(|text| crate::model::AcItem {
-            checked: false,
-            text: text.clone(),
-        })
-        .collect()
 }
 
 /// Write the task under its new title slug and drop the old file. The id
