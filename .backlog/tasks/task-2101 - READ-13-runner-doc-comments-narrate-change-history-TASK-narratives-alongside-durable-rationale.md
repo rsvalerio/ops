@@ -1,10 +1,10 @@
 ---
 id: TASK-2101
 title: 'READ-13: runner doc comments narrate change history (TASK narratives) alongside durable rationale'
-status: To Do
+status: Done
 assignee: []
 created_date: '2026-09-08 06:40'
-updated_date: '2026-09-08 20:00'
+updated_date: '2026-09-10 19:31'
 labels:
   - code-review-rust
   - readability
@@ -32,7 +32,14 @@ ordinal: 1000
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 Each listed doc block states the current contract and invariants without narrating what a previous version did; no 'previously/pre-fix/prior to TASK-nnnn' sentences remain in the listed blocks
-- [ ] #2 Durable rationale (fail-closed policy, cache bounds, !Send marker purpose, retention formula) is preserved — only the change-history narration is removed
-- [ ] #3 Cited task numbers remain traceable via the backlog tasks, not the doc comments
+- [x] #1 Each listed doc block states the current contract and invariants without narrating what a previous version did; no 'previously/pre-fix/prior to TASK-nnnn' sentences remain in the listed blocks
+- [x] #2 Durable rationale (fail-closed policy, cache bounds, !Send marker purpose, retention formula) is preserved — only the change-history narration is removed
+- [x] #3 Cited task numbers remain traceable via the backlog tasks, not the doc comments
+
 <!-- AC:END -->
+
+## Implementation Notes
+
+<!-- SECTION:NOTES:BEGIN -->
+Verified against the landing branch after wave13. The cited runner doc blocks (build.rs, results.rs, mod.rs, progress_state.rs) were fully de-narrated in this wave; render_config.rs needed no change. A stale claim that exec.rs reads the static default workspace cache was corrected — the spawn path threads the runner-scoped cache through ExecEnv.
+<!-- SECTION:NOTES:END -->

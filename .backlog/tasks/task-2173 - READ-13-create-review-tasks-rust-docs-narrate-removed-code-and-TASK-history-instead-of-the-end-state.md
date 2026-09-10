@@ -1,10 +1,10 @@
 ---
 id: TASK-2173
 title: 'READ-13: create-review-tasks-rust docs narrate removed code and TASK history instead of the end state'
-status: To Do
+status: Done
 assignee: []
 created_date: '2026-09-08 07:11'
-updated_date: '2026-09-08 20:00'
+updated_date: '2026-09-10 16:21'
 labels:
   - code-review-rust
   - readability
@@ -36,8 +36,9 @@ The durable rationale in these blocks is worth keeping — why the member path i
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 The lib.rs comment about the removed crate-root cfg_attr allow block is deleted
-- [ ] #2 Item and module docs describe the current behaviour and its durable rationale, with no narration of prior implementations or removed code
-- [ ] #3 Rule-ID / TASK-NNNN prefixes are removed from comments, rustdoc, and test doc comments in both files; any rationale worth keeping is restated in terms of the behaviour it protects
-- [ ] #4 Test doc comments state what the test asserts rather than which backlog task introduced it
+- [x] #1 The lib.rs comment about the removed crate-root cfg_attr allow block is deleted
+- [x] #2 Item and module docs describe the current behaviour and its durable rationale, with no narration of prior implementations or removed code
+- [x] #3 Rule-ID / TASK-NNNN prefixes are removed from comments, rustdoc, and test doc comments in both files; any rationale worth keeping is restated in terms of the behaviour it protects
+- [x] #4 Test doc comments state what the test asserts rather than which backlog task introduced it
+
 <!-- AC:END -->

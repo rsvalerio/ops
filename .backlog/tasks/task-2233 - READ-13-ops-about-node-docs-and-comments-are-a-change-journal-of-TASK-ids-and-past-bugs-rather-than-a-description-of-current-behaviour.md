@@ -1,10 +1,10 @@
 ---
 id: TASK-2233
 title: 'READ-13: ops-about-node docs and comments are a change journal of TASK ids and past bugs rather than a description of current behaviour'
-status: To Do
+status: Done
 assignee: []
 created_date: '2026-09-08 07:24'
-updated_date: '2026-09-08 20:00'
+updated_date: '2026-09-10 19:31'
 labels:
   - code-review-rust
   - readability
@@ -56,7 +56,8 @@ TASK-2191 (about-go), TASK-2208 (about-python), TASK-2182 (ops-deps).
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 doc comments state the current contract of each item; history and task ids are removed from them
-- [ ] #2 the PackageJson doc comment describes the type rather than a removed attribute
-- [ ] #3 where a rule must stay pinned, the invariant is named in the test, not narrated in the item's docs
+- [x] #1 doc comments state the current contract of each item; history and task ids are removed from them
+- [x] #2 the PackageJson doc comment describes the type rather than a removed attribute
+- [x] #3 where a rule must stay pinned, the invariant is named in the test, not narrated in the item's docs
+
 <!-- AC:END -->

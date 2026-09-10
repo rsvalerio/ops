@@ -1,10 +1,10 @@
 ---
 id: TASK-2146
 title: 'READ-13: find_workspace_root''s doc promises the outermost workspace manifest but the walk returns the innermost, and no test covers nested workspaces'
-status: To Do
+status: Done
 assignee: []
 created_date: '2026-09-08 07:02'
-updated_date: '2026-09-08 20:00'
+updated_date: '2026-09-10 16:40'
 labels:
   - code-review-rust
   - readability
@@ -38,7 +38,8 @@ Secondary, same class (a doc claim the code contradicts), `extensions-rust/cargo
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 find_workspace_root's doc states the actual rule: the nearest ancestor manifest declaring [workspace] wins, with the first-seen manifest as fallback when none does
-- [ ] #2 A test in src/tests/find_root.rs builds a nested workspace (inner and outer manifests both declaring [workspace]) and pins which one is returned
-- [ ] #3 The lib.rs re-export rationale no longer claims downstream code can construct a #[non_exhaustive] Package
+- [x] #1 find_workspace_root's doc states the actual rule: the nearest ancestor manifest declaring [workspace] wins, with the first-seen manifest as fallback when none does
+- [x] #2 A test in src/tests/find_root.rs builds a nested workspace (inner and outer manifests both declaring [workspace]) and pins which one is returned
+- [x] #3 The lib.rs re-export rationale no longer claims downstream code can construct a #[non_exhaustive] Package
+
 <!-- AC:END -->

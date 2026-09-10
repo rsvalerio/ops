@@ -1,10 +1,10 @@
 ---
 id: TASK-2182
 title: 'READ-13: ops-deps rustdoc is a change journal of TASK ids and past bugs rather than a description of the current behaviour'
-status: To Do
+status: Done
 assignee: []
 created_date: '2026-09-08 07:13'
-updated_date: '2026-09-08 20:00'
+updated_date: '2026-09-10 19:31'
 labels:
   - code-review-rust
   - readability
@@ -41,8 +41,9 @@ Counted across the crate there are roughly 60 `TASK-nnnn` references inside `///
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 public and internal doc comments in ops-deps describe current behaviour and contracts; superseded designs and bug narratives are removed
-- [ ] #2 rationale worth keeping is restated as a property of the present code rather than as a description of what a previous version did
-- [ ] #3 TASK-nnnn references remain only where they add information a reader cannot get from the code, and never as the subject of the sentence
-- [ ] #4 cargo doc still builds with no broken intra-doc links after the rewrite
+- [x] #1 public and internal doc comments in ops-deps describe current behaviour and contracts; superseded designs and bug narratives are removed
+- [x] #2 rationale worth keeping is restated as a property of the present code rather than as a description of what a previous version did
+- [x] #3 TASK-nnnn references remain only where they add information a reader cannot get from the code, and never as the subject of the sentence
+- [x] #4 cargo doc still builds with no broken intra-doc links after the rewrite
+
 <!-- AC:END -->

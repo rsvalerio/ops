@@ -1,10 +1,10 @@
 ---
 id: TASK-2228
 title: 'READ-13: ops-about-terraform''s docs narrate 80 task IDs and past bug histories instead of describing current behaviour'
-status: To Do
+status: Done
 assignee: []
 created_date: '2026-09-08 07:22'
-updated_date: '2026-09-08 20:00'
+updated_date: '2026-09-10 19:31'
 labels:
   - code-review-rust
   - readability
@@ -38,8 +38,9 @@ Test doc comments carry the same load ("Pre-fix the parser would happily return 
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 Doc comments describe current behaviour and the still-live rationale; TASK-NNNN references and 'pre-fix / used to / previously' bug narration are removed
-- [ ] #2 Non-obvious design constraints (unicode-ident vs char predicates, fs::metadata vs DirEntry::file_type, drop-not-strip for control chars, deterministic fallback ordering) survive the edit, stated as constraints rather than as incident reports
-- [ ] #3 No behavioural change: the existing test suite passes unmodified apart from its own doc comments
-- [ ] #4 Approach matches the one taken for TASK-2191 (extensions-go/about)
+- [x] #1 Doc comments describe current behaviour and the still-live rationale; TASK-NNNN references and 'pre-fix / used to / previously' bug narration are removed
+- [x] #2 Non-obvious design constraints (unicode-ident vs char predicates, fs::metadata vs DirEntry::file_type, drop-not-strip for control chars, deterministic fallback ordering) survive the edit, stated as constraints rather than as incident reports
+- [x] #3 No behavioural change: the existing test suite passes unmodified apart from its own doc comments
+- [x] #4 Approach matches the one taken for TASK-2191 (extensions-go/about)
+
 <!-- AC:END -->

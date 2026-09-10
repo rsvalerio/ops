@@ -1,10 +1,10 @@
 ---
 id: TASK-2125
 title: 'READ-12: two ops-duckdb log sites interpolate values into the message instead of emitting them as structured fields'
-status: To Do
+status: Done
 assignee: []
 created_date: '2026-09-08 06:54'
-updated_date: '2026-09-08 20:00'
+updated_date: '2026-09-10 16:36'
 labels:
   - code-review-rust
   - readability
@@ -48,7 +48,8 @@ the error kind, and every distinct path produces a distinct event name.
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 query_or_warn emits the degraded description and the error as named fields, leaving a constant message
-- [ ] #2 remove_workspace_sidecar emits the sidecar path and the error as named fields with a constant message, matching the ingestor.rs breadcrumb shape
-- [ ] #3 no existing test that asserts on captured log text regresses (see poison_recovery_emits_warn_log for the capture_warn pattern in use)
+- [x] #1 query_or_warn emits the degraded description and the error as named fields, leaving a constant message
+- [x] #2 remove_workspace_sidecar emits the sidecar path and the error as named fields with a constant message, matching the ingestor.rs breadcrumb shape
+- [x] #3 no existing test that asserts on captured log text regresses (see poison_recovery_emits_warn_log for the capture_warn pattern in use)
+
 <!-- AC:END -->

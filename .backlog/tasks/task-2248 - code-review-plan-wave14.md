@@ -1,10 +1,10 @@
 ---
 id: TASK-2248
 title: 'code-review-plan-wave14'
-status: To Do
+status: Done
 assignee: []
 created_date: '2026-09-08 10:52'
-updated_date: '2026-09-08 20:00'
+updated_date: '2026-09-10 19:32'
 labels:
   - code-review-wave
 dependencies:
@@ -108,4 +108,7 @@ code-review-plan-wave14: Docs that narrate history instead of behaviour, and log
 
 <!-- SECTION:NOTES:BEGIN -->
 Overlaps: TASK-2247 wave13 (29 files: crates/extension/src/data.rs ...); TASK-2239 wave5 (8 files: extensions-go/about/src/lib.rs ...); TASK-2238 wave4 (7 files: extensions-go/about/src/go_mod.rs ...); TASK-2240 wave6 (7 files: extensions-go/about/src/lib.rs ...); TASK-2234 wave0 (6 files: extensions-rust/deps/src/parse/deny.rs ...); TASK-2241 wave7 (6 files: crates/extension/src/lib.rs ...); TASK-2242 wave8 (6 files: extensions-go/about/src/go_mod.rs ...); TASK-2235 wave1 (5 files: extensions-rust/cargo-toml/src/lib.rs ...); TASK-2246 wave12 (5 files: crates/extension/src/data.rs ...); TASK-2236 wave2 (3 files: extensions-node/about/src/package_json.rs ...); TASK-2237 wave3 (3 files: extensions/text-fixers/src/discovery.rs ...); TASK-2243 wave9 (3 files: crates/extension/src/data.rs ...); TASK-2244 wave10 (2 files: crates/runner/src/command/mod.rs ...); TASK-2245 wave11 (1 file: crates/extension/src/lib.rs)
+
+Branch: code-review/TASK-2248
+
 <!-- SECTION:NOTES:END -->

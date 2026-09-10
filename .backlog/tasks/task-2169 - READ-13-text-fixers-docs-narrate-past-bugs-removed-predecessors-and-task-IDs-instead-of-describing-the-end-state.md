@@ -1,10 +1,10 @@
 ---
 id: TASK-2169
 title: 'READ-13: text-fixers docs narrate past bugs, removed predecessors and task IDs instead of describing the end state'
-status: To Do
+status: Done
 assignee: []
 created_date: '2026-09-08 07:07'
-updated_date: '2026-09-08 20:00'
+updated_date: '2026-09-10 19:31'
 labels:
   - code-review-rust
   - readability
@@ -66,8 +66,9 @@ way.
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 Docs state what the code guarantees now; 'previously', 'used to', 'the predecessor' and 'before this' framing is removed
-- [ ] #2 The lib.rs block describing the removed cfg_attr(test, allow(..)) is deleted
-- [ ] #3 Backlog task IDs (TASK-1966, TASK-2052) are removed from doc comments; the reasoning they carry is kept in its own right where it is still load-bearing
-- [ ] #4 The design rationale that justifies current trade-offs (symlink policy, whole-buffer binary sniff, rename-based writes, per-file failure policy) survives the edit
+- [x] #1 Docs state what the code guarantees now; 'previously', 'used to', 'the predecessor' and 'before this' framing is removed
+- [x] #2 The lib.rs block describing the removed cfg_attr(test, allow(..)) is deleted
+- [x] #3 Backlog task IDs (TASK-1966, TASK-2052) are removed from doc comments; the reasoning they carry is kept in its own right where it is still load-bearing
+- [x] #4 The design rationale that justifies current trade-offs (symlink policy, whole-buffer binary sniff, rename-based writes, per-file failure policy) survives the edit
+
 <!-- AC:END -->

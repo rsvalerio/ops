@@ -1,10 +1,10 @@
 ---
 id: TASK-2088
 title: 'READ-12: three runner log sites interpolate preformatted or duplicate values into the message'
-status: To Do
+status: Done
 assignee: []
 created_date: '2026-09-07 22:58'
-updated_date: '2026-09-08 20:00'
+updated_date: '2026-09-10 16:24'
 labels:
   - code-review-rust
   - readability
@@ -33,7 +33,8 @@ ordinal: 1000
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 exec.rs drain warn keeps the named grace_secs / env fields and drops the positional duplicate from the message template
-- [ ] #2 display.rs builds the drop-count line only inside the enabled check (or emits structured fields and formats just for the stderr/tap mirror)
-- [ ] #3 finalize.rs warn carries step_id and kind as named fields with a stable message template
+- [x] #1 exec.rs drain warn keeps the named grace_secs / env fields and drops the positional duplicate from the message template
+- [x] #2 display.rs builds the drop-count line only inside the enabled check (or emits structured fields and formats just for the stderr/tap mirror)
+- [x] #3 finalize.rs warn carries step_id and kind as named fields with a stable message template
+
 <!-- AC:END -->

@@ -1,10 +1,10 @@
 ---
 id: TASK-2147
 title: 'READ-13: run-before-push docs narrate task history, and the crate-root cfg_attr allow duplicates a policy clippy.toml already grants'
-status: To Do
+status: Done
 assignee: []
 created_date: '2026-09-08 07:02'
-updated_date: '2026-09-08 20:00'
+updated_date: '2026-09-10 19:31'
 labels:
   - code-review-rust
   - readability
@@ -35,8 +35,9 @@ The enduring content is real and worth keeping — the hook must not depend on b
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 Item docs state the enduring property (POSIX sh only, ops probed before exec, git's ref stream never reaches a spawned command, the classifier only skips on fully-understood input) without narrating task history or the sibling crate
-- [ ] #2 TASK-nnnn and rule identifiers are removed from /// and //! blocks in this file, or moved into body comments where they annotate a specific line
-- [ ] #3 The crate-root cfg_attr(test, allow(clippy::unwrap_used)) block is removed, since clippy.toml's allow-unwrap-in-tests already covers it - or kept with a comment saying what it adds that clippy.toml does not
-- [ ] #4 cargo clippy -p ops-run-before-push --all-targets and cargo doc still pass with no new warnings or broken intra-doc links
+- [x] #1 Item docs state the enduring property (POSIX sh only, ops probed before exec, git's ref stream never reaches a spawned command, the classifier only skips on fully-understood input) without narrating task history or the sibling crate
+- [x] #2 TASK-nnnn and rule identifiers are removed from /// and //! blocks in this file, or moved into body comments where they annotate a specific line
+- [x] #3 The crate-root cfg_attr(test, allow(clippy::unwrap_used)) block is removed, since clippy.toml's allow-unwrap-in-tests already covers it - or kept with a comment saying what it adds that clippy.toml does not
+- [x] #4 cargo clippy -p ops-run-before-push --all-targets and cargo doc still pass with no new warnings or broken intra-doc links
+
 <!-- AC:END -->

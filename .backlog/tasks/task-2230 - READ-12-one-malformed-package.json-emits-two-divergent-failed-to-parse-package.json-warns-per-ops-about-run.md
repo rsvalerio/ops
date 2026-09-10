@@ -1,10 +1,10 @@
 ---
 id: TASK-2230
 title: 'READ-12: one malformed package.json emits two divergent ''failed to parse package.json'' warns per ops about run'
-status: To Do
+status: Done
 assignee: []
 created_date: '2026-09-08 07:23'
-updated_date: '2026-09-08 20:00'
+updated_date: '2026-09-10 19:31'
 labels:
   - code-review-rust
   - readability
@@ -57,7 +57,8 @@ Related: TASK-2070 (about crate, positional vs named tracing fields).
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 a single malformed package.json produces one warn record per ops about run, not one per provider
-- [ ] #2 both sites (or the single surviving site) format the serde error consistently and carry the same field set
-- [ ] #3 the path value is only constructed on the error path
+- [x] #1 a single malformed package.json produces one warn record per ops about run, not one per provider
+- [x] #2 both sites (or the single surviving site) format the serde error consistently and carry the same field set
+- [x] #3 the path value is only constructed on the error path
+
 <!-- AC:END -->

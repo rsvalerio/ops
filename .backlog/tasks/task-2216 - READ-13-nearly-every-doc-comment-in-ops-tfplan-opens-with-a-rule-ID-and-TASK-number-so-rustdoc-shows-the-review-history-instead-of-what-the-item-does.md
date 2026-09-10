@@ -1,10 +1,10 @@
 ---
 id: TASK-2216
 title: 'READ-13: nearly every doc comment in ops-tfplan opens with a rule ID and TASK number, so rustdoc shows the review history instead of what the item does'
-status: To Do
+status: Done
 assignee: []
 created_date: '2026-09-08 07:21'
-updated_date: '2026-09-08 20:00'
+updated_date: '2026-09-10 19:31'
 labels:
   - code-review-rust
   - readability
@@ -41,7 +41,8 @@ Keep the *invariants* (why `is_tty` and `use_color` are separate, why cleanup ru
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 No public item's doc summary line opens with a rule ID or TASK number; each opens with a present-tense description of the item
-- [ ] #2 Invariants that a caller or maintainer must preserve are kept, restated as properties of the current code rather than as a history of what changed
-- [ ] #3 Remaining historical rationale, where it is still useful to a maintainer, lives in // implementation comments rather than /// docs
+- [x] #1 No public item's doc summary line opens with a rule ID or TASK number; each opens with a present-tense description of the item
+- [x] #2 Invariants that a caller or maintainer must preserve are kept, restated as properties of the current code rather than as a history of what changed
+- [x] #3 Remaining historical rationale, where it is still useful to a maintainer, lives in // implementation comments rather than /// docs
+
 <!-- AC:END -->

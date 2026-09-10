@@ -1,10 +1,10 @@
 ---
 id: TASK-2155
 title: 'READ-13: cargo-update''s public rustdoc is a change journal of TASK ids rather than a description of the end state'
-status: To Do
+status: Done
 assignee: []
 created_date: '2026-09-08 07:04'
-updated_date: '2026-09-08 20:00'
+updated_date: '2026-09-10 19:31'
 labels:
   - code-review-rust
   - readability
@@ -39,7 +39,8 @@ Note the same pattern is filed for other crates as TASK-2075 / TASK-2101 / TASK-
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 Every doc comment on a public item opens with a summary of what the item is or does in the current design
-- [ ] #2 Rationale worth keeping (the arrow guard, truncated-escape preservation, the scan caps, the serde default) is retained, moved below the summary or into an implementation comment, and phrased as the current constraint rather than as the history of a past defect
-- [ ] #3 No TASK id or rule id appears in the first line of a rendered doc comment
+- [x] #1 Every doc comment on a public item opens with a summary of what the item is or does in the current design
+- [x] #2 Rationale worth keeping (the arrow guard, truncated-escape preservation, the scan caps, the serde default) is retained, moved below the summary or into an implementation comment, and phrased as the current constraint rather than as the history of a past defect
+- [x] #3 No TASK id or rule id appears in the first line of a rendered doc comment
+
 <!-- AC:END -->

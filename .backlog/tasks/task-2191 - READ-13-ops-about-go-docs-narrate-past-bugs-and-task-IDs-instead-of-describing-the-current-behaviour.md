@@ -1,10 +1,10 @@
 ---
 id: TASK-2191
 title: 'READ-13: ops-about-go docs narrate past bugs and task IDs instead of describing the current behaviour'
-status: To Do
+status: Done
 assignee: []
 created_date: '2026-09-08 07:14'
-updated_date: '2026-09-08 20:00'
+updated_date: '2026-09-10 19:31'
 labels:
   - code-review-rust
   - readability
@@ -44,8 +44,9 @@ This is the Go-stack instance of the pattern already filed as TASK-2136 (run-bef
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 Doc and inline comments state the rule the code enforces now, without narrating superseded implementations
-- [ ] #2 TASK-NNNN references are removed from doc comments, or reduced to a single trailing reference where a regression test genuinely needs one
-- [ ] #3 The invariants currently buried in the prose (Go token quoting, the traversal policy, the "." root-module sentinel, go.work precedence) survive the rewrite as explicit statements
-- [ ] #4 Test names or one-line docs carry the behaviour under test rather than the bug that motivated it; no test is deleted
+- [x] #1 Doc and inline comments state the rule the code enforces now, without narrating superseded implementations
+- [x] #2 TASK-NNNN references are removed from doc comments, or reduced to a single trailing reference where a regression test genuinely needs one
+- [x] #3 The invariants currently buried in the prose (Go token quoting, the traversal policy, the "." root-module sentinel, go.work precedence) survive the rewrite as explicit statements
+- [x] #4 Test names or one-line docs carry the behaviour under test rather than the bug that motivated it; no test is deleted
+
 <!-- AC:END -->

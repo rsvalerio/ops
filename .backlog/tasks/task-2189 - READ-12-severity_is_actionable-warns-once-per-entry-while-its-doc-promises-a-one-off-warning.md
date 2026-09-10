@@ -1,10 +1,10 @@
 ---
 id: TASK-2189
 title: 'READ-12: severity_is_actionable warns once per entry while its doc promises a one-off warning'
-status: To Do
+status: Done
 assignee: []
 created_date: '2026-09-08 07:14'
-updated_date: '2026-09-08 20:00'
+updated_date: '2026-09-10 19:31'
 labels:
   - code-review-rust
   - readability
@@ -32,7 +32,8 @@ Additionally the message body embeds the task id as prose (`"TASK-0601: unknown 
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 the unknown-severity warning is emitted at most once per has_issues call, matching the warned_unknown behaviour in format::severity_row
-- [ ] #2 the doc comments on severity_is_actionable and has_issues describe the actual emission behaviour
-- [ ] #3 a test asserts that a report carrying several unknown-severity entries produces a single warn line
+- [x] #1 the unknown-severity warning is emitted at most once per has_issues call, matching the warned_unknown behaviour in format::severity_row
+- [x] #2 the doc comments on severity_is_actionable and has_issues describe the actual emission behaviour
+- [x] #3 a test asserts that a report carrying several unknown-severity entries produces a single warn line
+
 <!-- AC:END -->

@@ -1,10 +1,10 @@
 ---
 id: TASK-2136
 title: 'READ-13: item and test docs in run-before-commit narrate past bugs, removed code and task history instead of the end state'
-status: To Do
+status: Done
 assignee: []
 created_date: '2026-09-08 06:56'
-updated_date: '2026-09-08 20:00'
+updated_date: '2026-09-10 19:31'
 labels:
   - code-review-rust
   - readability
@@ -36,8 +36,15 @@ The enduring content in these blocks is real and worth keeping (the hook must no
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 Item docs state the enduring property (POSIX sh only, ops is probed before exec, --changed-only arms the preflight, every staged change kind counts, the retry's bounded worst case) without narrating what the code previously did
-- [ ] #2 TASK-nnnn identifiers and rule IDs are removed from /// and //! blocks in this file, or moved to a comment inside the body where they annotate a specific line
-- [ ] #3 The tests-module comment describing the removed cfg_attr allow block is deleted
-- [ ] #4 cargo doc builds with no broken intra-doc links and the remaining docs still explain why each pinned property matters to a caller
+- [x] #1 Item docs state the enduring property (POSIX sh only, ops is probed before exec, --changed-only arms the preflight, every staged change kind counts, the retry's bounded worst case) without narrating what the code previously did
+- [x] #2 TASK-nnnn identifiers and rule IDs are removed from /// and //! blocks in this file, or moved to a comment inside the body where they annotate a specific line
+- [x] #3 The tests-module comment describing the removed cfg_attr allow block is deleted
+- [x] #4 cargo doc builds with no broken intra-doc links and the remaining docs still explain why each pinned property matters to a caller
+
 <!-- AC:END -->
+
+## Implementation Notes
+
+<!-- SECTION:NOTES:BEGIN -->
+Verified against the landing branch after wave13: the previously-ticked ACs hold. Residual TEST-5/TASK-2133 test docs introduced by a later-landed commit were rewritten in this wave.
+<!-- SECTION:NOTES:END -->

@@ -1,10 +1,10 @@
 ---
 id: TASK-2197
 title: 'READ-13: ops-metadata crate docs narrate removed code and superseded implementations instead of the end state'
-status: To Do
+status: Done
 assignee: []
 created_date: '2026-09-08 07:15'
-updated_date: '2026-09-08 20:00'
+updated_date: '2026-09-10 19:31'
 labels:
   - code-review-rust
   - readability
@@ -55,7 +55,14 @@ convention and are not in scope.
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 The crate-root //! docs describe what ops-metadata provides and how to consume it, with no narration of the removed typed-accessor layer
-- [ ] #2 The /// blocks on resolve_metadata_max_bytes, CARGO_METADATA_ARGS and StagedFile state the current contract without describing what they replaced
-- [ ] #3 Any rationale worth keeping is moved to .backlog/decisions/ or the relevant task, not deleted silently
+- [x] #1 The crate-root //! docs describe what ops-metadata provides and how to consume it, with no narration of the removed typed-accessor layer
+- [x] #2 The /// blocks on resolve_metadata_max_bytes, CARGO_METADATA_ARGS and StagedFile state the current contract without describing what they replaced
+- [x] #3 Any rationale worth keeping is moved to .backlog/decisions/ or the relevant task, not deleted silently
+
 <!-- AC:END -->
+
+## Implementation Notes
+
+<!-- SECTION:NOTES:BEGIN -->
+Rationale for the removed typed-accessor layer stays in TASK-1898 and git history; all other rationale was kept in place, restated as present-tense properties of ops-metadata (crate root, resolve_metadata_max_bytes, CARGO_METADATA_ARGS, StagedFile).
+<!-- SECTION:NOTES:END -->

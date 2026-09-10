@@ -1,10 +1,10 @@
 ---
 id: TASK-2099
 title: 'READ-13: design-journal doc essays and the itemless registry_duplicate_policy doc-anchor module'
-status: To Do
+status: Done
 assignee: []
 created_date: '2026-09-08 06:38'
-updated_date: '2026-09-08 20:00'
+updated_date: '2026-09-10 19:31'
 labels:
   - code-review-rust
   - structure
@@ -36,7 +36,14 @@ ordinal: 24000
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 Each cited doc block reduced to the enduring contract: the invariant, the required caller behaviour, and the consequence of misuse; TASK-N provenance and rejected-alternatives essays removed (moved to ADR/PR history if not already in the backlog task)
-- [ ] #2 The itemless `pub mod registry_duplicate_policy` is gone: its policy table lives on the two methods it governs (DataRegistry::register, CommandRegistry::insert) or a named static, so no empty public module remains in the API
-- [ ] #3 rustdoc intra-doc links still resolve (workspace denies broken links); public API shape unchanged except the removed empty module
+- [x] #1 Each cited doc block reduced to the enduring contract: the invariant, the required caller behaviour, and the consequence of misuse; TASK-N provenance and rejected-alternatives essays removed (moved to ADR/PR history if not already in the backlog task)
+- [x] #2 The itemless `pub mod registry_duplicate_policy` is gone: its policy table lives on the two methods it governs (DataRegistry::register, CommandRegistry::insert) or a named static, so no empty public module remains in the API
+- [x] #3 rustdoc intra-doc links still resolve (workspace denies broken links); public API shape unchanged except the removed empty module
+
 <!-- AC:END -->
+
+## Implementation Notes
+
+<!-- SECTION:NOTES:BEGIN -->
+Verified against the landing branch after wave13. The registry duplicate-policy table now lives on DataRegistry::register; Extension::register_commands / register_data_providers link there. error.rs ComputationMessage and SharedError::source docs were de-narrated in this wave.
+<!-- SECTION:NOTES:END -->

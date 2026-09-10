@@ -1,10 +1,10 @@
 ---
 id: TASK-2208
 title: 'READ-13: about-python source comments are a change journal of TASK ids and past bugs rather than a description of current behaviour'
-status: To Do
+status: Done
 assignee: []
 created_date: '2026-09-08 07:20'
-updated_date: '2026-09-08 20:00'
+updated_date: '2026-09-10 19:31'
 labels:
   - code-review-rust
   - readability
@@ -38,7 +38,8 @@ Nearly every comment is anchored to a TASK id (TASK-0394, 0484, 0569, 0704, 0816
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 Comments state the current invariant and the reason it must hold, not the shape that preceded it
-- [ ] #2 TASK-id references are kept only where they point at a still-relevant policy decision, not as changelog anchors on every block
-- [ ] #3 The SEC/ERR rationale for a policy lives at one location and is referenced, not restated at the call site and again in the test doc
+- [x] #1 Comments state the current invariant and the reason it must hold, not the shape that preceded it
+- [x] #2 TASK-id references are kept only where they point at a still-relevant policy decision, not as changelog anchors on every block
+- [x] #3 The SEC/ERR rationale for a policy lives at one location and is referenced, not restated at the call site and again in the test doc
+
 <!-- AC:END -->

@@ -1,10 +1,10 @@
 ---
 id: TASK-2223
 title: 'READ-13: ops-about-java rustdoc is a changelog of TASK ids and past regressions rather than a description of current behaviour'
-status: To Do
+status: Done
 assignee: []
 created_date: '2026-09-08 07:22'
-updated_date: '2026-09-08 20:00'
+updated_date: '2026-09-10 19:31'
 labels:
   - code-review-rust
   - readability
@@ -36,7 +36,8 @@ Twins already filed on other crates: TASK-2191 (`ops-about-go`), TASK-2192 (`rus
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 Published /// docs in the crate describe current behaviour and invariants without citing TASK ids or narrating superseded implementations
-- [ ] #2 Every deliberate asymmetry currently justified only by a TASK citation (settings first-wins vs properties last-wins; <scm> rejecting duplicate openers while <licenses> accepts multiple children; comments stripped exactly once on the include path) is restated as a positive rule in the docs
-- [ ] #3 Regression rationale that must be retained lives in the test name or a #[cfg(test)] comment, not in the public docs
+- [x] #1 Published /// docs in the crate describe current behaviour and invariants without citing TASK ids or narrating superseded implementations
+- [x] #2 Every deliberate asymmetry currently justified only by a TASK citation (settings first-wins vs properties last-wins; <scm> rejecting duplicate openers while <licenses> accepts multiple children; comments stripped exactly once on the include path) is restated as a positive rule in the docs
+- [x] #3 Regression rationale that must be retained lives in the test name or a #[cfg(test)] comment, not in the public docs
+
 <!-- AC:END -->

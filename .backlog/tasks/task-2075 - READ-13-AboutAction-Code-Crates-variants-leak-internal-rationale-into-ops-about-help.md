@@ -1,10 +1,10 @@
 ---
 id: TASK-2075
 title: 'READ-13: AboutAction Code/Crates variants leak internal rationale into ops about --help'
-status: To Do
+status: Done
 assignee: []
 created_date: '2026-09-07 22:57'
-updated_date: '2026-09-08 20:00'
+updated_date: '2026-09-10 16:24'
 labels:
   - code-review-rust
   - readability
@@ -30,7 +30,8 @@ The codebase already knows this is wrong: the neighbouring `Loc` variant (args.r
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 AboutAction::Code rationale paragraph converted to a plain // comment, keeping the one-line user-facing doc 'Display code statistics (lines of code, languages)'
-- [ ] #2 AboutAction::Crates rationale paragraph converted to a plain // comment, keeping the one-line user-facing doc
-- [ ] #3 a test asserts ops about --help output contains no internal-rationale phrases (e.g. 'Gating the variant', 'duplicating dispatch')
+- [x] #1 AboutAction::Code rationale paragraph converted to a plain // comment, keeping the one-line user-facing doc 'Display code statistics (lines of code, languages)'
+- [x] #2 AboutAction::Crates rationale paragraph converted to a plain // comment, keeping the one-line user-facing doc
+- [x] #3 a test asserts ops about --help output contains no internal-rationale phrases (e.g. 'Gating the variant', 'duplicating dispatch')
+
 <!-- AC:END -->

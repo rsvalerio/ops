@@ -1,10 +1,10 @@
 ---
 id: TASK-2192
 title: 'READ-13: rust-loc rustdoc cites review rule IDs, TASK numbers and prior revisions of itself instead of describing behaviour'
-status: To Do
+status: Done
 assignee: []
 created_date: '2026-09-08 07:14'
-updated_date: '2026-09-08 20:00'
+updated_date: '2026-09-10 19:31'
 labels:
   - code-review-rust
   - readability
@@ -41,8 +41,9 @@ The *content* of these comments is good and should stay — the walk's degradati
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 No doc comment or section heading in the crate contains a TASK-#### reference or a review rule ID (SEC-33, SEC-12, ERR-5, TEST-17, TEST-18, SEC-001, READ-5)
-- [ ] #2 No doc comment refers to a previous revision of itself; the # Errors section on collect_rust_loc describes only the errors it returns today
-- [ ] #3 The substantive explanations (degradation policy, depth-cap rationale, excluded-dir depth rule, lossy-path decision) are preserved, rewritten to stand on their own without the sibling-crate comparison being required to understand the rule
-- [ ] #4 cargo doc -p ops-rust-loc builds cleanly and each affected item reads as a description of current behaviour
+- [x] #1 No doc comment or section heading in the crate contains a TASK-#### reference or a review rule ID (SEC-33, SEC-12, ERR-5, TEST-17, TEST-18, SEC-001, READ-5)
+- [x] #2 No doc comment refers to a previous revision of itself; the # Errors section on collect_rust_loc describes only the errors it returns today
+- [x] #3 The substantive explanations (degradation policy, depth-cap rationale, excluded-dir depth rule, lossy-path decision) are preserved, rewritten to stand on their own without the sibling-crate comparison being required to understand the rule
+- [x] #4 cargo doc -p ops-rust-loc builds cleanly and each affected item reads as a description of current behaviour
+
 <!-- AC:END -->

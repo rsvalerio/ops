@@ -1,10 +1,10 @@
 ---
 id: TASK-2070
 title: 'READ-12: tracing warns interpolate values positionally instead of named structured fields'
-status: To Do
+status: Done
 assignee: []
 created_date: '2026-09-07 22:55'
-updated_date: '2026-09-08 20:00'
+updated_date: '2026-09-10 16:19'
 labels:
   - code-review-rust
   - readability
@@ -43,6 +43,7 @@ Non-test candidates (all verified non-`#[cfg(test)]`):
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 Every listed warn site uses named fields (e.g. error = ?e, provider, subpage) with a stable message template
-- [ ] #2 No positional value interpolation remains in tracing calls in extensions/about non-test code
+- [x] #1 Every listed warn site uses named fields (e.g. error = ?e, provider, subpage) with a stable message template
+- [x] #2 No positional value interpolation remains in tracing calls in extensions/about non-test code
+
 <!-- AC:END -->
