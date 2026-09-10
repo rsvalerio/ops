@@ -30,7 +30,7 @@ pub fn query_language_stats(
         Ok(stats) if stats.is_empty() => None,
         Ok(stats) => Some(stats),
         Err(e) => {
-            tracing::warn!("language_stats: query_project_languages failed: {e:#}");
+            tracing::warn!(error = ?e, "language_stats: query_project_languages failed");
             None
         }
     }

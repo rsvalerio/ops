@@ -73,7 +73,7 @@ pub fn query_rust_loc_stats(
         Ok(regions) if regions.is_empty() => return None,
         Ok(regions) => regions,
         Err(e) => {
-            tracing::warn!("about/loc: query_rust_loc_summary failed: {e:#}");
+            tracing::warn!(error = ?e, "about/loc: query_rust_loc_summary failed");
             return None;
         }
     };
@@ -84,7 +84,7 @@ pub fn query_rust_loc_stats(
     // about card's five-query enrich (see `lib::enrich_from_db`): the page
     // re-renders on every invocation, so a stale frame self-corrects.
     let files = ops_duckdb::sql::query_rust_loc_file_count(db).unwrap_or_else(|e| {
-        tracing::warn!("about/loc: query_rust_loc_file_count failed: {e:#}");
+        tracing::warn!(error = ?e, "about/loc: query_rust_loc_file_count failed");
         0
     });
 

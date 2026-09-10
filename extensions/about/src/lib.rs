@@ -146,7 +146,7 @@ fn warm_generic_providers(
     if refresh {
         match ctx.get_or_provide("coverage", data_registry) {
             Ok(_) | Err(DataProviderError::NotFound(_)) => {}
-            Err(e) => tracing::warn!("coverage collection failed: {e:#}"),
+            Err(e) => tracing::warn!(error = ?e, "coverage collection failed"),
         }
     }
 }
@@ -191,21 +191,21 @@ fn enrich_from_db(ctx: &ops_extension::Context, identity: &mut ProjectIdentity) 
         match ops_duckdb::sql::query_project_loc(db) {
             Ok(loc) if loc > 0 => identity.loc = Some(loc),
             Ok(_) => {}
-            Err(e) => tracing::warn!("about: query_project_loc failed: {e:#}"),
+            Err(e) => tracing::warn!(error = ?e, "about: query_project_loc failed"),
         }
     }
     if identity.file_count.is_none() {
         match ops_duckdb::sql::query_project_file_count(db) {
             Ok(files) if files > 0 => identity.file_count = Some(files),
             Ok(_) => {}
-            Err(e) => tracing::warn!("about: query_project_file_count failed: {e:#}"),
+            Err(e) => tracing::warn!(error = ?e, "about: query_project_file_count failed"),
         }
     }
     if identity.dependency_count.is_none() {
         match ops_duckdb::sql::query_dependency_count(db) {
             Ok(count) if count > 0 => identity.dependency_count = Some(count),
             Ok(_) => {}
-            Err(e) => tracing::warn!("about: query_dependency_count failed: {e:#}"),
+            Err(e) => tracing::warn!(error = ?e, "about: query_dependency_count failed"),
         }
     }
     if identity.coverage_percent.is_none() {
@@ -214,13 +214,13 @@ fn enrich_from_db(ctx: &ops_extension::Context, identity: &mut ProjectIdentity) 
                 identity.coverage_percent = Some(cov.lines_percent);
             }
             Ok(_) => {}
-            Err(e) => tracing::warn!("about: query_project_coverage failed: {e:#}"),
+            Err(e) => tracing::warn!(error = ?e, "about: query_project_coverage failed"),
         }
     }
     if identity.languages.is_empty() {
         match ops_duckdb::sql::query_project_languages(db) {
             Ok(langs) => identity.languages = langs,
-            Err(e) => tracing::warn!("about: query_project_languages failed: {e:#}"),
+            Err(e) => tracing::warn!(error = ?e, "about: query_project_languages failed"),
         }
     }
 }

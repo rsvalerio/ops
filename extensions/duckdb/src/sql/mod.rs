@@ -61,10 +61,17 @@ where
             if is_hard_failure(&e) {
                 tracing::error!(
                     query = label,
-                    "duckdb query failed (hard); {degraded}: {e:#}"
+                    degraded,
+                    error = ?e,
+                    "duckdb query failed (hard)"
                 );
             } else {
-                tracing::warn!(query = label, "duckdb query failed; {degraded}: {e:#}");
+                tracing::warn!(
+                    query = label,
+                    degraded,
+                    error = ?e,
+                    "duckdb query failed"
+                );
             }
             fallback
         }
