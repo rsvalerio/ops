@@ -44,7 +44,12 @@ pub enum RunMode {
 
 /// Payload contract of the [`DATA_PROVIDER_NAME`] provider: the review skill
 /// to invoke (e.g. `code-review-rust`) plus one target per review unit.
+///
+/// API-2 / TASK-2114: unknown fields are rejected at decode time so a
+/// provider that drifts from this contract (renamed or not-yet-learned keys)
+/// fails loudly instead of yielding a confusing "no targets" bail.
 #[derive(Debug, Clone, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct ReviewTargets {
     /// Skill name the subtask titles reference, e.g. `code-review-rust`.
     pub skill: String,
@@ -55,6 +60,7 @@ pub struct ReviewTargets {
 /// One review target: a display name (unique per workspace, e.g. the cargo
 /// package name) and its member path relative to the workspace root.
 #[derive(Debug, Clone, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct ReviewTarget {
     /// Display name used in the subtask title.
     pub name: String,
@@ -915,6 +921,44 @@ mod tests {
             std::fs::read_to_string(&foreign).expect("foreign"),
             "another run",
             "the foreign file must be untouched"
+        );
+    }
+
+    /// API-2 / TASK-2114: a provider payload carrying a key the engine has
+    /// not learned about must fail at decode time, naming the key — not
+    /// surface later as a confusing "no targets" bail or silently missing
+    /// information. The same strictness applies one level down: an unknown
+    /// key inside a single target object is rejected too.
+    #[test]
+    fn unknown_payload_keys_are_rejected_at_decode_time() {
+        let dir = scratch_backlog();
+
+        let drifted = serde_json::json!({
+            "skill": "code-review-rust",
+            "target": [
+                { "name": "ops-core", "path": "crates/core" }
+            ]
+        });
+        let (_out, result) = run(&dir, &registry_with(drifted), RunMode::DryRun);
+        let err = result.expect_err("a renamed key must fail the run");
+        let rendered = format!("{err:#}");
+        assert!(
+            rendered.contains("target"),
+            "the error must name the unexpected key; got: {rendered}"
+        );
+
+        let unknown_inner = serde_json::json!({
+            "skill": "code-review-rust",
+            "targets": [
+                { "name": "ops-core", "path": "crates/core", "extra": 1 }
+            ]
+        });
+        let (_out, result) = run(&dir, &registry_with(unknown_inner), RunMode::DryRun);
+        let err = result.expect_err("an unknown key inside a target must fail the run");
+        let rendered = format!("{err:#}");
+        assert!(
+            rendered.contains("extra"),
+            "the error must name the unexpected key; got: {rendered}"
         );
     }
 

@@ -14,11 +14,17 @@
 
 pub(crate) mod provider;
 
-pub const NAME: &str = "create-review-tasks-rust";
-pub const DESCRIPTION: &str = "Rust review targets for create-review-tasks";
-pub const SHORTNAME: &str = "create-review-tasks-rs";
-pub const DATA_PROVIDER_NAME: &str = ops_create_review_tasks::DATA_PROVIDER_NAME;
+/// Extension identifier used to register this crate in the engine's
+/// extension registry.
+const NAME: &str = "create-review-tasks-rust";
+/// One-line description shown by `ops about` for this extension.
+const DESCRIPTION: &str = "Rust review targets for create-review-tasks";
+/// CLI-facing short name (`create-review-tasks-rs`) used in commands and
+/// user-facing output.
+const SHORTNAME: &str = "create-review-tasks-rs";
 
+/// Extension type wiring the Rust `review_targets` provider into the generic
+/// create-review-tasks engine.
 pub struct CreateReviewTasksRustExtension;
 
 ops_extension::impl_extension! {
@@ -29,11 +35,11 @@ ops_extension::impl_extension! {
     types: ops_extension::ExtensionType::DATASOURCE,
     stack: Some(ops_extension::Stack::Rust),
     command_names: &[],
-    data_provider_name: Some(DATA_PROVIDER_NAME),
+    data_provider_name: Some(ops_create_review_tasks::DATA_PROVIDER_NAME),
     register_commands: |_self, _registry| {},
     register_data_providers: |_self, registry| {
         let _ = registry.register(
-            DATA_PROVIDER_NAME,
+            ops_create_review_tasks::DATA_PROVIDER_NAME,
             Box::new(provider::RustReviewTargetsProvider),
         );
     },
