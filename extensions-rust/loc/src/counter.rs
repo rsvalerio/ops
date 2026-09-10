@@ -26,13 +26,13 @@
 //!   inspected for test gates. A `#[cfg(test)]` on a statement inside a
 //!   function body is attributed to the enclosing region.
 //! - A file `proc_macro2` cannot lex, or `syn` cannot parse, falls back
-//!   to [`count_fallback`]: blank vs non-blank only, all attributed to
+//!   to `count_fallback`: blank vs non-blank only, all attributed to
 //!   the file-level region.
-//! - Delimiter nesting is bounded at [`MAX_NESTING_DEPTH`]. The token
+//! - Delimiter nesting is bounded at `MAX_NESTING_DEPTH`. The token
 //!   walkers recurse once per nesting level, so a pathologically nested
 //!   file would overflow the stack — which aborts the process with
 //!   `SIGSEGV` and cannot be caught. Anything deeper than the cap warns
-//!   and falls back to [`count_fallback`] instead, keeping the
+//!   and falls back to `count_fallback` instead, keeping the
 //!   never-fails contract for the scan as a whole.
 
 use std::path::Path;
@@ -151,7 +151,7 @@ impl FileCounts {
 
     /// Record one line of degraded, blank-vs-non-blank counting.
     ///
-    /// The building block behind [`count_fallback`], exposed so a caller
+    /// The building block behind `count_fallback`, exposed so a caller
     /// that must not hold a whole file in memory (an over-cap file, read
     /// a line at a time) can produce the same shape of counts.
     ///
