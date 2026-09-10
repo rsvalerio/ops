@@ -1,6 +1,6 @@
 //! Tests for the column-offset table parser and the compatible/breaking
 //! split. Kept apart from `exit_code_tests` so neither file grows past the
-//! ARCH-1 size threshold.
+//! workspace's per-file size threshold.
 
 use super::*;
 
@@ -23,15 +23,14 @@ tokio  1.35.0  1.38.0     1.38.0  1.38.0
     assert_eq!(entries[1].name, "tokio");
 }
 
-/// ERR-1 / TASK-0960: a data row containing multi-byte UTF-8 (localised note
-/// text, non-ASCII metadata) used to panic when separator-row byte offsets
-/// landed mid-codepoint inside `&line[start..end]`. The clamp makes slicing
-/// fall back to the nearest char boundary instead — so the row either parses
-/// cleanly or is dropped, but never panics.
+/// A data row containing multi-byte UTF-8 (localised note text, non-ASCII
+/// metadata) can put a separator-row byte offset mid-codepoint. Slicing
+/// clamps to the nearest char boundary, so such a row either parses cleanly
+/// or is dropped — never panics.
 #[test]
 fn parse_upgrade_table_non_ascii_row_does_not_panic() {
     // The note column contains a 4-byte char ("📦") that crosses the
-    // separator's note-column boundary; previously this panicked.
+    // separator's note-column boundary.
     let stdout = "\
 name   old req compatible latest  new req note
 ====   ======= ========== ======  ======= ====
@@ -76,7 +75,7 @@ name   old req compatible latest  new req
     assert!(entries.is_empty());
 }
 
-/// ERR-1 / TASK-1026: cargo-edit's table format is not a stable API; if a
+/// cargo-edit's table format is not a stable API; if a
 /// future release re-renders the header with different capitalisation
 /// (`Name`, `Old Req`, `New Req`), the parser must still recognise it
 /// rather than silently returning an empty Vec. The `====` separator row
@@ -98,14 +97,11 @@ serde  1.0.100 1.0.228    1.0.228 1.0.228
     assert_eq!(entries[0].name, "serde");
 }
 
-/// ERR-1 / TASK-1026, TASK-1817: when stdout carries body content but no
-/// `====` separator row was detected (the header drifted hard enough that we
-/// can't even line up columns), the parser must emit a `tracing::warn`
-/// breadcrumb. This pins only the breadcrumb — the *fail-closed* contract
-/// lives one level up and is pinned by
-/// `exit_code_tests::interpret_upgrade_output_bails_on_missing_separator`,
-/// which superseded this test's former "warn, return empty, score green"
-/// assertion.
+/// When stdout carries body content but no `====` separator row is detected
+/// (the header drifted hard enough that columns cannot be lined up), the
+/// parser emits a `tracing::warn` breadcrumb. This pins only the breadcrumb;
+/// the *fail-closed* contract lives one level up, in
+/// `exit_code_tests::interpret_upgrade_output_bails_on_missing_separator`.
 #[test]
 fn parse_upgrade_table_warns_on_missing_separator() {
     // Hypothetical drifted format: no `====` row and an unrecognised header.
@@ -154,7 +150,7 @@ fn categorize_upgrades_splits_correctly() {
     assert_eq!(result.incompatible[0].name, "clap");
 }
 
-/// TASK-0437: any note text containing "incompatible" (case-insensitive)
+/// Any note text containing "incompatible" (case-insensitive)
 /// classifies as incompatible. Guards against future cargo-edit wording
 /// drift like "incompatible (semver bump)" silently flipping breaking
 /// upgrades into the compatible bucket.
@@ -186,12 +182,11 @@ fn categorize_upgrades_matches_incompatible_substring() {
     assert_eq!(cmp_names, vec!["d", "e"]);
 }
 
-/// PERF-3 / TASK-1112: behaviour parity after replacing the per-row
-/// `to_ascii_lowercase().contains(...)` with the allocation-free
-/// `contains_ascii_ci` byte-window scan. Pins the canonical cases — fully
-/// upper-case match, embedded match after additional words, and a non-match
-/// substring that shares a prefix ("compatible" vs. "incompatible") — so a
-/// future helper rewrite cannot silently flip classification.
+/// The canonical cases for the allocation-free `contains_ascii_ci` scan
+/// behind the classification: a fully upper-case match, an embedded match
+/// after additional words, and a non-match that shares a prefix
+/// ("compatible" vs. "incompatible"). A rewrite of the helper cannot
+/// silently flip classification without failing here.
 #[test]
 fn categorize_upgrades_perf3_parity_after_alloc_free_scan() {
     let mk = |name: &str, note: Option<&str>| UpgradeEntry {
@@ -249,12 +244,12 @@ tokio  1.35.0  1.38.0     1.38.0  1.38.0
     assert_eq!(entries[1].name, "tokio");
 }
 
-/// CL-3 / TASK-1836: cargo-edit sizes the `=` run to the *header token's*
-/// length, so `new req` gets a 7-wide separator while values like
-/// `1.10.100` are 8 chars. The last fixed column used to be clamped to the
-/// separator row's total length, silently decoding `1.10.100` as `1.10.10`
-/// — a version that does not exist, printed as an ordinary answer and
-/// persisted into the cached `DepsReport`.
+/// cargo-edit sizes the `=` run to the *header token's* length, so `new req`
+/// gets a 7-wide separator while values like `1.10.100` are 8 chars. The
+/// last fixed column reads to the end of the data row rather than being
+/// clamped to the separator's length, which would decode `1.10.100` as
+/// `1.10.10` — a version that does not exist, printed as an ordinary answer
+/// and persisted into the cached `DepsReport`.
 #[test]
 fn parse_upgrade_table_last_column_wider_than_its_header_token() {
     let stdout = "\
@@ -271,9 +266,9 @@ serde  1.0.100 1.0.228    1.0.228 1.10.100
     assert!(entries[0].note.is_none());
 }
 
-/// CL-3 / TASK-1836 AC#3: with a `note` column present, `new req` is an
-/// *interior* column and must still stop at the note's start — the widened
-/// last-column rule must not let it swallow the note text.
+/// With a `note` column present, `new req` is an *interior* column and still
+/// stops at the note's start: the end-of-row rule for the last fixed column
+/// must not let it swallow the note text.
 #[test]
 fn parse_upgrade_table_note_column_bounds_the_new_req_column() {
     let stdout = "\

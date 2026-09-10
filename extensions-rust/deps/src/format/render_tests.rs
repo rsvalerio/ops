@@ -75,7 +75,7 @@ fn format_report_with_breaking_upgrades_shows_advice() {
     assert!(output.contains("Breaking Upgrades"));
     assert!(output.contains("1 upgrade"));
     assert!(output.contains("cargo upgrade --incompatible"));
-    // ERR-1 / TASK-0600: a breaking-upgrade row must surface the absolute
+    // A breaking-upgrade row must surface the absolute
     // `latest` so operators see how far behind the compatible cap is.
     assert!(
         output.contains("4.6.0") && output.contains("(latest"),

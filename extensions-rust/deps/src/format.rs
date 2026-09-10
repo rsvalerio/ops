@@ -4,9 +4,8 @@
 //! [`ops_core::report::Report`]: one [`ReportRow`] per section (Compatible /
 //! Breaking Upgrades, Advisories, License Issues, Duplicate Crates, Source
 //! Issues). The theme (`ConfigurableTheme::render_report`) owns all icons,
-//! colors, separators, and the footer — `ops deps` no longer hand-rolls its
-//! layout, so it shares the exact rendering system the runner commands
-//! (`ops verify`, `ops qa`) use.
+//! colors, separators, and the footer, so `ops deps` shares the exact
+//! rendering system the runner commands (`ops verify`, `ops qa`) use.
 //!
 //! Each row carries a status (→ icon + color via the theme's `[report]` block),
 //! a label, a right-aligned result slot (`"None"`, `"28 warnings"`), and
@@ -24,20 +23,21 @@ use std::fmt::Write as _;
 /// indentation and coloring.
 const DETAIL_INDENT: &str = "      ";
 
-/// DUP-3 / TASK-0972: single source of truth for the severity → (icon, style)
-/// mapping used by the per-entry detail rows, and → [`ReportStatus`] for the
-/// row-level status/result rollup.
+/// Single source of truth for the severity → (icon, style) mapping used by
+/// the per-entry detail rows, and → [`ReportStatus`] for the row-level
+/// status/result rollup.
 ///
-/// ERR-2 / TASK-0602: any cargo-deny severity outside the known set classifies
-/// into [`SeverityClass::Unknown`], rendering with a red `?` icon plus a
-/// one-shot `tracing::warn!` so schema drift is observable instead of hiding.
+/// Any cargo-deny severity outside the known set classifies into
+/// [`SeverityClass::Unknown`], rendering with a red `?` icon plus a
+/// one-per-section `tracing::warn!` so schema drift is observable instead of
+/// hiding.
 ///
-/// DUP-3 / TASK-1821: this is also the crate's *only* definition of which
-/// cargo-deny severity strings exist and which of them are benign. The
-/// `has_issues` gate (`lib.rs`) classifies through
-/// [`SeverityClass::classify`] rather than re-deriving the same partition
-/// from `&str`, so the exit code and the rendered status can no longer
-/// disagree: a new severity is one arm here, not two arms in two modules.
+/// This is also the crate's *only* definition of which cargo-deny severity
+/// strings exist and which of them are benign. The `has_issues` gate
+/// (`lib.rs`) classifies through [`SeverityClass::classify`] rather than
+/// re-deriving the same partition from `&str`, so the exit code and the
+/// rendered status cannot disagree: a new severity is one arm here, not two
+/// arms in two modules.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum SeverityClass {
     Error,
@@ -284,9 +284,9 @@ fn upgrade_row(title: &str, entries: &[UpgradeEntry], kind: UpgradeKind) -> Repo
     ReportRow::new(ReportStatus::Info, title, result).with_details(details)
 }
 
-/// One row in a severity-bearing section. DUP-1 (TASK-0801): unifies the
-/// advisories shape (with an `id` column) and the licenses/sources shape
-/// (without). `id` is `Some` only for advisories.
+/// One entry in a severity-bearing section, unifying the advisories shape
+/// (with an `id` column) and the licenses/sources shape (without). `id` is
+/// `Some` only for advisories.
 struct AdvisoryRow<'a> {
     id: Option<&'a str>,
     package: &'a str,
@@ -294,16 +294,15 @@ struct AdvisoryRow<'a> {
     severity: &'a str,
 }
 
-/// DUP-1 / TASK-2193: the scaffold every severity-bearing deny section
-/// shares — the empty-section `Ok`/`None` row, the classify pass with the
-/// one-per-section unknown-severity drift warn, the rollup, and the row
-/// assembly. Only the details differ per section: `details` receives the
-/// entries paired with their classes, so detail loops reuse the classify
-/// pass instead of re-running it.
+/// The scaffold every severity-bearing deny section shares — the
+/// empty-section `Ok`/`None` row, the classify pass with its one-per-section
+/// unknown-severity drift warn, the rollup, and the row assembly. Only the
+/// details differ per section: `details` receives the entries paired with
+/// their classes, so detail loops reuse the classify pass instead of
+/// re-running it.
 ///
-/// TASK-0972 and TASK-1821 changed this scaffold across the sections in
-/// lockstep; it lives here once now, so bans cannot silently miss the warn
-/// the other three sections emit — the drift this consolidation closes.
+/// Every section routes through here, so none of them can drift out of step
+/// with the others on the drift warn, the empty-section row, or the rollup.
 fn severity_section_row<'a, T, F, D>(
     title: &str,
     entries: &'a [T],
@@ -379,10 +378,10 @@ where
     })
 }
 
-/// DUP-1 / TASK-2193: bans ride the shared section scaffold — same
-/// empty-section row, classify pass (now including the unknown-severity
-/// drift warn the other sections emit), and rollup; only the details body
-/// is bans-specific (a single fixed note, not a per-entry table).
+/// Bans ride the shared section scaffold — same empty-section row, classify
+/// pass (including the unknown-severity drift warn), and rollup; only the
+/// details body is bans-specific, a single fixed note rather than a per-entry
+/// table.
 fn bans_row(bans: &[BanEntry]) -> ReportRow {
     severity_section_row(
         "Duplicate Crates",
