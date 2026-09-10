@@ -1,3 +1,15 @@
+//! Foundation crate shared by every `ops` binary, crate, and extension.
+//!
+//! ops-core holds the stack-agnostic layers the rest of the workspace builds
+//! on: configuration loading and merging ([`config`]), stack detection
+//! ([`stack`]), `${VAR}` expansion ([`expand`]), subprocess running
+//! ([`subprocess`]), size-capped file reads ([`bounded_read`]), output and
+//! terminal handling ([`output`], [`ui`], [`style`], [`table`]), the project
+//! identity model rendered by `ops about` ([`project_identity`], [`report`]),
+//! and small text/path/serde utilities ([`text`], [`paths`],
+//! [`serde_defaults`]). Extensions and the CLI consume these through
+//! `ops_extension`/`ops_runner`; nothing here knows about a specific stack.
+
 #![cfg_attr(
     test,
     allow(

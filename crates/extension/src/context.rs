@@ -32,10 +32,11 @@ use std::time::{Duration, Instant};
 /// subsequent `get_or_provide` on this context, and `working_directory`
 /// re-points path resolution for every provider that runs afterwards (a
 /// confused deputy within a single command invocation). Reads go through
-/// [`Context::config`], [`Context::working_directory`],
-/// [`Context::is_refreshing`] and [`Context::db`]; the only mutators are the
-/// constructors, [`Context::with_refresh`], [`Context::attach_db`] and
-/// [`Context::clear_provider_results`].
+/// [`Context::config`], [`Context::working_directory`] and
+/// [`Context::is_refreshing`] (plus the `db` accessor under the `duckdb`
+/// feature); the only mutators are the constructors,
+/// [`Context::with_refresh`], [`Context::clear_provider_results`] and
+/// `attach_db` under the `duckdb` feature.
 #[non_exhaustive]
 pub struct Context {
     config: Arc<Config>,
@@ -67,6 +68,11 @@ pub struct Context {
 }
 
 impl Context {
+    /// Creates a context from an owned cwd path, wrapping it in an `Arc`.
+    ///
+    /// Callers that already hold an `Arc<PathBuf>` cwd (the runner's
+    /// `query_data` hot path) should use [`Context::from_cwd_arc`] instead to
+    /// avoid the extra allocation.
     #[must_use]
     pub fn new(config: Arc<Config>, working_directory: PathBuf) -> Self {
         Self::from_cwd_arc(config, Arc::new(working_directory))

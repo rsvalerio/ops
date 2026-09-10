@@ -105,9 +105,14 @@ pub enum FailureKind {
 /// A file a run could not complete.
 #[derive(Debug, Clone)]
 pub struct FailedFile {
-    /// Relative to the run's root where possible.
+    /// Path of the failed file, relative to the run's root directory where
+    /// possible (for the validators that root is `CheckerOptions::root`;
+    /// joining it onto the root resolves the file).
     pub path: PathBuf,
+    /// Which stage failed — metadata lookup, read, write-back, or parse.
     pub kind: FailureKind,
+    /// Human-readable failure detail, including the underlying I/O or
+    /// parser error message.
     pub message: String,
 }
 

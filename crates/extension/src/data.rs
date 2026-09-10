@@ -349,6 +349,11 @@ impl DataRegistry {
         std::mem::take(&mut self.duplicate_inserts)
     }
 
+    /// Returns the provider registered under `name`, if any.
+    ///
+    /// Unlike [`DataRegistry::provide`], this neither dispatches the provider
+    /// nor consults the context cache — it is a plain map lookup for callers
+    /// that only need the registered instance (e.g. to read its schema).
     pub fn get(&self, name: &str) -> Option<&dyn DataProvider> {
         self.providers.get(name).map(std::convert::AsRef::as_ref)
     }

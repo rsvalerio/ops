@@ -78,9 +78,16 @@ pub fn sort_compiled_extensions(
 }
 
 bitflags::bitflags! {
+    /// Capability flags an extension declares: data source, command, or both.
+    ///
+    /// `DATASOURCE` extensions register data providers; `COMMAND` extensions
+    /// register user-invokable subcommands. The flags drive filtering in the
+    /// `ops about extensions` listing and the wiring order in the CLI.
     #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
     pub struct ExtensionType: u8 {
+        /// The extension registers one or more data providers.
         const DATASOURCE = 0b01;
+        /// The extension registers one or more commands.
         const COMMAND    = 0b10;
     }
 }
@@ -169,6 +176,7 @@ impl Clone for CommandRegistry {
 }
 
 impl CommandRegistry {
+    /// Creates an empty registry with a cleared duplicate-insert audit trail.
     #[must_use]
     pub fn new() -> Self {
         Self::default()
@@ -309,6 +317,10 @@ impl FromIterator<(CommandId, CommandSpec)> for CommandRegistry {
 /// }
 /// ```
 pub trait Extension: Send + Sync {
+    /// The extension's unique registry identifier (e.g. `"about-rust"`).
+    ///
+    /// This is the key the CLI wiring layer sorts and dispatches on; it is
+    /// also the value [`Extension::shortname`] defaults to.
     fn name(&self) -> &'static str;
 
     fn description(&self) -> &'static str {
@@ -347,7 +359,20 @@ pub trait Extension: Send + Sync {
         }
     }
 
+    /// Registers the extension's commands into `registry`.
+    ///
+    /// Duplicate ids are **last-write-wins** so user config can shadow
+    /// extension commands; each collision is recorded on the registry's audit
+    /// trail — see [`crate::registry_duplicate_policy`] for the full contract
+    /// and its contrast with data-provider registration.
     fn register_commands(&self, registry: &mut CommandRegistry);
 
+    /// Registers the extension's data providers into `registry`.
+    ///
+    /// Duplicate names are **first-write-wins** so a later extension cannot
+    /// shadow a trusted built-in provider; the rejected provider is returned
+    /// to the caller and the collision is audited — see
+    /// [`crate::registry_duplicate_policy`]. The default implementation
+    /// registers nothing.
     fn register_data_providers(&self, _registry: &mut DataRegistry) {}
 }
