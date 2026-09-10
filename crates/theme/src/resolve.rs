@@ -21,6 +21,10 @@ pub enum ThemeError {
 ///
 /// Looks up the theme in the provided `IndexMap` (includes built-in themes from default config).
 ///
+/// TEST-33 / TASK-2096: the `running_template_overhead` mis-budget
+/// diagnostic (READ-5 / TASK-1971) is emitted here, at resolution time —
+/// the constructor itself performs no I/O.
+///
 /// # Errors
 ///
 /// [`ThemeError::NotFound`] if `themes` has no entry named `name`.
@@ -28,10 +32,20 @@ pub fn resolve_theme(
     name: &str,
     themes: &IndexMap<String, ThemeConfig>,
 ) -> Result<ConfigurableTheme, ThemeError> {
-    themes
+    let theme = themes
         .get(name)
         .map(|tc| ConfigurableTheme::new(tc.clone()))
-        .ok_or_else(|| ThemeError::NotFound(name.to_string()))
+        .ok_or_else(|| ThemeError::NotFound(name.to_string()))?;
+    warn_on_template_overhead(&theme);
+    Ok(theme)
+}
+
+/// TEST-33 / TASK-2096: the single render site for the resolution-time
+/// template-overhead diagnostic shared by both resolve entry points.
+fn warn_on_template_overhead(theme: &ConfigurableTheme) {
+    if let Some(message) = theme.template_overhead_diagnostic() {
+        ops_core::ui::warn(message);
+    }
 }
 
 /// Owning sibling of [`resolve_theme`]: take the named entry out of `themes`
@@ -51,10 +65,12 @@ pub fn resolve_theme_owned(
     name: &str,
     themes: &mut IndexMap<String, ThemeConfig>,
 ) -> Result<ConfigurableTheme, ThemeError> {
-    themes
+    let theme = themes
         .swap_remove(name)
         .map(ConfigurableTheme::new)
-        .ok_or_else(|| ThemeError::NotFound(name.to_string()))
+        .ok_or_else(|| ThemeError::NotFound(name.to_string()))?;
+    warn_on_template_overhead(&theme);
+    Ok(theme)
 }
 
 /// List all available theme names.

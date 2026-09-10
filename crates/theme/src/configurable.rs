@@ -106,7 +106,6 @@ impl ConfigurableTheme {
             .max(1);
         let separator_char_cols =
             visible_width(config.separator_char.encode_utf8(&mut [0u8; 4])).max(1);
-        warn_on_running_template_overhead(&config, spinner_reserve_cols);
         Self {
             header_prefix: precompute_sgr_prefix(&config.header_color),
             summary_prefix: precompute_sgr_prefix(&config.summary_color),
@@ -124,6 +123,38 @@ impl ConfigurableTheme {
             separator_char_cols,
             config,
         }
+    }
+
+    /// READ-5 / TASK-1971 + TEST-33 / TASK-2096: the
+    /// `running_template_overhead` mis-budget diagnostic, as a value.
+    ///
+    /// The field is a hand-maintained column count that a theme author must
+    /// keep consistent with `running_template` by eye; nothing derived it
+    /// and `render_separator` subtracts it from the budget as fact. The
+    /// literal (non-placeholder) text of the template plus the widest
+    /// spinner glyph is a *lower bound* on that overhead — the `{elapsed}`
+    /// placeholder adds more at render time, so a larger configured value
+    /// is legitimate. A configured value below the bound is not: the
+    /// separator then over-runs the terminal width on every running row.
+    ///
+    /// TEST-33 / TASK-2096: [`Self::new`] performs no I/O; the diagnostic
+    /// is returned here so callers (tests, library embeddings) can observe
+    /// it without reading stderr. The theme-resolution entry points
+    /// (`resolve_theme` / `resolve_theme_owned`) render it via
+    /// `ops_core::ui::warn` at resolution time, preserving the operator
+    /// visibility the constructor-side warn used to provide.
+    #[must_use]
+    pub fn template_overhead_diagnostic(&self) -> Option<String> {
+        let minimum = template_literal_width(&self.config.running_template)
+            .saturating_add(self.spinner_reserve_cols);
+        (self.config.running_template_overhead < minimum).then(|| {
+            format!(
+                "theme running_template_overhead is {} but the template's literal text and \
+                 spinner glyph already occupy {minimum} columns; running step lines will \
+                 over-run the terminal width",
+                self.config.running_template_overhead
+            )
+        })
     }
 
     /// Width of the icon column: the widest [`ALL_STATUSES`] glyph.
@@ -441,32 +472,11 @@ impl ConfigurableTheme {
     }
 }
 
-/// READ-5 / TASK-1971: validate `running_template_overhead` against the
-/// template it is supposed to describe, and surface a mismatch instead of
-/// silently mis-budgeting every running row.
-///
-/// The field is a hand-maintained column count that a theme author must keep
-/// consistent with `running_template` by eye; nothing derived it and
-/// `render_separator` subtracts it from the budget as fact. The literal
-/// (non-placeholder) text of the template plus the widest spinner glyph is a
-/// *lower bound* on that overhead — the `{elapsed}` placeholder adds more at
-/// render time, so a larger configured value is legitimate. A configured
-/// value below the bound is not: the separator then over-runs the terminal
-/// width on every running row.
-fn warn_on_running_template_overhead(config: &ThemeConfig, spinner_cols: usize) {
-    let minimum = template_literal_width(&config.running_template).saturating_add(spinner_cols);
-    if config.running_template_overhead < minimum {
-        ops_core::ui::warn(format!(
-            "theme running_template_overhead is {} but the template's literal text and spinner \
-             glyph already occupy {minimum} columns; running step lines will over-run the \
-             terminal width",
-            config.running_template_overhead
-        ));
-    }
-}
-
 /// Display columns of the literal text in an `indicatif` template — that is,
 /// everything outside a `{…}` placeholder.
+///
+/// Feeds the lower-bound check behind
+/// [`ConfigurableTheme::template_overhead_diagnostic`] (READ-5 / TASK-1971).
 fn template_literal_width(template: &str) -> usize {
     let mut literal = String::with_capacity(template.len());
     let mut depth = 0usize;
