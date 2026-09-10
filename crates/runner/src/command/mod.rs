@@ -47,7 +47,7 @@ use build::WorkspaceCanonicalCache;
 pub use events::{OutputLine, RunnerEvent};
 pub use results::StepResult;
 pub use secret_patterns::is_sensitive_env_key;
-pub use secret_patterns::looks_like_secret_value as looks_like_secret_value_public;
+pub use secret_patterns::looks_like_secret_value;
 
 /// Shared "id not found in any store" failure.
 ///
