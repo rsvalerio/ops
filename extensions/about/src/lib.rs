@@ -27,19 +27,12 @@ pub mod test_support;
 pub mod text_util;
 pub mod units;
 pub mod workspace;
-pub use coverage::run_about_coverage;
-pub use deps::run_about_deps;
-pub use units::run_about_units;
 
 #[cfg(feature = "duckdb")]
 pub mod code;
-#[cfg(feature = "duckdb")]
-pub use code::run_about_code;
 
 #[cfg(feature = "duckdb")]
 pub mod loc;
-#[cfg(feature = "duckdb")]
-pub use loc::run_about_loc;
 
 use std::io::Write;
 use std::path::Path;
@@ -89,7 +82,7 @@ pub struct AboutOptions {
 }
 
 impl AboutOptions {
-    #[must_use]
+    #[must_use = "pass the options to `run_about`; a discarded one renders nothing"]
     pub const fn new(refresh: bool, visible_fields: Option<Vec<String>>, is_tty: bool) -> Self {
         Self {
             refresh,

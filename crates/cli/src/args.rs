@@ -514,7 +514,7 @@ pub enum AboutAction {
     /// Display dependency tree.
     Dependencies,
     /// `crates` and `modules` render the same stack-aware
-    /// project-units view via `ops_about::run_about_units`; the alias keeps
+    /// project-units view via `ops_about::units::run_about_units`; the alias keeps
     /// the Go-idiomatic name working without duplicating dispatch.
     #[command(visible_alias = "modules")]
     /// Display project units — crates (Rust) or modules (Go).
