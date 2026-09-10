@@ -1,10 +1,10 @@
 ---
 id: TASK-2193
 title: 'DUP-1: bans_row reimplements severity_row''s empty-check, classify and rollup scaffold'
-status: To Do
+status: Done
 assignee: []
 created_date: '2026-09-08 07:14'
-updated_date: '2026-09-08 20:00'
+updated_date: '2026-09-10 16:25'
 labels:
   - code-review-rust
   - duplication
@@ -38,7 +38,14 @@ versus the same three steps at `severity_row:301-309`. The only genuine differen
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 the empty-section return, the classify-and-rollup step and the unknown-severity warn are expressed once and shared by all four deny sections including bans
-- [ ] #2 an unrecognised severity on a ban entry emits the same one-per-section drift warning the other sections emit
-- [ ] #3 existing render tests for the Duplicate Crates row (status, result slot text, and the transitive detail line) still pass unchanged
+- [x] #1 the empty-section return, the classify-and-rollup step and the unknown-severity warn are expressed once and shared by all four deny sections including bans
+- [x] #2 an unrecognised severity on a ban entry emits the same one-per-section drift warning the other sections emit
+- [x] #3 existing render tests for the Duplicate Crates row (status, result slot text, and the transitive detail line) still pass unchanged
+
 <!-- AC:END -->
+
+## Implementation Notes
+
+<!-- SECTION:NOTES:BEGIN -->
+Extracted severity_section_row(title, entries, extract, details): owns the empty-section Ok/None row, the classify pass with the one-per-section unknown-severity drift warn, the rollup, and row assembly; severity_row and bans_row are now thin wrappers supplying only their details bodies, and severity_row detail loops reuse the classify pass instead of re-classifying. New test bans_row_warns_once_on_unknown_severity pins AC#2 (one warn per section, not per entry). 119 ops-deps tests green (existing Duplicate Crates row tests unchanged), clippy clean.
+<!-- SECTION:NOTES:END -->

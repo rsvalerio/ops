@@ -1,10 +1,10 @@
 ---
 id: TASK-2111
 title: 'READ-11: create-review-tasks hardcodes the TASK prefix and 4-digit padding that BacklogConfig makes configurable'
-status: To Do
+status: Done
 assignee: []
 created_date: '2026-09-08 06:53'
-updated_date: '2026-09-08 20:00'
+updated_date: '2026-09-09 18:50'
 labels:
   - code-review-rust
   - readability
@@ -37,7 +37,8 @@ Meanwhile `ops_backlog::config::BacklogConfig` exposes `task_prefix` and `zero_p
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 The id width and task prefix come from one place — either the repo's BacklogConfig or a single documented const in this module — not from four repeated literals
-- [ ] #2 subtask_id and subtask_file_name derive their formatting from the shared ops_backlog helpers instead of inlining {number:04}
-- [ ] #3 If the fixed width is intentional, a doc comment states why create-review-tasks does not follow BacklogConfig::zero_padded_ids
+- [x] #1 The id width and task prefix come from one place — either the repo's BacklogConfig or a single documented const in this module — not from four repeated literals
+- [x] #2 subtask_id and subtask_file_name derive their formatting from the shared ops_backlog helpers instead of inlining {number:04}
+- [x] #3 If the fixed width is intentional, a doc comment states why create-review-tasks does not follow BacklogConfig::zero_padded_ids
+
 <!-- AC:END -->

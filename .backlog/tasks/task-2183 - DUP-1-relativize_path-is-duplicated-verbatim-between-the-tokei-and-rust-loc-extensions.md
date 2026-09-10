@@ -1,10 +1,10 @@
 ---
 id: TASK-2183
 title: 'DUP-1: relativize_path is duplicated verbatim between the tokei and rust-loc extensions'
-status: To Do
+status: Done
 assignee: []
 created_date: '2026-09-08 07:13'
-updated_date: '2026-09-08 20:00'
+updated_date: '2026-09-10 16:21'
 labels:
   - code-review-rust
   - duplication
@@ -42,8 +42,15 @@ Each copy also carries its own multi-paragraph rationale for why the lossy conve
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 relativize_path exists in exactly one place in the workspace, in a crate both extensions already depend on
-- [ ] #2 Both extensions call the shared helper; no local copy remains
-- [ ] #3 The lossy-conversion rationale is documented once, on the shared definition
-- [ ] #4 The existing tokei test relativize_path_replaces_invalid_utf8_with_replacement_char moves to (or is mirrored at) the shared helper, and both extensions' suites still pass
+- [x] #1 relativize_path exists in exactly one place in the workspace, in a crate both extensions already depend on
+- [x] #2 Both extensions call the shared helper; no local copy remains
+- [x] #3 The lossy-conversion rationale is documented once, on the shared definition
+- [x] #4 The existing tokei test relativize_path_replaces_invalid_utf8_with_replacement_char moves to (or is mirrored at) the shared helper, and both extensions' suites still pass
+
 <!-- AC:END -->
+
+## Implementation Notes
+
+<!-- SECTION:NOTES:BEGIN -->
+Shared helper added as ops_duckdb::sql::relativize_path with the merged lossy-conversion rationale (READ-5 / TASK-0504 wording from the tokei copy, which the rust-loc copy already deferred to); both extensions call it, local copies and their duplicated doc comments removed. The lossy-contract test moved verbatim from extensions/tokei/src/tests.rs to the sql module tests (adapted only to call the shared fn). ops-duckdb (218), ops-tokei (56), ops-rust-loc (44) tests green; clippy clean.
+<!-- SECTION:NOTES:END -->

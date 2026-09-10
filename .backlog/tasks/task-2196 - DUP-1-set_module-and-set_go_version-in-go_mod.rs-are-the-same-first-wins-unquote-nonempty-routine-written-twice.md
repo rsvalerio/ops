@@ -1,10 +1,10 @@
 ---
 id: TASK-2196
 title: 'DUP-1: set_module and set_go_version in go_mod.rs are the same first-wins-unquote-nonempty routine written twice'
-status: To Do
+status: Done
 assignee: []
 created_date: '2026-09-08 07:15'
-updated_date: '2026-09-08 20:00'
+updated_date: '2026-09-10 16:26'
 labels:
   - code-review-rust
   - duplication
@@ -38,7 +38,14 @@ fn set_module(out: &mut GoMod, rest: &str) {
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 The first-wins / unquote / drop-empty policy exists once (e.g. a helper taking &mut Option<String>) and both the module and go-version directives route through it
-- [ ] #2 The trim_nonempty rationale is documented on the single shared implementation
-- [ ] #3 Existing go_mod tests, including parses_quoted_module_and_replace_target and the whitespace-only module fallback, still pass unchanged
+- [x] #1 The first-wins / unquote / drop-empty policy exists once (e.g. a helper taking &mut Option<String>) and both the module and go-version directives route through it
+- [x] #2 The trim_nonempty rationale is documented on the single shared implementation
+- [x] #3 Existing go_mod tests, including parses_quoted_module_and_replace_target and the whitespace-only module fallback, still pass unchanged
+
 <!-- AC:END -->
+
+## Implementation Notes
+
+<!-- SECTION:NOTES:BEGIN -->
+Extracted set_first_wins_unquoted_nonempty(&mut Option<String>, &str) carrying the first-wins/unquote/drop-empty policy and the ERR-2 / TASK-1167 trim_nonempty rationale (extended to note it covers an empty go-directive value too); set_module and set_go_version are one-line wrappers over it. 91 ops-about-go tests green including parses_quoted_module_and_replace_target and the whitespace/local-replace fallbacks, clippy clean.
+<!-- SECTION:NOTES:END -->

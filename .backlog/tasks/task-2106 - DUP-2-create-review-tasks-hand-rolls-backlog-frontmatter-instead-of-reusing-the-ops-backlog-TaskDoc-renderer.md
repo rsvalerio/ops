@@ -1,10 +1,10 @@
 ---
 id: TASK-2106
 title: 'DUP-2: create-review-tasks hand-rolls backlog frontmatter instead of reusing the ops-backlog TaskDoc renderer'
-status: To Do
+status: Done
 assignee: []
 created_date: '2026-09-08 06:53'
-updated_date: '2026-09-08 20:00'
+updated_date: '2026-09-09 18:48'
 labels:
   - code-review-rust
   - duplication
@@ -29,7 +29,14 @@ ordinal: 28000
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 render_task_file builds its output through the shared ops_backlog frontmatter/task-document renderer rather than hand-written writeln! lines
-- [ ] #2 The main-task and subtask golden tests still pass byte-for-byte against the shapes the backlog CLI writes
-- [ ] #3 Any create-review-tasks-specific fields (label sets, ordinals, parent_task_id) are expressed as inputs to the shared renderer, not as a second implementation of it
+- [x] #1 render_task_file builds its output through the shared ops_backlog frontmatter/task-document renderer rather than hand-written writeln! lines
+- [x] #2 The main-task and subtask golden tests still pass byte-for-byte against the shapes the backlog CLI writes
+- [x] #3 Any create-review-tasks-specific fields (label sets, ordinals, parent_task_id) are expressed as inputs to the shared renderer, not as a second implementation of it
+
 <!-- AC:END -->
+
+## Implementation Notes
+
+<!-- SECTION:NOTES:BEGIN -->
+Rendered bytes now include modified_files: [] and quoted parent_task_id — the canonical ops-backlog encoder output (matches existing corpus files like task-2220). Golden tests updated to the shared renderer shape.
+<!-- SECTION:NOTES:END -->

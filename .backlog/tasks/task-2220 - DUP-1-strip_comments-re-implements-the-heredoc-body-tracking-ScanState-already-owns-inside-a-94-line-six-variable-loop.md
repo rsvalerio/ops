@@ -1,10 +1,10 @@
 ---
 id: TASK-2220
 title: 'DUP-1: strip_comments re-implements the heredoc body tracking ScanState already owns, inside a 94-line six-variable loop'
-status: To Do
+status: Done
 assignee: []
 created_date: '2026-09-08 07:21'
-updated_date: '2026-09-08 20:00'
+updated_date: '2026-09-10 16:14'
 labels:
   - code-review-rust
   - duplication
@@ -33,8 +33,15 @@ ordinal: 128000
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 Heredoc body tracking (open, accumulate, close) exists in exactly one place, shared by strip_comments and scan_line
-- [ ] #2 strip_comments no longer needs the separate pending/body_line locals or the out.ends_with('\\n') promotion rule
-- [ ] #3 strip_comments is under the FN-1 50-line threshold, or is decomposed into named stages that each are
-- [ ] #4 The existing heredoc tests, including both_stages_recognise_the_same_heredoc_openers and the CRLF/indented-terminator cases, still pass unchanged
+- [x] #1 Heredoc body tracking (open, accumulate, close) exists in exactly one place, shared by strip_comments and scan_line
+- [x] #2 strip_comments no longer needs the separate pending/body_line locals or the out.ends_with('\\n') promotion rule
+- [x] #3 strip_comments is under the FN-1 50-line threshold, or is decomposed into named stages that each are
+- [x] #4 The existing heredoc tests, including both_stages_recognise_the_same_heredoc_openers and the CRLF/indented-terminator cases, still pass unchanged
+
 <!-- AC:END -->
+
+## Implementation Notes
+
+<!-- SECTION:NOTES:BEGIN -->
+Implemented by resumed runner: new shared HeredocTracker (open/consume/close + is_open) used by both scan_line and strip_comments; strip_comments rewritten line-oriented (split_inclusive) and decomposed into strip_one_line / strip_code_chars / push_heredoc_opener stages, each under the FN-1 50-line threshold (strip_comments itself is 24). One mechanical test substitution: the both_stages_recognise_the_same_heredoc_openers oracle reads state.heredoc.is_open() instead of the old Option::is_some() — same assertion, field is now the tracker. Added two regression tests pinning the block-comment-straddling-the-heredoc-handoff bytes and CRLF body pass-through; the straddle case exposed a real line-start-classification bug in the first draft (fixed: a line that begins inside a block comment is never classified as heredoc body). 72 tests green, clippy clean.
+<!-- SECTION:NOTES:END -->

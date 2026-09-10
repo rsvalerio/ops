@@ -1,10 +1,10 @@
 ---
 id: TASK-2211
 title: 'DUP-1: units.rs tests re-implement the shared write_file helper the sibling module in the same crate uses'
-status: To Do
+status: Done
 assignee: []
 created_date: '2026-09-08 07:20'
-updated_date: '2026-09-08 20:00'
+updated_date: '2026-09-10 16:27'
 labels:
   - code-review-rust
   - duplication
@@ -39,6 +39,13 @@ fn write(path: &Path, content: &str) {
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 units.rs tests use ops_about::test_support::write_file and the local write helper is removed
-- [ ] #2 The whole test module still passes unchanged
+- [x] #1 units.rs tests use ops_about::test_support::write_file and the local write helper is removed
+- [x] #2 The whole test module still passes unchanged
+
 <!-- AC:END -->
+
+## Implementation Notes
+
+<!-- SECTION:NOTES:BEGIN -->
+Local write helper removed; the test module imports ops_about::test_support::write_file and all 20 call sites renamed (crate already enables the test-support feature). 52 ops-about-python tests green, clippy clean.
+<!-- SECTION:NOTES:END -->

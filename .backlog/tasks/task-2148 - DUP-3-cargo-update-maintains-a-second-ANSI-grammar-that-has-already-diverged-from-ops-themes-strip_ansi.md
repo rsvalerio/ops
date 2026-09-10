@@ -1,10 +1,10 @@
 ---
 id: TASK-2148
 title: 'DUP-3: cargo-update maintains a second ANSI grammar that has already diverged from ops-theme''s strip_ansi'
-status: To Do
+status: Done
 assignee: []
 created_date: '2026-09-08 07:03'
-updated_date: '2026-09-08 20:00'
+updated_date: '2026-09-09 18:58'
 labels:
   - code-review-rust
   - duplication
@@ -39,8 +39,15 @@ The divergence also runs the other way: cargo-update's copy deliberately *preser
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 The ANSI-stripping grammar exists in exactly one place in the workspace; cargo-update does not define its own escape-consuming functions
-- [ ] #2 The surviving implementation covers every family both copies covered: ESC-prefixed CSI/OSC/nF, the DCS/SOS/PM/APC string introducers, and the 8-bit C1 equivalents
-- [ ] #3 The truncated/unterminated-escape preservation and per-scan bounds that TASK-1028 installed are preserved (or their loss is justified in the task) rather than silently dropped by the switch
-- [ ] #4 The existing cargo-update strip_ansi tests (OSC-8, two-character escapes, truncated CSI/OSC, non-ASCII round-trip, the proptest identity and complete-CSI properties) still pass against the shared implementation
+- [x] #1 The ANSI-stripping grammar exists in exactly one place in the workspace; cargo-update does not define its own escape-consuming functions
+- [x] #2 The surviving implementation covers every family both copies covered: ESC-prefixed CSI/OSC/nF, the DCS/SOS/PM/APC string introducers, and the 8-bit C1 equivalents
+- [x] #3 The truncated/unterminated-escape preservation and per-scan bounds that TASK-1028 installed are preserved (or their loss is justified in the task) rather than silently dropped by the switch
+- [x] #4 The existing cargo-update strip_ansi tests (OSC-8, two-character escapes, truncated CSI/OSC, non-ASCII round-trip, the proptest identity and complete-CSI properties) still pass against the shared implementation
+
 <!-- AC:END -->
+
+## Implementation Notes
+
+<!-- SECTION:NOTES:BEGIN -->
+Reconciled into ops-theme: AnsiPieces now yields Escape/Raw/Char pieces with bounded scans (CSI 64 / string 1024); new ops_theme::strip_ansi_preserving_raw is the policy cargo-update consumes (truncated/stray escapes and controls preserved verbatim per TASK-1028). Grammar deltas vs the old cargo-update copy, all deliberate: complete 8-bit C1 sequences are now stripped instead of reaching the validator raw (SEC-11 stance, AC#2); ESC+space is never treated as an nF intermediate (TASK-1790 protection kept); an ESC inside an OSC body now ends the sequence (theme stance) instead of continuing the scan.
+<!-- SECTION:NOTES:END -->

@@ -1,10 +1,10 @@
 ---
 id: TASK-2150
 title: 'DUP-1: three near-identical LRU cache scaffolds in ops-about-rust (manifest, coverage, workspace-root)'
-status: To Do
+status: Done
 assignee: []
 created_date: '2026-09-08 07:03'
-updated_date: '2026-09-08 20:00'
+updated_date: '2026-09-10 16:01'
 labels:
   - code-review-rust
   - duplication
@@ -41,9 +41,16 @@ On top of that, `manifest_cache::lock_typed_manifest_cache` and `workspace_root_
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 A single generic bounded-LRU cache type (e.g. `ops_about::lru::BoundedLruCache<K, V>`) owns the map + victim queue, the compaction threshold and slack, `record_access`, `evict_lru`, and the cap-check-then-evict insert preamble
-- [ ] #2 `manifest_cache::TypedManifestCache`, `coverage_provider::ProjectCoverageCache` and `workspace_root_cache::WorkspaceRootCache` are expressed in terms of that type and no longer define their own `record_access` / `evict_lru` / slack constant
-- [ ] #3 The poison-recovering lock helper exists once (with the warn behaviour parameterised) rather than once per cache module
-- [ ] #4 The existing per-cache tests (cap eviction, LRU victim choice, victim-queue boundedness below the cap) still pass unchanged, and the shared type carries one set of those tests directly
-- [ ] #5 The "keep in lockstep with the sibling cache" review comments in `manifest_cache.rs` are removed or reduced to a pointer at the shared type
+- [x] #1 A single generic bounded-LRU cache type (e.g. `ops_about::lru::BoundedLruCache<K, V>`) owns the map + victim queue, the compaction threshold and slack, `record_access`, `evict_lru`, and the cap-check-then-evict insert preamble
+- [x] #2 `manifest_cache::TypedManifestCache`, `coverage_provider::ProjectCoverageCache` and `workspace_root_cache::WorkspaceRootCache` are expressed in terms of that type and no longer define their own `record_access` / `evict_lru` / slack constant
+- [x] #3 The poison-recovering lock helper exists once (with the warn behaviour parameterised) rather than once per cache module
+- [x] #4 The existing per-cache tests (cap eviction, LRU victim choice, victim-queue boundedness below the cap) still pass unchanged, and the shared type carries one set of those tests directly
+- [x] #5 The "keep in lockstep with the sibling cache" review comments in `manifest_cache.rs` are removed or reduced to a pointer at the shared type
+
 <!-- AC:END -->
+
+## Implementation Notes
+
+<!-- SECTION:NOTES:BEGIN -->
+Finished by resumed runner after API-limit kill: shared BoundedLruCache<K, V, Q> + lock_recovering live in ops_about::lru (extensions/about/src/lru.rs) with the per-cache LRU tests carried against the shared type; all three extensions-rust/about caches migrated, lockstep comments there removed. The fourth instance (extensions/about ArcTextCache) was deliberately left on LruVictimQueue primitives: its eviction pins in-flight OnceLock entries (CONC-1 / TASK-1144), a policy the shared type does not model — Triage task filed rather than forcing an invasive extension mid-wave. ops-about + ops-about-rust: 106 tests green.
+<!-- SECTION:NOTES:END -->
