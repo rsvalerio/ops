@@ -1,11 +1,13 @@
 //! Go stack `project_identity` + `project_units` providers.
 //!
-//! Parses `go.mod` for module name, Go version, and local `replace` directives.
-//! Parses `go.work` for workspace modules.
+//! Parses `go.mod` for module name, Go version, and local `replace`
+//! directives, and `go.work` for workspace modules. `go.work` takes
+//! precedence: a project that has one is a workspace whose modules are its
+//! `use` directives, and the root `go.mod` then contributes only identity.
 //!
 //! Parse and read errors fall back to defaults; non-NotFound read errors and
 //! parse errors are reported via `tracing` (`debug!` / `warn!`) so a malformed
-//! manifest does not silently look like a missing one (TASK-0394).
+//! manifest does not silently look like a missing one.
 
 #![cfg_attr(
     test,
@@ -17,10 +19,10 @@
     )
 )]
 
-// API-14 / TASK-2187: the four modules below are private, so every `pub`
-// item inside them is crate-internal already — that spelling (rather than
-// `pub(crate)`) is what `clippy::redundant_pub_crate` enforces
-// workspace-wide. The crate's exported surface is `AboutGoExtension` alone.
+// The four modules below are private, so every `pub` item inside them is
+// crate-internal already — that spelling, rather than `pub(crate)`, is what
+// `clippy::redundant_pub_crate` enforces workspace-wide. The crate's
+// exported surface is `AboutGoExtension` alone.
 mod go_mod;
 mod go_syntax;
 mod go_work;
@@ -72,12 +74,10 @@ impl DataProvider for GoIdentityProvider {
     fn provide(&self, ctx: &mut Context) -> Result<serde_json::Value, DataProviderError> {
         provide_identity_from_manifest(ctx.working_directory(), |root| {
             let go_mod = go_mod::parse(root);
-            // DUP-1 (TASK-0484): GoWork was a single-field newtype with no
-            // semantic value. Use the parsed `Vec<String>` directly.
             let go_work_use_dirs = go_work::parse_use_dirs(root);
 
-            // Use last meaningful segment of module path as name. PATTERN-1
-            // (TASK-1164): strip a trailing `/vN` major-version suffix so e.g.
+            // The name is the last meaningful segment of the module path:
+            // `last_segment` drops a trailing `/vN` major-version suffix, so
             // `github.com/openbao/openbao/api/v2` renders as `api`, not `v2`.
             let name = go_mod
                 .as_ref()
@@ -104,18 +104,20 @@ impl DataProvider for GoIdentityProvider {
 
 /// Compute the module count surfaced in the About card.
 ///
-/// TASK-2178: a "module" is exactly what the `project_units` provider lists
-/// as a unit. In Go the workspace-member concept is a `go.work` `use`
-/// directive — that branch counts the use dirs, which `collect_units`
-/// (`modules.rs`) lists one-for-one. A `replace` directive is a dependency
-/// substitution, not a workspace member, so a `go.mod`-only project is a
-/// *single*-module project however many local replaces it carries, and
-/// reports `None` — the card omits a meaningless `1`, matching the Node and
-/// Python single-package convention. This keeps `module_count` equal to
-/// `collect_units(...).len()` for every input where it is `Some`, the same
-/// invariant the Rust stack gets by setting `module_count` from
-/// `manifest.resolved_members().len()` (`extensions-rust/about/src/identity/mod.rs`)
-/// — the exact set its units provider lists.
+/// A "module" here is exactly what the `project_units` provider lists as a
+/// unit. Go's workspace-member concept is the `go.work` `use` directive, so
+/// the count is the number of use dirs, which `collect_units` (`modules.rs`)
+/// lists one-for-one. A `replace` directive is a dependency substitution, not
+/// a workspace member, so a `go.mod`-only project is a *single*-module
+/// project however many local replaces it carries and reports `None` — the
+/// card omits a meaningless `1`, as it does for single-package Node and
+/// Python projects.
+///
+/// The invariant: wherever `module_count` is `Some`, it equals
+/// `collect_units(...).len()`. The Rust stack holds the same one by taking
+/// `module_count` from `manifest.resolved_members().len()`
+/// (`extensions-rust/about/src/identity/mod.rs`), the exact set its units
+/// provider lists.
 fn compute_module_count(go_work_use_dirs: Option<&[String]>) -> Option<usize> {
     go_work_use_dirs.map(<[String]>::len)
 }
@@ -125,8 +127,8 @@ mod tests {
     use super::*;
     use ops_core::project_identity::ProjectIdentity;
 
-    /// TASK-2178: only `go.work` use dirs are counted — one per workspace
-    /// member, the same set `collect_units` lists.
+    /// Only `go.work` use dirs are counted — one per workspace member, the
+    /// same set `collect_units` lists.
     #[test]
     fn compute_module_count_counts_go_work_use_dirs() {
         let work = vec!["./a".to_string(), "./b".to_string()];
@@ -134,9 +136,9 @@ mod tests {
         assert_eq!(compute_module_count(Some(&[])), Some(0));
     }
 
-    /// TASK-2178: a `go.mod`-only project is a single-module project and
-    /// reports `None` — the card omits a meaningless `1`, matching the Node
-    /// and Python single-package convention.
+    /// A `go.mod`-only project is a single-module project and reports `None`
+    /// — the card omits a meaningless `1`, as it does for single-package
+    /// Node and Python projects.
     #[test]
     fn compute_module_count_single_mod_project_is_none() {
         assert_eq!(compute_module_count(None), None);
@@ -179,7 +181,7 @@ mod tests {
         assert_eq!(id.stack_label, "Go");
         assert_eq!(id.stack_detail.as_deref(), Some("Go 1.22"));
         assert_eq!(id.module_label, "modules");
-        assert!(id.module_count.is_none()); // single module, no replaces
+        assert!(id.module_count.is_none()); // single module: no count on the card
     }
 
     #[test]
@@ -197,16 +199,16 @@ mod tests {
         let id: ProjectIdentity = serde_json::from_value(value).unwrap();
 
         assert_eq!(id.name, "mono");
-        // TASK-2178: a `replace` directive is a dependency substitution, not
-        // a workspace member — the single-module project reports no count.
+        // A `replace` directive is a dependency substitution, not a
+        // workspace member — the single-module project reports no count.
         assert_eq!(id.module_count, None);
     }
 
-    /// TASK-2178 AC #3: the identity card's `module_count` and the units
-    /// provider's list must come from one definition of "module". On a
-    /// `go.mod`-only fixture with local `replace` directives the two agree:
-    /// the units provider lists exactly the root module, and the count is
-    /// `None` — never a count larger than the list.
+    /// The identity card's `module_count` and the units provider's list come
+    /// from one definition of "module". On a `go.mod`-only fixture with local
+    /// `replace` directives the two agree: the units provider lists exactly
+    /// the root module, and the count is `None` — never a count larger than
+    /// the list.
     #[test]
     fn identity_module_count_agrees_with_units_on_local_replaces() {
         let dir = tempfile::tempdir().unwrap();
@@ -267,7 +269,7 @@ mod tests {
         let value = provider.provide(&mut ctx).unwrap();
         let id: ProjectIdentity = serde_json::from_value(value).unwrap();
 
-        // go.work takes precedence: 3 use dirs
+        // go.work takes precedence over the root go.mod: 3 use dirs.
         assert_eq!(id.module_count, Some(3));
     }
 
@@ -337,9 +339,9 @@ mod tests {
         assert!(id.repository.is_none());
     }
 
-    /// ERR-2 / TASK-1167: a `module    ` line (whitespace-only path) must
-    /// drop to None so the directory-name fallback fires, matching the
-    /// `trim_nonempty` policy applied by the Node and Python identity providers.
+    /// A `module    ` line (whitespace-only path) drops to `None`, so the
+    /// directory-name fallback fires — the `trim_nonempty` policy the Node
+    /// and Python identity providers also apply.
     #[test]
     fn provide_whitespace_only_module_falls_back_to_dir_name() {
         let dir = tempfile::tempdir().unwrap();
@@ -374,13 +376,12 @@ mod tests {
         assert_eq!(id.name, "myutil");
     }
 
-    /// TEST-5 / TASK-2184: the `register_data_providers` closure in
-    /// `impl_extension!` had no test — a dropped `registry.register` line
-    /// (its result is discarded with `let _ =`) silently unregistered a
-    /// provider. Run the real closure and assert both providers land under
-    /// their keys and each answers with its own payload shape, so a key
-    /// collision between the two registers (which the registry resolves by
-    /// first-write-wins rejection) cannot pass either.
+    /// The real `register_data_providers` closure lands both providers under
+    /// their own registry keys, and each answers with its own payload shape.
+    /// Both halves matter: each `registry.register` result is discarded with
+    /// `let _ =`, so a dropped line silently unregisters a provider, and a
+    /// key collision between the two would be resolved by the registry's
+    /// first-write-wins rejection rather than reported.
     #[test]
     fn extension_registers_identity_and_units_providers() {
         use ops_extension::{DataRegistry, Extension};

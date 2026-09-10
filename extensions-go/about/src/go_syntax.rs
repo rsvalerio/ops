@@ -1,18 +1,17 @@
 //! Shared lexical helpers for the `go.mod` and `go.work` parsers.
 //!
-//! Both files follow the same Go-source comment and block-opener syntax.
-//! Centralising these helpers here breaks the prior circular dependency
-//! between `go_mod` and `go_work` (ARCH-5 / TASK-1120) and gives future
-//! Go-syntax helpers a one-way dependency target.
+//! Both manifests use the same Go-source comment, quoting and block syntax.
+//! The helpers live in this leaf module so `go_mod` and `go_work` share one
+//! implementation of that grammar without depending on each other.
 
 use std::borrow::Cow;
 
 /// Strip a trailing `// ...` line comment.
 ///
-/// PATTERN-1 / TASK-1107: Go's own `cmd/go` lexer treats `//` as a comment
-/// delimiter only when it follows whitespace or starts the line. A bare
-/// `line.find("//")` truncates module paths or replace targets that contain
-/// a literal `//` (e.g. `module example.com/foo//bar`).
+/// `//` delimits a comment only at start-of-line or when it follows
+/// whitespace, matching Go's own `cmd/go` lexer. A `//` embedded in a token
+/// — `module example.com/foo//bar`, a replace target `./has//double-slash` —
+/// is part of that token and is preserved.
 pub fn strip_line_comment(line: &str) -> &str {
     // `match_indices` skips overlapping matches, which is harmless here: a
     // skipped `//` at `i + 1` is always preceded by the `/` at `i`, and a `/`
@@ -32,10 +31,12 @@ pub fn strip_line_comment(line: &str) -> &str {
     line
 }
 
-/// Match the Go-mod-style `<keyword> (` block opener with optional whitespace
-/// between the keyword and the opening paren. Both `use (` and `use(` are
-/// accepted by cmd/go; the parser must accept either to avoid silently
-/// skipping block-form entries.
+/// Match the Go-mod-style `<keyword> (` block opener.
+///
+/// cmd/go accepts arbitrary whitespace — including none — between the keyword
+/// and the opening paren, and a trailing line comment on the opener itself in
+/// either spacing. All four shapes open a block here: `use (`, `use(`,
+/// `use ( // members`, `use(// members`.
 pub fn is_block_opener(line: &str, keyword: &str) -> bool {
     let Some(rest) = line.strip_prefix(keyword) else {
         return false;
@@ -44,14 +45,9 @@ pub fn is_block_opener(line: &str, keyword: &str) -> bool {
     let Some(after_paren) = rest.strip_prefix('(') else {
         return false;
     };
-    // TASK-0994: cmd/go accepts a trailing line comment on the block opener
-    // itself (`use ( // members`).
-    // PATTERN-1 (TASK-1255): cmd/go also accepts an inline `//` comment with
-    // no whitespace between `(` and `//` (`use(// members`, `replace(// note`).
-    // The `strip_line_comment` policy (TASK-1107) only fires on `//` at SOL or
-    // after whitespace, so the embedded `//` survives the trim and the prior
-    // shape returned false. Recognise the no-whitespace inline-comment shape
-    // explicitly here so the entire block is not silently dropped.
+    // `strip_line_comment` only recognises `//` at start-of-line or after
+    // whitespace, so the no-whitespace inline-comment form (`use(//members`)
+    // is matched explicitly here before falling back to that helper.
     let trimmed_after = after_paren.trim();
     if trimmed_after.is_empty() {
         return true;
@@ -67,10 +63,8 @@ pub fn is_block_opener(line: &str, keyword: &str) -> bool {
 /// Match the `)` terminator of a `go.mod` / `go.work` block, tolerating a
 /// trailing line comment in either spacing (`) // members`, `)//members`).
 ///
-/// PATTERN-1 (TASK-1724): the `go.work` parser previously compared the raw
-/// trimmed line against `")"`, so a commented terminator fell through to the
-/// directive arm — it was pushed as a use directive named `)` and the block
-/// stayed open, absorbing every following top-level line.
+/// A line that starts with `)` but carries anything other than a comment
+/// after it (`) ./api`) is not a terminator.
 pub fn is_block_terminator(line: &str) -> bool {
     let Some(rest) = line.strip_prefix(')') else {
         return false;
@@ -86,11 +80,10 @@ pub fn is_block_terminator(line: &str) -> bool {
 /// Split a modfile line into its leading `verb` and the remaining arguments,
 /// separated by **arbitrary** whitespace.
 ///
-/// PATTERN-1 (TASK-1727): the go.mod / go.work grammar is a token grammar
-/// (`golang.org/x/mod/modfile`), not a line-prefix grammar. The previous
-/// `strip_prefix("module ")` shape required exactly one ASCII space, so the
-/// tab-separated forms cmd/go accepts (`module\texample.com/m`, `go\t1.22`,
-/// `use\t./api`) silently parsed as "no directive at all".
+/// The go.mod / go.work grammar (`golang.org/x/mod/modfile`) is a token
+/// grammar, not a line-prefix grammar: every whitespace run separates verb
+/// from argument, so `module\texample.com/m`, `go\t1.22`, `use\t./api` and
+/// `module   example.com/m` are all legal directives and all match here.
 ///
 /// Returns `None` when the line does not begin with `verb` followed by
 /// whitespace, so `gopls x` never matches the `go` verb.
@@ -105,14 +98,15 @@ pub fn strip_verb<'a>(line: &'a str, verb: &str) -> Option<&'a str> {
 /// Unquote a Go string literal token, returning it borrowed when there is
 /// nothing to unquote.
 ///
-/// PATTERN-1 (TASK-1727): modfile lexes Go-style quoted strings, and quoting
-/// is *required* for any token containing a space. Left quoted, a `module
-/// "example.com/m"` renders as a project named `m"`, a `use "./api"` matches
-/// no `tokei_files` row, and a quoted local `replace` target is dropped
-/// entirely because it no longer starts with `./`.
+/// modfile lexes Go-style string literals, and quoting is *required* for any
+/// token containing a space, so every token this crate reads out of a
+/// manifest — module path, `go` version, `use` directive, `replace` target —
+/// passes through here before it is inspected or compared.
 ///
 /// Both the interpreted (`"…"`, with backslash escapes) and raw (`` `…` ``)
-/// forms are recognised.
+/// forms are recognised. A bare or unbalanced quote is not a literal and is
+/// returned verbatim; an unrecognised escape passes its character through
+/// rather than failing the whole parse.
 pub fn unquote_token(token: &str) -> Cow<'_, str> {
     if let Some(inner) = token.strip_prefix('`').and_then(|t| t.strip_suffix('`')) {
         return Cow::Borrowed(inner);
@@ -144,15 +138,17 @@ pub fn unquote_token(token: &str) -> Cow<'_, str> {
 }
 
 /// True when `target` (split on `/` and `\\`) contains a `..` segment that
-/// appears *after* a non-dot, non-empty segment. The leading run of `.`/`..`
-/// prefix segments is allowed, because cmd/go accepts `../../shared`.
+/// appears *after* a non-dot, non-empty segment.
 ///
-/// SEC-14: shared by `go_mod::parse_replace_directive` (TASK-1212) and
-/// `modules::unit_from_use_dir` (TASK-1721) so `replace` targets and `use`
-/// directives enforce the same traversal policy as `resolve_member_globs`
-/// in `extensions/about/src/workspace.rs` (TASK-1071). `Path::join` does not
-/// normalise `..`, so without this check a directive like `./api/../../../etc`
-/// resolves outside the project root at the OS layer.
+/// This is the traversal policy for every filesystem-valued directive in the
+/// crate: a leading run of `.` / `..` prefix segments is allowed, because
+/// cmd/go accepts `../../shared`, but a `..` past a real segment is
+/// traversal. `Path::join` does not normalise `..` and the OS resolves it
+/// lexically on open, so `./api/../../../etc` would otherwise reach outside
+/// the project root. Both `go_mod::parse_replace_directive` and
+/// `modules::unit_from_use_dir` call this, so `replace` targets and `use`
+/// directives enforce one policy — the same one `resolve_member_globs`
+/// applies in `extensions/about/src/workspace.rs`.
 pub fn has_embedded_parent_dir_segment(target: &str) -> bool {
     let mut seen_normal = false;
     for seg in target.split(['/', '\\']) {
@@ -174,9 +170,8 @@ pub fn has_embedded_parent_dir_segment(target: &str) -> bool {
 mod tests {
     use super::*;
 
-    /// PATTERN-1 / TASK-1107: unit-level coverage for the strip helper —
-    /// `//` only delimits a trailing comment at start-of-line or after
-    /// whitespace; it must pass through when embedded mid-token.
+    /// `//` delimits a trailing comment only at start-of-line or after
+    /// whitespace; embedded mid-token it is part of the token.
     #[test]
     fn strip_line_comment_only_fires_on_whitespace_or_sol() {
         assert_eq!(strip_line_comment("// just a comment"), "");
@@ -209,24 +204,22 @@ mod tests {
         assert!(!is_block_opener("require (", "use"));
     }
 
-    /// PATTERN-1 (TASK-1255): cmd/go accepts an inline `//` comment
-    /// immediately after `(` with no whitespace separator. The previous
-    /// shape rejected this and silently dropped the entire block.
+    /// An inline `//` comment immediately after `(`, with no whitespace
+    /// separator, still opens the block — cmd/go accepts that shape.
     #[test]
     fn is_block_opener_accepts_inline_comment_after_paren_no_whitespace() {
         assert!(is_block_opener("use(//note", "use"));
         assert!(is_block_opener("replace(//note", "replace"));
-        // Spacing variants still work.
+        // Spacing variants.
         assert!(is_block_opener("use(// note", "use"));
         assert!(is_block_opener("use ( //note", "use"));
-        // The `strip_line_comment` policy (TASK-1107) for embedded `//` in
-        // tokens is unchanged: a non-block line with `//` mid-token still
-        // does not match.
+        // A `//` embedded in a token is not a comment, so a non-block line
+        // carrying one does not match either.
         assert!(!is_block_opener("use ./mod//x", "use"));
     }
 
-    /// PATTERN-1 (TASK-1724): the block terminator may carry a trailing
-    /// comment in either spacing; a bare `== ")"` comparison missed both.
+    /// The block terminator may carry a trailing comment in either spacing;
+    /// a `)` followed by anything else is not a terminator.
     #[test]
     fn is_block_terminator_accepts_trailing_comments() {
         assert!(is_block_terminator(")"));
@@ -238,8 +231,8 @@ mod tests {
         assert!(!is_block_terminator("use ("));
     }
 
-    /// PATTERN-1 (TASK-1727): arbitrary whitespace separates verb from
-    /// argument; a verb is only a verb on a whitespace boundary.
+    /// Arbitrary whitespace separates verb from argument, and a verb is only
+    /// a verb on a whitespace boundary.
     #[test]
     fn strip_verb_splits_on_arbitrary_whitespace() {
         assert_eq!(
@@ -262,8 +255,8 @@ mod tests {
         assert_eq!(strip_verb("replace ex => ./a", "module"), None);
     }
 
-    /// PATTERN-1 (TASK-1727): quoted tokens are what cmd/go actually emits
-    /// for any path containing a space; they must be unquoted before use.
+    /// Interpreted and raw Go string literals are unquoted (escapes
+    /// resolved); anything that is not a literal passes through untouched.
     #[test]
     fn unquote_token_handles_go_string_literals() {
         assert_eq!(unquote_token("example.com/m"), "example.com/m");
@@ -277,8 +270,8 @@ mod tests {
         assert_eq!(unquote_token("\"unterminated"), "\"unterminated");
     }
 
-    /// SEC-14 (TASK-1212 / TASK-1721): `..` past a real segment is traversal;
-    /// a leading run of `..` is legal cmd/go input.
+    /// `..` past a real segment is traversal; a leading run of `..` is legal
+    /// cmd/go input, and a segment that merely begins with `..` is not.
     #[test]
     fn has_embedded_parent_dir_segment_only_fires_past_leading_prefix() {
         assert!(has_embedded_parent_dir_segment("./foo/../../etc/passwd"));

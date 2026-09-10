@@ -15,9 +15,10 @@ use crate::go_syntax::{
 
 /// Which block-form directive is currently open.
 ///
-/// PATTERN-1 (TASK-1727): modfile parses *every* verb in block form, not just
-/// `replace`. Before this, `module (` fell through to the prefix matcher and
-/// set the module name to the literal `"("`.
+/// modfile gives *every* verb a block form, not just `replace`: `module (`,
+/// `go (` and `replace (` all open a block, and the parser must recognise
+/// the opener before the verb matcher so `module (` is not read as the
+/// module path `(`.
 #[derive(Clone, Copy)]
 enum Block {
     Replace,
@@ -30,8 +31,7 @@ enum Block {
 /// The fields are spelled `pub` to match the type: `mod go_mod` is private,
 /// so the private module — not the field spelling — is the visibility
 /// boundary, and `pub(crate)` inside it is what
-/// `clippy::redundant_pub_crate` denies workspace-wide
-/// (API-14 / TASK-2187).
+/// `clippy::redundant_pub_crate` denies workspace-wide.
 #[derive(Debug, Default)]
 pub struct GoMod {
     /// Module path from the `module` directive; `None` when absent.
@@ -48,11 +48,10 @@ pub fn parse(dir: &Path) -> Option<GoMod> {
 
     let mut out = GoMod::default();
     let mut block: Option<Block> = None;
-    // PATTERN-1 (TASK-2181): snapshot of the fields a block can mutate, taken
-    // when the block opens. A block whose `)` never arrives is malformed, so
-    // at EOF the absorbed values are rolled back and one warn is emitted —
-    // a truncated `replace (` block must not drop the file's trailing
-    // `go 1.22` line silently nor half-trust its own absorbed entries.
+    // Snapshot of the fields a block can mutate, taken when the block opens.
+    // A block whose `)` never arrives is malformed and has no boundary
+    // between entry and prose, so at EOF the values it absorbed are rolled
+    // back to this snapshot and one warn is emitted.
     let mut block_snapshot: Option<(Option<String>, Option<String>, usize)> = None;
 
     for raw in content.lines() {
@@ -91,8 +90,8 @@ pub fn parse(dir: &Path) -> Option<GoMod> {
             None
         };
         if let Some(verb) = opener {
-            // PATTERN-1 (TASK-2181): record the block so an unterminated one
-            // can be reported and its absorbed values rolled back at EOF.
+            // Record the pre-block state so an unterminated block can be
+            // reported and its absorbed values rolled back at EOF.
             block_snapshot = Some((
                 out.module.clone(),
                 out.go_version.clone(),
@@ -110,11 +109,11 @@ pub fn parse(dir: &Path) -> Option<GoMod> {
         }
     }
 
-    // PATTERN-1 (TASK-2181): a block still open at EOF means the file is
-    // truncated or hand-mangled. Report it once (naming the manifest and the
-    // unterminated directive) and roll back the values the block absorbed,
-    // so an unterminated `replace (` block neither half-trusts its own
-    // entries nor silently swallows the directives after it.
+    // A block still open at EOF means the file is truncated or hand-mangled.
+    // Report it once — naming the manifest and the unterminated directive —
+    // and roll back the values the block absorbed, so an unterminated
+    // `replace (` block neither half-trusts its own entries nor silently
+    // swallows the directives that follow it.
     if let Some(open) = block {
         let directive = match open {
             Block::Replace => "replace",
@@ -136,15 +135,13 @@ pub fn parse(dir: &Path) -> Option<GoMod> {
     Some(out)
 }
 
-/// DUP-1 / TASK-2196: the directive-value policy both setters share —
-/// first directive wins (cmd/go: "only one such directive"), unquote the
-/// token, drop it when empty — expressed once for the module and go-version
-/// directives.
+/// The directive-value policy the `module` and `go` setters share: the first
+/// directive wins (cmd/go allows "only one such directive"), the token is
+/// unquoted, and an empty value leaves the slot `None`.
 ///
-/// ERR-2 / TASK-1167: a `module ""` or `module    ` line must drop to None
-/// so the directory-name fallback in `lib.rs` fires, matching the
-/// `trim_nonempty` policy applied by the Node and Python identity
-/// providers; the same drop applies to an empty `go` directive value.
+/// Dropping an empty value is what lets a `module ""` or `module    ` line
+/// fall through to the directory-name fallback in `lib.rs`, matching the
+/// `trim_nonempty` policy the Node and Python identity providers apply.
 fn set_first_wins_unquoted_nonempty(slot: &mut Option<String>, rest: &str) {
     if slot.is_some() {
         return;
@@ -165,9 +162,9 @@ fn set_go_version(out: &mut GoMod, rest: &str) {
 
 fn parse_replace_directive(rest: &str) -> Option<String> {
     let (_, target) = rest.split_once("=>")?;
-    // PATTERN-1 (TASK-1727): cmd/go *requires* quoting for a target containing
-    // a space, and a quoted target starts with `"` — so none of the `./`,
-    // `../`, `/` prefix arms below matched and the local replace was dropped.
+    // cmd/go *requires* quoting for a target containing a space, so the
+    // token is unquoted before the `./`, `../`, `/` prefix arms below look
+    // at it — a quoted target otherwise starts with `"` and matches none.
     let target = unquote_token(target.trim());
     let target = target.as_ref();
     if target.is_empty() {
@@ -175,11 +172,9 @@ fn parse_replace_directive(rest: &str) -> Option<String> {
     }
     // cmd/go requires the replacement to omit a version when the target is a
     // filesystem path; anything carrying a whitespace-separated `vX.Y.Z` is a
-    // remote module replacement.
-    //
-    // PATTERN-1 / TASK-0815: only the version-shaped second token marks a
-    // remote replace — a path containing whitespace (legal on disk) such as
-    // `./has space/sub` must still be recognised as a local target.
+    // remote module replacement. Only a *version-shaped* second token marks
+    // the replace as remote, so a path containing whitespace (legal on disk)
+    // such as `./has space/sub` still counts as a local target.
     let mut tokens = target.split_whitespace();
     if let (Some(_first), Some(second)) = (tokens.next(), tokens.next()) {
         if looks_like_module_version(second) {
@@ -193,12 +188,11 @@ fn parse_replace_directive(rest: &str) -> Option<String> {
         || target.starts_with('/')
         || is_windows_absolute(target)
     {
-        // PATTERN-1 (TASK-1212): reject embedded `..` cancellation segments
-        // past the leading `./` / `../` prefix the matcher already accepts, so
-        // adversarial fixtures cannot smuggle traversal through a local-replace
-        // target. SEC-14 (TASK-1721): the predicate lives in `go_syntax` and is
-        // shared with the `go.work` `use` directive path, which enforced only
-        // the *first* component and so let `./api/../../../etc` through.
+        // Reject embedded `..` segments past the leading `./` / `../` prefix
+        // the arms above accept, so a fixture cannot smuggle traversal
+        // through a local-replace target. The predicate lives in `go_syntax`
+        // and is shared with the `go.work` `use` directive path so both
+        // directives enforce one traversal policy.
         if has_embedded_parent_dir_segment(target) {
             tracing::warn!(
                 target = %target,
@@ -211,18 +205,15 @@ fn parse_replace_directive(rest: &str) -> Option<String> {
     None
 }
 
-/// Match cmd/go's module version token shape: a leading `v` followed by an
-/// `X.Y(.Z)?` numeric prefix. PATTERN-1 / TASK-0976: the previous
-/// `v<digit> + contains('.')` heuristic accepted any non-numeric trailing
-/// junk (`v1.foo.com/path`, `v9.local`, `v0.x`), so a local replace target
-/// whose second whitespace token happened to begin with `v<digit>.` was
-/// silently misclassified as a remote replace and dropped from
-/// `local_replaces`.
+/// Match cmd/go's module version token shape: `v<MAJOR>.<MINOR>` with
+/// all-digit components, followed optionally by `.<PATCH>` and an arbitrary
+/// pseudo-version / pre-release tail.
 ///
-/// Now require `v<MAJOR>.<MINOR>` with all-digit components (and an optional
-/// `.<PATCH>` plus arbitrary pseudo-version / pre-release suffix after the
-/// numeric prefix). This is still loose enough to accept everything cmd/go
-/// emits while rejecting "looks vaguely like vX.Y" path tokens.
+/// The numeric `MAJOR.MINOR` prefix is the whole requirement: loose enough to
+/// accept everything cmd/go emits (`v1.2`, `v1.2.3`,
+/// `v0.0.0-20240101000000-abcdef`), strict enough that a path token merely
+/// shaped like a version (`v1.foo`, `v9.local`, `v0.x`) is not mistaken for
+/// one and does not turn a local replace into a remote one.
 fn looks_like_module_version(s: &str) -> bool {
     let Some(rest) = s.strip_prefix('v') else {
         return false;
@@ -237,9 +228,8 @@ fn looks_like_module_version(s: &str) -> bool {
     if minor.is_empty() || !minor.bytes().all(|b| b.is_ascii_digit()) {
         return false;
     }
-    // PATCH (and anything after) is optional and free-form: cmd/go pseudo-
-    // versions like `v0.0.0-20240101000000-abcdef` need the pre-release tail
-    // to flow through. We only require the numeric MAJOR.MINOR prefix.
+    // PATCH and anything after it are optional and free-form, so cmd/go
+    // pseudo-versions like `v0.0.0-20240101000000-abcdef` match.
     true
 }
 
@@ -316,8 +306,8 @@ mod tests {
         assert_eq!(m.local_replaces, vec!["./api"]);
     }
 
-    /// TASK-0994: a trailing comment on a `replace (` block opener must not
-    /// suppress the block.
+    /// A trailing comment on a `replace (` block opener still opens the
+    /// block and its entries are collected.
     #[test]
     fn replace_block_opener_accepts_trailing_comment() {
         let dir = tempfile::tempdir().unwrap();
@@ -383,8 +373,8 @@ mod tests {
 
     #[test]
     fn accepts_local_replace_target_with_whitespace() {
-        // PATTERN-1 / TASK-0815: `./has space/sub` is a legal filesystem path
-        // and must be retained as a local replace target.
+        // `./has space/sub` is a legal filesystem path, so it stays a local
+        // replace target despite the embedded whitespace.
         let dir = tempfile::tempdir().unwrap();
         std::fs::write(
             dir.path().join("go.mod"),
@@ -395,11 +385,9 @@ mod tests {
         assert_eq!(m.local_replaces, vec!["./has space/sub"]);
     }
 
-    /// PATTERN-1 / TASK-0976: a local target whose second whitespace token
-    /// happens to start `v<digit>.` but is not a valid semver must NOT be
-    /// dropped from `local_replaces`. The previous lax heuristic treated
-    /// `./root v1.snapshot` as a remote replace and silently lost the
-    /// member from the workspace size in the About card.
+    /// A local target whose second whitespace token merely starts `v<digit>.`
+    /// without being a version (`./root v1.snapshot`) stays in
+    /// `local_replaces`.
     #[test]
     fn keeps_local_replace_with_pseudo_version_token() {
         let dir = tempfile::tempdir().unwrap();
@@ -412,9 +400,8 @@ mod tests {
         assert_eq!(m.local_replaces, vec!["./root v1.snapshot"]);
     }
 
-    /// PATTERN-1 / TASK-0976: the strict matcher unit-level — only the
-    /// `vMAJOR.MINOR(.PATCH)?` numeric prefix qualifies. Non-numeric trailing
-    /// junk (`v1.foo`, `v9.local`, `v0.x`) no longer false-matches.
+    /// Only a `vMAJOR.MINOR(.PATCH)?` numeric prefix qualifies as a module
+    /// version; non-numeric components (`v1.foo`, `v9.local`, `v0.x`) do not.
     #[test]
     fn looks_like_module_version_requires_numeric_minor() {
         assert!(looks_like_module_version("v1.2.3"));
@@ -472,9 +459,8 @@ mod tests {
         assert_eq!(m.go_version.as_deref(), Some("1.21"));
     }
 
-    /// PATTERN-1 / TASK-1107: `//` is a comment delimiter only when it
-    /// follows whitespace or starts the line. A module path containing a
-    /// literal `//` must not be silently truncated.
+    /// A module path containing a literal `//` is preserved whole: `//`
+    /// delimits a comment only at start-of-line or after whitespace.
     #[test]
     fn module_path_with_literal_double_slash_is_preserved() {
         let dir = tempfile::tempdir().unwrap();
@@ -483,9 +469,8 @@ mod tests {
         assert_eq!(m.module.as_deref(), Some("example.com/foo//bar"));
     }
 
-    /// PATTERN-1 (TASK-1255): `replace(// note` (no whitespace before the
-    /// inline comment) is legal go.mod syntax cmd/go accepts. Both the
-    /// `replace` block opener and its contained directives must surface.
+    /// `replace(// note` — no whitespace before the inline comment — opens
+    /// the block, and the directives inside it are collected.
     #[test]
     fn replace_block_with_inline_comment_no_whitespace_populates_list() {
         let dir = tempfile::tempdir().expect("tempdir");
@@ -498,9 +483,8 @@ mod tests {
         assert_eq!(m.local_replaces, vec!["./api", "./sdk"]);
     }
 
-    /// PATTERN-1 (TASK-1212): replace targets carrying embedded `..` segments
-    /// past the leading prefix (e.g. `./foo/../../etc`) are dropped from
-    /// `local_replaces` rather than flowing through verbatim.
+    /// A replace target carrying an embedded `..` segment past the leading
+    /// prefix (`./foo/../../etc`) is dropped from `local_replaces`.
     #[test]
     fn replace_target_with_embedded_parent_dir_is_dropped() {
         let dir = tempfile::tempdir().unwrap();
@@ -517,9 +501,8 @@ mod tests {
         );
     }
 
-    /// PATTERN-1 (TASK-1212): a leading run of `..` segments is allowed
-    /// (cmd/go accepts `../../shared`); only `..` past a real path segment
-    /// is rejected. Pin both behaviours together.
+    /// A leading run of `..` segments is accepted (cmd/go allows
+    /// `../../shared`); only `..` past a real path segment is rejected.
     #[test]
     fn replace_target_leading_parent_dirs_still_accepted() {
         let dir = tempfile::tempdir().unwrap();
@@ -532,11 +515,9 @@ mod tests {
         assert_eq!(m.local_replaces, vec!["../../shared/lib"]);
     }
 
-    /// PATTERN-1 (TASK-1212): adversarial replace targets are scrubbed from
-    /// `local_replaces` at the parse level — still pinned here even though
-    /// TASK-2178 removed replaces from `compute_module_count` entirely (a
-    /// `go.mod`-only project now reports `None` whatever its replaces), so
-    /// the count assertion is the constant part of the contract.
+    /// A traversal-carrying replace target is scrubbed at the parse level,
+    /// and a `go.mod`-only project reports no module count whatever its
+    /// replaces — the two rules hold together.
     #[test]
     fn compute_module_count_does_not_double_count_scrubbed_replace() {
         let dir = tempfile::tempdir().unwrap();
@@ -551,9 +532,8 @@ mod tests {
         assert_eq!(crate::compute_module_count(None), None);
     }
 
-    /// PATTERN-1 (TASK-1727): modfile lexes Go string literals, and quoting is
-    /// required for any token containing a space. Left quoted, the module name
-    /// rendered as `m"` on the About card.
+    /// Quoted `module`, `go` and `replace` tokens are unquoted before use, so
+    /// the About-card name derives from the bare module path.
     #[test]
     fn parses_quoted_module_and_replace_target() {
         let dir = tempfile::tempdir().unwrap();
@@ -573,10 +553,8 @@ mod tests {
         );
     }
 
-    /// PATTERN-1 (TASK-1727): modfile splits verb from argument on arbitrary
-    /// whitespace; `strip_prefix("module ")` dropped every tab-separated form
-    /// silently, so the module name fell back to the directory and the Go
-    /// version vanished from the card.
+    /// Verb and argument are separated by arbitrary whitespace, so
+    /// tab-separated `module`, `go` and `replace` directives parse.
     #[test]
     fn parses_tab_separated_directives() {
         let dir = tempfile::tempdir().unwrap();
@@ -591,9 +569,8 @@ mod tests {
         assert_eq!(m.local_replaces, vec!["./api"]);
     }
 
-    /// PATTERN-1 (TASK-1727): every verb has a block form. `module (` used to
-    /// fall through to the prefix matcher and set the module to the literal
-    /// `"("`, so the About card was titled `(`.
+    /// Every verb has a block form: `module (` and `go (` yield the entry
+    /// inside the block, not the literal `(`.
     #[test]
     fn parses_block_form_module_and_go_directives() {
         let dir = tempfile::tempdir().unwrap();
@@ -607,8 +584,8 @@ mod tests {
         assert_eq!(m.go_version.as_deref(), Some("1.22"));
     }
 
-    /// PATTERN-1 (TASK-1724): a `)` terminator carrying a trailing comment
-    /// must close the block in go.mod too, in either spacing.
+    /// A `)` terminator carrying a trailing comment closes the block, so the
+    /// directives after it are still parsed.
     #[test]
     fn replace_block_terminator_accepts_trailing_comment() {
         let dir = tempfile::tempdir().unwrap();
@@ -619,7 +596,8 @@ mod tests {
         .unwrap();
         let m = parse(dir.path()).unwrap();
         assert_eq!(m.local_replaces, vec!["./api"]);
-        // The block closed, so the trailing `go` line was still parsed.
+        // The block closed, so the trailing `go` line is a top-level
+        // directive and parses.
         assert_eq!(m.go_version.as_deref(), Some("1.22"));
     }
 
@@ -635,11 +613,10 @@ mod tests {
         assert_eq!(m.local_replaces, vec!["./api", "./sdk"]);
     }
 
-    /// PATTERN-1 (TASK-2181) AC #2-#4: an unterminated `replace (` block
-    /// swallows every following line — a trailing `go 1.22` is routed through
-    /// `parse_replace_directive` and dropped. Exactly one warn fires, the
-    /// absorbed entries are rolled back, and directives *before* the block
-    /// survive.
+    /// An unterminated `replace (` block absorbs every following line, so
+    /// its payload is rolled back: exactly one warn fires, the block's own
+    /// entries and the lines it swallowed are dropped, and the directives
+    /// before the block survive.
     #[test]
     fn unterminated_replace_block_warns_once_and_rolls_back_absorbed_values() {
         let dir = tempfile::tempdir().unwrap();
@@ -660,8 +637,8 @@ mod tests {
         assert_eq!(warn_count, 1);
     }
 
-    /// PATTERN-1 (TASK-2181) AC #1: the rendered diagnostic names the
-    /// manifest and the unterminated directive.
+    /// The rendered diagnostic names the manifest and the unterminated
+    /// directive.
     #[test]
     fn unterminated_replace_block_warn_names_manifest_and_directive() {
         let dir = tempfile::tempdir().unwrap();
