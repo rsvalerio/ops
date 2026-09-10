@@ -3,7 +3,7 @@
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex, OnceLock};
 
-use ops_about::lru::{next_lru_tick, LruVictimQueue};
+use ops_about::lru::BoundedLruCache;
 use ops_core::project_identity::{CoverageStats, ProjectCoverage, UnitCoverage};
 use ops_duckdb::sql::{query_crate_coverage, query_or_warn, query_project_coverage, CrateCoverage};
 use ops_duckdb::DuckDb;
@@ -59,94 +59,30 @@ type CoverageSlot = Arc<OnceLock<Option<CrateCoverage>>>;
 /// producer cannot grow the map without limit.
 const MAX_COVERAGE_CACHE_ENTRIES: usize = 16;
 
-/// Slack added to the victim-queue compaction threshold.
-///
-/// PERF-16 / TASK-1723: mirrors the typed-manifest cache in
-/// [`crate::manifest_cache`]. Without it a cache holding a single project
-/// would compact on every other access.
-const COVERAGE_VICTIM_QUEUE_SLACK: usize = 16;
-
-struct CoverageCacheEntry {
-    slot: CoverageSlot,
-    last_accessed: u64,
-}
-
+/// DUP-1 / TASK-2150: the LRU scaffold (victim queue, compaction slack,
+/// record/evict loop, cap preamble, tick-on-hit) lives in
+/// [`ops_about::lru::BoundedLruCache`]; this struct names the key, value
+/// and cap for the coverage memoization.
 struct ProjectCoverageCache {
-    map: HashMap<u64, CoverageCacheEntry>,
-    victim_queue: LruVictimQueue<u64>,
+    cache: BoundedLruCache<u64, CoverageSlot>,
 }
 
 impl ProjectCoverageCache {
     fn new() -> Self {
         Self {
-            map: HashMap::new(),
-            victim_queue: LruVictimQueue::new(),
+            cache: BoundedLruCache::new(MAX_COVERAGE_CACHE_ENTRIES),
         }
     }
 
     /// Return the slot for `key`, inserting one and evicting the
     /// least-recently-used entry if the cap would otherwise be exceeded.
     fn slot_for(&mut self, key: u64) -> CoverageSlot {
-        let tick = next_lru_tick();
-        if let Some(entry) = self.map.get_mut(&key) {
-            entry.last_accessed = tick;
-            let slot = Arc::clone(&entry.slot);
-            self.record_access(key, tick);
-            return slot;
-        }
-        if self.map.len() >= MAX_COVERAGE_CACHE_ENTRIES {
-            self.evict_lru();
+        if let Some(slot) = self.cache.touch(&key) {
+            return Arc::clone(slot);
         }
         let slot: CoverageSlot = Arc::new(OnceLock::new());
-        self.map.insert(
-            key,
-            CoverageCacheEntry {
-                slot: Arc::clone(&slot),
-                last_accessed: tick,
-            },
-        );
-        self.record_access(key, tick);
+        self.cache.insert(key, Arc::clone(&slot));
         slot
-    }
-
-    /// Stamp an access against `key` and keep the victim queue bounded.
-    ///
-    /// PERF-16 / TASK-1723: same leak as the typed-manifest cache — every
-    /// hit pushes a stamp, but the only drain ([`Self::evict_lru`]) runs
-    /// solely at the cap. A process that stays below
-    /// [`MAX_COVERAGE_CACHE_ENTRIES`] (every CLI run: one project) never
-    /// drained the queue at all, so it grew by one `(u64, u64)` per
-    /// `cached_query_project_coverage` call for the process lifetime.
-    ///
-    /// Compaction leaves exactly one stamp per live entry, so at least
-    /// `map.len() + COVERAGE_VICTIM_QUEUE_SLACK` further pushes must land
-    /// before it can trigger again: amortised `O(1)` per access. It drops
-    /// only stamps `pop_lru` would already have skipped as stale, so
-    /// eviction ordering is unchanged.
-    ///
-    /// Must be called *after* the map holds `key` at `tick`, or the
-    /// freshness check would compact away the stamp just pushed.
-    fn record_access(&mut self, key: u64, tick: u64) {
-        let Self { map, victim_queue } = self;
-        victim_queue.push(tick, key);
-        let threshold = map
-            .len()
-            .saturating_mul(2)
-            .saturating_add(COVERAGE_VICTIM_QUEUE_SLACK);
-        if victim_queue.len() > threshold {
-            victim_queue
-                .retain_fresh(|key, tick| map.get(key).is_some_and(|e| e.last_accessed == tick));
-        }
-    }
-
-    fn evict_lru(&mut self) {
-        let map = &mut self.map;
-        if let Some(victim) = self
-            .victim_queue
-            .pop_lru(|key, tick| map.get(key).is_some_and(|e| e.last_accessed == tick))
-        {
-            map.remove(&victim);
-        }
     }
 }
 
@@ -172,9 +108,11 @@ fn project_coverage_cache() -> &'static Mutex<ProjectCoverageCache> {
 /// silently degraded to "warn fires once per concurrent first-caller".
 pub fn cached_query_project_coverage(db: &DuckDb) -> Option<CrateCoverage> {
     let slot: CoverageSlot = {
-        let mut guard = project_coverage_cache()
-            .lock()
-            .unwrap_or_else(std::sync::PoisonError::into_inner);
+        // DUP-1 / TASK-2150: the poison-recovering lock scaffold lives in
+        // `ops_about::lru::lock_recovering`. Recovery is silent here: the
+        // guarded value is the plain-data memoization map, and the worst
+        // outcome of a missed poison is a recomputed query.
+        let mut guard = ops_about::lru::lock_recovering(project_coverage_cache(), || {});
         guard.slot_for(db.id())
     };
 
@@ -314,25 +252,20 @@ fn per_crate_units(
 mod cache_tests {
     use super::{
         cached_query_project_coverage, project_coverage_cache, ProjectCoverageCache,
-        COVERAGE_VICTIM_QUEUE_SLACK, MAX_COVERAGE_CACHE_ENTRIES,
+        MAX_COVERAGE_CACHE_ENTRIES,
     };
+    use ops_about::lru::{lock_recovering, VICTIM_QUEUE_SLACK};
     use ops_about::test_support::{capture_tracing, pin_global_dispatcher, TracingBuf};
     use ops_duckdb::DuckDb;
     use std::sync::Arc;
 
     fn cache_len() -> usize {
-        project_coverage_cache()
-            .lock()
-            .unwrap_or_else(std::sync::PoisonError::into_inner)
-            .map
-            .len()
+        lock_recovering(project_coverage_cache(), || {}).cache.len()
     }
 
     fn contains(key: u64) -> bool {
-        project_coverage_cache()
-            .lock()
-            .unwrap_or_else(std::sync::PoisonError::into_inner)
-            .map
+        lock_recovering(project_coverage_cache(), || {})
+            .cache
             .contains_key(&key)
     }
 
@@ -554,17 +487,15 @@ mod cache_tests {
             }
         }
 
-        let map_len = cache.map.len();
+        let map_len = cache.cache.len();
         assert_eq!(map_len, usize::try_from(KEYS).unwrap());
         assert!(
             map_len < MAX_COVERAGE_CACHE_ENTRIES,
             "the test must stay below the cap or it stops covering the leak"
         );
         // Without compaction this is KEYS * PASSES == 1500 stamps.
-        let bound = map_len
-            .saturating_mul(2)
-            .saturating_add(COVERAGE_VICTIM_QUEUE_SLACK);
-        let queue_len = cache.victim_queue.len();
+        let bound = map_len.saturating_mul(2).saturating_add(VICTIM_QUEUE_SLACK);
+        let queue_len = cache.cache.victim_queue_len();
         assert!(
             queue_len <= bound,
             "victim queue holds {queue_len} stamps after {} accesses of {map_len} keys; \

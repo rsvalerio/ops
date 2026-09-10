@@ -105,11 +105,10 @@
 //! `identity/mod.rs` and `units.rs`, which reach the same static through their
 //! providers. That passed on a workstation and failed on a 2-core CI runner.
 
-use ops_about::lru::{next_lru_tick, LruVictimQueue};
-use std::collections::HashMap;
+use ops_about::lru::BoundedLruCache;
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicU64, Ordering};
-use std::sync::{Arc, Mutex, OnceLock};
+use std::sync::{Arc, Mutex, MutexGuard, OnceLock};
 use std::time::SystemTime;
 
 use crate::manifest::LoadedManifest;
@@ -120,15 +119,6 @@ use crate::manifest::LoadedManifest;
 /// per root indefinitely. When the cap is hit on insert we evict the
 /// least-recently-used entry (LRU) so steady-state hits remain warm.
 pub const MAX_TYPED_MANIFEST_CACHE_ENTRIES: usize = 64;
-
-/// Slack added to the victim-queue compaction threshold.
-///
-/// PERF-16 / TASK-1723: without it a cache holding a single root would
-/// compact on every other access. Sixteen stale stamps is a few hundred
-/// bytes and buys amortisation for the small-root-count shape the CLI
-/// actually runs. Matches the sibling raw-text cache in
-/// `extensions/about/src/manifest_cache.rs`, per the lockstep contract.
-const VICTIM_QUEUE_SLACK: usize = 16;
 
 /// CONC-2 / TASK-1198: cache freshness key. Pairs the file's mtime with
 /// its byte length so two writes within the same mtime tick (HFS+, FAT,
@@ -142,95 +132,31 @@ pub struct ManifestFreshness {
     len: u64,
 }
 
-struct TypedManifestEntry {
+/// The cached value for one workspace root: the parsed manifest plus the
+/// freshness key it was parsed under.
+struct CachedManifest {
     /// `None` means we couldn't stat the file at parse time; the legacy
     /// "always trust the cache until ctx.refresh" behaviour applies.
     freshness: Option<ManifestFreshness>,
     loaded: LoadedManifest,
-    last_accessed: u64,
-    /// PERF-3 / TASK-1572: `Arc<PathBuf>` key shared with the victim
-    /// queue so the cache-hit path can `Arc::clone` instead of cloning
-    /// the underlying `PathBuf` on every LRU tick refresh. The map key
-    /// is still `PathBuf` (`HashMap` doesn't accept `&Path` lookups via
-    /// `Arc`); this is the same allocation, referenced twice.
-    key: Arc<PathBuf>,
 }
 
 /// PERF-1 / TASK-1240: pair the root→entry map with a min-heap of
 /// `(last_accessed, root)` so cap-bound eviction picks the LRU entry in
 /// `O(log n)` (heap pop with lazy invalidation) instead of an `O(n)`
-/// scan. Kept in lockstep with `manifest_cache::CacheMap` per the
-/// module-level lockstep contract.
+/// scan. DUP-1 / TASK-2150: the heap, the record/compact loop and the
+/// cap preamble live in [`ops_about::lru::BoundedLruCache`]; queue keys
+/// are `Arc<PathBuf>` shared with the entry (PERF-3 / TASK-1572), so the
+/// cache-hit path restamps with an atomic bump.
 pub struct TypedManifestCache {
-    map: HashMap<PathBuf, TypedManifestEntry>,
-    /// PERF-3 / TASK-1572: queue keys are `Arc<PathBuf>` so the
-    /// cache-hit path (the dominant case once any provider has primed
-    /// the cache) can refresh the LRU tick by cloning an Arc rather
-    /// than allocating a fresh `PathBuf`. The Arc is shared with the
-    /// `TypedManifestEntry::key` slot so both refer to the same heap
-    /// allocation.
-    victim_queue: LruVictimQueue<Arc<PathBuf>>,
+    cache: BoundedLruCache<PathBuf, CachedManifest, Arc<PathBuf>>,
 }
 
 impl TypedManifestCache {
     fn new() -> Self {
         Self {
-            map: HashMap::new(),
-            victim_queue: LruVictimQueue::new(),
+            cache: BoundedLruCache::new(MAX_TYPED_MANIFEST_CACHE_ENTRIES),
         }
-    }
-
-    /// Stamp an access against `key` and keep the victim queue bounded.
-    ///
-    /// PERF-16 / TASK-1723: every probe hit and every insert pushes a fresh
-    /// `(tick, key)` stamp, but the only drain ([`Self::evict_lru`]) runs
-    /// solely once the map is at [`MAX_TYPED_MANIFEST_CACHE_ENTRIES`]. Below
-    /// the cap — the overwhelmingly common case, since a single `ops about`
-    /// run touches one root and every provider hits it — the queue was never
-    /// drained at all and grew by one `(u64, Arc<PathBuf>)` per access
-    /// forever. A long-running embedder re-probing a handful of roots kept a
-    /// tiny map behind a queue that grew linearly with its uptime.
-    ///
-    /// Compacting once the queue passes `2 * map.len() + VICTIM_QUEUE_SLACK`
-    /// bounds it at that multiple of the live entry count while staying
-    /// amortised `O(1)` per access: compaction leaves exactly one stamp per
-    /// live entry, so at least `map.len() + VICTIM_QUEUE_SLACK` further
-    /// pushes must land before it can trigger again, and each compaction is
-    /// `O(queue len)`.
-    ///
-    /// Call this *after* the map has been updated — the freshness check reads
-    /// `map[key].last_accessed`, so a pre-update call would compact away the
-    /// stamp it just pushed. Compaction preserves eviction ordering: it drops
-    /// only stamps `pop_lru` would already have skipped as stale.
-    fn record_access(&mut self, key: Arc<PathBuf>, tick: u64) {
-        let Self { map, victim_queue } = self;
-        victim_queue.push(tick, key);
-        let threshold = map
-            .len()
-            .saturating_mul(2)
-            .saturating_add(VICTIM_QUEUE_SLACK);
-        if victim_queue.len() > threshold {
-            victim_queue.retain_fresh(|key, tick| {
-                map.get(key.as_ref())
-                    .is_some_and(|e| e.last_accessed == tick)
-            });
-        }
-    }
-
-    fn evict_lru(&mut self) -> Option<PathBuf> {
-        let map = &mut self.map;
-        let victim = self.victim_queue.pop_lru(|path, tick| {
-            map.get(path.as_ref())
-                .is_some_and(|e| e.last_accessed == tick)
-        })?;
-        map.remove(victim.as_ref());
-        // PERF-3 / TASK-1572: the only outstanding Arc references at
-        // this point are the queue entry we just popped and the map
-        // entry we just removed (now dropped), so `try_unwrap` succeeds
-        // on the common path. On the rare contention case (a clone
-        // outliving the eviction) we fall back to a single clone of
-        // the inner PathBuf.
-        Some(Arc::try_unwrap(victim).unwrap_or_else(|arc| (*arc).clone()))
     }
 
     /// FN-1 / TASK-1780: the freshness comparison plus the LRU tick refresh,
@@ -241,7 +167,6 @@ impl TypedManifestCache {
     /// still fresh; a stale entry is left in place for the insert path to
     /// overwrite.
     fn probe(&mut self, root: &Path, current: Option<ManifestFreshness>) -> Option<LoadedManifest> {
-        let entry = self.map.get_mut(root)?;
         // CONC-2 / TASK-0843 + TASK-1198: serve the cached Arc only
         // when both the mtime AND the byte length match. Pairing
         // mtime with size closes the second-resolution-mtime window
@@ -250,34 +175,17 @@ impl TypedManifestCache {
         // happily served the pre-edit manifest until the next tick.
         // If we couldn't stat at all, fall back to the legacy "trust
         // until refresh" behaviour.
-        let still_fresh = match (entry.freshness, current) {
-            (Some(cached), Some(now)) => cached == now,
-            _ => true,
-        };
-        if !still_fresh {
-            return None;
-        }
-        // CONC-2 / TASK-1023: bump the LRU tick on hit so frequently accessed
-        // entries survive eviction in a daemon visiting many roots.
         //
-        // PERF-1 / TASK-1240: push the new tick onto the victim heap; the older
-        // `(prev_tick, root)` pair stays in the heap and is discarded as stale
-        // during eviction.
-        //
-        // PERF-3 / TASK-1572: the queue holds the `Arc<PathBuf>` already shared
-        // with the entry, so the per-hit refresh is an `Arc::clone` (atomic
-        // bump) instead of a `PathBuf` clone.
-        //
-        // PERF-16 / TASK-1723: route the push through `record_access`, which
-        // compacts the queue on a growth threshold. Pushing directly here
-        // leaked one stamp per hit for every process that never reached the
-        // cap — which is every CLI run.
-        let tick = next_lru_tick();
-        entry.last_accessed = tick;
-        let key = Arc::clone(&entry.key);
-        let loaded = entry.loaded.clone();
-        self.record_access(key, tick);
-        Some(loaded)
+        // CONC-2 / TASK-1023: the accepted hit restamps the entry inside
+        // `touch_if`, so frequently accessed entries survive eviction in a
+        // daemon visiting many roots; PERF-16 / TASK-1723: the restamp
+        // compacts the queue on a growth threshold.
+        self.cache
+            .touch_if(root, |cached| match (cached.freshness, current) {
+                (Some(cached), Some(now)) => cached == now,
+                _ => true,
+            })
+            .map(|cached| cached.loaded.clone())
     }
 
     /// FN-1 / TASK-1780: the cap check, LRU eviction, tick mint, victim-queue
@@ -288,35 +196,13 @@ impl TypedManifestCache {
         freshness: Option<ManifestFreshness>,
         loaded: &LoadedManifest,
     ) {
-        // CONC-2 / TASK-0843 + TASK-1023: bound the cache with LRU
-        // eviction. When the soft cap is hit and the key is new, evict
-        // the entry with the smallest `last_accessed` tick so the hot
-        // working-set survives a daemon visiting many roots. The previous
-        // `keys().next()` policy picked an arbitrary HashMap bucket and
-        // could evict the daemon's own workspace.
-        // PERF-1 / TASK-1240: O(log n) eviction via the lazy-invalidation
-        // min-heap, replacing the previous O(n) `min_by_key` scan.
-        if !self.map.contains_key(root) && self.map.len() >= MAX_TYPED_MANIFEST_CACHE_ENTRIES {
-            let _ = self.evict_lru();
-        }
-        // PERF-3 / TASK-1572: wrap the owned root once in `Arc<PathBuf>` so the
-        // entry and the victim-queue push reference the same heap allocation
-        // (the map needs its own owned `PathBuf` slot).
-        let key_arc: Arc<PathBuf> = Arc::new(root.to_path_buf());
-        let tick = next_lru_tick();
-        self.map.insert(
+        self.cache.insert(
             root.to_path_buf(),
-            TypedManifestEntry {
+            CachedManifest {
                 freshness,
                 loaded: loaded.clone(),
-                last_accessed: tick,
-                key: Arc::clone(&key_arc),
             },
         );
-        // PERF-16 / TASK-1723: stamp after the map update — `record_access`
-        // validates stamps against `map[key].last_accessed`, so compacting
-        // before the entry exists would discard the stamp just pushed.
-        self.record_access(key_arc, tick);
     }
 }
 
@@ -354,32 +240,25 @@ fn typed_manifest_cache() -> &'static Mutex<TypedManifestCache> {
 /// counter.
 fn lock_typed_manifest_cache(
     cache: &'static Mutex<TypedManifestCache>,
-) -> std::sync::MutexGuard<'static, TypedManifestCache> {
+) -> MutexGuard<'static, TypedManifestCache> {
     static POISON_RECOVERY_COUNT: AtomicU64 = AtomicU64::new(0);
-    match cache.lock() {
-        Ok(g) => g,
-        Err(poison) => {
-            // `saturating_add` is exact here: the counter advances once per
-            // observed poisoning, so reaching `u64::MAX` would take 2^64
-            // panics inside a single process.
-            let recovery_count = POISON_RECOVERY_COUNT
-                .fetch_add(1, Ordering::Relaxed)
-                .saturating_add(1);
-            tracing::warn!(
-                recovery_count,
-                "typed_manifest_cache mutex was poisoned by a panic in another provider; \
-                 recovering via PoisonError::into_inner — cached entries are plain data \
-                 and not torn by the panic"
-            );
-            let guard = poison.into_inner();
-            // Clear the sticky poison flag so subsequent callers don't
-            // re-enter the recovery path on every call after a single
-            // panic. A fresh panic in another provider re-poisons the
-            // mutex and increments `recovery_count` again.
-            cache.clear_poison();
-            guard
-        }
-    }
+    // DUP-1 / TASK-2150: the recovery scaffold lives in
+    // `ops_about::lru::lock_recovering`; this closure carries the
+    // cache-specific observable — the monotonic warn.
+    ops_about::lru::lock_recovering(cache, || {
+        // `saturating_add` is exact here: the counter advances once per
+        // observed poisoning, so reaching `u64::MAX` would take 2^64
+        // panics inside a single process.
+        let recovery_count = POISON_RECOVERY_COUNT
+            .fetch_add(1, Ordering::Relaxed)
+            .saturating_add(1);
+        tracing::warn!(
+            recovery_count,
+            "typed_manifest_cache mutex was poisoned by a panic in another provider; \
+             recovering via PoisonError::into_inner — cached entries are plain data \
+             and not torn by the panic"
+        );
+    })
 }
 
 /// Drop the cached entry for `root` (`ctx.refresh` semantics).
@@ -387,7 +266,7 @@ fn lock_typed_manifest_cache(
 /// One lock scope, no IO: the CONC-7 contract is checkable at a glance.
 pub fn evict(root: &Path) {
     let mut guard = lock_typed_manifest_cache(typed_manifest_cache());
-    guard.map.remove(root);
+    guard.cache.remove(root);
 }
 
 /// Probe the cache for a fresh entry under `root`.
@@ -412,6 +291,7 @@ pub fn insert(root: &Path, freshness: Option<ManifestFreshness>, loaded: &Loaded
 mod tests {
     use super::*;
     use crate::manifest::load_workspace_manifest;
+    use ops_about::lru::VICTIM_QUEUE_SLACK;
     use ops_extension::Context;
 
     /// The cache is keyed by the *canonical* workspace root, so tests that
@@ -422,25 +302,27 @@ mod tests {
     }
 
     fn cache_len() -> usize {
-        lock_typed_manifest_cache(typed_manifest_cache()).map.len()
+        lock_typed_manifest_cache(typed_manifest_cache())
+            .cache
+            .len()
     }
 
     fn clear_cache() {
-        let mut guard = lock_typed_manifest_cache(typed_manifest_cache());
-        guard.map.clear();
-        guard.victim_queue.clear();
+        lock_typed_manifest_cache(typed_manifest_cache())
+            .cache
+            .clear();
     }
 
     fn contains(root: &Path) -> bool {
         lock_typed_manifest_cache(typed_manifest_cache())
-            .map
+            .cache
             .contains_key(root)
     }
 
     fn victim_queue_len() -> usize {
         lock_typed_manifest_cache(typed_manifest_cache())
-            .victim_queue
-            .len()
+            .cache
+            .victim_queue_len()
     }
 
     /// PERF-16 / TASK-1723: `probe` stamps a fresh `(tick, root)` pair on
@@ -730,7 +612,7 @@ mod tests {
         // cache would happily serve `first` again.
         {
             let mut guard = lock_typed_manifest_cache(typed_manifest_cache());
-            let entry = guard.map.get_mut(&root).expect("entry");
+            let entry = guard.cache.get_mut(&root).expect("entry");
             let pre_len = entry
                 .freshness
                 .as_ref()
@@ -886,7 +768,7 @@ mod tests {
             !contains(&coldest),
             "victim must be the coldest key (LRU), got cache keys: {:?}",
             lock_typed_manifest_cache(typed_manifest_cache())
-                .map
+                .cache
                 .keys()
                 .collect::<Vec<_>>()
         );
