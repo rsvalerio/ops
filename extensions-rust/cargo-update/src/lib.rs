@@ -18,6 +18,7 @@ use ops_core::subprocess::{run_cargo, RunError};
 use ops_extension::{
     Context, DataField, DataProvider, DataProviderError, DataProviderSchema, ExtensionType,
 };
+use ops_theme::strip_ansi_preserving_raw;
 use serde::{Deserialize, Serialize};
 use std::path::Path;
 use std::process::Output;
@@ -240,11 +241,11 @@ pub fn parse_update_output(stderr: &[u8]) -> CargoUpdateResult {
     for line in text.lines() {
         let trimmed = line.trim();
 
-        // PERF-3 / TASK-0970: skip the strip_ansi allocation when no escape
+        // PERF-3 / TASK-0970: skip the strip allocation when no escape
         // is present (the common case — terminals without color, redirected
         // CI output). The Cow path keeps the typed-result branches identical
         // for downstream parsing.
-        let clean_cow = strip_ansi(trimmed);
+        let clean_cow = strip_ansi_preserving_raw(trimmed);
         let clean = clean_cow.trim();
 
         // Skip noise lines. PATTERN-1 / TASK-1778: `Unchanged` is the
@@ -318,185 +319,14 @@ pub fn parse_update_output(stderr: &[u8]) -> CargoUpdateResult {
     }
 }
 
-/// Strip ANSI escape sequences from a string.
-///
-/// Recognised families, all of which are removed in full:
-///
-/// - **CSI** — `ESC [ <params> <final byte>` where the final byte is in
-///   `0x40..=0x7E` (covers SGR `m`, erase-line `K`, cursor-move `H`, ...).
-/// - **OSC** — `ESC ] <body>` terminated by `BEL` (`0x07`) or `ST` (`ESC \`).
-///   SEC-21 / TASK-1790: cargo emits OSC-8 hyperlinks whenever
-///   `term.hyperlinks` is auto-detected, so this is reachable in ordinary
-///   interactive use.
-/// - **nF / Fp / Fe two-character escapes** — `ESC` followed by optional
-///   intermediates (`0x21..=0x2F`) and a final byte in `0x30..=0x7E`
-///   (`ESC c` RIS, `ESC ( B` charset select, ...).
-///
-/// A *truncated* sequence (EOF before the terminator) keeps its consumed bytes,
-/// `ESC` included — PATTERN-1 / TASK-1028: dropping them would silently swallow
-/// trailing visible text. So can a bare `ESC` that introduces nothing
-/// recognised. Callers must therefore not assume the output is control-free;
-/// [`parse_action_line`] rejects any field carrying a control character
-/// (SEC-21 / TASK-1790).
-///
-/// ERR-1 / TASK-0882: iterate over `chars()` rather than raw bytes so a
-/// non-ASCII UTF-8 sequence (localized cargo/rustc messages, crate
-/// metadata with non-ASCII characters, tracing diagnostic lines) round-
-/// trips identically. The previous `bytes[i] as char` cast interpreted
-/// each continuation byte as a Latin-1 code point and silently corrupted
-/// every multi-byte character.
-fn strip_ansi(s: &str) -> std::borrow::Cow<'_, str> {
-    // PERF-3 / TASK-0970: hot path on the data-source pipeline used by CI.
-    // Fast-path the typical case (no `\x1b` in the line) by returning a
-    // borrow — only allocate when we actually have to rewrite the string.
-    if !s.contains('\x1b') {
-        return std::borrow::Cow::Borrowed(s);
-    }
-    let mut result = String::with_capacity(s.len());
-    let mut chars = s.chars().peekable();
-    while let Some(c) = chars.next() {
-        if c == '\x1b' {
-            consume_escape(&mut chars, &mut result);
-        } else {
-            result.push(c);
-        }
-    }
-    std::borrow::Cow::Owned(result)
-}
-
-/// Characters remaining after the `ESC` that [`strip_ansi`] just consumed.
-type EscapeScan<'a, 'b> = &'b mut std::iter::Peekable<std::str::Chars<'a>>;
-
-/// PATTERN-1 / TASK-1028: bound each escape scan so a truncated input
-/// (`...\x1b[3` with no final byte before EOF) does not drain the iterator to
-/// end-of-string and silently swallow trailing visible text. Real CSI
-/// sequences are short (~10 bytes); 64 is generous.
-const CSI_SCAN_CAP: usize = 64;
-
-/// OSC bodies carry URLs (cargo's OSC-8 hyperlinks), so they get a larger —
-/// still bounded — budget.
-const OSC_SCAN_CAP: usize = 1024;
-
-/// Consume the escape sequence introduced by an `ESC` already taken from
-/// `chars`, appending to `result` only what must be preserved.
-fn consume_escape(chars: EscapeScan<'_, '_>, result: &mut String) {
-    match chars.peek().copied() {
-        Some('[') => {
-            chars.next();
-            consume_csi(chars, result);
-        }
-        // SEC-21 / TASK-1790: OSC — `ESC ] <body>` terminated by BEL or ST.
-        Some(']') => {
-            chars.next();
-            consume_osc(chars, result);
-        }
-        // SEC-21 / TASK-1790: nF-class escapes — intermediates in
-        // `0x21..=0x2F` followed by a final byte in `0x30..=0x7E`
-        // (e.g. `ESC ( B`). `0x20` (space) is a legal intermediate by spec but
-        // never appears as one in cargo output, while `ESC<space>` is exactly
-        // the shape a stray ESC in a crate name takes — consuming it would
-        // swallow the following visible word.
-        Some(next) if (0x21..=0x2F).contains(&u32::from(next)) => {
-            chars.next();
-            consume_nf(chars, result, next);
-        }
-        // Two-character escapes: `ESC c` (RIS), `ESC 7`, `ESC =`, ...
-        Some(next) if (0x30..=0x7E).contains(&u32::from(next)) => {
-            chars.next();
-        }
-        // A bare `ESC` introducing nothing recognised (or at end of input).
-        // Preserved rather than dropped, like the truncated cases below.
-        _ => result.push('\x1b'),
-    }
-}
-
-/// Consume a CSI body: parameter/intermediate bytes (`0x20..=0x3F`) followed by
-/// a final byte in `0x40..=0x7E`. All CSI bytes are ASCII, so matching against
-/// `u32` code points is safe. The `ESC [` lead-in is already consumed.
-fn consume_csi(chars: EscapeScan<'_, '_>, result: &mut String) {
-    let mut buffered = String::new();
-    let mut terminated = false;
-    for _ in 0..CSI_SCAN_CAP {
-        let Some(next) = chars.next() else { break };
-        buffered.push(next);
-        if (0x40..=0x7E).contains(&u32::from(next)) {
-            terminated = true;
-            break;
-        }
-    }
-    if !terminated {
-        // Truncated or runaway CSI: emit a debug breadcrumb and preserve the
-        // consumed-but-unterminated bytes (including the `\x1b[` lead-in) so
-        // trailing visible text is not silently dropped to EOF. Noisy by
-        // design — better than missing data.
-        tracing::debug!(
-            buffered = ?buffered,
-            "strip_ansi: truncated or runaway CSI sequence; preserving buffered bytes"
-        );
-        result.push('\x1b');
-        result.push('[');
-        result.push_str(&buffered);
-    }
-}
-
-/// Consume an OSC body, terminated by BEL (`0x07`) or ST (`ESC \`). The
-/// `ESC ]` lead-in is already consumed.
-fn consume_osc(chars: EscapeScan<'_, '_>, result: &mut String) {
-    let mut buffered = String::new();
-    let mut terminated = false;
-    for _ in 0..OSC_SCAN_CAP {
-        match chars.next() {
-            Some('\u{7}') => {
-                terminated = true;
-                break;
-            }
-            Some('\x1b') => {
-                if chars.peek() == Some(&'\\') {
-                    chars.next();
-                    terminated = true;
-                    break;
-                }
-                buffered.push('\x1b');
-            }
-            Some(other) => buffered.push(other),
-            None => break,
-        }
-    }
-    if !terminated {
-        tracing::debug!(
-            buffered = ?buffered,
-            "strip_ansi: truncated or runaway OSC sequence; preserving buffered bytes"
-        );
-        result.push('\x1b');
-        result.push(']');
-        result.push_str(&buffered);
-    }
-}
-
-/// Consume an nF-class escape whose first intermediate byte is `first`. The
-/// `ESC` and `first` are already consumed.
-fn consume_nf(chars: EscapeScan<'_, '_>, result: &mut String, first: char) {
-    let mut buffered = String::from(first);
-    let mut terminated = false;
-    for _ in 0..CSI_SCAN_CAP {
-        let Some(byte) = chars.next() else { break };
-        let cp = u32::from(byte);
-        buffered.push(byte);
-        if (0x30..=0x7E).contains(&cp) {
-            terminated = true;
-            break;
-        }
-        if !(0x20..=0x2F).contains(&cp) {
-            // Not an escape byte at all: stop consuming so the visible text is
-            // preserved below.
-            break;
-        }
-    }
-    if !terminated {
-        result.push('\x1b');
-        result.push_str(&buffered);
-    }
-}
+// DUP-3 / TASK-2148: ANSI stripping moved to `ops-theme`. The private
+// grammar this crate maintained (CSI/OSC/nF only, missing the C1 families)
+// was replaced by `ops_theme::strip_ansi_preserving_raw`, which runs the
+// workspace's single ANSI grammar — the same iterator `strip_ansi` /
+// `visible_width` / `truncate_to_width` consume — under the policy this
+// parser needs: complete sequences are removed, while truncated/runaway
+// escapes (PATTERN-1 / TASK-1028) and stray introducers survive verbatim
+// for the field validator to reject (SEC-21 / TASK-1790).
 
 /// Shape of the version portion that follows the crate name on an action line.
 #[derive(Clone, Copy, Debug)]
@@ -625,7 +455,7 @@ fn is_version_shaped(tok: &str) -> bool {
 
 /// SEC-21 / TASK-1790: `true` iff `tok` carries no control character.
 ///
-/// [`strip_ansi`] deliberately preserves truncated escape sequences and bare
+/// [`ops_theme::strip_ansi_preserving_raw`] deliberately preserves truncated escape sequences and bare
 /// `ESC` bytes so visible text is never swallowed, so a field reaching this
 /// point can still contain `ESC`, `NUL`, `BEL`, ... Crate names and versions
 /// never legitimately do, and these values are serialised into the provider

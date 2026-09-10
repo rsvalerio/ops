@@ -1898,6 +1898,7 @@ dependencies = [
  "ops-about",
  "ops-core",
  "ops-extension",
+ "ops-theme",
  "proptest",
  "serde",
  "serde_json",

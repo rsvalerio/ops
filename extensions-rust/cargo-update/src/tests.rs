@@ -422,7 +422,7 @@ fn strip_v_prefix_without_v() {
 fn strip_ansi_borrows_when_no_escape() {
     use std::borrow::Cow;
     let input = "    Updating serde v1.0.0 -> v1.0.1";
-    let out = strip_ansi(input);
+    let out = strip_ansi_preserving_raw(input);
     assert!(
         matches!(out, Cow::Borrowed(_)),
         "expected borrow on no-escape input"
@@ -434,7 +434,7 @@ fn strip_ansi_borrows_when_no_escape() {
 fn strip_ansi_owns_when_escape_present() {
     use std::borrow::Cow;
     let input = "\x1b[32mhi\x1b[0m";
-    let out = strip_ansi(input);
+    let out = strip_ansi_preserving_raw(input);
     assert!(
         matches!(out, Cow::Owned(_)),
         "expected owned rewrite when ANSI present"
@@ -445,7 +445,7 @@ fn strip_ansi_owns_when_escape_present() {
 #[test]
 fn strip_ansi_removes_escape_codes() {
     let input = "\x1b[1m\x1b[32mUpdating\x1b[0m serde v1.0.0 -> v1.0.1";
-    let clean = strip_ansi(input);
+    let clean = strip_ansi_preserving_raw(input);
     assert_eq!(clean, "Updating serde v1.0.0 -> v1.0.1");
 }
 
@@ -456,10 +456,10 @@ fn strip_ansi_removes_escape_codes() {
 #[test]
 fn strip_ansi_removes_osc8_hyperlink() {
     let bel = "\x1b]8;;https://crates.io/crates/serde\x07serde\x1b]8;;\x07";
-    assert_eq!(strip_ansi(bel), "serde");
+    assert_eq!(strip_ansi_preserving_raw(bel), "serde");
     // The ST-terminated form (`ESC \`) is equally valid.
     let st = "\x1b]8;;https://crates.io/crates/serde\x1b\\serde\x1b]8;;\x1b\\";
-    assert_eq!(strip_ansi(st), "serde");
+    assert_eq!(strip_ansi_preserving_raw(st), "serde");
 }
 
 /// SEC-21 / TASK-1790: two-character escapes (`ESC c` RIS — a full terminal
@@ -467,8 +467,8 @@ fn strip_ansi_removes_osc8_hyperlink() {
 /// `ESC` intact.
 #[test]
 fn strip_ansi_removes_two_character_escapes() {
-    assert_eq!(strip_ansi("a\x1bcb"), "ab");
-    assert_eq!(strip_ansi("a\x1b(Bb"), "ab");
+    assert_eq!(strip_ansi_preserving_raw("a\x1bcb"), "ab");
+    assert_eq!(strip_ansi_preserving_raw("a\x1b(Bb"), "ab");
 }
 
 #[test]
@@ -686,19 +686,19 @@ fn parse_skips_blank_lines() {
 #[test]
 fn strip_ansi_no_escape_codes() {
     let input = "plain text";
-    assert_eq!(strip_ansi(input), "plain text");
+    assert_eq!(strip_ansi_preserving_raw(input), "plain text");
 }
 
 #[test]
 fn strip_ansi_multiple_consecutive_codes() {
     let input = "\x1b[1m\x1b[32m\x1b[4mtext\x1b[0m";
-    assert_eq!(strip_ansi(input), "text");
+    assert_eq!(strip_ansi_preserving_raw(input), "text");
 }
 
 #[test]
 fn strip_ansi_at_boundaries() {
     let input = "\x1b[31mhello\x1b[0m";
-    assert_eq!(strip_ansi(input), "hello");
+    assert_eq!(strip_ansi_preserving_raw(input), "hello");
 }
 
 #[test]
@@ -1104,7 +1104,7 @@ fn parse_ignores_unknown_lines() {
 #[test]
 fn strip_ansi_round_trips_non_ascii() {
     let input = "café — naïve résumé 日本語";
-    assert_eq!(strip_ansi(input), input);
+    assert_eq!(strip_ansi_preserving_raw(input), input);
 }
 
 /// ERR-1 / TASK-0882: ANSI sequences are still removed even when
@@ -1112,7 +1112,7 @@ fn strip_ansi_round_trips_non_ascii() {
 #[test]
 fn strip_ansi_removes_csi_around_unicode() {
     let input = "\x1b[31mcafé\x1b[0m";
-    assert_eq!(strip_ansi(input), "café");
+    assert_eq!(strip_ansi_preserving_raw(input), "café");
 }
 
 /// ERR-1 / TASK-0882: a non-ASCII char that happens to land where a CSI
@@ -1124,7 +1124,7 @@ fn strip_ansi_removes_csi_around_unicode() {
 fn strip_ansi_csi_termination_is_byte_safe() {
     // ESC [ 1 ; 31 m  followed by a non-ASCII char.
     let input = "\x1b[1;31m日本語";
-    assert_eq!(strip_ansi(input), "日本語");
+    assert_eq!(strip_ansi_preserving_raw(input), "日本語");
 }
 
 /// PATTERN-1 / TASK-1028: an input ending mid-CSI (no final byte before
@@ -1137,7 +1137,7 @@ fn strip_ansi_csi_termination_is_byte_safe() {
 #[test]
 fn strip_ansi_truncated_csi_preserves_leading_text() {
     let input = "foo\x1b[3";
-    let out = strip_ansi(input);
+    let out = strip_ansi_preserving_raw(input);
     assert!(
         out.contains("foo"),
         "strip_ansi must not silently swallow `foo` on truncated CSI; got {out:?}"
@@ -1154,7 +1154,7 @@ fn strip_ansi_truncated_csi_preserves_leading_text() {
 fn strip_ansi_truncated_csi_does_not_swallow_trailing_text() {
     // `\x1b[` with parameter bytes only (no final 0x40..=0x7E), then EOF.
     let input = "\x1b[123";
-    let out = strip_ansi(input);
+    let out = strip_ansi_preserving_raw(input);
     // `123` are all in the 0x30..=0x39 range — valid CSI parameter bytes,
     // so without the cap they would be consumed silently to EOF.
     assert!(
@@ -1168,7 +1168,7 @@ fn strip_ansi_truncated_csi_does_not_swallow_trailing_text() {
 #[test]
 fn strip_ansi_truncated_osc_preserves_trailing_text() {
     let input = "foo\x1b]8;;https://example.com";
-    let out = strip_ansi(input);
+    let out = strip_ansi_preserving_raw(input);
     assert!(
         out.contains("foo") && out.contains("example.com"),
         "truncated OSC must not swallow text; got {out:?}"
@@ -1185,10 +1185,19 @@ mod properties {
     use super::*;
     use proptest::prelude::*;
 
-    /// Text that provably contains no escape introducer, so `strip_ansi` must
-    /// be the identity on it.
+    /// Text that provably contains no escape introducer, so the strip must
+    /// be the identity on it. DUP-3 / TASK-2148: the shared grammar also
+    /// treats the 8-bit C1 introducers as escapes, so the filter excludes
+    /// those too — a random C1 CSI would legitimately be stripped.
     fn escape_free_text() -> impl Strategy<Value = String> {
-        any::<String>().prop_filter("must contain no ESC", |s| !s.contains('\u{1b}'))
+        any::<String>().prop_filter("must contain no escape introducer", |s| {
+            !s.chars().any(|c| {
+                matches!(
+                    c,
+                    '\u{1b}' | '\u{90}' | '\u{98}' | '\u{9b}' | '\u{9d}' | '\u{9e}' | '\u{9f}'
+                )
+            })
+        })
     }
 
     /// A complete, well-formed CSI sequence.
@@ -1258,7 +1267,7 @@ mod properties {
         /// and the no-allocation fast path TASK-0970 added.
         #[test]
         fn strip_ansi_is_identity_without_escapes(s in escape_free_text()) {
-            let out = strip_ansi(&s);
+            let out = strip_ansi_preserving_raw(&s);
             prop_assert_eq!(out.as_ref(), s.as_str());
         }
 
@@ -1279,7 +1288,7 @@ mod properties {
                 input.push_str(csi);
                 expected.push_str(text);
             }
-            let out = strip_ansi(&input);
+            let out = strip_ansi_preserving_raw(&input);
             prop_assert_eq!(out.as_ref(), expected.as_str());
             prop_assert!(!out.contains('\x1b'));
         }
