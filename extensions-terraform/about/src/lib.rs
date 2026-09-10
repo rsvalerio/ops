@@ -301,7 +301,7 @@ fn extract_required_version(content: &str, source: &str) -> Option<String> {
     // as body. Report it exactly like the unbalanced closing brace above —
     // warn and refuse the file — instead of falling off the loop as a
     // silent `None` indistinguishable from "no constraint declared".
-    if state.heredoc.is_some() {
+    if state.heredoc.is_open() {
         tracing::warn!(
             source = ?source,
             construct = "heredoc",
@@ -346,8 +346,9 @@ type BlockStack = Vec<Option<String>>;
 /// reading them as structure.
 struct ScanState {
     stack: BlockStack,
-    /// `Some(open)` while the scanner is inside a heredoc body.
-    heredoc: Option<Heredoc>,
+    /// DUP-1 / TASK-2220: heredoc body tracking, shared with
+    /// [`strip_comments`] — see [`HeredocTracker`].
+    heredoc: HeredocTracker,
 }
 
 /// An open heredoc body: the terminator that closes it, and whether the
@@ -380,11 +381,71 @@ impl Heredoc {
     }
 }
 
+/// DUP-1 / TASK-2220: the heredoc *body* state machine — open, consume,
+/// close — in exactly one place, shared by [`scan_line`] (structure scan)
+/// and [`strip_comments`] (comment blanking).
+///
+/// Both stages are line-oriented against it: each asks
+/// [`Self::consumes_line`] about the line it is about to process, and a
+/// `true` means the line belongs to a heredoc body (the terminator line
+/// included) — skipped whole by the scanner, passed through verbatim by the
+/// stripper. The opener-to-body handoff (HCL allows nothing after the
+/// opener, so the opener's own line is never body) is owned here rather
+/// than re-derived per stage: it used to exist twice, as this scanner's
+/// bare `Option<Heredoc>` and as the stripper's pending/heredoc/body-line
+/// triple with an `out.ends_with('\n')` promotion rule.
+#[derive(Default)]
+struct HeredocTracker {
+    /// An opener recognised on the current line; becomes `body` when the
+    /// next line is classified.
+    pending: Option<Heredoc>,
+    /// The body being consumed; `Some` from the first body line until the
+    /// terminator line closes it.
+    body: Option<Heredoc>,
+}
+
+impl HeredocTracker {
+    /// Record a heredoc opener recognised on the current line (by
+    /// [`heredoc_terminator`], the shared opener grammar).
+    fn open(&mut self, open: Heredoc) {
+        self.pending = Some(open);
+    }
+
+    /// Does `line` belong to a heredoc body (the terminator line included)?
+    ///
+    /// Advances the state machine: promotes a pending opener to an open
+    /// body, and closes the body when `line` is the terminator (spacing
+    /// rules per [`Heredoc::closes`], so a CRLF file and an indented `<<-`
+    /// terminator both behave).
+    fn consumes_line(&mut self, line: &str) -> bool {
+        if let Some(open) = self.pending.take() {
+            self.body = Some(open);
+        }
+        let Some(open) = self.body.as_ref() else {
+            return false;
+        };
+        if open.closes(line) {
+            self.body = None;
+        }
+        true
+    }
+
+    /// Whether a heredoc is open or pending at end of input — the premise
+    /// of the structural scan's unterminated-heredoc refusal
+    /// (PATTERN-1 / TASK-2214).
+    const fn is_open(&self) -> bool {
+        self.pending.is_some() || self.body.is_some()
+    }
+}
+
 impl ScanState {
     const fn new() -> Self {
         Self {
             stack: BlockStack::new(),
-            heredoc: None,
+            heredoc: HeredocTracker {
+                pending: None,
+                body: None,
+            },
         }
     }
 }
@@ -419,15 +480,14 @@ enum LineScan {
 /// popped a level the file never opened, and with the TASK-1765 balance check
 /// in place that silently dropped the whole file.
 fn scan_line(line: &str, state: &mut ScanState) -> LineScan {
-    if let Some(open) = state.heredoc.as_ref() {
-        // The opener's spelling decides whether an indented terminator counts
-        // (`<<-`) or only one that starts the line (`<<`). Matching HCL here
-        // matters because a body line whose *trimmed* text happens to equal
-        // the terminator would otherwise end an ordinary heredoc early, and
-        // the rest of that body would then be read as structure.
-        if open.closes(line) {
-            state.heredoc = None;
-        }
+    // DUP-1 / TASK-2220: heredoc bodies are skipped whole, classified by
+    // the same tracker [`strip_comments`] consults for each of its lines.
+    // The opener's spelling decides whether an indented terminator counts
+    // (`<<-`) or only one that starts the line (`<<`) — [`Heredoc::closes`],
+    // shared — so a body line whose *trimmed* text happens to equal the
+    // terminator cannot end an ordinary heredoc early and leak the rest of
+    // that body back in as structure.
+    if state.heredoc.consumes_line(line) {
         return LineScan::Continue;
     }
     let mut segment_start = 0usize;
@@ -462,7 +522,9 @@ fn scan_line(line: &str, state: &mut ScanState) -> LineScan {
                     .and_then(|rest| rest.strip_prefix('<'))
                     .and_then(heredoc_terminator)
                 {
-                    state.heredoc = Some(Heredoc {
+                    // DUP-1 / TASK-2220: the opener-to-body handoff is the
+                    // tracker's business; the body starts on the next line.
+                    state.heredoc.open(Heredoc {
                         terminator: terminator.to_owned(),
                         indented,
                     });
@@ -705,14 +767,15 @@ fn block_open_ident(prefix: &str) -> Option<&str> {
 /// reported ([`StripEof::UnterminatedBlockComment`]); terraform's own parser
 /// errors on both shapes rather than accepting them.
 ///
-/// PATTERN-1 / TASK-2031: a heredoc body is passed through **verbatim**. It is
-/// an unquoted string literal, so a `#` line inside it is shell or policy
-/// text, not an HCL comment, and blanking it would corrupt the very content
-/// the scanner is asked to reason about. [`scan_line`] recognises the same
-/// openers and skips the body, so nothing downstream reads it as structure.
-/// A heredoc still open at EOF is deliberately *not* part of [`StripEof`]:
-/// the structural scan owns that construct and reports it, so it has exactly
-/// one reporter.
+/// DUP-1 / TASK-2220: the walk is line-oriented — [`strip_one_line`] per
+/// line — and heredoc bodies are classified by the same [`HeredocTracker`]
+/// [`scan_line`] consults for each of its lines, so this stage no longer
+/// carries its own pending/body-line locals or opener-to-body promotion
+/// rule. A heredoc body is passed through **verbatim**: it is an unquoted
+/// string literal, so a `#` line inside it is shell or policy text, not an
+/// HCL comment. A heredoc still open at EOF is deliberately *not* part of
+/// [`StripEof`]: the structural scan owns that construct and reports it, so
+/// it has exactly one reporter.
 ///
 /// PERF-3 / TASK-1782: returns [`Cow::Borrowed`] when the content carries no
 /// comment introducer at all, so the common case allocates nothing. A file
@@ -723,119 +786,183 @@ fn strip_comments(content: &str) -> (Cow<'_, str>, StripEof) {
         return (Cow::Borrowed(content), StripEof::Clean);
     }
     let mut out = String::with_capacity(content.len());
-    // DUP-1 / TASK-2057: a plain `Chars` rather than a `Peekable<Chars>`, so
-    // `chars.as_str()` hands the *remaining slice* to [`heredoc_terminator`]
-    // and this stage recognises openers with the same function [`scan_line`]
-    // uses instead of re-walking the grammar inline. `as_str().starts_with(…)`
-    // covers the one-character lookahead `peek` used to provide.
-    let mut chars = content.chars();
-    let mut in_string = false;
-    let mut eof = StripEof::Clean;
-    // Heredoc state. `pending` holds the terminator of an opener seen on the
-    // current line; it becomes `heredoc` once the newline that begins the body
-    // has been emitted. `body_line` accumulates the current body line so the
-    // terminator can be recognised on it.
-    let mut pending: Option<Heredoc> = None;
-    let mut heredoc: Option<Heredoc> = None;
-    let mut body_line = String::new();
+    let mut state = StripState::default();
+    for line in content.split_inclusive('\n') {
+        strip_one_line(line, &mut state, &mut out);
+    }
+    // PATTERN-1 / TASK-2214 AC#2: a `"` still open at end of input — the
+    // file stopped mid-string with no final newline to trip the line-local
+    // reset in [`strip_one_line`], or on a trailing backslash — is the same
+    // malformation the reset reports; eof must not stay Clean for it.
+    if state.in_string {
+        state.eof = StripEof::UnterminatedString;
+    }
+    // PATTERN-1 / TASK-2214 AC#2/#5: a `/*` still open at end of input
+    // blanked the remainder as comment — the file is refused, not silently
+    // accepted with the tail missing.
+    if state.in_block_comment {
+        state.eof = StripEof::UnterminatedBlockComment;
+    }
+    (Cow::Owned(out), state.eof)
+}
+
+/// Cross-line state [`strip_one_line`] carries from one line to the next
+/// (DUP-1 / TASK-2220): the shared heredoc tracker, the line-local string
+/// flag, the cross-line block-comment flag, and the first malformation seen.
+#[derive(Default)]
+struct StripState {
+    heredoc: HeredocTracker,
+    in_string: bool,
+    in_block_comment: bool,
+    eof: StripEof,
+}
+
+/// Strip comments from one line (with its trailing newline, when present) —
+/// the one named stage of [`strip_comments`].
+///
+/// DUP-1 / TASK-2220: the line is classified against the shared
+/// [`HeredocTracker`] first — exactly the question [`scan_line`] asks of
+/// each of its lines — so a heredoc body passes through verbatim before any
+/// comment grammar is consulted. A `/*` left open by an earlier line is
+/// blanked as comment continuation *before* that classification, so a block
+/// comment that straddles the opener-to-body handoff swallows the body's
+/// first lines exactly as the previous single-pass walk did.
+fn strip_one_line(line: &str, state: &mut StripState, out: &mut String) {
+    // The match names both arms' payloads symmetrically (the line with and
+    // without its newline); `map_or` would bury the common shaped pair in a
+    // closure.
+    #[allow(clippy::option_if_let_else)]
+    let (text, newline) = match line.strip_suffix('\n') {
+        Some(text) => (text, "\n"),
+        None => (line, ""),
+    };
+    let started_in_block_comment = state.in_block_comment;
+    let mut chars = text.chars();
+    if state.in_block_comment {
+        // A `/*` on an earlier line: blank this line's continuation up to
+        // the closing `*/`; until it arrives the whole line is comment.
+        if !blank_block_comment_line(&mut chars, out) {
+            out.push_str(newline);
+            return;
+        }
+        state.in_block_comment = false;
+    }
+    // Classification is a *line-start* question: a line that began inside
+    // a block comment and closed it mid-line is still partly comment, so
+    // its tail is walked as code below and a pending heredoc hands off to
+    // its body on the next line — the same handoff the previous
+    // single-pass walk had.
+    if !started_in_block_comment && state.heredoc.consumes_line(text) {
+        // PATTERN-1 / TASK-2031: a heredoc body is an unquoted string
+        // literal — a `#` line inside it is shell or policy text, not an
+        // HCL comment, and blanking it would corrupt the very content the
+        // scanner is asked to reason about.
+        out.push_str(text);
+        out.push_str(newline);
+        return;
+    }
+    strip_code_chars(&mut chars, state, out);
+    // PATTERN-1 / TASK-2214: quoted strings are line-local in HCL. A string
+    // still open at the line's newline is malformed input: report it and
+    // reset, instead of carrying the string state into the next line's
+    // comment stripping. A final line without a trailing newline is left
+    // open here for [`strip_comments`]' end-of-input check.
+    if state.in_string && !newline.is_empty() {
+        state.in_string = false;
+        state.eof = StripEof::UnterminatedString;
+    }
+    out.push_str(newline);
+}
+
+/// Walk the code portion of one already-classified line, blanking the
+/// comment forms it carries and recording opener/string state — the
+/// char-level stage of [`strip_one_line`].
+///
+/// All three comment forms are resolved in the same pass, outside
+/// double-quoted strings, because they interact: a `/*` inside a `# …`
+/// comment must not open a block comment that blanks the rest of the file
+/// (terraform's own lexer resolves `#` / `//` before `/*` for the same
+/// reason), and a `/*`, `#` or `//` inside a quoted string stays literal.
+fn strip_code_chars(chars: &mut std::str::Chars<'_>, state: &mut StripState, out: &mut String) {
     while let Some(c) = chars.next() {
-        if pending.is_some() && out.ends_with('\n') {
-            heredoc = pending.take();
-            body_line.clear();
-        }
-        if let Some(open) = heredoc.as_ref() {
-            out.push(c);
-            if c == '\n' {
-                if open.closes(&body_line) {
-                    heredoc = None;
-                }
-                body_line.clear();
-            } else {
-                body_line.push(c);
-            }
-            continue;
-        }
-        if in_string {
+        if state.in_string {
             out.push(c);
             if c == '\\' {
                 if let Some(next) = chars.next() {
                     // Preserve `\"` and other escapes verbatim — we only
                     // care about not exiting the string on an escaped quote.
                     out.push(next);
-                    // PATTERN-1 / TASK-2214: an escaped newline still ends
-                    // the line, so the (line-local) string state must not
-                    // leak past it either.
-                    if next == '\n' {
-                        in_string = false;
-                        eof = StripEof::UnterminatedString;
-                    }
                 }
-                continue;
-            }
-            if c == '"' {
-                in_string = false;
-            } else if c == '\n' {
-                // PATTERN-1 / TASK-2214 AC#4: HCL quoted strings are
-                // line-local. An unescaped newline inside one is malformed
-                // input; report it and reset, instead of carrying the string
-                // state into the next line's comment stripping.
-                in_string = false;
-                eof = StripEof::UnterminatedString;
+            } else if c == '"' {
+                state.in_string = false;
             }
             continue;
         }
         match c {
             '"' => {
-                in_string = true;
+                state.in_string = true;
                 out.push('"');
             }
-            '#' => blank_line_comment(&mut chars, &mut out, 1),
+            '#' => blank_line_comment(chars, out, 1),
             '/' if chars.as_str().starts_with('/') => {
                 chars.next();
-                blank_line_comment(&mut chars, &mut out, 2);
+                blank_line_comment(chars, out, 2);
             }
             '/' if chars.as_str().starts_with('*') => {
                 chars.next();
-                if !blank_block_comment(&mut chars, &mut out) {
-                    eof = StripEof::UnterminatedBlockComment;
+                out.push(' ');
+                out.push(' ');
+                if !blank_block_comment_line(chars, out) {
+                    // PATTERN-1 / TASK-2214: the comment runs past this
+                    // line; the flag makes the next line blank as comment
+                    // continuation, and a `/*` that never closes is
+                    // reported at end of input.
+                    state.in_block_comment = true;
                 }
             }
             '<' if chars.as_str().starts_with('<') => {
-                out.push('<');
-                let _ = chars.next();
-                out.push('<');
-                // DUP-1 / TASK-2057: one recogniser for the opener grammar.
-                // `Chars::as_str` borrows the *content*, not the iterator, so
-                // the matched terminator outlives the reassignment below.
-                let after_marker = chars.as_str();
-                if let Some((terminator, indented)) = heredoc_terminator(after_marker) {
-                    // The match is a prefix of `after_marker` — the optional
-                    // `-` plus the terminator — and both ends sit on char
-                    // boundaries, so the two `get`s always succeed.
-                    let consumed = usize::from(indented).saturating_add(terminator.len());
-                    if let (Some(opener), Some(rest)) =
-                        (after_marker.get(..consumed), after_marker.get(consumed..))
-                    {
-                        out.push_str(opener);
-                        pending = Some(Heredoc {
-                            terminator: terminator.to_owned(),
-                            indented,
-                        });
-                        chars = rest.chars();
-                    }
-                }
+                push_heredoc_opener(chars, out, &mut state.heredoc);
             }
             _ => out.push(c),
         }
     }
-    // PATTERN-1 / TASK-2214 AC#2: a `"` still open at end of input — the file
-    // stopped mid-string with no final newline to trip the line-local reset
-    // above, or on a trailing backslash — is the same malformation the reset
-    // reports; eof must not stay Clean for it.
-    if in_string {
-        eof = StripEof::UnterminatedString;
+}
+
+/// Recognise and emit a `<<EOT` / `<<-EOT` heredoc opener at the current
+/// position, handing it to the shared [`HeredocTracker`].
+///
+/// DUP-1 / TASK-2057: the opener grammar comes from [`heredoc_terminator`],
+/// the single recogniser, shared with [`scan_line`] — this helper consumes
+/// and re-emits whatever it matches so byte offsets do not shift. DUP-1 /
+/// TASK-2220: the opener-to-body handoff is the tracker's business; the
+/// body starts on the *next* line.
+fn push_heredoc_opener(
+    chars: &mut std::str::Chars<'_>,
+    out: &mut String,
+    heredoc: &mut HeredocTracker,
+) {
+    out.push('<');
+    let _ = chars.next();
+    out.push('<');
+    // `Chars::as_str` borrows the line, not the iterator, so the matched
+    // terminator outlives the reassignment below.
+    let after_marker = chars.as_str();
+    if let Some((terminator, indented)) = heredoc_terminator(after_marker) {
+        // The match is a prefix of `after_marker` — the optional `-` plus
+        // the terminator — and both ends sit on char boundaries, so the
+        // two `get`s always succeed.
+        let consumed = usize::from(indented).saturating_add(terminator.len());
+        if let (Some(opener), Some(rest)) =
+            (after_marker.get(..consumed), after_marker.get(consumed..))
+        {
+            out.push_str(opener);
+            heredoc.open(Heredoc {
+                terminator: terminator.to_owned(),
+                indented,
+            });
+            *chars = rest.chars();
+        }
     }
-    (Cow::Owned(out), eof)
 }
 
 /// End-of-input state of [`strip_comments`] for the constructs only the
@@ -846,9 +973,10 @@ fn strip_comments(content: &str) -> (Cow<'_, str>, StripEof) {
 /// either, instead of the silent degradation each used to produce (an
 /// unterminated `/*` blanking the remainder; an unterminated `"` disabling
 /// comment stripping for the rest of the file).
-#[derive(Debug, PartialEq, Eq)]
+#[derive(Debug, Default, PartialEq, Eq)]
 enum StripEof {
     /// No comment or string construct was left open at end of input.
+    #[default]
     Clean,
     /// A `/* … */` block comment never closed.
     UnterminatedBlockComment,
@@ -856,33 +984,29 @@ enum StripEof {
     UnterminatedString,
 }
 
-/// Blank a `#` / `//` comment through to (and excluding) the newline, which is
-/// emitted verbatim so line-based logic downstream stays aligned.
+/// Blank a `#` / `//` comment through to the end of its line.
 ///
-/// `marker_len` is the width of the introducer already consumed by the caller,
-/// replaced with the same number of spaces so byte offsets do not shift.
+/// `marker_len` is the width of the introducer already consumed by the
+/// caller, replaced with the same number of spaces so byte offsets do not
+/// shift. DUP-1 / TASK-2220: the walk is line-local, so the line's newline
+/// (when present) is appended by the caller after this returns.
 fn blank_line_comment(chars: &mut std::str::Chars<'_>, out: &mut String, marker_len: usize) {
     for _ in 0..marker_len {
         out.push(' ');
     }
-    for inner in chars.by_ref() {
-        if inner == '\n' {
-            out.push('\n');
-            return;
-        }
+    for _ in chars.by_ref() {
         out.push(' ');
     }
 }
 
-/// Blank a `/* … */` span, preserving newlines. The caller has already
-/// consumed the `/*`, whose two bytes are re-emitted as spaces.
+/// Blank the rest of a `/* … */` block comment on the current line. The
+/// caller has already consumed and re-emitted the `/*` as two spaces.
 ///
-/// PATTERN-1 / TASK-2214: returns whether the comment closed before end of
-/// input, so an unterminated `/*` is reported instead of silently blanking
-/// the remainder of the file.
-fn blank_block_comment(chars: &mut std::str::Chars<'_>, out: &mut String) -> bool {
-    out.push(' ');
-    out.push(' ');
+/// Returns whether the closing `*/` was found on this line; `false` means
+/// the comment continues on the next line, which the caller records as
+/// cross-line state. Newlines are preserved by the caller appending the
+/// line's own newline — the helper never sees one (DUP-1 / TASK-2220).
+fn blank_block_comment_line(chars: &mut std::str::Chars<'_>, out: &mut String) -> bool {
     while let Some(inner) = chars.next() {
         if inner == '*' && chars.as_str().starts_with('/') {
             chars.next();
@@ -890,11 +1014,7 @@ fn blank_block_comment(chars: &mut std::str::Chars<'_>, out: &mut String) -> boo
             out.push(' ');
             return true;
         }
-        if inner == '\n' {
-            out.push('\n');
-        } else {
-            out.push(' ');
-        }
+        out.push(' ');
     }
     false
 }
@@ -1649,7 +1769,7 @@ terraform {
             let mut state = ScanState::new();
             let _ = scan_line(&format!("x = <<{after_marker}"), &mut state);
             assert_eq!(
-                state.heredoc.is_some(),
+                state.heredoc.is_open(),
                 expected.is_some(),
                 "scan_line disagrees with heredoc_terminator on `<<{after_marker}`"
             );
@@ -1707,6 +1827,42 @@ terraform {
         assert!(
             !stripped.contains("a real comment"),
             "an HCL comment outside the heredoc must still be blanked; got: {stripped}"
+        );
+    }
+
+    /// DUP-1 / TASK-2220: a `/*` that straddles the opener-to-body handoff
+    /// keeps the previous single-pass semantics: the comment continuation is
+    /// blanked (including the tail after a mid-line `*/`), and the heredoc
+    /// body starts on the line *after* the comment closes — classification
+    /// is a line-start question, so a partly-comment line is never half
+    /// body. The exact bytes are pinned because the line-oriented rewrite
+    /// could regress this by classifying the closing line as body.
+    #[test]
+    fn strip_comments_block_comment_straddling_the_heredoc_handoff() {
+        let content = "x = <<EOT /* c\nc */ t\nbody\nEOT\n# real\n";
+        let (stripped, eof) = strip_comments(content);
+        assert_eq!(eof, StripEof::Clean);
+        assert_eq!(
+            stripped, "x = <<EOT     \n     t\nbody\nEOT\n      \n",
+            "comment continuation blanked, body verbatim from the next line; got: {stripped:?}"
+        );
+    }
+
+    /// DUP-1 / TASK-2220: CRLF input — the shared tracker classifies the
+    /// line without its `\n`, and `Heredoc::closes` trims the trailing `\r`,
+    /// so a CRLF terminator closes the body and `\r` bytes round-trip.
+    #[test]
+    fn strip_comments_passes_crlf_heredoc_bodies_through() {
+        let content = "x = <<EOT\r\nbody\r\nEOT\r\n# real\r\n";
+        let (stripped, eof) = strip_comments(content);
+        assert_eq!(eof, StripEof::Clean);
+        assert!(
+            stripped.contains("body\r\nEOT\r\n"),
+            "CRLF body and terminator must survive verbatim; got: {stripped:?}"
+        );
+        assert!(
+            !stripped.contains("real"),
+            "a CRLF comment after the heredoc must still be blanked; got: {stripped:?}"
         );
     }
 
