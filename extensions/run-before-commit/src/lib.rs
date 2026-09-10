@@ -133,6 +133,17 @@ mod tests {
     use ops_hook_common::test_helpers::{CwdGuard, EnvGuard};
     use std::path::Path;
 
+    // TEST-18 / TASK-2119: `EnvGuard`/`CwdGuard` mutate process-global state
+    // (environ, cwd), and `std::process::Command` snapshots both while
+    // building a child. `serial_test::serial` serializes its members against
+    // *each other only*, so a test that spawns a subprocess without the
+    // attribute can race a serial env/cwd mutator on another harness thread —
+    // a setenv/getenv data race, not mere flakiness. Every test in this
+    // module that spawns a child process (directly or through
+    // `has_staged_files_with`/`has_staged_files`) therefore MUST carry
+    // `#[serial_test::serial]`, same key as the mutating tests. A new
+    // spawning test that omits it silently opts out of this guarantee.
+
     /// Run the shared probe against an explicit `program`/`dir` pair.
     ///
     /// TEST-5 / TASK-1908: this covers **only** `ops_hook_common`'s bounded
@@ -194,6 +205,7 @@ mod tests {
 
     #[cfg(unix)]
     #[test]
+    #[serial_test::serial]
     fn hook_script_is_valid_posix_sh() {
         let dir = tempfile::tempdir().expect("tempdir");
         let script = dir.path().join("pre-commit");
@@ -210,16 +222,21 @@ mod tests {
     /// the reinstall command on stderr rather than surfacing a bare 127.
     #[cfg(unix)]
     #[test]
+    #[serial_test::serial]
     fn hook_script_reports_a_missing_ops_binary_by_name() {
         let dir = tempfile::tempdir().expect("tempdir");
         let script = dir.path().join("pre-commit");
         std::fs::write(&script, HOOK_SCRIPT).unwrap();
 
-        // PATH deliberately excludes the ambient one so a developer's own
-        // installed `ops` cannot satisfy the probe.
+        // TEST-15 / TASK-2113: PATH points only at this test's own empty
+        // tempdir, so the `command -v ops` probe fails unconditionally — an
+        // empty directory cannot contain `ops` on any machine, unlike
+        // /usr/bin:/bin, which a distro package or CI image may well occupy.
+        // The script's prologue is shell builtins only, so nothing else on
+        // PATH is consulted before the probe.
         let out = std::process::Command::new("/bin/sh")
             .arg(&script)
-            .env("PATH", "/usr/bin:/bin")
+            .env("PATH", dir.path())
             .output()
             .unwrap();
 
@@ -246,15 +263,19 @@ mod tests {
     /// work. Driven with `ops` off PATH, which is the situation in question.
     #[cfg(unix)]
     #[test]
+    #[serial_test::serial]
     fn hook_script_honours_the_bypass_when_ops_is_missing() {
         let dir = tempfile::tempdir().expect("tempdir");
         let script = dir.path().join("pre-commit");
         std::fs::write(&script, HOOK_SCRIPT).unwrap();
 
+        // TEST-15 / TASK-2113: PATH contains only the empty tempdir holding
+        // the script, so `ops` is unfindable on every machine and the
+        // fall-through can never exec a real ops binary.
         for value in ["1", "true", "TRUE", "Yes", "on"] {
             let out = std::process::Command::new("/bin/sh")
                 .arg(&script)
-                .env("PATH", "/usr/bin:/bin")
+                .env("PATH", dir.path())
                 .env(SKIP_ENV_VAR, value)
                 .output()
                 .unwrap();
@@ -269,7 +290,7 @@ mod tests {
         // A value `should_skip` rejects must still reach the probe and fail.
         let out = std::process::Command::new("/bin/sh")
             .arg(&script)
-            .env("PATH", "/usr/bin:/bin")
+            .env("PATH", dir.path())
             .env(SKIP_ENV_VAR, "maybe")
             .output()
             .unwrap();
@@ -302,6 +323,17 @@ mod tests {
         let mut buf = Vec::new();
         let path = install_hook(&git_dir, &mut buf).expect("install_hook");
 
+        // TEST-5 / TASK-2133: the returned path must be the pre-commit hook
+        // git actually runs — a wrong `hook_filename` in `HOOK_CONFIG` would
+        // write a different file and leave the legacy hook in place, with
+        // the content assertions below passing against the wrong path.
+        assert_eq!(
+            path.file_name(),
+            Some(std::ffi::OsStr::new("pre-commit")),
+            "install must target .git/hooks/pre-commit, got: {}",
+            path.display()
+        );
+
         let content = std::fs::read_to_string(&path).unwrap();
         assert_eq!(content, HOOK_SCRIPT);
 
@@ -324,11 +356,94 @@ mod tests {
         let mut buf = Vec::new();
         let path = install_hook(&git_dir, &mut buf).expect("install_hook");
 
+        // TEST-5 / TASK-2133: the returned path must be the pre-commit hook
+        // git actually runs — a wrong `hook_filename` in `HOOK_CONFIG` would
+        // write a different file and leave the legacy hook in place, with
+        // the content assertions below passing against the wrong path.
+        assert_eq!(
+            path.file_name(),
+            Some(std::ffi::OsStr::new("pre-commit")),
+            "install must target .git/hooks/pre-commit, got: {}",
+            path.display()
+        );
+
         let content = std::fs::read_to_string(&path).unwrap();
         assert_eq!(content, HOOK_SCRIPT);
 
         let output = String::from_utf8(buf).unwrap();
         assert!(output.contains("Updating outdated"));
+    }
+
+    /// TEST-5 / TASK-2133: the third legacy marker — `ops run-before-commit`,
+    /// the name this crate itself installs — must also upgrade in place.
+    #[test]
+    fn install_hook_updates_run_before_commit_hook() {
+        let dir = tempfile::tempdir().expect("tempdir");
+        let git_dir = dir.path().join(".git");
+        std::fs::create_dir_all(git_dir.join("hooks")).unwrap();
+        std::fs::write(git_dir.join("HEAD"), "ref: refs/heads/main\n").unwrap();
+        std::fs::write(
+            git_dir.join("hooks/pre-commit"),
+            "#!/bin/sh\nexec ops run-before-commit\n",
+        )
+        .unwrap();
+
+        let mut buf = Vec::new();
+        let path = install_hook(&git_dir, &mut buf).expect("install_hook");
+
+        assert_eq!(
+            path.file_name(),
+            Some(std::ffi::OsStr::new("pre-commit")),
+            "install must target .git/hooks/pre-commit, got: {}",
+            path.display()
+        );
+        assert_eq!(std::fs::read_to_string(&path).unwrap(), HOOK_SCRIPT);
+        assert!(String::from_utf8(buf)
+            .unwrap()
+            .contains("Updating outdated"));
+    }
+
+    /// TEST-5 / TASK-2133: `HOOK_CONFIG` is the macro-argument bundle a
+    /// copy-paste of this crate into a new hook gets wrong — mirror of
+    /// `run-before-push`'s `hook_config_pins_every_macro_argument`.
+    #[test]
+    fn hook_config_pins_every_macro_argument() {
+        assert_eq!(HOOK_CONFIG.hook_filename, "pre-commit");
+        assert_eq!(HOOK_CONFIG.skip_env_var, SKIP_ENV_VAR);
+        assert_eq!(SKIP_ENV_VAR, "SKIP_OPS_RUN_BEFORE_COMMIT");
+        assert_eq!(HOOK_CONFIG.name, NAME);
+        assert_eq!(HOOK_CONFIG.hook_script, HOOK_SCRIPT);
+
+        assert!(!HOOK_CONFIG.command_help.is_empty());
+        let help = HOOK_CONFIG.command_help.to_ascii_lowercase();
+        assert!(
+            help.contains("commit") && !help.contains("push"),
+            "command_help must describe the commit hook, got: {}",
+            HOOK_CONFIG.command_help
+        );
+    }
+
+    /// TEST-5 / TASK-2133: a `legacy_markers` list copied from the push
+    /// crate would make `install` refuse to upgrade a real legacy
+    /// pre-commit hook — or claim an unrelated one.
+    #[test]
+    fn hook_config_legacy_markers_only_match_commit_hooks() {
+        assert!(!HOOK_CONFIG.legacy_markers.is_empty());
+        for marker in HOOK_CONFIG.legacy_markers {
+            assert!(
+                marker.contains("commit") && !marker.contains("push"),
+                "legacy marker must refer to a commit hook, got: {marker}"
+            );
+        }
+        assert_eq!(
+            HOOK_CONFIG.legacy_markers,
+            &[
+                "ops run-before-commit",
+                "ops before-commit",
+                "ops pre-commit"
+            ],
+            "the marker list itself is the upgrade contract; changes must be deliberate"
+        );
     }
 
     // -- has_staged_files --
@@ -495,6 +610,7 @@ mod tests {
 
     #[cfg(unix)]
     #[test]
+    #[serial_test::serial]
     fn has_staged_files_lossily_decodes_invalid_utf8_stderr() {
         let dir = tempfile::tempdir().expect("tempdir");
         let fake_git = write_fake_git(
@@ -511,6 +627,7 @@ mod tests {
     }
 
     #[test]
+    #[serial_test::serial]
     fn has_staged_files_errors_when_git_binary_missing() {
         let dir = tempfile::tempdir().expect("tempdir");
         let err = has_staged_files_with("git-nonexistent-binary-xyzzy", dir.path()).unwrap_err();
@@ -524,6 +641,7 @@ mod tests {
     /// indefinitely.
     #[cfg(unix)]
     #[test]
+    #[serial_test::serial]
     fn has_staged_files_times_out_on_hanging_git() {
         let dir = tempfile::tempdir().expect("tempdir");
         let fake_git = write_fake_git(dir.path(), "git-hang", "#!/bin/sh\nsleep 30\n");
@@ -556,6 +674,7 @@ mod tests {
     /// ASYNC-6 / TASK-0864: late stderr captured within drain grace.
     #[cfg(unix)]
     #[test]
+    #[serial_test::serial]
     fn has_staged_files_captures_late_stderr_within_drain_grace() {
         let dir = tempfile::tempdir().expect("tempdir");
         let fake_git = write_fake_git(
@@ -601,6 +720,7 @@ mod tests {
     /// assertion here at all: the timeout itself is the hang detector.
     #[cfg(unix)]
     #[test]
+    #[serial_test::serial]
     fn has_staged_files_handles_large_output_without_deadlock() {
         let dir = tempfile::tempdir().expect("tempdir");
         let fake_git = write_fake_git(
