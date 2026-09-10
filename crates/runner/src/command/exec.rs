@@ -333,8 +333,7 @@ async fn spawn_capped(
         tracing::warn!(
             grace_secs = drain_grace.as_secs(),
             env = DRAIN_GRACE_ENV,
-            "captured output still open {}s after the child exited; killing the process group",
-            drain_grace.as_secs()
+            "captured output still open after the child exited; killing the process group"
         );
         // Straight to SIGKILL: these are orphans of an already-exited
         // leader, there is nothing left to shut down gracefully, and the
