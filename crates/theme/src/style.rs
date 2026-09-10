@@ -20,12 +20,18 @@ mod sgr;
 mod strip;
 
 pub(crate) use sgr::color_enabled;
-pub use sgr::{apply_style, apply_style_gated, apply_with_prefix, precompute_sgr_prefix};
+pub use sgr::{
+    apply_style, apply_style_gated, apply_with_prefix, apply_with_prefix_gated,
+    precompute_sgr_prefix,
+};
 // The pure gate resolver is exercised by the crate's own tests (CL-3 /
 // TASK-1976); production code always goes through `color_enabled`.
 #[cfg(test)]
 pub(crate) use sgr::color_enabled_for;
-pub use strip::{strip_ansi, truncate_to_width, visible_width, ELLIPSIS, TAB_REPLACEMENT};
+pub use strip::{
+    strip_ansi, strip_ansi_preserving_raw, truncate_to_width, visible_width, ELLIPSIS,
+    TAB_REPLACEMENT,
+};
 
 #[cfg(test)]
 mod tests {

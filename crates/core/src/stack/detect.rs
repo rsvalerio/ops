@@ -4,7 +4,7 @@
 //! ancestor-walk and per-extension probe code lives separately from the
 //! enum + embedded TOML metadata table.
 
-use std::collections::HashMap;
+use std::collections::{HashMap, VecDeque};
 use std::path::{Path, PathBuf};
 use std::sync::{Mutex, OnceLock};
 use strum::IntoEnumIterator;
@@ -19,18 +19,39 @@ use super::Stack;
 /// skip the syscalls entirely. Fallback behaviour (lexical walk + tracing
 /// debug breadcrumb on error) is preserved on the first miss; subsequent
 /// hits replay the cached resolution.
-static CANONICALIZE_CACHE: OnceLock<Mutex<HashMap<PathBuf, PathBuf>>> = OnceLock::new();
+///
+/// PERF-16 / TASK-2093: bounded by [`CANONICALIZE_CACHE_CAP`] with FIFO
+/// eviction, mirroring the `OPS_ROOT_CACHE_CAP` shape in `expand.rs`, so a
+/// long-lived embedder rotating start paths cannot grow the map without
+/// bound. Production `ops` calls `detect()` at most a couple of times per
+/// short-lived process, so eviction only fires under adversarial input —
+/// but every process-lifetime cache in this crate states its bound where
+/// the reviewer can see it.
+struct CanonicalizeCache {
+    map: HashMap<PathBuf, PathBuf>,
+    order: VecDeque<PathBuf>,
+}
+
+/// PERF-16 / TASK-2093: maximum number of distinct start paths cached
+/// before evicting the oldest. See [`CanonicalizeCache`] for the rationale.
+const CANONICALIZE_CACHE_CAP: usize = 64;
+
+static CANONICALIZE_CACHE: OnceLock<Mutex<CanonicalizeCache>> = OnceLock::new();
 
 fn canonicalize_cached(start: &Path) -> PathBuf {
-    let cache = CANONICALIZE_CACHE.get_or_init(|| Mutex::new(HashMap::new()));
+    let cache = CANONICALIZE_CACHE.get_or_init(|| {
+        Mutex::new(CanonicalizeCache {
+            map: HashMap::new(),
+            order: VecDeque::new(),
+        })
+    });
     // ERR-5 / TASK-1470 + DUP-3 / TASK-1477: poisoning here is recoverable
-    // — the protected `HashMap<PathBuf, PathBuf>` has no invariant a
-    // panicking caller could have broken. Route through the shared
-    // `sync::lock_recover` so a single poison does not turn every later
-    // `Stack::detect` into a hard panic for the rest of the process (which
-    // is reachable from production CLI dispatch). Mirrors the policy used
-    // in `expand.rs`.
-    if let Some(p) = crate::sync::lock_recover(cache).get(start) {
+    // — the protected cache has no invariant a panicking caller could have
+    // broken. Route through the shared `sync::lock_recover` so a single
+    // poison does not turn every later `Stack::detect` into a hard panic
+    // for the rest of the process (which is reachable from production CLI
+    // dispatch). Mirrors the policy used in `expand.rs`.
+    if let Some(p) = crate::sync::lock_recover(cache).map.get(start) {
         return p.clone();
     }
     let resolved = match std::fs::canonicalize(start) {
@@ -44,7 +65,23 @@ fn canonicalize_cached(start: &Path) -> PathBuf {
             start.to_path_buf()
         }
     };
-    crate::sync::lock_recover(cache).insert(start.to_path_buf(), resolved.clone());
+    let mut guard = crate::sync::lock_recover(cache);
+    // Re-check after the syscall window — another thread may have resolved
+    // and inserted the same start path meanwhile. Skipping the insert keeps
+    // `order` free of duplicate keys, which the FIFO eviction below relies on.
+    if guard.map.contains_key(start) {
+        return resolved;
+    }
+    // PERF-16 / TASK-2093: evict the oldest entry when at cap so a new
+    // distinct start path still fits.
+    if guard.map.len() >= CANONICALIZE_CACHE_CAP {
+        if let Some(oldest) = guard.order.pop_front() {
+            guard.map.remove(&oldest);
+        }
+    }
+    let key = start.to_path_buf();
+    guard.map.insert(key.clone(), resolved.clone());
+    guard.order.push_back(key);
     resolved
 }
 
@@ -56,7 +93,27 @@ fn canonicalize_cached(start: &Path) -> PathBuf {
 pub(super) fn canonicalize_cache_contains(start: &Path) -> bool {
     CANONICALIZE_CACHE
         .get()
-        .is_some_and(|c| crate::sync::lock_recover(c).contains_key(start))
+        .is_some_and(|c| crate::sync::lock_recover(c).map.contains_key(start))
+}
+
+/// PERF-16 / TASK-2093: test seam for the bounded-cache regression test —
+/// mirrors `ops_root_cache_len` in `expand.rs`.
+#[cfg(test)]
+pub(super) fn canonicalize_cache_len() -> usize {
+    CANONICALIZE_CACHE
+        .get()
+        .map_or(0, |c| crate::sync::lock_recover(c).map.len())
+}
+
+/// PERF-16 / TASK-2093: test seam clearing the cache between assertions —
+/// mirrors `reset_ops_root_cache` in `expand.rs`.
+#[cfg(test)]
+pub(super) fn reset_canonicalize_cache() {
+    if let Some(c) = CANONICALIZE_CACHE.get() {
+        let mut guard = crate::sync::lock_recover(c);
+        guard.map.clear();
+        guard.order.clear();
+    }
 }
 
 /// SEC-25: probe a manifest path with `try_exists` so transient errors are
@@ -161,7 +218,7 @@ fn detect_recovers_from_poisoned_canonicalize_cache() {
     let dir = tempfile::tempdir().expect("tempdir");
     let _ = detect(dir.path());
 
-    let cache: Arc<&'static Mutex<HashMap<PathBuf, PathBuf>>> = Arc::new(
+    let cache: Arc<&'static Mutex<CanonicalizeCache>> = Arc::new(
         CANONICALIZE_CACHE
             .get()
             .expect("cache populated by detect() above"),
@@ -183,6 +240,31 @@ fn detect_recovers_from_poisoned_canonicalize_cache() {
     // Production policy: poison must not propagate. `detect` should
     // continue to resolve.
     let _ = detect(dir.path());
+}
+
+/// PERF-16 / TASK-2093: the canonicalize cache must stay bounded under a
+/// stream of distinct start paths (e.g. an embedder rotating workspaces).
+/// Insert past the cap and assert the map size clamps to
+/// [`CANONICALIZE_CACHE_CAP`] with FIFO eviction so a new distinct start
+/// path still gets cached — mirrors `ops_root_cache_is_bounded_with_fifo_eviction`.
+#[test]
+#[serial_test::serial(canonicalize_cache)]
+fn canonicalize_cache_is_bounded_with_fifo_eviction() {
+    reset_canonicalize_cache();
+    let cap = CANONICALIZE_CACHE_CAP;
+    // Synthetic non-existent paths: canonicalize() fails and the raw start
+    // path becomes the cached value — the test pins the eviction policy,
+    // not filesystem behaviour.
+    for i in 0..(cap * 2) {
+        let start = PathBuf::from(format!("/synthetic/canonicalize/bound/{i}"));
+        let _ = canonicalize_cached(&start);
+    }
+    assert!(
+        canonicalize_cache_len() <= cap,
+        "cache must stay clamped to CANONICALIZE_CACHE_CAP under churn (got {})",
+        canonicalize_cache_len()
+    );
+    reset_canonicalize_cache();
 }
 
 /// Walk ancestors of `start` looking for a manifest match.

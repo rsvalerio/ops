@@ -5,7 +5,7 @@ use std::process::ExitCode;
 
 use ops_core::config::CommandSpec;
 use ops_core::ui::sanitise_line;
-use ops_runner::command::{is_sensitive_env_key, looks_like_secret_value_public};
+use ops_runner::command::{is_sensitive_env_key, looks_like_secret_value};
 
 /// Route an audit-channel value through `sanitise_line`
 /// so ANSI clear-screen / cursor-move / NUL bytes embedded in a
@@ -104,12 +104,11 @@ pub fn print_exec_spec(
             // standard prefixes (TOKEN, SECRET, PASSWORD, KEY, AUTH, …) so
             // key-based redaction kicks in even if the value heuristic misses.
             let expanded = vars.try_expand(v)?;
-            let display_val =
-                if is_sensitive_env_key(k) || looks_like_secret_value_public(&expanded) {
-                    "***REDACTED***".to_string()
-                } else {
-                    audit_safe(&expanded)
-                };
+            let display_val = if is_sensitive_env_key(k) || looks_like_secret_value(&expanded) {
+                "***REDACTED***".to_string()
+            } else {
+                audit_safe(&expanded)
+            };
             writeln!(w, "        {}={}", audit_safe(k), display_val)?;
         }
     }

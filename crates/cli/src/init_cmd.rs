@@ -20,7 +20,7 @@ fn run_init_to(
     // changes mid-call (signal handler, threaded init template). Using a
     // relative ".ops.toml" while reading current_dir separately leaves a
     // small TOCTOU window between the two filesystem ops.
-    let cwd = std::env::current_dir()?;
+    let cwd = crate::cwd()?;
     let path = cwd.join(".ops.toml");
     let content = ops_core::config::init_template(&cwd, sections)?;
     match write_init(&path, content.as_bytes(), force) {

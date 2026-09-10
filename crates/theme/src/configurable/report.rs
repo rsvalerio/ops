@@ -13,7 +13,7 @@ use super::boxed::{build_horizontal_border, BorderArgs};
 use super::ConfigurableTheme;
 use crate::render::sanitise;
 use crate::step_line_theme::SlotLine;
-use crate::style::apply_with_prefix;
+use crate::style::{apply_with_prefix_gated, color_enabled};
 
 impl ConfigurableTheme {
     /// Icon glyph for a [`ReportStatus`], from the theme's `[report]` block.
@@ -44,10 +44,15 @@ impl ConfigurableTheme {
     /// Honors the active layout: flat themes render a bare title + rows +
     /// summary; boxed themes draw the same enclosing frame the runner uses,
     /// with the report title in the top border and the footer in the bottom.
+    ///
+    /// PERF-3 / TASK-2082: resolves the colour gate once for the whole
+    /// report — title, borders, every row and the footer — instead of once
+    /// per styled segment.
     #[must_use]
     pub fn render_report(&self, report: &Report, columns: u16) -> Vec<String> {
+        let color = color_enabled();
         if matches!(self.config.layout_kind, LayoutKind::Boxed) {
-            return self.render_report_boxed(report, columns);
+            return self.render_report_boxed(report, columns, color);
         }
 
         let pad = self.left_pad_str();
@@ -56,12 +61,17 @@ impl ConfigurableTheme {
         // SEC-21: the title is producer-supplied text on the same footing as
         // the detail lines below — sanitise before it is styled or measured.
         let safe_title = sanitise(&report.title);
-        let title = apply_with_prefix(&safe_title, self.report_title_prefix.as_deref());
+        let title =
+            apply_with_prefix_gated(&safe_title, self.report_title_prefix.as_deref(), color);
         out.push(format!("{pad}{title}"));
         out.push(String::new());
         for row in &report.rows {
             let (label, result) = sanitised_row_text(row);
-            out.push(self.render_slot(&self.report_slot(row, &label, &result), columns));
+            out.push(self.render_slot_gated(
+                &self.report_slot(row, &label, &result),
+                columns,
+                color,
+            ));
             for detail in &row.details {
                 // SEC-21 / TASK-1965: report details are producer-supplied
                 // text (often captured tool output) rendered verbatim.
@@ -74,7 +84,7 @@ impl ConfigurableTheme {
         // Blank line before the summary, matching the runner's flat layout
         // (`✓ … 5.97s` ⏎ blank ⏎ ` Done …`).
         out.push(String::new());
-        out.push(self.render_summary_text(&report.footer_text()));
+        out.push(self.render_summary_text_gated(&report.footer_text(), color));
         out
     }
 
@@ -83,7 +93,7 @@ impl ConfigurableTheme {
     /// `render_and_wrap_step` does — render at the reduced budget, then wrap),
     /// detail lines wrapped as continuation content, and a bottom border
     /// carrying the footer summary.
-    fn render_report_boxed(&self, report: &Report, columns: u16) -> Vec<String> {
+    fn render_report_boxed(&self, report: &Report, columns: u16, color: bool) -> Vec<String> {
         let mut out = Vec::with_capacity(report.rows.len().saturating_mul(2).saturating_add(4));
         let reserve = self.step_column_reserve();
         let effective = columns.saturating_sub(reserve);
@@ -97,10 +107,12 @@ impl ConfigurableTheme {
             columns,
             left_pad: self.left_pad(),
             title_prefix: self.report_title_prefix.as_deref(),
+            color,
         }));
         for row in &report.rows {
             let (label, result) = sanitised_row_text(row);
-            let inner = self.render_slot(&self.report_slot(row, &label, &result), effective);
+            let inner =
+                self.render_slot_gated(&self.report_slot(row, &label, &result), effective, color);
             // All report rows are terminal; use the runner's "done" cell so the
             // left progress column reads as a solid bar.
             out.push(self.wrap_step_line(&inner, "█", columns));
@@ -117,6 +129,7 @@ impl ConfigurableTheme {
             columns,
             left_pad: self.left_pad(),
             title_prefix: self.summary_prefix.as_deref(),
+            color,
         }));
         out
     }

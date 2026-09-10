@@ -289,9 +289,15 @@ impl ProgressDisplay {
                 // tracing event still records the count for postmortem; the
                 // user-facing stderr/tap line is gated on the tracing level
                 // so `OPS_LOG_LEVEL=debug` (or `RUST_LOG`) re-enables it.
-                let line = format!("[ops] {id}: {dropped_count} output line(s) dropped under load");
-                tracing::debug!(target: "ops::runner", "{line}");
+                tracing::debug!(
+                    target: "ops::runner",
+                    step_id = %id,
+                    dropped_count,
+                    "output line(s) dropped under load"
+                );
                 if tracing::enabled!(target: "ops::runner", tracing::Level::DEBUG) {
+                    let line =
+                        format!("[ops] {id}: {dropped_count} output line(s) dropped under load");
                     self.emit_line(&line);
                     self.tap_line_for(&line, Some(id.as_str()));
                 }

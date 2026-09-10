@@ -176,6 +176,55 @@ jobs:
       - name: cargo test --all --all-features --doc
         run: cargo test --all --all-features --doc
 
+  # UNSAFE-10 / TASK-2087 + TASK-2094: Miri over the workspace's production
+  # `unsafe`, scoped to what Miri can actually execute. Miri has no shims
+  # for direct foreign-function calls into libc, which rules out most of the
+  # FFI unsafe by construction; the job covers the pure-memory unsafe plus
+  # every guard-construction path reachable without a real OS.
+  #
+  # Covered:
+  # - ops-core `config::edit::tests::atomic_write*` — exercises
+  #   `build_tmp_basename`'s `OsStr::from_encoded_bytes_unchecked` (the
+  #   `.ops.toml` tmp-name builder) and the fd-ownership transfer of the
+  #   atomic write/rename dance.
+  # - ops-runner `terminal::tests::disable_echo_*` — `EchoGuard`
+  #   construction on the non-TTY branch (stderr is a pipe under the test
+  #   harness, so the early return runs before any unsafe).
+  #
+  # Excluded, with the substitute evidence named here per UNSAFE-10:
+  # - ops-core `text::unix_open` walk (`libc::openat` / `fstat` / `fcntl`):
+  #   unshimmed foreign calls. Covered instead by the symlink/FIFO refusal
+  #   test module under the ordinary Test job plus per-block SAFETY prose.
+  # - ops-core `atomic_write_mode_unaffected_by_umask` (skipped below): it
+  #   calls the `umask` foreign function directly, which Miri cannot
+  #   execute.
+  # - ops-runner termios path (`tcgetattr`/`tcsetattr`, the
+  #   `MaybeUninit::assume_init`) and `process_group`'s `killpg`: unshimmed
+  #   foreign calls, and the termios path additionally requires a real TTY
+  #   on stderr, which Miri's emulated stderr never provides. See the
+  #   UNSAFE-10 notes in crates/runner/src/terminal.rs and
+  #   crates/runner/src/command/process_group.rs.
+  #
+  # RUSTC_WRAPPER is cleared: cargo-miri swaps in its own rustc driver, and
+  # sccache in front of that combination is untested here.
+  miri:
+    name: Miri
+    runs-on: ubuntu-latest
+    env:
+      MIRIFLAGS: -Zmiri-disable-isolation
+      RUSTC_WRAPPER: ""
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
+      - uses: actions-rust-lang/setup-rust-toolchain@166cdcfd11aee3cb47222f9ddb555ce30ddb9659 # v1.17.0
+        with:
+          toolchain: nightly
+          components: miri
+          rustflags: ""
+      - name: cargo miri test -p ops-core (atomic write / build_tmp_basename)
+        run: cargo +nightly miri test -p ops-core config::edit::tests::atomic_write -- --skip atomic_write_mode_unaffected_by_umask
+      - name: cargo miri test -p ops-runner (EchoGuard non-TTY construction)
+        run: cargo +nightly miri test -p ops-runner disable_echo
+
   deps:
     name: Deps
     runs-on: ubuntu-latest

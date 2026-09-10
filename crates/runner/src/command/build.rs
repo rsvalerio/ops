@@ -1,8 +1,8 @@
 //! Command-building helpers: cwd resolution, workspace-escape detection, and
 //! tokio [`Command`] construction from an [`ExecCommandSpec`].
 //!
-//! See the `SEC-004` / `SEC-14` notes on [`resolve_spec_cwd`] for the escape
-//! policy rationale.
+//! [`resolve_spec_cwd`] documents the workspace-escape policy and the trust
+//! model behind it.
 
 use super::secret_patterns::warn_if_sensitive_env;
 use ops_core::config::ExecCommandSpec;
@@ -15,20 +15,22 @@ use std::sync::Mutex;
 use std::sync::{Arc, OnceLock};
 use tokio::process::Command;
 
-/// CONC-7 / TASK-1063: monotonic LRU access tick stamped on every cache hit
-/// and insert. Mirrors the `next_lru_tick` pattern in
-/// `extensions/about/src/manifest_cache.rs` (TASK-1106) — `Relaxed` is
-/// sufficient because each access is taken under the cache mutex; we only
-/// need a strictly increasing stamp for victim selection.
+/// Return the next monotonic LRU access tick, stamped on every cache hit and
+/// insert.
+///
+/// Mirrors the `next_lru_tick` pattern in
+/// `extensions/about/src/manifest_cache.rs`. `Relaxed` ordering suffices
+/// because every access happens under the cache mutex; victim selection only
+/// needs a strictly increasing stamp, not cross-thread ordering.
 fn next_workspace_lru_tick() -> u64 {
     static LRU_TICK: AtomicU64 = AtomicU64::new(0);
     LRU_TICK.fetch_add(1, Ordering::Relaxed)
 }
 
-/// CONC-7 / TASK-1063: cap on the number of distinct workspace paths held
-/// resident. Production runs see `1` key; tests inject many tempdirs.
-/// The cap is a high-water mark for embedders and integration tests so the
-/// previous unbounded `RwLock<HashMap>` cannot grow without limit.
+/// Cap on the number of distinct workspace paths held resident.
+/// Production runs see `1` key; tests inject many tempdirs.
+/// The cap is a high-water mark so embedders and integration tests
+/// cannot grow the cache without limit.
 pub const WORKSPACE_CANONICAL_CACHE_CAP: usize = 256;
 
 #[derive(Clone)]
@@ -37,38 +39,29 @@ struct WorkspaceCacheEntry {
     last_accessed: u64,
 }
 
-/// CONC-7 / TASK-1063: bounded, runner-scoped cache of
-/// `canonicalize(workspace)` results.
+/// Bounded, runner-scoped cache of `canonicalize(workspace)` results.
 ///
-/// Replaces the prior `OnceLock<RwLock<HashMap<PathBuf, Option<PathBuf>>>>`
-/// process-global. The previous design had two problems:
-///
-/// 1. **Unbounded**: every distinct workspace `PathBuf` ever seen was
-///    retained for the lifetime of the process. Long-running embedders or
-///    in-process test fixtures that spin up many tempdirs accumulated
-///    entries indefinitely.
-/// 2. **Stale forever**: a `canonicalize(...)` result was cached on first
-///    miss with no invalidation path. If a symlink under the cached
-///    workspace was swapped after the entry was populated, all subsequent
-///    containment decisions used the stale canonical path.
-///
-/// The cache is now an instance type owned by [`super::CommandRunner`]
+/// The cache is an instance type owned by [`super::CommandRunner`]
 /// (see `mod.rs`). When the runner is dropped, the cache and its entries go
 /// with it. The runner exposes
 /// [`super::CommandRunner::invalidate_workspace_cache`]
 /// and [`super::CommandRunner::clear_workspace_cache`] for hosts that need to
-/// react to a known on-disk change without dropping the runner.
+/// react to a known on-disk change without dropping the runner — a cached
+/// canonical path is otherwise never re-resolved, so a symlink swap under a
+/// cached workspace would leave subsequent containment decisions stale.
 ///
-/// Eviction policy mirrors `extensions/about/src/manifest_cache.rs`
-/// (TASK-1106): least-recently-used by access tick, evicted one entry at
-/// a time when the cap is reached.
+/// Eviction policy mirrors `extensions/about/src/manifest_cache.rs`:
+/// least-recently-used by access tick, evicted one entry at a time when the
+/// cap is reached.
 pub struct WorkspaceCanonicalCache {
-    /// CONC-7 / TASK-1063: a `Mutex` (rather than `RwLock`) is sufficient
-    /// here. The hot path is dominated by lock-free reads downstream of
-    /// the canonicalize syscall; the per-spawn cost of the mutex
-    /// acquisition itself is negligible against the work it guards.
-    /// Using `Mutex` also matches `ArcTextCache`'s pattern, keeping the
-    /// poison-recovery shape consistent across caches in this codebase.
+    /// Map of raw workspace path to its cached canonicalization.
+    ///
+    /// A `Mutex` (rather than an `RwLock`) is sufficient: the hot path is
+    /// dominated by lock-free reads downstream of the canonicalize syscall,
+    /// and the per-spawn cost of the mutex acquisition is negligible against
+    /// the work it guards. `Mutex` also matches `ArcTextCache`'s pattern,
+    /// keeping the poison-recovery shape consistent across caches in this
+    /// codebase.
     inner: Mutex<HashMap<PathBuf, WorkspaceCacheEntry>>,
     cap: usize,
 }
@@ -89,15 +82,13 @@ impl WorkspaceCanonicalCache {
 
     /// Forget the cached canonicalization for `workspace` and any joined-path
     /// descendants so the next call re-runs `canonicalize`. Used by hosts that
-    /// observe an on-disk swap (and by the symlink-swap regression test for
-    /// AC #3).
+    /// observe an on-disk swap.
     ///
-    /// PERF-3 / TASK-1172: `detect_workspace_escape` now caches joined-path
-    /// canonicalizations in this same cache, keyed by the (uncanonicalised)
-    /// joined path. A workspace symlink swap therefore invalidates not just
-    /// the workspace entry but every joined-path entry underneath it; we
-    /// drop both shapes in one pass so callers retain a single invalidate
-    /// API.
+    /// [`detect_workspace_escape`] caches joined-path canonicalizations in
+    /// this same cache, keyed by the (uncanonicalised) joined path. A
+    /// workspace symlink swap therefore invalidates not just the workspace
+    /// entry but every joined-path entry underneath it, so both shapes are
+    /// dropped in one pass and callers retain a single invalidate API.
     pub(crate) fn invalidate(&self, workspace: &Path) {
         let mut guard = self
             .inner
@@ -121,15 +112,15 @@ impl WorkspaceCanonicalCache {
     /// Look up — or compute and insert — the canonical form of `workspace`,
     /// using the supplied closure as the canonicalize implementation.
     ///
-    /// # Concurrency contract (CONC-2 / TASK-1229)
+    /// # Concurrency contract
     ///
     /// The cache mutex is held across the `canonicalize` closure. This is
     /// **intentional** — the thundering-herd dedup the closure-under-lock
-    /// shape gives us is the whole reason for this cache: concurrent
+    /// shape provides is the whole reason for this cache: concurrent
     /// callers for the same uncached path collapse onto a single
-    /// `canonicalize` syscall (the contract PERF-3 / TASK-1095 pinned).
-    /// The cost is that concurrent first-time lookups for **distinct**
-    /// workspace paths also serialise on this mutex during the syscall.
+    /// `canonicalize` syscall. The cost is that concurrent first-time
+    /// lookups for **distinct** workspace paths also serialise on this
+    /// mutex during the syscall.
     ///
     /// For `ops` today this is acceptable:
     /// - **Single-shot CLI:** one workspace per invocation; the cache
@@ -146,9 +137,9 @@ impl WorkspaceCanonicalCache {
     /// `Arc<OnceLock<Option<PathBuf>>>`, drop it before calling the
     /// closure, and let same-path readers serialise on the inner once-init
     /// while distinct paths run in parallel. The sibling cache in
-    /// `extensions/about/src/manifest_cache.rs` (TASK-1144) already moved
-    /// to that shape; this cache deliberately lags because the workload
-    /// has not yet justified the extra indirection.
+    /// `extensions/about/src/manifest_cache.rs` uses that shape; this cache
+    /// deliberately keeps the simpler one because the workload does not
+    /// justify the extra indirection.
     pub(crate) fn get_or_compute<F>(&self, workspace: &Path, canonicalize: F) -> Option<PathBuf>
     where
         F: FnOnce(&Path) -> std::io::Result<PathBuf>,
@@ -205,10 +196,12 @@ impl Default for WorkspaceCanonicalCache {
     }
 }
 
-/// ERR-5 / TASK-1063: poison recovery. The cache value is the pure result
-/// of `canonicalize`, not authoritative state, so a panic in a previous
-/// holder cannot leave a torn invariant; treating poison as fatal would
-/// brick the cache for every other caller in the process.
+/// Recover a poisoned cache guard instead of propagating the panic.
+///
+/// The cached value is the pure result of `canonicalize`, not authoritative
+/// state, so a panic in a lock holder cannot leave a torn invariant; treating
+/// poison as fatal would brick the cache for every other caller in the
+/// process.
 fn recover_workspace_cache<T>(
     err: std::sync::PoisonError<std::sync::MutexGuard<'_, T>>,
 ) -> std::sync::MutexGuard<'_, T> {
@@ -216,15 +209,14 @@ fn recover_workspace_cache<T>(
     err.into_inner()
 }
 
-/// PERF-3 / TASK-0765: cache the canonical workspace path keyed by raw path.
+/// Return the canonical form of `workspace`, cached by raw path.
 ///
-/// ARCH-9 / TASK-1126: takes the runner-scoped cache instance as a
-/// parameter so the spawn path consults the same cache that
-/// [`super::CommandRunner::invalidate_workspace_cache`] /
-/// [`super::CommandRunner::clear_workspace_cache`]
-/// mutate. Earlier this routed through a process-global static, which made
-/// the public invalidate API a no-op against the cache that actually decided
-/// escape outcomes for production callers.
+/// The cache instance is a parameter rather than a process-global static so
+/// the spawn path consults exactly the cache that
+/// [`super::CommandRunner::invalidate_workspace_cache`] and
+/// [`super::CommandRunner::clear_workspace_cache`] mutate; otherwise those
+/// public APIs would be no-ops against the cache that actually decides
+/// escape outcomes.
 fn canonical_workspace_cached(
     cache: &WorkspaceCanonicalCache,
     workspace: &Path,
@@ -232,9 +224,9 @@ fn canonical_workspace_cached(
     cache.get_or_compute(workspace, |p| std::fs::canonicalize(p))
 }
 
-/// PERF-3 / TASK-1095: testable seam for the cache so tests can inject a
-/// canonicalize counter and verify the burst-startup thundering-herd is
-/// collapsed to a single syscall per workspace path.
+/// Testable seam for the cache: lets tests inject a canonicalize counter and
+/// verify that a burst-startup thundering herd collapses to a single syscall
+/// per workspace path.
 #[cfg(test)]
 fn canonical_workspace_cached_with<F>(
     cache: &WorkspaceCanonicalCache,
@@ -247,29 +239,28 @@ where
     cache.get_or_compute(workspace, canonicalize)
 }
 
-/// ARCH-9 / TASK-1126: test-only ambient cache so the existing
-/// `resolve_spec_cwd` / `detect_workspace_escape` regression tests do not have
-/// to construct one per assertion. Production callers MUST thread the
-/// runner-scoped `Arc<WorkspaceCanonicalCache>` and never reach this static.
+/// Test-only ambient cache, so `resolve_spec_cwd` / `detect_workspace_escape`
+/// tests need not construct one per assertion.
+///
+/// Production callers MUST thread the runner-scoped
+/// `Arc<WorkspaceCanonicalCache>` and never reach this static.
 #[cfg(test)]
 pub fn test_default_workspace_cache() -> &'static Arc<WorkspaceCanonicalCache> {
     static CACHE: OnceLock<Arc<WorkspaceCanonicalCache>> = OnceLock::new();
     CACHE.get_or_init(|| Arc::new(WorkspaceCanonicalCache::new()))
 }
 
-/// ERR-1 / TASK-0450: convert a strict-expansion error into an `io::Error`
-/// so build failures share the spawn-error pipeline and surface as a
-/// `StepFailed` event rather than panicking through `expect`.
+/// Convert a strict-expansion error into an `io::Error` so build failures
+/// share the spawn-error pipeline and surface as a `StepFailed` event.
 ///
-/// SEC-22 / TASK-1175: the produced `io::Error` is the source of
-/// `StepFailed.message` and the TAP file body, both of which round-trip
-/// to CI artifacts. Log the full chain (including the offending variable
-/// name and the underlying `VarError`) at `tracing::debug!` like
-/// `log_and_redact_spawn_error`, but return a generic operator-facing
-/// message so the variable name from a `.ops.toml`-supplied
-/// `${OPS_TOKEN}`/`${ATTACKER_VAR}` reference cannot leak into uploaded
-/// CI logs. Operators chasing the leak follow the same `RUST_LOG=debug`
-/// path as for spawn-error redaction.
+/// The produced `io::Error` is the source of `StepFailed.message` and the TAP
+/// file body, both of which round-trip to CI artifacts. The full chain
+/// (including the offending variable name and the underlying `VarError`) is
+/// logged at `tracing::debug!`, mirroring `log_and_redact_spawn_error`, while
+/// the returned message stays generic so a variable name from a
+/// `.ops.toml`-supplied `${OPS_TOKEN}` reference cannot leak into uploaded CI
+/// logs. Operators chasing the detail use the same `RUST_LOG=debug` path as
+/// for spawn-error redaction.
 // Taken by value so the four call sites can stay point-free
 // (`.map_err(expand_err_to_io)`); a `&ExpandError` parameter would force a
 // closure at each. Consuming the error also matches `From<E> for io::Error`.
@@ -306,11 +297,11 @@ fn normalize_path(p: &std::path::Path) -> std::path::PathBuf {
 
 /// Policy for how to treat spec `cwd` values that escape the workspace root.
 ///
-/// SEC-14: interactive invocations (`ops <cmd>`) tolerate escapes with a
-/// warning — `.ops.toml` is trusted the way a Makefile is trusted.
-/// Hook-triggered invocations (`run-before-commit`, `run-before-push`) are
-/// strict: a co-worker's PR can land a `.ops.toml` that runs on every
-/// commit the maintainer makes, so the hook path fails closed.
+/// Interactive invocations (`ops <cmd>`) tolerate escapes with a warning —
+/// `.ops.toml` is trusted the way a Makefile is trusted. Hook-triggered
+/// invocations (`run-before-commit`, `run-before-push`) are strict: a
+/// co-worker's PR can land a `.ops.toml` that runs on every commit the
+/// maintainer makes, so the hook path fails closed.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub enum CwdEscapePolicy {
     /// Log a warning and spawn anyway. Default for interactive `ops run`.
@@ -318,56 +309,48 @@ pub enum CwdEscapePolicy {
     WarnAndAllow,
     /// Refuse to spawn; return an error. Used by git-hook-triggered paths.
     ///
-    /// SEC-14 / TASK-0886: hook-triggered entry points (`run-before-commit`,
-    /// `run-before-push`) now construct a `CommandRunner` with this policy
-    /// so a `.ops.toml` landed by a coworker PR cannot escape the workspace
-    /// on the next commit. The default interactive path stays
-    /// `WarnAndAllow` to avoid a behaviour change for existing users.
+    /// Hook-triggered entry points (`run-before-commit`, `run-before-push`)
+    /// construct a `CommandRunner` with this policy so a `.ops.toml` landed
+    /// by a coworker PR cannot escape the workspace on the next commit. The
+    /// interactive path is `WarnAndAllow`.
     ///
-    /// SEC-25: residual TOCTOU window. The check happens in
+    /// # Residual TOCTOU window
+    ///
+    /// The check happens in
     /// [`detect_workspace_escape`], which calls `std::fs::canonicalize`,
     /// while the actual `chdir` is performed by the OS when the child is
     /// spawned. To shrink the window, [`resolve_spec_cwd`] canonicalizes
     /// the joined path on a best-effort basis under *both* policies and
     /// hands the symlink-free result to `current_dir`, so the kernel does
-    /// not re-resolve any symlinks at exec time. SEC-23 / TASK-1140: prior
-    /// to this change the canonicalize-on-success step was gated on `Deny`
-    /// only, leaving the interactive `WarnAndAllow` path more exposed to a
-    /// symlink-swap race than the hook path even though both pay the same
-    /// canonicalize cost in `detect_workspace_escape`. The two policies
-    /// now share the same TOCTOU surface; `Deny` differs only in failing
-    /// closed on detected escapes. A narrow race remains: an attacker who
-    /// can replace a component of the canonical path (e.g. by mounting
-    /// over it or swapping a directory they own) between canonicalization
-    /// and exec can still divert the child. Closing this fully would
-    /// require an `openat`/`fchdir`-style fd handoff to the child, which
-    /// neither `std::process::Command` nor `tokio::process::Command`
-    /// exposes today.
+    /// not re-resolve any symlinks at exec time. The two policies share
+    /// the same TOCTOU surface; `Deny` differs only in failing closed on
+    /// detected escapes. A narrow race remains: an attacker who can
+    /// replace a component of the canonical path (e.g. by mounting over it
+    /// or swapping a directory they own) between canonicalization and exec
+    /// can still divert the child. Closing this fully would require an
+    /// `openat`/`fchdir`-style fd handoff to the child, which neither
+    /// `std::process::Command` nor `tokio::process::Command` exposes
+    /// today.
     ///
-    /// SEC-25 / TASK-1940 — two properties this policy now actually
-    /// delivers, having previously been weaker than the text above implied:
+    /// Two fail-closed properties this policy delivers:
     ///
-    /// 1. **Fail closed on an unresolvable path.** A `canonicalize` failure
-    ///    that is not `NotFound` (`EACCES` on an intermediate directory,
-    ///    `ELOOP`, `ENAMETOOLONG`, an unstattable mount point) used to
-    ///    collapse to "does not escape", leaving only the lexical check —
-    ///    which cannot see symlinks, the very case the canonical check
-    ///    exists for. Under `Deny` such a path is now refused and logged.
-    ///    `NotFound` is exempt: a path that does not exist cannot be a
-    ///    symlink out of the workspace, and the spawn fails on its own.
+    /// 1. **Fail closed on an unresolvable path.** A `canonicalize`
+    ///    failure that is not `NotFound` (`EACCES` on an intermediate
+    ///    directory, `ELOOP`, `ENAMETOOLONG`, an unstattable mount point)
+    ///    is refused and logged — collapsing it to "does not escape"
+    ///    would leave only the lexical check, which cannot see symlinks,
+    ///    the very case the canonical check exists for. `NotFound` is
+    ///    exempt: a path that does not exist cannot be a symlink out of
+    ///    the workspace, and the spawn fails on its own.
     /// 2. **No runner-lifetime memo of the decision.** `Deny`
     ///    canonicalizes both sides per spawn rather than reading the
-    ///    `WorkspaceCanonicalCache`. PERF-3 / TASK-1172 had routed the
-    ///    joined side through that cache, which widened the window
-    ///    described above from "between this spawn's canonicalize and this
-    ///    spawn's exec" to "any time after the first spawn of that path" —
-    ///    a symlink swapped later was never re-detected, and `invalidate`
-    ///    could not help because the host cannot know a swap happened. The
+    ///    [`WorkspaceCanonicalCache`], so a symlink swapped after the
+    ///    first spawn of a path is re-detected on the next spawn. The
     ///    cache still serves `WarnAndAllow`, whose check is advisory.
     Deny,
 }
 
-/// FN-1: classification of how a spec `cwd` relates to the workspace root.
+/// Classification of how a spec `cwd` relates to the workspace root.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum EscapeKind {
     /// Path stays inside the workspace under both lexical and canonical checks.
@@ -376,9 +359,9 @@ pub enum EscapeKind {
     Escapes,
 }
 
-/// SEC-25 / TASK-1940: the three outcomes of canonicalizing a path, kept
-/// distinct so a *fail-closed* policy can tell "this path does not exist"
-/// from "this path could not be resolved".
+/// The three outcomes of canonicalizing a path, kept distinct so a
+/// *fail-closed* policy can tell "this path does not exist" from "this path
+/// could not be resolved".
 enum CanonicalOutcome {
     /// Resolved to a symlink-free absolute path.
     Resolved(PathBuf),
@@ -393,7 +376,8 @@ enum CanonicalOutcome {
     Undetermined(std::io::ErrorKind),
 }
 
-/// SEC-25 / TASK-1940: canonicalize `p` right now, classifying the failure.
+/// Canonicalize `p` right now, classifying the failure kind.
+///
 /// Deliberately uncached — see [`detect_workspace_escape`].
 fn canonicalize_now(p: &Path) -> CanonicalOutcome {
     match std::fs::canonicalize(p) {
@@ -407,32 +391,28 @@ fn canonicalize_now(p: &Path) -> CanonicalOutcome {
 /// canonical check so a symlink inside the workspace pointing outside is
 /// still caught.
 ///
-/// # Policy-dependent canonicalization (SEC-25 / TASK-1940)
+/// # Policy-dependent canonicalization
 ///
 /// The canonical half behaves differently under the two policies, because
 /// they want different things from it:
 ///
 /// - **`Deny`** (the hook path) is fail-closed, so it canonicalizes **both
-///   sides per call, uncached**, and treats an *unresolvable* path as an
-///   escape. Two properties were previously weaker than the surrounding
-///   docs claimed: `canonicalize` errors were swallowed into "does not
-///   escape", leaving only the lexical check — which cannot see symlinks,
-///   the exact case this function exists for; and PERF-3 / TASK-1172 had
-///   routed the joined side through the runner-lifetime cache, so a
-///   canonicalization taken at the *first* spawn decided the outcome for
-///   every later spawn of that path and a symlink swapped afterwards was
-///   never re-detected. Re-resolving per spawn narrows the TOCTOU window
-///   back to the one the [`CwdEscapePolicy::Deny`] docs describe. The cost
+///   sides per call, uncached**, and treats an *unresolvable* path
+///   (`EACCES`, `ELOOP`, `ENAMETOOLONG`, an unstattable mount point) as an
+///   escape — swallowing the error would leave only the lexical check,
+///   which cannot see symlinks, the exact case this function exists for.
+///   Re-resolving per spawn also keeps the TOCTOU window no wider than
+///   "between this spawn's canonicalize and this spawn's exec". The cost
 ///   is two `canonicalize` syscalls per spawn on the hook path, which is
 ///   single-shot and short.
 /// - **`WarnAndAllow`** (interactive) warns and proceeds by design, so its
-///   check is advisory and keeps the TASK-1172 cache: a composite fanning
-///   the same `cwd = "sub"` over many parallel spawns pays one
-///   canonicalize per distinct path rather than one per spawn. An
-///   unresolvable path stays non-escaping here — failing closed would turn
-///   an advisory warning into a refusal the policy does not promise.
+///   check is advisory and reads the [`WorkspaceCanonicalCache`]: a
+///   composite fanning the same `cwd = "sub"` over many parallel spawns
+///   pays one canonicalize per distinct path rather than one per spawn.
+///   An unresolvable path stays non-escaping here — failing closed would
+///   turn an advisory warning into a refusal the policy does not promise.
 ///
-/// Because `Deny` no longer reads the cache, a fan of distinct `cwd` values
+/// Because `Deny` does not read the cache, a fan of distinct `cwd` values
 /// evicting the workspace entry under
 /// [`WORKSPACE_CANONICAL_CACHE_CAP`] cannot change a `Deny` outcome; under
 /// `WarnAndAllow` an eviction only costs a re-canonicalize, which yields
@@ -484,9 +464,10 @@ pub fn detect_workspace_escape(
     }
 }
 
-/// FN-1: apply an escape policy to a detected escape. `Deny` converts to an
-/// `io::Error`; `WarnAndAllow` emits a tracing warning and lets the caller
-/// continue.
+/// Apply an escape policy to a detected escape.
+///
+/// `Deny` converts it to an `io::Error`; `WarnAndAllow` emits a tracing
+/// warning and lets the caller continue.
 pub fn apply_escape_policy(
     policy: CwdEscapePolicy,
     spec_cwd: &std::path::Path,
@@ -526,7 +507,8 @@ pub fn apply_escape_policy(
 /// absolute path past the check lexically.
 ///
 /// Returns an error when the resolved path escapes the workspace root **and**
-/// `policy == Deny` (SEC-14 hook path). Otherwise logs and continues.
+/// `policy` is [`CwdEscapePolicy::Deny`] (the hook path). Otherwise logs and
+/// continues.
 pub fn resolve_spec_cwd(
     cache: &WorkspaceCanonicalCache,
     spec_cwd: Option<&std::path::Path>,
@@ -592,7 +574,7 @@ pub fn resolve_spec_cwd(
 
 /// Build a tokio Command from an exec spec and working directory.
 ///
-/// ## SEC-004 / SEC-14: cwd traversal guard
+/// ## Cwd traversal guard
 ///
 /// Delegates to [`resolve_spec_cwd`] with [`CwdEscapePolicy::WarnAndAllow`],
 /// which warns but still spawns (interactive trust model). Callers that
@@ -602,14 +584,10 @@ pub fn resolve_spec_cwd(
 /// Note: `current_dir` is validated by the OS when the command is spawned — if the
 /// path does not exist, `Command::output()` returns an `io::Error` that propagates
 /// through the existing error handling in `exec_command`.
-// ERR-5 / TASK-0456: `build_command` previously panicked via
-// `.expect("WarnAndAllow policy never returns Err")` to encode "cannot
-// fail under WarnAndAllow" at the type level. After TASK-0450 the
-// expansion path itself is fallible (a non-UTF-8 env var must surface as
-// a step failure rather than crashing the runner), so the no-panic
-// guarantee is now structural in the *return type*: build_command
-// returns `Result`, and every caller threads the error to a StepFailed
-// event. There is no remaining `.expect` to revisit.
+// The no-panic guarantee is structural in the return type: `build_command`
+// returns `Result` because variable expansion is fallible (a non-UTF-8 env
+// var must surface as a step failure rather than crashing the runner), and
+// every caller threads the error into a `StepFailed` event.
 #[cfg(test)]
 pub fn build_command(
     spec: &ExecCommandSpec,
@@ -620,8 +598,8 @@ pub fn build_command(
     build_command_with(&cache, spec, cwd, vars, CwdEscapePolicy::WarnAndAllow)
 }
 
-/// CONC-5 / TASK-0330: async variant that runs the synchronous filesystem
-/// work in `build_command` (notably `std::fs::canonicalize` calls inside
+/// Async variant that runs the synchronous filesystem work in
+/// `build_command` (notably `std::fs::canonicalize` calls inside
 /// [`detect_workspace_escape`] and [`resolve_spec_cwd`]) on the blocking
 /// thread pool.
 ///
@@ -630,19 +608,12 @@ pub fn build_command(
 /// proportional to the spec cwd's depth. Under high `MAX_PARALLEL` counts
 /// that starves other tasks scheduled on the same worker.
 ///
-/// OWN-2 / TASK-0462: `vars` and `cwd` are passed as `Arc` so the only
-/// per-spawn allocations on the parallel hot path are `Arc::clone` (a
-/// single atomic refcount bump each), not a deep `Variables`/`PathBuf`
-/// clone. The previous signature took `Variables`/`PathBuf` by value,
-/// which silently re-allocated the inner `HashMap` per spawn and mixed
-/// `Arc` indirection at the call site with per-call deep clones — the
-/// worst of both.
-///
-/// PERF-3 / TASK-1125: `spec` is now `Arc<ExecCommandSpec>` so callers
-/// (notably the parallel spawn path) only pay an `Arc::clone` per spawn
-/// instead of a deep clone of `args: Vec<String>` / `env: IndexMap` /
-/// `cwd: Option<PathBuf>` / `program: String`. End-to-end Arc-only
-/// inputs match the trace claim emitted below.
+/// `spec`, `vars` and `cwd` are all taken as `Arc`, so the only per-spawn
+/// allocations on the parallel hot path are `Arc::clone` refcount bumps —
+/// never a deep clone of `Variables`, of a `PathBuf`, or of the spec's
+/// `args: Vec<String>` / `env: IndexMap` / `program: String`. Callers must
+/// share one instance across spawns rather than building a fresh `Arc` per
+/// call; the debug assertions below pin that invariant.
 pub async fn build_command_async(
     cache: std::sync::Arc<WorkspaceCanonicalCache>,
     spec: std::sync::Arc<ExecCommandSpec>,
@@ -747,17 +718,15 @@ mod tests {
     use std::sync::atomic::{AtomicUsize, Ordering};
     use std::sync::Arc;
 
-    /// CONC-5 / TASK-0330: the async variant must dispatch the canonicalize
-    /// work to the blocking pool so a single-threaded runtime can still
-    /// drive other tasks while `build_command` runs. This test uses a
-    /// `current_thread` runtime — the only worker — and asserts that a
-    /// concurrent counter task makes progress while `build_command_async` is
-    /// in flight.
+    /// The async variant dispatches its canonicalize work to the blocking
+    /// pool, so a single-threaded runtime can still drive other tasks while
+    /// `build_command` runs.
     ///
-    /// Under the previous synchronous `build_command` call from inside an
-    /// async function, the runtime worker would be blocked for the
-    /// duration of every canonicalize syscall, starving the counter task
-    /// (and in production, every other task scheduled on that worker).
+    /// The test uses a `current_thread` runtime — one worker — and asserts a
+    /// concurrent counter task makes progress while `build_command_async` is
+    /// in flight. Running the filesystem work on the worker itself would
+    /// block it for the duration of every canonicalize syscall and starve
+    /// every other task scheduled there.
     #[test]
     fn build_command_async_does_not_starve_concurrent_tokio_task() {
         let rt = tokio::runtime::Builder::new_current_thread()
@@ -876,10 +845,9 @@ mod tests {
         assert_eq!(out, std::path::PathBuf::from("/tmp/ws/inside"));
     }
 
-    /// SEC-23 / TASK-0500: an absolute `spec_cwd` outside the workspace must
-    /// be rejected under `Deny`. The previous bug short-circuited the policy
-    /// check so a malicious `cwd = "/etc"` would silently spawn at /etc on
-    /// the hook path.
+    /// An absolute `spec_cwd` outside the workspace is rejected under `Deny`:
+    /// an absolute path is checked against the workspace root like a relative
+    /// one, so `cwd = "/etc"` cannot spawn at `/etc` on the hook path.
     #[test]
     fn resolve_spec_cwd_absolute_outside_workspace_is_denied() {
         let ws = std::path::PathBuf::from("/tmp/ws");
@@ -897,7 +865,7 @@ mod tests {
         assert!(err.to_string().contains("SEC-14"));
     }
 
-    /// SEC-23: under `WarnAndAllow` the absolute path is still returned (the
+    /// Under `WarnAndAllow` the absolute path is still returned (the
     /// interactive trust model lets `.ops.toml` choose its cwd) but the
     /// escape is logged.
     #[test]
@@ -966,10 +934,9 @@ mod tests {
         assert_eq!(out, ws.join("sub/dir"));
     }
 
-    /// READ-5 / TASK-0900: a non-UTF-8 cwd must surface a loud
-    /// `InvalidInput` error instead of being lossy-expanded into a
-    /// wrong-but-similar path that would chdir the child into the
-    /// "wrong" directory.
+    /// A non-UTF-8 cwd surfaces a loud `InvalidInput` error rather than
+    /// being lossy-expanded into a wrong-but-similar path that would chdir
+    /// the child into the wrong directory.
     #[cfg(unix)]
     #[test]
     fn resolve_spec_cwd_rejects_non_utf8_cwd_loudly() {
@@ -1042,11 +1009,10 @@ mod tests {
         assert!(apply_escape_policy(CwdEscapePolicy::WarnAndAllow, spec, &ws, &joined).is_ok());
     }
 
-    /// READ-5 / TASK-0773: an absolute `spec_cwd` inside the workspace must go
-    /// through the same canonicalize-under-Deny narrowing that relative
-    /// `spec_cwd` already enjoyed. Pins the symmetric behaviour after
-    /// TASK-0773 so a future refactor cannot silently regress to the
-    /// asymmetric path that left absolute hook-path cwds unprotected.
+    /// An absolute `spec_cwd` inside the workspace goes through the same
+    /// canonicalize-under-`Deny` narrowing as a relative one. Pins that
+    /// symmetry so a refactor cannot leave absolute hook-path cwds
+    /// unprotected.
     #[cfg(unix)]
     #[test]
     fn deny_canonicalizes_absolute_inside_workspace() {
@@ -1069,9 +1035,8 @@ mod tests {
         assert_eq!(resolved, inside, "Deny should return the canonical path");
 
         // Swap the absolute target for a symlink to outside the workspace.
-        // The previously resolved canonical path is unaffected — this is
-        // the protection extending the canonicalize-under-Deny block to
-        // absolute paths now grants.
+        // The already-resolved canonical path is unaffected — that is the
+        // protection canonicalize-under-Deny grants to absolute paths.
         std::fs::remove_dir(&inside).unwrap();
         std::os::unix::fs::symlink(&escape_target_canonical, &inside).unwrap();
         assert_ne!(
@@ -1080,28 +1045,21 @@ mod tests {
         );
     }
 
-    /// PERF-3 / TASK-1095: under burst startup with N threads asking for the
-    /// same fresh workspace path, the cache must collapse the thundering herd
-    /// to exactly one canonicalize call. Pre-TASK-1095, the writer path
-    /// always re-canonicalized after the read-lock miss even if a racing
-    /// writer had already populated the entry — N calls instead of 1.
+    /// Under burst startup with N threads asking for the same fresh
+    /// workspace path, the cache collapses the thundering herd to exactly
+    /// one canonicalize call.
     ///
-    /// TEST-15 / TASK-1173: each invocation constructs a fresh
-    /// `WorkspaceCanonicalCache` so the property is pinned at the cache
-    /// API surface rather than against the process-global
-    /// `test_default_workspace_cache()` static. A regression that broke
-    /// the runner-scoped cache could have passed under the static — now
-    /// it cannot.
+    /// The test builds a fresh `WorkspaceCanonicalCache` per invocation, so
+    /// the property is pinned at the cache API surface rather than against
+    /// the `test_default_workspace_cache()` static, where a broken
+    /// runner-scoped cache could still pass.
     ///
-    /// TEST-15 / TASK-1230: the previous form hardcoded `/tmp` (Unix-only)
-    /// and `sleep(20ms)` "to reach the write-lock re-check window". The
-    /// cache is a single Mutex held across the closure, so the burst-dedup
-    /// property holds for any closure runtime — racers either queue on
-    /// the mutex or arrive after population, both branches return the
-    /// cached value without re-running the closure. The `Barrier(N)` at
-    /// thread start is the only rendezvous we need; the wall-clock sleep
-    /// added flakiness without strengthening the assertion. `temp_dir()`
-    /// removes the Unix-only assumption.
+    /// Because the cache holds a single mutex across the closure, the
+    /// burst-dedup property holds regardless of how long the closure takes:
+    /// racers either queue on the mutex or arrive after population, and both
+    /// branches return the cached value without re-running the closure. A
+    /// `Barrier(N)` at thread start is therefore the only rendezvous needed —
+    /// no wall-clock sleep — and `temp_dir()` keeps the test portable.
     #[test]
     fn canonical_workspace_cached_collapses_burst_to_single_canonicalize() {
         use std::sync::Barrier;
@@ -1138,9 +1096,9 @@ mod tests {
         );
     }
 
-    /// PERF-3 / TASK-0765: behavioural parity for the cached workspace
-    /// canonicalize. A symlink **inside the workspace** that points outside
-    /// must still be flagged as an escape after the cache populates.
+    /// Caching the workspace canonicalization does not change the escape
+    /// verdict: a symlink **inside the workspace** that points outside is
+    /// still flagged as an escape once the cache is populated.
     #[cfg(unix)]
     #[test]
     fn detect_workspace_escape_via_symlink_still_fires_with_cached_workspace() {
@@ -1177,14 +1135,14 @@ mod tests {
         );
     }
 
-    /// SEC-25 / TASK-1940 AC #3: under `Deny` a joined path that cannot be
-    /// canonicalized must not be admitted.
+    /// Under `Deny`, a joined path that cannot be canonicalized is not
+    /// admitted.
     ///
     /// The symlink loop below is lexically inside the workspace, so the
-    /// lexical check passes it; `canonicalize` fails with `ELOOP`, which
-    /// the pre-fix code swallowed into "does not escape". A path whose
-    /// resolution is unanswerable is exactly the case a fail-closed policy
-    /// must refuse.
+    /// lexical check passes it, and `canonicalize` fails with `ELOOP`. A
+    /// path whose resolution is unanswerable is exactly the case a
+    /// fail-closed policy must refuse rather than collapse into "does not
+    /// escape".
     #[cfg(unix)]
     #[test]
     fn deny_refuses_a_joined_path_that_cannot_be_canonicalized() {
@@ -1210,15 +1168,15 @@ mod tests {
             EscapeKind::Escapes,
             "Deny must treat an unresolvable cwd as an escape, not as 'does not escape'"
         );
-        // WarnAndAllow is advisory by design and keeps the prior behaviour.
+        // WarnAndAllow is advisory by design: it admits the same path.
         assert_eq!(
             detect_workspace_escape(&cache, &a, &ws, CwdEscapePolicy::WarnAndAllow),
             EscapeKind::Inside
         );
     }
 
-    /// SEC-25 / TASK-1940: a `cwd` that simply does not exist is *not* an
-    /// unresolvable path. It cannot be a symlink out of the workspace, and
+    /// A `cwd` that simply does not exist is *not* an unresolvable path
+    /// under `Deny`: it cannot be a symlink out of the workspace, and
     /// the spawn reports its own error — refusing it here would break every
     /// plan whose step directory is created by an earlier step.
     #[test]
@@ -1233,12 +1191,11 @@ mod tests {
         );
     }
 
-    /// SEC-25 / TASK-1940 AC #2: the joined-path canonicalization must not
-    /// be memoised for the runner's lifetime under `Deny`. A symlink
-    /// swapped *after* a first spawn of the same path has to be re-detected
-    /// on the next spawn, without anyone calling `invalidate` — the host
-    /// cannot know a swap happened, which is what made the memo a widened
-    /// TOCTOU window rather than a cache.
+    /// Under `Deny` the joined-path canonicalization is not memoised for the
+    /// runner's lifetime: a symlink swapped *after* a first spawn of the same
+    /// path is re-detected on the next spawn without anyone calling
+    /// `invalidate`. A host cannot know a swap happened, so memoising the
+    /// verdict would widen the TOCTOU window rather than act as a cache.
     #[cfg(unix)]
     #[test]
     fn deny_re_resolves_the_joined_path_on_every_spawn() {
@@ -1266,11 +1223,11 @@ mod tests {
         );
     }
 
-    /// SEC-25 / TASK-1940 AC #4: a fan of distinct `cwd` values sharing
-    /// `WORKSPACE_CANONICAL_CACHE_CAP` with the workspace entry must not be
-    /// able to change an escape outcome by evicting it. `Deny` does not
-    /// read the cache at all, and under `WarnAndAllow` an eviction only
-    /// costs a re-canonicalize that returns the same answer.
+    /// A fan of distinct `cwd` values sharing
+    /// [`WORKSPACE_CANONICAL_CACHE_CAP`] with the workspace entry cannot
+    /// change an escape outcome by evicting it: `Deny` does not read the
+    /// cache at all, and under `WarnAndAllow` an eviction only costs a
+    /// re-canonicalize that returns the same answer.
     #[cfg(unix)]
     #[test]
     fn cache_eviction_by_many_distinct_cwds_does_not_change_escape_outcomes() {
@@ -1308,7 +1265,7 @@ mod tests {
         }
     }
 
-    /// SEC-25: best-effort regression for the symlink-swap window. Layout:
+    /// Best-effort coverage of the symlink-swap window. Layout:
     /// `ws/sub` is initially a real directory inside the workspace, so the
     /// escape check passes. We then swap it for a symlink pointing outside
     /// the workspace and assert that, because `Deny` canonicalizes the
@@ -1351,12 +1308,11 @@ mod tests {
         );
     }
 
-    /// SEC-23 / TASK-1140: `WarnAndAllow` must enjoy the same
-    /// canonicalize-on-success narrowing as Deny. Prior to TASK-1140 the
-    /// canonicalize block was gated on `Deny`, leaving the interactive
-    /// path uniquely exposed to a symlink swap between the
-    /// `detect_workspace_escape` check and the spawn even though both
-    /// policies pay the same canonicalize cost in the check.
+    /// `WarnAndAllow` gets the same canonicalize-on-success narrowing as
+    /// `Deny`. Both policies already pay the canonicalize cost in the escape
+    /// check, and gating the symlink-free handoff on `Deny` would leave the
+    /// interactive path uniquely exposed to a symlink swap between
+    /// `detect_workspace_escape` and the spawn.
     #[cfg(unix)]
     #[test]
     fn warn_and_allow_canonicalizes_inside_workspace() {
@@ -1382,12 +1338,10 @@ mod tests {
         );
     }
 
-    /// CONC-7 / TASK-1063: regression for AC #3. The unbounded process-global
-    /// `OnceLock<RwLock<HashMap>>` previously cached `canonicalize(workspace)`
-    /// forever with no invalidation path. After a symlink swap under a
-    /// previously cached workspace path, the next call returned the stale
-    /// canonical destination — a SEC-25-shaped escape window the cache
-    /// widened.
+    /// A cached workspace canonicalization is refreshed once the entry is
+    /// invalidated, so a symlink swap under a cached workspace path cannot
+    /// keep serving a stale canonical destination — which would be an escape
+    /// window opened by the cache itself.
     ///
     /// This test populates the cache against a symlink workspace path,
     /// swaps the symlink to point at a different real directory, calls
@@ -1418,9 +1372,8 @@ mod tests {
             .expect("first canonicalize must succeed");
         assert_eq!(first, canonical_a, "first call resolves to target_a");
 
-        // Without invalidation, a second call must still hit the cache and
-        // return the stale entry — this pins the dedup behaviour the LRU
-        // cache shares with the prior implementation.
+        // Without invalidation, a second call still hits the cache and
+        // returns the memoised entry — this pins the dedup behaviour.
         std::fs::remove_file(&workspace).unwrap();
         std::os::unix::fs::symlink(&canonical_b, &workspace).unwrap();
         let stale = cache
@@ -1443,15 +1396,14 @@ mod tests {
         );
     }
 
-    /// ARCH-9 / TASK-1126 AC #2: `CommandRunner::invalidate_workspace_cache`
-    /// must observably affect subsequent spawn-time canonicalize results.
-    /// Pre-fix the spawn path read a process-global static cache while
-    /// `invalidate_workspace_cache` mutated only the runner-scoped
-    /// `workspace_cache` field — the public invalidate API was a no-op
-    /// against the cache that decided escape outcomes for production
-    /// callers. This test drives the runner cache through the same
-    /// `detect_workspace_escape` entry point the spawn path uses and
-    /// asserts the second call observes a re-canonicalize after invalidate.
+    /// `CommandRunner::invalidate_workspace_cache` observably affects
+    /// subsequent spawn-time canonicalize results, because the spawn path and
+    /// the invalidate API share one runner-scoped cache instance rather than
+    /// the invalidate API mutating a cache no escape decision reads.
+    ///
+    /// The test drives the runner cache through the same
+    /// `detect_workspace_escape` entry point the spawn path uses and asserts
+    /// the second call observes a re-canonicalize after invalidate.
     #[cfg(unix)]
     #[test]
     fn invalidate_workspace_cache_changes_subsequent_spawn_canonicalize() {
@@ -1507,9 +1459,8 @@ mod tests {
         );
     }
 
-    /// CONC-7 / TASK-1063: AC #1 regression. The cache must hard-cap
-    /// residency so a long-running embedder injecting many distinct
-    /// workspace paths cannot grow the map without bound.
+    /// The cache hard-caps residency, so a long-running embedder injecting
+    /// many distinct workspace paths cannot grow the map without bound.
     #[test]
     fn workspace_canonical_cache_evicts_lru_at_cap() {
         let cap = 4;
@@ -1527,12 +1478,12 @@ mod tests {
         );
     }
 
-    /// SEC-22 / TASK-1175: `expand_err_to_io` must NOT leak the offending
-    /// variable name into the user-facing message body. The full error
-    /// (including `var_name`) is logged at debug for operator follow-up,
-    /// but the rendered `io::Error` message stays generic so a
-    /// `${OPS_TOKEN}` typo or `${ATTACKER_VAR}` reference dropped into a
-    /// `.ops.toml` cannot surface in `StepFailed` message uploaded to CI.
+    /// `expand_err_to_io` does not leak the offending variable name into the
+    /// user-facing message body. The full error (including `var_name`) is
+    /// logged at debug for operator follow-up, while the rendered
+    /// `io::Error` message stays generic so a `${OPS_TOKEN}` reference
+    /// dropped into a `.ops.toml` cannot surface in a `StepFailed` message
+    /// uploaded to CI.
     #[test]
     fn expand_err_to_io_does_not_leak_variable_name_in_message() {
         let err = ops_core::expand::ExpandError {

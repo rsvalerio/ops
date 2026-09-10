@@ -11,11 +11,15 @@
 //! execution path identical to every other exec leaf and avoids a parallel
 //! dispatch table.
 //!
-//! Path resolution: prefer [`std::env::current_exe`] (absolute, robust under
-//! renamed/aliased shells) and fall back to `"ops"` when the current-exe
-//! lookup fails (e.g. unusual sandboxing). `PATH` will then resolve it.
+//! Path resolution: [`ops_core::config::current_ops_program`] — prefer
+//! [`std::env::current_exe`] (absolute, robust under renamed/aliased shells)
+//! and fall back to `"ops"` when the current-exe lookup fails (e.g. unusual
+//! sandboxing). `PATH` will then resolve it. SEC-13 / TASK-2122: the helper
+//! is shared with the extension registrations of the same command ids, so
+//! the two cannot diverge on program resolution again.
 
 use indexmap::IndexMap;
+use ops_core::config::current_ops_program;
 use ops_core::config::{CommandId, CommandSpec, ExecCommandSpec};
 
 /// Build the always-available builtin command store.
@@ -25,10 +29,7 @@ use ops_core::config::{CommandId, CommandSpec, ExecCommandSpec};
 /// `check-yaml`). Add new entries here whenever a clap-level subcommand
 /// should also be referenceable from composite `commands = [...]`.
 pub(super) fn builtin_commands() -> IndexMap<CommandId, CommandSpec> {
-    let ops_bin = std::env::current_exe()
-        .ok()
-        .and_then(|p| p.into_os_string().into_string().ok())
-        .unwrap_or_else(|| "ops".to_string());
+    let ops_bin = current_ops_program();
 
     let mut map = IndexMap::new();
     map.insert(
@@ -64,8 +65,9 @@ fn builtin_exec(
     spec.category = Some("Code Quality".to_string());
     // Spawn via `ops_bin` (current_exe, robust) but render as `ops <subcommand>`
     // — the same display the extension-registered commands get from their
-    // literal `program = "ops"`. Without this, step lines show the full
-    // absolute path (`/home/…/bin/ops sec`).
+    // `display_program = "ops"` (SEC-13 / TASK-2122: both registration sites
+    // now resolve the program the same way). Without this, step lines show
+    // the full absolute path (`/home/…/bin/ops sec`).
     spec.display_program = Some("ops".to_string());
     spec
 }

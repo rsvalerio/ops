@@ -5,6 +5,12 @@
 //! [`ConfigurableTheme`] wraps a `ThemeConfig` and renders step lines and
 //! error details.
 
+// UNSAFE-12 / TASK-2085: this crate holds no `unsafe` and must stay that way.
+// `forbid` (not `deny`) so a later scoped `#[allow(unsafe_code)]` cannot lift
+// it. Crate-root attribute rather than a `[lints.rust]` table because ARCH-11
+// centralizes lint levels in `[workspace.lints]` and Cargo cannot merge a
+// per-crate lints table with `workspace = true` inheritance.
+#![forbid(unsafe_code)]
 #![cfg_attr(
     test,
     allow(
@@ -27,7 +33,7 @@ pub use ops_core::config::theme_types::{ErrorBlockChars, PlanHeaderStyle, ThemeC
 pub use render::render_error_block;
 pub use resolve::{list_theme_names, resolve_theme, resolve_theme_owned, ThemeError};
 pub use step_line_theme::{format_duration, BoxSnapshot, SlotLine, StepPrefixParts};
-pub use style::{apply_style, strip_ansi, visible_width};
+pub use style::{apply_style, strip_ansi, strip_ansi_preserving_raw, visible_width};
 
 #[cfg(test)]
 mod tests;

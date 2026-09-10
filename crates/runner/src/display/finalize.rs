@@ -65,8 +65,13 @@ impl ProgressDisplay {
         let Some((step_id, kind)) = tap.take_truncation() else {
             return;
         };
+        tracing::warn!(
+            target: "ops::tap",
+            step_id = %step_id,
+            kind = %kind,
+            "tap file truncated after step"
+        );
         let line = format!("[ops] tap file truncated after step {step_id} due to: {kind}");
-        tracing::warn!(target: "ops::tap", "{}", line);
         write_stderr(Some(&line));
         tap.append_marker(&line);
     }

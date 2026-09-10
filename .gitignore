@@ -37,3 +37,6 @@ Thumbs.db
 # create this again; the ignore is a belt-and-braces guard against the
 # directory being re-committed.
 :memory:.ingest/
+
+# Staging files left by interrupted ops text-fixer runs
+.ops-text-fixers.*

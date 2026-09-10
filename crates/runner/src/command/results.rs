@@ -18,7 +18,7 @@ pub struct StepResult {
 }
 
 impl StepResult {
-    /// DUP-003: Private helper to construct base `StepResult` with common defaults.
+    /// Construct a base `StepResult` with the common field defaults.
     fn new(id: impl Into<CommandId>, success: bool, duration: Duration) -> Self {
         Self {
             id: id.into(),
@@ -54,17 +54,16 @@ impl StepResult {
         }
     }
 
-    /// ERR-1 / TASK-0408: a cancellation happens when a sibling task
-    /// triggered `fail_fast` (parallel) or the abort flag was already set
-    /// before this task started (`exec_standalone`). Encoded as
-    /// `success: false` so plan-success aggregation
-    /// (`results.iter().all(|r| r.success)`) yields a non-zero exit code
-    /// even in the (currently impossible but architecturally fragile)
-    /// scenario where the originating failure is filtered or buffered out
-    /// of the same result vector. The previous `StepResult::skipped`
-    /// constructor used `success: true` for this case, overloading the
-    /// "this step succeeded" contract with "this step never ran because we
-    /// cancelled it" — distinguishable only by caller convention.
+    /// Result for a step that never ran because the plan was cancelled:
+    /// a sibling task triggered `fail_fast` (parallel), or the abort flag
+    /// was already set before this task started (`exec_standalone`).
+    ///
+    /// Encoded as `success: false` so plan-success aggregation
+    /// (`results.iter().all(|r| r.success)`) yields a non-zero exit code even
+    /// if the originating failure is filtered or buffered out of the same
+    /// result vector. `success: true` would overload "this step succeeded"
+    /// with "this step was cancelled", leaving the two distinguishable only
+    /// by caller convention.
     ///
     /// Display still renders the row using the `StepSkipped` event the
     /// executor emitted; cancelled and skipped look identical on screen by
@@ -98,36 +97,34 @@ pub struct CommandOutput {
     pub status_message: String,
 }
 
-/// PERF-1 / TASK-0515 / TASK-0764: per-stream byte cap for captured stdout/stderr.
+/// Per-stream byte cap for captured stdout/stderr.
 ///
-/// A pathological build (e.g. a runaway logger or a `cargo test` flooding
-/// stderr) used to balloon the per-step `String` to hundreds of MB. Now the
-/// command runner **streams** each pipe and stops buffering once `cap` bytes
-/// are in memory; the rest is drained to a sink so the byte count is reported
-/// in the truncation marker without keeping the bytes resident. Peak memory
-/// per stream is bounded near `cap` regardless of how much the child writes.
+/// The command runner **streams** each pipe and stops buffering once `cap`
+/// bytes are in memory; the rest is drained to a sink so the byte count is
+/// reported in the truncation marker without keeping the bytes resident.
+/// Peak memory per stream is bounded near `cap` regardless of how much the
+/// child writes.
 ///
 /// Override at runtime via `OPS_OUTPUT_BYTE_CAP` (parses as a `usize`;
 /// values `<=0` are ignored and fall back to the default). On 32-bit
 /// targets `usize == u32`, so values above `usize::MAX` (≈4 GiB) cannot
 /// be represented and will fall back to the default with a warn — there
-/// is no point allocating beyond `usize::MAX` bytes regardless. READ-4 /
-/// TASK-1058 aligned this doc with the parser's actual type.
+/// is no point allocating beyond `usize::MAX` bytes regardless.
 ///
-/// **PERF-3 / TASK-0905 — in-flight capture budget.** This cap applies
-/// *per spawn × per stream*, so the worst case for buffers being filled at
-/// any one moment is `OPS_MAX_PARALLEL × 2 × cap`. With the defaults
+/// **In-flight capture budget.** This cap applies *per spawn × per
+/// stream*, so the worst case for buffers being filled at any one moment
+/// is `OPS_MAX_PARALLEL × 2 × cap`. With the defaults
 /// (`OPS_MAX_PARALLEL=32`, `cap=4 MiB`) that's ≤ 256 MiB; raising
 /// `OPS_OUTPUT_BYTE_CAP` to `64M` on a 32-way plan reserves up to 4 GiB
 /// in flight.
 ///
-/// **PERF-16 / TASK-1923 — retention is governed by plan length, not by
-/// parallel width.** The in-flight number above is *not* the runner's peak.
-/// `build_step_result` moves each capped `stdout` / `stderr` `String` into
-/// the returned [`StepResult`], and both `run_plan` and `run_plan_parallel`
-/// accumulate one `StepResult` per step into a `Vec` that lives until the
-/// whole plan finishes and the caller drops it. Retained capture bytes are
-/// therefore bounded by
+/// **Retention is governed by plan length, not by parallel width.** The
+/// in-flight number above is *not* the runner's peak. `build_step_result`
+/// moves each capped `stdout` / `stderr` `String` into the returned
+/// [`StepResult`], and both `run_plan` and `run_plan_parallel` accumulate
+/// one `StepResult` per step into a `Vec` that lives until the whole plan
+/// finishes and the caller drops it. Retained capture bytes are therefore
+/// bounded by
 ///
 /// ```text
 /// steps × 2 × cap        (not min(steps, OPS_MAX_PARALLEL) × 2 × cap)
@@ -140,7 +137,7 @@ pub struct CommandOutput {
 /// it are `OPS_OUTPUT_BYTE_CAP` (the bound is linear in it) and the number
 /// of steps in a single plan.
 ///
-/// *Decision (TASK-1923) — success-path captures stay populated.* Dropping
+/// *Success-path captures stay populated.* Dropping
 /// `StepResult.stdout` / `.stderr` for steps whose output has already been
 /// emitted as `StepOutput` events and written to the tap would cut the
 /// bound to the failing steps alone, but both fields are `pub` on a
@@ -159,31 +156,32 @@ pub const DEFAULT_OUTPUT_BYTE_CAP: usize = 4 * 1024 * 1024; // 4 MiB / stream
 
 const OUTPUT_CAP_ENV: &str = "OPS_OUTPUT_BYTE_CAP";
 
-/// PERF-3 / TASK-0542: resolve the env-driven cap once per process. The
-/// value is process-global and constant for a run, so the prior per-spawn
-/// `std::env::var` lookup contended on the global env lock under
-/// `MAX_PARALLEL` parallel commands. `OnceLock` keeps the override /
-/// fallback semantics (parsed at first use) without re-reading.
+/// The env-driven cap, resolved once per process.
+///
+/// The value is process-global and constant for a run, so a per-spawn
+/// `std::env::var` lookup would contend on the global env lock under
+/// `MAX_PARALLEL` parallel commands. `OnceLock` preserves the override /
+/// fallback semantics — parsed at first use — without re-reading.
 static OUTPUT_BYTE_CAP: OnceLock<usize> = OnceLock::new();
 
-/// PERF-3 / TASK-0905: warn if the per-stream cap × the configured
-/// parallel ceiling × 2 streams could reserve more than this many bytes
-/// for in-flight captures. Picked at 1 GiB so the default configuration
-/// stays silent and only operator-driven escalations trip the alarm.
+/// Threshold above which the runner warns that the per-stream cap × the
+/// configured parallel ceiling × 2 streams could reserve too many bytes for
+/// in-flight captures. Set at 1 GiB so the default configuration stays silent
+/// and only operator-driven escalations trip the alarm.
 ///
-/// PERF-16 / TASK-1923: this covers the **in-flight** budget only. Retained
-/// captures scale with plan length and are not visible to this warning —
-/// see the retention section on [`DEFAULT_OUTPUT_BYTE_CAP`]. The threshold
-/// is deliberately not re-derived from plan length: the cap resolves once
-/// per process, before any plan is known.
+/// The bound covers the **in-flight** budget only. Retained captures scale
+/// with plan length and are invisible to this warning — see the retention
+/// section on [`DEFAULT_OUTPUT_BYTE_CAP`]. The threshold is deliberately not
+/// re-derived from plan length, because the cap resolves once per process,
+/// before any plan is known.
 const PEAK_CAPTURE_WARN_BYTES: usize = 1024 * 1024 * 1024;
 
-/// ERR-2 / TASK-0840: pure parser for the `OPS_OUTPUT_BYTE_CAP` env value.
-/// Returns the resolved cap and, when the input was present-but-unusable,
-/// a human message describing the fallback so the caller can emit a
-/// `tracing::warn!` outside the unit-test path. Factored out so the
-/// fallback semantics are unit-testable without poking the
-/// process-global `OnceLock`.
+/// Pure parser for the `OPS_OUTPUT_BYTE_CAP` env value.
+///
+/// Returns the resolved cap and, when the input was present-but-unusable, a
+/// human message describing the fallback so the caller can emit a
+/// `tracing::warn!` outside the unit-test path. Keeping it separate from the
+/// process-global `OnceLock` makes the fallback semantics unit-testable.
 fn parse_output_byte_cap(raw: Option<&str>) -> (usize, Option<String>) {
     // The unset case is a trivial default, so it leaves through a `let ... else`
     // early return. That keeps the three-arm `parse` classification below at the
@@ -242,7 +240,7 @@ pub fn output_byte_cap() -> usize {
 }
 
 impl CommandOutput {
-    /// PERF-1 / TASK-0764: build a `CommandOutput` from streamed pipe reads.
+    /// Build a `CommandOutput` from streamed pipe reads.
     ///
     /// `stdout` / `stderr` carry the head of each stream (already capped at
     /// `cap` by the caller) and `*_dropped` carries the count of bytes that
@@ -266,9 +264,10 @@ impl CommandOutput {
     }
 }
 
-/// PERF-1 / TASK-0764: turn a streamed `(head, dropped_after)` pair into the
-/// final `String`. Mirrors the marker shape used by `truncate_lossy` so
-/// downstream tap consumers see a single canonical truncation line.
+/// Turn a streamed `(head, dropped_after)` pair into the final `String`.
+///
+/// Mirrors the marker shape used by `truncate_lossy` so downstream tap
+/// consumers see a single canonical truncation line.
 fn cap_streamed(mut head: Vec<u8>, dropped_after: u64, cap: usize) -> String {
     let from_head_overflow = head.len().saturating_sub(cap);
     if from_head_overflow > 0 {
@@ -348,7 +347,7 @@ mod tests {
         assert!(!cmd_output.status_message.is_empty());
     }
 
-    /// PERF-1 / TASK-0764: when the streaming reader sinks bytes past the cap,
+    /// When the streaming reader sinks bytes past the cap,
     /// the dropped count flows through `from_streamed` into the marker line
     /// without those bytes ever being held in memory.
     #[test]
@@ -393,7 +392,7 @@ mod tests {
         );
     }
 
-    /// PERF-1 / TASK-0764: a stream larger than the cap is reduced to a
+    /// A stream larger than the cap is reduced to a
     /// `cap`-byte head plus a single marker line. Exercises `cap_streamed`
     /// directly with an explicit cap (avoids racing the memoized
     /// `OPS_OUTPUT_BYTE_CAP`).
@@ -419,15 +418,18 @@ mod tests {
         );
     }
 
-    /// PERF-3 / TASK-0542: `output_byte_cap` is memoized — the first call's
+    /// `output_byte_cap` is memoized — the first call's
     /// resolved value sticks across many `from_raw` invocations, even if the
     /// process env changes mid-run. We can't reset `OnceLock`, so we verify
     /// that mutating the env after the first read does not change the cap
     /// observed by subsequent calls.
     #[test]
+    #[serial_test::serial(env_output_cap)]
     fn output_byte_cap_is_memoized_across_calls() {
         let first = output_byte_cap();
-        // SAFETY: tests under `cargo test` run on a single thread per binary.
+        // SAFETY: this test mutates a process-global env var, so it is
+        // serialised against other env-mutating tests via `serial_test`;
+        // the project's nextest gate additionally isolates per process.
         let prev = std::env::var(OUTPUT_CAP_ENV).ok();
         unsafe { std::env::set_var(OUTPUT_CAP_ENV, "1") };
         for _ in 0..100 {
@@ -444,8 +446,8 @@ mod tests {
         assert_eq!(output_byte_cap(), first);
     }
 
-    /// ERR-2 / TASK-0840: parser must surface a fallback warning for
-    /// non-positive integers, parse errors, and otherwise stay silent.
+    /// The parser surfaces a fallback warning for non-positive integers and
+    /// parse errors, and stays silent otherwise.
     #[test]
     fn parse_output_byte_cap_warns_on_invalid_inputs() {
         // Unset → silent default.

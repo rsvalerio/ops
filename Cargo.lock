@@ -1898,6 +1898,7 @@ dependencies = [
  "ops-about",
  "ops-core",
  "ops-extension",
+ "ops-theme",
  "proptest",
  "serde",
  "serde_json",
@@ -2176,14 +2177,15 @@ dependencies = [
  "anyhow",
  "clap",
  "comfy-table",
+ "libc",
  "ops-core",
  "serde",
  "serde_json",
- "serial_test",
  "shellexpand",
  "tempfile",
  "terminal_size",
  "tracing",
+ "wait-timeout",
 ]
 
 [[package]]
