@@ -187,7 +187,7 @@ where
 {
     /// An empty cache that holds at most `cap` live entries, evicting the
     /// least-recently-used one when a *new* key would exceed the cap.
-    #[must_use]
+    #[must_use = "store the returned cache; each call allocates a fresh, empty one"]
     pub fn new(cap: usize) -> Self {
         Self {
             map: HashMap::new(),
@@ -197,19 +197,19 @@ where
     }
 
     /// The soft cap this cache was built with.
-    #[must_use]
+    #[must_use = "read the returned cap; the call does not resize the cache"]
     pub const fn cap(&self) -> usize {
         self.cap
     }
 
     /// Number of live entries (the map, not the victim queue).
-    #[must_use]
+    #[must_use = "use the returned count; it counts live entries, not queued stamps"]
     pub fn len(&self) -> usize {
         self.map.len()
     }
 
     /// Whether the cache holds no live entries.
-    #[must_use]
+    #[must_use = "branch on the verdict; it reflects live entries, not queued stamps"]
     pub fn is_empty(&self) -> bool {
         self.map.is_empty()
     }
@@ -221,7 +221,7 @@ where
     }
 
     /// Whether `key` has a live entry. Does not stamp an access.
-    #[must_use]
+    #[must_use = "branch on the verdict; the probe stamps no access, so discarding it is a no-op"]
     pub fn contains_key<QL>(&self, key: &QL) -> bool
     where
         K: Borrow<QL>,
@@ -231,7 +231,7 @@ where
     }
 
     /// The value for `key`, without stamping an access.
-    #[must_use]
+    #[must_use = "read the returned value; the lookup stamps no access, so discarding it is a no-op"]
     pub fn get<QL>(&self, key: &QL) -> Option<&V>
     where
         K: Borrow<QL>,
@@ -381,7 +381,7 @@ where
 
     /// Number of queued stamps including stale ones — the queue's memory
     /// footprint, bounded by the compaction threshold.
-    #[must_use]
+    #[must_use = "use the returned count; it includes stale stamps, not just live entries"]
     pub fn victim_queue_len(&self) -> usize {
         self.victim_queue.len()
     }
