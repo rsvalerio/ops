@@ -2,7 +2,9 @@
 
 use std::path::Path;
 
-pub use ops_hook_common::find_git_dir;
+// API-13 / TASK-2112: crate-private alias — `provider.rs` shares the import
+// without the foreign ops-hook-common item gaining a second public path.
+pub(crate) use ops_hook_common::find_git_dir;
 
 /// ARCH-2 / SEC-13 / TASK-0894: type-system-enforced "this URL has been
 /// scrubbed of `user[:password]@` userinfo".
@@ -11,7 +13,7 @@ pub use ops_hook_common::find_git_dir;
 /// `redact_userinfo`) and the `From<&str>` impl that delegates to it.
 /// Carrying a `RedactedUrl` through the call chain means a future
 /// refactor cannot accidentally route a raw URL into
-/// [`crate::GitInfo::remote_url`] / about cards / JSON output without a
+/// [`crate::provider::GitInfo::remote_url`] / about cards / JSON output without a
 /// visible `RedactedUrl::redact` call.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct RedactedUrl(String);
@@ -71,11 +73,20 @@ impl RedactedUrl {
         Some(Self(redact_userinfo(raw)))
     }
 
+    /// Returns the redacted URL; the value is userinfo-free and
+    /// control-character-free by construction.
+    ///
+    /// Callers must not re-introduce a raw, unredacted URL alongside this
+    /// value — the type exists to make that refactor visible.
     #[must_use]
     pub fn as_str(&self) -> &str {
         &self.0
     }
 
+    /// Consumes the newtype, returning the redacted URL as an owned string.
+    ///
+    /// The value is userinfo-free and control-character-free by construction;
+    /// callers must not re-introduce a raw, unredacted URL alongside it.
     #[must_use]
     pub fn into_string(self) -> String {
         self.0

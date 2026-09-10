@@ -146,7 +146,7 @@ pub fn build_identity_value(
     })?;
 
     let name = name.unwrap_or_else(|| dir_name(cwd).to_string());
-    let repository = ops_git::resolve_repository_with_git_fallback(cwd, repository);
+    let repository = ops_git::provider::resolve_repository_with_git_fallback(cwd, repository);
 
     let mut identity = ProjectIdentity::new(name, stack_label, project_root, module_label);
     identity.version = version;

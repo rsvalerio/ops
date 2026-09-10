@@ -8,15 +8,32 @@ use serde::Serialize;
 use crate::config;
 use crate::remote::{parse_remote_url, RemoteInfo};
 
+/// Registry key of the `git_info` provider this crate registers.
 pub const DATA_PROVIDER_NAME: &str = "git_info";
 
+/// Local git repository metadata collected from `.git` directly (no subprocess).
+///
+/// Every field is `None` when the corresponding datum is absent or failed the
+/// parser's safety checks; [`GitInfo::collect`] never fails.
 #[derive(Debug, Clone, Default, Serialize)]
 #[non_exhaustive]
 pub struct GitInfo {
+    /// Remote host, canonicalised to ASCII lowercase (`GitHub.com` →
+    /// `github.com`) so comparisons and grouping are case-insensitive.
+    /// `None` outside a git checkout or when the remote URL is rejected.
     pub host: Option<String>,
+    /// Remote owner segment, case-preserved (forge paths are case-sensitive).
+    /// `None` when the remote URL cannot be parsed.
     pub owner: Option<String>,
+    /// Repository name without the `.git` suffix, case-preserved. `None`
+    /// when the remote URL cannot be parsed.
     pub repo: Option<String>,
+    /// Normalised `scheme://host[:port]/owner/repo` URL rebuilt by
+    /// [`parse_remote_url`] with userinfo stripped and the port preserved.
+    /// `None` when the raw remote is not a recognisable remote URL.
     pub remote_url: Option<String>,
+    /// Current branch from `.git/HEAD`; `None` on a detached HEAD or an
+    /// unreadable `HEAD` file.
     pub branch: Option<String>,
 }
 
@@ -96,6 +113,8 @@ impl GitInfo {
     }
 }
 
+/// Data provider serving [`GitInfo`] collected from the context's working
+/// directory under the `git_info` key.
 pub struct GitInfoProvider;
 
 impl DataProvider for GitInfoProvider {
