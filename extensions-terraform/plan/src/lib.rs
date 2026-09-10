@@ -8,11 +8,19 @@
     )
 )]
 
+/// Plan model: the deserialization contract with terraform's JSON plan
+/// format and the classification types derived from it.
 pub mod model;
+/// Rendering of classified plans as summary, resource and output tables.
 pub mod render;
 
-pub use model::{Action, ClassifiedChange, Plan};
-pub use render::{render_outputs_table, render_resource_table, render_summary_table};
+// API-13 / TASK-2218: the modules above are the canonical public paths; the
+// root `pub use`s that duplicated them were removed so every item has
+// exactly one public path (same policy TASK-2112 applied to ops-git).
+use crate::model::{Action, ClassifiedChange, Plan};
+use crate::render::render_outputs_table;
+use crate::render::render_resource_table;
+use crate::render::render_summary_table;
 
 use std::path::{Path, PathBuf};
 use std::process::{ExitCode, Stdio};
@@ -62,6 +70,8 @@ pub struct PlanOptions {
     pub passthrough: Vec<String>,
 }
 
+/// Deserializes a terraform plan document and classifies its changes.
+///
 /// # Errors
 ///
 /// If `json` does not deserialize as a terraform plan document.
@@ -71,7 +81,8 @@ pub fn parse_and_classify(json: &str) -> anyhow::Result<(Plan, Vec<ClassifiedCha
     Ok((plan, changes))
 }
 
-#[must_use]
+/// Whether at least one classified change is a real change (not `NoOp`).
+#[must_use = "branch on the verdict to pick the exit path; it has no side effect"]
 pub fn has_changes(classified: &[ClassifiedChange]) -> bool {
     classified.iter().any(|c| c.action.is_change())
 }
