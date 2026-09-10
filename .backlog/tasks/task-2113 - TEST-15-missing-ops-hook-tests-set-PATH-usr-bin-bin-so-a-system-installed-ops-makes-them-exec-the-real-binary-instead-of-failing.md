@@ -1,10 +1,10 @@
 ---
 id: TASK-2113
 title: 'TEST-15: missing-ops hook tests set PATH=/usr/bin:/bin, so a system-installed ops makes them exec the real binary instead of failing'
-status: To Do
+status: Done
 assignee: []
 created_date: '2026-09-08 06:53'
-updated_date: '2026-09-08 20:00'
+updated_date: '2026-09-09 18:44'
 labels:
   - code-review-rust
   - test-quality
@@ -34,8 +34,9 @@ The script needs no external command at all: `case`, `command -v` and `echo` are
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 Both tests make the ops lookup fail unconditionally (empty PATH, or a PATH pointing only at an empty temp dir) rather than relying on /usr/bin and /bin not containing ops
-- [ ] #2 Neither test can reach  on any machine, so no real ops process is spawned by the suite
-- [ ] #3 The stale comment claiming /usr/bin:/bin excludes a developer's installed ops is removed or corrected
-- [ ] #4 Both tests still assert exit code 1 and the ops / reinstall-command / bypass-variable substrings on stderr
+- [x] #1 Both tests make the ops lookup fail unconditionally (empty PATH, or a PATH pointing only at an empty temp dir) rather than relying on /usr/bin and /bin not containing ops
+- [x] #2 Neither test can reach  on any machine, so no real ops process is spawned by the suite
+- [x] #3 The stale comment claiming /usr/bin:/bin excludes a developer's installed ops is removed or corrected
+- [x] #4 Both tests still assert exit code 1 and the ops / reinstall-command / bypass-variable substrings on stderr
+
 <!-- AC:END -->

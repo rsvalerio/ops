@@ -1,10 +1,10 @@
 ---
 id: TASK-2200
 title: 'TEST-6: coverage_summary_view_handles_zero_counts writes its fixture with raw std::fs::write while claiming to stage through the verified IngestDir anchor'
-status: To Do
+status: Done
 assignee: []
 created_date: '2026-09-08 07:15'
-updated_date: '2026-09-08 20:00'
+updated_date: '2026-09-10 15:54'
 labels:
   - code-review-rust
   - tests
@@ -35,6 +35,7 @@ Every sibling stages through the descriptor instead — `dir.write_atomic(...)` 
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 coverage_summary_view_handles_zero_counts stages both fixture files through IngestDir::write_atomic rather than std::fs::write on entry_path
-- [ ] #2 The test still asserts the all-zero-row percentage case (0% not NaN) that distinguishes it from coverage_summary_view_empty_table_yields_zero_counts
+- [x] #1 coverage_summary_view_handles_zero_counts stages both fixture files through IngestDir::write_atomic rather than std::fs::write on entry_path
+- [x] #2 The test still asserts the all-zero-row percentage case (0% not NaN) that distinguishes it from coverage_summary_view_empty_table_yields_zero_counts
+
 <!-- AC:END -->

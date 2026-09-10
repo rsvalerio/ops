@@ -1,10 +1,10 @@
 ---
 id: TASK-2119
 title: 'TEST-18: env- and cwd-mutating hook tests are serialized only against each other, while eight parallel tests in the same binary spawn subprocesses'
-status: To Do
+status: Done
 assignee: []
 created_date: '2026-09-08 06:54'
-updated_date: '2026-09-08 20:00'
+updated_date: '2026-09-09 18:46'
 labels:
   - code-review-rust
   - test-quality
@@ -41,7 +41,8 @@ Those run on the harness's other threads at the same time as `has_staged_files_a
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 No test in this binary can observe the process environment or cwd being mutated by another test: either every process-spawning test is serialized with the env/cwd mutators, or the mutating tests no longer touch process-global state (pass the program path and timeout explicitly)
-- [ ] #2 The chosen mechanism is documented next to the guards so a newly added test cannot silently opt out of it
-- [ ] #3 cargo test -p ops-run-before-commit passes with the default parallel harness
+- [x] #1 No test in this binary can observe the process environment or cwd being mutated by another test: either every process-spawning test is serialized with the env/cwd mutators, or the mutating tests no longer touch process-global state (pass the program path and timeout explicitly)
+- [x] #2 The chosen mechanism is documented next to the guards so a newly added test cannot silently opt out of it
+- [x] #3 cargo test -p ops-run-before-commit passes with the default parallel harness
+
 <!-- AC:END -->

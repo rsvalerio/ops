@@ -1,10 +1,10 @@
 ---
 id: TASK-2205
 title: 'TEST-5: invalid_root_pyproject_yields_no_units documents a warn assertion it does not make, and the warn it describes has no recovery field'
-status: To Do
+status: Done
 assignee: []
 created_date: '2026-09-08 07:19'
-updated_date: '2026-09-08 20:00'
+updated_date: '2026-09-09 18:53'
 labels:
   - code-review-rust
   - tests
@@ -41,7 +41,8 @@ Relatedly, the warn it should be asserting is the only diagnostic in the crate w
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 invalid_root_pyproject_yields_no_units captures WARN-level tracing and asserts the warn fires, names pyproject.toml, and states its recovery
-- [ ] #2 The workspace-shape parse warn in read_workspace_members carries a recovery field consistent with the crate's other warns
-- [ ] #3 Deleting the warn makes the test fail
+- [x] #1 invalid_root_pyproject_yields_no_units captures WARN-level tracing and asserts the warn fires, names pyproject.toml, and states its recovery
+- [x] #2 The workspace-shape parse warn in read_workspace_members carries a recovery field consistent with the crate's other warns
+- [x] #3 Deleting the warn makes the test fail
+
 <!-- AC:END -->

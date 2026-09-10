@@ -1,10 +1,10 @@
 ---
 id: TASK-2144
 title: 'TEST-18: env-mutating tests are serialized only against each other while three sibling tests spawn subprocesses in parallel, racing setenv against environ reads'
-status: To Do
+status: Done
 assignee: []
 created_date: '2026-09-08 07:02'
-updated_date: '2026-09-08 20:00'
+updated_date: '2026-09-09 18:51'
 labels:
   - code-review-rust
   - test-quality
@@ -38,7 +38,8 @@ The exposure is narrower here than in the sibling crate (three spawners, not eig
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 No test in this binary can observe the process environment being mutated by another test: either every process-spawning test is serialized with the env mutators, or the mutating tests stop touching process-global state
-- [ ] #2 The chosen mechanism is documented next to the guards so a newly added spawning test cannot silently opt out of it
-- [ ] #3 cargo test -p ops-run-before-push passes under the default parallel harness
+- [x] #1 No test in this binary can observe the process environment being mutated by another test: either every process-spawning test is serialized with the env mutators, or the mutating tests stop touching process-global state
+- [x] #2 The chosen mechanism is documented next to the guards so a newly added spawning test cannot silently opt out of it
+- [x] #3 cargo test -p ops-run-before-push passes under the default parallel harness
+
 <!-- AC:END -->

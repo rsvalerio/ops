@@ -1,10 +1,10 @@
 ---
 id: TASK-2133
 title: 'TEST-5: run-before-commit never pins its own HOOK_CONFIG wiring - hook filename, skip variable and legacy markers are asserted only in the sibling crate'
-status: To Do
+status: Done
 assignee: []
 created_date: '2026-09-08 06:55'
-updated_date: '2026-09-08 20:00'
+updated_date: '2026-09-09 19:04'
 labels:
   - code-review-rust
   - test-quality
@@ -34,8 +34,9 @@ The sibling crate does exactly this pinning (`extensions/run-before-push/src/lib
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 A test asserts HOOK_CONFIG.hook_filename == "pre-commit", HOOK_CONFIG.skip_env_var == SKIP_ENV_VAR, HOOK_CONFIG.name == NAME and HOOK_CONFIG.hook_script == HOOK_SCRIPT
-- [ ] #2 A test asserts command_help is non-empty and names the hook, mirroring the run-before-push coverage
-- [ ] #3 Each legacy marker, including "ops run-before-commit", is covered by an install_hook upgrade test
-- [ ] #4 The install_hook tests assert the returned path's file name is pre-commit, so a wrong hook_filename fails them
+- [x] #1 A test asserts HOOK_CONFIG.hook_filename == "pre-commit", HOOK_CONFIG.skip_env_var == SKIP_ENV_VAR, HOOK_CONFIG.name == NAME and HOOK_CONFIG.hook_script == HOOK_SCRIPT
+- [x] #2 A test asserts command_help is non-empty and names the hook, mirroring the run-before-push coverage
+- [x] #3 Each legacy marker, including "ops run-before-commit", is covered by an install_hook upgrade test
+- [x] #4 The install_hook tests assert the returned path's file name is pre-commit, so a wrong hook_filename fails them
+
 <!-- AC:END -->

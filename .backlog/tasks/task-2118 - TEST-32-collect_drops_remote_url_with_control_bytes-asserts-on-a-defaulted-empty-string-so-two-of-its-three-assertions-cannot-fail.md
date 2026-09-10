@@ -1,10 +1,10 @@
 ---
 id: TASK-2118
 title: 'TEST-32: collect_drops_remote_url_with_control_bytes asserts on a defaulted empty string, so two of its three assertions cannot fail'
-status: To Do
+status: Done
 assignee: []
 created_date: '2026-09-08 06:54'
-updated_date: '2026-09-08 20:00'
+updated_date: '2026-09-09 19:02'
 labels:
   - code-review-rust
   - test
@@ -39,6 +39,7 @@ The final assertion establishes that `remote_url` is `None`, which means `url` i
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 No assertion in the test is satisfied trivially by the unwrap_or_default fallback
-- [ ] #2 The control-byte no-leak property is asserted against a value that is actually emitted, or the test is scoped explicitly to the drop behaviour
+- [x] #1 No assertion in the test is satisfied trivially by the unwrap_or_default fallback
+- [x] #2 The control-byte no-leak property is asserted against a value that is actually emitted, or the test is scoped explicitly to the drop behaviour
+
 <!-- AC:END -->

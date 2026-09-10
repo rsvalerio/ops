@@ -1,10 +1,10 @@
 ---
 id: TASK-2096
 title: 'TEST-33: ConfigurableTheme::new performs stderr I/O via warn_on_running_template_overhead with no injection point'
-status: To Do
+status: Done
 assignee: []
 created_date: '2026-09-07 22:59'
-updated_date: '2026-09-08 20:00'
+updated_date: '2026-09-09 19:01'
 labels:
   - code-review-rust
   - testability
@@ -28,6 +28,7 @@ ordinal: 21000
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 ConfigurableTheme::new performs no I/O; the running_template_overhead diagnostic is returned, collected, or emitted at resolution time by the caller
-- [ ] #2 A test constructs a misconfigured theme and asserts the diagnostic is observable without reading stderr
+- [x] #1 ConfigurableTheme::new performs no I/O; the running_template_overhead diagnostic is returned, collected, or emitted at resolution time by the caller
+- [x] #2 A test constructs a misconfigured theme and asserts the diagnostic is observable without reading stderr
+
 <!-- AC:END -->

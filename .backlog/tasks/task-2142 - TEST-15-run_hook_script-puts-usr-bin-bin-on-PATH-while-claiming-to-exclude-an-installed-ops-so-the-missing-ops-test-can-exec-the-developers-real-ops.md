@@ -1,10 +1,10 @@
 ---
 id: TASK-2142
 title: 'TEST-15: run_hook_script puts /usr/bin:/bin on PATH while claiming to exclude an installed ops, so the missing-ops test can exec the developer''s real ops'
-status: To Do
+status: Done
 assignee: []
 created_date: '2026-09-08 07:02'
-updated_date: '2026-09-08 20:00'
+updated_date: '2026-09-09 18:47'
 labels:
   - code-review-rust
   - test-quality
@@ -35,8 +35,9 @@ This is the same defect TASK-2113 records for `extensions/run-before-commit/src/
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 The missing-ops test makes the ops lookup fail unconditionally (PATH pointing only at an empty temp dir, or empty) rather than relying on /usr/bin and /bin not containing ops
-- [ ] #2 No test in this crate can reach 'exec ops run-before-push' with a real ops binary; the fall-through path resolves only the fake ops written by fake_ops
-- [ ] #3 The run_hook_script doc comment describes the PATH it actually builds
-- [ ] #4 The test still asserts a non-success exit and the ops / hook-path / bypass-variable substrings on stderr, and passes on a machine with ops installed in /usr/bin
+- [x] #1 The missing-ops test makes the ops lookup fail unconditionally (PATH pointing only at an empty temp dir, or empty) rather than relying on /usr/bin and /bin not containing ops
+- [x] #2 No test in this crate can reach 'exec ops run-before-push' with a real ops binary; the fall-through path resolves only the fake ops written by fake_ops
+- [x] #3 The run_hook_script doc comment describes the PATH it actually builds
+- [x] #4 The test still asserts a non-success exit and the ops / hook-path / bypass-variable substrings on stderr, and passes on a machine with ops installed in /usr/bin
+
 <!-- AC:END -->

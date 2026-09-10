@@ -1,10 +1,10 @@
 ---
 id: TASK-2213
 title: 'TEST-18: serial_test guards the env-mutating cap tests against each other but not against the parallel tests that read the same environment'
-status: To Do
+status: Done
 assignee: []
 created_date: '2026-09-08 07:21'
-updated_date: '2026-09-08 20:00'
+updated_date: '2026-09-09 18:58'
 labels:
   - code-review-rust
   - test
@@ -38,7 +38,8 @@ This is latent under `cargo nextest run` (process-per-test) and live under `carg
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 No test in this crate mutates the process environment; the byte cap is injected as a value rather than read from env inside read_capped
-- [ ] #2 plan_json_max_bytes() is resolved once at the pipeline entry point and passed down, keeping the OPS_PLAN_JSON_MAX_BYTES override behaviour and its error message unchanged
-- [ ] #3 The serial_test dependency and the unsafe set_var/remove_var blocks are removed from this crate's tests, and the existing cap assertions still pass under both cargo test and cargo nextest run
+- [x] #1 No test in this crate mutates the process environment; the byte cap is injected as a value rather than read from env inside read_capped
+- [x] #2 plan_json_max_bytes() is resolved once at the pipeline entry point and passed down, keeping the OPS_PLAN_JSON_MAX_BYTES override behaviour and its error message unchanged
+- [x] #3 The serial_test dependency and the unsafe set_var/remove_var blocks are removed from this crate's tests, and the existing cap assertions still pass under both cargo test and cargo nextest run
+
 <!-- AC:END -->

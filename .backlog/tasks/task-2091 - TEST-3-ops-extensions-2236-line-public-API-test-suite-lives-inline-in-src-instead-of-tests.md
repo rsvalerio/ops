@@ -1,10 +1,10 @@
 ---
 id: TASK-2091
 title: 'TEST-3: ops-extension''s 2236-line public-API test suite lives inline in src/ instead of tests/'
-status: To Do
+status: Done
 assignee: []
 created_date: '2026-09-07 22:58'
-updated_date: '2026-09-08 20:00'
+updated_date: '2026-09-09 18:43'
 labels:
   - code-review-rust
   - tests
@@ -29,7 +29,8 @@ ordinal: 17000
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 Public-API tests moved to crates/extension/tests/ integration test file(s); cargo test -p ops-extension runs them from there
-- [ ] #2 Only tests needing private access (SharedError::shares_allocation_with) remain in a #[cfg(test)] module beside error.rs
-- [ ] #3 No test scenario lost: test count after the move is >= 88 or every dropped test is accounted for as duplicated coverage
+- [x] #1 Public-API tests moved to crates/extension/tests/ integration test file(s); cargo test -p ops-extension runs them from there
+- [x] #2 Only tests needing private access (SharedError::shares_allocation_with) remain in a #[cfg(test)] module beside error.rs
+- [x] #3 No test scenario lost: test count after the move is >= 88 or every dropped test is accounted for as duplicated coverage
+
 <!-- AC:END -->
