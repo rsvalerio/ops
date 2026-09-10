@@ -146,3 +146,32 @@ fn bans_rollup_keeps_unknown_distinct_from_info() {
         row.result
     );
 }
+
+/// DUP-1 / TASK-2193 AC#2: an unrecognised severity on a ban entry emits the
+/// same one-per-section drift warn the other three deny sections emit.
+/// Pre-consolidation `bans_row` skipped it, so schema drift on bans was
+/// invisible in the logs while every other section left a breadcrumb.
+#[test]
+fn bans_row_warns_once_on_unknown_severity() {
+    let bans = vec![
+        BanEntry(DenyEntry {
+            package: "dup-a".to_string(),
+            message: "duplicate".to_string(),
+            severity: "critical".to_string(),
+        }),
+        BanEntry(DenyEntry {
+            package: "dup-b".to_string(),
+            message: "duplicate".to_string(),
+            severity: "critical".to_string(),
+        }),
+    ];
+
+    let (logs, row) =
+        crate::test_support::capture_tracing(tracing::Level::WARN, || bans_row(&bans));
+    assert_eq!(
+        logs.matches("unknown cargo-deny severity").count(),
+        1,
+        "one drift warn per section, not per entry; got: {logs}"
+    );
+    assert_eq!(row.status, ReportStatus::Error);
+}

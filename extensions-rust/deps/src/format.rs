@@ -294,78 +294,112 @@ struct AdvisoryRow<'a> {
     severity: &'a str,
 }
 
-fn severity_row<T, F>(title: &str, entries: &[T], extract: F, advice: &str) -> ReportRow
+/// DUP-1 / TASK-2193: the scaffold every severity-bearing deny section
+/// shares — the empty-section `Ok`/`None` row, the classify pass with the
+/// one-per-section unknown-severity drift warn, the rollup, and the row
+/// assembly. Only the details differ per section: `details` receives the
+/// entries paired with their classes, so detail loops reuse the classify
+/// pass instead of re-running it.
+///
+/// TASK-0972 and TASK-1821 changed this scaffold across the sections in
+/// lockstep; it lives here once now, so bans cannot silently miss the warn
+/// the other three sections emit — the drift this consolidation closes.
+fn severity_section_row<'a, T, F, D>(
+    title: &str,
+    entries: &'a [T],
+    extract: F,
+    details: D,
+) -> ReportRow
 where
-    F: for<'a> Fn(&'a T) -> AdvisoryRow<'a>,
+    F: Fn(&'a T) -> AdvisoryRow<'a>,
+    D: FnOnce(&'a [T], &[SeverityClass]) -> Vec<String>,
 {
     if entries.is_empty() {
         return ReportRow::new(ReportStatus::Ok, title, "None");
     }
 
+    let mut warned_unknown = false;
     let classes: Vec<SeverityClass> = entries
         .iter()
-        .map(|e| SeverityClass::classify(extract(e).severity))
+        .map(|e| {
+            let class = SeverityClass::classify(extract(e).severity);
+            // One drift warn per section, not per entry: the entry still
+            // renders (red / failed by the gate via `Unknown`), so the log
+            // line is a breadcrumb, not an error report.
+            if class == SeverityClass::Unknown && !warned_unknown {
+                warned_unknown = true;
+                tracing::warn!(
+                    severity = %extract(e).severity,
+                    "TASK-0602: unknown cargo-deny severity rendered with fallback style"
+                );
+            }
+            class
+        })
         .collect();
     let (status, result) = rollup(&classes);
 
-    let pkg_w = entries
-        .iter()
-        .map(|e| extract(e).package.len())
-        .max()
-        .unwrap_or(0);
-    let id_w = entries
-        .iter()
-        .filter_map(|e| extract(e).id.map(str::len))
-        .max()
-        .unwrap_or(0);
-
-    // A live slice length is at most `isize::MAX`, so `saturating_add` here
-    // equals `+ 2` exactly.
-    let mut details = Vec::with_capacity(entries.len().saturating_add(2));
-    let mut warned_unknown = false;
-    for entry in entries {
-        let row = extract(entry);
-        let class = SeverityClass::classify(row.severity);
-        if class == SeverityClass::Unknown && !warned_unknown {
-            warned_unknown = true;
-            tracing::warn!(
-                severity = %row.severity,
-                "TASK-0602: unknown cargo-deny severity rendered with fallback style"
-            );
-        }
-        let mut line = String::new();
-        let _ = write!(line, "{DETAIL_INDENT}{} ", class.style(class.icon()));
-        if let Some(id) = row.id {
-            let _ = write!(line, "{id:<id_w$}  ");
-        }
-        let _ = write!(line, "{:<pkg_w$}  {}", row.package, dim(row.message));
-        details.push(line);
-    }
-    for line in advice.lines() {
-        details.push(format!("{DETAIL_INDENT}{} {}", dim("\u{1f4a1}"), dim(line)));
-    }
-
-    ReportRow::new(status, title, result).with_details(details)
+    ReportRow::new(status, title, result).with_details(details(entries, &classes))
 }
 
+fn severity_row<T, F>(title: &str, entries: &[T], extract: F, advice: &str) -> ReportRow
+where
+    F: for<'a> Fn(&'a T) -> AdvisoryRow<'a>,
+{
+    // `&extract` also implements `Fn`, so the shared scaffold can keep its
+    // by-value parameter while this wrapper's details closure still uses it.
+    severity_section_row(title, entries, &extract, |entries, classes| {
+        let pkg_w = entries
+            .iter()
+            .map(|e| extract(e).package.len())
+            .max()
+            .unwrap_or(0);
+        let id_w = entries
+            .iter()
+            .filter_map(|e| extract(e).id.map(str::len))
+            .max()
+            .unwrap_or(0);
+
+        // A live slice length is at most `isize::MAX`, so `saturating_add`
+        // here equals `+ 2` exactly.
+        let mut details = Vec::with_capacity(entries.len().saturating_add(2));
+        for (entry, class) in entries.iter().zip(classes) {
+            let row = extract(entry);
+            let mut line = String::new();
+            let _ = write!(line, "{DETAIL_INDENT}{} ", class.style(class.icon()));
+            if let Some(id) = row.id {
+                let _ = write!(line, "{id:<id_w$}  ");
+            }
+            let _ = write!(line, "{:<pkg_w$}  {}", row.package, dim(row.message));
+            details.push(line);
+        }
+        for line in advice.lines() {
+            details.push(format!("{DETAIL_INDENT}{} {}", dim("\u{1f4a1}"), dim(line)));
+        }
+        details
+    })
+}
+
+/// DUP-1 / TASK-2193: bans ride the shared section scaffold — same
+/// empty-section row, classify pass (now including the unknown-severity
+/// drift warn the other sections emit), and rollup; only the details body
+/// is bans-specific (a single fixed note, not a per-entry table).
 fn bans_row(bans: &[BanEntry]) -> ReportRow {
-    let title = "Duplicate Crates";
-    if bans.is_empty() {
-        return ReportRow::new(ReportStatus::Ok, title, "None");
-    }
-
-    let classes: Vec<SeverityClass> = bans
-        .iter()
-        .map(|b| SeverityClass::classify(&b.severity))
-        .collect();
-    let (status, result) = rollup(&classes);
-
-    let details = vec![format!(
-        "{DETAIL_INDENT}{}",
-        dim("(transitive, usually harmless)")
-    )];
-
-    ReportRow::new(status, title, result).with_details(details)
+    severity_section_row(
+        "Duplicate Crates",
+        bans,
+        |b: &BanEntry| AdvisoryRow {
+            id: None,
+            package: &b.package,
+            message: &b.message,
+            severity: &b.severity,
+        },
+        |_, _| {
+            vec![format!(
+                "{DETAIL_INDENT}{}",
+                dim("(transitive, usually harmless)")
+            )]
+        },
+    )
 }
 
 #[cfg(test)]
