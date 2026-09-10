@@ -78,8 +78,9 @@ pub use inheritance::InheritanceError;
 // `InheritableField` / `InheritableString` / `InheritableVec` are new here:
 // they are the declared types of eleven public `Package` fields, so without a
 // re-export a consumer could read `p.version.as_str()` but could not write the
-// type in a signature, match on `Value` vs `Inherited`, or construct a
-// `Package`. That is the `unnameable_types` shape, and it is why
+// type in a signature or match on `Value` vs `Inherited`. (Constructing a
+// `Package` is not possible for a downstream crate either way: the struct is
+// `#[non_exhaustive]`.) That is the `unnameable_types` shape, and it is why
 // `extensions-rust/about` expresses the Value/Inherited distinction through
 // accessors rather than a match.
 //
