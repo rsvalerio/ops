@@ -25,11 +25,21 @@ enum Block {
     Go,
 }
 
+/// Parsed contents of a `go.mod` file.
+///
+/// The fields are spelled `pub` to match the type: `mod go_mod` is private,
+/// so the private module — not the field spelling — is the visibility
+/// boundary, and `pub(crate)` inside it is what
+/// `clippy::redundant_pub_crate` denies workspace-wide
+/// (API-14 / TASK-2187).
 #[derive(Debug, Default)]
 pub struct GoMod {
-    pub(crate) module: Option<String>,
-    pub(crate) go_version: Option<String>,
-    pub(crate) local_replaces: Vec<String>,
+    /// Module path from the `module` directive; `None` when absent.
+    pub module: Option<String>,
+    /// Toolchain version from the `go` directive; `None` when absent.
+    pub go_version: Option<String>,
+    /// Filesystem targets of local `replace` directives, in file order.
+    pub local_replaces: Vec<String>,
 }
 
 pub fn parse(dir: &Path) -> Option<GoMod> {

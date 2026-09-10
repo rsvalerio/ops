@@ -39,6 +39,12 @@ const MAVEN_NAME: &str = "about-java-maven";
 const MAVEN_DESCRIPTION: &str = "Java Maven project identity";
 const MAVEN_SHORTNAME: &str = "about-mvn";
 
+/// Datasource extension supplying the Maven stack's about providers
+/// (identity and units, read from `pom.xml`) to the generic `ops_about`
+/// renderers.
+///
+/// `#[non_exhaustive]` because construction goes through the
+/// `impl_extension!` factory, not a struct literal (API-9 / TASK-0922).
 #[non_exhaustive]
 pub struct AboutMavenExtension;
 
@@ -67,6 +73,12 @@ const GRADLE_NAME: &str = "about-java-gradle";
 const GRADLE_DESCRIPTION: &str = "Java Gradle project identity";
 const GRADLE_SHORTNAME: &str = "about-gradle";
 
+/// Datasource extension supplying the Gradle stack's about providers
+/// (identity and units, read from `build.gradle`/`build.gradle.kts` and
+/// `settings.gradle`) to the generic `ops_about` renderers.
+///
+/// `#[non_exhaustive]` because construction goes through the
+/// `impl_extension!` factory, not a struct literal (API-9 / TASK-0922).
 #[non_exhaustive]
 pub struct AboutGradleExtension;
 

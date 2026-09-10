@@ -12,6 +12,11 @@ use crate::cards::{layout_cards_in_grid_with_width, render_card};
 use crate::providers::{load_or_default, warm_providers};
 use crate::text_util::get_terminal_width;
 
+/// Registry key of the `project_units` provider that supplies the
+/// [`ProjectUnit`] cards rendered on this subpage.
+///
+/// When no stack registers it, the page falls back to "No units provider is
+/// registered for this stack."
 pub const PROJECT_UNITS_PROVIDER: &str = "project_units";
 
 /// # Errors

@@ -95,7 +95,7 @@ pub fn query_rust_loc_stats(
 ///
 /// Returns `None` when there is nothing to show, signalling the caller to
 /// emit a user-facing message instead of an empty table.
-#[must_use]
+#[must_use = "render the returned section; a `None` means emit the fallback message"]
 pub fn format_rust_loc_section(page: Option<&RustLocPage>) -> Option<Vec<String>> {
     let page = match page {
         Some(p) if !p.regions.is_empty() => p,

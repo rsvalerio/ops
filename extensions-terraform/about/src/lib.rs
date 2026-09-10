@@ -48,6 +48,8 @@ const DESCRIPTION: &str = "Terraform project identity";
 const SHORTNAME: &str = "about-terraform";
 const DATA_PROVIDER_NAME: &str = "project_identity";
 
+/// Datasource extension supplying the Terraform stack's about providers
+/// (identity, read from `.tf` files) to the generic `ops_about` renderers.
 #[non_exhaustive]
 pub struct AboutTerraformExtension;
 

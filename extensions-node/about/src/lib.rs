@@ -18,6 +18,11 @@
     )
 )]
 
+// API-14 / TASK-2232: the four modules below are private, so every `pub`
+// item inside them is crate-internal already — that spelling (rather than
+// `pub(crate)`) is what `clippy::redundant_pub_crate` enforces
+// workspace-wide. The crate's exported surface is `AboutNodeExtension`
+// alone.
 mod package_json;
 mod package_manager;
 mod repo_url;
@@ -35,6 +40,9 @@ const DESCRIPTION: &str = "Node project identity";
 const SHORTNAME: &str = "about-node";
 const DATA_PROVIDER_NAME: &str = "project_identity";
 
+/// Datasource extension supplying the Node stack's about providers
+/// (identity and units, read from `package.json`) to the generic
+/// `ops_about` renderers.
 #[non_exhaustive]
 pub struct AboutNodeExtension;
 

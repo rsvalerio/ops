@@ -38,7 +38,7 @@ use std::sync::{Mutex, MutexGuard};
 /// `Relaxed` is sufficient: cross-thread ordering is irrelevant for victim
 /// selection. We only need each access to receive a strictly increasing
 /// stamp under whatever lock the caller already holds.
-#[must_use]
+#[must_use = "stamp the returned tick on the entry; calling again yields a different tick"]
 pub fn next_lru_tick() -> u64 {
     static LRU_TICK: AtomicU64 = AtomicU64::new(0);
     LRU_TICK.fetch_add(1, Ordering::Relaxed)
@@ -61,7 +61,7 @@ impl<K: Ord> Default for LruVictimQueue<K> {
 }
 
 impl<K: Ord> LruVictimQueue<K> {
-    #[must_use]
+    #[must_use = "store the returned queue; each call allocates a fresh, empty one"]
     pub const fn new() -> Self {
         Self {
             heap: BinaryHeap::new(),
@@ -90,13 +90,13 @@ impl<K: Ord> LruVictimQueue<K> {
     /// Number of queued stamps, **including** stale ones. This is the
     /// queue's memory footprint, not the live entry count — the caller's
     /// authoritative map owns that.
-    #[must_use]
+    #[must_use = "use the returned count; it includes stale stamps, not just live entries"]
     pub fn len(&self) -> usize {
         self.heap.len()
     }
 
     /// Whether the queue holds no stamps at all, stale ones included.
-    #[must_use]
+    #[must_use = "branch on the verdict; it reflects the heap, not the live entry count"]
     pub fn is_empty(&self) -> bool {
         self.heap.is_empty()
     }

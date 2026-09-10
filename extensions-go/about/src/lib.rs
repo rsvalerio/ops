@@ -17,6 +17,10 @@
     )
 )]
 
+// API-14 / TASK-2187: the four modules below are private, so every `pub`
+// item inside them is crate-internal already — that spelling (rather than
+// `pub(crate)`) is what `clippy::redundant_pub_crate` enforces
+// workspace-wide. The crate's exported surface is `AboutGoExtension` alone.
 mod go_mod;
 mod go_syntax;
 mod go_work;
@@ -31,6 +35,9 @@ const DESCRIPTION: &str = "Go project identity";
 const SHORTNAME: &str = "about-go";
 const DATA_PROVIDER_NAME: &str = "project_identity";
 
+/// Datasource extension supplying the Go stack's about providers
+/// (identity via `go.mod`, units via `go work`) to the generic `ops_about`
+/// renderers.
 #[non_exhaustive]
 pub struct AboutGoExtension;
 

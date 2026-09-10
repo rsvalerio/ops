@@ -21,13 +21,22 @@ use crate::members::member_path_is_workspace_safe_or_warn;
 /// positions in tuple destructures at call sites.
 #[derive(Debug, Default, Clone)]
 pub struct CrateMetadata {
+    /// Crate name from `[package].name`; `None` when the member's manifest
+    /// could not be read or parsed (see [`read_crate_metadata`]).
     pub name: Option<String>,
+    /// Crate version from `[package].version`; `None` on read or parse
+    /// failure.
     pub version: Option<String>,
+    /// Crate description from `[package].description`; `None` on read or
+    /// parse failure.
     pub description: Option<String>,
 }
 
+/// Registry key of the `project_units` provider declared in this module.
 pub const PROVIDER_NAME: &str = "project_units";
 
+/// Data provider serving the workspace-member units rendered by the generic
+/// `ops_about` units subpage.
 pub struct RustUnitsProvider;
 
 impl DataProvider for RustUnitsProvider {

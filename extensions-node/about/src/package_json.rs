@@ -6,14 +6,16 @@ use serde::Deserialize;
 
 use super::repo_url::{append_tree_directory, normalize_repo_url};
 
+/// The parsed `package.json` fields the about providers render.
+///
 /// API-9 / TASK-1740: `#[non_exhaustive]` used to sit here, where it was
 /// inert — `mod package_json` is private, so the type is unreachable from
 /// outside the crate and the attribute constrains nobody (`lib.rs` in fact
-/// destructures it exhaustively). The declared visibility now matches the
-/// reachable one: the private `mod package_json` is the single place that
-/// states it, and the type and its fields no longer restate a narrower
-/// `pub(crate)` on top of it. The attribute stays on `AboutNodeExtension`,
-/// which is genuinely public and constructed by consumers.
+/// destructures it exhaustively). The attribute stays on
+/// `AboutNodeExtension`, which is genuinely public and constructed by
+/// consumers. The private module is the visibility boundary; the `pub`
+/// spelling on the type and its fields is the crate-internal convention
+/// `clippy::redundant_pub_crate` enforces workspace-wide (API-14 / TASK-2232).
 #[derive(Debug, Default)]
 pub struct PackageJson {
     pub name: Option<String>,
@@ -170,12 +172,13 @@ pub fn parse_package_json(project_root: &Path) -> Option<PackageJson> {
     })
 }
 
-/// DUP-3 / TASK-1258: re-export of the shared
-/// [`ops_about::text_util::trim_nonempty`] so existing call sites keep their
-/// short name. Both about-node and about-python previously redefined this
-/// helper verbatim; the shared definition is the single drift surface for
-/// future tightening of ERR-2 trim semantics.
-pub use ops_about::text_util::trim_nonempty;
+// DUP-3 / TASK-1258: import of the shared
+// `ops_about::text_util::trim_nonempty` so existing call sites keep their
+// short name. Both about-node and about-python previously redefined this
+// helper verbatim; the shared definition is the single drift surface for
+// future tightening of ERR-2 trim semantics. API-13 / TASK-2232: a plain
+// `use`, not a `pub use` — the foreign item keeps its single public path.
+use ops_about::text_util::trim_nonempty;
 
 /// SEC-2 / SEC-11 / TASK-2222: apply the shared manifest-URL policies to a
 /// `package.json` URL field — trim / drop-empty, then drop the whole field
