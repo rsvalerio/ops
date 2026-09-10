@@ -186,13 +186,10 @@ struct ProjectProbe {
 #[cfg(test)]
 mod tests {
     use super::*;
-
-    fn write(path: &Path, content: &str) {
-        if let Some(parent) = path.parent() {
-            std::fs::create_dir_all(parent).unwrap();
-        }
-        std::fs::write(path, content).unwrap();
-    }
+    // DUP-1 / TASK-2211: the crate's fixture writer is the shared
+    // `ops_about::test_support::write_file` the `lib.rs` test module already
+    // uses, rather than a second local spelling of the same helper.
+    use ops_about::test_support::write_file;
 
     /// ERR-7 / TASK-0974: workspace-shape parse warn now includes the
     /// manifest path. Pin the formatter so embedded newlines / ANSI in an
@@ -210,7 +207,7 @@ mod tests {
     #[test]
     fn no_workspace_returns_empty() {
         let dir = tempfile::tempdir().unwrap();
-        write(
+        write_file(
             &dir.path().join("pyproject.toml"),
             "[project]\nname = \"single\"\nversion = \"0.1.0\"\n",
         );
@@ -220,7 +217,7 @@ mod tests {
     #[test]
     fn workspace_glob_members() {
         let dir = tempfile::tempdir().unwrap();
-        write(
+        write_file(
             &dir.path().join("pyproject.toml"),
             r#"
 [project]
@@ -231,11 +228,11 @@ version = "0.0.0"
 members = ["packages/*"]
 "#,
         );
-        write(
+        write_file(
             &dir.path().join("packages/alpha/pyproject.toml"),
             "[project]\nname = \"alpha\"\nversion = \"1.0.0\"\ndescription = \"A\"\n",
         );
-        write(
+        write_file(
             &dir.path().join("packages/beta/pyproject.toml"),
             "[project]\nname = \"beta\"\nversion = \"2.0.0\"\n",
         );
@@ -253,7 +250,7 @@ members = ["packages/*"]
     #[test]
     fn workspace_explicit_member() {
         let dir = tempfile::tempdir().unwrap();
-        write(
+        write_file(
             &dir.path().join("pyproject.toml"),
             r#"
 [project]
@@ -263,7 +260,7 @@ name = "root"
 members = ["libs/mylib"]
 "#,
         );
-        write(
+        write_file(
             &dir.path().join("libs/mylib/pyproject.toml"),
             "[project]\nname = \"mylib\"\nversion = \"0.3.0\"\n",
         );
@@ -276,7 +273,7 @@ members = ["libs/mylib"]
     #[test]
     fn workspace_exclude_filters_members() {
         let dir = tempfile::tempdir().unwrap();
-        write(
+        write_file(
             &dir.path().join("pyproject.toml"),
             r#"
 [project]
@@ -287,11 +284,11 @@ members = ["packages/*"]
 exclude = ["packages/internal-*"]
 "#,
         );
-        write(
+        write_file(
             &dir.path().join("packages/public/pyproject.toml"),
             "[project]\nname = \"public\"\n",
         );
-        write(
+        write_file(
             &dir.path().join("packages/internal-thing/pyproject.toml"),
             "[project]\nname = \"internal-thing\"\n",
         );
@@ -306,7 +303,7 @@ exclude = ["packages/internal-*"]
     #[test]
     fn whitespace_only_metadata_falls_back_and_drops_blank_fields() {
         let dir = tempfile::tempdir().unwrap();
-        write(
+        write_file(
             &dir.path().join("pyproject.toml"),
             r#"
 [project]
@@ -316,7 +313,7 @@ name = "root"
 members = ["libs/blank"]
 "#,
         );
-        write(
+        write_file(
             &dir.path().join("libs/blank/pyproject.toml"),
             "[project]\nname = \"  \"\nversion = \"  \"\ndescription = \"  \"\n",
         );
@@ -337,7 +334,7 @@ members = ["libs/blank"]
     #[test]
     fn invalid_root_pyproject_yields_no_units() {
         let dir = tempfile::tempdir().unwrap();
-        write(&dir.path().join("pyproject.toml"), "[tool.uv.workspace\n");
+        write_file(&dir.path().join("pyproject.toml"), "[tool.uv.workspace\n");
 
         let (logs, units) = ops_about::test_support::capture_tracing(tracing::Level::WARN, || {
             collect_units(dir.path())
@@ -365,7 +362,7 @@ members = ["libs/blank"]
     #[test]
     fn invalid_member_pyproject_falls_back_to_the_directory_name() {
         let dir = tempfile::tempdir().unwrap();
-        write(
+        write_file(
             &dir.path().join("pyproject.toml"),
             r#"
 [project]
@@ -375,7 +372,7 @@ name = "root"
 members = ["packages/broken"]
 "#,
         );
-        write(
+        write_file(
             &dir.path().join("packages/broken/pyproject.toml"),
             "[project\nname = \"broken\"\n",
         );
@@ -394,7 +391,7 @@ members = ["packages/broken"]
     #[test]
     fn non_string_workspace_glob_entry_does_not_zero_the_unit_list() {
         let dir = tempfile::tempdir().unwrap();
-        write(
+        write_file(
             &dir.path().join("pyproject.toml"),
             r#"
 [project]
@@ -405,11 +402,11 @@ members = ["packages/*", 42]
 exclude = ["packages/internal-*", { bad = true }]
 "#,
         );
-        write(
+        write_file(
             &dir.path().join("packages/public/pyproject.toml"),
             "[project]\nname = \"public\"\n",
         );
-        write(
+        write_file(
             &dir.path().join("packages/internal-thing/pyproject.toml"),
             "[project]\nname = \"internal-thing\"\n",
         );
@@ -422,7 +419,7 @@ exclude = ["packages/internal-*", { bad = true }]
     #[test]
     fn falls_back_to_dir_name_when_no_project_table() {
         let dir = tempfile::tempdir().unwrap();
-        write(
+        write_file(
             &dir.path().join("pyproject.toml"),
             r#"
 [tool.uv.workspace]
@@ -430,7 +427,7 @@ members = ["packages/quiet"]
 "#,
         );
         // Subpackage exists but has no [project] table.
-        write(
+        write_file(
             &dir.path().join("packages/quiet/pyproject.toml"),
             "[tool.something]\nkey = \"v\"\n",
         );
@@ -457,7 +454,7 @@ members = ["packages/quiet"]
     #[test]
     fn units_provider_serialises_workspace_members() {
         let dir = tempfile::tempdir().unwrap();
-        write(
+        write_file(
             &dir.path().join("pyproject.toml"),
             r#"
 [project]
@@ -467,7 +464,7 @@ name = "root"
 members = ["packages/*"]
 "#,
         );
-        write(
+        write_file(
             &dir.path().join("packages/alpha/pyproject.toml"),
             "[project]\nname = \"alpha\"\nversion = \"1.0.0\"\ndescription = \"A\"\n",
         );
@@ -489,7 +486,7 @@ members = ["packages/*"]
     #[test]
     fn units_provider_no_workspace_is_empty_array() {
         let dir = tempfile::tempdir().unwrap();
-        write(
+        write_file(
             &dir.path().join("pyproject.toml"),
             "[project]\nname = \"single\"\nversion = \"0.1.0\"\n",
         );
