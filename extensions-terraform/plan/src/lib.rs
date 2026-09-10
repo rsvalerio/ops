@@ -14,9 +14,9 @@ pub mod model;
 /// Rendering of classified plans as summary, resource and output tables.
 pub mod render;
 
-// API-13 / TASK-2218: the modules above are the canonical public paths; the
-// root `pub use`s that duplicated them were removed so every item has
-// exactly one public path (same policy TASK-2112 applied to ops-git).
+// The modules above are the canonical public paths: the crate root
+// deliberately re-exports nothing from them, so every item has exactly one
+// public path.
 use crate::model::{Action, ClassifiedChange, Plan};
 use crate::render::render_outputs_table;
 use crate::render::render_resource_table;
@@ -32,12 +32,11 @@ use crate::render::sanitize_terminal_text;
 const DEFAULT_BINARY_PLAN: &str = ".ops/tfplan.binary";
 const DEFAULT_JSON_PLAN: &str = ".ops/tfplan.json";
 
-/// FN-3 / TASK-1281: a single clap-derived struct is the canonical
-/// definition of every `ops plans` flag.
+/// The canonical definition of every `ops plans` flag.
 ///
-/// The CLI variant carries one `PlanOptions` and the dispatch arm
-/// forwards it directly to `run_plan_pipeline`, so adding a new flag
-/// only edits this struct.
+/// The CLI variant carries one `PlanOptions` and the dispatch arm forwards it
+/// directly to `run_plan_pipeline`, so adding a new flag only edits this
+/// struct.
 #[derive(clap::Args, Debug, Clone)]
 pub struct PlanOptions {
     /// Read plan JSON from a file instead of running terraform. Use `-` for stdin.
@@ -87,12 +86,10 @@ pub fn has_changes(classified: &[ClassifiedChange]) -> bool {
     classified.iter().any(|c| c.action.is_change())
 }
 
-/// FN-9 / TASK-0850: thin wrapper that locks `io::stdout()` and delegates
-/// to [`run_plan_pipeline_to_with_tty`].
+/// Runs the plan pipeline against the process's own stdout.
 ///
-/// Preserves the previous public signature so the binary entry point and
-/// downstream callers stay unchanged. PATTERN-1 / TASK-1017: real
-/// TTY-ness is detected on `stdout` here (via `IsTerminal`) and passed
+/// Locks `io::stdout()` and delegates to [`run_plan_pipeline_to_with_tty`].
+/// Real TTY-ness is detected on `stdout` here (via `IsTerminal`) and passed
 /// through explicitly, rather than being derived from `--no-color`.
 ///
 /// # Errors
@@ -108,17 +105,17 @@ pub fn run_plan_pipeline(opts: &PlanOptions) -> anyhow::Result<ExitCode> {
     run_plan_pipeline_to_with_tty(opts, &mut handle, is_tty)
 }
 
-/// FN-9 / TASK-0850: orchestration entry point that writes rendered
-/// summary / resource / outputs tables to `out` instead of global stdout.
+/// Runs the plan pipeline, writing the rendered summary / resource / outputs
+/// tables to `out` instead of global stdout.
 ///
-/// Library callers (LSP plugin, web UI, dry-run) and tests can supply
-/// their own `Vec<u8>` / file / pipe sink without spawning a subprocess.
+/// Library callers (LSP plugin, web UI, dry-run) and tests can supply their
+/// own `Vec<u8>` / file / pipe sink without spawning a subprocess.
 ///
-/// PATTERN-1 / TASK-1017: defaults `is_tty=false` because an arbitrary
-/// `&mut dyn Write` (a `Vec<u8>`, file, pipe) is not a terminal. Width
-/// probing must therefore stay disabled or snapshot output becomes
-/// environment-sensitive. Callers that *do* hand in a real TTY-backed
-/// writer should call [`run_plan_pipeline_to_with_tty`] explicitly.
+/// `is_tty` defaults to `false` because an arbitrary `&mut dyn Write` (a
+/// `Vec<u8>`, file, pipe) is not a terminal; width probing therefore stays
+/// disabled and snapshot output stays environment-independent. Callers that
+/// *do* hand in a real TTY-backed writer should call
+/// [`run_plan_pipeline_to_with_tty`] explicitly.
 ///
 /// # Errors
 ///
@@ -132,13 +129,11 @@ pub fn run_plan_pipeline_to(
     run_plan_pipeline_to_with_tty(opts, out, false)
 }
 
-/// PATTERN-1 / TASK-1017: explicit form that accepts the writer's
-/// TTY-ness as a separate argument from the user's colour preference
-/// (`opts.no_color`).
+/// Runs the plan pipeline, taking the writer's TTY-ness as a separate
+/// argument from the user's colour preference (`opts.no_color`).
 ///
-/// `is_tty` drives terminal-width probing in
-/// `render_resource_table`; `!opts.no_color` drives whether
-/// `Action::color()` is applied to cells.
+/// `is_tty` drives terminal-width probing in `render_resource_table`;
+/// `!opts.no_color` drives whether `Action::color()` is applied to cells.
 ///
 /// # Errors
 ///
@@ -153,17 +148,15 @@ pub fn run_plan_pipeline_to_with_tty(
     run_plan_pipeline_code(opts, out, is_tty).map(ExitCode::from)
 }
 
-/// TEST-31 / TASK-1952: `ExitCode` is opaque and does not implement
-/// `PartialEq`, which is why the pipeline's most load-bearing contract —
-/// the process exit status CI gates branch on — had no test. The code is
-/// computed and returned as a plain `u8` here and only widened to
-/// `ExitCode` at the public boundary, so it can be asserted directly.
+/// Runs the whole pipeline and returns the process exit code as a plain `u8`.
 ///
-/// TEST-18 / TASK-2213: the environment is resolved once here — the
-/// pipeline entry point — and threaded down as [`PipelineEnv`] values, so
-/// nothing below re-reads the process environment mid-run and tests steer
-/// the cap / timeout / terraform program by injection instead of
-/// `set_var`.
+/// The code stays a `u8` here and is only widened to `ExitCode` at the public
+/// boundary, because `ExitCode` is opaque and does not implement `PartialEq` —
+/// keeping the `u8` form lets tests assert the exit status CI gates branch on.
+///
+/// The environment is resolved once at this entry point and threaded down as
+/// [`PipelineEnv`] values, so nothing below re-reads the process environment
+/// mid-run.
 fn run_plan_pipeline_code(
     opts: &PlanOptions,
     out: &mut dyn std::io::Write,
@@ -172,18 +165,19 @@ fn run_plan_pipeline_code(
     run_plan_pipeline_code_with(opts, out, is_tty, &PipelineEnv::from_env())
 }
 
-/// TEST-18 / TASK-2213: the injectable twin of [`run_plan_pipeline_code`]
-/// — same pipeline, caller-supplied environment. Production calls resolve
-/// [`PipelineEnv::from_env`]; tests pass explicit values so they never
-/// mutate the process environment (a `setenv` racing a sibling test's
-/// `environ` read is a data race, not flakiness).
+/// The injectable twin of [`run_plan_pipeline_code`]: same pipeline,
+/// caller-supplied environment.
+///
+/// Production calls resolve [`PipelineEnv::from_env`]; tests pass explicit
+/// values so they never mutate the process environment (a `setenv` racing a
+/// sibling test's `environ` read is a data race, not flakiness).
 fn run_plan_pipeline_code_with(
     opts: &PlanOptions,
     out: &mut dyn std::io::Write,
     is_tty: bool,
     env: &PipelineEnv,
 ) -> anyhow::Result<u8> {
-    // SEC-32 / TASK-1927: artifacts are recorded as this run creates them
+    // Artifacts are recorded as this run creates them
     // so cleanup can run on *every* exit path below, not only on success.
     let mut created: Vec<PathBuf> = Vec::new();
     let result = plan_pipeline_body(opts, out, is_tty, &mut created, env);
@@ -237,14 +231,13 @@ fn plan_pipeline_body(
     Ok(code)
 }
 
-/// SEC-32 / TASK-1927: run artifact cleanup on both the `Ok` and the
-/// `Err` arm, under the same `!keep_plan && json_file.is_none()`
-/// condition the success path used to apply on its own.
+/// Runs artifact cleanup on both the `Ok` and the `Err` arm, under the same
+/// `!keep_plan && json_file.is_none()` condition.
 ///
-/// Every early exit after `terraform plan` has written
-/// `.ops/tfplan.binary` — an empty-JSON bail, a parse failure, a closed
-/// stdout pipe (`ops plans | head`) — used to leave the binary plan on
-/// disk. That file is the full planned state: provider blocks with
+/// Both arms matter because every early exit after `terraform plan` has
+/// written `.ops/tfplan.binary` — an empty-JSON bail, a parse failure, a
+/// closed stdout pipe (`ops plans | head`) — would otherwise leave the binary
+/// plan on disk. That file is the full planned state: provider blocks with
 /// embedded credentials, generated passwords and sensitive outputs.
 fn with_artifact_cleanup<T>(
     opts: &PlanOptions,
@@ -263,7 +256,7 @@ fn classify_plan(plan: &Plan) -> Vec<ClassifiedChange> {
         .map(|rcs| {
             rcs.iter()
                 .filter_map(|rc| {
-                    // SEC-11 / TASK-1939: sanitize at ingress as well as at
+                    // Sanitize at ingress as well as at
                     // the render sink, so the control characters never enter
                     // the public `ClassifiedChange` a library caller may print
                     // itself. `mode` is carried but not rendered by this crate.
@@ -290,33 +283,32 @@ fn read_stdin(cap: u64) -> anyhow::Result<String> {
     read_capped(&mut std::io::stdin().lock(), "on stdin", cap)
 }
 
-/// SEC-33 (TASK-0915 / TASK-0924 / TASK-1933) + DUP-1 (TASK-1950): the
-/// single capped reader behind every plan-JSON ingress point — the
+/// The single capped reader behind every plan-JSON ingress point: the
 /// `--json-file` path, the `-` stdin form, and the `terraform show -json`
-/// stdout of the default path. The threat model (a process piping
-/// unbounded bytes, a symlink to `/dev/zero`, an adversarially large
-/// plan, or a wrapped `terraform` on `PATH`) is the same for all three,
-/// and they feed the same `parse_and_classify` pipeline, so the cap must
-/// be uniform. Keeping one copy also keeps the three from drifting —
-/// drift in a security control is a security bug.
+/// stdout of the default path.
 ///
-/// `source` supplies the "on stdin" / "at {path}" fragment of the
-/// messages. Reads up to `cap + 1` bytes so overage is detectable.
+/// The threat model (a process piping unbounded bytes, a symlink to
+/// `/dev/zero`, an adversarially large plan, or a wrapped `terraform` on
+/// `PATH`) is the same for all three and they feed the same
+/// `parse_and_classify` pipeline, so one reader keeps the cap uniform — drift
+/// in a security control is a security bug.
 ///
-/// TEST-18 / TASK-2213: `cap` is a parameter, not an env read — the caller
-/// (the pipeline entry point, or a test injecting a value) resolves
-/// [`plan_json_max_bytes`] exactly once, so steering the cap never requires
-/// mutating the process environment mid-run.
+/// `source` supplies the "on stdin" / "at {path}" fragment of the messages.
+/// Reads up to `cap + 1` bytes so overage is detectable.
+///
+/// `cap` is a parameter rather than an env read: the caller (the pipeline
+/// entry point, or a test injecting a value) resolves [`plan_json_max_bytes`]
+/// exactly once, so steering the cap never requires mutating the process
+/// environment mid-run.
 fn read_capped<R: std::io::Read>(reader: &mut R, source: &str, cap: u64) -> anyhow::Result<String> {
     use std::io::Read as _;
     let limit = cap.saturating_add(1);
-    // SEC-33 / TASK-2206: read **bytes** and decide the cap before any
-    // UTF-8 validation. `read_to_string` validated the whole truncated
-    // window, so whenever byte `cap + 1` split a multi-byte character —
-    // routine in a plan carrying non-ASCII resource names, tags, or
-    // provider diagnostics — the function failed with "stream did not
-    // contain valid UTF-8" and the operator never saw the cap or the
-    // override env var it exists for.
+    // Read **bytes** and decide the cap before any UTF-8 validation.
+    // Validating the truncated window first would report "stream did not
+    // contain valid UTF-8" whenever byte `cap + 1` splits a multi-byte
+    // character — routine in a plan carrying non-ASCII resource names, tags
+    // or provider diagnostics — hiding the cap and the override env var it
+    // exists for.
     let mut bytes = Vec::new();
     reader
         .take(limit)
@@ -334,31 +326,33 @@ fn read_capped<R: std::io::Read>(reader: &mut R, source: &str, cap: u64) -> anyh
         .map_err(|error| anyhow::anyhow!("plan JSON {source} is not valid UTF-8: {error}"))
 }
 
-/// SEC-33 / TASK-0915: default cap on `--json-file` reads. Real-world
+/// Default cap on plan-JSON reads. Real-world
 /// terraform plans for large stacks routinely exceed 100 MB, so the
 /// default sits well above that. Operators expecting larger plans can
 /// raise the cap via `OPS_PLAN_JSON_MAX_BYTES`.
 const DEFAULT_PLAN_JSON_MAX_BYTES: u64 = 256 * 1024 * 1024;
 const PLAN_JSON_MAX_BYTES_ENV: &str = "OPS_PLAN_JSON_MAX_BYTES";
 
-/// SEC-21 / SEC-33 (TASK-1936 / TASK-1933): fixed budget for captured
+/// Fixed budget for captured
 /// `terraform show -json` stderr. Anything beyond it is drained and
 /// dropped rather than buffered, so a chatty or hostile `terraform` on
 /// `PATH` cannot grow an unbounded `Vec<u8>` inside this process.
 const TERRAFORM_STDERR_MAX_BYTES: u64 = 8 * 1024;
 
-/// SEC-33 / TASK-2209: default wall-clock bound, in seconds, on each
-/// terraform child (`plan` and `show -json`). Every byte-valued resource in
-/// this pipeline is capped; wall-clock is the one an unresponsive provider,
-/// a blocked credential-helper prompt, or a wrapped `terraform` on `PATH`
-/// actually exhausts — a child that opens its pipes and never writes used
-/// to wedge `ops plans` forever, with no diagnostic and no artifact
-/// cleanup. Generous enough for a real plan on a large stack; operators can
-/// override it via `OPS_TERRAFORM_TIMEOUT_SECS`.
+/// Default wall-clock bound, in seconds, on each terraform child (`plan` and
+/// `show -json`).
+///
+/// Every byte-valued resource in this pipeline is capped; wall-clock is the
+/// one an unresponsive provider, a blocked credential-helper prompt, or a
+/// wrapped `terraform` on `PATH` actually exhausts, since a child that opens
+/// its pipes and never writes would otherwise wedge `ops plans` indefinitely
+/// with no diagnostic and no artifact cleanup. The default is generous enough
+/// for a real plan on a large stack; operators can override it via
+/// `OPS_TERRAFORM_TIMEOUT_SECS`.
 const DEFAULT_TERRAFORM_TIMEOUT_SECS: u64 = 600;
 const TERRAFORM_TIMEOUT_SECS_ENV: &str = "OPS_TERRAFORM_TIMEOUT_SECS";
 
-/// SEC-33 / TASK-2209: the configured wall-clock bound, in the same shape
+/// The configured wall-clock bound, in the same shape
 /// as [`plan_json_max_bytes`] — a positive integer through the documented
 /// env var, otherwise the documented default.
 fn terraform_timeout() -> std::time::Duration {
@@ -372,14 +366,15 @@ fn terraform_timeout() -> std::time::Duration {
         )
 }
 
-/// SEC-33 / TASK-2209: wait for a terraform child under the wall-clock
-/// bound. On expiry the child is killed and reaped — an unreaped child
-/// keeps its pipes open — and the error names the invocation and the limit
-/// that fired, so a hang surfaces as an actionable error instead of
-/// consuming a CI runner slot until the job-level timeout fires.
+/// Waits for a terraform child under the wall-clock bound.
 ///
-/// TEST-18 / TASK-2213: the bound arrives as a value resolved once at the
-/// pipeline entry ([`PipelineEnv::from_env`]), not as an env read here.
+/// On expiry the child is killed and reaped — an unreaped child keeps its
+/// pipes open — and the error names the invocation and the limit that fired,
+/// so a hang surfaces as an actionable error instead of consuming a CI runner
+/// slot until the job-level timeout fires.
+///
+/// The bound arrives as a value resolved once at the pipeline entry
+/// ([`PipelineEnv::from_env`]), not as an env read here.
 fn wait_for_child(
     child: &mut std::process::Child,
     invocation: &str,
@@ -408,13 +403,14 @@ fn plan_json_max_bytes() -> u64 {
         .unwrap_or(DEFAULT_PLAN_JSON_MAX_BYTES)
 }
 
-/// TEST-18 / TASK-2213: everything this pipeline reads from the process
-/// environment, resolved **once** at the pipeline entry point and threaded
-/// down as plain values. Production builds use [`PipelineEnv::from_env`];
-/// tests construct one directly, so steering the byte cap, the wall-clock
-/// bound, or which `terraform` binary runs never requires mutating the
-/// process environment — a `setenv` racing a sibling test's `environ`
-/// read during spawn is a data race, not flakiness.
+/// Everything this pipeline reads from the process environment, resolved
+/// **once** at the pipeline entry point and threaded down as plain values.
+///
+/// Production builds use [`PipelineEnv::from_env`]; tests construct one
+/// directly, so steering the byte cap, the wall-clock bound, or which
+/// `terraform` binary runs never requires mutating the process environment — a
+/// `setenv` racing a sibling test's `environ` read during spawn is a data
+/// race, not flakiness.
 #[derive(Debug, Clone)]
 struct PipelineEnv {
     /// The plan-JSON byte cap ([`plan_json_max_bytes`]).
@@ -447,22 +443,23 @@ fn read_json_file(path: &str, cap: u64) -> anyhow::Result<String> {
     read_capped(&mut file, &format!("at {path}"), cap)
 }
 
-/// SEC-25 / TASK-1942: the artifact paths for one run, expanded exactly
-/// once. Cleanup used to re-derive them from the flags a second time, so
-/// any environment change between the write and the delete pointed the
-/// two at different files.
+/// The artifact paths for one run, expanded exactly once and carried from the
+/// write to the delete.
+///
+/// Re-deriving them from the flags at cleanup time would let any environment
+/// change between the two point them at different files.
 #[derive(Debug)]
 struct ArtifactPaths {
     binary: PathBuf,
     json: PathBuf,
 }
 
-/// FN-1 / TASK-1958: path preparation, split out of the former 80-line
-/// `run_terraform_pipeline`.
+/// Expands the binary- and JSON-plan paths and creates their parent
+/// directories.
 ///
-/// ERR-13 / TASK-1945: each filesystem failure names the path involved,
-/// and the two directory creations carry distinct wording so
-/// "Permission denied" is attributable to one of them.
+/// Each filesystem failure names the path involved, and the two directory
+/// creations carry distinct wording so a "Permission denied" is attributable
+/// to one of them.
 fn prepare_artifact_paths(opts: &PlanOptions) -> anyhow::Result<ArtifactPaths> {
     let binary = expand_path(opts.out.as_deref().unwrap_or(DEFAULT_BINARY_PLAN))?;
     let json = expand_path(opts.json_out.as_deref().unwrap_or(DEFAULT_JSON_PLAN))?;
@@ -478,9 +475,10 @@ fn prepare_artifact_paths(opts: &PlanOptions) -> anyhow::Result<ArtifactPaths> {
     Ok(ArtifactPaths { binary, json })
 }
 
-/// SEC-29 / TASK-1930 + SEC-25 / TASK-2225: 0700 on the artifact directory,
-/// and — when the directory already existed — verification that what is
-/// actually there deserves the artifacts. Terraform plan artifacts are among
+/// Creates the artifact directory at 0700 and — when it already existed —
+/// verifies that what is actually there deserves the artifacts.
+///
+/// Terraform plan artifacts are among
 /// the most secret-dense files a stack produces — provider configuration,
 /// generated passwords and keys, sensitive output values — so no other local
 /// account on a shared build host or multi-tenant runner may list, read, or
@@ -516,13 +514,15 @@ fn create_artifact_dir(dir: &Path) -> std::io::Result<()> {
     }
 }
 
-/// SEC-25 / TASK-2225: `DirBuilder::mode` only applies to directories the
-/// builder *creates*; `.ops/` normally already exists, created by other
-/// tooling under the user's umask. Before a secret-bearing artifact lands
-/// in a pre-existing directory, verify what is on disk: a symlink at the
-/// directory path, or group/other *write* permission — any local account
-/// could then plant or swap artifact names, retargeting terraform's own
-/// `-out` write — is a hard error naming the path and the mode found.
+/// Checks that a pre-existing artifact directory is safe to write into.
+///
+/// `DirBuilder::mode` only applies to directories the builder *creates*, and
+/// `.ops/` normally already exists, created by other tooling under the user's
+/// umask. So before a secret-bearing artifact lands there, what is on disk is
+/// verified: a symlink at the directory path, or group/other *write*
+/// permission — which would let any local account plant or swap artifact
+/// names and retarget terraform's own `-out` write — is a hard error naming
+/// the path and the mode found.
 #[cfg(unix)]
 fn verify_artifact_dir(dir: &Path) -> std::io::Result<()> {
     use std::io::{Error, ErrorKind};
@@ -562,14 +562,14 @@ fn verify_artifact_dir(dir: &Path) -> std::io::Result<()> {
     Ok(())
 }
 
-/// SEC-29 / TASK-1930: tighten an artifact terraform wrote for us.
+/// Tightens an artifact terraform wrote, narrowing it to 0600.
 ///
-/// The 0700 directory already keeps other local accounts out of the
-/// default `.ops/`, but `--out` may point into a directory that already
-/// existed (whose mode is deliberately *not* changed — it could be
-/// `$HOME`), and terraform writes the binary plan with its own umask.
-/// The binary plan is the full planned state, so narrow it to 0600.
-/// Best-effort: a plan we cannot chmod is not worth failing the run for.
+/// The 0700 directory already keeps other local accounts out of the default
+/// `.ops/`, but `--out` may point into a directory that already existed (whose
+/// mode is deliberately *not* changed — it could be `$HOME`), and terraform
+/// writes the binary plan with its own umask. The binary plan is the full
+/// planned state, so it is narrowed here. Best-effort: a plan that cannot be
+/// chmodded is not worth failing the run for.
 fn harden_artifact_permissions(path: &Path) {
     #[cfg(unix)]
     {
@@ -590,12 +590,14 @@ fn harden_artifact_permissions(path: &Path) {
     }
 }
 
-/// SEC-29 / TASK-1930 + SEC-25 / TASK-2225: create the plan JSON without
-/// ever following a pre-existing symlink at the destination. It carries the
-/// `after` values of generated passwords and keys plus full provider
-/// configuration, so it must not be world-readable — and must not be
-/// delivered, with the operator's credentials, to whatever a planted link
-/// points at. `O_NOFOLLOW` makes a symlink at the path a hard `ELOOP` error
+/// Creates the plan JSON at 0600 without ever following a pre-existing
+/// symlink at the destination.
+///
+/// The document carries the `after` values of generated passwords and keys
+/// plus full provider configuration, so it must not be world-readable — and
+/// must not be delivered, with the operator's credentials, to whatever a
+/// planted link points at. `O_NOFOLLOW` makes a symlink at the path a hard
+/// `ELOOP` error
 /// (mapped below to a message naming the path) instead of a write-through;
 /// the subsequent `set_permissions` runs on the descriptor this run opened,
 /// so it can only ever chmod this run's own file. The mode is applied after
@@ -649,9 +651,9 @@ fn write_plan_json(path: &Path, contents: &str) -> std::io::Result<()> {
     file.write_all(contents.as_bytes())
 }
 
-/// SEC-13 / TASK-1960: flags this pipeline sets itself and whose values
-/// its surrounding logic depends on. Paired with the hint naming the
-/// `ops plans` flag to use instead.
+/// Flags this pipeline sets itself and whose values its surrounding logic
+/// depends on, each paired with the hint naming the `ops plans` flag to use
+/// instead.
 const RESERVED_PASSTHROUGH_FLAGS: [(&str, &str); 4] = [
     (
         "out",
@@ -665,18 +667,17 @@ const RESERVED_PASSTHROUGH_FLAGS: [(&str, &str); 4] = [
     ("json", "use `--json-file` to supply plan JSON directly"),
 ];
 
-/// SEC-13 / TASK-1960: terraform honours the *last* occurrence of a
-/// repeated flag, and passthrough arguments are appended after this
-/// pipeline's own. A passthrough `-out=elsewhere.tfplan` therefore
-/// redirects the binary plan while `terraform show -json` still reads
-/// the pipeline's path — showing the operator a *stale* plan rendered as
-/// the current one, on the screen they approve an apply from. A
-/// passthrough `-detailed-exitcode` makes a successful plan with changes
-/// report "terraform plan failed with exit code 2".
+/// Rejects passthrough arguments that would override a flag this pipeline
+/// owns.
 ///
-/// This is not shell injection — `Command::args` is used correctly and
-/// there is no shell. The defect is the absence of any check that the
-/// caller is not overriding flags the surrounding logic assumes.
+/// Terraform honours the *last* occurrence of a repeated flag and passthrough
+/// arguments are appended after this pipeline's own, so without this check a
+/// passthrough `-out=elsewhere.tfplan` would redirect the binary plan while
+/// `terraform show -json` still read the pipeline's path — showing the
+/// operator a *stale* plan rendered as the current one, on the screen they
+/// approve an apply from. A passthrough `-detailed-exitcode` would likewise
+/// make a successful plan with changes report "terraform plan failed with exit
+/// code 2".
 fn reject_reserved_passthrough(passthrough: &[String]) -> anyhow::Result<()> {
     for arg in passthrough {
         let Some(rest) = arg.strip_prefix('-') else {
@@ -696,9 +697,10 @@ fn reject_reserved_passthrough(passthrough: &[String]) -> anyhow::Result<()> {
     Ok(())
 }
 
-/// FN-1 / TASK-1958: orchestration only. Path preparation, the
-/// `terraform plan` invocation and the JSON capture each live in their
-/// own named helper.
+/// Runs the default (non-`--json-file`) path and returns the plan JSON.
+///
+/// Orchestration only: path preparation, the `terraform plan` invocation and
+/// the JSON capture each live in their own named helper.
 fn run_terraform_pipeline(
     opts: &PlanOptions,
     created: &mut Vec<PathBuf>,
@@ -749,13 +751,13 @@ fn run_terraform_plan(
                  install it from https://developer.hashicorp.com/terraform/install"
             )
         } else {
-            // ERR-4: keep the io::Error as source() instead of flattening
-            // it into the message string.
+            // Keep the io::Error as source() instead of flattening it into
+            // the message string.
             anyhow::Error::new(e).context("failed to run terraform plan")
         }
     })?;
 
-    // SEC-25 / SEC-32 + TASK-2209: terraform owns `-out` from the moment it
+    // Terraform owns `-out` from the moment it
     // starts and may have written a partial artifact even on a failing exit
     // — or on a timeout kill in `wait_for_child` below — so record the path
     // once the process actually exists. Nothing is recorded when the spawn
@@ -766,7 +768,7 @@ fn run_terraform_plan(
     let status = match wait_for_child(&mut child, "terraform plan", env.timeout) {
         Ok(status) => status,
         Err(error) => {
-            // SEC-29: the run is over without a usable exit status (timeout
+            // The run is over without a usable exit status (timeout
             // kill, or the wait itself failed), and a partial artifact is as
             // secret-dense as a complete one. Cleanup deletes it on the
             // `!keep_plan` paths; `--keep-plan` keeps it covered.
@@ -775,22 +777,22 @@ fn run_terraform_plan(
         }
     };
 
-    // SEC-29: harden the artifact *before* the exit status is interpreted.
-    // A failing `terraform plan` can still have written a partial `-out`
-    // file, and that partial file is just as secret-dense as a complete one.
-    // Hardening only on the success path left it at terraform's umask for as
-    // long as it survived on disk (and `--keep-plan` keeps it forever).
+    // Harden the artifact *before* the exit status is interpreted. A failing
+    // `terraform plan` can still have written a partial `-out` file, and that
+    // partial file is just as secret-dense as a complete one — hardening only
+    // on the success path would leave it at terraform's umask for as long as
+    // it survived on disk (and `--keep-plan` keeps it forever).
     harden_artifact_permissions(binary_path);
 
     plan_status_result(opts.detailed_exitcode, status.code(), status.success())
 }
 
-/// FN-1 / TASK-1958: one failure constructor shared by both exit-status
-/// interpretations. The two branches differ only in which codes count as
-/// success, which is why the `bail!` body was previously copy-pasted.
+/// Interprets `terraform plan`'s exit status, with one failure constructor
+/// shared by both interpretations.
 ///
-/// With `-detailed-exitcode`, terraform uses 2 for "succeeded, changes
-/// present"; without it, only 0 is success.
+/// The two branches differ only in which codes count as success: with
+/// `-detailed-exitcode`, terraform uses 2 for "succeeded, changes present";
+/// without it, only 0 is success.
 fn plan_status_result(
     detailed_exitcode: bool,
     code: Option<i32>,
@@ -808,20 +810,17 @@ fn plan_status_result(
     }
 }
 
-/// FN-1 / TASK-1958 + SEC-33 / TASK-1933 / TASK-2209: capture the plan
-/// document.
+/// Captures the plan document by running `terraform show -json`.
 ///
-/// stdout is streamed through [`read_capped`], the same helper the file
-/// and stdin branches use, instead of `Command::output()`'s unbounded
-/// buffer — the default invocation was the one ingress point the
-/// documented `OPS_PLAN_JSON_MAX_BYTES` control did nothing for. stderr
-/// is read on its own thread so a full stderr pipe can never wedge the
-/// child mid-stdout, and is bounded by [`TERRAFORM_STDERR_MAX_BYTES`].
-/// stdout is read on its own thread too (TASK-2209), so the child's
-/// wall-clock bound in [`wait_for_child`] governs the whole capture: a
-/// child that opens its pipes and never writes cannot wedge the read
-/// itself, and an over-cap read closing the pipe makes the child's next
-/// write fail instead of blocking.
+/// stdout is streamed through [`read_capped`], the same helper the file and
+/// stdin branches use, rather than `Command::output()`'s unbounded buffer, so
+/// `OPS_PLAN_JSON_MAX_BYTES` governs this ingress point like the other two.
+/// stderr is read on its own thread so a full stderr pipe can never wedge the
+/// child mid-stdout, and is bounded by [`TERRAFORM_STDERR_MAX_BYTES`]. stdout
+/// is read on its own thread too, so the child's wall-clock bound in
+/// [`wait_for_child`] governs the whole capture: a child that opens its pipes
+/// and never writes cannot wedge the read itself, and an over-cap read
+/// closing the pipe makes the child's next write fail instead of blocking.
 fn capture_plan_json(binary_path: &Path, env: &PipelineEnv) -> anyhow::Result<String> {
     let mut child = std::process::Command::new(&env.terraform_program)
         .args(["show", "-json"])
@@ -869,8 +868,8 @@ fn capture_plan_json(binary_path: &Path, env: &PipelineEnv) -> anyhow::Result<St
     }
 }
 
-/// SEC-21 / TASK-1936: keep raw provider stderr out of the user-facing
-/// error.
+/// Builds the `terraform show -json` failure error, keeping raw provider
+/// stderr out of the user-facing message.
 ///
 /// Terraform diagnostics routinely echo the offending value back to the
 /// operator — invalid provider credentials, `-var` values, backend
@@ -902,40 +901,38 @@ fn show_failure_error(code: Option<i32>, stderr: &[u8]) -> anyhow::Error {
     )
 }
 
-/// ERR-1 / TASK-1948: an expansion failure is propagated, not swallowed.
+/// Shell-expands an artifact path, propagating an expansion failure rather
+/// than swallowing it.
 ///
-/// The previous `map_or_else` fallback to the literal string made
-/// `--out '$UNSET/plan.binary'` create a directory literally named
-/// `$UNSET` and write a secret-bearing artifact into it, while
-/// `--json-file '$UNSET/plan.json'` reported "invalid path" for the
-/// identical input. Same context wording as `read_json_file` so the two
-/// flag families now behave alike.
+/// Falling back to the literal string would make `--out '$UNSET/plan.binary'`
+/// create a directory literally named `$UNSET` and write a secret-bearing
+/// artifact into it, while `--json-file '$UNSET/plan.json'` reported "invalid
+/// path" for the identical input. The context wording matches
+/// `read_json_file`, so the two flag families behave alike.
 fn expand_path(path: &str) -> anyhow::Result<PathBuf> {
     let expanded = shellexpand::full(path).with_context(|| format!("invalid path: {path}"))?;
     Ok(PathBuf::from(expanded.as_ref()))
 }
 
-/// SEC-25 / TASK-1942: delete only the artifacts *this* invocation
-/// created.
+/// Deletes only the artifacts *this* invocation created.
 ///
-/// The previous version re-derived both paths from the flags and
-/// unlinked whatever sat there, so a default run — which never writes
-/// the JSON at all — would silently delete a pre-existing
-/// `ops plans --json-out ~/notes.json`.
+/// The list is the one recorded as the run wrote each file, never re-derived
+/// from the flags: a default run never writes the JSON at all, so re-deriving
+/// would make `ops plans --json-out ~/notes.json` silently delete a
+/// pre-existing `~/notes.json`.
 fn cleanup_artifacts(created: &[PathBuf]) {
     for path in created {
-        // SEC-25: no `exists()` probe first. That is the check-then-act
-        // pattern the rule names, it races anything touching the path
-        // between the two syscalls, and it adds nothing — `remove_file`
-        // already reports `NotFound`.
+        // No `exists()` probe first: that is check-then-act, it races
+        // anything touching the path between the two syscalls, and it adds
+        // nothing — `remove_file` already reports `NotFound`.
         match std::fs::remove_file(path) {
             Ok(()) => {}
             Err(e) if e.kind() == std::io::ErrorKind::NotFound => {}
             Err(e) => {
-                // ERR-7 / TASK-0921: route best-effort cleanup failures through
-                // `tracing::warn!` (mirroring `MetadataIngestor::load`) instead
-                // of the user-facing `ui::note`. Cleanup is not actionable for
-                // the user; the operator wants this in their log capture.
+                // Best-effort cleanup failures go through `tracing::warn!`
+                // rather than the user-facing `ui::note`: cleanup is not
+                // actionable for the user, but the operator wants it in
+                // their log capture.
                 tracing::warn!(
                     path = %path.display(),
                     error = %e,
@@ -1007,7 +1004,7 @@ mod tests {
 
     #[test]
     fn parse_unknown_fixture_surfaces_unknown_action() {
-        // SEC-31 (TASK-0833): unrecognized actions (`forget`,
+        // Unrecognized actions (`forget`,
         // `["import", "update"]`) must surface as `Action::Unknown`,
         // not be silently filtered out of the resource table.
         let json = include_str!("../tests/fixtures/unknown.json");
@@ -1040,7 +1037,7 @@ mod tests {
         assert!(has_changes(&changes));
     }
 
-    /// SEC-11 / TASK-1939: control characters in the plan document must
+    /// Control characters in the plan document must
     /// not survive into `ClassifiedChange`, which library callers may
     /// print without going through this crate's renderer.
     #[test]
@@ -1077,7 +1074,7 @@ mod tests {
         assert_eq!(change.mode, "managed");
     }
 
-    /// SEC-33 / TASK-0915: a plan JSON larger than the cap must be
+    /// A plan JSON larger than the cap must be
     /// rejected without being slurped into memory. Override the cap to
     /// 64 bytes via `OPS_PLAN_JSON_MAX_BYTES` so the test stays fast.
     #[test]
@@ -1087,7 +1084,7 @@ mod tests {
         // Payload well over the 64-byte cap below.
         std::fs::write(&path, "x".repeat(1024)).unwrap();
 
-        // TEST-18 / TASK-2213: the cap is injected as a value — no
+        // The cap is injected as a value — no
         // process-env mutation, no serialisation needed.
         let result = read_json_file(path.to_string_lossy().as_ref(), 64);
         let err = result.expect_err("oversized plan JSON must error");
@@ -1098,10 +1095,9 @@ mod tests {
         );
     }
 
-    /// SEC-33 (TASK-0924): the stdin branch must apply the same cap as
-    /// the file branch. Without this the `--json-file=-` path
-    /// (`cat /dev/zero | ops terraform plan --json-file=-`) would OOM the
-    /// renderer despite the file branch being capped in TASK-0915.
+    /// The stdin branch applies the same cap as the file branch: without it
+    /// the `--json-file=-` path (`cat /dev/zero | ops terraform plan
+    /// --json-file=-`) would OOM the renderer.
     #[test]
     fn read_stdin_rejects_oversized_payload() {
         let mut reader = std::io::Cursor::new(vec![b'x'; 1024]);
@@ -1118,10 +1114,10 @@ mod tests {
         );
     }
 
-    /// SEC-33 / TASK-1933: the `terraform show -json` branch now shares
-    /// the capped reader, so the cap and the documented override are
-    /// named for that source too — the default invocation used to be the
-    /// one ingress point `OPS_PLAN_JSON_MAX_BYTES` did nothing for.
+    /// The `terraform show -json` branch shares the capped reader, so the cap
+    /// and the documented override are named for that source too — the
+    /// default invocation is an ingress point `OPS_PLAN_JSON_MAX_BYTES` must
+    /// govern like the other two.
     #[test]
     fn read_capped_rejects_oversized_terraform_show_output() {
         let mut reader = std::io::Cursor::new(vec![b'x'; 4096]);
@@ -1141,12 +1137,12 @@ mod tests {
         );
     }
 
-    /// SEC-33 / TASK-2206: over-cap is a cap error regardless of encoding.
-    /// `read_to_string` validated the whole truncated window, so a payload
-    /// whose byte at `cap + 1` splits a multi-byte character failed with
-    /// "stream did not contain valid UTF-8" — naming neither the cap nor
-    /// `OPS_PLAN_JSON_MAX_BYTES`. Non-ASCII content is routine in real plan
-    /// output, and the three ASCII-only cap tests above could not see this.
+    /// Over-cap is a cap error regardless of encoding. Deciding the size
+    /// before decoding is what makes a payload whose byte at `cap + 1` splits
+    /// a multi-byte character still report the cap and
+    /// `OPS_PLAN_JSON_MAX_BYTES`, rather than "stream did not contain valid
+    /// UTF-8". Non-ASCII content is routine in real plan output, which the
+    /// ASCII-only cap tests above cannot see.
     #[test]
     fn read_capped_reports_the_cap_when_the_cut_splits_a_multibyte_character() {
         // 62 ASCII bytes, then `€` (3 bytes each): byte 65 — the first byte
@@ -1173,7 +1169,7 @@ mod tests {
         );
     }
 
-    /// SEC-33 / TASK-2206: the other side of size-before-decode — a payload
+    /// The other side of size-before-decode: a payload
     /// that is under the cap but genuinely not UTF-8 keeps its own distinct
     /// error, naming the source, instead of being conflated with the cap.
     #[test]
@@ -1196,11 +1192,10 @@ mod tests {
         );
     }
 
-    /// SEC-25 / TASK-2225: a pre-existing symlink at the plan-JSON path is a
-    /// hard error. The old `write(true).create(true).truncate(true)` open
-    /// resolved through it — writing the stack's secrets to the link's
-    /// target and chmod-ing that target to 0600, making the exfiltrated copy
-    /// look deliberately protected.
+    /// A pre-existing symlink at the plan-JSON path is a hard error. An open
+    /// that resolved through it would write the stack's secrets to the link's
+    /// target and chmod that target to 0600, making the exfiltrated copy look
+    /// deliberately protected.
     #[cfg(unix)]
     #[test]
     fn write_plan_json_refuses_a_symlink_at_the_destination() {
@@ -1233,7 +1228,7 @@ mod tests {
         );
     }
 
-    /// SEC-25 / TASK-2225: `DirBuilder::mode(0o700)` only stamps directories
+    /// `DirBuilder::mode(0o700)` only stamps directories
     /// it creates; `.ops/` normally already exists under the user's umask.
     /// A pre-existing artifact directory that is writable by other local
     /// principals is refused before any secret-bearing artifact is written
@@ -1266,7 +1261,7 @@ mod tests {
         );
     }
 
-    /// SEC-25 / TASK-2225: the artifact directory itself may not be a
+    /// The artifact directory itself may not be a
     /// symlink either — every artifact path below it would resolve through
     /// the link.
     #[cfg(unix)]
@@ -1290,7 +1285,7 @@ mod tests {
         );
     }
 
-    /// SEC-33 / TASK-2209: a `terraform plan` that never exits is killed at
+    /// A `terraform plan` that never exits is killed at
     /// the wall-clock bound. The error names the invocation and the limit,
     /// and artifact cleanup still runs — the partial artifact the hang
     /// stranded is removed instead of sitting secret-dense on disk for as
@@ -1301,9 +1296,9 @@ mod tests {
         use std::os::unix::fs::PermissionsExt as _;
 
         let dir = tempfile::tempdir().unwrap();
-        // The artifact sits directly in the tempdir, and TASK-2225 refuses
-        // a shared-writable artifact parent (some hosts create tempdirs
-        // 775), so make this one private first.
+        // The artifact sits directly in the tempdir, and a shared-writable
+        // artifact parent is refused (some hosts create tempdirs 775), so
+        // make this one private first.
         {
             use std::os::unix::fs::PermissionsExt as _;
             std::fs::set_permissions(dir.path(), std::fs::Permissions::from_mode(0o700)).unwrap();
@@ -1323,7 +1318,7 @@ mod tests {
             ..test_opts()
         };
 
-        // TEST-18 / TASK-2213: the stub is injected as the terraform
+        // The stub is injected as the terraform
         // program and the bound as a value — no PATH or timeout env
         // mutation, so no serialisation against sibling tests is needed.
         let mut out = Vec::new();
@@ -1356,10 +1351,9 @@ mod tests {
         );
     }
 
-    /// SEC-33 / TASK-2209: the `show -json` half. The stub satisfies the
-    /// plan step, then hangs with its pipes open — the exact shape that
-    /// used to wedge the (byte-capped) stdout read forever, because no byte
-    /// cap bounds a child that writes nothing.
+    /// The `show -json` half of the wall-clock bound. The stub satisfies the
+    /// plan step, then hangs with its pipes open — the shape no byte cap can
+    /// bound, since a child that writes nothing never trips one.
     #[cfg(unix)]
     #[test]
     fn a_hung_terraform_show_is_killed_cleaned_up_and_reported() {
@@ -1384,7 +1378,7 @@ mod tests {
             ..test_opts()
         };
 
-        // TEST-18 / TASK-2213: stub program + timeout injected as values.
+        // Stub program and timeout injected as values.
         let mut out = Vec::new();
         let result = run_plan_pipeline_code_with(
             &opts,
@@ -1408,7 +1402,7 @@ mod tests {
         );
     }
 
-    /// SEC-33 (TASK-0924): a stdin payload at or below the cap must read
+    /// A stdin payload at or below the cap must read
     /// through unchanged.
     #[test]
     fn read_stdin_at_cap_returns_payload() {
@@ -1417,7 +1411,7 @@ mod tests {
         assert_eq!(result.expect("at-cap stdin payload reads ok"), "12345678");
     }
 
-    /// FN-9 / TASK-0850: `run_plan_pipeline_to` writes its rendered tables
+    /// `run_plan_pipeline_to` writes its rendered tables
     /// to the provided sink instead of global stdout, and the pipeline
     /// returns `ExitCode` based on `detailed_exitcode` + `changes_present`.
     #[test]
@@ -1444,7 +1438,7 @@ mod tests {
         );
     }
 
-    /// TEST-31 / TASK-1952: `--detailed-exitcode` with changes present is
+    /// `--detailed-exitcode` with changes present is
     /// the exit code CI gates branch on. A silent flip of 2 to 0 would
     /// let a gate report "no changes" for a plan that has them.
     #[test]
@@ -1461,7 +1455,7 @@ mod tests {
         assert_eq!(code, 2, "changes present under --detailed-exitcode is 2");
     }
 
-    /// TEST-31 / TASK-1952: the other two corners of the same contract.
+    /// The other two corners of the same exit-code contract.
     #[test]
     fn exit_code_is_zero_without_changes_or_without_detailed_exitcode() {
         let dir = tempfile::tempdir().unwrap();
@@ -1490,8 +1484,7 @@ mod tests {
         );
     }
 
-    /// TEST-31 / TASK-1952: `--show-outputs` and `render_outputs_table`
-    /// were never reached from a pipeline test.
+    /// `--show-outputs` renders the outputs table through the full pipeline.
     #[test]
     fn show_outputs_renders_the_outputs_table() {
         let dir = tempfile::tempdir().unwrap();
@@ -1524,7 +1517,7 @@ mod tests {
         );
     }
 
-    /// TEST-31 / TASK-1952: the empty-plan-JSON guard.
+    /// The empty-plan-JSON guard.
     #[test]
     fn empty_plan_json_is_rejected() {
         let dir = tempfile::tempdir().unwrap();
@@ -1539,15 +1532,11 @@ mod tests {
         );
     }
 
-    /// PATTERN-1 / TASK-1017: piped output (a `Vec<u8>` sink) must
-    /// produce byte-identical bytes regardless of the host terminal
-    /// width, even when the caller has *not* requested `--no-color`.
-    /// Previously `is_tty` was derived from `!no_color`, so a
-    /// coloured-but-piped invocation would still probe
-    /// `terminal_size::terminal_size()` and width-truncate the module
-    /// column based on the parent process's TTY. With colour and TTY
-    /// detection decoupled, `run_plan_pipeline_to` now defaults
-    /// `is_tty=false` for buffered sinks and the output is stable.
+    /// Piped output (a `Vec<u8>` sink) produces byte-identical bytes
+    /// regardless of the host terminal width, even when the caller has *not*
+    /// requested `--no-color`. Colour and TTY detection are separate knobs, so
+    /// `run_plan_pipeline_to` defaults `is_tty=false` for buffered sinks and
+    /// never probes `terminal_size::terminal_size()` for the module column.
     #[test]
     fn run_plan_pipeline_to_buffered_sink_is_terminal_width_independent() {
         let dir = tempfile::tempdir().unwrap();
@@ -1600,7 +1589,7 @@ mod tests {
         assert!(!has_changes(&[]));
     }
 
-    /// SEC-32 / TASK-1927: an artifact produced before a later failure
+    /// An artifact produced before a later failure
     /// must not outlive the run. The binary plan is the full planned
     /// state — provider credentials, generated passwords, sensitive
     /// outputs — and the tool deletes it on the happy path, so nobody
@@ -1623,7 +1612,7 @@ mod tests {
         );
     }
 
-    /// SEC-32 / TASK-1927: `--keep-plan` still wins on the error path.
+    /// `--keep-plan` still wins on the error path.
     #[test]
     fn artifacts_survive_the_error_path_under_keep_plan() {
         let dir = tempfile::tempdir().unwrap();
@@ -1645,9 +1634,9 @@ mod tests {
         );
     }
 
-    /// SEC-25 / TASK-1942: a default run never writes the `--json-out`
-    /// path, so cleanup must not unlink whatever happens to sit there.
-    /// `ops plans --json-out ~/notes.json` used to delete `~/notes.json`.
+    /// A default run never writes the `--json-out` path, so cleanup must not
+    /// unlink whatever happens to sit there — `ops plans --json-out
+    /// ~/notes.json` must leave `~/notes.json` alone.
     #[test]
     fn pre_existing_json_out_survives_a_run_that_never_wrote_it() {
         let dir = tempfile::tempdir().unwrap();
@@ -1672,8 +1661,8 @@ mod tests {
         assert_eq!(std::fs::read(&notes).unwrap(), b"the user's own file");
     }
 
-    /// SEC-25 / TASK-1942: `remove_file`'s `NotFound` is success, so the
-    /// racy `exists()` probe is gone and a missing artifact is silent.
+    /// `remove_file`'s `NotFound` counts as success, so cleanup needs no
+    /// `exists()` probe and a missing artifact is silent.
     #[test]
     fn cleanup_of_a_missing_artifact_is_not_an_error() {
         let dir = tempfile::tempdir().unwrap();
@@ -1682,7 +1671,7 @@ mod tests {
         assert!(!missing.exists());
     }
 
-    /// SEC-29 / TASK-1930: the artifact directory is 0700 and the plan
+    /// The artifact directory is 0700 and the plan
     /// JSON is 0600, so no other local account on a shared build host
     /// can read the plan's credentials and generated secrets.
     #[cfg(unix)]
@@ -1723,7 +1712,7 @@ mod tests {
         harden_artifact_permissions(&artifact_dir.join("absent.binary"));
     }
 
-    /// ERR-13 / TASK-1945: an unwritable artifact path must name itself,
+    /// An unwritable artifact path must name itself,
     /// and the two directory creations must be distinguishable from each
     /// other — "Permission denied (os error 13)" twice over is not
     /// actionable.
@@ -1766,10 +1755,9 @@ mod tests {
         );
     }
 
-    /// ERR-1 / TASK-1948: an unexpandable `--out` errors instead of
-    /// silently creating a directory literally named `$UNSET`, and
-    /// reports the same "invalid path" wording `--json-file` already used
-    /// for the identical input.
+    /// An unexpandable `--out` errors instead of silently creating a
+    /// directory literally named `$UNSET`, and reports the same "invalid
+    /// path" wording `--json-file` uses for the identical input.
     #[test]
     fn unexpandable_paths_error_identically_for_out_and_json_file() {
         let unexpandable = "$OPS_TFPLAN_DEFINITELY_UNSET_1948/plan.binary";
@@ -1805,7 +1793,7 @@ mod tests {
         assert!(!Path::new("$OPS_TFPLAN_DEFINITELY_UNSET_1948").exists());
     }
 
-    /// SEC-21 / TASK-1936: raw provider stderr never reaches the
+    /// Raw provider stderr never reaches the
     /// user-facing error string.
     #[test]
     fn show_failure_error_omits_the_captured_stderr_body() {
@@ -1831,7 +1819,7 @@ mod tests {
         );
     }
 
-    /// SEC-13 / TASK-1960: every reserved flag is rejected before
+    /// Every reserved flag is rejected before
     /// terraform is invoked, in both the `-flag=value` and bare forms,
     /// and the error names the `ops plans` flag to use instead.
     #[test]
@@ -1857,7 +1845,7 @@ mod tests {
         }
     }
 
-    /// SEC-13 / TASK-1960: ordinary passthrough arguments still pass.
+    /// Ordinary passthrough arguments still pass.
     #[test]
     fn ordinary_passthrough_flags_are_allowed() {
         let args = [
@@ -1870,7 +1858,7 @@ mod tests {
         reject_reserved_passthrough(&args).expect("non-reserved passthrough must be allowed");
     }
 
-    /// SEC-13 / TASK-1960: the rejection happens before any subprocess
+    /// The rejection happens before any subprocess
     /// runs, so it holds on a host with no `terraform` on `PATH`.
     #[test]
     fn reserved_passthrough_is_rejected_before_terraform_runs() {
@@ -1891,10 +1879,10 @@ mod tests {
         );
     }
 
-    /// FN-1 / TASK-1958: the two exit-status interpretations now share
-    /// one failure constructor; their behaviour is unchanged.
+    /// The two exit-status interpretations share one failure constructor;
+    /// this pins the success and failure codes of each.
     #[test]
-    fn plan_status_interpretation_is_unchanged() {
+    fn plan_status_interpretation_matches_terraform_exit_codes() {
         plan_status_result(true, Some(0), true).expect("detailed 0 is success");
         plan_status_result(true, Some(2), false).expect("detailed 2 is success");
         plan_status_result(false, Some(0), true).expect("plain 0 is success");

@@ -67,10 +67,10 @@ pub enum Action {
     Read,
     /// Nothing will happen.
     NoOp,
-    /// SEC-31 (TASK-0833): a Terraform plan action this build does not
-    /// recognize (e.g., `forget`, `import`, or a future variant). The
-    /// renderer surfaces these with a distinct color and a warning banner
-    /// so operators do not miss audit-relevant changes the tool cannot name.
+    /// A Terraform plan action this build does not recognize (e.g. `forget`,
+    /// `import`, or a future variant). The renderer surfaces these with a
+    /// distinct colour and a warning banner so operators do not miss
+    /// audit-relevant changes the tool cannot name.
     Unknown,
 }
 
@@ -80,7 +80,7 @@ impl Action {
     /// Returns `None` for an empty action list (no actions reported by
     /// Terraform). For non-empty lists that do not match a known shape,
     /// returns `Some(Action::Unknown)` and emits a `tracing::warn!` with
-    /// the raw action strings — fail-loud, not fail-open (SEC-31).
+    /// the raw action strings — fail loud, not fail open.
     #[must_use = "the classified action drives rendering, colour and sorting"]
     pub fn classify(actions: &[String]) -> Option<Self> {
         match actions {
@@ -139,7 +139,7 @@ impl Action {
 
     /// Sort priority for resource table ordering. Lower = listed first.
     /// `Unknown` sorts first so audit-relevant unrecognized changes are
-    /// the first thing the operator sees (SEC-31).
+    /// the first thing the operator sees.
     #[must_use = "use the returned priority for ordering; it has no side effect"]
     pub const fn sort_priority(self) -> u8 {
         match self {
@@ -224,16 +224,16 @@ mod tests {
 
     #[test]
     fn classify_unknown_single_surfaces_as_unknown() {
-        // SEC-31 (TASK-0833): an unrecognized single action is surfaced
-        // as `Action::Unknown`, not silently dropped.
+        // An unrecognized single action is surfaced as `Action::Unknown`,
+        // not silently dropped.
         assert_eq!(Action::classify(&["forget".into()]), Some(Action::Unknown));
     }
 
     #[test]
     fn classify_unknown_combination_surfaces_as_unknown() {
-        // SEC-31 (TASK-0833): a combined-action sequence we do not
-        // enumerate (e.g., ["create", "delete", "create"] or
-        // ["import", "update"]) must surface, not vanish.
+        // A combined-action sequence that is not enumerated (e.g.
+        // ["create", "delete", "create"] or ["import", "update"]) must
+        // surface, not vanish.
         assert_eq!(
             Action::classify(&["import".into(), "update".into()]),
             Some(Action::Unknown)
