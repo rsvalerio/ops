@@ -126,27 +126,31 @@ pub fn parse(dir: &Path) -> Option<GoMod> {
     Some(out)
 }
 
-/// ERR-2 / TASK-1167: a `module ""` or `module    ` line must drop to None so
-/// the directory-name fallback in `lib.rs` fires, matching the `trim_nonempty`
-/// policy applied by the Node and Python identity providers.
-fn set_module(out: &mut GoMod, rest: &str) {
-    if out.module.is_some() {
+/// DUP-1 / TASK-2196: the directive-value policy both setters share —
+/// first directive wins (cmd/go: "only one such directive"), unquote the
+/// token, drop it when empty — expressed once for the module and go-version
+/// directives.
+///
+/// ERR-2 / TASK-1167: a `module ""` or `module    ` line must drop to None
+/// so the directory-name fallback in `lib.rs` fires, matching the
+/// `trim_nonempty` policy applied by the Node and Python identity
+/// providers; the same drop applies to an empty `go` directive value.
+fn set_first_wins_unquoted_nonempty(slot: &mut Option<String>, rest: &str) {
+    if slot.is_some() {
         return;
     }
     let value = unquote_token(rest.trim());
     if !value.is_empty() {
-        out.module = Some(value.into_owned());
+        *slot = Some(value.into_owned());
     }
 }
 
+fn set_module(out: &mut GoMod, rest: &str) {
+    set_first_wins_unquoted_nonempty(&mut out.module, rest);
+}
+
 fn set_go_version(out: &mut GoMod, rest: &str) {
-    if out.go_version.is_some() {
-        return;
-    }
-    let value = unquote_token(rest.trim());
-    if !value.is_empty() {
-        out.go_version = Some(value.into_owned());
-    }
+    set_first_wins_unquoted_nonempty(&mut out.go_version, rest);
 }
 
 fn parse_replace_directive(rest: &str) -> Option<String> {
