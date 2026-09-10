@@ -1,10 +1,10 @@
 ---
 id: TASK-2167
 title: 'API-5: the #[must_use] on run_trailing_whitespace/run_end_of_file_fixer cannot enforce what its message promises - the FixerReport is dropped silently after `?`'
-status: To Do
+status: Done
 assignee: []
 created_date: '2026-09-08 07:06'
-updated_date: '2026-09-08 20:00'
+updated_date: '2026-09-10 16:26'
 labels:
   - code-review-rust
   - api-design
@@ -61,8 +61,15 @@ survives `?` because it attaches to the value rather than to the call.
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 FixerReport is annotated #[must_use] with a message naming the exit-code consequence, so a discarded report warns even after ?
-- [ ] #2 The now-redundant function-level #[must_use] attributes are removed, or kept only with a message describing what they actually catch
-- [ ] #3 A compile-fail check or a documented manual verification confirms that run_trailing_whitespace(&opts, &mut w)?; produces an unused_must_use warning
-- [ ] #4 Resolved consistently with TASK-2135 in config-checkers
+- [x] #1 FixerReport is annotated #[must_use] with a message naming the exit-code consequence, so a discarded report warns even after ?
+- [x] #2 The now-redundant function-level #[must_use] attributes are removed, or kept only with a message describing what they actually catch
+- [x] #3 A compile-fail check or a documented manual verification confirms that run_trailing_whitespace(&opts, &mut w)?; produces an unused_must_use warning
+- [x] #4 Resolved consistently with TASK-2135 in config-checkers
+
 <!-- AC:END -->
+
+## Implementation Notes
+
+<!-- SECTION:NOTES:BEGIN -->
+AC3 verified manually: a scratch test discarding run_trailing_whitespace(..)? produced unused_must_use with the type-level message under cargo clippy; the same run exposed one pre-existing statement-position discard in tests.rs (idempotency test), now consuming the first-pass reports. AC4: resolved identically to TASK-2135 (type-level must_use, function-level attributes removed).
+<!-- SECTION:NOTES:END -->

@@ -1,10 +1,10 @@
 ---
 id: TASK-2073
 title: 'API-5: bare #[must_use] attributes carry no explanatory message'
-status: To Do
+status: Done
 assignee: []
 created_date: '2026-09-07 22:56'
-updated_date: '2026-09-08 20:00'
+updated_date: '2026-09-10 19:03'
 labels:
   - code-review-rust
   - api
@@ -37,6 +37,13 @@ Non-test candidates:
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 Every #[must_use] in the crate uses the message form naming the action the caller forgot
-- [ ] #2 No bare #[must_use] remains (verifiable with grep -n '#\[must_use\]' extensions/about/src)
+- [x] #1 Every #[must_use] in the crate uses the message form naming the action the caller forgot
+- [x] #2 No bare #[must_use] remains (verifiable with grep -n '#\[must_use\]' extensions/about/src)
+
 <!-- AC:END -->
+
+## Implementation Notes
+
+<!-- SECTION:NOTES:BEGIN -->
+Post-rebase follow-up: the BoundedLruCache scaffold that landed in extensions/about/src/lru.rs after this wave branched carried seven fresh bare #[must_use] attributes. Each was given the same action-phrased message in commit "refactor(about): explain the BoundedLruCache must_use attributes", so `git grep '#\[must_use\]$' -- extensions/about/src/` is empty again on the landing branch.
+<!-- SECTION:NOTES:END -->

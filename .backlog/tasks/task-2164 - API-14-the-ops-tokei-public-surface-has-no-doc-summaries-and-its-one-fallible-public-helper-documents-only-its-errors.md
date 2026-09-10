@@ -1,10 +1,10 @@
 ---
 id: TASK-2164
 title: 'API-14: the ops-tokei public surface has no doc summaries, and its one fallible public helper documents only its errors'
-status: To Do
+status: Done
 assignee: []
 created_date: '2026-09-08 07:05'
-updated_date: '2026-09-08 20:00'
+updated_date: '2026-09-10 16:26'
 labels:
   - code-review-rust
   - api-design
@@ -40,7 +40,8 @@ The crate root and `views` both carry module docs, so the gap is item-level only
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 Every public item listed above carries a one-line doc summary
-- [ ] #2 tokei_files_create_sql has a summary line above its # Errors section
-- [ ] #3 Wording for the NAME/DESCRIPTION/SHORTNAME/DATA_PROVIDER_NAME quartet matches whatever the sibling ops-duckdb API-14 task (TASK-2130) settles on
+- [x] #1 Every public item listed above carries a one-line doc summary
+- [x] #2 tokei_files_create_sql has a summary line above its # Errors section
+- [x] #3 Wording for the NAME/DESCRIPTION/SHORTNAME/DATA_PROVIDER_NAME quartet matches whatever the sibling ops-duckdb API-14 task (TASK-2130) settles on
+
 <!-- AC:END -->

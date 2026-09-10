@@ -1,10 +1,10 @@
 ---
 id: TASK-2071
 title: 'API-14: public items in ops-about missing doc summaries'
-status: To Do
+status: Done
 assignee: []
 created_date: '2026-09-07 22:55'
-updated_date: '2026-09-08 20:00'
+updated_date: '2026-09-09 18:55'
 labels:
   - code-review-rust
   - api
@@ -40,6 +40,7 @@ ordinal: 2000
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 Every listed public item has a first-paragraph doc summary (~15 words) followed by a blank line
-- [ ] #2 Provider-name consts document what provider supplies the data and what the subpage does when it is absent
+- [x] #1 Every listed public item has a first-paragraph doc summary (~15 words) followed by a blank line
+- [x] #2 Provider-name consts document what provider supplies the data and what the subpage does when it is absent
+
 <!-- AC:END -->

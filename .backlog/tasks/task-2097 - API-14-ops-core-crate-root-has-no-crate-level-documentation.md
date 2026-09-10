@@ -1,10 +1,10 @@
 ---
 id: TASK-2097
 title: 'API-14: ops-core crate root has no crate-level documentation'
-status: To Do
+status: Done
 assignee: []
 created_date: '2026-09-07 22:59'
-updated_date: '2026-09-08 20:00'
+updated_date: '2026-09-09 18:59'
 labels:
   - code-review-rust
   - api
@@ -28,5 +28,6 @@ ordinal: 22000
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 lib.rs starts with a crate-level doc comment stating what ops-core is and the role of its public modules (a short module map is enough); cargo doc renders a non-empty crate summary page
+- [x] #1 lib.rs starts with a crate-level doc comment stating what ops-core is and the role of its public modules (a short module map is enough); cargo doc renders a non-empty crate summary page
+
 <!-- AC:END -->

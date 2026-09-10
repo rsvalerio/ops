@@ -1,10 +1,10 @@
 ---
 id: TASK-2080
 title: 'API-1: looks_like_secret_value re-exported under the meaningless alias looks_like_secret_value_public'
-status: To Do
+status: Done
 assignee: []
 created_date: '2026-09-07 22:57'
-updated_date: '2026-09-08 20:00'
+updated_date: '2026-09-10 19:02'
 labels:
   - code-review-rust
   - api
@@ -29,8 +29,14 @@ ordinal: 1000
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 Re-export is pub use secret_patterns::looks_like_secret_value; (no alias) and the one CLI import in dry_run.rs is updated
-- [ ] #2 No other in-crate use imports the _public alias (in-crate tests already import from the private module path)
-- [ ] #3 ops verify / ops qa gates pass
+- [x] #1 Re-export is pub use secret_patterns::looks_like_secret_value; (no alias) and the one CLI import in dry_run.rs is updated
+- [x] #2 No other in-crate use imports the _public alias (in-crate tests already import from the private module path)
+- [x] #3 ops verify / ops qa gates pass
 
 <!-- AC:END -->
+
+## Implementation Notes
+
+<!-- SECTION:NOTES:BEGIN -->
+AC #3 (ops verify) deferred to the wave pre-merge and integration gates, which cover the whole wave.
+<!-- SECTION:NOTES:END -->

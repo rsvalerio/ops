@@ -1,10 +1,10 @@
 ---
 id: TASK-2218
 title: 'API-13: ops-tfplan re-exports six items that are already reachable through its public model and render modules'
-status: To Do
+status: Done
 assignee: []
 created_date: '2026-09-08 07:21'
-updated_date: '2026-09-08 20:00'
+updated_date: '2026-09-10 16:26'
 labels:
   - code-review-rust
   - api
@@ -38,7 +38,14 @@ Note the export is also incomplete in a way that makes the boundary look acciden
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 Each public item of ops-tfplan is reachable by exactly one public path
-- [ ] #2 If the flat facade is chosen, the re-export set is complete — types reachable from a re-exported type's public fields (ResourceChange, Change) are re-exported too
-- [ ] #3 In-tree callers are updated to the chosen path
+- [x] #1 Each public item of ops-tfplan is reachable by exactly one public path
+- [x] #2 If the flat facade is chosen, the re-export set is complete — types reachable from a re-exported type's public fields (ResourceChange, Change) are re-exported too
+- [x] #3 In-tree callers are updated to the chosen path
+
 <!-- AC:END -->
+
+## Implementation Notes
+
+<!-- SECTION:NOTES:BEGIN -->
+Chose the module-path policy (pub mod model/render canonical, root pub use lines dropped), matching the policy TASK-2112 applied to ops-git. The flat-facade AC2 branch is therefore not applicable. In-tree callers were the crate itself and its tests; no external consumers existed (grep-verified: the CLI reaches only ops_tfplan::PlanOptions/run_plan_pipeline).
+<!-- SECTION:NOTES:END -->

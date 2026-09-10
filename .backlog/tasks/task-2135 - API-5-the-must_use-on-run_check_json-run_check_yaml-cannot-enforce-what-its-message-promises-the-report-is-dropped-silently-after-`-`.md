@@ -1,10 +1,10 @@
 ---
 id: TASK-2135
 title: 'API-5: the #[must_use] on run_check_json/run_check_yaml cannot enforce what its message promises - the report is dropped silently after `?`'
-status: To Do
+status: Done
 assignee: []
 created_date: '2026-09-08 06:56'
-updated_date: '2026-09-08 20:00'
+updated_date: '2026-09-10 15:59'
 labels:
   - code-review-rust
   - api-design
@@ -61,7 +61,14 @@ which survives `?` because it attaches to the value rather than the call.
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 CheckerReport is annotated #[must_use] with a message naming the exit-code consequence, so a discarded report is a warning even after ?
-- [ ] #2 The now-redundant function-level #[must_use] attributes on run_check_json / run_check_yaml are removed, or kept only with a message that describes what they actually catch
-- [ ] #3 A compile-fail or trybuild-style check (or, at minimum, a documented manual verification) confirms that `run_check_json(&opts, &mut w)?;` produces an unused_must_use warning
+- [x] #1 CheckerReport is annotated #[must_use] with a message naming the exit-code consequence, so a discarded report is a warning even after ?
+- [x] #2 The now-redundant function-level #[must_use] attributes on run_check_json / run_check_yaml are removed, or kept only with a message that describes what they actually catch
+- [x] #3 A compile-fail or trybuild-style check (or, at minimum, a documented manual verification) confirms that `run_check_json(&opts, &mut w)?;` produces an unused_must_use warning
+
 <!-- AC:END -->
+
+## Implementation Notes
+
+<!-- SECTION:NOTES:BEGIN -->
+AC3 verified manually: a scratch test discarding run_check_json(..)? produced unused_must_use with the type-level message under cargo clippy; scratch removed after verification.
+<!-- SECTION:NOTES:END -->

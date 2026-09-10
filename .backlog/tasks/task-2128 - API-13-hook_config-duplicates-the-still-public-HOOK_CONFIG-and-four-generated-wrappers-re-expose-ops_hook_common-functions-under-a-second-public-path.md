@@ -1,10 +1,10 @@
 ---
 id: TASK-2128
 title: 'API-13: hook_config() duplicates the still-public HOOK_CONFIG, and four generated wrappers re-expose ops_hook_common functions under a second public path'
-status: To Do
+status: Done
 assignee: []
 created_date: '2026-09-08 06:55'
-updated_date: '2026-09-08 20:00'
+updated_date: '2026-09-10 15:56'
 labels:
   - code-review-rust
   - api-design
@@ -32,8 +32,15 @@ The other four wrappers (`should_skip`, `find_git_dir`, `install_hook`, `ensure_
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 There is one public path to the hook config: either the const or the accessor, not both
-- [ ] #2 The run-before-push test that asserts hook_config() equals HOOK_CONFIG is deleted along with the duplicate path, not left asserting an identity
-- [ ] #3 Every generated wrapper that survives states in its doc that it is the config-bound form of the ops_hook_common function of the same name
-- [ ] #4 cargo build and cargo test pass for the workspace; crates/cli/src/pre_hook_cmd.rs still resolves every symbol it names
+- [x] #1 There is one public path to the hook config: either the const or the accessor, not both
+- [x] #2 The run-before-push test that asserts hook_config() equals HOOK_CONFIG is deleted along with the duplicate path, not left asserting an identity
+- [x] #3 Every generated wrapper that survives states in its doc that it is the config-bound form of the ops_hook_common function of the same name
+- [x] #4 cargo build and cargo test pass for the workspace; crates/cli/src/pre_hook_cmd.rs still resolves every symbol it names
+
 <!-- AC:END -->
+
+## Implementation Notes
+
+<!-- SECTION:NOTES:BEGIN -->
+Removed the generated hook_config() accessor; HOOK_CONFIG const is the single public path. Deleted hook_config_accessor_returns_the_same_descriptor from run-before-push tests.
+<!-- SECTION:NOTES:END -->

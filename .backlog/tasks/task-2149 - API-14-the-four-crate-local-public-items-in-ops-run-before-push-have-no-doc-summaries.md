@@ -1,10 +1,10 @@
 ---
 id: TASK-2149
 title: 'API-14: the four crate-local public items in ops-run-before-push have no doc summaries'
-status: To Do
+status: Done
 assignee: []
 created_date: '2026-09-08 07:03'
-updated_date: '2026-09-08 20:00'
+updated_date: '2026-09-10 15:56'
 labels:
   - code-review-rust
   - api-design
@@ -37,7 +37,8 @@ This is the crate-local counterpart of TASK-2124 (same rule, same items, `run-be
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 NAME, DESCRIPTION, SHORTNAME and RunBeforePushExtension each carry a doc summary stating what the value is used for
-- [ ] #2 The NAME / SHORTNAME docs say which one the user types, which one the registry keys on, and why they are equal in this crate
-- [ ] #3 cargo doc -p ops-run-before-push shows no undocumented public item in this crate's own module
+- [x] #1 NAME, DESCRIPTION, SHORTNAME and RunBeforePushExtension each carry a doc summary stating what the value is used for
+- [x] #2 The NAME / SHORTNAME docs say which one the user types, which one the registry keys on, and why they are equal in this crate
+- [x] #3 cargo doc -p ops-run-before-push shows no undocumented public item in this crate's own module
+
 <!-- AC:END -->

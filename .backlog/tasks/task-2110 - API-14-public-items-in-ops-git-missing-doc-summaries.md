@@ -1,10 +1,10 @@
 ---
 id: TASK-2110
 title: 'API-14: public items in ops-git missing doc summaries'
-status: To Do
+status: Done
 assignee: []
 created_date: '2026-09-08 06:53'
-updated_date: '2026-09-08 20:00'
+updated_date: '2026-09-09 19:01'
 labels:
   - code-review-rust
   - api
@@ -37,7 +37,8 @@ ordinal: 1000
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 Every public item listed above has a one-line doc summary
-- [ ] #2 GitInfo field docs state the invariant each field carries (lowercased host, scheme-preserving normalized URL, None semantics)
-- [ ] #3 RedactedUrl::as_str / into_string docs state that the returned value is userinfo-free and control-character-free, and that callers must not re-introduce raw URLs
+- [x] #1 Every public item listed above has a one-line doc summary
+- [x] #2 GitInfo field docs state the invariant each field carries (lowercased host, scheme-preserving normalized URL, None semantics)
+- [x] #3 RedactedUrl::as_str / into_string docs state that the returned value is userinfo-free and control-character-free, and that callers must not re-introduce raw URLs
+
 <!-- AC:END -->

@@ -1,10 +1,10 @@
 ---
 id: TASK-2098
 title: 'API-14: undocumented public items across the ops-extension surface'
-status: To Do
+status: Done
 assignee: []
 created_date: '2026-09-07 22:59'
-updated_date: '2026-09-08 20:00'
+updated_date: '2026-09-09 19:00'
 labels:
   - code-review-rust
   - structure
@@ -36,7 +36,14 @@ ordinal: 23000
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 Each listed item has at least a one-line summary doc
-- [ ] #2 Extension::register_commands and register_data_providers docs link the duplicate-registration policy (registry_duplicate_policy) so implementers see the audit-trail contract at the trait
-- [ ] #3 cargo doc -p ops-extension renders the items with summaries; no new broken intra-doc links (workspace rustdoc deny)
+- [x] #1 Each listed item has at least a one-line summary doc
+- [x] #2 Extension::register_commands and register_data_providers docs link the duplicate-registration policy (registry_duplicate_policy) so implementers see the audit-trail contract at the trait
+- [x] #3 cargo doc -p ops-extension renders the items with summaries; no new broken intra-doc links (workspace rustdoc deny)
+
 <!-- AC:END -->
+
+## Implementation Notes
+
+<!-- SECTION:NOTES:BEGIN -->
+AC #3: cargo doc -p ops-extension now clean both with and without the duckdb feature. Two pre-existing broken intra-doc links (Context::db, Context::attach_db — cfg-gated methods referenced unconditionally in the Context struct doc) were de-linked in passing; they failed the workspace rustdoc broken-link deny on a no-default-features doc build.
+<!-- SECTION:NOTES:END -->

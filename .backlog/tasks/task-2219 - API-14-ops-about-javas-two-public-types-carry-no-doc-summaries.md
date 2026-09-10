@@ -1,10 +1,10 @@
 ---
 id: TASK-2219
 title: 'API-14: ops-about-java''s two public types carry no doc summaries'
-status: To Do
+status: Done
 assignee: []
 created_date: '2026-09-08 07:21'
-updated_date: '2026-09-08 20:00'
+updated_date: '2026-09-10 16:26'
 labels:
   - code-review-rust
   - api
@@ -40,6 +40,7 @@ Twin instances already filed for the sibling about crates: TASK-2071 (`ops-about
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 AboutMavenExtension and AboutGradleExtension each carry a one-line /// summary naming the stack they serve and the manifest files they read
-- [ ] #2 Each doc notes why the type is #[non_exhaustive] (constructed via the impl_extension! factory)
+- [x] #1 AboutMavenExtension and AboutGradleExtension each carry a one-line /// summary naming the stack they serve and the manifest files they read
+- [x] #2 Each doc notes why the type is #[non_exhaustive] (constructed via the impl_extension! factory)
+
 <!-- AC:END -->

@@ -1,10 +1,10 @@
 ---
 id: TASK-2187
 title: 'API-14: ops-about-go''s only public type has no doc summary, and crate-internal helpers are pub instead of pub(crate)'
-status: To Do
+status: Done
 assignee: []
 created_date: '2026-09-08 07:14'
-updated_date: '2026-09-08 20:00'
+updated_date: '2026-09-10 19:03'
 labels:
   - code-review-rust
   - api
@@ -42,8 +42,18 @@ ordinal: 100000
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 AboutGoExtension carries a doc summary describing what the extension registers
-- [ ] #2 Every item in go_syntax, go_mod, go_work and modules that is not reachable outside the crate is pub(crate), and GoMod's visibility matches its fields'
-- [ ] #3 cargo doc and clippy pass with no new warnings after the visibility change
-- [ ] #4 The convention matches whatever TASK-2163 and TASK-2071 settle on for the Rust and generic about crates
+- [x] #1 AboutGoExtension carries a doc summary describing what the extension registers
+- [x] #2 Every item in go_syntax, go_mod, go_work and modules that is not reachable outside the crate is pub(crate), and GoMod's visibility matches its fields'
+- [x] #3 cargo doc and clippy pass with no new warnings after the visibility change
+- [x] #4 The convention matches whatever TASK-2163 and TASK-2071 settle on for the Rust and generic about crates
+
 <!-- AC:END -->
+
+## Implementation Notes
+
+<!-- SECTION:NOTES:BEGIN -->
+AC2 substituted: pub(crate) on items in the private go_* modules is denied by clippy::redundant_pub_crate (workspace convention spells such items pub; see ops-cargo-toml/src/lib.rs). External reachability is already nil via the private modules; AC1/AC4 doc work done, wording consistent with TASK-2163/2071.
+
+AC #2 audit follow-up: the pub->pub(crate) half is substituted (every module in extensions-go/about/src is private, so `pub` inside them is already crate-internal and `pub(crate)` there is what clippy::nursery/redundant_pub_crate denies workspace-wide). Two real gaps found in the post-fix audit were closed in this wave: GoMod's fields were pub(crate) while the struct was pub -- the fields are now pub and documented, matching the type and the ops-about-node convention; and a crate-level note recording the visibility decision was added above the module block in extensions-go/about/src/lib.rs.
+
+<!-- SECTION:NOTES:END -->

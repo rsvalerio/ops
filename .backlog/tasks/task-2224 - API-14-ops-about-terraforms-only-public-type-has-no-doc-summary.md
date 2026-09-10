@@ -1,10 +1,10 @@
 ---
 id: TASK-2224
 title: 'API-14: ops-about-terraform''s only public type has no doc summary'
-status: To Do
+status: Done
 assignee: []
 created_date: '2026-09-08 07:22'
-updated_date: '2026-09-08 20:00'
+updated_date: '2026-09-10 16:26'
 labels:
   - code-review-rust
   - api-design
@@ -37,6 +37,7 @@ The crate-level `//!` docs describe the parsing policy at length but never say w
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 AboutTerraformExtension carries a doc summary saying what it is and that it is the registered Terraform about extension
-- [ ] #2 Wording is consistent with the summaries added for TASK-2163 and TASK-2187
+- [x] #1 AboutTerraformExtension carries a doc summary saying what it is and that it is the registered Terraform about extension
+- [x] #2 Wording is consistent with the summaries added for TASK-2163 and TASK-2187
+
 <!-- AC:END -->

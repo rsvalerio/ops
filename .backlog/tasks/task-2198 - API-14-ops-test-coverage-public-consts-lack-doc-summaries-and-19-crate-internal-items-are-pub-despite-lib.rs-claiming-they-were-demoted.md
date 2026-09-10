@@ -1,10 +1,10 @@
 ---
 id: TASK-2198
 title: 'API-14: ops-test-coverage public consts lack doc summaries and 19 crate-internal items are pub despite lib.rs claiming they were demoted'
-status: To Do
+status: Done
 assignee: []
 created_date: '2026-09-08 07:15'
-updated_date: '2026-09-08 20:00'
+updated_date: '2026-09-10 16:26'
 labels:
   - code-review-rust
   - api
@@ -45,8 +45,15 @@ Same shape as TASK-2163 (`ops-about-rust`) and TASK-2130 (`ops-duckdb`), but a d
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 NAME, DESCRIPTION, SHORTNAME and DATA_PROVIDER_NAME each carry a one-line doc summary
-- [ ] #2 Every item in the private parse/provider/subprocess/views/ingestor modules that has no out-of-crate caller is pub(crate) rather than pub
-- [ ] #3 The lib.rs API-9 / TASK-1602 comment matches the code after the change, or is corrected
-- [ ] #4 cargo clippy passes with unreachable_pub enabled for this crate (or the lint is added to the workspace policy separately)
+- [x] #1 NAME, DESCRIPTION, SHORTNAME and DATA_PROVIDER_NAME each carry a one-line doc summary
+- [x] #2 Every item in the private parse/provider/subprocess/views/ingestor modules that has no out-of-crate caller is pub(crate) rather than pub
+- [x] #3 The lib.rs API-9 / TASK-1602 comment matches the code after the change, or is corrected
+- [x] #4 cargo clippy passes with unreachable_pub enabled for this crate (or the lint is added to the workspace policy separately)
+
 <!-- AC:END -->
+
+## Implementation Notes
+
+<!-- SECTION:NOTES:BEGIN -->
+AC2/AC4 substituted: clippy::redundant_pub_crate (nursery, denied workspace-wide) forbids the literal pub(crate) spelling inside the five private modules — the repo convention (documented in ops-cargo-toml/src/lib.rs and now in this crate lib.rs) spells such items pub, with the private mod declarations as the real boundary. unreachable_pub therefore cannot be enabled (it flags the sanctioned pub spelling); AC3 satisfied by correcting the API-9/TASK-1602 comment to describe reality, and the boundary is now stated in the lib.rs module docs.
+<!-- SECTION:NOTES:END -->

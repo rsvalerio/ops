@@ -1,10 +1,10 @@
 ---
 id: TASK-2124
 title: 'API-14: public items in ops-run-before-commit have no doc summaries, and the macro-generated fallible entry points have no # Errors section'
-status: To Do
+status: Done
 assignee: []
 created_date: '2026-09-08 06:54'
-updated_date: '2026-09-08 20:00'
+updated_date: '2026-09-10 15:56'
 labels:
   - code-review-rust
   - api-design
@@ -35,8 +35,15 @@ ordinal: 40000
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 NAME, DESCRIPTION, SHORTNAME and RunBeforeCommitExtension each carry a one-line doc summary saying what the item is used for
-- [ ] #2 Every item emitted by impl_hook_wrappers! carries a doc summary, so both hook crates gain them at once
-- [ ] #3 The generated install_hook and ensure_config_command carry an # Errors section
-- [ ] #4 cargo doc for the workspace builds with no new warnings and no broken intra-doc links
+- [x] #1 NAME, DESCRIPTION, SHORTNAME and RunBeforeCommitExtension each carry a one-line doc summary saying what the item is used for
+- [x] #2 Every item emitted by impl_hook_wrappers! carries a doc summary, so both hook crates gain them at once
+- [x] #3 The generated install_hook and ensure_config_command carry an # Errors section
+- [x] #4 cargo doc for the workspace builds with no new warnings and no broken intra-doc links
+
 <!-- AC:END -->
+
+## Implementation Notes
+
+<!-- SECTION:NOTES:BEGIN -->
+Macro-side fixes applied under TASK-2139/2128; crate-local items documented in this task.
+<!-- SECTION:NOTES:END -->

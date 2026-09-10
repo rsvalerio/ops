@@ -1,10 +1,10 @@
 ---
 id: TASK-2145
 title: 'API-14: public items in ops-cargo-toml missing doc summaries'
-status: To Do
+status: Done
 assignee: []
 created_date: '2026-09-08 07:02'
-updated_date: '2026-09-08 20:00'
+updated_date: '2026-09-10 16:00'
 labels:
   - code-review-rust
   - api
@@ -44,7 +44,8 @@ Sibling per-crate findings: TASK-2071 (ops-about), TASK-2097/2098 (ops-core, ops
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 Every public const in ops-cargo-toml carries a one-line doc summary saying what it names and where it is consumed
-- [ ] #2 Every public enum variant and public field of FindWorkspaceRootError, InheritanceError and ParseError carries a doc summary
-- [ ] #3 cargo doc -p ops-cargo-toml renders no undocumented public item
+- [x] #1 Every public const in ops-cargo-toml carries a one-line doc summary saying what it names and where it is consumed
+- [x] #2 Every public enum variant and public field of FindWorkspaceRootError, InheritanceError and ParseError carries a doc summary
+- [x] #3 cargo doc -p ops-cargo-toml renders no undocumented public item
+
 <!-- AC:END -->

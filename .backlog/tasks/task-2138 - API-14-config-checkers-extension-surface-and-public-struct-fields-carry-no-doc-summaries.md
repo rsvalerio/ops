@@ -1,10 +1,10 @@
 ---
 id: TASK-2138
 title: 'API-14: config-checkers'' extension surface and public struct fields carry no doc summaries'
-status: To Do
+status: Done
 assignee: []
 created_date: '2026-09-08 06:56'
-updated_date: '2026-09-08 20:00'
+updated_date: '2026-09-10 15:59'
 labels:
   - code-review-rust
   - api-design
@@ -52,7 +52,14 @@ mechanically enforced today.
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 Every public item listed above has a doc summary; CheckerOptions::tracked_only states which candidate set each value selects, and FailedFile::path states that it is relative to CheckerOptions::root
-- [ ] #2 ConfigCheckersExtension has a doc comment describing what it registers
-- [ ] #3 The crate root enables #![warn(missing_docs)] (or the workspace equivalent) so the gap cannot silently reopen, and the crate builds clean under it
+- [x] #1 Every public item listed above has a doc summary; CheckerOptions::tracked_only states which candidate set each value selects, and FailedFile::path states that it is relative to CheckerOptions::root
+- [x] #2 ConfigCheckersExtension has a doc comment describing what it registers
+- [x] #3 The crate root enables #![warn(missing_docs)] (or the workspace equivalent) so the gap cannot silently reopen, and the crate builds clean under it
+
 <!-- AC:END -->
+
+## Implementation Notes
+
+<!-- SECTION:NOTES:BEGIN -->
+FailedFile field docs live in crates/core/src/bounded_read.rs where the type is defined (config-checkers re-exports it); #![warn(missing_docs)] added at the config-checkers crate root, builds clean.
+<!-- SECTION:NOTES:END -->

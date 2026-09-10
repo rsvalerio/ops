@@ -1,10 +1,10 @@
 ---
 id: TASK-2186
 title: 'API-14: public items in ops-rust-loc missing doc summaries'
-status: To Do
+status: Done
 assignee: []
 created_date: '2026-09-08 07:14'
-updated_date: '2026-09-08 20:00'
+updated_date: '2026-09-10 16:26'
 labels:
   - code-review-rust
   - api-design
@@ -51,8 +51,9 @@ Comment present, summary missing:
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 Every public item listed above has a one-line doc summary stating what it is, in the sentence form used elsewhere in the crate
-- [ ] #2 rust_loc_files_create_sql leads with a summary sentence before its # Errors section
-- [ ] #3 rust_loc_summary_view_sql and Locs::lines lead with a summary sentence; any retained rationale follows it
-- [ ] #4 cargo doc -p ops-rust-loc produces no missing-docs style gaps for the listed items and still builds without warnings
+- [x] #1 Every public item listed above has a one-line doc summary stating what it is, in the sentence form used elsewhere in the crate
+- [x] #2 rust_loc_files_create_sql leads with a summary sentence before its # Errors section
+- [x] #3 rust_loc_summary_view_sql and Locs::lines lead with a summary sentence; any retained rationale follows it
+- [x] #4 cargo doc -p ops-rust-loc produces no missing-docs style gaps for the listed items and still builds without warnings
+
 <!-- AC:END -->

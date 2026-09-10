@@ -1,10 +1,10 @@
 ---
 id: TASK-2174
 title: 'API-14: every public item in create-review-tasks-rust lacks a doc summary'
-status: To Do
+status: Done
 assignee: []
 created_date: '2026-09-08 07:12'
-updated_date: '2026-09-08 20:00'
+updated_date: '2026-09-09 18:54'
 labels:
   - code-review-rust
   - api-design
@@ -36,6 +36,7 @@ The crate-level `//!` docs are present and good, but no individual public item h
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 NAME, DESCRIPTION, SHORTNAME, DATA_PROVIDER_NAME and CreateReviewTasksRustExtension each carry a doc summary stating what the item is and where it is consumed
-- [ ] #2 Any item narrowed to pub(crate) or private under TASK-2175 is exempt; whatever remains public is documented
+- [x] #1 NAME, DESCRIPTION, SHORTNAME, DATA_PROVIDER_NAME and CreateReviewTasksRustExtension each carry a doc summary stating what the item is and where it is consumed
+- [x] #2 Any item narrowed to pub(crate) or private under TASK-2175 is exempt; whatever remains public is documented
+
 <!-- AC:END -->

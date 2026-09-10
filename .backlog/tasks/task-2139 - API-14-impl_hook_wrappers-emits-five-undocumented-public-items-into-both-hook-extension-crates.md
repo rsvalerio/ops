@@ -1,10 +1,10 @@
 ---
 id: TASK-2139
 title: 'API-14: impl_hook_wrappers! emits five undocumented public items into both hook extension crates'
-status: To Do
+status: Done
 assignee: []
 created_date: '2026-09-08 06:56'
-updated_date: '2026-09-08 20:00'
+updated_date: '2026-09-10 15:56'
 labels:
   - code-review-rust
   - api-design
@@ -55,8 +55,9 @@ Low severity: documentation only.
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 Every public item emitted by impl_hook_wrappers! carries a doc summary that links to the ops_hook_common function it wraps
-- [ ] #2 The generated install_hook (and ensure_config_command) carry a '# Errors' section
-- [ ] #3 The HOOK_CONFIG const vs hook_config() fn duplication is either removed or documented with a stated reason for keeping both
-- [ ] #4 cargo doc for ops-run-before-commit and ops-run-before-push shows no blank-summary public items from the macro
+- [x] #1 Every public item emitted by impl_hook_wrappers! carries a doc summary that links to the ops_hook_common function it wraps
+- [x] #2 The generated install_hook (and ensure_config_command) carry a '# Errors' section
+- [x] #3 The HOOK_CONFIG const vs hook_config() fn duplication is either removed or documented with a stated reason for keeping both
+- [x] #4 cargo doc for ops-run-before-commit and ops-run-before-push shows no blank-summary public items from the macro
+
 <!-- AC:END -->

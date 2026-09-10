@@ -1,10 +1,10 @@
 ---
 id: TASK-2072
 title: 'API-13: duplicate public paths for run_about_* entry points and a foreign re-export of ops_core format_number'
-status: To Do
+status: Done
 assignee: []
 created_date: '2026-09-07 22:56'
-updated_date: '2026-09-08 20:00'
+updated_date: '2026-09-09 18:57'
 labels:
   - code-review-rust
   - api
@@ -33,7 +33,8 @@ Suggested fix (either direction, not both): drop the root `pub use`s and keep th
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 Each run_about_* entry point is reachable by exactly one public path
-- [ ] #2 format_number is no longer publicly re-exported from ops_about (import it privately where used)
-- [ ] #3 No downstream call sites break (grep workspace consumers of ops_about:: before landing)
+- [x] #1 Each run_about_* entry point is reachable by exactly one public path
+- [x] #2 format_number is no longer publicly re-exported from ops_about (import it privately where used)
+- [x] #3 No downstream call sites break (grep workspace consumers of ops_about:: before landing)
+
 <!-- AC:END -->

@@ -1,10 +1,10 @@
 ---
 id: TASK-2130
 title: 'API-14: public items in ops-duckdb missing doc summaries'
-status: To Do
+status: Done
 assignee: []
 created_date: '2026-09-08 06:55'
-updated_date: '2026-09-08 20:00'
+updated_date: '2026-09-10 16:26'
 labels:
   - code-review-rust
   - api-design
@@ -66,7 +66,14 @@ TASK-2098 (ops-extension) cover the same rule on the neighbouring crates.
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 every public item listed above carries a one-line doc summary saying what it is, not why a lint was suppressed
-- [ ] #2 RustLocStat and CrateCoverage fields state their unit and whether regions overlap, so a caller can tell docs/comments/lines apart
-- [ ] #3 CreateViewSql::create_or_replace gains a leading summary line ahead of its rationale paragraph
+- [x] #1 every public item listed above carries a one-line doc summary saying what it is, not why a lint was suppressed
+- [x] #2 RustLocStat and CrateCoverage fields state their unit and whether regions overlap, so a caller can tell docs/comments/lines apart
+- [x] #3 CreateViewSql::create_or_replace gains a leading summary line ahead of its rationale paragraph
+
 <!-- AC:END -->
+
+## Implementation Notes
+
+<!-- SECTION:NOTES:BEGIN -->
+AC3 was already satisfied on landing (create_or_replace opens with a summary line followed by its rationale paragraph — an earlier wave fixed it); the remaining items documented here with consistent NAME/DESCRIPTION/SHORTNAME/DATA_PROVIDER_NAME wording reused by TASK-2164.
+<!-- SECTION:NOTES:END -->

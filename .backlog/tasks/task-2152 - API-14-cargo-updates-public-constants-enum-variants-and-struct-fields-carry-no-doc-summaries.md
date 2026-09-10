@@ -1,10 +1,10 @@
 ---
 id: TASK-2152
 title: 'API-14: cargo-update''s public constants, enum variants and struct fields carry no doc summaries'
-status: To Do
+status: Done
 assignee: []
 created_date: '2026-09-08 07:03'
-updated_date: '2026-09-08 20:00'
+updated_date: '2026-09-10 16:26'
 labels:
   - code-review-rust
   - api
@@ -34,7 +34,14 @@ ordinal: 65000
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 Every public const, enum variant and struct field in the crate has a one-line doc summary saying what it is
-- [ ] #2 CargoUpdateExtension's doc opens with a summary of the type rather than a construction note
-- [ ] #3 cargo doc for the crate shows no public item rendered with an empty description
+- [x] #1 Every public const, enum variant and struct field in the crate has a one-line doc summary saying what it is
+- [x] #2 CargoUpdateExtension's doc opens with a summary of the type rather than a construction note
+- [x] #3 cargo doc for the crate shows no public item rendered with an empty description
+
 <!-- AC:END -->
+
+## Implementation Notes
+
+<!-- SECTION:NOTES:BEGIN -->
+UpdateEntry::action/name and the entry variants were already documented on landing by the TASK-2151 reshape; the remaining gaps (const quartet, UpdateAction variants, CargoUpdateResult fields, CargoUpdateExtension summary) documented here.
+<!-- SECTION:NOTES:END -->

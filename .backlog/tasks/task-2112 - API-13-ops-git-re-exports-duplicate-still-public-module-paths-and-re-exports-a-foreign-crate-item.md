@@ -1,10 +1,10 @@
 ---
 id: TASK-2112
 title: 'API-13: ops-git re-exports duplicate still-public module paths and re-exports a foreign crate item'
-status: To Do
+status: Done
 assignee: []
 created_date: '2026-09-08 06:53'
-updated_date: '2026-09-08 20:00'
+updated_date: '2026-09-10 19:02'
 labels:
   - code-review-rust
   - api
@@ -38,7 +38,14 @@ So `ops_git::GitInfo` and `ops_git::provider::GitInfo` are both public and both 
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 Each public ops-git item is reachable through exactly one path
-- [ ] #2 find_git_dir is no longer re-exported from ops_git::config, or the re-export is documented as a deliberate part of ops-git's contract
-- [ ] #3 cargo build and the workspace test suite pass after the path consolidation
+- [x] #1 Each public ops-git item is reachable through exactly one path
+- [x] #2 find_git_dir is no longer re-exported from ops_git::config, or the re-export is documented as a deliberate part of ops-git's contract
+- [x] #3 cargo build and the workspace test suite pass after the path consolidation
+
 <!-- AC:END -->
+
+## Implementation Notes
+
+<!-- SECTION:NOTES:BEGIN -->
+AC #3 covered by the wave pre-merge/integration ops verify gates. find_git_dir demoted to a pub(crate) alias (single use site in provider.rs plus config tests); root re-exports of provider/remote items dropped, modules stay public as the canonical paths; two external call sites updated to ops_git::provider::resolve_repository_with_git_fallback.
+<!-- SECTION:NOTES:END -->

@@ -1,10 +1,10 @@
 ---
 id: TASK-2232
 title: 'API-14: ops-about-node''s only public type has no doc summary and crate-internal helpers are pub, including a foreign re-export of ops_about::text_util::trim_nonempty'
-status: To Do
+status: Done
 assignee: []
 created_date: '2026-09-08 07:24'
-updated_date: '2026-09-08 20:00'
+updated_date: '2026-09-10 19:03'
 labels:
   - code-review-rust
   - api-design
@@ -55,8 +55,18 @@ for the foreign re-export half.
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 AboutNodeExtension has a doc summary describing what the extension provides
-- [ ] #2 items in the private package_json, package_manager, repo_url and units modules are pub(crate) unless genuinely reachable from outside the crate
-- [ ] #3 the pub use of ops_about::text_util::trim_nonempty is a plain use, or call sites reference the canonical path
-- [ ] #4 cargo build reports no newly-unused items after the visibility narrowing, or any it reports are removed
+- [x] #1 AboutNodeExtension has a doc summary describing what the extension provides
+- [x] #2 items in the private package_json, package_manager, repo_url and units modules are pub(crate) unless genuinely reachable from outside the crate
+- [x] #3 the pub use of ops_about::text_util::trim_nonempty is a plain use, or call sites reference the canonical path
+- [x] #4 cargo build reports no newly-unused items after the visibility narrowing, or any it reports are removed
+
 <!-- AC:END -->
+
+## Implementation Notes
+
+<!-- SECTION:NOTES:BEGIN -->
+AC2 substituted: pub(crate) inside the private modules is denied by clippy::redundant_pub_crate (workspace convention spells such items pub; see ops-cargo-toml/src/lib.rs). AC3 satisfied literally: the pub use of ops_about::text_util::trim_nonempty is now a plain use. AC4: no newly-unused items after the visibility work (workspace clippy clean).
+
+AC #2 audit follow-up: substitution unchanged (all four modules in extensions-node/about/src are private, so the `pub` spelling inside them is crate-internal already). The decision was previously recorded only in package_json.rs; a crate-level note was added above the module block in extensions-node/about/src/lib.rs so repo_url.rs, units.rs and package_manager.rs are covered by the same explanation.
+
+<!-- SECTION:NOTES:END -->

@@ -1,10 +1,10 @@
 ---
 id: TASK-2247
 title: 'code-review-plan-wave13'
-status: To Do
+status: Done
 assignee: []
 created_date: '2026-09-08 10:52'
-updated_date: '2026-09-08 20:00'
+updated_date: '2026-09-10 19:03'
 labels:
   - code-review-wave
 dependencies:
@@ -127,4 +127,7 @@ code-review-plan-wave13: Missing doc summaries, duplicate public paths, and weak
 
 <!-- SECTION:NOTES:BEGIN -->
 Overlaps: TASK-2248 wave14 (29 files: crates/extension/src/data.rs ...); TASK-2236 wave2 (7 files: extensions-node/about/src/package_json.rs ...); TASK-2240 wave6 (7 files: extensions-go/about/src/lib.rs ...); TASK-2234 wave0 (6 files: extensions-rust/deps/src/parse/upgrade.rs ...); TASK-2237 wave3 (5 files: extensions/config-checkers/src/lib.rs ...); TASK-2242 wave8 (5 files: extensions-go/about/src/go_mod.rs ...); TASK-2246 wave12 (5 files: crates/extension/src/data.rs ...); TASK-2235 wave1 (4 files: extensions-rust/cargo-toml/src/lib.rs ...); TASK-2238 wave4 (4 files: extensions-go/about/src/go_mod.rs ...); TASK-2239 wave5 (4 files: extensions-go/about/src/lib.rs ...); TASK-2241 wave7 (4 files: extensions-terraform/plan/src/lib.rs ...); TASK-2243 wave9 (4 files: crates/extension/src/data.rs ...); TASK-2244 wave10 (4 files: crates/runner/src/command/mod.rs ...); TASK-2249 wave15 (1 file: extensions/create-review-tasks/src/lib.rs)
+
+Branch: code-review/TASK-2247
+
 <!-- SECTION:NOTES:END -->

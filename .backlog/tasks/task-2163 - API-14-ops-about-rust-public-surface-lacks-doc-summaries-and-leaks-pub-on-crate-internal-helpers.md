@@ -1,10 +1,10 @@
 ---
 id: TASK-2163
 title: 'API-14: ops-about-rust public surface lacks doc summaries and leaks pub on crate-internal helpers'
-status: To Do
+status: Done
 assignee: []
 created_date: '2026-09-08 07:05'
-updated_date: '2026-09-08 20:00'
+updated_date: '2026-09-10 19:03'
 labels:
   - code-review-rust
   - api
@@ -36,8 +36,18 @@ Note: this is the same rule as TASK-2071 but a different crate — that task tar
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 `NAME`, `DESCRIPTION`, `SHORTNAME`, `DATA_PROVIDER_NAME` and `AboutRustExtension` each carry a one-line doc summary saying what the value is used for
-- [ ] #2 `CrateMetadata` and each of its three public fields carry a doc summary, including what `None` means (read or parse failure, per `read_crate_metadata`'s contract)
-- [ ] #3 `resolve_crate_display_name` and `expand_member_glob` are narrowed to `pub(crate)`, or re-exported from `lib.rs` if they are genuinely part of the sibling-extension API
-- [ ] #4 `cargo doc -p ops-about-rust` produces no item without a summary line, and the crate still builds with `[lints] workspace = true`
+- [x] #1 `NAME`, `DESCRIPTION`, `SHORTNAME`, `DATA_PROVIDER_NAME` and `AboutRustExtension` each carry a one-line doc summary saying what the value is used for
+- [x] #2 `CrateMetadata` and each of its three public fields carry a doc summary, including what `None` means (read or parse failure, per `read_crate_metadata`'s contract)
+- [x] #3 `resolve_crate_display_name` and `expand_member_glob` are narrowed to `pub(crate)`, or re-exported from `lib.rs` if they are genuinely part of the sibling-extension API
+- [x] #4 `cargo doc -p ops-about-rust` produces no item without a summary line, and the crate still builds with `[lints] workspace = true`
+
 <!-- AC:END -->
+
+## Implementation Notes
+
+<!-- SECTION:NOTES:BEGIN -->
+AC3 substituted: the literal pub(crate) spelling on items inside pub(crate)/private modules is denied workspace-wide by clippy::redundant_pub_crate (the documented convention in ops-cargo-toml/src/lib.rs keeps such items spelled pub). The AC intent — no external reachability — already holds via the pub(crate) module declarations and is unchanged; docs added instead.
+
+AC #3 audit follow-up: substitution unchanged (the modules holding resolve_crate_display_name and expand_member_glob are pub(crate), so both are already unreachable outside the crate and re-spelling them pub(crate) is denied by clippy::nursery/redundant_pub_crate). A crate-level note recording that decision, naming both functions, was added above the module block in extensions-rust/about/src/lib.rs.
+
+<!-- SECTION:NOTES:END -->

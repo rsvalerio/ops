@@ -1,10 +1,10 @@
 ---
 id: TASK-2221
 title: 'API-14: the ops-tfplan plan model and its two public modules carry no doc summaries at all'
-status: To Do
+status: Done
 assignee: []
 created_date: '2026-09-08 07:21'
-updated_date: '2026-09-08 20:00'
+updated_date: '2026-09-10 16:26'
 labels:
   - code-review-rust
   - api
@@ -37,7 +37,8 @@ ordinal: 1000
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 Both public modules have //! summaries, and Plan, ResourceChange, Change and ClassifiedChange plus their fields have /// summaries
-- [ ] #2 The model docs state which terraform plan format_version values are supported and that Option fields mean 'absent from the document'
-- [ ] #3 has_changes is documented; Action::classify gains #[must_use] and the existing bare #[must_use] attributes on Action carry a reason
+- [x] #1 Both public modules have //! summaries, and Plan, ResourceChange, Change and ClassifiedChange plus their fields have /// summaries
+- [x] #2 The model docs state which terraform plan format_version values are supported and that Option fields mean 'absent from the document'
+- [x] #3 has_changes is documented; Action::classify gains #[must_use] and the existing bare #[must_use] attributes on Action carry a reason
+
 <!-- AC:END -->
