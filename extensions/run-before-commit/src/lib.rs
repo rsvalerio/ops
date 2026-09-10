@@ -4,10 +4,26 @@ use std::time::Duration;
 
 use ops_extension::ExtensionType;
 
+/// Extension identifier used to register this crate in the engine's
+/// extension registry.
+///
+/// Doubles as the on-disk spelling the installed hook script execs
+/// (`exec ops run-before-commit --changed-only`) and the `.ops.toml`
+/// `[commands.<name>]` key `ensure_config_command` writes, so all three
+/// agree on one string.
 pub const NAME: &str = "run-before-commit";
+/// One-line description shown by `ops about` for this extension.
 pub const DESCRIPTION: &str = "Setup git pre-commit hook to run an ops command of your choice";
+/// CLI-facing short name — the subcommand the user types.
+///
+/// Equal to `NAME` here (no reason to spell them differently), unlike
+/// crates where a stack suffix makes the full name too long to type.
 pub const SHORTNAME: &str = "run-before-commit";
 
+/// Command extension wiring the pre-commit install and dispatch surface.
+///
+/// Registers no data providers and no commands of its own; the CLI reaches
+/// this crate's install entry points through `crates/cli/src/pre_hook_cmd.rs`.
 pub struct RunBeforeCommitExtension;
 
 ops_extension::impl_extension! {

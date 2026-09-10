@@ -167,6 +167,14 @@ macro_rules! impl_hook_wrappers {
         legacy_markers: $legacy_markers:expr,
         command_help: $command_help:expr $(,)?
     ) => {
+        /// The [`ops_hook_common::HookConfig`] descriptor every wrapper
+        /// below is bound to.
+        ///
+        /// This const is the crate's single public path to its hook
+        /// configuration; the generated wrappers read it, and callers that
+        /// need the raw descriptor (e.g. tests pinning its fields) read it
+        /// too. API-13 / TASK-2128: the `hook_config()` accessor that
+        /// duplicated this value was removed — one public path per item.
         pub const HOOK_CONFIG: $crate::HookConfig = $crate::HookConfig::new(
             $name,
             $hook_filename,
@@ -176,18 +184,37 @@ macro_rules! impl_hook_wrappers {
             $command_help,
         );
 
-        pub fn hook_config() -> $crate::HookConfig {
-            HOOK_CONFIG
-        }
-
+        /// Config-bound form of [`ops_hook_common::should_skip`].
+        ///
+        /// Returns `true` when this extension's skip env var
+        /// (`HOOK_CONFIG.skip_env_var`) is set to a recognized truthy value.
+        #[must_use]
         pub fn should_skip() -> bool {
             $crate::should_skip(&HOOK_CONFIG)
         }
 
+        /// Delegates to [`ops_hook_common::find_git_dir`].
+        ///
+        /// Discovers the `.git` directory for plain repos, worktrees and
+        /// submodules, starting at `from` — re-exported so the crate's whole
+        /// hook surface is reachable from its root.
+        #[must_use]
         pub fn find_git_dir(from: &::std::path::Path) -> Option<::std::path::PathBuf> {
             $crate::find_git_dir(from)
         }
 
+        /// Config-bound form of [`ops_hook_common::install_hook`].
+        ///
+        /// Installs `HOOK_CONFIG.hook_script` as
+        /// `.git/hooks/<HOOK_CONFIG.hook_filename>` under `git_dir`, replacing
+        /// hooks that match a legacy marker. Returns the created hook path.
+        ///
+        /// # Errors
+        ///
+        /// If the git directory cannot be canonicalized, `.git/hooks` cannot
+        /// be created, the hook file cannot be written or made executable,
+        /// or an existing hook is not a legacy one (refused, not overwritten)
+        /// — see the wrapped function's doc.
         pub fn install_hook(
             git_dir: &::std::path::Path,
             w: &mut dyn ::std::io::Write,
@@ -195,13 +222,18 @@ macro_rules! impl_hook_wrappers {
             $crate::install_hook(&HOOK_CONFIG, git_dir, w)
         }
 
-        /// Per-extension wrapper for [`ops_hook_common::ensure_config_command`].
+        /// Config-bound form of [`ops_hook_common::ensure_config_command`].
         ///
         /// The synthesized `[commands.<name>]` entry hardcodes
         /// `fail_fast = true`. See the wrapped function's doc for the
         /// rationale and the operator override path
         /// (hand-edit `.ops.toml` post-install; the early-exit guard
         /// preserves the edit on subsequent reinstalls).
+        ///
+        /// # Errors
+        ///
+        /// If `.ops.toml` cannot be read, parsed, or written back — see the
+        /// wrapped function's doc.
         pub fn ensure_config_command(
             config_dir: &::std::path::Path,
             selected_commands: &[String],

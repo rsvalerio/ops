@@ -9,10 +9,28 @@
 
 use ops_extension::ExtensionType;
 
+/// Extension identifier used to register this crate in the engine's
+/// extension registry.
+///
+/// Doubles as the on-disk spelling the installed hook script execs
+/// (`exec ops run-before-push`) and the `.ops.toml` `[commands.<name>]` key
+/// `ensure_config_command` writes, so all three agree on one string.
 pub const NAME: &str = "run-before-push";
+/// One-line description shown by `ops about` for this extension.
 pub const DESCRIPTION: &str = "Setup git pre-push hook to run an ops command of your choice";
+/// CLI-facing short name — the subcommand the user types
+/// (`ops run-before-push install`).
+///
+/// Equal to `NAME` in this crate because the registry key and the
+/// user-typed command have no reason to differ here; `SHORTNAME` exists as
+/// a separate constant so a future rename of either side has a place to
+/// land.
 pub const SHORTNAME: &str = "run-before-push";
 
+/// Command extension wiring the pre-push install and dispatch surface.
+///
+/// Registers no data providers and no commands of its own; the CLI reaches
+/// this crate's install entry points through `crates/cli/src/pre_hook_cmd.rs`.
 pub struct RunBeforePushExtension;
 
 ops_extension::impl_extension! {
@@ -841,18 +859,5 @@ mod tests {
                 .any(|m| HOOK_SCRIPT.contains(*m)),
             "the current HOOK_SCRIPT must be covered by a legacy marker"
         );
-    }
-
-    /// TEST-5 / TASK-1909: the generated accessor is public surface; exercise
-    /// it so it cannot rot into dead code.
-    #[test]
-    fn hook_config_accessor_returns_the_same_descriptor() {
-        let config = hook_config();
-        assert_eq!(config.name, HOOK_CONFIG.name);
-        assert_eq!(config.hook_filename, HOOK_CONFIG.hook_filename);
-        assert_eq!(config.hook_script, HOOK_CONFIG.hook_script);
-        assert_eq!(config.skip_env_var, HOOK_CONFIG.skip_env_var);
-        assert_eq!(config.legacy_markers, HOOK_CONFIG.legacy_markers);
-        assert_eq!(config.command_help, HOOK_CONFIG.command_help);
     }
 }
