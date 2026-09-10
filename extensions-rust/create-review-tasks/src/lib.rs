@@ -7,11 +7,6 @@
 //! project (no `[workspace]` table) yields its root package as the one
 //! review target — see [`provider`].
 
-// TEST-5 / TASK-1816: the crate-root `#![cfg_attr(test, allow(..))]` block
-// that used to sit here is gone. The tests in this crate use `expect` and
-// indexing, both already permitted in test code by the `allow-*-in-tests`
-// keys in `clippy.toml`, and none of them casts — the block excused nothing.
-
 pub(crate) mod provider;
 
 /// Extension identifier used to register this crate in the engine's
@@ -53,16 +48,14 @@ mod tests {
     use super::*;
     use ops_extension::{Context, DataRegistry, Extension};
 
-    /// TEST-32 / TASK-2172: the registration closure in `impl_extension!` is
-    /// verified through the engine's own lookup path — `registry.provide`
-    /// under the *engine crate's* key constant — not by asserting the key
-    /// against the same constant the closure registers under (X == X, the
-    /// shape removed from `provider.rs` by the same task). The assertions
-    /// that carry the weight are behavioural: the provider that answers is
-    /// this crate's Rust provider (it emits `code-review-rust` and lists the
-    /// solo package as a target). Fails if this crate's registration key ever
-    /// drifts from the engine's constant (e.g. replaced by a decoupled
-    /// literal): the lookup then lands on `NotFound`.
+    /// The registration closure in `impl_extension!` is verified through
+    /// the engine's own lookup path — `registry.provide` under the *engine
+    /// crate's* key constant — so the assertions that carry the weight are
+    /// behavioural: the provider that answers is this crate's Rust provider
+    /// (it emits `code-review-rust` and lists the solo package as a target).
+    /// Fails if this crate's registration key ever drifts from the engine's
+    /// constant (e.g. replaced by a decoupled literal): the lookup then
+    /// lands on `NotFound`.
     #[test]
     fn extension_registers_the_review_targets_provider_under_the_engine_key() {
         let mut registry = DataRegistry::new();

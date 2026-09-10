@@ -1,27 +1,13 @@
 //! Metadata extension: runs `cargo metadata` and provides workspace info as JSON.
 //! `DuckDB` is the single source of truth - metadata is loaded into `metadata_raw` table.
 //!
-//! # No typed accessor layer (ARCH-9 / TASK-1898)
+//! # Consuming the metadata
 //!
-//! This crate used to also export a `Metadata` / `Package` / `Dependency` /
-//! `Target` wrapper family (`types.rs`, ~660 lines plus ~750 lines of tests)
-//! offering typed accessors over the same JSON. It had **no consumers**:
-//! nothing in the workspace named any of those types, `Metadata::from_context`
-//! — the documented production entry point — was never called, and nine
-//! blanket `#[allow(dead_code)]` attributes were what kept the question open.
-//! Everything that actually ships goes through
-//! `MetadataProvider::provide` → `provide_from_db` → `query_metadata_raw`,
-//! which returns a raw `serde_json::Value`.
-//!
-//! The decision recorded here is **removed, not deferred**: `ops-metadata` is
-//! `publish = false`, its only cross-crate reference is the
-//! `extern crate ops_metadata;` in `crates/cli/src/main.rs` that exists so the
-//! `linkme` factory registers, and no backlog item plans a consumer. If a
-//! consumer ever appears, the wrappers are cheap to reintroduce against a real
-//! call site — which is also the only way their contract can be tested for
-//! something other than `serde_json::Value::get`. Until then the provider's
-//! JSON shape is documented by [`MetadataProvider::schema`], and consumers
-//! read it with `serde_json` directly.
+//! The crate exposes the workspace as raw JSON, not as a typed wrapper family.
+//! Everything ships through `MetadataProvider::provide` → `provide_from_db` →
+//! `query_metadata_raw`, which returns a `serde_json::Value`. The shape of that
+//! value is documented by `MetadataProvider::schema`; consumers read it with
+//! `serde_json` directly.
 
 #![cfg_attr(
     test,
@@ -58,8 +44,7 @@ const DATA_PROVIDER_NAME: &str = "metadata";
 /// `OPS_SUBPROCESS_TIMEOUT_SECS`.
 pub(crate) const CARGO_METADATA_TIMEOUT: Duration = Duration::from_mins(2);
 
-/// ERR-1 / TASK-1034: byte cap on the JSON payload read from
-/// `metadata_raw`.
+/// Default byte cap on the JSON payload read back from `metadata_raw`.
 ///
 /// `query_metadata_raw` materialises the row as a `String` (via
 /// `to_json(m)::VARCHAR`) and then parses it into a `serde_json::Value`,
@@ -71,7 +56,7 @@ pub(crate) const CARGO_METADATA_TIMEOUT: Duration = Duration::from_mins(2);
 /// learn before the OS kills the process. Override via
 /// `OPS_METADATA_MAX_BYTES`.
 ///
-/// ERR-1 / TASK-2188: this cap governs the **post-ingest read only**. On the
+/// This cap governs the **post-ingest read only**. On the
 /// collect side the subprocess capture cap (4 MiB default,
 /// `OPS_OUTPUT_BYTE_CAP`) binds first — see [`metadata_output_cap`] — so a
 /// workspace above that cap never reaches this one until `OPS_OUTPUT_BYTE_CAP`
@@ -82,13 +67,14 @@ pub(crate) const METADATA_MAX_BYTES_DEFAULT: u64 = 64 * 1024 * 1024;
 /// Environment variable that overrides [`METADATA_MAX_BYTES_DEFAULT`].
 pub(crate) const METADATA_MAX_BYTES_ENV: &str = "OPS_METADATA_MAX_BYTES";
 
-/// ERR-1 / TASK-2188: the per-stream capture cap that actually bounds
-/// [`run_cargo_metadata`]'s stdout — resolved exactly the way
-/// `ops_core::subprocess` resolves it (same env var, same default, same
-/// clamping via [`ops_core::text::cached_byte_cap_env`]), so the value the
-/// guard compares against is the value the drain threads enforced.
+/// The per-stream capture cap that bounds [`run_cargo_metadata`]'s stdout.
 ///
-/// AC#3 reconciliation: the subprocess cap (4 MiB default,
+/// Resolved exactly the way `ops_core::subprocess` resolves it (same env var,
+/// same default, same clamping via [`ops_core::text::cached_byte_cap_env`]), so
+/// the value the guard compares against is the value the drain threads
+/// enforced.
+///
+/// The subprocess cap (4 MiB default,
 /// `OPS_OUTPUT_BYTE_CAP`) binds **before** [`METADATA_MAX_BYTES_DEFAULT`]
 /// ever can — the drain discards bytes past its cap and returns a truncated
 /// buffer that never exceeds 4 MiB, so the 64 MiB reader cap governs only
@@ -104,9 +90,8 @@ fn metadata_output_cap() -> u64 {
     )
 }
 
-/// ERR-1 / TASK-2188: refuse a `cargo metadata` stdout that hit the
-/// subprocess capture cap, instead of parsing (or staging) a silently
-/// truncated document.
+/// Refuses a `cargo metadata` stdout that hit the subprocess capture cap,
+/// rather than parsing (or staging) a silently truncated document.
 ///
 /// `run_with_timeout`'s drain threads bound each stream at the cap and
 /// treat truncation as a `warn`-level breadcrumb, not an error — so a
@@ -138,11 +123,11 @@ pub(crate) fn check_metadata_not_capped(output: &Output) -> Result<(), anyhow::E
     Ok(())
 }
 
-/// SEC-11 / TASK-1897: hard ceiling on the resolved cap.
+/// Hard ceiling on the resolved cap.
 ///
-/// ARCH-9 / TASK-1247 unified the post-ingest reader cap and the
-/// ingest-time `maximum_object_size` ceiling on this one env knob, and that
-/// unification is only sound over the range **both** consumers accept.
+/// One env knob drives both the post-ingest reader cap and the ingest-time
+/// `maximum_object_size` ceiling, and that sharing is only sound over the range
+/// **both** consumers accept.
 /// `DuckDB` types `read_json`'s `maximum_object_size` as `UINTEGER`
 /// (32-bit), so anything above `u32::MAX` does not raise the ingest
 /// ceiling — it makes the `CREATE TABLE … read_json_auto(…)` statement fail
@@ -160,15 +145,14 @@ pub(crate) fn check_metadata_not_capped(output: &Output) -> Result<(), anyhow::E
 /// `ceiling_is_exactly_duckdb_uinteger_max` in `tests/payload_cap.rs`.
 pub(crate) const METADATA_MAX_BYTES_CEILING: u64 = 4_294_967_295;
 
-/// SEC-11 / TASK-1897: validate and bound the raw `OPS_METADATA_MAX_BYTES`
-/// value at the boundary, warning on every value that is not honoured
-/// verbatim.
+/// Validates and bounds the raw `OPS_METADATA_MAX_BYTES` value at the
+/// boundary, warning on every value that is not honoured verbatim.
 ///
-/// Previously any unparseable, zero, or oversized value resolved silently to
-/// [`METADATA_MAX_BYTES_DEFAULT`]: an operator who raised the cap to work
-/// around an over-cap failure saw the identical failure with no signal that
-/// the knob had been ignored, and a value above [`METADATA_MAX_BYTES_CEILING`]
-/// broke ingest instead of raising it.
+/// An unparseable or zero value falls back to [`METADATA_MAX_BYTES_DEFAULT`]
+/// and a value above [`METADATA_MAX_BYTES_CEILING`] is clamped to it — in both
+/// cases with a warning, so an operator who raised the cap to work around an
+/// over-cap failure learns that the knob was not honoured instead of seeing the
+/// identical failure with no signal.
 ///
 /// Split out from [`metadata_max_bytes`] so tests can drive every branch
 /// without mutating process-global env (the `OnceLock` snapshot can be
@@ -210,11 +194,11 @@ pub(crate) fn resolve_metadata_max_bytes(raw: Option<&str>) -> u64 {
 /// Resolved metadata payload byte cap. See [`resolve_metadata_max_bytes`]
 /// for the validation and clamping policy.
 ///
-/// PERF-3 / TASK-1248: cached behind `OnceLock<u64>` to mirror the
-/// `manifest_max_bytes` / `output_byte_cap` discipline; the env knob is
-/// process-global so re-reading on every `provide_from_db` was wasted
-/// work. The snapshot is also the single moment a diagnostic can be
-/// emitted, which is why the warnings live in the resolver.
+/// Cached behind a `OnceLock<u64>`, mirroring the `manifest_max_bytes` /
+/// `output_byte_cap` discipline: the env knob is process-global, so it is read
+/// once rather than on every `provide_from_db`. That snapshot is also the
+/// single moment a diagnostic can be emitted, which is why the warnings live in
+/// the resolver.
 pub(crate) fn metadata_max_bytes() -> u64 {
     use std::sync::OnceLock;
     static CACHED: OnceLock<u64> = OnceLock::new();
@@ -225,7 +209,7 @@ pub(crate) fn metadata_max_bytes() -> u64 {
 
 /// Run `cargo metadata --format-version 1 --locked`.
 ///
-/// PATTERN-1 / TASK-1059: pass `--locked` so the read-only ingestor cannot
+/// `--locked` is passed so the read-only ingestor cannot
 /// silently mutate `Cargo.lock` (resolver refresh, yanked-version refresh,
 /// transitive-dep additions). Without it, two concurrent invocations
 /// (`ops about` + `cargo build`) can race on lockfile rewrites and
@@ -246,21 +230,21 @@ pub(crate) fn run_cargo_metadata(working_dir: &Path) -> Result<Output, RunError>
     )
 }
 
-/// TEST-25 / TASK-1899: the argument list [`run_cargo_metadata`] passes,
-/// named so a test can assert on the *value* the production call site uses.
+/// The argument list [`run_cargo_metadata`] passes to `cargo`.
 ///
-/// The previous pin read `include_str!("../lib.rs")` and searched it for the
-/// literal `["metadata", "--format-version", "1", "--locked"]`. That tested
-/// the formatter: `cargo fmt` wrapping the list would fail it while
-/// `--locked` was still passed, and deleting `run_cargo_metadata` outright
-/// would keep it green so long as the literal survived anywhere in the file
-/// — a doc comment included.
+/// It is a named constant so a test can assert on the *value* the production
+/// call site uses. Asserting on the source text instead would test the
+/// formatter — `cargo fmt` rewrapping the list would fail while `--locked` was
+/// still passed, and deleting the call site would stay green so long as the
+/// literal survived anywhere in the file, a doc comment included.
 pub(crate) const CARGO_METADATA_ARGS: [&str; 4] = ["metadata", "--format-version", "1", "--locked"];
 
-/// PATTERN-1 / TASK-1099: include the numeric exit code (or `signal` for
-/// `None`) in the error string so a SIGKILL/OOM kill is distinguishable
-/// from a real cargo failure. Mirrors `interpret_deny_result` /
-/// `interpret_upgrade_output` in the deps crate.
+/// Turns a non-zero `cargo metadata` exit into an error naming the failure.
+///
+/// The error string carries the numeric exit code (or `signal` when there is
+/// none) so a SIGKILL/OOM kill is distinguishable from a real cargo failure.
+/// Mirrors `interpret_deny_result` / `interpret_upgrade_output` in the deps
+/// crate.
 pub(crate) fn check_metadata_output(output: &Output) -> Result<(), anyhow::Error> {
     if !output.status.success() {
         let tail = format_error_tail(&output.stderr, 5);
@@ -272,10 +256,11 @@ pub(crate) fn check_metadata_output(output: &Output) -> Result<(), anyhow::Error
     Ok(())
 }
 
-/// API-9 / TASK-0922: construct via the registered extension factory only.
+/// Extension entry point for `ops metadata`.
 ///
-/// API-1 / TASK-1549: derives `Debug` so the unit struct can be included in
-/// `tracing::debug!(?ext)` and assertion failure output.
+/// Construct it through the registered extension factory, not directly. It
+/// derives `Debug` so the unit struct can be included in `tracing::debug!(?ext)`
+/// and in assertion failure output.
 #[derive(Debug)]
 #[non_exhaustive]
 pub struct MetadataExtension;
@@ -396,14 +381,14 @@ impl DataProvider for MetadataProvider {
     }
 }
 
-/// SEC-33 / TASK-1194 + PERF-3 / TASK-1551: bound the JSON payload size
-/// **before** materialising the full row into a Rust `String`, in a single
-/// SQL round trip. The payload is replaced with `NULL` when over cap so it
-/// never crosses the FFI boundary into a Rust `String`; SEC-33's intent (no
-/// oversized Rust allocation) and the bail-with-byte-count behaviour are
-/// both preserved.
+/// Bounds the JSON payload size **before** materialising the full row into a
+/// Rust `String`, in a single SQL round trip.
 ///
-/// READ-1 / TASK-1896 — the serialisation cost, stated precisely. This SQL
+/// The payload is replaced with `NULL` when over cap, so an oversized document
+/// never crosses the FFI boundary into a Rust allocation, and the caller still
+/// bails with the observed byte count.
+///
+/// The serialisation cost, stated precisely: this SQL
 /// spells `to_json(m)::VARCHAR` three times (twice inside `octet_length`,
 /// once in the CASE's ELSE branch), but the expression is evaluated **once
 /// per row**. That is a property of `DuckDB`'s common-subexpression
@@ -430,11 +415,10 @@ fn query_metadata_raw(db: &DuckDb) -> Result<serde_json::Value, anyhow::Error> {
 fn query_metadata_raw_with_cap(db: &DuckDb, cap: u64) -> Result<serde_json::Value, anyhow::Error> {
     use anyhow::Context as AnyhowContext;
     let conn = db.lock().context("acquiring db lock for metadata query")?;
-    // ERR-1 / TASK-0599: `metadata_raw` is a singleton table — the prior
-    // `LIMIT 1` form silently picked an arbitrary row if a future ingest
-    // path inserted more than one (re-collect without truncate, schema
-    // version row). Read every row, assert one, and surface a clear error
-    // if the invariant breaks.
+    // ERR-1: `metadata_raw` is a singleton table. Counting every row and
+    // asserting exactly one surfaces a clear error if a future ingest path
+    // inserts more (re-collect without truncate, a schema version row); a
+    // `LIMIT 1` read would silently pick an arbitrary one instead.
     let count: i64 = conn
         .query_row(
             "SELECT count(*) FROM metadata_raw",

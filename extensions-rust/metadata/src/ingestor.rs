@@ -9,8 +9,9 @@ use ops_duckdb::{
 use ops_extension::Context;
 use std::path::Path;
 
-/// The single staged entry name this ingestor writes and reads. SEC-25 /
-/// TASK-2054: a bare entry name, not a path — every use resolves it against
+/// The single staged entry name this ingestor writes and reads.
+///
+/// It is a bare entry name rather than a path: every use resolves it against
 /// the verified [`IngestDir`] anchor.
 const METADATA_JSON: &str = "metadata.json";
 
@@ -22,11 +23,10 @@ impl DataIngestor for MetadataIngestor {
     }
 
     fn collect(&self, ctx: &Context, dir: &IngestDir) -> DbResult<()> {
-        // SEC-25 / TASK-2054: no `create_dir_all` here any more — the ingest
-        // directory is created, hardened and verified once by
-        // `IngestDir::open` before `collect` runs, and re-creating it by path
-        // would be another by-name resolution of the directory this anchor
-        // exists to pin.
+        // SEC-25: no `create_dir_all` here — the ingest directory is created,
+        // hardened and verified once by `IngestDir::open` before `collect`
+        // runs, and re-creating it by path would be another by-name resolution
+        // of the directory this anchor exists to pin.
         let working_dir = ctx.working_directory();
         let output = run_cargo_metadata(working_dir).map_err(|e| match e {
             ops_core::subprocess::RunError::Io(io) => io_at(
@@ -46,15 +46,13 @@ impl DataIngestor for MetadataIngestor {
         // staged, never handed to `read_json_auto`, and never checksummed
         // into `data_sources` as certified ground truth.
         check_metadata_not_capped(&output).map_err(external_err)?;
-        // SEC-25 / TASK-0933: persist `cargo metadata` stdout atomically
-        // (sibling temp + fsync + rename), matching the TASK-0911 fix for
-        // `SidecarIngestorConfig::collect_sidecar`. A crash mid-write
-        // previously left a torn or zero-byte `metadata.json` that the
-        // subsequent `load` step would feed to DuckDB's `read_json_auto`,
-        // corrupting the database with truncated input.
-        //
-        // SEC-25 / TASK-2054: and anchored — temp create and publish rename
-        // both resolve against the verified directory descriptor.
+        // SEC-25: persist `cargo metadata` stdout atomically (sibling temp +
+        // fsync + rename), matching `SidecarIngestorConfig::collect_sidecar`,
+        // so a crash mid-write cannot leave a torn or zero-byte
+        // `metadata.json` for the subsequent `load` step to feed to DuckDB's
+        // `read_json_auto` and corrupt the database with truncated input.
+        // The write is also anchored: temp create and publish rename both
+        // resolve against the verified directory descriptor.
         dir.write_atomic(METADATA_JSON, &output.stdout)
             .map_err(|e| {
                 // ERR-13 / TASK-1893: keep naming the path the write acted on;
@@ -74,20 +72,19 @@ impl DataIngestor for MetadataIngestor {
         // `read_json_auto` is path-only, so the *read* still names the file;
         // every mutation below goes through the anchor.
         let path = dir.entry_path(METADATA_JSON);
-        // SEC-32 / TASK-2033: arm the cleanup *before* the first fallible
-        // step, so every exit from `load` unlinks the staged file. The
-        // previous single call site sat immediately before `Ok(...)`, so
-        // `init_schema`, `build_views`, the record count, the
-        // `reject_non_singleton` rejection added by ERR-1 / TASK-1891, the
-        // workspace-root extract and the checksum/upsert all returned via `?`
-        // and left a full `cargo metadata` dump — every workspace member,
-        // every dependency and absolute local paths — on disk indefinitely.
+        // SEC-32: arm the cleanup *before* the first fallible step, so every
+        // exit from `load` unlinks the staged file. `init_schema`,
+        // `build_views`, the record count, the `reject_non_singleton`
+        // rejection, the workspace-root extract and the checksum/upsert all
+        // return via `?`; a guard armed any later would leave a full
+        // `cargo metadata` dump — every workspace member, every dependency and
+        // absolute local paths — on disk indefinitely.
         let _staged = StagedFile::new(dir);
         init_schema(db)?;
-        // CONC-2 / TASK-1907: one guard across table creation *and* the reads
-        // of that table. The previous shape scoped `build_views` in its own
-        // block and re-acquired the lock on the very next line, which
-        // released nothing useful (nothing runs in between) while splitting
+        // CONC-2: one guard held across table creation *and* the reads of
+        // that table. Scoping `build_views` in its own block and re-acquiring
+        // the lock on the next line would release nothing useful (nothing runs
+        // in between) while splitting
         // `CREATE OR REPLACE TABLE metadata_raw` from the `count(*)` and
         // `workspace_root` reads whose results are persisted into the
         // `data_sources` provenance row below. Anything replacing
@@ -124,9 +121,10 @@ impl DataIngestor for MetadataIngestor {
     }
 }
 
-/// FN-1 / TASK-1543: build the `metadata_raw` table and `crate_dependencies`
-/// view in one place. Extracted from `MetadataIngestor::load` so the loader
-/// reads at one nesting level.
+/// Builds the `metadata_raw` table and the `crate_dependencies` view.
+///
+/// Kept separate from `MetadataIngestor::load` so the loader reads at one
+/// nesting level.
 fn build_views(conn: &duckdb::Connection, path: &Path) -> DbResult<()> {
     let sql = views::metadata_raw_create_sql(path)?;
     conn.execute(sql.as_str(), [])
@@ -137,12 +135,13 @@ fn build_views(conn: &duckdb::Connection, path: &Path) -> DbResult<()> {
     Ok(())
 }
 
-/// ERR-13 / TASK-1893: `DbError::Io` renders as `"IO error: {0}"` and a bare
-/// `std::io::Error` names no path, so an ENOSPC/EACCES on the ingest
-/// directory, on the working directory, and on the staged JSON file all
-/// render identically — `IO error: Permission denied (os error 13)`, with
-/// nothing telling the operator which of the three failed. Rewrap with the
-/// operation and the path it acted on. `ErrorKind` is preserved so callers
+/// Wraps an IO failure with the operation and the path it acted on.
+///
+/// `DbError::Io` renders as `"IO error: {0}"` and a bare `std::io::Error` names
+/// no path, so an ENOSPC/EACCES on the ingest directory, on the working
+/// directory, and on the staged JSON file would otherwise render identically —
+/// `IO error: Permission denied (os error 13)`, with nothing telling the
+/// operator which of the three failed. `ErrorKind` is preserved so callers
 /// that branch on `NotFound` / `PermissionDenied` still can, and the variant
 /// stays `DbError::Io` so a genuine filesystem failure is not laundered into
 /// `DbError::External` (which `collect`'s tests use to mean "cargo ran and
@@ -154,16 +153,16 @@ fn io_at(op: &str, path: &Path, e: &std::io::Error) -> DbError {
     ))
 }
 
-/// ERR-1 / TASK-1891: `metadata_raw` is a singleton table, and
-/// [`crate::query_metadata_raw`] — the only reader — hard-fails on any row
-/// count other than one. `load` used to accept a multi-row table with a
-/// `tracing::warn!`, which left the two halves of the crate disagreeing:
-/// the very next call in the same request failed, and because the table
-/// then reported `table_has_data()`, every subsequent run skipped
-/// re-ingest and replayed the same failure. Enforce the reader's
-/// invariant here, where the bad state can still be undone: drop the
-/// table (and the view that depends on it) so the next run re-ingests
-/// from scratch rather than inheriting an unreadable database.
+/// Rejects a `metadata_raw` table that does not hold exactly one row, dropping
+/// it so the next run re-ingests from scratch.
+///
+/// `metadata_raw` is a singleton table and [`crate::query_metadata_raw`] — its
+/// only reader — hard-fails on any other row count. Enforcing that invariant
+/// here, at ingest, is the last point where the bad state can still be undone:
+/// accepting a multi-row table would leave the two halves of the crate
+/// disagreeing, and because the table would then report `table_has_data()`,
+/// every subsequent run would skip re-ingest and replay the same failure. The
+/// dependent view is dropped along with the table.
 fn reject_non_singleton(conn: &duckdb::Connection, record_count: u64) -> DbError {
     tracing::warn!(
         rows = record_count,
@@ -189,8 +188,8 @@ fn reject_non_singleton(conn: &duckdb::Connection, record_count: u64) -> DbError
     ))
 }
 
-/// FN-1 / TASK-1543: count rows in `metadata_raw` and map the raw `i64` to
-/// `u64` via the project's `InvalidRecordCount` policy (API-1 / TASK-0606).
+/// Counts rows in `metadata_raw`, mapping the raw `i64` to `u64` through the
+/// project's `InvalidRecordCount` policy.
 fn query_record_count(conn: &duckdb::Connection) -> DbResult<u64> {
     let raw: i64 = conn
         .query_row("SELECT count(*) FROM metadata_raw", [], |row| {
@@ -203,9 +202,10 @@ fn query_record_count(conn: &duckdb::Connection) -> DbResult<u64> {
     })
 }
 
-/// FN-1 / TASK-1543: read the first `workspace_root` from `metadata_raw`,
-/// enriching the error with the column type probe pinned by READ-5 /
-/// TASK-0614.
+/// Reads the first `workspace_root` from `metadata_raw`.
+///
+/// A failure is enriched with a probe of the column's observed type, so a
+/// schema mismatch names the type it found rather than only the query.
 fn extract_workspace_root(conn: &duckdb::Connection) -> DbResult<String> {
     conn.query_row(
         "SELECT workspace_root FROM metadata_raw ORDER BY rowid LIMIT 1",
@@ -227,13 +227,13 @@ fn extract_workspace_root(conn: &duckdb::Connection) -> DbResult<String> {
     })
 }
 
-/// SEC-32 / TASK-2033: owns the staged `metadata.json` for the whole of
-/// [`MetadataIngestor::load`] and unlinks it on `Drop`, so success, `?` and
-/// the explicit `reject_non_singleton` rejection all clean up through one
-/// code path instead of the single pre-`Ok` call site this replaced. Mirrors
-/// the terraform pipeline's `with_artifact_cleanup` (SEC-32 / TASK-1927),
-/// using `Drop` rather than a wrapper because `load`'s early exits are `?`
-/// rather than a single fallible expression.
+/// Owns the staged `metadata.json` for the whole of
+/// [`MetadataIngestor::load`] and unlinks it on `Drop`.
+///
+/// Success, `?` and the explicit `reject_non_singleton` rejection therefore all
+/// clean up through one code path. Mirrors the terraform pipeline's
+/// `with_artifact_cleanup`, using `Drop` rather than a wrapper because `load`'s
+/// early exits are `?` rather than a single fallible expression.
 ///
 /// Cleanup is unconditional: the file is a staging artifact that `collect`
 /// rewrites from scratch on the next run, so there is no failure mode in
@@ -254,10 +254,11 @@ impl Drop for StagedFile<'_> {
     }
 }
 
-/// FN-1 / TASK-1543: best-effort removal of the staged JSON file.
-/// TASK-0510: a failure here must not propagate — on the success path the
-/// `DuckDB` row is already committed and a subsequent re-ingest would
-/// otherwise loop, and on a failure path the caller's own error is the one
+/// Best-effort removal of the staged JSON file.
+///
+/// A failure here never propagates: on the success path the `DuckDB` row is
+/// already committed and a propagated error would send the caller into a
+/// re-ingest loop, and on a failure path the caller's own error is the one
 /// worth surfacing.
 fn cleanup_staged_file(dir: &IngestDir) {
     // SEC-25: no `exists()` probe first — that is check-then-act, and

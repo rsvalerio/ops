@@ -7,10 +7,10 @@
 //!   name with a display-name fallback for members whose manifest cannot be
 //!   read or parsed.
 //! - **Single-package project** (a `Cargo.toml` with `[package]` and no
-//!   `[workspace]` table, ERR-6 / TASK-1812): the root package itself is the
-//!   single review target, at path `.`.
-//! - **Hybrid manifest** (PATTERN-1 / TASK-2171): a root `Cargo.toml`
-//!   carrying both `[package]` and `[workspace].members`. Cargo never
+//!   `[workspace]` table): the root package itself is the single review
+//!   target, at path `.`.
+//! - **Hybrid manifest**: a root `Cargo.toml` carrying both `[package]` and
+//!   `[workspace].members`. Cargo never
 //!   requires the root package to be listed in `members` — a root
 //!   `[package]` is an implicit member of its own workspace — so the root
 //!   package is emitted as a target at path `.` in addition to every
@@ -31,8 +31,8 @@ use ops_extension::{Context, DataProvider, DataProviderError};
 /// Review skill the subtask titles reference.
 pub const SKILL_NAME: &str = "code-review-rust";
 
-/// Member path reported for the root package of a single-package project
-/// (ERR-6 / TASK-1812). `ReviewTarget::path` is summary context only, so the
+/// Member path reported for the root package of a single-package project.
+/// `ReviewTarget::path` is summary context only, so the
 /// workspace-root-relative `.` is the accurate answer here.
 const ROOT_PACKAGE_PATH: &str = ".";
 
@@ -49,14 +49,10 @@ impl DataProvider for RustReviewTargetsProvider {
         let manifest = CargoTomlProvider::with_root(root.clone()).provide_typed(ctx)?;
         let members = resolved_workspace_members(&manifest, &root);
 
-        // PATTERN-1 / TASK-2171: Cargo treats a root `[package]` as an
-        // implicit member of its own workspace — it never has to appear in
-        // `[workspace].members` — so the root package is a review target in
-        // its own right whenever it exists and the member list does not
-        // already name the root path. Pre-fix, any non-empty member list
-        // silently dropped the root package, and on the hybrid shape (a
-        // library plus an xtask/fuzz member) the crate holding most of the
-        // code was the one that never got a review subtask.
+        // Cargo treats a root `[package]` as an implicit member of its own
+        // workspace — it never has to appear in `[workspace].members` — so
+        // the root package is a review target in its own right whenever it
+        // exists and the member list does not already name the root path.
         let mut targets: Vec<(String, String)> = Vec::new();
         if !members.iter().any(|m| m == ROOT_PACKAGE_PATH) {
             if let Some(name) = manifest.package_name() {
@@ -64,8 +60,8 @@ impl DataProvider for RustReviewTargetsProvider {
             }
         }
         if members.is_empty() && targets.is_empty() {
-            // ERR-6 / TASK-1812: neither reviewable shape is a typed error
-            // naming that condition — never an empty target list.
+            // Neither reviewable shape is a typed error naming that
+            // condition — never an empty target list.
             return Err(neither_reviewable_shape(&manifest, &root));
         }
         targets.extend(
@@ -80,9 +76,6 @@ impl DataProvider for RustReviewTargetsProvider {
             .map(|(name, path)| serde_json::json!({ "name": name, "path": path }))
             .collect();
 
-        // PERF-3 / TASK-1819: `json!` already evaluates to a `Value`; wrapping
-        // it in `serde_json::to_value` deep-copied the whole payload and added
-        // an error branch `Value`'s infallible `Serialize` impl can never take.
         Ok(serde_json::json!({
             "skill": SKILL_NAME,
             "targets": targets,
@@ -92,13 +85,12 @@ impl DataProvider for RustReviewTargetsProvider {
 
 /// The typed error for a manifest with neither reviewable shape.
 ///
-/// ERR-6 / TASK-1812: `find_workspace_root_strict` accepts the first
-/// `Cargo.toml` it finds even when that manifest declares no `[workspace]`,
-/// and `resolved_workspace_members` returns an empty `Vec` for such a
-/// manifest. Returning that empty list made the engine report "nothing to
-/// review" for the most common Rust project shape. Only a manifest with
-/// neither shape is an error, and it says so in its own words rather than
-/// through an empty-list sentinel.
+/// `find_workspace_root_strict` accepts the first `Cargo.toml` it finds
+/// even when that manifest declares no `[workspace]`, and
+/// `resolved_workspace_members` returns an empty `Vec` for such a manifest.
+/// Only a manifest with neither shape is an error, and it says so in its
+/// own words rather than through an empty-list sentinel the engine would
+/// misread as "nothing to review".
 fn neither_reviewable_shape(manifest: &CargoToml, root: &std::path::Path) -> DataProviderError {
     debug_assert!(
         manifest.package_name().is_none(),
@@ -115,23 +107,22 @@ fn neither_reviewable_shape(manifest: &CargoToml, root: &std::path::Path) -> Dat
 /// the capitalized display name when the manifest is absent, unreadable, or
 /// unparseable.
 ///
-/// DUP-3 / TASK-1814: the manifest read/parse/log policy is
-/// `ops_about_rust::read_crate_metadata`, not a second copy of it here, and
-/// the SEC-14 / TASK-1246 member-path guard is applied before the join —
-/// `Path::join` discards `root` when `member` is absolute and walks parents
-/// on `..`, which would otherwise drive the read and its tracing breadcrumbs
-/// at an arbitrary filesystem location. `resolved_workspace_members` already
-/// drops such members today; the guard is the defence-in-depth layer that
-/// keeps that true if this provider is ever fed a member list from elsewhere.
+/// The manifest read/parse/log policy is delegated to
+/// `ops_about_rust::read_crate_metadata`, and the member-path guard is
+/// applied before the join — `Path::join` discards `root` when `member` is
+/// absolute and walks parents on `..`, which would otherwise drive the read
+/// and its tracing breadcrumbs at an arbitrary filesystem location.
+/// `resolved_workspace_members` already drops such members today; the guard
+/// is the defence-in-depth layer that keeps that true if this provider is
+/// ever fed a member list from elsewhere.
 fn member_target_name(member: &str, root: &std::path::Path) -> String {
-    // SEC-11 / TASK-1822: `member` is untrusted `Cargo.toml` content, so every
-    // tracing field carrying it uses the `?` (Debug) formatter — embedded
-    // newlines and ANSI escapes are escaped and cannot forge log records.
+    // `member` is untrusted `Cargo.toml` content, so every tracing field
+    // carrying it uses the `?` (Debug) formatter — embedded newlines and
+    // ANSI escapes are escaped and cannot forge log records.
     if !member_path_is_workspace_safe(member) {
         tracing::warn!(
             member = ?member,
-            "SEC-14 / TASK-1246: workspace member is absolute or contains `..`; \
-             not reading its manifest"
+            "workspace member is absolute or contains `..`; not reading its manifest"
         );
         return format_unit_name(member);
     }
@@ -148,9 +139,9 @@ fn member_target_name(member: &str, root: &std::path::Path) -> String {
 /// Make every target name unique by appending the member path to names that
 /// repeat.
 ///
-/// PATTERN-1 / TASK-1839: `ops_create_review_tasks::ReviewTarget::name` is
-/// documented as "a display name (unique per workspace)", and it is the *only*
-/// identity the created backlog subtask carries — the title is
+/// `ops_create_review_tasks::ReviewTarget::name` is documented as "a display
+/// name (unique per workspace)", and it is the *only* identity the created
+/// backlog subtask carries — the title is
 /// `REVIEW: Run skill {skill} against {name}` and the member path never
 /// reaches the written file. The display-name fallback keeps only the last
 /// path segment (`crates/parser` and `tools/parser` both become `Parser`), so
@@ -240,10 +231,10 @@ mod tests {
         );
     }
 
-    /// TEST-5 / TASK-1816: the payload's real contract is the consumer's
-    /// type, not a hand-written JSON literal. Decoding it here turns a field
-    /// rename or shape change on `ReviewTargets` into a test failure instead
-    /// of a runtime failure in the middle of writing backlog files.
+    /// The payload's real contract is the consumer's type, not a
+    /// hand-written JSON literal. Decoding it here turns a field rename or
+    /// shape change on `ReviewTargets` into a test failure instead of a
+    /// runtime failure in the middle of writing backlog files.
     #[test]
     fn payload_decodes_into_the_consumers_review_targets_type() {
         let (_dir, root) = scratch_workspace(
@@ -304,9 +295,9 @@ mod tests {
         );
     }
 
-    /// PATTERN-1 / TASK-1839: two members whose last path segment is equal
-    /// and whose manifests are unparseable both take the display-name
-    /// fallback; the emitted names must still address distinct crates.
+    /// Two members whose last path segment is equal and whose manifests are
+    /// unparseable both take the display-name fallback; the emitted names
+    /// must still address distinct crates.
     #[serial_test::serial(fallback_breadcrumb)]
     #[test]
     fn same_leaf_named_members_get_distinct_target_names() {
@@ -342,9 +333,8 @@ mod tests {
         }
     }
 
-    /// ERR-6 / TASK-1812: a `Cargo.toml` with `[package]` and no
-    /// `[workspace]` is an ordinary single-package project, not an empty
-    /// review run.
+    /// A `Cargo.toml` with `[package]` and no `[workspace]` is an ordinary
+    /// single-package project, not an empty review run.
     #[test]
     fn single_package_project_yields_the_root_package_as_the_only_target() {
         let dir = tempfile::tempdir().expect("tempdir");
@@ -363,14 +353,13 @@ mod tests {
         assert_eq!(decoded.targets[0].path, ROOT_PACKAGE_PATH);
     }
 
-    /// PATTERN-1 / TASK-2171: a hybrid manifest — a root `[package]` plus
-    /// `[workspace].members` — must yield the root package as a target in
-    /// addition to every resolved member. Cargo never requires the root
-    /// package to be listed in `members` (a root package is an implicit
-    /// member of its own workspace), and `resolved_workspace_members` reads
-    /// only the listed entries — so pre-fix, the crate holding most of the
-    /// code was silently dropped from the review targets. Both the root
-    /// package and every member must appear exactly once.
+    /// A hybrid manifest — a root `[package]` plus `[workspace].members` —
+    /// must yield the root package as a target in addition to every resolved
+    /// member. Cargo never requires the root package to be listed in
+    /// `members` (a root package is an implicit member of its own
+    /// workspace), and `resolved_workspace_members` reads only the listed
+    /// entries. Both the root package and every member must appear exactly
+    /// once.
     #[serial_test::serial(fallback_breadcrumb)]
     #[test]
     fn hybrid_manifest_yields_the_root_package_and_every_member() {
@@ -409,8 +398,8 @@ mod tests {
         );
     }
 
-    /// PATTERN-1 / TASK-2171: when the member list already names the root
-    /// path (`.`), the root package must not be emitted twice.
+    /// When the member list already names the root path (`.`), the root
+    /// package must not be emitted twice.
     #[serial_test::serial(fallback_breadcrumb)]
     #[test]
     fn hybrid_manifest_does_not_duplicate_a_root_listed_as_member() {
@@ -437,8 +426,8 @@ mod tests {
         assert_eq!(decoded.targets.len(), 2, "root plus xtask, no duplicates");
     }
 
-    /// ERR-6 / TASK-1812: neither shape is a typed error naming the actual
-    /// condition — never an empty target list.
+    /// Neither shape is a typed error naming the actual condition — never
+    /// an empty target list.
     #[test]
     fn manifest_with_neither_workspace_nor_package_is_a_typed_error() {
         let dir = tempfile::tempdir().expect("tempdir");
@@ -470,11 +459,10 @@ mod tests {
         );
     }
 
-    /// DUP-3 / TASK-1814 + SEC-14 / TASK-1246: an unsafe member entry that
-    /// reaches the name resolver is rejected before any join, so no manifest
-    /// outside the workspace root is read — proven by planting a readable
-    /// manifest at the escape target and asserting its package name never
-    /// surfaces.
+    /// An unsafe member entry that reaches the name resolver is rejected
+    /// before any join, so no manifest outside the workspace root is read —
+    /// proven by planting a readable manifest at the escape target and
+    /// asserting its package name never surfaces.
     #[test]
     fn unsafe_member_entries_are_never_read_outside_the_workspace_root() {
         let dir = tempfile::tempdir().expect("tempdir");
@@ -498,11 +486,10 @@ mod tests {
         }
     }
 
-    /// SEC-11 / TASK-1822: the fallback breadcrumb carries the raw
-    /// `[workspace].members` entry, which this process does not control.
-    /// Captured from the real call site — a `%member` here would put the raw
-    /// newline and ESC into the log stream and let a member entry forge a log
-    /// record.
+    /// The fallback breadcrumb carries the raw `[workspace].members` entry,
+    /// which this process does not control. Captured from the real call
+    /// site — a `%member` here would put the raw newline and ESC into the
+    /// log stream and let a member entry forge a log record.
     #[serial_test::serial(fallback_breadcrumb)]
     #[test]
     fn member_breadcrumb_debug_escapes_control_characters() {

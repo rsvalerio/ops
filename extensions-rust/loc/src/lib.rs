@@ -101,16 +101,15 @@ impl DataProvider for RustLocProvider {
 /// git repository. Listing the build directory explicitly keeps the
 /// counts sane when `ops` runs on an unversioned checkout.
 ///
-/// **Pruned at any depth, unlike tokei's `TOKEI_DEFAULT_EXCLUDED`**, which
-/// prunes only direct children of the scan root (TASK-1974). That list
-/// carries names — `build`, `dist`, `venv` — that are ordinary source
-/// directories deeper in a tree (`pkg/build/`, `src/dist/`), so anchoring
-/// it to the root is what stops it dropping real source. This list carries
-/// neither: a nested `target/` belongs to a nested cargo workspace and a
-/// nested `.git/` to a submodule or vendored checkout, and in both cases
-/// their contents are as uninteresting as at the root. The two anchorings
-/// follow from what each list contains, not from each other — adding a
-/// generic directory name here means revisiting the depth rule.
+/// **These names are pruned at any depth**, not just as direct children of the
+/// scan root. That is safe because both names mean the same thing wherever they
+/// appear: a nested `target/` belongs to a nested cargo workspace and a nested
+/// `.git/` to a submodule or vendored checkout, so their contents are as
+/// uninteresting deep in the tree as at the root. The depth rule follows from
+/// what this list contains — a generic directory name such as `build`, `dist`
+/// or `venv` is also an ordinary source directory deeper in a tree
+/// (`pkg/build/`, `src/dist/`), so adding one here means anchoring it to the
+/// root or it will drop real source.
 pub(crate) const EXCLUDED_DIRS: &[&str] = &["target", ".git"];
 
 /// Largest `.rs` file that is read into memory, lexed, and parsed.
@@ -154,8 +153,7 @@ pub const MAX_SOURCE_BYTES: u64 = 4 * 1024 * 1024;
 ///
 /// `DataProviderError::TimedOut`, boxed into `anyhow`, when `deadline` is
 /// supplied and expires mid-walk — between entries, or part-way through the
-/// streaming count of an over-cap file — the cancellation check foreseen by the
-/// previous revision of this section (SEC-33 / TASK-2052). Nothing else:
+/// streaming count of an over-cap file. Nothing else:
 /// every other failure mode above is warned and skipped, per the degradation
 /// policy just described, and the only successful exit builds a
 /// `serde_json::Value::Array` from an already-materialised `Vec`, which
@@ -173,8 +171,8 @@ pub fn collect_rust_loc(
     // thread's copy, so each worker simply keeps its own. The only shared
     // state is the row sink, locked once per file.
     let records = Mutex::new(Vec::new());
-    // SEC-33 / TASK-2052: the walk runs on `ignore`'s worker threads, which
-    // cannot borrow the `&mut Context` the dispatch holds — hence the detached
+    // The walk runs on `ignore`'s worker threads, which cannot borrow the
+    // `&mut Context` the dispatch holds — hence the detached
     // `Deadline`, which is `Send + Sync` and builds the same error
     // `Context::check_deadline` would. Each worker checks before paying for an
     // entry and answers `Quit`, which stops *every* worker rather than only
@@ -267,20 +265,19 @@ fn count_entry(entry: &DirEntry, working_dir: &Path, deadline: Option<&Deadline>
         return EntryCount::Skipped;
     }
 
-    // DUP-1 / TASK-2183: the shared sidecar-path policy lives in
-    // `ops_duckdb::sql::relativize_path`, with the lossy-conversion
-    // rationale documented on it once.
+    // The shared sidecar-path policy lives in
+    // `ops_duckdb::sql::relativize_path`, which documents the
+    // lossy-conversion decision once for every ingestor.
     let relative = ops_duckdb::sql::relativize_path(path, working_dir);
     let region = region_from_path(Path::new(&relative));
 
-    // SEC-25 / TASK-2177: one open, one size decision. A stat on the path
-    // followed by an independent `read_to_string` let a concurrent writer —
-    // a build script or codegen step still appending to a generated file —
-    // grow the file after the stat and route it down the unbounded in-memory
-    // path. The size now comes from the same handle that is read, and the
+    // One open, one size decision: the size comes from the same handle that is
+    // then read, so a concurrent writer — a build script or codegen step still
+    // appending to a generated file — cannot grow the file between a stat and
+    // an independent read and so route it down an unbounded in-memory path. The
     // in-memory read is itself capped, so growth after the decision still
-    // cannot exceed the cap. Reading before deciding would already have paid
-    // the allocation the cap exists to avoid. Debug-format every path so
+    // cannot exceed the cap, and deciding before reading avoids paying the very
+    // allocation the cap exists to prevent. Debug-format every path so
     // embedded newlines or ANSI escapes cannot forge log lines, matching the
     // project-wide path-log policy.
     let handle = match std::fs::File::open(path) {
@@ -359,10 +356,10 @@ fn count_entry(entry: &DirEntry, working_dir: &Path, deadline: Option<&Deadline>
 
 /// Read at most `cap` bytes of Rust source into memory, as UTF-8.
 ///
-/// SEC-25 / TASK-2177: reads `cap + 1` bytes so a file that grew past the
-/// cap after its size was checked is *detected* rather than silently read
-/// whole — `Ok(None)` tells the caller to degrade to the streaming count.
-/// The extra byte bounds resident memory to the cap even on that path.
+/// Reads `cap + 1` bytes so a file that grew past the cap after its size was
+/// checked is *detected* rather than silently read whole — `Ok(None)` tells the
+/// caller to degrade to the streaming count. The single extra byte keeps
+/// resident memory bounded by the cap even on that path.
 ///
 /// # Errors
 ///
@@ -394,9 +391,8 @@ fn read_capped_source<R: Read>(reader: &mut R, cap: u64) -> std::io::Result<Opti
 /// overrun by a single `fill_buf`, and the partial counts are dropped, since
 /// the walk they belong to aborts.
 ///
-/// SEC-25 / TASK-2177: takes the already-open reader the size decision was
-/// made on, not a path — the fallback must count the same file that was
-/// measured.
+/// Takes the already-open reader the size decision was made on rather than a
+/// path, so the fallback counts the same file that was measured.
 fn count_streaming(
     reader: &mut impl BufRead,
     region: Region,

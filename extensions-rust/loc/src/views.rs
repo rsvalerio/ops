@@ -1,6 +1,6 @@
 //! SQL utilities for Rust LOC statistics.
 //!
-//! # Security (SEC-001)
+//! # Security
 //!
 //! Path validation and SQL escaping are handled by `ops_duckdb::sql`
 //! (shared defense-in-depth validation). This module only contains
@@ -23,12 +23,11 @@ pub fn rust_loc_files_create_sql(path: &Path) -> Result<CreateTableSql, SqlError
 /// Builds the `CREATE OR REPLACE VIEW` statement aggregating
 /// `rust_loc_files` into the per-region `rust_loc_summary` view.
 ///
-/// SEC-12 / ERR-5: identifiers are routed through the const-validated
-/// [`TableName::from_static`] newtype, so the compile-time invariant
-/// replaces a runtime `Result` whose `Err` variant could never occur.
-///
-/// SEC-12 / TASK-1864: returned as the gated [`CreateViewSql`] newtype so the
-/// statement `load_with_sidecar` executes is provably builder-produced.
+/// Both identifiers are const-validated through [`TableName::from_static`], so
+/// the statement is infallible and needs no `Result`. It is returned as the
+/// gated [`CreateViewSql`] newtype, which is the only thing `load_with_sidecar`
+/// will execute — SQL reaching the database is therefore provably
+/// builder-produced rather than assembled from a string.
 pub fn rust_loc_summary_view_sql() -> CreateViewSql {
     CreateViewSql::create_or_replace(
         TableName::from_static("rust_loc_summary"),

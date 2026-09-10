@@ -3,11 +3,8 @@
 //! This is a data-source-only extension (no commands). It provides parsed update
 //! information that the about page consumes via the `--update` flag.
 
-// READ-10 / TASK-1801: only `unwrap_used` is load-bearing here (the test
-// module uses `unwrap` freely). The crate contains no numeric casts, so the
-// former `cast_possible_truncation` / `cast_precision_loss` / `cast_sign_loss`
-// allows suppressed lints that could not fire; being `allow` rather than
-// `expect`, they would have stayed dead silently.
+// The test module uses `unwrap` freely; production code does not. No other
+// lint relaxation is needed — the crate performs no numeric casts.
 #![cfg_attr(test, allow(clippy::unwrap_used))]
 
 #[cfg(test)]
@@ -42,11 +39,12 @@ pub const DATA_PROVIDER_NAME: &str = "cargo_update";
 pub enum UpdateAction {
     /// A dependency moves from one version to another.
     Update,
-    /// PATTERN-1 / TASK-1778: cargo's lockfile-change printer emits
-    /// `Downgrading` alongside `Updating` / `Adding` / `Removing` whenever the
-    /// lockfile holds a version above what `Cargo.toml` now requires (a
-    /// tightened requirement, a lifted `[patch]`, a yanked release). It was
-    /// previously dropped with no entry, no count and no log record.
+    /// A dependency moves *down* to a lower version.
+    ///
+    /// Cargo's lockfile-change printer emits `Downgrading` alongside
+    /// `Updating` / `Adding` / `Removing` whenever the lockfile holds a version
+    /// above what `Cargo.toml` now requires — a tightened requirement, a lifted
+    /// `[patch]`, a yanked release.
     Downgrade,
     /// A dependency appears in the lockfile with no prior version.
     Add,
@@ -54,24 +52,21 @@ pub enum UpdateAction {
     Remove,
 }
 
-/// PATTERN-1 / TASK-2151: one variant per cargo lockfile verb, each
-/// carrying exactly the version presence that verb has.
+/// One parsed dependency change: a cargo lockfile verb plus exactly the
+/// versions that verb carries.
 ///
 /// `Update`/`Downgrade` carry both versions, `Add` only `to`, `Remove` only
-/// `from`. The previous `{ action, from: Option<_>, to: Option<_> }` struct
-/// permitted sixteen presence combinations per action of which four are
-/// valid, and its derived `Deserialize` (the about page reads this JSON
-/// back from a cache) accepted the other twelve silently, as entries the
-/// parser itself can never build.
+/// `from`. Making version presence part of the variant means an entry can only
+/// exist in one of the four valid shapes — the type itself rules out
+/// combinations the parser can never produce.
 ///
-/// Serialized as an internally-tagged JSON object with the same field names
-/// and lowercase verbs the previous struct emitted
-/// (`{"action":"update","name":…,"from":…,"to":…}`); a variant's absent
-/// version is omitted rather than emitted as `null`. Deserialization is
-/// validating: a payload whose action and version presence disagree either
-/// fails (a version the action requires is missing or `null`) or normalizes
-/// (a version foreign to the action is ignored) — never a silently invalid
-/// entry.
+/// Serialized as an internally-tagged JSON object with lowercase verbs
+/// (`{"action":"update","name":…,"from":…,"to":…}`); a variant's absent version
+/// is omitted rather than emitted as `null`. Deserialization — the about page
+/// reads this JSON back from a cache — is validating: a payload whose action
+/// and version presence disagree either fails (a version the action requires is
+/// missing or `null`) or normalizes (a version foreign to the action is
+/// ignored), never yielding a silently invalid entry.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(tag = "action", rename_all = "lowercase")]
 #[non_exhaustive]
@@ -85,7 +80,7 @@ pub enum UpdateEntry {
         /// Version being updated to.
         to: String,
     },
-    /// `Downgrading <name> <from> -> <to>` (PATTERN-1 / TASK-1778).
+    /// `Downgrading <name> <from> -> <to>`.
     Downgrade {
         /// Crate name.
         name: String,
@@ -166,9 +161,11 @@ pub struct CargoUpdateResult {
     pub entries: Vec<UpdateEntry>,
     /// Number of `Updating` lines in [`CargoUpdateResult::entries`].
     pub update_count: usize,
-    /// PATTERN-1 / TASK-1778: dedicated count for `Downgrading` lines.
-    /// `#[serde(default)]` so payloads produced before the field existed still
-    /// deserialize — the about page consumes this JSON from a cache.
+    /// Number of `Downgrading` lines in [`CargoUpdateResult::entries`].
+    ///
+    /// `#[serde(default)]` so a cached payload that omits the field still
+    /// deserializes — the about page consumes this JSON from a cache that can
+    /// outlive the schema it was written against.
     #[serde(default)]
     pub downgrade_count: usize,
     /// Number of `Adding` lines in [`CargoUpdateResult::entries`].
@@ -187,10 +184,11 @@ const CARGO_UPDATE_ARGS: &[&str] = &["update", "--dry-run"];
 /// Operator-facing label for the subprocess invocation.
 const CARGO_UPDATE_LABEL: &str = "cargo update --dry-run";
 
-/// TEST-5 / TASK-1787: the exact subprocess invocation
-/// [`run_cargo_update_dry_run`] performs, as data. Splitting the description
-/// of the call from the call itself lets a test pin the argv, working
-/// directory, timeout and label without spawning cargo.
+/// The exact subprocess invocation [`run_cargo_update_dry_run`] performs,
+/// expressed as data.
+///
+/// Describing the call separately from making it lets a test pin the argv,
+/// working directory, timeout and label without spawning cargo.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 struct CargoUpdateInvocation<'a> {
     args: &'static [&'static str],
@@ -244,8 +242,8 @@ fn strip_v_prefix(version: &str) -> &str {
 pub fn parse_update_output(stderr: &[u8]) -> CargoUpdateResult {
     let text = String::from_utf8_lossy(stderr);
     let mut entries = Vec::new();
-    // PERF-3 / TASK-1534: accumulate per-action counts during the parse loop
-    // instead of re-walking `entries` three times with filter+count after.
+    // Accumulate per-action counts during the parse loop so `entries` is
+    // walked once rather than once per action afterwards.
     let mut update_count = 0usize;
     let mut downgrade_count = 0usize;
     let mut add_count = 0usize;
@@ -254,16 +252,16 @@ pub fn parse_update_output(stderr: &[u8]) -> CargoUpdateResult {
     for line in text.lines() {
         let trimmed = line.trim();
 
-        // PERF-3 / TASK-0970: skip the strip allocation when no escape
-        // is present (the common case — terminals without color, redirected
-        // CI output). The Cow path keeps the typed-result branches identical
-        // for downstream parsing.
+        // The Cow return skips the strip allocation when the line carries no
+        // escape — the common case for terminals without color and for
+        // redirected CI output — while keeping the downstream parse identical
+        // either way.
         let clean_cow = strip_ansi_preserving_raw(trimmed);
         let clean = clean_cow.trim();
 
-        // Skip noise lines. PATTERN-1 / TASK-1778: `Unchanged` is the
-        // verbose-only arm of cargo's lockfile-change printer; it is skipped
-        // deliberately here rather than falling through unrecognised.
+        // Skip noise lines. `Unchanged` is the verbose-only arm of cargo's
+        // lockfile-change printer and carries no change, so it is filtered
+        // deliberately here rather than falling through as unrecognised.
         if clean.is_empty()
             || clean.starts_with("Locking")
             || clean.starts_with("Unchanged")
@@ -273,14 +271,11 @@ pub fn parse_update_output(stderr: &[u8]) -> CargoUpdateResult {
             continue;
         }
 
-        // PATTERN-1 / TASK-1054: skip the "Updating <registry> index" noise
-        // line only on its exact documented forms. The previous
-        // `starts_with("Updating") && contains("index")` predicate matched
-        // anywhere in the line and silently dropped legitimate updates for
-        // crates whose names contain `index` (e.g. `Updating indexer v1.0.0
-        // -> v1.0.1`). Guard on absence of the `->` arrow — the index-progress
-        // line never carries one — to robustly distinguish noise from updates,
-        // independent of registry naming.
+        // Skip the "Updating <registry> index" noise line, matching only its
+        // exact documented forms. Matching `index` anywhere in the line would
+        // drop legitimate updates for crates whose names contain it (e.g.
+        // `Updating indexer v1.0.0 -> v1.0.1`), so the shape test keys on token
+        // position instead, independent of registry naming.
         if clean.starts_with("Updating") && is_index_progress_line(clean) {
             continue;
         }
@@ -298,9 +293,8 @@ pub fn parse_update_output(stderr: &[u8]) -> CargoUpdateResult {
                 }
                 entries.push(entry);
             }
-            // SEC-11 / TASK-1799 and SEC-21 / TASK-1790: the verb matched but a
-            // field failed validation. Never publish the line as an entry, and
-            // never drop it silently either.
+            // The verb matched but a field failed validation. Such a line is
+            // never published as an entry, and never dropped silently either.
             ActionLineOutcome::Rejected(reason) => {
                 tracing::warn!(
                     line = ?clean,
@@ -308,10 +302,10 @@ pub fn parse_update_output(stderr: &[u8]) -> CargoUpdateResult {
                     "skipping cargo-update line whose parsed fields failed validation"
                 );
             }
-            // TASK-0472: a line that begins with a known verb but did not
-            // parse is highly likely to indicate cargo-update format drift.
-            // Promote to warn so the count regression is observable at the
-            // default log level — debug would silently disappear.
+            // A line that begins with a known verb but did not parse most
+            // likely indicates cargo-update format drift. It is logged at warn
+            // so the resulting count regression is observable at the default
+            // log level; at debug it would disappear.
             ActionLineOutcome::NoMatch => {
                 if starts_with_known_verb(clean) {
                     tracing::warn!(
@@ -332,14 +326,12 @@ pub fn parse_update_output(stderr: &[u8]) -> CargoUpdateResult {
     }
 }
 
-// DUP-3 / TASK-2148: ANSI stripping moved to `ops-theme`. The private
-// grammar this crate maintained (CSI/OSC/nF only, missing the C1 families)
-// was replaced by `ops_theme::strip_ansi_preserving_raw`, which runs the
-// workspace's single ANSI grammar — the same iterator `strip_ansi` /
-// `visible_width` / `truncate_to_width` consume — under the policy this
-// parser needs: complete sequences are removed, while truncated/runaway
-// escapes (PATTERN-1 / TASK-1028) and stray introducers survive verbatim
-// for the field validator to reject (SEC-21 / TASK-1790).
+// ANSI stripping lives in `ops-theme`. `ops_theme::strip_ansi_preserving_raw`
+// runs the workspace's single ANSI grammar — the same iterator `strip_ansi` /
+// `visible_width` / `truncate_to_width` consume — under the policy this parser
+// needs: complete sequences are removed, while truncated or runaway escapes and
+// stray introducers survive verbatim so the field validators below reject the
+// line instead of silently swallowing visible text.
 
 /// Shape of the version portion that follows the crate name on an action line.
 #[derive(Clone, Copy, Debug)]
@@ -355,9 +347,10 @@ enum VersionShape {
 /// Table-driven dispatch for cargo's lockfile-change verbs.
 ///
 /// Each entry maps a leading verb to its [`UpdateAction`] and the shape of the
-/// version portion that follows the crate name. PATTERN-1 / TASK-1778: the
-/// table must list every verb cargo's `print_lockfile_updates` printer emits —
-/// `Unchanged` is the one exception, filtered as noise in
+/// version portion that follows the crate name.
+///
+/// The table must list every verb cargo's `print_lockfile_updates` printer
+/// emits — `Unchanged` is the one exception, filtered as noise in
 /// [`parse_update_output`] because it is verbose-only and carries no change.
 const ACTION_PREFIXES: &[(&str, UpdateAction, VersionShape)] = &[
     ("Updating", UpdateAction::Update, VersionShape::Arrow),
@@ -366,19 +359,17 @@ const ACTION_PREFIXES: &[(&str, UpdateAction, VersionShape)] = &[
     ("Removing", UpdateAction::Remove, VersionShape::From),
 ];
 
-/// PATTERN-1 / TASK-1054: distinguish the index-progress noise line
-/// (`Updating crates.io index`, optionally with an alternate-registry
-/// `(sparse+https://...)` suffix) from a real update line such as
-/// `Updating indexer v1.0.0 -> v1.0.1`. The previous gate
-/// `contains("index")` matched any crate name containing the substring
-/// `index` and silently dropped legitimate updates.
+/// `true` iff `line` is the index-progress noise line (`Updating crates.io
+/// index`, optionally with an alternate-registry `(sparse+https://...)`
+/// suffix) rather than a real update such as `Updating indexer v1.0.0 ->
+/// v1.0.1`.
 ///
-/// Caller must already know `line` starts with `Updating`. Returns true
-/// iff the line has the documented index-progress shape: the second
-/// whitespace-separated token is exactly `index`, with at most a
-/// parenthesised alternate-registry suffix after it. A real update line
-/// always has the version (`v1.2.3`) as the third token, so it cannot
-/// match this shape.
+/// Caller must already know `line` starts with `Updating`. The test is
+/// positional rather than a substring search, so a crate whose *name* contains
+/// `index` is never mistaken for progress noise: the shape requires `index` as
+/// the third whitespace-separated token, with at most a parenthesised
+/// alternate-registry suffix after it, while a real update line always carries
+/// the version (`v1.2.3`) in that position.
 fn is_index_progress_line(line: &str) -> bool {
     let mut tokens = line.split_whitespace();
     // First token is "Updating" (caller guarantees).
@@ -392,7 +383,7 @@ fn is_index_progress_line(line: &str) -> bool {
     }
     // Third token: either `index` (canonical 3-token form) or absent
     // (2-token form `Updating crates.io` observed on some cargo
-    // releases / locales — ERR-1 / TASK-1252). A real update line always
+    // releases / locales). A real update line always
     // has the from-version (`v1.0.0`) here, so a 2-token line cannot be
     // confused with a real update.
     let Some(third) = tokens.next() else {
@@ -407,17 +398,16 @@ fn is_index_progress_line(line: &str) -> bool {
     tokens.next().is_none_or(|rest| rest.starts_with('('))
 }
 
-/// DUP-1 / TASK-1797: the single definition of "does `line` open with one of
-/// [`ACTION_PREFIXES`], followed by a whitespace boundary?".
+/// Matches `line` against [`ACTION_PREFIXES`], returning the matched action,
+/// its version shape, and the trimmed remainder of the line after the verb.
 ///
-/// PATTERN-1 / TASK-1030: the boundary is what stops a prefix-without-boundary
-/// match like `Updatingxyz serde v1 -> v2` from classifying as a known verb
-/// (a false-positive drift warning) and from being consumed by
-/// [`parse_action_line`]'s `strip_prefix`. It used to be written twice, once
-/// per caller, and had to be patched into both sites separately.
-///
-/// Returns the matched action, its version shape, and the trimmed remainder of
-/// the line after the verb.
+/// This is the single definition of "does `line` open with a known verb,
+/// followed by a whitespace boundary?", shared by [`parse_action_line`] and
+/// [`starts_with_known_verb`] so both agree by construction. The whitespace
+/// boundary is what stops a prefix-without-boundary match like
+/// `Updatingxyz serde v1 -> v2` from classifying as a known verb (a
+/// false-positive drift warning) and from being consumed by the caller's
+/// `strip_prefix`.
 fn match_verb(line: &str) -> Option<(UpdateAction, VersionShape, &str)> {
     ACTION_PREFIXES.iter().find_map(|&(prefix, action, shape)| {
         let rest = line.strip_prefix(prefix)?;
@@ -436,13 +426,12 @@ fn starts_with_known_verb(line: &str) -> bool {
     if match_verb(line).is_none() {
         return false;
     }
-    // ERR-1 / TASK-1252: only treat the line as a real action line (and
-    // therefore worth a format-drift warn when parse_action_line fails) if
-    // it carries a `v\d` version token. Progress lines such as the 2-token
-    // `Updating crates.io` form, or `Updating git repository \`...\``, share
-    // the `Updating` verb but have no version, so without this guard
-    // parse_action_line's failure would bubble into a bogus drift warn on
-    // every `ops about --refresh`.
+    // Only a line carrying a `v\d` version token counts as a real action line,
+    // and therefore as worth a format-drift warn when parse_action_line fails.
+    // Progress lines such as the 2-token `Updating crates.io` form, or
+    // `Updating git repository \`...\``, share the `Updating` verb but have no
+    // version; without this guard their parse failure would produce a bogus
+    // drift warn on every `ops about --refresh`.
     line.split_whitespace().any(is_version_token)
 }
 
@@ -453,9 +442,8 @@ fn is_version_token(tok: &str) -> bool {
     chars.next() == Some('v') && chars.next().is_some_and(|c| c.is_ascii_digit())
 }
 
-/// SEC-11 / TASK-1799: `true` iff `tok` is shaped like a version cargo would
-/// print — an optional `v` prefix followed by an ASCII digit — and carries no
-/// control characters.
+/// `true` iff `tok` is shaped like a version cargo would print — an optional
+/// `v` prefix followed by an ASCII digit — and carries no control characters.
 ///
 /// Looser than [`is_version_token`] on purpose: the bare-numeric form
 /// (`Updating serde 1.0.0 -> 1.0.1`) has always been accepted by the parser,
@@ -466,13 +454,13 @@ fn is_version_shaped(tok: &str) -> bool {
     version.starts_with(|c: char| c.is_ascii_digit()) && is_control_free(version)
 }
 
-/// SEC-21 / TASK-1790: `true` iff `tok` carries no control character.
+/// `true` iff `tok` carries no control character.
 ///
-/// [`ops_theme::strip_ansi_preserving_raw`] deliberately preserves truncated escape sequences and bare
-/// `ESC` bytes so visible text is never swallowed, so a field reaching this
-/// point can still contain `ESC`, `NUL`, `BEL`, ... Crate names and versions
-/// never legitimately do, and these values are serialised into the provider
-/// JSON the about page renders to an operator's terminal.
+/// [`ops_theme::strip_ansi_preserving_raw`] deliberately preserves truncated
+/// escape sequences and bare `ESC` bytes so visible text is never swallowed, so
+/// a field reaching this point can still contain `ESC`, `NUL`, `BEL`, ... Crate
+/// names and versions never legitimately do, and these values are serialised
+/// into the provider JSON the about page renders to an operator's terminal.
 fn is_control_free(tok: &str) -> bool {
     !tok.chars().any(char::is_control)
 }
@@ -499,9 +487,8 @@ fn parse_action_line(line: &str) -> ActionLineOutcome {
         return ActionLineOutcome::NoMatch;
     };
 
-    // TASK-0476: iterator-based destructuring avoids the per-line
-    // `Vec<&str>` allocation that `splitn(...).collect()` introduces on
-    // a hot path (must_use provider runs in CI metadata pipelines).
+    // Iterator-based destructuring keeps this line loop allocation-free; it
+    // runs over every stderr line in CI metadata pipelines.
     let mut it = rest.split_whitespace();
     let Some(name) = it.next() else {
         return ActionLineOutcome::NoMatch;
@@ -514,11 +501,11 @@ fn parse_action_line(line: &str) -> ActionLineOutcome {
         if arrow != "->" {
             return ActionLineOutcome::NoMatch;
         }
-        // TASK-0613: a future cargo could append annotations such as
-        // `Updating serde v1 -> v2 (yanked)`. The previous `splitn(4, ' ')`
-        // silently glued the trailing tokens onto `to`, corrupting the
-        // version. Warn loudly so format drift is visible instead of
-        // producing wrong-but-plausible output.
+        // A future cargo could append annotations such as
+        // `Updating serde v1 -> v2 (yanked)`. Splitting on whitespace keeps the
+        // extra tokens out of `to` rather than gluing them onto the version;
+        // warn so the format drift is visible instead of producing
+        // wrong-but-plausible output.
         if it.next().is_some() {
             tracing::warn!(line = ?line, "cargo-update `Updating`/`Downgrading` line has unexpected trailing tokens; annotation discarded");
         }
@@ -528,8 +515,8 @@ fn parse_action_line(line: &str) -> ActionLineOutcome {
         if !is_version_shaped(from) || !is_version_shaped(to) {
             return ActionLineOutcome::Rejected("version token is not shaped like a version");
         }
-        // PATTERN-1 / TASK-2151: the variant — not a doc comment — now states
-        // which versions this action carries.
+        // The variant, not a doc comment, states which versions this action
+        // carries.
         let entry = match action {
             UpdateAction::Update => UpdateEntry::Update {
                 name: name.to_string(),
@@ -551,9 +538,9 @@ fn parse_action_line(line: &str) -> ActionLineOutcome {
         return ActionLineOutcome::Parsed(entry);
     }
 
-    // TASK-0949: mirror the `Updating` arm — reject `<name> <version>
-    // <extra…>` so a future cargo annotation like `Adding new-crate v0.1.0
-    // (locked)` does not silently get glued onto the parsed version.
+    // Mirrors the `Updating` arm: `<name> <version> <extra…>` warns rather than
+    // gluing a future cargo annotation like `Adding new-crate v0.1.0 (locked)`
+    // onto the parsed version.
     let Some(version_raw) = it.next() else {
         return ActionLineOutcome::NoMatch;
     };
@@ -566,15 +553,15 @@ fn parse_action_line(line: &str) -> ActionLineOutcome {
     if !is_control_free(name) {
         return ActionLineOutcome::Rejected("crate name carries control characters");
     }
-    // SEC-11 / TASK-1799: without this the version position accepted any
-    // token — `Adding new-crate (locked) v0.1.0` published `(locked)` as the
-    // version, and `Adding foo v` published `Some("")`, which reads as a
+    // The version position is validated, not merely occupied: without this
+    // check `Adding new-crate (locked) v0.1.0` would publish `(locked)` as the
+    // version, and `Adding foo v` would publish `Some("")`, which reads as a
     // known version to every consumer that checks `is_some()`.
     if !is_version_shaped(version_raw) {
         return ActionLineOutcome::Rejected("version token is not shaped like a version");
     }
-    // PATTERN-1 / TASK-2151: the variant — not a doc comment — states which
-    // versions each action carries.
+    // The variant, not a doc comment, states which versions each action
+    // carries.
     let entry = match shape {
         VersionShape::From => UpdateEntry::Remove {
             name: name.to_string(),
@@ -598,7 +585,7 @@ fn parse_action_line(line: &str) -> ActionLineOutcome {
 /// Datasource extension exposing parsed `cargo update --dry-run` results
 /// under the [`DATA_PROVIDER_NAME`] key.
 ///
-/// API-9 / TASK-0922: construct via the registered extension factory only.
+/// Construct it through the registered extension factory, not directly.
 #[non_exhaustive]
 pub struct CargoUpdateExtension;
 
@@ -618,23 +605,26 @@ ops_extension::impl_extension! {
     },
 }
 
-/// ERR-4 / TASK-1535: preserve the `RunError` source chain via
-/// `anyhow::Error::new(e).context(...)` instead of flattening it to
-/// Display with `anyhow!("{}: {}", ctx, e)`. Downstream consumers
-/// (structured logs, error inspectors) can walk `.source()` /
-/// `anyhow::Chain` to distinguish spawn failures from timeouts.
+/// Converts a subprocess [`RunError`] into a [`DataProviderError`], keeping the
+/// error's source chain intact.
 ///
-/// TEST-5 / TASK-1787: a named function so a test can assert on the value
-/// production actually produces, rather than on a rebuilt copy of this
+/// `anyhow::Error::new(e).context(...)` preserves the chain rather than
+/// flattening it to Display, so downstream consumers (structured logs, error
+/// inspectors) can walk `.source()` / `anyhow::Chain` to distinguish spawn
+/// failures from timeouts. It is a named function so a test can assert on the
+/// value production actually produces rather than on a rebuilt copy of this
 /// expression.
 fn map_run_error(err: RunError) -> DataProviderError {
     DataProviderError::from(anyhow::Error::new(err).context("cargo update --dry-run failed"))
 }
 
-/// TEST-5 / TASK-1787: the output-interpretation half of
-/// [`CargoUpdateProvider::provide`], split out so every branch below is
-/// reachable from a test with a hand-built [`Output`] and no subprocess.
-/// Mirrors `deps::interpret_upgrade_output`.
+/// Turns a finished `cargo update --dry-run` [`Output`] into the provider's
+/// JSON value.
+///
+/// This is the output-interpretation half of [`CargoUpdateProvider::provide`],
+/// kept separate so every branch below is reachable from a test with a
+/// hand-built [`Output`] and no subprocess. Mirrors
+/// `deps::interpret_upgrade_output`.
 ///
 /// # Errors
 ///
@@ -642,23 +632,21 @@ fn map_run_error(err: RunError) -> DataProviderError {
 /// non-zero, and [`DataProviderError::Serialization`] if the parsed result
 /// cannot be encoded as JSON.
 fn interpret_output(output: &Output) -> Result<serde_json::Value, DataProviderError> {
-    // TASK-0502: a successful spawn with a non-zero exit (e.g. lockfile
-    // contention, network error, malformed Cargo.toml) leaves stderr
-    // *not* shaped like the dry-run report. Parsing it would silently
-    // produce an empty `CargoUpdateResult` — i.e. "no updates available"
-    // for a failed invocation. Surface the error like sibling providers
-    // (test-coverage, metadata, deps) instead.
+    // A successful spawn with a non-zero exit (lockfile contention, network
+    // error, malformed Cargo.toml) leaves stderr *not* shaped like the dry-run
+    // report. Parsing it would produce an empty `CargoUpdateResult` — i.e. "no
+    // updates available" for a failed invocation — so the error is surfaced
+    // instead, matching sibling providers (test-coverage, metadata, deps).
     if !output.status.success() {
         let stderr_tail = format_error_tail(&output.stderr, 10);
-        // SEC-21 / TASK-1537: `format_error_tail` normalises CR/CRLF/bare-CR
-        // but does NOT scrub other C0 control bytes (ESC `\x1b`, BEL, NUL,
-        // ...). Cargo's stderr is influenced by crate names / version
-        // strings / registry metadata — surface area an attacker can shape
-        // via a poisoned crate. Route the tail through the Debug formatter
-        // (`{:?}`) so embedded ANSI escapes / NULs / newlines cannot forge
-        // log records or repaint the operator's terminal, matching the
-        // SEC-21 fix used by sibling sites (deps interpret_upgrade_output /
-        // interpret_deny_result — TASK-1160 / TASK-1250).
+        // `format_error_tail` normalises CR/CRLF/bare-CR but does NOT scrub
+        // other C0 control bytes (ESC `\x1b`, BEL, NUL, ...). Cargo's stderr is
+        // influenced by crate names, version strings and registry metadata —
+        // surface an attacker can shape via a poisoned crate. The tail goes
+        // through the Debug formatter (`{:?}`) so embedded ANSI escapes, NULs
+        // or newlines cannot forge log records or repaint the operator's
+        // terminal, matching the sibling sites in deps
+        // (`interpret_upgrade_output` / `interpret_deny_result`).
         return Err(DataProviderError::from(anyhow::anyhow!(
             "cargo update --dry-run exited with status {}: {:?}",
             output.status,
