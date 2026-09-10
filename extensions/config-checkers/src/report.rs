@@ -10,12 +10,21 @@ use std::io::Write;
 pub use ops_core::bounded_read::{FailedFile, FailureKind};
 
 /// Outcome of a checker run.
+///
+/// API-5 / TASK-2135: the `#[must_use]` sits on the *type*, not on the
+/// `run_check_*` functions, so it survives `?` — discarding the report after
+/// unwrapping the `Result` is still a warning, because the report (via
+/// [`CheckerReport::failed`]) is what drives the process exit code.
+#[must_use = "the report drives the process exit code; dropping it after `?` exits 0 on a failed run"]
 #[derive(Debug, Default)]
 pub struct CheckerReport {
     /// Files that were actually read *and* handed to the parser. A file whose
     /// metadata or read failed was not scanned in any sense and is not
     /// counted here.
     pub files_scanned: usize,
+    /// Files the run could not complete, with the failure kind and message.
+    /// Paths are relative to [`crate::CheckerOptions::root`]. Any entry at
+    /// all means the run failed — see [`CheckerReport::failed`].
     pub files_failed: Vec<FailedFile>,
     /// Files that were not validated: over [`crate::CheckerOptions::max_bytes`],
     /// not a regular file, or gone from the worktree by the time the checker

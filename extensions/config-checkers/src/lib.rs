@@ -24,6 +24,8 @@
 // `src/tests.rs` relies on `unwrap()`; the crate performs no numeric casts,
 // in tests or otherwise, so no cast lint is suppressed here.
 #![cfg_attr(test, allow(clippy::unwrap_used))]
+// API-14 / TASK-2138: undocumented public items are a warning, not silence.
+#![warn(missing_docs)]
 
 mod error;
 pub mod json;
@@ -41,8 +43,13 @@ pub use runner::{run_check_json, run_check_yaml};
 
 use ops_extension::ExtensionType;
 
+/// Extension identifier used to register this crate in the engine's
+/// extension registry.
 pub const NAME: &str = "config-checkers";
+/// One-line description shown by `ops about` for this extension.
 pub const DESCRIPTION: &str = "JSON and YAML parse-validators";
+/// CLI-facing short name — the subcommand the user types
+/// (`ops check-json`, `ops check-yaml`).
 pub const SHORTNAME: &str = "config-checkers";
 
 /// Default per-file size cap (16 MiB).
@@ -64,6 +71,12 @@ pub const SHORTNAME: &str = "config-checkers";
 /// (a 324-byte anchor bomb otherwise exhausts memory).
 pub use ops_core::bounded_read::DEFAULT_MAX_BYTES;
 
+/// Command extension registering the `check-json` and `check-yaml`
+/// subcommands.
+///
+/// Both are registered as `Exec` specs resolving the current `ops` binary
+/// (SEC-13 / TASK-2122), so they run through the runner rather than as
+/// extension-local handlers; no data providers are registered.
 pub struct ConfigCheckersExtension;
 
 ops_extension::impl_extension! {

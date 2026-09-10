@@ -17,10 +17,13 @@ use crate::{json, yaml};
 
 /// Validate every `*.json` file under `opts.root`.
 ///
+/// The returned [`CheckerReport`] is `#[must_use]` on the type, so a
+/// discarded report warns even after `?` unwraps the `Result`
+/// (API-5 / TASK-2135).
+///
 /// # Errors
 /// Propagates discovery failures and writer I/O errors with the checker
 /// label and root attached for diagnosis.
-#[must_use = "the CheckerReport drives the process exit code; ignoring it defeats the validator"]
 pub fn run_check_json(
     opts: &CheckerOptions,
     writer: &mut dyn Write,
@@ -37,10 +40,13 @@ pub fn run_check_json(
 
 /// Validate every `*.yaml` / `*.yml` file under `opts.root`.
 ///
+/// The returned [`CheckerReport`] is `#[must_use]` on the type, so a
+/// discarded report warns even after `?` unwraps the `Result`
+/// (API-5 / TASK-2135).
+///
 /// # Errors
 /// Propagates discovery failures and writer I/O errors with the checker
 /// label and root attached for diagnosis.
-#[must_use = "the CheckerReport drives the process exit code; ignoring it defeats the validator"]
 pub fn run_check_yaml(
     opts: &CheckerOptions,
     writer: &mut dyn Write,
