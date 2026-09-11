@@ -642,7 +642,12 @@ mod provider_tests {
     /// The returned `TempDir` keeps every path alive for the test.
     fn workspace_fixture(tag: &str) -> (tempfile::TempDir, PathBuf) {
         let dir = tempfile::tempdir().expect("tempdir");
-        let root = dir.path().join(tag);
+        // Canonicalize so the fixture root has no symlinked components
+        // (`/var` → `/private/var` on macOS): `read_crate_metadata` reads
+        // the member manifests through the symlink-refusing opener, and an
+        // un-canonicalized root makes every display name fall back to the
+        // path-derived form.
+        let root = dir.path().canonicalize().expect("canonical root").join(tag);
         for (dir_name, pkg) in [
             ("crates/foo", "alpha-crate"),
             ("crates/bar", "beta-crate"),
