@@ -107,8 +107,23 @@ fn metadata_output_cap_honours_a_fixed_env_override() {
 /// runs only when the parent re-execs this binary with
 /// `OPS_OUTPUT_BYTE_CAP=1234567` in the environment, so the resolver's
 /// first (and only) call sees the fixed override.
+///
+/// CI's `--run-ignored all` sweep runs this child *without* the parent,
+/// so the fixture env is absent and the assertion would not hold. Bail
+/// out with the `skip:` marker ([`ops_core::test_utils::skip_precondition`])
+/// in that case — a skip is distinguishable from an executed pass, which
+/// a bare `return` would not be.
 #[test]
 #[ignore = "driven by metadata_output_cap_honours_a_fixed_env_override via re-exec"]
 fn metadata_output_cap_resolves_the_env_override_child() {
+    let fixture_cap =
+        std::env::var_os(ops_core::subprocess::OUTPUT_CAP_ENV).filter(|v| v == "1234567");
+    if fixture_cap.is_none() {
+        ops_core::test_utils::skip_precondition(
+            "metadata_output_cap_resolves_the_env_override_child",
+            "not re-exec'd by the parent test; OPS_OUTPUT_BYTE_CAP fixture absent",
+        );
+        return;
+    }
     assert_eq!(metadata_output_cap(), 1_234_567);
 }
