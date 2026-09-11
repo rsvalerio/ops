@@ -278,9 +278,16 @@ mod tests {
     /// mirroring the policy the Go stack applies to `use` directives.
     #[test]
     fn maven_units_out_of_tree_module_is_listed_but_not_read() {
+        // The project root and its `../sibling` traversal target both live
+        // inside this test's own tempdir (root = <tmp>/root), so the fixture
+        // occupies the exact `../sibling` path `collect_units` would resolve
+        // from the pom — a pom elsewhere proves nothing — and concurrent
+        // runs cannot collide in the shared tempdir parent.
         let dir = tempfile::tempdir().unwrap();
+        let root = dir.path().join("root");
+        std::fs::create_dir_all(&root).unwrap();
         std::fs::write(
-            dir.path().join("pom.xml"),
+            root.join("pom.xml"),
             r"<project>
     <artifactId>root</artifactId>
     <modules>
@@ -290,11 +297,7 @@ mod tests {
         )
         .unwrap();
         // A pom at the traversal target — it must not be read into the unit.
-        let sibling = dir
-            .path()
-            .parent()
-            .unwrap()
-            .join("sibling-should-not-be-read");
+        let sibling = dir.path().join("sibling");
         std::fs::create_dir_all(&sibling).unwrap();
         std::fs::write(
             sibling.join("pom.xml"),
@@ -302,13 +305,11 @@ mod tests {
         )
         .unwrap();
 
-        let units = collect_units(dir.path());
+        let units = collect_units(&root);
 
         assert_eq!(units.len(), 1);
         assert_eq!(units[0].path, "../sibling");
         assert_ne!(units[0].name, "should-not-be-read");
         assert_eq!(units[0].version, None);
-
-        std::fs::remove_dir_all(&sibling).ok();
     }
 }

@@ -91,7 +91,9 @@ impl std::fmt::Display for SkipReason {
 /// exit codes whose documented meaning differs per kind.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum FailureKind {
-    /// `symlink_metadata` or `File::metadata` failed.
+    /// The handle's `metadata` failed (the open itself reports as
+    /// [`FailureKind::Read`], or as a skip when the no-follow walk refused
+    /// the entry).
     Metadata(ErrorKind),
     /// The file could not be opened or read.
     Read(ErrorKind),
@@ -148,28 +150,28 @@ pub fn read_candidate(path: &Path, max_bytes: u64) -> Result<Content, Rejected> 
 }
 
 /// Open `path` if — and only if — it is a regular file within the cap.
+///
+/// The open delegates to [`crate::text::open_refusing_symlinks`]: one
+/// descriptor-based walk that refuses a symlink at *any* component and
+/// verifies the descriptor's own type with `fstat(2)` before any read, under
+/// `O_NONBLOCK`. That closes the stat/open window the previous
+/// `symlink_metadata` pre-check left open (the entry could be swapped between
+/// the check and the `File::open`), and keeps a FIFO or device from wedging
+/// the run inside `open(2)` — without a second no-follow implementation to
+/// drift from the one the about/config layers already share.
 fn open_regular_file(path: &Path, max_bytes: u64) -> Result<(File, Metadata), Rejected> {
-    // Type guard *before* `File::open`, and unavoidably by path: opening a
-    // FIFO blocks in `open(2)` until a writer appears, so a symlink to one
-    // would hang the run before any handle-based check could run.
-    // `symlink_metadata` rather than `metadata`, so a symlink is rejected as
-    // itself instead of being judged by its target. It authorises nothing —
-    // the checks that gate the read are taken from the handle below.
-    match std::fs::symlink_metadata(path) {
-        Ok(md) if !md.file_type().is_file() => {
-            return Err(Rejected::Skipped(SkipReason::NotRegularFile));
-        }
-        Ok(_) => {}
-        Err(e) if e.kind() == ErrorKind::NotFound => {
-            return Err(Rejected::Skipped(SkipReason::Vanished));
-        }
-        Err(e) => return Err(metadata_failure(&e)),
-    }
-
-    let file = match File::open(path) {
+    let file = match crate::text::open_refusing_symlinks(path) {
         Ok(f) => f,
         Err(e) if e.kind() == ErrorKind::NotFound => {
             return Err(Rejected::Skipped(SkipReason::Vanished));
+        }
+        // A refused symlink or non-regular entry (FIFO, socket, device, and
+        // a directory where the platform open itself refuses it) surfaces as
+        // `InvalidInput` with a stable message; on platforms where opening a
+        // directory fails at `open(2)` it surfaces as `IsADirectory`. Both
+        // are the deliberate out-of-scope decision, not a malfunction.
+        Err(e) if e.kind() == ErrorKind::InvalidInput || e.kind() == ErrorKind::IsADirectory => {
+            return Err(Rejected::Skipped(SkipReason::NotRegularFile));
         }
         Err(e) => return Err(read_failure(&e)),
     };
@@ -244,6 +246,27 @@ pub trait FileRunReport {
     fn adopt_walk_errors(&mut self, errors: Vec<String>);
 }
 
+/// Render report-line text with newlines and terminal control characters
+/// escaped, so a hostile filename (or an I/O error message embedding one)
+/// cannot forge extra report lines or repaint the operator terminal. The
+/// escaped forms stay readable (`\n`, not a replacement character).
+fn safe_line_text(text: &str) -> String {
+    if !text.chars().any(crate::text::is_unsafe_display_char) {
+        return text.to_string();
+    }
+    text.chars()
+        .map(|c| {
+            if crate::text::is_unsafe_display_char(c) {
+                // `{:?}` of a char yields `'\n'`; drop the quotes so the
+                // escape blends into the surrounding text.
+                format!("{c:?}").trim_matches('\'').to_string()
+            } else {
+                c.to_string()
+            }
+        })
+        .collect()
+}
+
 /// Emit one failure line and record it, so the failure sources cannot drift
 /// apart in either wording or bookkeeping.
 ///
@@ -251,6 +274,12 @@ pub trait FileRunReport {
 /// predecessor propagated a bare `io::Error`, so a repository-wide run could
 /// fail with `Permission denied (os error 13)` and nothing anywhere naming
 /// which of thousands of files it meant.
+///
+/// Both the path and the message originate in the walked tree (an extension
+/// root can be repo-supplied), so the rendered line goes through
+/// [`safe_line_text`]; the `FailedFile` record keeps the raw path for
+/// programmatic consumers (JSON, exit-code mapping), which do not interpret
+/// control bytes.
 ///
 /// # Errors
 ///
@@ -264,8 +293,8 @@ pub fn record_failure<R: FileRunReport>(
     writeln!(
         writer,
         "{label}: {}: {}",
-        failure.path.display(),
-        failure.message
+        safe_line_text(&failure.path.display().to_string()),
+        safe_line_text(&failure.message)
     )
     .with_context(|| format!("{label}: writing failure line failed"))?;
     report.push_failure(failure);
@@ -303,14 +332,21 @@ mod tests {
     /// TASK-2162 AC #5, pinning the hardening config-checkers picked up:
     /// a symlink is judged by itself, never by its target. With
     /// `fs::metadata` this read would have *succeeded* and returned the
-    /// target's bytes; with `symlink_metadata` the link is a skip.
+    /// target's bytes; the no-follow walk refuses the link itself.
+    ///
+    /// The fixture is created under the canonicalized tempdir root: the
+    /// open now refuses symlinked components on the way to the file too
+    /// (macOS tempdirs live behind the `/var` → `/private/var` symlink),
+    /// and the test must exercise the *final-component* link, not that
+    /// prefix refusal.
     #[cfg(unix)]
     #[test]
     fn a_symlink_is_never_judged_by_its_target() {
         let dir = tempfile::tempdir().unwrap();
-        let target = dir.path().join("target.json");
+        let root = crate::test_utils::canonical_root(&dir);
+        let target = root.join("target.json");
         std::fs::write(&target, br#"{"a": 1}"#).unwrap();
-        let link = dir.path().join("link.json");
+        let link = root.join("link.json");
         std::os::unix::fs::symlink(&target, &link).unwrap();
 
         match read_candidate(&link, DEFAULT_MAX_BYTES) {
@@ -319,10 +355,30 @@ mod tests {
         }
     }
 
+    /// A symlink in a *directory component* of the path is refused by the
+    /// shared no-follow walk, not just one at the final component — the
+    /// `stat`-pre-check this module used before would have followed it.
+    #[cfg(unix)]
+    #[test]
+    fn a_symlinked_directory_component_is_refused() {
+        let dir = tempfile::tempdir().unwrap();
+        let root = crate::test_utils::canonical_root(&dir);
+        let real_dir = root.join("real");
+        std::fs::create_dir(&real_dir).unwrap();
+        std::fs::write(real_dir.join("a.txt"), b"hello\n").unwrap();
+        std::os::unix::fs::symlink(&real_dir, root.join("alias")).unwrap();
+
+        match read_candidate(&root.join("alias").join("a.txt"), DEFAULT_MAX_BYTES) {
+            Err(Rejected::Skipped(SkipReason::NotRegularFile)) => {}
+            other => panic!("a symlinked component must be refused, got {other:?}"),
+        }
+    }
+
     #[test]
     fn reads_a_regular_file_within_the_cap() {
         let dir = tempfile::tempdir().unwrap();
-        let p = dir.path().join("a.txt");
+        let root = crate::test_utils::canonical_root(&dir);
+        let p = root.join("a.txt");
         std::fs::write(&p, b"hello\n").unwrap();
 
         let (bytes, metadata) = match read_candidate(&p, DEFAULT_MAX_BYTES) {
@@ -336,7 +392,8 @@ mod tests {
     #[test]
     fn an_over_cap_file_is_skipped_by_the_read_itself() {
         let dir = tempfile::tempdir().unwrap();
-        let p = dir.path().join("big.txt");
+        let root = crate::test_utils::canonical_root(&dir);
+        let p = root.join("big.txt");
         std::fs::write(&p, b"trailing space   \n").unwrap();
 
         match read_candidate(&p, 4) {
@@ -351,10 +408,51 @@ mod tests {
     #[test]
     fn a_vanished_file_is_a_skip_not_a_failure() {
         let dir = tempfile::tempdir().unwrap();
-        match read_candidate(&dir.path().join("gone.txt"), DEFAULT_MAX_BYTES) {
+        let root = crate::test_utils::canonical_root(&dir);
+        match read_candidate(&root.join("gone.txt"), DEFAULT_MAX_BYTES) {
             Err(Rejected::Skipped(SkipReason::Vanished)) => {}
             other => panic!("expected a Vanished skip, got {other:?}"),
         }
+    }
+
+    /// A failure line must stay one line: a filename carrying a newline (or
+    /// an ANSI escape) cannot forge additional report lines or repaint the
+    /// terminal. The escapes stay readable, and clean text passes through
+    /// byte-for-byte.
+    #[test]
+    fn record_failure_escapes_control_bytes_in_the_rendered_line() {
+        struct Sink {
+            failures: Vec<FailedFile>,
+        }
+        impl FileRunReport for Sink {
+            fn push_failure(&mut self, failure: FailedFile) {
+                self.failures.push(failure);
+            }
+            fn adopt_walk_errors(&mut self, _errors: Vec<String>) {}
+        }
+
+        let mut sink = Sink {
+            failures: Vec::new(),
+        };
+        let mut line = Vec::new();
+        let failure = FailedFile {
+            path: std::path::PathBuf::from("evil\nINJECT.txt"),
+            kind: FailureKind::Read(ErrorKind::PermissionDenied),
+            message: "read: \u{1b}[31mdenied".to_string(),
+        };
+        record_failure(&mut sink, &mut line, "fix", failure).unwrap();
+        let rendered = String::from_utf8(line).unwrap();
+        assert_eq!(
+            rendered,
+            "fix: evil\\nINJECT.txt: read: \\u{1b}[31mdenied\n"
+        );
+        // The record keeps the raw path for programmatic consumers.
+        assert_eq!(
+            sink.failures[0].path,
+            std::path::Path::new("evil\nINJECT.txt")
+        );
+        // Clean text is untouched.
+        assert_eq!(safe_line_text("plain/path.txt"), "plain/path.txt");
     }
 
     /// The skip wording is user-facing (it lands on the per-file line), so

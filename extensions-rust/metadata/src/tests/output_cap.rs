@@ -57,16 +57,58 @@ fn capped_cargo_metadata_stdout_is_refused_with_the_cap_named() {
 /// AC#3: the metadata crate resolves the same cap the subprocess layer
 /// enforces — same env var, same default — so the guard's comparison basis
 /// cannot drift from the drain's.
+///
+/// The override half of the invariant cannot be asserted in this process
+/// without comparing the resolver to itself: the cap is memoised in a
+/// `OnceLock` initialised before any test can act, and setting the env var
+/// from a sibling test would race every other reader. It is therefore
+/// pinned in an isolated child process by
+/// [`metadata_output_cap_honours_a_fixed_env_override`]; this test covers
+/// the default-value half only.
 #[test]
 fn metadata_output_cap_defaults_to_the_subprocess_cap() {
-    // No env override in the test environment; if one is set, this asserts
-    // the guard honours it, which is the same invariant.
+    if std::env::var_os(ops_core::subprocess::OUTPUT_CAP_ENV).is_some() {
+        // An override is present, so the default is not what the resolver
+        // returns; the override path itself is covered by the re-exec test
+        // below. Asserting here would compare the memoised value with
+        // itself.
+        return;
+    }
     let cap = metadata_output_cap();
     let default = u64::try_from(ops_core::subprocess::DEFAULT_OUTPUT_BYTE_CAP).unwrap_or(u64::MAX);
-    let expected = if std::env::var_os(ops_core::subprocess::OUTPUT_CAP_ENV).is_some() {
-        cap
-    } else {
-        default
-    };
-    assert_eq!(cap, expected);
+    assert_eq!(cap, default);
+}
+
+/// The resolver must honour a fixed `OPS_OUTPUT_BYTE_CAP` set before its
+/// first call. Driven in a re-exec'd child test process so the override is
+/// present before the process-global `OnceLock` initialises and no sibling
+/// test's env mutation races it.
+#[test]
+fn metadata_output_cap_honours_a_fixed_env_override() {
+    let exe = std::env::current_exe().expect("test binary path");
+    let out = std::process::Command::new(exe)
+        .args([
+            "--exact",
+            "--ignored",
+            "tests::output_cap::metadata_output_cap_resolves_the_env_override_child",
+        ])
+        .env(ops_core::subprocess::OUTPUT_CAP_ENV, "1234567")
+        .output()
+        .expect("re-exec the test binary with the override set");
+    assert!(
+        out.status.success(),
+        "child override test failed:\nstdout: {}\nstderr: {}",
+        String::from_utf8_lossy(&out.stdout),
+        String::from_utf8_lossy(&out.stderr)
+    );
+}
+
+/// Child half of [`metadata_output_cap_honours_a_fixed_env_override`]:
+/// runs only when the parent re-execs this binary with
+/// `OPS_OUTPUT_BYTE_CAP=1234567` in the environment, so the resolver's
+/// first (and only) call sees the fixed override.
+#[test]
+#[ignore = "driven by metadata_output_cap_honours_a_fixed_env_override via re-exec"]
+fn metadata_output_cap_resolves_the_env_override_child() {
+    assert_eq!(metadata_output_cap(), 1_234_567);
 }

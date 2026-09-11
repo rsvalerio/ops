@@ -423,6 +423,13 @@ mod tests {
     /// process env changes mid-run. We can't reset `OnceLock`, so we verify
     /// that mutating the env after the first read does not change the cap
     /// observed by subsequent calls.
+    ///
+    /// The `env_output_cap` key is the shared lock for **every** test in
+    /// this crate that mutates the process env or reads an env-derived
+    /// memoized value (`OPS_DRAIN_GRACE`, `OPS_MAX_PARALLEL`, and cap
+    /// readers like `tests/sequential.rs`): memoization means a foreign env
+    /// value set by whichever test runs first is what the later tests
+    /// observe, so they all serialize on one key.
     #[test]
     #[serial_test::serial(env_output_cap)]
     fn output_byte_cap_is_memoized_across_calls() {

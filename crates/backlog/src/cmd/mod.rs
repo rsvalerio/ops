@@ -71,11 +71,18 @@ pub(crate) fn confirm<W: Write>(
 
 /// Write `contents` to `path` so the destination is never observable
 /// half-written: the bytes land in a staging file next to the destination
-/// first, and a same-directory `rename` — atomic on POSIX — swaps it in. A
-/// crash mid-write leaves the previous document intact and at most one
-/// leftover staging file, whose `.tmp` suffix keeps it invisible to task
-/// scans; the next attempt truncates and replaces it, so a leftover can
-/// never become a second, competing document.
+/// first, and a same-directory `rename` — atomic on POSIX — swaps it in.
+///
+/// The staging name carries this process's id and is created exclusively
+/// (`O_EXCL` via `create_new`), so it can neither follow a symlink
+/// pre-planted at a predictable path nor be truncated by a concurrent
+/// process's staging attempt: both surface as an error naming the staging
+/// path instead of silently writing through the wrong file. A crash
+/// mid-write leaves the previous document intact and at most one leftover
+/// staging file, whose dot-prefixed name keeps it invisible to task scans.
+/// The CLI's write paths are sequential, so two in-process writers staging
+/// the same destination do not occur; if one ever does, the exclusive
+/// creation fails loudly rather than letting the writers interleave.
 ///
 /// # Errors
 ///
@@ -88,9 +95,16 @@ pub(crate) fn atomic_write(path: &std::path::Path, contents: &str) -> anyhow::Re
     let Some(name) = path.file_name() else {
         anyhow::bail!("{} has no file name to stage a write under", path.display());
     };
-    let staging = path.with_file_name(format!(".{}.tmp", name.to_string_lossy()));
-    let mut handle =
-        std::fs::File::create(&staging).with_context(|| format!("staging {}", path.display()))?;
+    let staging = path.with_file_name(format!(
+        ".{}.{}.tmp",
+        name.to_string_lossy(),
+        std::process::id()
+    ));
+    let mut handle = std::fs::OpenOptions::new()
+        .write(true)
+        .create_new(true)
+        .open(&staging)
+        .with_context(|| format!("staging {}", path.display()))?;
     if let Err(err) = handle
         .write_all(contents.as_bytes())
         .and_then(|()| handle.sync_all())

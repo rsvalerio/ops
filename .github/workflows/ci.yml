@@ -215,6 +215,11 @@ jobs:
       RUSTC_WRAPPER: ""
     steps:
       - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
+        with:
+          # No git operations run in this job; the persist-credentials
+          # default would leave the token in .git/config for every later
+          # step, mirroring the miri-run tests' untrusted-input posture.
+          persist-credentials: false
       - uses: actions-rust-lang/setup-rust-toolchain@166cdcfd11aee3cb47222f9ddb555ce30ddb9659 # v1.17.0
         with:
           toolchain: nightly

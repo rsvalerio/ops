@@ -203,6 +203,34 @@ mod tests {
         assert_eq!(truncate_to_width("a\rb", 10), "ab");
     }
 
+    /// A C0 control can hide inside a *raw* run — an escape introducer whose
+    /// sequence never terminated, with the scan swallowing the control while
+    /// chasing it (`"\x1b(\r"`). The Char arm has always dropped such
+    /// controls; the Raw arm must apply the same filter instead of pushing
+    /// the run verbatim, or the surviving CR/LF could repaint the terminal
+    /// from inside a "measured" string. The introducer itself is a droppable
+    /// control and goes with it; the non-control bytes of the run survive.
+    #[test]
+    fn truncate_to_width_drops_controls_inside_raw_runs() {
+        // `ESC (` never terminates before the CR, so `\x1b(\r` is one raw
+        // run; filtering leaves `(` and the visible text.
+        assert_eq!(truncate_to_width("\x1b(\rtext", 10), "(text");
+        // The same input under truncation keeps the filter, still marks
+        // the cut, and — the raw run counted as an escape — is reset after
+        // the cut: body budget 2 → "(", "t", "e", then the ellipsis.
+        assert_eq!(truncate_to_width("\x1b(\rtext", 3), "(te\u{2026}\x1b[0m");
+        // No swallowed C0 control survives at any budget. (The appended
+        // reset's ESC is policy — escapes and resets are preserved — so the
+        // invariant is CR/LF, the bytes that would forge new lines.)
+        for cols in [0, 1, 3, 10] {
+            let out = truncate_to_width("\x1b(\rte\nxt", cols);
+            assert!(
+                !out.chars().any(|c| matches!(c, '\r' | '\n')),
+                "control survived at {cols} cols: {out:?}"
+            );
+        }
+    }
+
     #[test]
     fn visible_width_matches_display_width_of_stripped() {
         use ops_core::output::display_width;

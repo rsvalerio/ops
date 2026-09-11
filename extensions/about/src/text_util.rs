@@ -3,9 +3,6 @@
 //! Stack-agnostic helpers used by about subpages across stacks.
 
 use ops_core::output::{detect_terminal_width, display_width};
-// API-13 / TASK-2072: crate-private alias so sibling modules can share the
-// import without giving a foreign ops-core item a second public path.
-pub(crate) use ops_core::text::format_number;
 use std::io::IsTerminal;
 use unicode_segmentation::UnicodeSegmentation;
 

@@ -218,7 +218,17 @@ impl Store {
                     return Err(anyhow::anyhow!("reading {}: {err}", dir_path.display()));
                 }
             };
-            for entry in read.flatten() {
+            // A directory-entry read failure (EIO, permissions surfacing
+            // mid-iteration) is the directory being unreadable, not a
+            // damaged neighbour file — surface it rather than let a partial
+            // scan read as "not found".
+            for entry in read {
+                let entry = match entry {
+                    Ok(entry) => entry,
+                    Err(err) => {
+                        return Err(anyhow::anyhow!("reading {}: {err}", dir_path.display()));
+                    }
+                };
                 let path = entry.path();
                 if path.extension().and_then(|e| e.to_str()) != Some("md") {
                     continue;

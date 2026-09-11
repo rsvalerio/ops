@@ -675,7 +675,7 @@ mod resolve_tests {
     /// PERF-3 / TASK-1171: exercises the pure [`resolve_env_usize`] helper
     /// directly because the public `resolve_max_parallel` now memoises and
     /// would observe whichever value was cached by the first caller.
-    #[serial_test::serial(env_max_parallel)]
+    #[serial_test::serial(env_output_cap)]
     #[test]
     fn resolve_max_parallel_clamps_above_ceiling() {
         let prev = std::env::var_os("OPS_MAX_PARALLEL");
@@ -697,7 +697,7 @@ mod resolve_tests {
         );
     }
 
-    #[serial_test::serial(env_max_parallel)]
+    #[serial_test::serial(env_output_cap)]
     #[test]
     fn resolve_max_parallel_falls_back_on_zero_or_unparseable() {
         let prev = std::env::var_os("OPS_MAX_PARALLEL");
@@ -727,7 +727,7 @@ mod resolve_tests {
     /// Runs in its own serial group so the cache snapshot is captured
     /// before any other test in this binary mutates `OPS_MAX_PARALLEL`
     /// without serial coordination.
-    #[serial_test::serial(env_max_parallel)]
+    #[serial_test::serial(env_output_cap)]
     #[test]
     fn resolve_max_parallel_is_memoised_across_env_mutation() {
         let prev = std::env::var_os("OPS_MAX_PARALLEL");
@@ -771,7 +771,7 @@ mod resolve_tests {
 
     /// ERR-1 / TASK-1092 AC-2: an empty-string env var (`OPS_MAX_PARALLEL=`)
     /// is treated as unset, not as an "unparseable value = \"\"" warning.
-    #[serial_test::serial(env_max_parallel)]
+    #[serial_test::serial(env_output_cap)]
     #[test]
     fn resolve_max_parallel_treats_empty_as_unset() {
         let prev = std::env::var_os("OPS_MAX_PARALLEL");

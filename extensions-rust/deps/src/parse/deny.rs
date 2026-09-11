@@ -83,6 +83,21 @@ pub fn interpret_deny_result(exit_code: Option<i32>, stderr: &str) -> anyhow::Re
         // and the guard is a no-op.
         Some(0) => {
             let (parsed, diag) = parse_deny_output_inner(stderr);
+            // Fail closed on a non-empty stream that decoded *nothing* —
+            // not even a `log` / `summary` envelope. A warning printed as
+            // plain text (a wrapper around cargo-deny, a future default
+            // output change) is not a clean run; scoring it green would be
+            // the same silent muting the exit-1 zero-diagnostics guard
+            // below exists to prevent. A stream whose every line decoded
+            // as an envelope stays accepted, warnings included.
+            if !stderr.trim().is_empty() && diag.envelopes_seen == 0 {
+                anyhow::bail!(
+                    "cargo deny exited with status 0 but stderr carried no decodable JSON \
+                     envelopes; refusing to score as clean — likely non-JSON (text-mode) \
+                     output. stderr (truncated): {:?}",
+                    truncate_for_log(stderr.trim())
+                );
+            }
             check_partial_decode_loss(&diag, stderr)?;
             Ok(parsed)
         }
@@ -144,6 +159,10 @@ pub fn interpret_deny_result(exit_code: Option<i32>, stderr: &str) -> anyhow::Re
 /// emitted zero entries" is the shape of drift the result value alone cannot
 /// express.
 struct DenyParseDiagnostics {
+    /// Lines that decoded as a cargo-deny JSON envelope of *any* `type`
+    /// (`diagnostic`, `log`, `summary`, …). Zero envelopes from a non-empty
+    /// stream means the output was not the `--format json` contract at all.
+    envelopes_seen: usize,
     /// Lines whose envelope decoded with `type == "diagnostic"` — cargo-deny
     /// telling us "this is a finding". `log` / `summary` envelopes and
     /// unparseable lines are excluded: they are not findings, so counting
@@ -271,7 +290,13 @@ struct DecodedDiagnostic {
 /// cargo-deny is not claiming a finding on those.
 fn decode_diagnostic(trimmed: &str, diag: &mut DenyParseDiagnostics) -> Option<DecodedDiagnostic> {
     let deny_line: DenyLine = match serde_json::from_str(trimmed) {
-        Ok(l) => l,
+        Ok(l) => {
+            // Counted before the `line_type` dispatch: even a `log` /
+            // `summary` envelope is evidence the stream *is* the JSON
+            // contract, which is what the exit-0 zero-envelope guard reads.
+            diag.envelopes_seen = diag.envelopes_seen.saturating_add(1);
+            l
+        }
         Err(e) => {
             tracing::debug!(
                 error = %e,
@@ -399,6 +424,7 @@ pub fn parse_deny_output(stderr: &str) -> DenyResult {
 fn parse_deny_output_inner(stderr: &str) -> (DenyResult, DenyParseDiagnostics) {
     let mut result = DenyResult::default();
     let mut counts = DenyParseDiagnostics {
+        envelopes_seen: 0,
         candidate_diagnostics: 0,
         entries_emitted: 0,
     };

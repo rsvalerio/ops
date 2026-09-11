@@ -9,9 +9,8 @@ use ops_core::style::{cyan, dim, grey, white};
 
 #[cfg(test)]
 use crate::text_util::get_terminal_width;
-use crate::text_util::{
-    format_number, pad_to_width_plain, truncate_to_width, tty_style, wrap_text,
-};
+use crate::text_util::{pad_to_width_plain, truncate_to_width, tty_style, wrap_text};
+use ops_core::text::format_number;
 
 /// Layout constants for about pages.
 ///

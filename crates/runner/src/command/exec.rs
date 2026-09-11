@@ -992,13 +992,13 @@ mod drain_grace_knob_tests {
     }
 
     #[test]
-    #[serial_test::serial(env_drain_grace)]
+    #[serial_test::serial(env_output_cap)]
     fn unset_uses_the_default() {
         assert_eq!(resolve(None), drain_grace_bounds().0);
     }
 
     #[test]
-    #[serial_test::serial(env_drain_grace)]
+    #[serial_test::serial(env_output_cap)]
     fn a_valid_value_is_honoured() {
         assert_eq!(resolve(Some("30")), 30);
     }
@@ -1006,7 +1006,7 @@ mod drain_grace_knob_tests {
     /// CONC-9 / TASK-2022 AC #2: an unparseable or zero value falls back to
     /// the default rather than silently disabling the deadline.
     #[test]
-    #[serial_test::serial(env_drain_grace)]
+    #[serial_test::serial(env_output_cap)]
     fn unusable_values_fall_back_to_the_default() {
         let default = drain_grace_bounds().0;
         assert_eq!(resolve(Some("later")), default);
@@ -1016,7 +1016,7 @@ mod drain_grace_knob_tests {
 
     /// An operator cannot restore the unbounded pre-TASK-1919 hang.
     #[test]
-    #[serial_test::serial(env_drain_grace)]
+    #[serial_test::serial(env_output_cap)]
     fn out_of_range_clamps_to_the_ceiling() {
         assert_eq!(
             resolve(Some("999999")),

@@ -90,8 +90,11 @@ macro_rules! impl_extension {
         // unsafe tokens the compiler counts into the invoking crate. The
         // allow must live here, on the generated item: rustc ignores
         // `#[allow]` applied to the macro *invocation*. In crates where
-        // `unsafe_code` is not denied this is inert; under `forbid` it is
-        // overridden anyway (forbid cannot be lifted).
+        // `unsafe_code` is not denied this is inert. Note the expansion
+        // requires `deny(unsafe_code)` or a less restrictive level in the
+        // invoking crate: under `forbid(unsafe_code)` the generated
+        // `#[allow]` is itself rejected (E0451 — an allow cannot override a
+        // forbid).
         #[allow(unsafe_code)]
         #[linkme::distributed_slice($crate::EXTENSION_REGISTRY)]
         static $factory_ident: $crate::ExtensionFactory = $factory_fn;

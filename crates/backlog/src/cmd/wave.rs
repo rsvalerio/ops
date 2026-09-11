@@ -648,9 +648,11 @@ mod tests {
     fn a_failing_write_reports_what_already_landed() {
         let (dir, store) = scratch(&old_shape());
         // Writes run member-first: task-0120, task-0121, then the wave. A
-        // directory squatting on the second write's staging path makes its
-        // staging `File::create` fail after the first member landed.
-        std::fs::create_dir(dir.path().join(".backlog/tasks/.task-0121 - stray.md.tmp"))
+        // directory squatting on the second write's staging path — the
+        // predictable `.<name>.<pid>.tmp` this process stages under — makes
+        // its exclusive `create_new` fail after the first member landed.
+        let staging_squat = format!(".task-0121 - stray.md.{}.tmp", std::process::id());
+        std::fs::create_dir(dir.path().join(".backlog/tasks").join(staging_squat))
             .expect("block the staging path");
 
         let err = migrate(&store, false, "y\n").expect_err("staging blocked");

@@ -375,15 +375,22 @@ impl Context {
         Ok(v)
     }
 
-    /// ARCH-9 / TASK-1128: drop every cached provider result and any
-    /// in-flight markers. The runner calls this from
-    /// `register_data_providers` so swapping in a new [`DataRegistry`] does
-    /// not leave callers reading values produced by the previous registry's
-    /// providers (or by a different implementation registered under the same
-    /// name).
+    /// ARCH-9 / TASK-1128: drop every cached provider result. The runner
+    /// calls this from `register_data_providers` so swapping in a new
+    /// [`DataRegistry`] does not leave callers reading values produced by
+    /// the previous registry's providers (or by a different implementation
+    /// registered under the same name).
+    ///
+    /// In-flight markers are deliberately **not** cleared: they are owned by
+    /// the [`Context::enter_provider`] / [`Context::exit_provider`] guard
+    /// pairs inside [`DataRegistry::provide`], and a quiescent context has
+    /// none — the Drop guard removes each one on every exit path. Blanket
+    /// clearing them here would strip an *active* cycle guard if a
+    /// registration ran while a dispatch was on the stack, converting a
+    /// re-entrant provider's [`DataProviderError::Cycle`] back into the
+    /// unbounded recursion the guard exists to prevent.
     pub fn clear_provider_results(&mut self) {
         self.data_cache.clear();
-        self.in_flight.clear();
     }
 }
 

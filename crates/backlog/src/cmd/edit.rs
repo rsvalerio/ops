@@ -164,7 +164,9 @@ fn apply_body_edits(doc: &mut crate::model::TaskDoc, opts: &EditOptions) -> anyh
 /// no-clobber claim `cleanup`'s move-to-completed makes. A crash between
 /// the claim and the removal of the old name leaves both files carrying
 /// the task — re-running the same edit rewrites the new slug and drops the
-/// old name — recoverable, never destructive.
+/// old name — recoverable, never destructive. A write that *fails* (as
+/// opposed to a crash) drops the claim before returning, so only the old
+/// file remains.
 ///
 /// # Errors
 ///
@@ -198,7 +200,25 @@ fn rename_to_new_slug(
             });
         }
     }
-    atomic_write(&new_path, rendered)?;
+    if let Err(write_err) = atomic_write(&new_path, rendered) {
+        if new_path != old_path {
+            // The no-clobber claim above left a hard link at the new slug
+            // aliasing the *old* content. Drop it so a failed write leaves
+            // the store as it was found — only the old file — instead of
+            // stranding a stale duplicate under the new name. Every failure
+            // mode of `atomic_write` aborts before the rename, so the link
+            // (not a half-written document) is what sits at `new_path`.
+            // The write error is the actionable one; a failed cleanup is
+            // appended to it rather than replacing it.
+            if let Err(cleanup_err) = std::fs::remove_file(&new_path) {
+                return Err(write_err).context(format!(
+                    "also failed to remove the claimed {}: {cleanup_err}",
+                    new_path.display()
+                ));
+            }
+        }
+        return Err(write_err);
+    }
     if new_path != old_path {
         std::fs::remove_file(old_path)
             .with_context(|| format!("removing {}", old_path.display()))?;

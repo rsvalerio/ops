@@ -545,10 +545,12 @@ fn with_path(e: &std::io::Error, path: &Path) -> std::io::Error {
 /// `Cc` / `Cf` / `Zl` / `Zp` — `char::is_control` matches `Cc` completely
 /// (C0, DEL, and C1), so no separate ASCII byte pass is required: every
 /// ASCII control byte is a single-byte `char`, and multi-byte sequences
-/// never contain bytes below `0x80`. On top of the categories, the explicit
-/// list pins the most-abused formatting codepoints (zero-width family, BOM,
-/// bidi overrides and isolates, line / paragraph separators) that share
-/// categories with innocuous characters or sit just outside `Cc`.
+/// never contain bytes below `0x80`. `Cf` is carried as the exhaustive
+/// Unicode 16.0 range table (see the comment at the match), so the
+/// zero-width family, BOM, the bidi overrides and isolates, and the newer
+/// script-specific format controls are all rejected by construction; `Zl` /
+/// `Zp` (line / paragraph separators) are pinned explicitly since they are
+/// not part of `Cf`.
 ///
 /// DUP-2 / TASK-2116: promoted from `ops-git`'s strictest copy so
 /// `ops-git`, `ops-about`, and every About provider that renders
@@ -560,18 +562,41 @@ pub const fn is_unsafe_display_char(c: char) -> bool {
     if c.is_control() {
         return true;
     }
+    // The Cf (format) category, exhaustive, generated from the Unicode 16.0
+    // UCD (`DerivedGeneralCategory.txt`, lines tagged `Cf`). A hand-picked
+    // "most-abused" subset was here before; it missed e.g. U+061C (Arabic
+    // Letter Mark), a live bidi spoof, and every Unicode bump silently
+    // widened the gap. Regenerate the ranges from the UCD when Unicode
+    // moves; until then this list is the whole category, so the bidi
+    // overrides and isolates, the zero-width family, BOM, the interlinear
+    // annotation controls and the tag characters are all covered by
+    // construction rather than by enumeration.
     matches!(
         c,
-        // Zero-width family + ZWNJ / ZWJ + word joiner.
-        '\u{200B}' | '\u{200C}' | '\u{200D}' | '\u{2060}'
-        // BOM / specials.
-        | '\u{FEFF}'
-        // Bidi formatting characters: LRM/RLM, LRE/RLE/PDF, LRO/RLO.
-        | '\u{200E}' | '\u{200F}'
-        | '\u{202A}' | '\u{202B}' | '\u{202C}' | '\u{202D}' | '\u{202E}'
-        // Bidi isolates.
-        | '\u{2066}' | '\u{2067}' | '\u{2068}' | '\u{2069}'
-        // Unicode line / paragraph separators (Zl / Zp).
+        '\u{00AD}' // SOFT HYPHEN
+        | '\u{0600}'..='\u{0605}' // Arabic number signs
+        | '\u{061C}' // ARABIC LETTER MARK (bidi)
+        | '\u{06DD}' // Arabic end-of-ayah mark
+        | '\u{070F}' // Syriac abbreviation mark
+        | '\u{0890}'..='\u{0891}' // Arabic pound/piastre marks
+        | '\u{08E2}' // Arabic disputed end of ayah
+        | '\u{180E}' // Mongolian vowel separator
+        | '\u{200B}'..='\u{200F}' // zero-width family + LRM / RLM
+        | '\u{202A}'..='\u{202E}' // bidi embeddings + overrides + PDF
+        | '\u{2060}'..='\u{2064}' // word joiner, invisible operators
+        | '\u{2066}'..='\u{206F}' // bidi isolates + deprecated set
+        | '\u{FEFF}' // ZERO WIDTH NO-BREAK SPACE (BOM)
+        | '\u{FFF9}'..='\u{FFFB}' // interlinear annotation
+        | '\u{110BD}' // Kaithi number sign
+        | '\u{110CD}' // Kaithi number sign above
+        | '\u{13430}'..='\u{1343F}' // Egyptian format controls
+        | '\u{1BCA0}'..='\u{1BCA3}' // shorthand format controls
+        | '\u{1D173}'..='\u{1D17A}' // musical format controls
+        | '\u{E0001}' // LANGUAGE TAG
+        | '\u{E0020}'..='\u{E007F}' // tag characters
+        // Zl / Zp — line and paragraph separators are newlines to terminals
+        // and report lines; they are their own categories, not Cf, so they
+        // are pinned explicitly.
         | '\u{2028}' | '\u{2029}'
     )
 }
@@ -742,6 +767,39 @@ mod tests {
         // Line / paragraph separators (Zl / Zp).
         for c in ['\u{2028}', '\u{2029}'] {
             assert!(is_unsafe_display_char(c), "{c:?} must be rejected");
+        }
+        // Codepoints the previous hand-picked list missed — the gap the
+        // exhaustive Unicode 16.0 Cf table closed. U+061C (Arabic Letter
+        // Mark) is a live bidi spoof; the rest are first/last members of
+        // the newly covered Cf ranges.
+        for c in [
+            '\u{061C}', // ARABIC LETTER MARK
+            '\u{00AD}', // SOFT HYPHEN
+            '\u{0600}',
+            '\u{0605}',
+            '\u{08E2}',
+            '\u{180E}',
+            '\u{2064}',
+            '\u{206F}',
+            '\u{FFFB}',
+            '\u{1343F}',
+            '\u{1D17A}',
+            '\u{E0001}',
+            '\u{E007F}',
+        ] {
+            assert!(is_unsafe_display_char(c), "{c:?} must be rejected");
+        }
+        // Boundaries: codepoints just outside the Cf ranges are ordinary
+        // text and must stay accepted.
+        for c in [
+            '\u{00AE}',  // just past SOFT HYPHEN (00AD)
+            '\u{0606}',  // just past the Arabic number signs (0600..0605)
+            '\u{0892}',  // just past 0890..0891
+            '\u{200A}',  // just below the zero-width family (200B..)
+            '\u{FFFC}',  // OBJECT REPLACEMENT CHARACTER is not Cf
+            '\u{110BC}', // just past the Kaithi number sign (110BD)
+        ] {
+            assert!(!is_unsafe_display_char(c), "{c:?} must be accepted");
         }
     }
 

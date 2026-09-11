@@ -374,13 +374,32 @@ pub fn truncate_to_width(s: &str, max_cols: usize) -> Cow<'_, str> {
     let mut truncated = false;
     for piece in ansi_pieces(s) {
         let c = match piece {
-            // Raw pieces are escape-shaped (they begin with the introducer)
-            // and cost no columns; preserving them keeps the truncated
-            // bytes observable, the same reasoning as
-            // strip_ansi_preserving_raw.
-            AnsiPiece::Escape(seq) | AnsiPiece::Raw(seq) => {
+            // Escape sequences cost no columns; preserving them keeps the
+            // styling of what survives intact.
+            AnsiPiece::Escape(seq) => {
                 had_escape = true;
                 out.push_str(seq);
+                continue;
+            }
+            // Raw pieces are escape-shaped *runs*: an introducer whose
+            // sequence never terminated plus whatever the bounded scan
+            // consumed chasing it — and those consumed bytes can include
+            // C0 controls (`"\x1b(\r"` swallows the CR into the run).
+            // Pushing the run verbatim would push the controls too, so the
+            // run gets the same per-character treatment the Char arm
+            // applies: droppable controls dropped, tab rewritten,
+            // everything else (the introducer included, cost-free)
+            // preserved — keeping the truncated bytes observable, the same
+            // reasoning as strip_ansi_preserving_raw.
+            AnsiPiece::Raw(seq) => {
+                had_escape = true;
+                for rc in seq.chars() {
+                    match rc {
+                        '\t' => out.push(TAB_REPLACEMENT),
+                        rc if is_droppable_control(rc) => {}
+                        rc => out.push(rc),
+                    }
+                }
                 continue;
             }
             AnsiPiece::Char('\t') => TAB_REPLACEMENT,

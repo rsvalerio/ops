@@ -125,7 +125,12 @@ async fn run_sequential_composite() {
 /// capture when the plan returns. That is exactly the property the old doc
 /// denied, and the property an operator dialing `OPS_MAX_PARALLEL` down
 /// cannot change.
+/// Reads `output_byte_cap()` — memoized from `OPS_OUTPUT_BYTE_CAP` on first
+/// call — so this test must hold the same `serial_test` lock as every other
+/// env-touching test in the crate (`env_output_cap`): a sibling test setting
+/// the env var first would fix the memoized value this assertion reads.
 #[tokio::test]
+#[serial_test::serial(env_output_cap)]
 async fn retained_capture_bytes_scale_with_plan_length() {
     const STEPS: usize = 8;
     let line = "retained";
@@ -142,21 +147,24 @@ async fn retained_capture_bytes_scale_with_plan_length() {
 
     assert_eq!(results.len(), STEPS);
     assert!(results.iter().all(|r| r.success));
+    // Test-only tallies over tiny known sizes; the saturating forms keep
+    // them total under the workspace `arithmetic_side_effects` lint, which
+    // the `serial_test` expansion surfaces in this fn.
     let retained: usize = results
         .iter()
-        .map(|r| r.stdout.len() + r.stderr.len())
+        .map(|r| r.stdout.len().saturating_add(r.stderr.len()))
         .sum();
     // Every step keeps its own capture: `echo` writes the line plus a
     // newline, and nothing releases it before the plan returns.
     assert_eq!(
         retained,
-        STEPS * (line.len() + 1),
+        STEPS.saturating_mul(line.len().saturating_add(1)),
         "each step must still hold its own capture when the plan returns"
     );
     // ... and the documented plan-length bound holds over it.
     let cap = crate::command::results::output_byte_cap();
     assert!(
-        retained <= STEPS * 2 * cap,
+        retained <= STEPS.saturating_mul(2).saturating_mul(cap),
         "retention must stay within the documented steps x 2 x cap bound"
     );
 }

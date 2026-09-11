@@ -95,6 +95,33 @@ fn interpret_deny_result_passes_exit_code_0_through() {
     assert!(result.sources.is_empty());
 }
 
+/// Exit 0 with a non-empty stream that decoded **no** JSON envelopes at
+/// all — a plain-text warning from a wrapper or a forgotten `--format
+/// json` — must not score green. The stream is not the contract the parser
+/// understands, and accepting it would be the exit-0 twin of the
+/// zero-diagnostics-at-exit-1 silent muting.
+#[test]
+fn interpret_deny_result_errs_on_exit_code_0_with_non_json_stderr() {
+    let result = interpret_deny_result(Some(0), "warning: cargo-deny cache not found\n");
+    let err = result.expect_err("a non-JSON stream at exit 0 must not score as clean");
+    let msg = err.to_string();
+    assert!(
+        msg.contains("no decodable JSON envelopes"),
+        "error must name the zero-envelope refusal; got: {msg}"
+    );
+}
+
+/// The zero-envelope guard must not fire on a stream that *is* the JSON
+/// contract: `log` / `summary` envelopes are not findings, but they prove
+/// the output mode, so an exit-0 run carrying only those stays `Ok`.
+#[test]
+fn interpret_deny_result_accepts_log_envelopes_on_exit_code_0() {
+    let stderr = r#"{"type":"log","fields":{"level":"warn","message":"no advisory database found"}}
+{"type":"summary","fields":{"errors":0,"warnings":1}}"#;
+    let result = interpret_deny_result(Some(0), stderr).expect("envelope-carrying run is Ok");
+    assert!(result.advisories.is_empty());
+}
+
 /// Exit 0 with *decodable* warning-level findings —
 /// the dominant `ops deps` shape (`multiple-versions`, `unmaintained`,
 /// `yanked` at `warn` all exit 0) — must parse and stay `Ok`.

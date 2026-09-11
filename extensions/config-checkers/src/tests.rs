@@ -13,6 +13,15 @@ use super::{
     FailureKind, NAME, SHORTNAME,
 };
 
+/// Resolve a tempdir root through its symlinked prefix (macOS: `/var` →
+/// `/private/var`), per the caller-canonicalizes-once rule
+/// `ops_core::text::open_refusing_symlinks` documents: the shared bounded
+/// read refuses symlinked directory components, so a raw tempdir path would
+/// be refused for the prefix, not for anything the fixture set up.
+fn canon(dir: &tempfile::TempDir) -> std::path::PathBuf {
+    dir.path().canonicalize().unwrap()
+}
+
 fn write(p: &Path, content: &[u8]) {
     if let Some(parent) = p.parent() {
         std::fs::create_dir_all(parent).unwrap();
@@ -52,12 +61,12 @@ fn stage_all(root: &Path) -> bool {
 #[test]
 fn check_json_flags_only_broken_files() {
     let dir = tempfile::tempdir().unwrap();
-    let root = dir.path();
+    let root = &canon(&dir);
     write(&root.join("ok.json"), br#"{"a": 1}"#);
     write(&root.join("bad.json"), br#"{"a": }"#);
     write(&root.join("note.txt"), br#"{"a": }"#); // wrong ext: ignored
 
-    let opts = CheckerOptions::new(root.to_path_buf(), false);
+    let opts = CheckerOptions::new(root.clone(), false);
     let mut buf = Vec::new();
     let report = run_check_json(&opts, &mut buf).unwrap();
 
@@ -69,14 +78,14 @@ fn check_json_flags_only_broken_files() {
 #[test]
 fn check_json_json5_flag_accepts_comments_and_unquoted_keys() {
     let dir = tempfile::tempdir().unwrap();
-    let root = dir.path();
+    let root = &canon(&dir);
     write(&root.join("c.json"), br#"{ /* x */ "a": 1, }"#);
 
-    let strict = CheckerOptions::new(root.to_path_buf(), false);
+    let strict = CheckerOptions::new(root.clone(), false);
     let mut buf = Vec::new();
     assert!(run_check_json(&strict, &mut buf).unwrap().failed());
 
-    let lenient = CheckerOptions::new(root.to_path_buf(), false).with_allow_json5(true);
+    let lenient = CheckerOptions::new(root.clone(), false).with_allow_json5(true);
     let mut buf = Vec::new();
     assert!(!run_check_json(&lenient, &mut buf).unwrap().failed());
 }
@@ -84,12 +93,12 @@ fn check_json_json5_flag_accepts_comments_and_unquoted_keys() {
 #[test]
 fn check_yaml_flags_only_broken_files() {
     let dir = tempfile::tempdir().unwrap();
-    let root = dir.path();
+    let root = &canon(&dir);
     write(&root.join("ok.yaml"), b"a: 1\nb: 2\n");
     write(&root.join("multi.yml"), b"a: 1\n---\nb: 2\n");
     write(&root.join("bad.yaml"), b"a: : :\n");
 
-    let opts = CheckerOptions::new(root.to_path_buf(), false);
+    let opts = CheckerOptions::new(root.clone(), false);
     let mut buf = Vec::new();
     let report = run_check_yaml(&opts, &mut buf).unwrap();
 
@@ -101,10 +110,10 @@ fn check_yaml_flags_only_broken_files() {
 #[test]
 fn extension_matching_is_case_insensitive() {
     let dir = tempfile::tempdir().unwrap();
-    let root = dir.path();
+    let root = &canon(&dir);
     write(&root.join("UPPER.JSON"), br#"{"ok": true}"#);
 
-    let opts = CheckerOptions::new(root.to_path_buf(), false);
+    let opts = CheckerOptions::new(root.clone(), false);
     let mut buf = Vec::new();
     let report = run_check_json(&opts, &mut buf).unwrap();
     assert_eq!(report.files_scanned, 1);
@@ -123,12 +132,12 @@ fn extension_constants_kebab_case() {
 #[test]
 fn oversized_files_are_skipped_not_parsed() {
     let dir = tempfile::tempdir().unwrap();
-    let root = dir.path();
+    let root = &canon(&dir);
     // A file that would fail strict JSON parse, but exceeds a tiny cap
     // — must be reported as skipped, never reach the parser.
     write(&root.join("huge.json"), b"not valid json at all");
 
-    let opts = CheckerOptions::new(root.to_path_buf(), false).with_max_bytes(4);
+    let opts = CheckerOptions::new(root.clone(), false).with_max_bytes(4);
     let mut buf = Vec::new();
     let report = run_check_json(&opts, &mut buf).unwrap();
 
@@ -143,10 +152,10 @@ fn oversized_files_are_skipped_not_parsed() {
 #[test]
 fn parse_failures_are_recorded_with_the_parse_kind() {
     let dir = tempfile::tempdir().unwrap();
-    let root = dir.path();
+    let root = &canon(&dir);
     write(&root.join("bad.json"), br#"{"a": }"#);
 
-    let opts = CheckerOptions::new(root.to_path_buf(), false);
+    let opts = CheckerOptions::new(root.clone(), false);
     let mut buf = Vec::new();
     let report = run_check_json(&opts, &mut buf).unwrap();
 
@@ -176,12 +185,12 @@ fn unreadable_file_is_reported_as_a_read_failure_not_a_parse_failure() {
     }
 
     let dir = tempfile::tempdir().unwrap();
-    let root = dir.path();
+    let root = &canon(&dir);
     let p = root.join("locked.json");
     write(&p, br#"{"a": 1}"#);
     std::fs::set_permissions(&p, std::fs::Permissions::from_mode(0o000)).unwrap();
 
-    let opts = CheckerOptions::new(root.to_path_buf(), false);
+    let opts = CheckerOptions::new(root.clone(), false);
     let mut buf = Vec::new();
     let report = run_check_json(&opts, &mut buf).unwrap();
 
@@ -203,14 +212,14 @@ fn unreadable_file_is_reported_as_a_read_failure_not_a_parse_failure() {
 #[test]
 fn tracked_only_validates_the_files_git_lists() {
     let dir = tempfile::tempdir().unwrap();
-    let root = dir.path();
+    let root = &canon(&dir);
     write(&root.join("ok.json"), br#"{"a": 1}"#);
     write(&root.join("bad.json"), br#"{"a": }"#);
     if !stage_all(root) {
         return; // no git: `discover` would fall back to the walk
     }
 
-    let opts = CheckerOptions::new(root.to_path_buf(), true);
+    let opts = CheckerOptions::new(root.clone(), true);
     let mut buf = Vec::new();
     let report = run_check_json(&opts, &mut buf).unwrap();
 
@@ -222,7 +231,7 @@ fn tracked_only_validates_the_files_git_lists() {
 #[test]
 fn tracked_but_deleted_file_is_skipped_rather_than_failing_the_hook() {
     let dir = tempfile::tempdir().unwrap();
-    let root = dir.path();
+    let root = &canon(&dir);
     write(&root.join("ok.json"), br#"{"a": 1}"#);
     write(&root.join("gone.json"), br#"{"a": 1}"#);
     if !stage_all(root) {
@@ -232,7 +241,7 @@ fn tracked_but_deleted_file_is_skipped_rather_than_failing_the_hook() {
     // sparse checkout) still lists the path. That is not a parse failure.
     std::fs::remove_file(root.join("gone.json")).unwrap();
 
-    let opts = CheckerOptions::new(root.to_path_buf(), true);
+    let opts = CheckerOptions::new(root.clone(), true);
     let mut buf = Vec::new();
     let report = run_check_json(&opts, &mut buf).unwrap();
 
@@ -256,7 +265,7 @@ fn tracked_symlink_to_a_character_device_is_never_a_candidate() {
     }
 
     let dir = tempfile::tempdir().unwrap();
-    let root = dir.path();
+    let root = &canon(&dir);
     write(&root.join("ok.json"), br#"{"a": 1}"#);
     // A committed symlink to an endless device: `metadata()` reports length
     // 0, so a size gate lets it past, and an unbounded read never reaches
@@ -272,7 +281,7 @@ fn tracked_symlink_to_a_character_device_is_never_a_candidate() {
         return;
     }
 
-    let opts = CheckerOptions::new(root.to_path_buf(), true);
+    let opts = CheckerOptions::new(root.clone(), true);
     let mut buf = Vec::new();
     let report = run_check_json(&opts, &mut buf).unwrap();
 
@@ -366,10 +375,10 @@ impl Write for FailingWriter {
 #[test]
 fn writer_errors_propagate() {
     let dir = tempfile::tempdir().unwrap();
-    let root = dir.path();
+    let root = &canon(&dir);
     write(&root.join("bad.json"), br#"{"a": }"#);
 
-    let opts = CheckerOptions::new(root.to_path_buf(), false);
+    let opts = CheckerOptions::new(root.clone(), false);
     let mut w = FailingWriter;
     let err = run_check_json(&opts, &mut w).unwrap_err();
     assert!(

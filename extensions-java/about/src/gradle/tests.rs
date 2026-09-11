@@ -667,7 +667,10 @@ fn gradle_units_length_equals_identity_module_count() {
     )
     .unwrap();
 
-    let mut ctx = ops_extension::Context::test_context(dir.path().to_path_buf());
+    // canon(): the units provider joins the include paths onto the working
+    // directory, and on macOS the symlinked `/var` tempdir prefix must be
+    // resolved first (same rule as every other test in this module).
+    let mut ctx = ops_extension::Context::test_context(canon(&dir));
     let identity = GradleIdentityProvider.provide(&mut ctx).unwrap();
     let units: Vec<ops_core::project_identity::ProjectUnit> =
         serde_json::from_value(GradleUnitsProvider.provide(&mut ctx).unwrap()).unwrap();

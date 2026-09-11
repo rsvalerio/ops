@@ -67,13 +67,15 @@ pub fn normalize_repo_url(raw: &str) -> std::borrow::Cow<'_, str> {
 /// userinfo (`user@host` or `user:pass@host`) —
 /// everything before the `@` is not the host, so a value like
 /// `github.com@evil.com` presents a github-looking authority whose
-/// effective host is `evil.com`. The authority ends at the first `/`;
-/// anything after it is path, where `@` is legitimate.
+/// effective host is `evil.com`. Per RFC 3986 the authority ends at the
+/// first `/`, `?` or `#`; anything after those is path, query or fragment,
+/// where `@` is legitimate (branch names, mailto-shaped filters) and must
+/// not drop the field.
 fn authority_has_userinfo(url: &str) -> bool {
     let Some((_, rest)) = url.split_once("://") else {
         return false;
     };
-    let authority = rest.split('/').next().unwrap_or("");
+    let authority = rest.split(['/', '?', '#']).next().unwrap_or("");
     authority.contains('@')
 }
 
@@ -704,6 +706,22 @@ mod tests {
         assert_eq!(
             normalize_repo_url("https://github.com/o/r/tree/HEAD/user@example.com"),
             "https://github.com/o/r/tree/HEAD/user@example.com"
+        );
+    }
+
+    /// An `@` in the **query** or **fragment** — the parts after the
+    /// authority's `?` / `#` delimiters — is legitimate too. The authority
+    /// ends at the first of `/`, `?` or `#` (RFC 3986), so a query-only URL
+    /// like `https://github.com?notify=a@b` must not be dropped as userinfo.
+    #[test]
+    fn normalize_keeps_query_and_fragment_ats() {
+        assert_eq!(
+            normalize_repo_url("https://github.com?assignee=a@b"),
+            "https://github.com?assignee=a@b"
+        );
+        assert_eq!(
+            normalize_repo_url("https://github.com#user@example.com"),
+            "https://github.com#user@example.com"
         );
     }
 }

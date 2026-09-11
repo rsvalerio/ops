@@ -70,7 +70,11 @@ ops_extension::impl_extension! {
 ///    bounded to a byte budget, and a stream that exceeds it is forwarded
 ///    with [`REFS_TRUNCATED_ENV_VAR`] set, which makes ops run every
 ///    configured check — never a silent skip, never a bare "Argument list
-///    too long".
+///    too long". Because `$(...)` also strips *trailing newlines*, the
+///    capture appends a non-newline sentinel byte inside the substitution
+///    and strips it after the truncation check — otherwise a stream whose
+///    byte 96001 is a newline would shrink below the check and hide the
+///    truncation.
 const HOOK_SCRIPT: &str = ops_hook_common::hook_script! {
     name: "run-before-push",
     hook_filename: "pre-push",
@@ -85,22 +89,32 @@ const HOOK_SCRIPT: &str = ops_hook_common::hook_script! {
         "#   and the empty stream skips every configured check downstream.\n",
         "# - execve caps one environment string at 131072 bytes, so a whole-stream\n",
         "#   capture would die at exec with E2BIG on pushes beyond ~1000 refs. The\n",
-        "#   read is bounded to 96000 bytes plus one sentinel byte: a result longer\n",
-        "#   than the budget means the stream was truncated, which sets the\n",
+        "#   read is bounded to 96000 bytes plus one probe byte. Command\n",
+        "#   substitution strips trailing newlines, so a stream whose bytes\n",
+        "#   1..=96000 are refs and byte 96001 is a newline would otherwise\n",
+        "#   shrink below the length check and hide the truncation; appending a\n",
+        "#   non-newline sentinel byte inside the substitution (then stripping it\n",
+        "#   after the check) keeps the captured length honest, while `exit $ret`\n",
+        "#   still propagates head's status. A value longer than 96001 with the\n",
+        "#   sentinel attached means the stream was truncated, which sets the\n",
         "#   truncation marker below so ops runs every configured check instead of\n",
         "#   classifying a prefix.\n",
-        "OPS_PRE_PUSH_REFS=$(head -c 96001)\n",
+        "OPS_PRE_PUSH_REFS=\"$(head -c 96001; ret=$?; printf x; exit $ret)\"\n",
         "capture_status=$?\n",
         "if [ \"$capture_status\" -ne 0 ]; then\n",
         "    echo \"pre-push: failed to read git's ref-update stream (head exited with status $capture_status); refusing to skip the configured checks.\" >&2\n",
         "    exit 1\n",
         "fi\n",
-        "if [ \"${#OPS_PRE_PUSH_REFS}\" -gt 96000 ]; then\n",
+        "if [ \"${#OPS_PRE_PUSH_REFS}\" -gt 96001 ]; then\n",
         "    OPS_PRE_PUSH_REFS_TRUNCATED=1\n",
         "    echo \"pre-push: ref-update stream exceeds the 96000-byte capture budget; running all configured checks.\" >&2\n",
         "else\n",
         "    OPS_PRE_PUSH_REFS_TRUNCATED=\n",
         "fi\n",
+        "# Strip the sentinel byte appended inside the capture; it has served its\n",
+        "# purpose (preserving trailing newlines through the substitution) and must\n",
+        "# not reach ops as stream content.\n",
+        "OPS_PRE_PUSH_REFS=\"${OPS_PRE_PUSH_REFS%x}\"\n",
         "export OPS_PRE_PUSH_REFS OPS_PRE_PUSH_REFS_TRUNCATED\n",
         "exec ops run-before-push </dev/null\n",
 };
@@ -438,9 +452,17 @@ mod tests {
             stdout.contains("stdin=[]"),
             "spawned command must observe EOF on stdin, got: {stdout}"
         );
+        // The sentinel byte preserves trailing newlines through the command
+        // substitution, so the forwarded value keeps git's line terminator.
         assert!(
-            stdout.contains(&format!("refs=[{line}]")),
-            "ref updates must reach ops through {REF_UPDATES_ENV_VAR}, got: {stdout}"
+            stdout.contains(&format!("refs=[{line}\n]")),
+            "ref updates must reach ops through {REF_UPDATES_ENV_VAR} with their\n\
+             trailing newline intact, got: {stdout:?}"
+        );
+        // …and the sentinel byte itself must not survive into the value.
+        assert!(
+            !stdout.contains(&format!("refs=[{line}\nx")),
+            "the sentinel byte must be stripped before export, got: {stdout:?}"
         );
     }
 
@@ -578,6 +600,58 @@ mod tests {
         assert_eq!(
             captured_len, 96_001,
             "the capture must stop at the budget plus the sentinel byte, stdout was: {stdout}"
+        );
+    }
+
+    /// The exact boundary the sentinel byte exists for: a stream whose byte
+    /// 96001 is a newline. Command substitution strips trailing newlines, so
+    /// without the sentinel the captured value would shrink to 96000 bytes,
+    /// read as "within budget", and the truncation marker would stay unset —
+    /// `push_refs` would then classify a prefix of an oversized push. With
+    /// the sentinel, the length check sees the full 96001 captured bytes and
+    /// the marker is set.
+    #[cfg(unix)]
+    #[test]
+    #[serial_test::serial]
+    fn hook_script_marks_truncation_when_byte_96001_is_a_newline() {
+        let dir = tempfile::tempdir().expect("tempdir");
+        fake_ops(
+            dir.path(),
+            "#!/bin/sh\nprintf 'len=%s truncated=[%s]\\n' \"${#OPS_PRE_PUSH_REFS}\" \"$OPS_PRE_PUSH_REFS_TRUNCATED\"\n",
+        );
+
+        // 96000 non-newline bytes, a newline at byte 96001, then more stream
+        // — head stops at 96001 bytes, holding exactly one trailing newline.
+        let stream = format!(
+            "{}\n{}",
+            "a".repeat(96_000),
+            "refs/heads/x 1111 refs/heads/x 2222\n"
+        );
+
+        let path_value = format!("{}:/usr/bin:/bin", dir.path().display());
+        let (status, stdout, stderr) = run_hook_script(dir.path(), &path_value, &stream, &[]);
+
+        assert_eq!(
+            status.code(),
+            Some(0),
+            "the boundary push must dispatch, not die; stderr was: {stderr}"
+        );
+        assert!(
+            stdout.contains("truncated=[1]"),
+            "a newline at byte 96001 must still read as truncation, stdout was: {stdout}"
+        );
+        // After the sentinel is stripped the forwarded value is exactly the
+        // 96001 captured bytes, newline included — not the 96000 the bare
+        // substitution would have shrunk it to.
+        let captured_len = stdout
+            .lines()
+            .find_map(|l| l.strip_prefix("len="))
+            .and_then(|l| l.split_whitespace().next())
+            .and_then(|n| n.parse::<usize>().ok())
+            .unwrap_or_default();
+        assert_eq!(
+            captured_len, 96_001,
+            "the newline at byte 96001 must survive into the env var, stdout was: {stdout}"
         );
     }
 

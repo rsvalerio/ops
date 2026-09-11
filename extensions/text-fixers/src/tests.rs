@@ -12,6 +12,15 @@ use std::path::{Path, PathBuf};
 use super::*;
 use crate::test_support::{git_add, git_init, skip_precondition, ReadOnlyDir, UnreadableFile};
 
+/// Resolve a tempdir root through its symlinked prefix (macOS: `/var` →
+/// `/private/var`), per the caller-canonicalizes-once rule
+/// `ops_core::text::open_refusing_symlinks` documents: the shared bounded
+/// read refuses symlinked directory components, so a raw tempdir path would
+/// be refused for the prefix, not for anything the fixture set up.
+fn canon(dir: &tempfile::TempDir) -> std::path::PathBuf {
+    dir.path().canonicalize().unwrap()
+}
+
 fn write(p: &Path, content: &[u8]) {
     if let Some(parent) = p.parent() {
         std::fs::create_dir_all(parent).unwrap();
@@ -36,7 +45,7 @@ fn snapshot(root: &Path) -> BTreeMap<PathBuf, Vec<u8>> {
 #[test]
 fn trailing_whitespace_rewrites_dirty_files() {
     let dir = tempfile::tempdir().unwrap();
-    let root = dir.path();
+    let root = &canon(&dir);
     write(&root.join("a.txt"), b"hello   \nworld\n");
     write(&root.join("clean.txt"), b"clean\n");
     write(&root.join("bin.dat"), b"hello\0world   ");
@@ -62,7 +71,7 @@ fn trailing_whitespace_rewrites_dirty_files() {
 #[test]
 fn eof_fixer_adds_missing_newline() {
     let dir = tempfile::tempdir().unwrap();
-    let root = dir.path();
+    let root = &canon(&dir);
     write(&root.join("a.txt"), b"hello");
     write(&root.join("b.txt"), b"hello\n");
     write(&root.join("c.txt"), b"hello\n\n\n");
@@ -79,7 +88,7 @@ fn eof_fixer_adds_missing_newline() {
 #[test]
 fn every_discovered_file_is_accounted_for() {
     let dir = tempfile::tempdir().unwrap();
-    let root = dir.path();
+    let root = &canon(&dir);
     write(&root.join("text.txt"), b"a   \n");
     write(&root.join("bin.dat"), b"a\0b");
     write(&root.join("clean.txt"), b"a\n");
@@ -102,7 +111,7 @@ fn every_discovered_file_is_accounted_for() {
 #[test]
 fn a_file_whose_write_fails_is_counted_once() {
     let dir = tempfile::tempdir().unwrap();
-    let root = dir.path();
+    let root = &canon(&dir);
     write(&root.join("dirty.txt"), b"a   \n");
 
     // Read-only root: the file is still readable and needs fixing, but the
@@ -134,7 +143,7 @@ fn a_file_whose_write_fails_is_counted_once() {
 #[test]
 fn both_fixers_over_a_mixed_tree_reach_a_fixed_point() {
     let dir = tempfile::tempdir().unwrap();
-    let root = dir.path();
+    let root = &canon(&dir);
     write(&root.join("lf.txt"), b"a   \nb\t\n\n\n");
     write(&root.join("crlf.txt"), b"a  \r\nb\r\n\r\n\r\n");
     write(&root.join("no-newline.txt"), b"tail  ");
@@ -168,7 +177,7 @@ fn both_fixers_over_a_mixed_tree_reach_a_fixed_point() {
 #[test]
 fn a_zero_byte_file_stays_zero_bytes() {
     let dir = tempfile::tempdir().unwrap();
-    let root = dir.path();
+    let root = &canon(&dir);
     write(&root.join("empty.txt"), b"");
 
     let o = opts(root);
@@ -183,7 +192,7 @@ fn a_zero_byte_file_stays_zero_bytes() {
 #[test]
 fn a_binary_payload_past_the_old_sniff_window_is_left_byte_identical() {
     let dir = tempfile::tempdir().unwrap();
-    let root = dir.path();
+    let root = &canon(&dir);
     // >8 KiB of ASCII, then a payload holding both the `0x20 0x0A` pair
     // `fix_trailing` would eat and the NUL the old prefix sniff never saw.
     let mut content = vec![b'a'; 9000];
@@ -209,7 +218,7 @@ fn a_binary_payload_past_the_old_sniff_window_is_left_byte_identical() {
 #[test]
 fn a_file_over_the_cap_is_skipped_reported_and_counted() {
     let dir = tempfile::tempdir().unwrap();
-    let root = dir.path();
+    let root = &canon(&dir);
     let path = root.join("big.txt");
     write(&path, b"trailing space   \n");
 
@@ -235,7 +244,7 @@ fn file_mode_survives_the_rewrite() {
     use std::os::unix::fs::PermissionsExt;
 
     let dir = tempfile::tempdir().unwrap();
-    let root = dir.path();
+    let root = &canon(&dir);
     let path = root.join("a.txt");
     write(&path, b"hello   \n");
     std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o640)).unwrap();
@@ -263,7 +272,7 @@ fn a_read_only_target_is_still_rewritten_with_its_mode_intact() {
     use std::os::unix::fs::PermissionsExt;
 
     let dir = tempfile::tempdir().unwrap();
-    let root = dir.path();
+    let root = &canon(&dir);
     let path = root.join("ro.txt");
     write(&path, b"hello   \n");
     std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o444)).unwrap();
@@ -283,7 +292,7 @@ fn a_read_only_target_is_still_rewritten_with_its_mode_intact() {
 #[test]
 fn a_failing_write_names_the_path_keeps_going_and_leaves_the_file_intact() {
     let dir = tempfile::tempdir().unwrap();
-    let root = dir.path();
+    let root = &canon(&dir);
     let locked_dir = root.join("locked");
     std::fs::create_dir_all(&locked_dir).unwrap();
     write(&locked_dir.join("blocked.txt"), b"blocked   \n");
@@ -330,7 +339,7 @@ fn a_failing_write_names_the_path_keeps_going_and_leaves_the_file_intact() {
 #[test]
 fn an_unreadable_file_is_reported_rather_than_making_the_run_look_clean() {
     let dir = tempfile::tempdir().unwrap();
-    let root = dir.path();
+    let root = &canon(&dir);
     let path = root.join("secret.txt");
     write(&path, b"secret   \n");
 
@@ -369,7 +378,7 @@ fn tracked_mode_never_rewrites_through_a_symlink_out_of_the_root() {
     std::fs::write(&target, original).unwrap();
 
     let dir = tempfile::tempdir().unwrap();
-    let root = dir.path();
+    let root = &canon(&dir);
     if !git_init(root) {
         return;
     }
@@ -377,7 +386,7 @@ fn tracked_mode_never_rewrites_through_a_symlink_out_of_the_root() {
     write(&root.join("inside.txt"), b"inside   \n");
     git_add(root, &[Path::new("escape.conf"), Path::new("inside.txt")]);
 
-    let o = FixerOptions::new(root.to_path_buf(), true);
+    let o = FixerOptions::new(root.clone(), true);
     let mut buf = Vec::new();
     let r1 = run_trailing_whitespace(&o, &mut buf).unwrap();
     let r2 = run_end_of_file_fixer(&o, &mut buf).unwrap();
@@ -395,7 +404,7 @@ fn tracked_mode_never_rewrites_through_a_symlink_out_of_the_root() {
 #[test]
 fn tracked_mode_end_to_end_fixes_only_tracked_files() {
     let dir = tempfile::tempdir().unwrap();
-    let root = dir.path();
+    let root = &canon(&dir);
     if !git_init(root) {
         return;
     }
@@ -403,7 +412,7 @@ fn tracked_mode_end_to_end_fixes_only_tracked_files() {
     write(&root.join("untracked.txt"), b"untracked   \n");
     git_add(root, &[Path::new("tracked.txt")]);
 
-    let o = FixerOptions::new(root.to_path_buf(), true);
+    let o = FixerOptions::new(root.clone(), true);
     let mut buf = Vec::new();
     let report = run_trailing_whitespace(&o, &mut buf).unwrap();
 
@@ -418,7 +427,7 @@ fn tracked_mode_end_to_end_fixes_only_tracked_files() {
 #[test]
 fn a_tracked_run_outside_a_repository_announces_the_downgrade() {
     let dir = tempfile::tempdir().unwrap();
-    let root = dir.path();
+    let root = &canon(&dir);
     if !crate::test_support::git_available() {
         return; // No git at all: the downgrade reason is GitUnavailable, not NotARepository.
     }
@@ -427,7 +436,7 @@ fn a_tracked_run_outside_a_repository_announces_the_downgrade() {
     }
     write(&root.join("untracked.txt"), b"untracked   \n");
 
-    let o = FixerOptions::new(root.to_path_buf(), true);
+    let o = FixerOptions::new(root.clone(), true);
     let mut buf = Vec::new();
     let report = run_trailing_whitespace(&o, &mut buf).unwrap();
 
@@ -446,7 +455,7 @@ fn a_tracked_run_outside_a_repository_announces_the_downgrade() {
 #[cfg(unix)]
 fn a_walk_error_reaches_the_report_and_the_summary() {
     let dir = tempfile::tempdir().unwrap();
-    let root = dir.path();
+    let root = &canon(&dir);
     write(&root.join("clean.txt"), b"already clean\n");
     let locked = root.join("locked");
     std::fs::create_dir_all(&locked).unwrap();
