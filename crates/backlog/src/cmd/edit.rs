@@ -5,6 +5,7 @@ use std::io::Write;
 
 use anyhow::Context as _;
 
+use super::atomic_write;
 use crate::clock::UtcStamp;
 use crate::store::Store;
 
@@ -42,16 +43,38 @@ pub struct EditOptions {
 ///
 /// # Errors
 ///
-/// The task id resolves to nothing (the error names the id), the clock is
-/// unreadable, an acceptance-criterion or definition-of-done index is out of
-/// range, or the file cannot be written — write errors name the path.
+/// The task id resolves to nothing (the error names the id), a lookup
+/// directory cannot be read, the clock is unreadable, an acceptance-criterion
+/// or definition-of-done index is out of range, or the file cannot be written
+/// — write errors name the path.
 pub fn run_edit<W: Write>(store: &Store, opts: &EditOptions, out: &mut W) -> anyhow::Result<()> {
     let entry = store
-        .find(&opts.task_id)
+        .find(&opts.task_id)?
         .ok_or_else(|| anyhow::anyhow!("task {} not found", opts.task_id))?;
     let mut doc = entry.doc;
-    let fm = &mut doc.frontmatter;
+    apply_frontmatter_edits(&mut doc.frontmatter, opts);
+    apply_body_edits(&mut doc, opts)?;
 
+    let stamp = UtcStamp::now()?;
+    doc.frontmatter.updated_date = Some(format!("{} {}", stamp.date, stamp.minutes));
+    let rendered = doc.render();
+
+    if opts.title.is_some() {
+        // A title change moves the slug: write the new file and remove the
+        // old one so only one task owns the id.
+        rename_to_new_slug(store, &entry.path, &doc.frontmatter.title, &rendered)?;
+    } else {
+        atomic_write(&entry.path, &rendered)?;
+    }
+
+    writeln!(out, "Updated {}", doc.frontmatter.id).context("printing the updated task id")?;
+    Ok(())
+}
+
+/// The frontmatter-level field edits: scalar and list mutations on the
+/// document's header, in the historical option order. Infallible — every
+/// branch is a plain assignment or retain.
+fn apply_frontmatter_edits(fm: &mut crate::model::Frontmatter, opts: &EditOptions) {
     if let Some(status) = &opts.status {
         fm.status.clone_from(status);
     }
@@ -98,11 +121,17 @@ pub fn run_edit<W: Write>(store: &Store, opts: &EditOptions, out: &mut W) -> any
     if let Some(title) = &opts.title {
         fm.title.clone_from(title);
     }
+}
+
+/// The body-section edits: description, acceptance criteria, definition of
+/// done, and notes. Fails when a check/uncheck index names an item the
+/// section does not carry (the error names the section).
+fn apply_body_edits(doc: &mut crate::model::TaskDoc, opts: &EditOptions) -> anyhow::Result<()> {
     if let Some(description) = &opts.description {
         doc.body.set_description(description);
     }
     if let Some(ac) = &opts.ac {
-        doc.body.set_ac(&unchecked_items(ac));
+        doc.body.set_ac(&crate::model::AcItem::unchecked_all(ac));
     }
     for index in &opts.check_ac {
         doc.body.set_ac_checked(*index, true)?;
@@ -111,7 +140,7 @@ pub fn run_edit<W: Write>(store: &Store, opts: &EditOptions, out: &mut W) -> any
         doc.body.set_ac_checked(*index, false)?;
     }
     if let Some(dod) = &opts.dod {
-        doc.body.set_dod(&unchecked_items(dod));
+        doc.body.set_dod(&crate::model::AcItem::unchecked_all(dod));
     }
     for index in &opts.check_dod {
         doc.body.set_dod_checked(*index, true)?;
@@ -122,34 +151,7 @@ pub fn run_edit<W: Write>(store: &Store, opts: &EditOptions, out: &mut W) -> any
     for note in &opts.append_notes {
         doc.body.append_notes(note);
     }
-
-    let stamp = UtcStamp::now()?;
-    doc.frontmatter.updated_date = Some(format!("{} {}", stamp.date, stamp.minutes));
-    let rendered = doc.render();
-
-    if opts.title.is_some() {
-        // A title change moves the slug: write the new file and remove the
-        // old one so only one task owns the id.
-        rename_to_new_slug(store, &entry.path, &doc.frontmatter.title, rendered)?;
-    } else {
-        std::fs::write(&entry.path, rendered)
-            .with_context(|| format!("writing {}", entry.path.display()))?;
-    }
-
-    writeln!(out, "Updated {}", doc.frontmatter.id).context("printing the updated task id")?;
     Ok(())
-}
-
-/// Fresh, unchecked checkbox items — `--ac` and `--dod` both replace their
-/// section wholesale, so a replacement always starts unchecked.
-fn unchecked_items(texts: &[String]) -> Vec<crate::model::AcItem> {
-    texts
-        .iter()
-        .map(|text| crate::model::AcItem {
-            checked: false,
-            text: text.clone(),
-        })
-        .collect()
 }
 
 /// Write the task under its new title slug and drop the old file. The id
@@ -157,15 +159,25 @@ fn unchecked_items(texts: &[String]) -> Vec<crate::model::AcItem> {
 /// from the bare number would drop a dotted subtask suffix (`task-0042.03`)
 /// and aim the write at the parent task's file, truncating it.
 ///
+/// The new name is claimed before it is written: `hard_link` fails with
+/// `EEXIST` when the slug is already taken by another file, the same
+/// no-clobber claim `cleanup`'s move-to-completed makes. A crash between
+/// the claim and the removal of the old name leaves both files carrying
+/// the task — re-running the same edit rewrites the new slug and drops the
+/// old name — recoverable, never destructive. A write that *fails* (as
+/// opposed to a crash) drops the claim before returning, so only the old
+/// file remains.
+///
 /// # Errors
 ///
 /// The old filename carries no derivable id portion (the error names the
-/// path), or the write/remove fails — each error names its path.
+/// path), the new slug is already taken by another file (the error names
+/// both paths), or the write/remove fails — each error names its path.
 fn rename_to_new_slug(
     store: &Store,
     old_path: &std::path::Path,
     title: &str,
-    rendered: String,
+    rendered: &str,
 ) -> anyhow::Result<()> {
     let file_id = old_path
         .file_name()
@@ -174,8 +186,39 @@ fn rename_to_new_slug(
         .ok_or_else(|| anyhow::anyhow!("cannot derive task id from {}", old_path.display()))?;
     let file_name = format!("{file_id} - {}.md", crate::model::file_slug(title));
     let new_path = store.task_path(&file_name);
-    std::fs::write(&new_path, rendered)
-        .with_context(|| format!("writing {}", new_path.display()))?;
+    if new_path != old_path {
+        if let Err(err) = std::fs::hard_link(old_path, &new_path) {
+            if err.kind() == std::io::ErrorKind::AlreadyExists {
+                anyhow::bail!(
+                    "{} already exists; refusing to overwrite it with {}",
+                    new_path.display(),
+                    old_path.display()
+                );
+            }
+            return Err(err).with_context(|| {
+                format!("linking {} to {}", old_path.display(), new_path.display())
+            });
+        }
+    }
+    if let Err(write_err) = atomic_write(&new_path, rendered) {
+        if new_path != old_path {
+            // The no-clobber claim above left a hard link at the new slug
+            // aliasing the *old* content. Drop it so a failed write leaves
+            // the store as it was found — only the old file — instead of
+            // stranding a stale duplicate under the new name. Every failure
+            // mode of `atomic_write` aborts before the rename, so the link
+            // (not a half-written document) is what sits at `new_path`.
+            // The write error is the actionable one; a failed cleanup is
+            // appended to it rather than replacing it.
+            if let Err(cleanup_err) = std::fs::remove_file(&new_path) {
+                return Err(write_err).context(format!(
+                    "also failed to remove the claimed {}: {cleanup_err}",
+                    new_path.display()
+                ));
+            }
+        }
+        return Err(write_err);
+    }
     if new_path != old_path {
         std::fs::remove_file(old_path)
             .with_context(|| format!("removing {}", old_path.display()))?;
@@ -364,6 +407,85 @@ body text
         assert!(
             !tasks.join("task-0001 - original.md").exists(),
             "old file must be gone"
+        );
+    }
+
+    /// The rewrite is staged and renamed into place: no `.tmp` staging file
+    /// survives an edit, in the plain-rewrite path or the rename path.
+    #[test]
+    fn edit_and_rename_leave_no_staging_file_behind() {
+        let (dir, store) = scratch_with(TASK);
+        let tasks = dir.path().join(".backlog").join("tasks");
+        let mut out = Vec::new();
+        run_edit(
+            &store,
+            &EditOptions {
+                status: Some("To Do".to_string()),
+                ..opts()
+            },
+            &mut out,
+        )
+        .expect("plain edit");
+        run_edit(
+            &store,
+            &EditOptions {
+                title: Some("renamed title".to_string()),
+                ..opts()
+            },
+            &mut out,
+        )
+        .expect("rename edit");
+        let files: Vec<String> = std::fs::read_dir(&tasks)
+            .expect("read tasks dir")
+            .map(|entry| {
+                entry
+                    .expect("dir entry")
+                    .file_name()
+                    .to_string_lossy()
+                    .into_owned()
+            })
+            .collect();
+        assert_eq!(
+            files,
+            vec!["task-0001 - renamed-title.md".to_string()],
+            "no staging leftovers in either path"
+        );
+    }
+
+    /// The new slug is claimed before it is written: a title rename refuses
+    /// to clobber an unrelated file that already owns the slug instead of
+    /// truncating it.
+    #[test]
+    fn title_rename_refuses_to_clobber_an_existing_file() {
+        let (dir, store) = scratch_with(TASK);
+        let tasks = dir.path().join(".backlog").join("tasks");
+        let squatter = TASK
+            .replace("id: TASK-0001\n", "id: TASK-0009\n")
+            .replace("title: 'original'", "title: 'taken'");
+        std::fs::write(tasks.join("task-0001 - taken.md"), &squatter).expect("seed squatter");
+
+        let mut out = Vec::new();
+        let err = run_edit(
+            &store,
+            &EditOptions {
+                title: Some("taken".to_string()),
+                ..opts()
+            },
+            &mut out,
+        )
+        .expect_err("must refuse the taken slug");
+        assert!(
+            err.to_string().contains("refusing to overwrite"),
+            "error must refuse, got: {err:#}"
+        );
+        assert_eq!(
+            std::fs::read_to_string(tasks.join("task-0001 - taken.md")).expect("read squatter"),
+            squatter,
+            "the file owning the slug is untouched"
+        );
+        assert!(
+            tasks.join("task-0001 - original.md").is_file(),
+            "the source file survives the refused rename"
         );
     }
 

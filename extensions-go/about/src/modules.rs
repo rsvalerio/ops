@@ -3,6 +3,11 @@
 //! Reads `go.work` / `go.mod` to build a list of [`ProjectUnit`] entries
 //! describing each module. LOC/file counts are enriched by the generic
 //! `ops_about::run_about_units` runner.
+//!
+//! `go.work` takes precedence: when the root carries one, its `use`
+//! directives are the unit list and the root `go.mod` is not consulted for
+//! units. Otherwise the root `go.mod` yields a single root-module unit whose
+//! path is the `"."` sentinel.
 
 use std::path::{Component, Path};
 
@@ -33,27 +38,25 @@ fn collect_units(cwd: &Path) -> Vec<ProjectUnit> {
             .collect();
     }
     let (module, go_version) = read_mod_info(cwd);
-    // The `Some` arm builds a `ProjectUnit` across several statements and
-    // carries the long PATTERN-1 rationale inline; a `map_or_else` closure
-    // would put the empty-vec default ahead of it and re-indent the comment.
+    // The `Some` arm builds the unit across several statements; a
+    // `map_or_else` closure would put the empty-vec default first and read
+    // backwards.
     #[allow(clippy::option_if_let_else)]
     match module {
         Some(m) => {
             let mut unit = ProjectUnit::new(
                 last_segment(Some(&m)).unwrap_or_else(|| m.clone()),
-                // PATTERN-1 (TASK-1085): a non-workspace `go.mod` lives at the
-                // project root, so the unit subpath is `"."` — the same value
-                // that `normalize_module_path("."" )` represents for a
-                // `use .` workspace directive. Both `""` and `"."` are
-                // recognised by `extensions/about/src/units.rs` enrichment as
-                // a "root module": LOC and file-count are taken from the
-                // project-wide totals rather than the per-crate
-                // `starts_with(file, path || '/')` join. Cross-stack invariant
-                // (PATTERN-1, AC #3): like Node and Python, the single-mod
-                // card is *project-wide* by design — non-Go content in cwd
-                // (vendored JS, generated artefacts) contributes to the
-                // count, matching how `package.json` / `pyproject.toml`
-                // single-package projects render.
+                // Root-module sentinel. A non-workspace `go.mod` lives at the
+                // project root, so its unit subpath is `"."` — the same thing
+                // `normalize_module_path` produces for a `use .` workspace
+                // directive. Enrichment in `extensions/about/src/units.rs`
+                // accepts either `""` or `"."` as that sentinel and takes LOC
+                // and file counts from the project-wide totals instead of the
+                // per-module `starts_with(file, path || '/')` join, so the
+                // single-module card is project-wide by design: non-Go
+                // content in cwd (vendored JS, generated artefacts) counts
+                // toward it, as it does for single-package `package.json` and
+                // `pyproject.toml` projects.
                 ".".to_string(),
             );
             unit.version = go_version;
@@ -64,47 +67,49 @@ fn collect_units(cwd: &Path) -> Vec<ProjectUnit> {
     }
 }
 
-/// FN-1 / TASK-0820: build the [`ProjectUnit`] for a single `go.work` use
-/// directive. Handles path normalisation, the out-of-tree diagnostic, the
-/// per-module `go.mod` lookup, and the description-shaping that distinguishes
+/// Build the [`ProjectUnit`] for a single `go.work` `use` directive: path
+/// normalisation, the out-of-tree classification and its diagnostic, the
+/// per-module `go.mod` lookup, and the description-shaping that marks
 /// `(outside project root)` members.
+///
+/// A directive is out-of-tree when it is absolute or root-prefixed, when its
+/// first path component is `..`, or when it carries a `..` past a real
+/// segment. All three still produce a unit — the workspace member is real and
+/// belongs on the card — but the first and third skip the `go.mod` read,
+/// because the path they name lies outside the project root.
 fn unit_from_use_dir(cwd: &Path, dir: &str) -> ProjectUnit {
     let normalized = normalize_module_path(dir);
-    // PATTERN-1 (TASK-1208): also reject *absolute* and root-prefixed
-    // directives (e.g. `use /etc/secrets`, `use \\?\C:\...`). The previous
-    // shape only flagged `..`-prefixed first segments, so an absolute path
-    // sailed through `cwd.join(&normalized)` and `read_mod_info` opened
-    // whatever `go.mod`-shaped file lived at the absolute target. Treat the
-    // same threat-model as `resolve_member_globs` (SEC-14 / TASK-1071), one
-    // step stricter — RootDir / Prefix as well as ParentDir — so out-of-tree
-    // / absolute directives mark the unit out-of-tree and skip the I/O.
+    // Absolute and root-prefixed directives (`use /etc/secrets`,
+    // `use \\?\C:\...`) point outside the project root as surely as a `..`
+    // prefix does, so RootDir and Prefix count alongside ParentDir. This is
+    // the `resolve_member_globs` threat model (`extensions/about/src/
+    // workspace.rs`), one step stricter.
     let first_component = Path::new(&normalized).components().next();
     let out_of_tree_via_components = matches!(
         first_component,
         Some(Component::RootDir | Component::Prefix(_) | Component::ParentDir)
     );
-    // PATTERN-1 (TASK-1027): test the *first path component* rather than the
-    // raw string. `starts_with("..")` would also flag legal directories like
-    // `..staging/api` or `..backup-2025` whose first component merely begins
-    // with two dots. Split on both `/` and `\\` so go.work entries authored on
-    // Windows are handled too.
+    // Compare the *first path component* against `..`, not the raw string: a
+    // `starts_with("..")` test would also flag legal directories such as
+    // `..staging/api` or `..backup-2025`, whose first component merely begins
+    // with two dots. Splitting on `/` and `\\` covers go.work entries
+    // authored on Windows.
     let out_of_tree_via_string = normalized
         .split(['/', '\\'])
         .next()
         .is_some_and(|first| first == "..");
-    // SEC-14 (TASK-1721): the two checks above only inspect the *first* path
-    // component, so `use ./api/../../../etc` normalises to `api/../../../etc`
-    // and reads as in-tree. `Path::join` does not normalise `..` and the OS
-    // resolves it lexically on open, so the `go.mod` read landed outside the
-    // project root and echoed the found `module` line into the About card.
-    // Share the `replace`-target predicate (TASK-1212) so both directives
-    // enforce one traversal policy.
+    // The two checks above inspect only the first component, so
+    // `use ./api/../../../etc` normalises to `api/../../../etc` and reads as
+    // in-tree. `Path::join` does not normalise `..` and the OS resolves it
+    // lexically on open, so a `..` past a real segment escapes the root too.
+    // The predicate is shared with the `replace`-target path in `go_mod`, so
+    // both directives enforce one traversal policy.
     let has_embedded_traversal = crate::go_syntax::has_embedded_parent_dir_segment(&normalized);
     let out_of_tree =
         out_of_tree_via_components || out_of_tree_via_string || has_embedded_traversal;
-    // ERR-7 (TASK-0665 / TASK-0809): Debug-format the directive so embedded
-    // newlines / ANSI escapes cannot forge log lines, matching the
-    // project-wide path-log policy. Exactly one warn per rejected directive.
+    // Debug-format the directive so embedded newlines or ANSI escapes cannot
+    // forge log lines, matching the project-wide path-log policy. Exactly one
+    // warn per rejected directive.
     if has_embedded_traversal {
         tracing::warn!(
             directive = ?dir,
@@ -119,12 +124,10 @@ fn unit_from_use_dir(cwd: &Path, dir: &str) -> ProjectUnit {
             "go.work `use` directive points outside the project root; LOC stats will be empty",
         );
     }
-    // PATTERN-1 (TASK-1208): for absolute / root-prefixed directives,
-    // `cwd.join(&normalized)` returns the absolute target verbatim — we must
-    // not open whatever go.mod lives there. Skip the I/O and emit the unit
-    // with no module/version, the same shape as a missing go.mod. SEC-14
-    // (TASK-1721): embedded-`..` directives escape the root the same way, so
-    // they skip the read too.
+    // For an absolute or root-prefixed directive `cwd.join(&normalized)`
+    // returns the absolute target verbatim, and an embedded-`..` directive
+    // escapes the root the same way, so neither reads a `go.mod`: the unit is
+    // emitted with no module or version, the same shape as a missing go.mod.
     let is_absolute_directive = matches!(
         first_component,
         Some(Component::RootDir | Component::Prefix(_))
@@ -151,9 +154,12 @@ fn unit_from_use_dir(cwd: &Path, dir: &str) -> ProjectUnit {
 }
 
 /// Normalize a `go.work` use-directive entry so it matches `tokei_files.file`
-/// paths (which are recorded relative to cwd with no `./` prefix).
-/// `.` → empty string (signals project-root module; enriched via project-wide
-/// stats instead of the per-crate SQL join).
+/// paths, which are recorded relative to cwd with no `./` prefix and no
+/// trailing separator.
+///
+/// A `use .` directive maps to the empty string, the root-module sentinel
+/// enrichment accepts alongside `"."`: such a unit is enriched from
+/// project-wide stats rather than the per-module path join.
 fn normalize_module_path(dir: &str) -> String {
     let trimmed = dir
         .trim_start_matches("./")
@@ -173,7 +179,6 @@ fn normalize_module_path(dir: &str) -> String {
 /// like `github.com/foo/bar/v2` carry the `/vN` suffix as a versioning
 /// convention; the human-meaningful name is the *preceding* segment (`bar`).
 ///
-/// PATTERN-1 (TASK-1164):
 /// - `last_segment("github.com/foo/bar/v2")` → `"bar"`
 /// - `last_segment("github.com/openbao/openbao/api/v2")` → `"api"`
 /// - `last_segment("module v2")` → `"module v2"` (no `/`, returned unchanged)
@@ -268,22 +273,19 @@ mod tests {
         .unwrap();
         let units = collect_units(dir.path());
         assert_eq!(units.len(), 1);
-        // `.` signals project-root module; enrichment uses project-wide stats.
-        // `extensions/about/src/units.rs::enrich_from_db` treats both `""` and
-        // `"."` as the root-module sentinel.
+        // `.` is the root-module sentinel: enrichment
+        // (`extensions/about/src/units.rs::enrich_from_db`) accepts `""` or
+        // `"."` and uses project-wide stats for such a unit.
         assert_eq!(units[0].path, ".");
         assert_eq!(units[0].name, "app");
     }
 
-    /// PATTERN-1 (TASK-1085): a non-workspace `go.mod` at cwd produces a unit
-    /// whose `path` is the project-root sentinel (`"."`). Enrichment in
-    /// `extensions/about/src/units.rs` recognises this and uses
-    /// project-wide LOC/file totals — matching Node (`package.json`) and
-    /// Python (`pyproject.toml`) single-package behaviour. The unit `path`
-    /// must NOT be the empty string (which previously documented itself
-    /// as "matches every file via `starts_with`" — a no-op filter that
-    /// happened to yield the same project-wide count, but obscured the
-    /// invariant).
+    /// A non-workspace `go.mod` at cwd produces one unit whose `path` is the
+    /// root-module sentinel, so enrichment
+    /// (`extensions/about/src/units.rs`) uses project-wide LOC and file
+    /// totals — the same single-package behaviour Node (`package.json`) and
+    /// Python (`pyproject.toml`) get, with non-Go content at the root
+    /// counting toward the card.
     #[test]
     fn collect_units_single_mod_with_non_go_files_uses_root_sentinel() {
         let dir = tempfile::tempdir().unwrap();
@@ -307,10 +309,10 @@ mod tests {
 
         let units = collect_units(dir.path());
         assert_eq!(units.len(), 1);
-        // Root-module sentinel: enrichment recognises `""` *or* `"."`. We
-        // emit `"."` because it is self-documenting (the relative directory
-        // containing `go.mod`) and matches the `use .` workspace path after
-        // `normalize_module_path` round-trips through enrichment.
+        // Enrichment recognises `""` *or* `"."` as the root-module sentinel.
+        // This provider emits `"."`: it is self-documenting (the relative
+        // directory holding `go.mod`) and is what a `use .` workspace
+        // directive resolves to through enrichment.
         assert!(
             units[0].path == "." || units[0].path.is_empty(),
             "expected root-module sentinel, got {:?}",
@@ -333,9 +335,9 @@ mod tests {
 
     #[test]
     fn collect_units_out_of_tree_use_directive_does_not_panic() {
-        // `use ../shared` is accepted by cmd/go but lives outside cwd; the
-        // resulting unit has a `..` path that won't match tokei_files. We
-        // surface a diagnostic and emit the unit anyway (zero LOC).
+        // `use ../shared` is accepted by cmd/go but lives outside cwd, so
+        // the unit's `..` path matches no tokei_files row. The unit is still
+        // emitted (with zero LOC) alongside a diagnostic.
         let dir = tempfile::tempdir().unwrap();
         std::fs::write(
             dir.path().join("go.work"),
@@ -351,24 +353,19 @@ mod tests {
         );
     }
 
-    /// ERR-7 (TASK-0809): the `use` directive flows through `tracing::warn!`
-    /// via the `?` formatter so embedded newlines or ANSI escapes cannot
-    /// forge multi-line log records. DUP-3 / TASK-0985: shared helper —
-    /// see `ops_about::test_support`.
+    /// The `use` directive reaches `tracing::warn!` through the `?`
+    /// formatter, so embedded newlines or ANSI escapes cannot forge
+    /// multi-line log records.
     #[test]
     fn directive_debug_escapes_control_characters() {
         let dir = "../shared\nINJECTED line\u{1b}[31m";
         ops_about::test_support::assert_debug_escapes_control_chars(dir);
     }
 
-    /// PATTERN-1 (TASK-1027): a `use ..staging/api` directive points at a
-    /// legal directory whose first component merely *begins* with `..`. It
-    /// must be treated as in-tree: no `(outside project root)` suffix and no
-    /// `tracing::warn!` emitted. The previous `starts_with("..")` check
-    /// misclassified this as out-of-tree.
-    ///
-    /// DUP-3 (TASK-1735): the warn-counting subscriber and its
-    /// `Interest`-cache workaround live in `ops_about::test_support`.
+    /// A `use ..staging/api` directive names a legal directory whose first
+    /// component merely *begins* with `..`, so it is in-tree: its `go.mod` is
+    /// read, the description carries no `(outside project root)` suffix, and
+    /// no warn is emitted.
     #[test]
     fn collect_units_dotdot_prefixed_dir_is_in_tree() {
         let dir = tempfile::tempdir().unwrap();
@@ -403,8 +400,8 @@ mod tests {
         assert_eq!(warn_count, 0);
     }
 
-    /// PATTERN-1 (TASK-1164): `/vN` major-version suffix must be stripped so
-    /// the rendered name is the preceding segment, not the literal `v2`.
+    /// A `/vN` major-version suffix is stripped, so the rendered name is the
+    /// preceding segment rather than the literal `v2`.
     #[test]
     fn last_segment_strips_go_major_version_suffix() {
         assert_eq!(
@@ -432,8 +429,8 @@ mod tests {
 
     #[test]
     fn last_segment_single_segment_unchanged() {
-        // No `/` — leave bare module strings alone, even when they happen to
-        // contain a `vN`-shaped token. AC #3.
+        // No `/` — a bare module string is returned whole, even when it
+        // contains a `vN`-shaped token.
         assert_eq!(last_segment(Some("module")).as_deref(), Some("module"));
         // A single segment that happens to be `v2` is not a suffix on
         // anything; return it verbatim.
@@ -446,10 +443,9 @@ mod tests {
         assert_eq!(last_segment(Some("foo/v")).as_deref(), Some("v"));
     }
 
-    /// PATTERN-1 (TASK-1208): an absolute `use` directive marks the unit
-    /// out-of-tree and must not invoke `read_mod_info` on the absolute
-    /// target. Cross-stack invariant with the `resolve_member_globs` SEC-14
-    /// guard (workspace.rs).
+    /// An absolute `use` directive marks the unit out-of-tree and does not
+    /// invoke `read_mod_info` on the absolute target — the same guard
+    /// `resolve_member_globs` applies in `workspace.rs`.
     #[cfg(unix)]
     #[test]
     fn collect_units_absolute_use_directive_is_marked_out_of_tree() {
@@ -485,12 +481,11 @@ mod tests {
         assert_eq!(warn_count, 1);
     }
 
-    /// SEC-14 (TASK-1721): a `use` directive whose normalized path carries a
-    /// `..` segment past the leading prefix escapes the project root at the
-    /// OS layer (`Path::join` does not normalise `..`). It must be treated as
-    /// out-of-tree: no go.mod read at the traversal target, no module name
-    /// leaked into the description, and exactly one warn. Mirrors
-    /// `collect_units_absolute_use_directive_is_marked_out_of_tree`.
+    /// A `use` directive whose normalized path carries a `..` past a real
+    /// segment escapes the project root at the OS layer (`Path::join` does
+    /// not normalise `..`), so it is treated as out-of-tree: no go.mod read
+    /// at the traversal target, no module name in the description, and
+    /// exactly one warn.
     #[cfg(unix)]
     #[test]
     fn collect_units_embedded_parent_dir_use_directive_is_marked_out_of_tree() {
@@ -544,9 +539,9 @@ mod tests {
         assert_eq!(warn_count, 1);
     }
 
-    /// SEC-14 (TASK-1721) AC #5: a *leading* run of `..` keeps its existing
-    /// accepted-but-marked-out-of-tree behaviour — only `..` past a real
-    /// segment is rejected outright.
+    /// A *leading* run of `..` is accepted: its `go.mod` is read and the unit
+    /// is merely marked `(outside project root)`. Only `..` past a real
+    /// segment skips the read outright.
     #[test]
     fn collect_units_leading_parent_dir_use_directive_still_reads_go_mod() {
         let root = tempfile::tempdir().unwrap();
@@ -573,6 +568,68 @@ mod tests {
     fn collect_units_empty() {
         let dir = tempfile::tempdir().unwrap();
         let units = collect_units(dir.path());
+        assert!(units.is_empty());
+    }
+
+    /// `PROVIDER_NAME` is the key the registry indexes this provider under
+    /// (`lib.rs`'s `register_data_providers`), and the literal on the right
+    /// is the cross-stack registry contract shared with the Node and Rust
+    /// stacks — a typo in either silently unregisters the Go units card.
+    #[test]
+    fn units_provider_name() {
+        assert_eq!(GoUnitsProvider.name(), PROVIDER_NAME);
+        assert_eq!(PROVIDER_NAME, "project_units");
+    }
+
+    /// `GoUnitsProvider::provide` driven through a real `Context` over a
+    /// `go.work` fixture: the returned `Value` deserialises back into
+    /// `Vec<ProjectUnit>`, pinning the `serde_json::to_value` step and the
+    /// JSON shape consumers read, not just the private `collect_units`
+    /// helper. The Rust stack holds the same provider-level coverage in
+    /// `extensions-rust/about/src/coverage_provider.rs`.
+    #[test]
+    fn units_provider_serialises_go_work_modules() {
+        let dir = tempfile::tempdir().unwrap();
+        std::fs::write(
+            dir.path().join("go.work"),
+            "go 1.21\n\nuse (\n\t./api\n\t./cmd\n)\n",
+        )
+        .unwrap();
+        for (name, module, version) in [
+            ("api", "example.com/api", "1.21"),
+            ("cmd", "example.com/cmd", "1.22"),
+        ] {
+            std::fs::create_dir_all(dir.path().join(name)).unwrap();
+            std::fs::write(
+                dir.path().join(name).join("go.mod"),
+                format!("module {module}\n\ngo {version}\n"),
+            )
+            .unwrap();
+        }
+
+        let mut ctx = ops_extension::Context::test_context(dir.path().to_path_buf());
+        let value = GoUnitsProvider.provide(&mut ctx).unwrap();
+        let units: Vec<ProjectUnit> = serde_json::from_value(value).unwrap();
+
+        assert_eq!(units.len(), 2, "one unit per go.work use dir: {units:?}");
+        assert_eq!(units[0].name, "api");
+        assert_eq!(units[0].path, "api");
+        assert_eq!(units[0].version.as_deref(), Some("1.21"));
+        assert_eq!(units[0].description.as_deref(), Some("example.com/api"));
+        assert_eq!(units[1].name, "cmd");
+        assert_eq!(units[1].path, "cmd");
+        assert_eq!(units[1].version.as_deref(), Some("1.22"));
+    }
+
+    /// A directory with no `go.work` / `go.mod` serialises to an empty JSON
+    /// array — not `null`, and not an error.
+    #[test]
+    fn units_provider_empty_project_is_empty_array() {
+        let dir = tempfile::tempdir().unwrap();
+        let mut ctx = ops_extension::Context::test_context(dir.path().to_path_buf());
+        let value = GoUnitsProvider.provide(&mut ctx).unwrap();
+        assert_eq!(value, serde_json::json!([]));
+        let units: Vec<ProjectUnit> = serde_json::from_value(value).unwrap();
         assert!(units.is_empty());
     }
 }

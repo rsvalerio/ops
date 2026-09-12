@@ -221,6 +221,22 @@ pub struct AcItem {
 /// for the section it belongs to at the call site.
 pub type DodItem = AcItem;
 
+impl AcItem {
+    /// Fresh, unchecked items from their texts — the shape `--ac` and
+    /// `--dod` arrive in at create time, and the shape a wholesale section
+    /// replacement builds: a replacement always starts unchecked.
+    #[must_use]
+    pub fn unchecked_all(texts: &[String]) -> Vec<Self> {
+        texts
+            .iter()
+            .map(|text| Self {
+                checked: false,
+                text: text.clone(),
+            })
+            .collect()
+    }
+}
+
 /// Split a document into frontmatter lines and the verbatim body.
 ///
 /// Only the FIRST `---` pair bounds the frontmatter: task-1834 in the real

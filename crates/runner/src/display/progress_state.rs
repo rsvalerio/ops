@@ -1,5 +1,4 @@
-//! Per-plan progress bookkeeping extracted from [`super::ProgressDisplay`]
-//! (ARCH-1 / TASK-0332).
+//! Per-plan progress bookkeeping for [`super::ProgressDisplay`].
 //!
 //! [`ProgressState`] owns the data the event-routing layer mutates as a
 //! plan executes:
@@ -24,18 +23,14 @@ use std::collections::{HashMap, VecDeque};
 /// drained on `RunFinished`.
 ///
 /// `step_stderr` is a bounded ring per id sized by the caller-supplied cap
-/// in `record_stderr`. PERF-1 / TASK-0539: prior implementation held every
-/// captured stderr line for the plan's lifetime even though only the
-/// configured tail (`stderr_tail_lines`, default 5) is ever rendered.
+/// in `record_stderr`: only the configured tail (`stderr_tail_lines`,
+/// default 5) is ever rendered, so nothing beyond it is retained.
 ///
-/// PERF-3 / TASK-1925: the ring stores **owned** `Box<str>` lines, not
-/// `OutputLine` views. An `OutputLine` is `{ buf: Arc<str>, range }` over
-/// the step's *entire* capture buffer, so retaining five tail lines of it
-/// kept the whole buffer — up to `OPS_OUTPUT_BYTE_CAP`, 4 MiB by default —
-/// resident until the next `reset_for_plan`, once per step that wrote
-/// stderr. That is the same order of magnitude as the "every line for the
-/// plan's lifetime" retention TASK-0539 set out to remove, so the O(tail)
-/// claim above was only true of the deque's element *count*. Copying at
+/// The ring stores **owned** `Box<str>` lines, not `OutputLine` views.
+/// An `OutputLine` is `{ buf: Arc<str>, range }` over the step's *entire*
+/// capture buffer, so retaining five tail lines of it would keep the whole
+/// buffer — up to `OPS_OUTPUT_BYTE_CAP`, 4 MiB by default — resident until
+/// the next `reset_for_plan`, once per step that wrote stderr. Copying at
 /// record time costs one small allocation per *retained* line — the tail is
 /// stringified for rendering anyway (`extract_stderr_tail`) — and releases
 /// the megabyte-scale buffer as soon as the step's events are processed.
@@ -45,21 +40,21 @@ pub struct ProgressState {
     pub step_stderr: HashMap<String, VecDeque<Box<str>>>,
     pub display_map: HashMap<String, String>,
     pub plan_command_ids: Vec<String>,
-    /// PERF-12 (TASK-0723): O(1) `id -> steps` index. Populated by
-    /// [`Self::reset_for_plan`] alongside `steps`; queried by
-    /// [`Self::step_index`] so the per-RunnerEvent lookup does not linearly
-    /// scan a 32-step plan with thousands of stderr lines per step.
+    /// O(1) `id -> steps` index. Populated by [`Self::reset_for_plan`]
+    /// alongside `steps` and queried by [`Self::step_index`], so the
+    /// per-`RunnerEvent` lookup does not linearly scan a 32-step plan with
+    /// thousands of stderr lines per step.
     ///
-    /// PATTERN-1 (TASK-1109): the value is a queue of *remaining* step
-    /// positions for that id, not a single position. A composite that fans
-    /// the same leaf twice (TASK-0997: parallel orchestrator counts
-    /// occurrences instead of dedup'ing by `HashSet`) would otherwise
-    /// last-write-wins on duplicate ids, leaving the first bar permanently
-    /// pending while the second received doubled `StepStarted`/`StepFinished`
-    /// updates. [`Self::step_index`] now peeks the front of the queue (used
-    /// by non-terminal events like `StepStarted`/`StepOutput`) and
-    /// [`Self::consume_step_index`] pops it (called from the terminal
-    /// `finish_step` path so the next occurrence routes to the next bar).
+    /// The value is a queue of *remaining* step positions for that id, not a
+    /// single position, because a composite may legally fan the same leaf
+    /// twice — the parallel orchestrator counts occurrences rather than
+    /// dedup'ing by `HashSet`. A single position would last-write-win on
+    /// duplicate ids, leaving the first bar permanently pending while the
+    /// second received doubled `StepStarted`/`StepFinished` updates.
+    /// [`Self::step_index`] peeks the front of the queue (for non-terminal
+    /// events like `StepStarted`/`StepOutput`) and
+    /// [`Self::consume_step_index`] pops it (from the terminal `finish_step`
+    /// path, so the next occurrence routes to the next bar).
     pub index_by_id: HashMap<String, VecDeque<usize>>,
 }
 
@@ -86,10 +81,10 @@ impl ProgressState {
     /// `reset_for_plan`; tests that mutate `steps` outside that path must
     /// also update `index_by_id` for `step_index` to stay consistent.
     ///
-    /// PATTERN-1 (TASK-1109): peeks at the front of the per-id queue. For
-    /// duplicate ids the *current* (oldest still-running) occurrence is
-    /// returned; a subsequent terminal event must call
-    /// [`Self::consume_step_index`] to advance to the next occurrence.
+    /// Peeks at the front of the per-id queue. For duplicate ids the
+    /// *current* (oldest still-running) occurrence is returned; a subsequent
+    /// terminal event must call [`Self::consume_step_index`] to advance to
+    /// the next occurrence.
     pub fn step_index(&self, id: &str) -> Option<usize> {
         self.index_by_id.get(id).and_then(|q| q.front().copied())
     }
@@ -134,10 +129,10 @@ impl ProgressState {
     /// `on_step_output` to accumulate the tail that error-detail rendering
     /// consumes on failure. `cap == 0` records nothing.
     ///
-    /// PERF-3 / TASK-1925: takes `&str` and copies. The caller holds an
-    /// `OutputLine` borrowing the step's whole capture buffer; storing
+    /// Takes `&str` and copies deliberately: the caller holds an
+    /// `OutputLine` borrowing the step's whole capture buffer, and storing
     /// that view would pin the buffer for the rest of the plan (see the
-    /// type-level docs). The copy is bounded by the ring cap, not by the
+    /// type-level docs). The copying is bounded by the ring cap, not by the
     /// number of lines streamed through it.
     pub fn record_stderr(&mut self, id: &str, line: &str, cap: usize) {
         if cap == 0 {
@@ -210,11 +205,11 @@ mod tests {
         assert_eq!(s.step_index("missing"), None);
     }
 
-    /// PERF-12 (TASK-0723): `step_index` hits the O(1) `HashMap` index instead
-    /// of linearly scanning `steps`. We can't observe the scan directly, so
-    /// we pin behavioural equivalence under a 32-step plan with many
-    /// repeated lookups: every id resolves correctly, and unknown ids
-    /// continue to return None even though the index is populated.
+    /// `step_index` resolves through the O(1) `HashMap` index rather than a
+    /// linear scan of `steps`. The scan itself is not observable, so this
+    /// pins behavioural equivalence under a 32-step plan with many repeated
+    /// lookups: every id resolves correctly, and unknown ids return `None`
+    /// even with the index populated.
     #[test]
     fn step_index_resolves_via_o1_map_for_large_plan() {
         let ids: Vec<CommandId> = (0..32)
@@ -297,11 +292,12 @@ mod tests {
         );
     }
 
-    /// PERF-3 / TASK-1925: production feeds `record_stderr` lines that are
-    /// all views onto **one** `Arc<str>` capture buffer per step, so a ring
-    /// of `OutputLine` kept the entire buffer alive for as long as any tail
-    /// line survived. `record_stderr_bounded_ring_keeps_only_tail` cannot
-    /// see that: it allocates a fresh one-line buffer per call.
+    /// Production feeds `record_stderr` lines that are all views onto
+    /// **one** `Arc<str>` capture buffer per step, so a ring of `OutputLine`
+    /// would keep the entire buffer alive for as long as any tail line
+    /// survived. `record_stderr_bounded_ring_keeps_only_tail` cannot see
+    /// that, because it allocates a fresh one-line buffer per call; this
+    /// test pins the shared-buffer case.
     ///
     /// This test reproduces the production shape — one shared buffer, many
     /// lines — and asserts the ring releases it. `Arc::strong_count` back at
@@ -368,13 +364,12 @@ mod tests {
         assert!(s.bars.is_empty());
     }
 
-    /// PATTERN-1 (TASK-1109): a plan with a duplicated command id (legal in
-    /// parallel composites — see TASK-0997) must allocate a distinct bar
-    /// per occurrence. The previous `HashMap<String, usize>` silently
-    /// last-write-wins'd, so every event for "x" routed to the second bar
-    /// and the first bar sat as "pending" forever. Now `step_index` peeks
-    /// the front of a per-id queue and `consume_step_index` pops it,
-    /// mirroring the orchestrator's occurrence-counting in TASK-0997.
+    /// A plan with a duplicated command id — legal in parallel composites —
+    /// allocates a distinct bar per occurrence. `step_index` peeks the front
+    /// of a per-id queue and `consume_step_index` pops it, mirroring the
+    /// orchestrator's occurrence counting; a single position per id would
+    /// route every event for "x" to the last bar and leave the first
+    /// "pending" forever.
     #[test]
     fn duplicate_ids_route_to_distinct_bars_via_consume() {
         let mut s = ProgressState::new(HashMap::new());
@@ -401,7 +396,7 @@ mod tests {
         assert_eq!(s.step_index("y"), Some(1));
     }
 
-    /// PATTERN-1 (TASK-1109): consume on a never-registered id is a no-op
+    /// Consuming a never-registered id is a no-op
     /// (mirrors the `step_index` contract — events arriving after a plan
     /// finished must not panic).
     #[test]

@@ -14,11 +14,10 @@
 //! re-staged. The second half is what a gate requires of its own blind spots.
 //! A hook driver reads exit zero as "the tree is clean", so a file the fixer
 //! could not read or could not write back must not be allowed to pass as
-//! clean — "could not check" is much closer to "failed" than to "passed".
-//! Previously an unreadable file was skipped with no message, no counter and
-//! no effect on the exit code, so a mode-600 file (routine in a container or
-//! on a shared build agent) made the run report a clean tree it had never
-//! looked at.
+//! clean — "could not check" is much closer to "failed" than to "passed". A
+//! mode-600 file is routine in a container or on a shared build agent, and
+//! skipping one silently would let the run report a clean tree it had never
+//! looked at; instead it is named, counted, and reflected in the exit code.
 //!
 //! Deliberate skips are the other half of that accounting and are *not*
 //! failures: a file over [`DEFAULT_MAX_BYTES`], a non-regular file, a file
@@ -45,15 +44,6 @@
 //!   itself rather than by a preceding `metadata()` call.
 //! - A per-file failure does not abort the run, so the record of what was
 //!   already rewritten survives; see `runner`.
-
-// READ-10 (TASK-1966): this crate root carries no `cfg_attr(test, allow(..))`
-// block. All four lints it used to relax suppress nothing here. The three cast
-// lints have no callsite -- the crate contains no `as` cast, and the workspace
-// denies `clippy::as_conversions` anyway -- while leaving them in place would
-// have silently absorbed the first buffer-offset truncation anyone introduced
-// into arithmetic that is all buffer offsets. `unwrap_used` is already relaxed
-// for test code workspace-wide by `allow-unwrap-in-tests` in `clippy.toml`, so
-// writing it as `expect` reports it as unfulfilled.
 
 pub mod atomic;
 pub mod binary;

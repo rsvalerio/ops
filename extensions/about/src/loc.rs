@@ -73,7 +73,7 @@ pub fn query_rust_loc_stats(
         Ok(regions) if regions.is_empty() => return None,
         Ok(regions) => regions,
         Err(e) => {
-            tracing::warn!("about/loc: query_rust_loc_summary failed: {e:#}");
+            tracing::warn!(error = ?e, "about/loc: query_rust_loc_summary failed");
             return None;
         }
     };
@@ -84,7 +84,7 @@ pub fn query_rust_loc_stats(
     // about card's five-query enrich (see `lib::enrich_from_db`): the page
     // re-renders on every invocation, so a stale frame self-corrects.
     let files = ops_duckdb::sql::query_rust_loc_file_count(db).unwrap_or_else(|e| {
-        tracing::warn!("about/loc: query_rust_loc_file_count failed: {e:#}");
+        tracing::warn!(error = ?e, "about/loc: query_rust_loc_file_count failed");
         0
     });
 
@@ -95,7 +95,7 @@ pub fn query_rust_loc_stats(
 ///
 /// Returns `None` when there is nothing to show, signalling the caller to
 /// emit a user-facing message instead of an empty table.
-#[must_use]
+#[must_use = "render the returned section; a `None` means emit the fallback message"]
 pub fn format_rust_loc_section(page: Option<&RustLocPage>) -> Option<Vec<String>> {
     let page = match page {
         Some(p) if !p.regions.is_empty() => p,

@@ -20,5 +20,6 @@ ops_extension::test_datasource_extension!(
     data_provider: "metadata"
 );
 
+mod output_cap;
 mod payload_cap;
 mod wiring;

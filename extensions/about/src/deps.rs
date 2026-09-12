@@ -11,6 +11,11 @@ use ops_extension::DataRegistry;
 use crate::providers::{load_or_default, warm_providers};
 use crate::text_util::tty_style;
 
+/// Registry key of the `project_dependencies` provider that supplies the
+/// per-unit dependency tree rendered on this subpage.
+///
+/// When no stack registers it, the page falls back to "No dependency data
+/// available."
 pub const PROJECT_DEPENDENCIES_PROVIDER: &str = "project_dependencies";
 
 /// # Errors
@@ -50,6 +55,10 @@ pub fn run_about_deps_with(
     Ok(())
 }
 
+/// Formats the `DEPENDENCIES` section lines for the given dependency report.
+///
+/// Units with no dependencies are skipped; returns an empty vector when no
+/// unit has dependencies.
 pub fn format_dependencies_section(deps: &ProjectDependencies, is_tty: bool) -> Vec<String> {
     let mut units: Vec<&ops_core::project_identity::UnitDeps> =
         deps.units.iter().filter(|u| !u.deps.is_empty()).collect();

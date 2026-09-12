@@ -37,7 +37,8 @@ pub(super) fn resolve_identity_fields(
         };
     }
 
-    let repository = ops_git::resolve_repository_with_git_fallback(cwd, r!(repository, repository));
+    let repository =
+        ops_git::provider::resolve_repository_with_git_fallback(cwd, r!(repository, repository));
 
     let authors = pkg
         .and_then(|p| p.authors.value())

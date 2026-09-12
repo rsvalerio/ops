@@ -9,13 +9,8 @@ async fn spawn_parallel_tasks_creates_correct_count() {
         ("cmd2".into(), echo_cmd("b")),
         ("cmd3".into(), echo_cmd("c")),
     ];
-    let (rx, _abort, join_set, id_map) = CommandRunner::spawn_parallel_tasks(
-        steps,
-        &Arc::new(PathBuf::from(".")),
-        &Arc::new(test_vars()),
-        crate::command::CwdEscapePolicy::WarnAndAllow,
-        &Arc::new(WorkspaceCanonicalCache::new()),
-    );
+    let (rx, _abort, join_set, id_map) =
+        CommandRunner::spawn_parallel_tasks(steps, &test_exec_env());
     drop(rx);
     let results = CommandRunner::collect_join_results(join_set, &id_map).await;
     assert_eq!(results.len(), 3);

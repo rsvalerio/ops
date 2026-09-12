@@ -48,6 +48,14 @@
 //! - [`is_root_euid`] — true on Unix when EUID is 0; tests that depend on
 //!   DAC-permission denial must `return` early when this is true (see
 //!   TEST-19 in the function rustdoc).
+//! - [`skip_precondition`] — TEST-26 / TASK-2126, TASK-2166: print the
+//!   `skip:` line that makes a precondition-bailed test distinguishable in
+//!   runner output from one whose assertions executed.
+//! - [`git_fixture`] / [`git_fixture_os`] — run a hermetic `git -C dir …`
+//!   for a fixture, classifying failure as [`GitFixtureError::BinaryAbsent`]
+//!   (surface a skip) versus [`GitFixtureError::CommandFailed`] (fail the
+//!   test; a present-but-refusing git is a broken fixture, not a missing
+//!   capability).
 //! - [`CwdGuard`] / [`CWD_MUTEX`] — DRY-1 / TASK-2034: the workspace's one
 //!   working-directory guard. It serialises on the mutex itself, so a caller
 //!   that forgets `#[serial]` still cannot race another CWD-dependent test.
@@ -99,6 +107,7 @@ pub fn canonical_root(dir: &tempfile::TempDir) -> std::path::PathBuf {
 
 use indexmap::IndexMap;
 use std::collections::HashMap;
+use std::process::Command;
 
 use crate::config::theme_types::ThemeConfig;
 use crate::config::{
@@ -675,6 +684,129 @@ pub fn is_root_euid() -> bool {
 #[cfg(not(unix))]
 pub fn is_root_euid() -> bool {
     false
+}
+
+/// TEST-26 / TASK-2126, TASK-2166: surface a test whose precondition cannot
+/// be met, so a vacuous pass is distinguishable from an executed one.
+///
+/// A bare `return` in a test reports "passed" while every assertion behind it
+/// was skipped; in a root container or a no-git sandbox that silently deletes
+/// whole regression suites. This prints one greppable line carrying the
+/// `skip:` marker plus the reason, which is the `#[ignore]`-style signal the
+/// runner output otherwise lacks. Print it *from the guard that bails out* —
+/// the skip must name its precondition, not the test that happened to hit it.
+pub fn skip_precondition(what: &str, why: &str) {
+    eprintln!("skip: {what}: {why}");
+}
+
+/// Why a git fixture command could not run (TEST-26 / TASK-2126, TASK-2166).
+///
+/// The split is the whole point: `BinaryAbsent` is an environment legitimately
+/// lacking a capability (surface a [`skip_precondition`] and return), while
+/// `CommandFailed` means git *ran and refused* — a broken fixture that must
+/// fail the test, because collapsing it into the same `false` the old helpers
+/// returned is exactly how tracked-mode coverage vanished with a green run.
+#[derive(Debug)]
+pub enum GitFixtureError {
+    /// No `git` executable on `PATH`.
+    BinaryAbsent,
+    /// git ran and exited non-zero (or could not be spawned for a reason other
+    /// than absence). Carries the rendered command, its exit status and stderr
+    /// so the failure names what broke.
+    CommandFailed {
+        /// The `git …` invocation that failed, for the panic message.
+        cmd: String,
+        /// Rendered exit status (or spawn error) for the same.
+        status: String,
+        /// git's stderr, if any was captured.
+        stderr: String,
+    },
+}
+
+impl std::fmt::Display for GitFixtureError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::BinaryAbsent => f.write_str("git is not on PATH"),
+            Self::CommandFailed {
+                cmd,
+                status,
+                stderr,
+            } => write!(f, "`{cmd}` failed ({status}): {stderr}"),
+        }
+    }
+}
+
+/// Run `git -C dir args…` for a test fixture, with hermetic configuration.
+///
+/// `GIT_CONFIG_GLOBAL`/`GIT_CONFIG_SYSTEM` are pointed at `/dev/null` so the
+/// fixture repo is independent of the developer's global config (templates,
+/// hooks, `core.excludesFile`) and of CI images with unusual system config.
+///
+/// See [`GitFixtureError`] for how to treat the two failure classes; this
+/// function never itself decides between skip and fail.
+///
+/// # Errors
+///
+/// [`GitFixtureError::BinaryAbsent`] when the `git` binary is missing;
+/// [`GitFixtureError::CommandFailed`] when git runs and exits non-zero or
+/// cannot be spawned for any other reason.
+pub fn git_fixture(dir: &std::path::Path, args: &[&str]) -> Result<(), GitFixtureError> {
+    let os_args: Vec<&std::ffi::OsStr> = args
+        .iter()
+        .map(std::convert::AsRef::<std::ffi::OsStr>::as_ref)
+        .collect();
+    git_fixture_os(dir, &os_args)
+}
+
+/// [`git_fixture`] for arguments that are OS paths (e.g. `git add -- <path>`),
+/// which must not be forced through `&str` on platforms where paths are not
+/// UTF-8.
+///
+/// # Errors
+///
+/// Same classification as [`git_fixture`].
+pub fn git_fixture_os(
+    dir: &std::path::Path,
+    args: &[&std::ffi::OsStr],
+) -> Result<(), GitFixtureError> {
+    // Diagnostic text only — `to_string_lossy` is fine for a panic message.
+    let rendered = args
+        .iter()
+        .map(|a| a.to_string_lossy())
+        .collect::<Vec<_>>()
+        .join(" ");
+    let cmd = format!("git -C {} {}", dir.display(), rendered);
+    match Command::new("git")
+        .arg("-C")
+        .arg(dir)
+        .env("GIT_CONFIG_GLOBAL", "/dev/null")
+        .env("GIT_CONFIG_SYSTEM", "/dev/null")
+        // A GIT_DIR / GIT_WORK_TREE / GIT_INDEX_FILE leaking in from the
+        // outer environment (a test that exported one, or a developer's
+        // shell) redirects the fixture's repository discovery away from
+        // `dir` — `git -C` sets the CWD but env vars win over discovery —
+        // so the fixture reads or mutates some other repo and the test
+        // asserts against a fixture that was never written. Scrub all
+        // three; `-C dir` is the only repository locator that remains.
+        .env_remove("GIT_DIR")
+        .env_remove("GIT_WORK_TREE")
+        .env_remove("GIT_INDEX_FILE")
+        .args(args)
+        .output()
+    {
+        Ok(output) if output.status.success() => Ok(()),
+        Ok(output) => Err(GitFixtureError::CommandFailed {
+            cmd,
+            status: output.status.to_string(),
+            stderr: String::from_utf8_lossy(&output.stderr).trim().to_string(),
+        }),
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => Err(GitFixtureError::BinaryAbsent),
+        Err(e) => Err(GitFixtureError::CommandFailed {
+            cmd,
+            status: "spawn failed".to_string(),
+            stderr: e.to_string(),
+        }),
+    }
 }
 
 /// Process-wide mutex for tests that change the current working directory.

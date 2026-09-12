@@ -3,7 +3,7 @@
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex, OnceLock};
 
-use ops_about::lru::{next_lru_tick, LruVictimQueue};
+use ops_about::lru::BoundedLruCache;
 use ops_core::project_identity::{CoverageStats, ProjectCoverage, UnitCoverage};
 use ops_duckdb::sql::{query_crate_coverage, query_or_warn, query_project_coverage, CrateCoverage};
 use ops_duckdb::DuckDb;
@@ -59,94 +59,30 @@ type CoverageSlot = Arc<OnceLock<Option<CrateCoverage>>>;
 /// producer cannot grow the map without limit.
 const MAX_COVERAGE_CACHE_ENTRIES: usize = 16;
 
-/// Slack added to the victim-queue compaction threshold.
-///
-/// PERF-16 / TASK-1723: mirrors the typed-manifest cache in
-/// [`crate::manifest_cache`]. Without it a cache holding a single project
-/// would compact on every other access.
-const COVERAGE_VICTIM_QUEUE_SLACK: usize = 16;
-
-struct CoverageCacheEntry {
-    slot: CoverageSlot,
-    last_accessed: u64,
-}
-
+/// DUP-1 / TASK-2150: the LRU scaffold (victim queue, compaction slack,
+/// record/evict loop, cap preamble, tick-on-hit) lives in
+/// [`ops_about::lru::BoundedLruCache`]; this struct names the key, value
+/// and cap for the coverage memoization.
 struct ProjectCoverageCache {
-    map: HashMap<u64, CoverageCacheEntry>,
-    victim_queue: LruVictimQueue<u64>,
+    cache: BoundedLruCache<u64, CoverageSlot>,
 }
 
 impl ProjectCoverageCache {
     fn new() -> Self {
         Self {
-            map: HashMap::new(),
-            victim_queue: LruVictimQueue::new(),
+            cache: BoundedLruCache::new(MAX_COVERAGE_CACHE_ENTRIES),
         }
     }
 
     /// Return the slot for `key`, inserting one and evicting the
     /// least-recently-used entry if the cap would otherwise be exceeded.
     fn slot_for(&mut self, key: u64) -> CoverageSlot {
-        let tick = next_lru_tick();
-        if let Some(entry) = self.map.get_mut(&key) {
-            entry.last_accessed = tick;
-            let slot = Arc::clone(&entry.slot);
-            self.record_access(key, tick);
-            return slot;
-        }
-        if self.map.len() >= MAX_COVERAGE_CACHE_ENTRIES {
-            self.evict_lru();
+        if let Some(slot) = self.cache.touch(&key) {
+            return Arc::clone(slot);
         }
         let slot: CoverageSlot = Arc::new(OnceLock::new());
-        self.map.insert(
-            key,
-            CoverageCacheEntry {
-                slot: Arc::clone(&slot),
-                last_accessed: tick,
-            },
-        );
-        self.record_access(key, tick);
+        self.cache.insert(key, Arc::clone(&slot));
         slot
-    }
-
-    /// Stamp an access against `key` and keep the victim queue bounded.
-    ///
-    /// PERF-16 / TASK-1723: same leak as the typed-manifest cache — every
-    /// hit pushes a stamp, but the only drain ([`Self::evict_lru`]) runs
-    /// solely at the cap. A process that stays below
-    /// [`MAX_COVERAGE_CACHE_ENTRIES`] (every CLI run: one project) never
-    /// drained the queue at all, so it grew by one `(u64, u64)` per
-    /// `cached_query_project_coverage` call for the process lifetime.
-    ///
-    /// Compaction leaves exactly one stamp per live entry, so at least
-    /// `map.len() + COVERAGE_VICTIM_QUEUE_SLACK` further pushes must land
-    /// before it can trigger again: amortised `O(1)` per access. It drops
-    /// only stamps `pop_lru` would already have skipped as stale, so
-    /// eviction ordering is unchanged.
-    ///
-    /// Must be called *after* the map holds `key` at `tick`, or the
-    /// freshness check would compact away the stamp just pushed.
-    fn record_access(&mut self, key: u64, tick: u64) {
-        let Self { map, victim_queue } = self;
-        victim_queue.push(tick, key);
-        let threshold = map
-            .len()
-            .saturating_mul(2)
-            .saturating_add(COVERAGE_VICTIM_QUEUE_SLACK);
-        if victim_queue.len() > threshold {
-            victim_queue
-                .retain_fresh(|key, tick| map.get(key).is_some_and(|e| e.last_accessed == tick));
-        }
-    }
-
-    fn evict_lru(&mut self) {
-        let map = &mut self.map;
-        if let Some(victim) = self
-            .victim_queue
-            .pop_lru(|key, tick| map.get(key).is_some_and(|e| e.last_accessed == tick))
-        {
-            map.remove(&victim);
-        }
     }
 }
 
@@ -172,9 +108,11 @@ fn project_coverage_cache() -> &'static Mutex<ProjectCoverageCache> {
 /// silently degraded to "warn fires once per concurrent first-caller".
 pub fn cached_query_project_coverage(db: &DuckDb) -> Option<CrateCoverage> {
     let slot: CoverageSlot = {
-        let mut guard = project_coverage_cache()
-            .lock()
-            .unwrap_or_else(std::sync::PoisonError::into_inner);
+        // DUP-1 / TASK-2150: the poison-recovering lock scaffold lives in
+        // `ops_about::lru::lock_recovering`. Recovery is silent here: the
+        // guarded value is the plain-data memoization map, and the worst
+        // outcome of a missed poison is a recomputed query.
+        let mut guard = ops_about::lru::lock_recovering(project_coverage_cache(), || {});
         guard.slot_for(db.id())
     };
 
@@ -288,6 +226,18 @@ fn per_crate_units(
         .iter()
         .filter_map(|member| {
             let cov = per_crate.get(member)?;
+            // TEST-5 / TASK-2154: `query_crate_coverage` zero-fills members
+            // whose LEFT JOIN matched no `coverage_files` row (COALESCE over
+            // NULL sums), so "no data" arrives here as an all-zero
+            // `CrateCoverage` that is indistinguishable from a measured zero.
+            // Omit it: rendering a no-data member as "0% covered" claims a
+            // measurement that never happened — a partial llvm-cov run would
+            // show every uninstrumented crate at 0% instead of absent.
+            // `lines_count == 0` is the discriminator: any member with real
+            // rows carries a positive instrumented-line count.
+            if cov.lines_count == 0 {
+                return None;
+            }
             let unit_name = display_names.remove(member.as_str())?;
             Some(UnitCoverage::new(
                 unit_name,
@@ -302,25 +252,20 @@ fn per_crate_units(
 mod cache_tests {
     use super::{
         cached_query_project_coverage, project_coverage_cache, ProjectCoverageCache,
-        COVERAGE_VICTIM_QUEUE_SLACK, MAX_COVERAGE_CACHE_ENTRIES,
+        MAX_COVERAGE_CACHE_ENTRIES,
     };
+    use ops_about::lru::{lock_recovering, VICTIM_QUEUE_SLACK};
     use ops_about::test_support::{capture_tracing, pin_global_dispatcher, TracingBuf};
     use ops_duckdb::DuckDb;
     use std::sync::Arc;
 
     fn cache_len() -> usize {
-        project_coverage_cache()
-            .lock()
-            .unwrap_or_else(std::sync::PoisonError::into_inner)
-            .map
-            .len()
+        lock_recovering(project_coverage_cache(), || {}).cache.len()
     }
 
     fn contains(key: u64) -> bool {
-        project_coverage_cache()
-            .lock()
-            .unwrap_or_else(std::sync::PoisonError::into_inner)
-            .map
+        lock_recovering(project_coverage_cache(), || {})
+            .cache
             .contains_key(&key)
     }
 
@@ -542,17 +487,15 @@ mod cache_tests {
             }
         }
 
-        let map_len = cache.map.len();
+        let map_len = cache.cache.len();
         assert_eq!(map_len, usize::try_from(KEYS).unwrap());
         assert!(
             map_len < MAX_COVERAGE_CACHE_ENTRIES,
             "the test must stay below the cap or it stops covering the leak"
         );
         // Without compaction this is KEYS * PASSES == 1500 stamps.
-        let bound = map_len
-            .saturating_mul(2)
-            .saturating_add(COVERAGE_VICTIM_QUEUE_SLACK);
-        let queue_len = cache.victim_queue.len();
+        let bound = map_len.saturating_mul(2).saturating_add(VICTIM_QUEUE_SLACK);
+        let queue_len = cache.cache.victim_queue_len();
         assert!(
             queue_len <= bound,
             "victim queue holds {queue_len} stamps after {} accesses of {map_len} keys; \
@@ -644,6 +587,307 @@ mod tests {
         assert!(
             logs.contains("non-UTF-8 workspace root"),
             "the short-circuit must leave a breadcrumb, got: {logs}"
+        );
+    }
+}
+
+/// TEST-5 / TASK-2154: happy-path coverage for `per_crate_units` and
+/// `RustCoverageProvider::provide`. Before this module the provider was
+/// driven by exactly one test — the non-UTF-8-root skip branch — so the
+/// row→unit mapping, the project total, and the default arms of `provide`
+/// had no test at all. These tests mirror the coverage shape the sibling
+/// `deps_provider` tests already establish (no-DB default, query-failure
+/// fallback with warn, multi-row mapping) and are platform-independent.
+///
+/// Cross-stack note (TASK-2154 AC #4): the Go twin of this coverage shape
+/// lives in `extensions-go/about` (`units_provider_*` tests, TASK-2184) —
+/// keep the two stacks' provider-level coverage consistent.
+#[cfg(test)]
+mod provider_tests {
+    use super::{per_crate_units, RustCoverageProvider};
+    use ops_about::test_support::capture_tracing;
+    use ops_duckdb::DuckDb;
+    use ops_extension::{Context, DataProvider};
+    use std::path::PathBuf;
+    use std::sync::Arc;
+
+    /// Seed `coverage_files` with (`filename`, `lines_count`, `lines_covered`)
+    /// rows. `lines_percent` is computed by the SUM/CASE aggregation, so the
+    /// fixture does not carry it. All values are static test constants
+    /// interpolated into one batch string (the crate has no direct `duckdb`
+    /// dependency for bound parameters).
+    fn seed_coverage(db: &DuckDb, rows: &[(&str, i64, i64)]) {
+        use std::fmt::Write as _;
+        let mut sql = String::from(
+            "CREATE TABLE coverage_files (\
+                filename VARCHAR, \
+                lines_count BIGINT, \
+                lines_covered BIGINT\
+             );",
+        );
+        for (filename, count, covered) in rows {
+            write!(
+                sql,
+                " INSERT INTO coverage_files VALUES ('{filename}', {count}, {covered});"
+            )
+            .expect("write to String cannot fail");
+        }
+        let conn = db.lock().expect("lock");
+        conn.execute_batch(&sql).expect("seed coverage_files");
+    }
+
+    /// A three-member Cargo workspace: `foo` and `bar` get coverage rows,
+    /// `baz` gets none. Package names deliberately differ from directory
+    /// names so a name/path transposition in the mapping fails the test.
+    /// The returned `TempDir` keeps every path alive for the test.
+    fn workspace_fixture(tag: &str) -> (tempfile::TempDir, PathBuf) {
+        let dir = tempfile::tempdir().expect("tempdir");
+        // Canonicalize so the fixture root has no symlinked components
+        // (`/var` → `/private/var` on macOS): `read_crate_metadata` reads
+        // the member manifests through the symlink-refusing opener, and an
+        // un-canonicalized root makes every display name fall back to the
+        // path-derived form.
+        let root = dir.path().canonicalize().expect("canonical root").join(tag);
+        for (dir_name, pkg) in [
+            ("crates/foo", "alpha-crate"),
+            ("crates/bar", "beta-crate"),
+            ("crates/baz", "gamma-crate"),
+        ] {
+            std::fs::create_dir_all(root.join(dir_name)).expect("member dir");
+            std::fs::write(
+                root.join(dir_name).join("Cargo.toml"),
+                format!("[package]\nname = \"{pkg}\"\nversion = \"0.1.0\"\n"),
+            )
+            .expect("member manifest");
+        }
+        std::fs::write(
+            root.join("Cargo.toml"),
+            "[workspace]\nmembers = [\"crates/*\"]\n",
+        )
+        .expect("root manifest");
+        (dir, root)
+    }
+
+    /// TEST-5 / TASK-2154 AC #1: rows map onto one `UnitCoverage` per covered
+    /// member with the display name from the member manifest, the member
+    /// path, and the (percent, covered, count) triple in the right order —
+    /// distinct magnitudes per field so a transposition cannot pass.
+    #[test]
+    #[serial_test::serial(typed_manifest_cache, project_coverage_cache)]
+    fn per_crate_units_maps_rows_onto_named_units() {
+        let (_dir, root) = workspace_fixture("map-rows");
+        let db = DuckDb::open_in_memory().expect("open in-memory db");
+        seed_coverage(
+            &db,
+            &[
+                // foo: 150 count, 105 covered → 70.0%
+                ("crates/foo/src/lib.rs", 100, 80),
+                ("crates/foo/src/util.rs", 50, 25),
+                // bar: 10 count, 1 covered → 10.0%
+                ("crates/bar/src/lib.rs", 10, 1),
+            ],
+        );
+        let root_str = root.to_str().expect("root is UTF-8");
+
+        let units = per_crate_units(
+            &db,
+            &["crates/foo".to_string(), "crates/bar".to_string()],
+            &root,
+            root_str,
+        );
+
+        assert_eq!(units.len(), 2, "one unit per covered member: {units:?}");
+        let foo = &units[0];
+        assert_eq!(foo.unit_name, "alpha-crate", "display name from manifest");
+        assert_eq!(foo.unit_path, "crates/foo", "member path verbatim");
+        // Distinct magnitudes: percent 70.0, covered 105, count 150 — any
+        // argument-order transposition in `CoverageStats::new` fails here.
+        assert!((foo.stats.lines_percent - 70.0).abs() < f64::EPSILON);
+        assert_eq!(foo.stats.lines_covered, 105);
+        assert_eq!(foo.stats.lines_count, 150);
+        let bar = &units[1];
+        assert_eq!(bar.unit_name, "beta-crate");
+        assert_eq!(bar.unit_path, "crates/bar");
+        assert!((bar.stats.lines_percent - 10.0).abs() < f64::EPSILON);
+        assert_eq!(bar.stats.lines_covered, 1);
+        assert_eq!(bar.stats.lines_count, 10);
+    }
+
+    /// TEST-5 / TASK-2154 AC #2: a member with no coverage row is omitted
+    /// from the per-crate list, not emitted with zeroed stats.
+    /// `query_crate_coverage` zero-fills such members (LEFT JOIN + COALESCE),
+    /// so the omission has to happen in `per_crate_units` — pin it.
+    #[test]
+    #[serial_test::serial(typed_manifest_cache, project_coverage_cache)]
+    fn per_crate_units_omits_members_without_coverage_rows() {
+        let (_dir, root) = workspace_fixture("omit-uncovered");
+        let db = DuckDb::open_in_memory().expect("open in-memory db");
+        seed_coverage(&db, &[("crates/foo/src/lib.rs", 100, 80)]);
+        let root_str = root.to_str().expect("root is UTF-8");
+
+        let units = per_crate_units(
+            &db,
+            &[
+                "crates/foo".to_string(),
+                "crates/baz".to_string(), // no coverage rows
+            ],
+            &root,
+            root_str,
+        );
+
+        assert_eq!(
+            units.len(),
+            1,
+            "a member with no coverage data must be omitted, not zeroed: {units:?}"
+        );
+        assert_eq!(units[0].unit_path, "crates/foo");
+        assert!(
+            !units.iter().any(|u| u.unit_path == "crates/baz"),
+            "baz must not appear with zeroed stats: {units:?}"
+        );
+    }
+
+    /// TEST-5 / TASK-2154 AC #3: `provide` end to end against a real
+    /// workspace fixture plus a seeded `DuckDB` — project total and per-crate
+    /// table both asserted.
+    #[test]
+    #[serial_test::serial(typed_manifest_cache, project_coverage_cache)]
+    fn provide_reports_project_total_and_per_crate_table() {
+        let (_dir, root) = workspace_fixture("end-to-end");
+        let db = DuckDb::open_in_memory().expect("open in-memory db");
+        seed_coverage(
+            &db,
+            &[
+                ("crates/foo/src/lib.rs", 100, 80),
+                ("crates/foo/src/util.rs", 50, 25),
+                ("crates/bar/src/lib.rs", 10, 1),
+            ],
+        );
+
+        let mut ctx = Context::test_context(root);
+        ctx.attach_db(Arc::new(db));
+        let (logs, value) = capture_tracing(tracing::Level::WARN, || {
+            RustCoverageProvider.provide(&mut ctx).expect("provide")
+        });
+        assert!(logs.is_empty(), "a healthy query must not warn: {logs}");
+
+        // Project total: 160 count, 106 covered → 66.25%.
+        assert_eq!(
+            value["total"]["lines_count"],
+            serde_json::json!(160),
+            "project total counts every row: {value}"
+        );
+        assert_eq!(value["total"]["lines_covered"], serde_json::json!(106));
+        assert_eq!(value["total"]["lines_percent"], serde_json::json!(66.25));
+
+        let units = value["units"].as_array().expect("units array");
+        assert_eq!(units.len(), 2, "foo and bar covered, baz not: {value}");
+        let by_path: std::collections::BTreeMap<&str, &serde_json::Value> = units
+            .iter()
+            .map(|u| (u["unit_path"].as_str().expect("path"), u))
+            .collect();
+        let foo = by_path.get("crates/foo").expect("foo unit");
+        assert_eq!(foo["unit_name"], "alpha-crate");
+        assert_eq!(foo["stats"]["lines_percent"], serde_json::json!(70.0));
+        assert_eq!(foo["stats"]["lines_covered"], serde_json::json!(105));
+        assert_eq!(foo["stats"]["lines_count"], serde_json::json!(150));
+    }
+
+    /// TEST-5 / TASK-2154 AC #4: no `DuckDB` in the context serialises a
+    /// default (empty but well-formed) `ProjectCoverage`, not an error —
+    /// matching `deps_provider`'s no-DB test.
+    #[test]
+    #[serial_test::serial(typed_manifest_cache, project_coverage_cache)]
+    fn provide_without_duckdb_yields_default_project_coverage() {
+        let dir = tempfile::tempdir().expect("tempdir");
+        let mut ctx = Context::test_context(dir.path().to_path_buf());
+        let (logs, value) = capture_tracing(tracing::Level::WARN, || {
+            RustCoverageProvider.provide(&mut ctx).expect("provide")
+        });
+        assert_eq!(
+            value,
+            serde_json::json!({
+                "total": {
+                    "lines_percent": 0.0,
+                    "lines_covered": 0,
+                    "lines_count": 0
+                },
+                "units": []
+            }),
+            "no DuckDB must yield the default ProjectCoverage: {value}"
+        );
+        assert!(
+            logs.is_empty(),
+            "an absent DuckDB is not a degraded mode; no warn expected: {logs}"
+        );
+    }
+
+    /// TEST-5 / TASK-2154 AC #4: a `query_project_coverage` failure warns and
+    /// falls back to the default `ProjectCoverage` (ERR-2 convention shared
+    /// with `deps_provider`). The seeded `coverage_files` table types
+    /// `lines_count` as VARCHAR so the SUM aggregation fails while
+    /// `table_exists` still passes.
+    #[test]
+    #[serial_test::serial(typed_manifest_cache, project_coverage_cache)]
+    fn provide_warns_and_falls_back_when_the_query_fails() {
+        let dir = tempfile::tempdir().expect("tempdir");
+        let db = DuckDb::open_in_memory().expect("open in-memory db");
+        {
+            let conn = db.lock().expect("lock");
+            conn.execute_batch(
+                "CREATE TABLE coverage_files (\
+                    filename VARCHAR, \
+                    lines_count VARCHAR, \
+                    lines_covered VARCHAR\
+                 ); \
+                 INSERT INTO coverage_files VALUES ('a.rs', 'x', 'y');",
+            )
+            .expect("seed broken-schema coverage_files");
+        }
+
+        let mut ctx = Context::test_context(dir.path().to_path_buf());
+        ctx.attach_db(Arc::new(db));
+        let (logs, value) = capture_tracing(tracing::Level::WARN, || {
+            RustCoverageProvider.provide(&mut ctx).expect("provide")
+        });
+
+        assert_eq!(
+            value["units"].as_array().map(Vec::len),
+            Some(0),
+            "the fallback must be a valid empty ProjectCoverage: {value}"
+        );
+        assert_eq!(value["total"]["lines_count"], serde_json::json!(0));
+        assert!(
+            logs.contains("query=\"query_project_coverage\""),
+            "the failure must warn before falling back: {logs}"
+        );
+    }
+
+    /// TEST-5 / TASK-2154: the manifest-failed arm — a `DuckDB` with rows but
+    /// no workspace manifest at cwd reports the project total with an empty
+    /// per-crate table, not an error.
+    #[test]
+    #[serial_test::serial(typed_manifest_cache, project_coverage_cache)]
+    fn provide_without_manifest_reports_total_with_empty_units() {
+        let dir = tempfile::tempdir().expect("tempdir");
+        let db = DuckDb::open_in_memory().expect("open in-memory db");
+        seed_coverage(&db, &[("crates/foo/src/lib.rs", 100, 80)]);
+
+        let mut ctx = Context::test_context(dir.path().to_path_buf());
+        ctx.attach_db(Arc::new(db));
+        let (_logs, value) = capture_tracing(tracing::Level::WARN, || {
+            RustCoverageProvider.provide(&mut ctx).expect("provide")
+        });
+
+        assert_eq!(
+            value["total"]["lines_count"],
+            serde_json::json!(100),
+            "the project total must survive a missing manifest: {value}"
+        );
+        assert_eq!(
+            value["units"].as_array().map(Vec::len),
+            Some(0),
+            "no manifest → no per-crate table: {value}"
         );
     }
 }

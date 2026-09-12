@@ -102,7 +102,11 @@ fn a_directory_the_walk_cannot_enter_is_reported_not_swallowed() {
     std::fs::write(locked.join("hidden.txt"), b"a").unwrap();
 
     let Some(guard) = crate::test_support::UnsearchableDir::new(&locked) else {
-        return; // running as root: the directory is searchable regardless.
+        crate::test_support::skip_precondition(
+            "unsearchable-directory fixture",
+            "running as root or the chmod did not deny; walk-error assertions did not run",
+        );
+        return;
     };
 
     let found = discover(root, false).unwrap();
@@ -142,7 +146,7 @@ fn tracked_mode_returns_tracked_files_and_excludes_untracked() {
     }
     std::fs::write(root.join("tracked.txt"), b"a").unwrap();
     std::fs::write(root.join("untracked.txt"), b"a").unwrap();
-    assert!(git_add(root, &[Path::new("tracked.txt")]));
+    git_add(root, &[Path::new("tracked.txt")]);
 
     let found = discover(root, true).unwrap();
     assert!(found.fallback.is_none(), "a real repo must not fall back");
@@ -167,10 +171,7 @@ fn tracked_mode_joins_paths_relative_to_a_subdirectory_root() {
     std::fs::create_dir_all(&sub).unwrap();
     std::fs::write(repo.join("top.txt"), b"a").unwrap();
     std::fs::write(sub.join("inner.txt"), b"a").unwrap();
-    assert!(git_add(
-        repo,
-        &[Path::new("top.txt"), Path::new("sub/inner.txt")]
-    ));
+    git_add(repo, &[Path::new("top.txt"), Path::new("sub/inner.txt")]);
 
     let found = discover(&sub, true).unwrap();
     assert_eq!(
@@ -217,7 +218,7 @@ fn a_genuine_git_failure_is_an_error_not_a_silent_fallback() {
         return;
     }
     std::fs::write(root.join("a.txt"), b"a").unwrap();
-    assert!(git_add(root, &[Path::new("a.txt")]));
+    git_add(root, &[Path::new("a.txt")]);
     std::fs::write(root.join(".git/index"), b"not an index").unwrap();
 
     let err = discover(root, true).expect_err("a corrupt index must not fall back");
@@ -237,10 +238,7 @@ fn tracked_mode_drops_symlinks_and_agrees_with_the_walk() {
     }
     std::fs::write(root.join("real.txt"), b"a").unwrap();
     std::os::unix::fs::symlink("real.txt", root.join("link.txt")).unwrap();
-    assert!(git_add(
-        root,
-        &[Path::new("real.txt"), Path::new("link.txt")]
-    ));
+    git_add(root, &[Path::new("real.txt"), Path::new("link.txt")]);
 
     let tracked = discover(root, true).unwrap();
     let walked = discover(root, false).unwrap();
@@ -253,6 +251,86 @@ fn tracked_mode_drops_symlinks_and_agrees_with_the_walk() {
         relative_set(&tracked.files, root),
         relative_set(&walked.files, root),
         "the two modes must agree about symlinks"
+    );
+}
+
+/// The exclusion disagreement between the modes, pinned deliberately. A
+/// tracked file inside a deny-listed directory is in scope under `--tracked`
+/// — the index is the user's reviewed choice — while the walk never even
+/// descends into the directory. See the module header for the full rationale.
+#[test]
+fn tracked_mode_keeps_a_tracked_file_inside_a_skip_dirs_directory() {
+    let dir = tempfile::tempdir().unwrap();
+    let root = dir.path();
+    if !git_init(root) {
+        return;
+    }
+    std::fs::create_dir_all(root.join("dist")).unwrap();
+    std::fs::write(root.join("dist/vendored.txt"), b"a").unwrap();
+    std::fs::write(root.join("keep.txt"), b"a").unwrap();
+    git_add(
+        root,
+        &[Path::new("dist/vendored.txt"), Path::new("keep.txt")],
+    );
+
+    let tracked = discover(root, true).unwrap();
+    assert_eq!(
+        relative_set(&tracked.files, root),
+        BTreeSet::from([
+            std::path::PathBuf::from("dist/vendored.txt"),
+            std::path::PathBuf::from("keep.txt")
+        ]),
+        "--tracked means what git knows: a vendored file in a deny-listed \
+         directory is the user's reviewed choice and stays in scope"
+    );
+
+    let walked = discover(root, false).unwrap();
+    assert_eq!(
+        relative_set(&walked.files, root),
+        BTreeSet::from([std::path::PathBuf::from("keep.txt")]),
+        "walk mode never descends into a SKIP_DIRS directory"
+    );
+}
+
+/// The tracked-but-gitignored half of the same
+/// disagreement. The file is staged *before* the ignore rule exists — the
+/// only way this state arises in a real repository — and both modes are then
+/// pinned: `--tracked` keeps it (it is in the index), the walk drops it (the
+/// rule says generated).
+#[test]
+fn tracked_mode_keeps_a_tracked_but_gitignored_file() {
+    let dir = tempfile::tempdir().unwrap();
+    let root = dir.path();
+    if !git_init(root) {
+        return;
+    }
+    std::fs::write(root.join("generated.md"), b"a").unwrap();
+    std::fs::write(root.join("keep.txt"), b"a").unwrap();
+    git_add(root, &[Path::new("generated.md"), Path::new("keep.txt")]);
+    // The ignore rule arrives after the file is tracked; adding it now would
+    // take `git add -f`, which is exactly the case this test does not build.
+    std::fs::write(root.join(".gitignore"), b"generated.md\n").unwrap();
+    git_add(root, &[Path::new(".gitignore")]);
+
+    let tracked = discover(root, true).unwrap();
+    assert_eq!(
+        relative_set(&tracked.files, root),
+        BTreeSet::from([
+            std::path::PathBuf::from(".gitignore"),
+            std::path::PathBuf::from("generated.md"),
+            std::path::PathBuf::from("keep.txt")
+        ]),
+        "the index, not the ignore rules, decides what --tracked sees"
+    );
+
+    let walked = discover(root, false).unwrap();
+    assert_eq!(
+        relative_set(&walked.files, root),
+        BTreeSet::from([
+            std::path::PathBuf::from(".gitignore"),
+            std::path::PathBuf::from("keep.txt")
+        ]),
+        "walk mode honours the ignore rule"
     );
 }
 
@@ -274,9 +352,9 @@ fn tracked_mode_keeps_a_non_utf8_filename_and_agrees_with_the_walk() {
     // Latin-1 "café.txt": no valid UTF-8 decoding, a perfectly good path.
     let raw = OsStr::from_bytes(&[b'c', b'a', b'f', 0xE9, b'.', b't', b'x', b't']);
     std::fs::write(root.join(raw), b"a").unwrap();
-    if !git_add(root, &[Path::new(raw)]) {
-        return; // git configured to reject the name; nothing to assert.
-    }
+    // A refusing git panics inside the helper; an absent binary would have
+    // bailed at git_init above.
+    git_add(root, &[Path::new(raw)]);
 
     let tracked = discover(root, true).unwrap();
     let walked = discover(root, false).unwrap();
@@ -293,5 +371,55 @@ fn tracked_mode_keeps_a_non_utf8_filename_and_agrees_with_the_walk() {
         relative_set(&tracked.files, root),
         relative_set(&walked.files, root),
         "the two modes must agree about non-UTF-8 names"
+    );
+}
+
+/// A stage file left behind by a killed run (Drop does
+/// not run on SIGKILL) must never become a candidate — the walk skips it
+/// rather than reading a copy of already-fixed content.
+#[test]
+fn walk_never_returns_a_stale_stage_file() {
+    let dir = tempfile::tempdir().unwrap();
+    let root = dir.path();
+    std::fs::write(root.join("keep.txt"), b"a").unwrap();
+    std::fs::write(root.join(".ops-text-fixers.abc123"), b"stale stage").unwrap();
+
+    let names = names(&walk(root).unwrap().0);
+    assert!(
+        names.contains(&"keep.txt".to_string()),
+        "ordinary files stay in scope"
+    );
+    assert!(
+        !names
+            .iter()
+            .any(|n| n.starts_with(crate::atomic::STAGE_PREFIX)),
+        "a stale stage file must not be a candidate: {names:?}"
+    );
+}
+
+/// The tracked half: the only way a stage file reaches the index is a
+/// `git add -A` after an interrupted run. Even then it is this crate's own
+/// residue, not the user's reviewed repository content, so `--tracked` drops
+/// it too — the one deliberate carve-out from the "the index decides" rule.
+#[test]
+fn tracked_mode_never_returns_a_staged_stage_file() {
+    let dir = tempfile::tempdir().unwrap();
+    let root = dir.path();
+    if !git_init(root) {
+        return;
+    }
+    std::fs::write(root.join("keep.txt"), b"a").unwrap();
+    std::fs::write(root.join(".ops-text-fixers.abc123"), b"stale stage").unwrap();
+    // The post-interrupt `git add -A`: both files land in the index.
+    git_add(
+        root,
+        &[Path::new("keep.txt"), Path::new(".ops-text-fixers.abc123")],
+    );
+
+    let tracked = discover(root, true).unwrap();
+    assert_eq!(
+        relative_set(&tracked.files, root),
+        BTreeSet::from([std::path::PathBuf::from("keep.txt")]),
+        "a staged stage file is operational residue, not repository content"
     );
 }

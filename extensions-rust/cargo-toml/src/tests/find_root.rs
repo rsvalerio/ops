@@ -80,7 +80,41 @@ fn find_root_prefers_workspace_over_member() {
     assert_eq!(found, fs::canonicalize(root).unwrap());
 }
 
-/// TASK-0501: a single-crate (non-workspace) project still resolves to the
+/// Nested workspaces: the inner and outer manifests both declare
+/// `[workspace]`; the walk returns the **innermost** (the nearest ancestor
+/// that declares `[workspace]`), not the outermost.
+#[test]
+fn find_root_returns_innermost_workspace_when_workspaces_are_nested() {
+    let temp_dir = tempfile::tempdir().expect("create temp dir");
+    let outer = temp_dir.path();
+    fs::write(
+        outer.join("Cargo.toml"),
+        "[workspace]\nmembers = [\"inner\"]\n",
+    )
+    .expect("write outer workspace");
+
+    let inner = outer.join("inner");
+    fs::create_dir_all(&inner).expect("create inner dir");
+    fs::write(inner.join("Cargo.toml"), "[workspace]\nmembers = []\n")
+        .expect("write inner workspace");
+
+    let leaf = inner.join("crates").join("leaf");
+    fs::create_dir_all(&leaf).expect("create leaf dir");
+    fs::write(
+        leaf.join("Cargo.toml"),
+        "[package]\nname = \"leaf\"\nversion = \"0.1.0\"\n",
+    )
+    .expect("write leaf member");
+
+    let found = find_workspace_root(&leaf).expect("should find workspace root");
+    assert_eq!(
+        found,
+        fs::canonicalize(inner).unwrap(),
+        "the nearest [workspace] ancestor (inner) must win over the outer one"
+    );
+}
+
+/// A single-crate (non-workspace) project still resolves to the
 /// nearest Cargo.toml when no ancestor declares `[workspace]`.
 #[test]
 fn find_root_falls_back_to_nearest_when_no_workspace_in_chain() {
@@ -331,10 +365,10 @@ fn find_root_strict_rejects_symlinked_manifest_that_lenient_accepts() {
     fs::create_dir_all(&leaf).unwrap();
     std::os::unix::fs::symlink(&planted, legit.join("Cargo.toml")).unwrap();
 
-    let lenient = find_workspace_root(&leaf).expect("lenient follows the planted manifest symlink");
+    let lenient = find_workspace_root(&leaf).expect("lenient returns the symlink-manifested dir");
     assert_eq!(
         lenient, legit,
-        "lenient walk must read the planted manifest through the symlink"
+        "lenient walk cannot read the symlinked manifest (reads refuse symlinks), so it records this directory as its first-seen fallback and returns it"
     );
 
     let err = find_workspace_root_strict(&leaf)

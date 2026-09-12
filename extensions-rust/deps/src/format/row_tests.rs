@@ -4,7 +4,7 @@
 use super::*;
 use crate::{AdvisoryEntry, DenyEntry};
 
-/// DUP-1 (TASK-0801): advisories carry an id column in their detail rows;
+/// Advisories carry an id column in their detail rows;
 /// licenses/sources do not. Pin both shapes through `build_report`'s row
 /// builder so a future extractor change cannot silently regress one layout.
 #[test]
@@ -102,9 +102,9 @@ fn unknown_severity_classifies_to_error_status() {
     assert_eq!(class.report_status(), ReportStatus::Error);
 }
 
-/// PATTERN-1 / TASK-1041: a bans entry whose severity is the cargo-deny
-/// schema-drift sentinel or an unknown future value like `critical` must NOT
-/// be folded into the `info` counter. The rollup has to surface those in the
+/// A bans entry whose severity is the cargo-deny schema-drift sentinel, or
+/// an unknown future value like `critical`, must NOT be folded into the
+/// `info` counter. The rollup has to surface those in the
 /// `unknown` bucket so the result slot agrees with the fail-closed gate.
 #[test]
 fn bans_rollup_keeps_unknown_distinct_from_info() {
@@ -145,4 +145,32 @@ fn bans_rollup_keeps_unknown_distinct_from_info() {
         "missing/unknown severities must not be lumped into info: {}",
         row.result
     );
+}
+
+/// An unrecognised severity on a ban entry emits the same one-per-section
+/// drift warn the other three deny sections emit, so schema drift on bans
+/// leaves the same breadcrumb in the logs.
+#[test]
+fn bans_row_warns_once_on_unknown_severity() {
+    let bans = vec![
+        BanEntry(DenyEntry {
+            package: "dup-a".to_string(),
+            message: "duplicate".to_string(),
+            severity: "critical".to_string(),
+        }),
+        BanEntry(DenyEntry {
+            package: "dup-b".to_string(),
+            message: "duplicate".to_string(),
+            severity: "critical".to_string(),
+        }),
+    ];
+
+    let (logs, row) =
+        crate::test_support::capture_tracing(tracing::Level::WARN, || bans_row(&bans));
+    assert_eq!(
+        logs.matches("unknown cargo-deny severity").count(),
+        1,
+        "one drift warn per section, not per entry; got: {logs}"
+    );
+    assert_eq!(row.status, ReportStatus::Error);
 }

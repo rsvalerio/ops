@@ -41,12 +41,12 @@ pub fn run_about(
     match action {
         Some(AboutAction::Setup) => about_cmd::run_about_setup(config, &registry, &cwd),
         #[cfg(feature = "duckdb")]
-        Some(AboutAction::Code) => ops_about::run_about_code(&registry),
+        Some(AboutAction::Code) => ops_about::code::run_about_code(&registry),
         #[cfg(feature = "duckdb")]
-        Some(AboutAction::Loc) => ops_about::run_about_loc(&registry),
-        Some(AboutAction::Crates) => ops_about::run_about_units(&registry),
-        Some(AboutAction::Coverage) => ops_about::run_about_coverage(&registry),
-        Some(AboutAction::Dependencies) => ops_about::run_about_deps(&registry),
+        Some(AboutAction::Loc) => ops_about::loc::run_about_loc(&registry),
+        Some(AboutAction::Crates) => ops_about::units::run_about_units(&registry),
+        Some(AboutAction::Coverage) => ops_about::coverage::run_about_coverage(&registry),
+        Some(AboutAction::Dependencies) => ops_about::deps::run_about_deps(&registry),
         // Intercepted above, before `cli_data_context` ran; the arm exists
         // only to keep this match exhaustive. Allowed at the call site per
         // docs/clippy.md: the interception is the real dispatch, so this

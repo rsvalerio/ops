@@ -7,18 +7,19 @@
 //! project (no `[workspace]` table) yields its root package as the one
 //! review target — see [`provider`].
 
-// TEST-5 / TASK-1816: the crate-root `#![cfg_attr(test, allow(..))]` block
-// that used to sit here is gone. The tests in this crate use `expect` and
-// indexing, both already permitted in test code by the `allow-*-in-tests`
-// keys in `clippy.toml`, and none of them casts — the block excused nothing.
-
 pub(crate) mod provider;
 
-pub const NAME: &str = "create-review-tasks-rust";
-pub const DESCRIPTION: &str = "Rust review targets for create-review-tasks";
-pub const SHORTNAME: &str = "create-review-tasks-rs";
-pub const DATA_PROVIDER_NAME: &str = ops_create_review_tasks::DATA_PROVIDER_NAME;
+/// Extension identifier used to register this crate in the engine's
+/// extension registry.
+const NAME: &str = "create-review-tasks-rust";
+/// One-line description shown by `ops about` for this extension.
+const DESCRIPTION: &str = "Rust review targets for create-review-tasks";
+/// CLI-facing short name (`create-review-tasks-rs`) used in commands and
+/// user-facing output.
+const SHORTNAME: &str = "create-review-tasks-rs";
 
+/// Extension type wiring the Rust `review_targets` provider into the generic
+/// create-review-tasks engine.
 pub struct CreateReviewTasksRustExtension;
 
 ops_extension::impl_extension! {
@@ -29,11 +30,11 @@ ops_extension::impl_extension! {
     types: ops_extension::ExtensionType::DATASOURCE,
     stack: Some(ops_extension::Stack::Rust),
     command_names: &[],
-    data_provider_name: Some(DATA_PROVIDER_NAME),
+    data_provider_name: Some(ops_create_review_tasks::DATA_PROVIDER_NAME),
     register_commands: |_self, _registry| {},
     register_data_providers: |_self, registry| {
         let _ = registry.register(
-            DATA_PROVIDER_NAME,
+            ops_create_review_tasks::DATA_PROVIDER_NAME,
             Box::new(provider::RustReviewTargetsProvider),
         );
     },
@@ -47,20 +48,19 @@ mod tests {
     use super::*;
     use ops_extension::{Context, DataRegistry, Extension};
 
-    /// TEST-5 / TASK-1816: the registration closure in `impl_extension!` had
-    /// no test at all. The key it registers under is what the engine looks
-    /// up; a mismatch surfaces at runtime as "the detected stack has no
-    /// create-review-tasks extension compiled in".
+    /// The registration closure in `impl_extension!` is verified through
+    /// the engine's own lookup path — `registry.provide` under the *engine
+    /// crate's* key constant — so the assertions that carry the weight are
+    /// behavioural: the provider that answers is this crate's Rust provider
+    /// (it emits `code-review-rust` and lists the solo package as a target).
+    /// Fails if this crate's registration key ever drifts from the engine's
+    /// constant (e.g. replaced by a decoupled literal): the lookup then
+    /// lands on `NotFound`.
     #[test]
     fn extension_registers_the_review_targets_provider_under_the_engine_key() {
         let mut registry = DataRegistry::new();
         CreateReviewTasksRustExtension.register_data_providers(&mut registry);
 
-        assert!(registry.provider_names().contains(&DATA_PROVIDER_NAME));
-
-        // Identity, not just presence: the registered provider must be this
-        // crate's Rust provider, which is what emitting `code-review-rust`
-        // for a real workspace proves.
         let dir = tempfile::tempdir().expect("tempdir");
         let root = dir.path();
         std::fs::write(
@@ -70,8 +70,16 @@ mod tests {
         .expect("root manifest");
         let mut ctx = Context::test_context(root.to_path_buf());
         let payload = registry
-            .provide(DATA_PROVIDER_NAME, &mut ctx)
-            .expect("registered provider must answer");
+            .provide(ops_create_review_tasks::DATA_PROVIDER_NAME, &mut ctx)
+            .expect("the engine's lookup key must resolve this provider");
         assert_eq!(payload["skill"], provider::SKILL_NAME);
+        // Identity, not just presence: the solo package appears as the one
+        // review target, proving the answering provider is this crate's.
+        assert_eq!(
+            payload["targets"][0]["name"],
+            serde_json::json!("solo"),
+            "got: {payload}"
+        );
+        assert_eq!(payload["targets"][0]["path"], serde_json::json!("."));
     }
 }

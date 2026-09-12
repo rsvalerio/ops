@@ -9,9 +9,8 @@ use ops_core::style::{cyan, dim, grey, white};
 
 #[cfg(test)]
 use crate::text_util::get_terminal_width;
-use crate::text_util::{
-    format_number, pad_to_width_plain, truncate_to_width, tty_style, wrap_text,
-};
+use crate::text_util::{pad_to_width_plain, truncate_to_width, tty_style, wrap_text};
+use ops_core::text::format_number;
 
 /// Layout constants for about pages.
 ///
@@ -45,7 +44,7 @@ const _: () = assert!(
 );
 
 /// Capitalize the last path segment of a member-style string (e.g. "crates/foo" → "Foo").
-#[must_use]
+#[must_use = "use the formatted name; the input is left unchanged"]
 pub fn format_unit_name(member: &str) -> String {
     let name = member
         .strip_prefix("**/")
@@ -60,7 +59,10 @@ pub fn format_unit_name(member: &str) -> String {
     })
 }
 
-#[must_use]
+/// Builds the single `loc · files · deps` stats line for a unit card.
+///
+/// Returns `None` when the unit carries none of those counts.
+#[must_use = "render the returned stats line; recomputing it re-reads the unit"]
 pub fn build_card_stats_line(unit: &ProjectUnit) -> Option<String> {
     let parts: Vec<String> = [
         unit.loc.map(|loc| format!("{} loc", format_number(loc))),
@@ -80,6 +82,7 @@ pub fn build_card_stats_line(unit: &ProjectUnit) -> Option<String> {
     }
 }
 
+/// Renders one [`ProjectUnit`] as a card's lines, styled when `is_tty`.
 pub fn render_card(unit: &ProjectUnit, is_tty: bool) -> Vec<String> {
     use std::borrow::Cow;
 

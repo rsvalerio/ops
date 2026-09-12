@@ -249,6 +249,19 @@ fn compact_summary_separator_is_empty() {
     assert!(sep.is_empty());
 }
 
+/// API-18 / TASK-2090: the column budget the signature promises is real —
+/// a configured separator longer than the terminal is clamped instead of
+/// wrapping past the last column.
+#[test]
+fn over_long_summary_separator_is_clamped_to_columns() {
+    let mut cfg = ThemeConfig::classic();
+    cfg.summary_separator = "─".repeat(120);
+    let theme = ConfigurableTheme::new(cfg);
+    let sep = theme.render_summary_separator(40);
+    let width = visible_width(&sep);
+    assert!(width <= 40, "separator width {width} exceeds budget 40");
+}
+
 #[test]
 fn error_detail_empty_returns_nothing() {
     let theme = ConfigurableTheme::new(ThemeConfig::classic());

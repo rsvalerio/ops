@@ -15,7 +15,7 @@ use ops_core::output::ErrorDetail;
 use super::ConfigurableTheme;
 use crate::render::render_error_block;
 use crate::step_line_theme::{format_duration, BoxSnapshot};
-use crate::style::{apply_with_prefix, truncate_to_width, visible_width};
+use crate::style::{apply_with_prefix_gated, color_enabled, truncate_to_width, visible_width};
 
 /// Columns reserved by the boxed frame on a step line: `│ X  … │` = 7 cells.
 ///
@@ -113,6 +113,8 @@ impl ConfigurableTheme {
             columns: snap.columns,
             left_pad: self.left_pad(),
             title_prefix: self.header_prefix.as_deref(),
+            // PERF-3 / TASK-2082: one gate resolution per border render.
+            color: color_enabled(),
         }))
     }
 
@@ -144,6 +146,8 @@ impl ConfigurableTheme {
             columns: snap.columns,
             left_pad: self.left_pad(),
             title_prefix: self.summary_prefix.as_deref(),
+            // PERF-3 / TASK-2082: one gate resolution per border render.
+            color: color_enabled(),
         }))
     }
 
@@ -251,6 +255,10 @@ pub(super) struct BorderArgs<'a> {
     pub(super) columns: u16,
     pub(super) left_pad: usize,
     pub(super) title_prefix: Option<&'a str>,
+    /// PERF-3 / TASK-2082: resolved once by the caller so a multi-border
+    /// render (a boxed report draws two) reads `NO_COLOR` once, not per
+    /// styled segment.
+    pub(super) color: bool,
 }
 
 /// Render a horizontal border like `╭─ title ────...───╮`.
@@ -268,6 +276,7 @@ pub(super) fn build_horizontal_border(args: BorderArgs<'_>) -> String {
         columns,
         left_pad,
         title_prefix,
+        color,
     } = args;
     let pad = " ".repeat(left_pad);
     let outer = usize::from(columns);
@@ -290,6 +299,6 @@ pub(super) fn build_horizontal_border(args: BorderArgs<'_>) -> String {
     let title_w = visible_width(&title);
     let fill = interior.saturating_sub(title_w);
     let fill_str = "─".repeat(fill);
-    let colored_title = apply_with_prefix(&title, title_prefix);
+    let colored_title = apply_with_prefix_gated(&title, title_prefix, color);
     format!("{pad}{left_corner}{colored_title}{fill_str}{right_corner}")
 }

@@ -34,11 +34,19 @@ use ops_extension::{
 use std::path::Path;
 use tokei::{Config as TokeiConfig, LanguageType, Languages};
 
+/// Extension identifier used to register this crate in the engine's
+/// extension registry.
 pub const NAME: &str = "tokei";
+/// One-line description shown by `ops about` for this extension.
 pub const DESCRIPTION: &str = "Code statistics provider (lines of code, comments, blanks)";
+/// CLI-facing short name (`tokei`) used in commands and user-facing output.
 pub const SHORTNAME: &str = "tokei";
+/// Registry key of the `tokei` data provider this crate registers —
+/// the key the about code/loc subpages look the statistics up by.
 pub const DATA_PROVIDER_NAME: &str = "tokei";
 
+/// Datasource extension exposing tokei-derived per-file code statistics
+/// under the [`DATA_PROVIDER_NAME`] key.
 pub struct TokeiExtension;
 
 ops_extension::impl_extension! {
@@ -91,7 +99,10 @@ impl DataProvider for TokeiProvider {
 fn query_tokei_files(db: &DuckDb) -> Result<serde_json::Value, anyhow::Error> {
     ops_duckdb::sql::query_rows_to_json(
         db,
-        "SELECT language, file, code, comments, blanks, lines FROM tokei_files",
+        // CL-3 / TASK-2153: explicit ORDER BY so the queried path is ordered
+        // too, not only the ingested one — DuckDB makes no row-order promise
+        // for an unordered SELECT.
+        "SELECT language, file, code, comments, blanks, lines FROM tokei_files ORDER BY file, language",
         |row| {
             Ok(serde_json::json!({
                 "language": row.get::<_, String>(0)?,
@@ -216,6 +227,103 @@ pub(crate) fn scan_tokei(
     limits: ScanLimits,
     deadline: Option<&Deadline>,
 ) -> anyhow::Result<TokeiScan> {
+    validate_scan_root(working_dir)?;
+    let (candidates, mut skips) = collect_candidates(working_dir, limits, deadline)?;
+
+    // Nothing left to count: skip the dispatch loop entirely and pass the
+    // skip accounting through untouched.
+    if candidates.is_empty() {
+        return Ok(skips.into_empty_scan());
+    }
+
+    // PERF-3 / TASK-2159: count the candidates directly with
+    // `LanguageType::parse` instead of handing them back to
+    // `Languages::get_statistics`. Tokei's `get_statistics` does not treat
+    // its slice as a file list — `utils::fs::get_all_files` (tokei 14.0.0)
+    // builds a second `WalkBuilder` with one root per candidate and re-runs
+    // the whole `ignore` pipeline on each (gitignore resolution, hidden
+    // rules, a fresh `stat`) plus a fresh `LanguageType::from_path`: the
+    // walk and classification `collect_candidates` already performed.
+    // Parsing each already-filtered candidate once removes the second walk
+    // and reports per-file open errors directly instead of inferring them
+    // from a records-vs-candidates shortfall.
+    let config = TokeiConfig::default();
+    let mut languages = Languages::new();
+    for path in candidates {
+        // SEC-33 / TASK-2052: the parse loop now owns the file opens too, so
+        // the cooperative cancellation point covers it — an open() on a
+        // wedged mount blocks exactly like the `read_dir` half of the walk.
+        if let Some(deadline) = deadline {
+            deadline.check()?;
+        }
+        // Re-classify rather than trusting the walk's verdict: an extension
+        // lookup is cheap, and a file replaced between the walk and the open
+        // would otherwise be parsed under a stale language.
+        let Some(lang) = LanguageType::from_path(&path, &config) else {
+            continue;
+        };
+        match lang.parse(path, &config) {
+            Ok(report) => {
+                // Same accumulation tokei's own pipeline performs: group
+                // per-language, one `Report` per file.
+                languages.entry(lang).or_default().add_report(report);
+            }
+            Err((error, path)) => {
+                skips.unreadable = skips.unreadable.saturating_add(1);
+                // Debug-format the path per the project-wide path-log policy.
+                tracing::warn!(path = ?path, %error, "tokei: candidate could not be opened");
+            }
+        }
+    }
+    let records = flatten_tokei_records(&languages, working_dir);
+
+    Ok(skips.into_scan(records))
+}
+
+/// What the candidate walk refused to look at, in one value — FN-1 /
+/// TASK-2161: the accounting is stated once here instead of spread across
+/// three separately mutated locals in the walk loop.
+#[derive(Debug, Default)]
+struct Skips {
+    /// Files skipped for exceeding [`ScanLimits::file_bytes`].
+    oversize: usize,
+    /// Files or subtrees that could not be read: a walk error, unreadable
+    /// metadata, or a candidate the parse loop (TASK-2159) failed to open.
+    unreadable: usize,
+    /// Whether [`ScanLimits::files`] cut the walk short. When true the
+    /// records are a prefix of the truth, not the whole of it.
+    truncated: bool,
+}
+
+impl Skips {
+    /// The scan outcome for an empty candidate set — counting is skipped
+    /// entirely, so the skip counts pass through untouched.
+    const fn into_empty_scan(self) -> TokeiScan {
+        TokeiScan {
+            records: Vec::new(),
+            skipped_oversize: self.oversize,
+            skipped_unreadable: self.unreadable,
+            truncated: self.truncated,
+        }
+    }
+
+    /// The scan outcome once tokei has produced `records`.
+    const fn into_scan(self, records: Vec<serde_json::Value>) -> TokeiScan {
+        TokeiScan {
+            records,
+            skipped_oversize: self.oversize,
+            skipped_unreadable: self.unreadable,
+            truncated: self.truncated,
+        }
+    }
+}
+
+/// Validate the scan root exists and is a directory.
+///
+/// # Errors
+///
+/// If `working_dir` does not exist, cannot be stat'd, or is not a directory.
+fn validate_scan_root(working_dir: &Path) -> anyhow::Result<()> {
     let metadata = std::fs::metadata(working_dir)
         .with_context(|| format!("tokei: cannot read scan root {}", working_dir.display()))?;
     anyhow::ensure!(
@@ -223,12 +331,31 @@ pub(crate) fn scan_tokei(
         "tokei: scan root {} is not a directory",
         working_dir.display()
     );
+    Ok(())
+}
 
+/// Walk `working_dir` and collect the paths tokei should count, applying the
+/// four skip policies (walk error, non-file, unrecognised language,
+/// unreadable metadata) and the two bound checks (`file_bytes`, `files`).
+///
+/// Failures *below* the root are not errors: an unreadable file or subtree is
+/// counted in [`Skips::unreadable`] and the walk continues, since a partial
+/// count with a warning beats no count at all.
+///
+/// # Errors
+///
+/// `DataProviderError::TimedOut`, boxed into `anyhow`, if `deadline` is
+/// supplied and expires mid-walk. That one *is* fatal: the scan is abandoned
+/// rather than reported as a short count, because a truncated statistic
+/// indistinguishable from a real one is worse than no statistic.
+fn collect_candidates(
+    working_dir: &Path,
+    limits: ScanLimits,
+    deadline: Option<&Deadline>,
+) -> anyhow::Result<(Vec<std::path::PathBuf>, Skips)> {
     let config = TokeiConfig::default();
     let mut candidates = Vec::new();
-    let mut skipped_oversize = 0usize;
-    let mut skipped_unreadable = 0usize;
-    let mut truncated = false;
+    let mut skips = Skips::default();
 
     let walker = WalkBuilder::new(working_dir)
         .max_depth(Some(limits.depth))
@@ -249,80 +376,70 @@ pub(crate) fn scan_tokei(
         let entry = match entry {
             Ok(entry) => entry,
             Err(error) => {
-                skipped_unreadable = skipped_unreadable.saturating_add(1);
+                skips.unreadable = skips.unreadable.saturating_add(1);
                 tracing::warn!(%error, "tokei: skipping unwalkable path");
                 continue;
             }
         };
-        if !entry.file_type().is_some_and(|ft| ft.is_file()) {
+        let Some(path) = screen_entry(&entry, &config, limits, &mut skips) else {
             continue;
-        }
-        let path = entry.path();
-        // Classify before stat'ing nothing else: a file tokei has no language
-        // for is not scanned, so it is neither a candidate nor a skip.
-        if LanguageType::from_path(path, &config).is_none() {
-            continue;
-        }
-        let file_len = match entry.metadata() {
-            Ok(metadata) => metadata.len(),
-            Err(error) => {
-                skipped_unreadable = skipped_unreadable.saturating_add(1);
-                // Debug-format the path so embedded newlines or ANSI escapes
-                // cannot forge log lines, per the project-wide path-log policy.
-                tracing::warn!(path = ?path, %error, "tokei: skipping file with unreadable metadata");
-                continue;
-            }
         };
-        if file_len > limits.file_bytes {
-            skipped_oversize = skipped_oversize.saturating_add(1);
-            tracing::warn!(
-                path = ?path,
-                bytes = file_len,
-                cap = limits.file_bytes,
-                "tokei: skipping oversized file"
-            );
-            continue;
-        }
         if candidates.len() >= limits.files {
-            truncated = true;
+            skips.truncated = true;
             tracing::warn!(
                 cap = limits.files,
                 "tokei: file cap reached; statistics are truncated"
             );
             break;
         }
-        candidates.push(path.to_path_buf());
+        candidates.push(path);
     }
 
-    // `Languages::get_statistics` unwraps the first path, so an empty
-    // candidate set must not reach it.
-    if candidates.is_empty() {
-        return Ok(TokeiScan {
-            records: Vec::new(),
-            skipped_oversize,
-            skipped_unreadable,
-            truncated,
-        });
+    Ok((candidates, skips))
+}
+
+/// Apply the per-entry skip policies and return the path to count.
+///
+/// An entry is refused three ways: non-file and unrecognised-language entries
+/// are neither candidates nor skips (nothing is warned about), while
+/// unreadable metadata and an over-[`ScanLimits::file_bytes`] size are
+/// counted in [`Skips`] with a `tracing::warn!` each. Returns `Some(path)`
+/// when the entry is a candidate the caller should account against
+/// [`ScanLimits::files`].
+fn screen_entry(
+    entry: &DirEntry,
+    config: &TokeiConfig,
+    limits: ScanLimits,
+    skips: &mut Skips,
+) -> Option<std::path::PathBuf> {
+    if !entry.file_type().is_some_and(|ft| ft.is_file()) {
+        return None;
     }
-
-    let mut languages = Languages::new();
-    // The candidate list is already filtered, so tokei gets no exclusions:
-    // every path handed to it is a file we decided to count.
-    languages.get_statistics(&candidates, &[], &config);
-    let records = flatten_tokei_records(&languages, working_dir);
-
-    // Tokei drops any file it cannot open, with no counter of its own. Every
-    // candidate was a recognised language, so the shortfall is exactly the set
-    // of files it failed to read.
-    skipped_unreadable =
-        skipped_unreadable.saturating_add(candidates.len().saturating_sub(records.len()));
-
-    Ok(TokeiScan {
-        records,
-        skipped_oversize,
-        skipped_unreadable,
-        truncated,
-    })
+    let path = entry.path();
+    // Classify before stat'ing nothing else: a file tokei has no language
+    // for is not scanned, so it is neither a candidate nor a skip.
+    let _language = LanguageType::from_path(path, config)?;
+    let file_len = match entry.metadata() {
+        Ok(metadata) => metadata.len(),
+        Err(error) => {
+            skips.unreadable = skips.unreadable.saturating_add(1);
+            // Debug-format the path so embedded newlines or ANSI escapes
+            // cannot forge log lines, per the project-wide path-log policy.
+            tracing::warn!(path = ?path, %error, "tokei: skipping file with unreadable metadata");
+            return None;
+        }
+    };
+    if file_len > limits.file_bytes {
+        skips.oversize = skips.oversize.saturating_add(1);
+        tracing::warn!(
+            path = ?path,
+            bytes = file_len,
+            cap = limits.file_bytes,
+            "tokei: skipping oversized file"
+        );
+        return None;
+    }
+    Some(path.to_path_buf())
 }
 
 /// Should this entry be pruned from the walk?
@@ -370,17 +487,28 @@ pub fn collect_tokei(
     Ok(serde_json::Value::Array(scan.records))
 }
 
-/// Flatten tokei's per-language report tree into one JSON record per file.
+/// Flatten tokei's per-language report tree into one JSON record per file,
+/// sorted by [`row_key`] — file path with language as tiebreak.
 ///
 /// The public `flatten_tokei_to_json` wrapper that used to sit in front of
 /// this was left with no production caller once `collect_tokei` started
 /// counting skipped files (ERR-2, TASK-1972), so it went with the change
 /// rather than staying as unreferenced public surface.
+///
+/// CL-3 / TASK-2153: tokei fills each language's `reports` in arbitrary
+/// order — its `get_all_files` drives a crossbeam channel through
+/// `par_bridge()` and `add_report`s from whichever rayon worker finishes
+/// first (tokei 14.0.0, `src/utils/fs.rs`) — so the stored order is
+/// worker-scheduling dependent and differed run to run. Sorting here, with
+/// the same policy as `extensions-rust/loc`'s `row_key`, keeps the JSON
+/// sidecar and the `DuckDB` ingest byte-stable across runs: a diff of two
+/// collections shows real changes only, and `data_sources.checksum` stays a
+/// useful change signal instead of churning on scheduler noise.
 pub(crate) fn flatten_tokei_records(
     languages: &Languages,
     workspace_root: &Path,
 ) -> Vec<serde_json::Value> {
-    languages
+    let mut records: Vec<serde_json::Value> = languages
         .iter()
         .flat_map(|(lang_type, language)| {
             language
@@ -388,7 +516,19 @@ pub(crate) fn flatten_tokei_records(
                 .iter()
                 .map(move |report| report_to_json(lang_type.name(), report, workspace_root))
         })
-        .collect()
+        .collect();
+    records.sort_by(|a, b| row_key(a).cmp(&row_key(b)));
+    records
+}
+
+/// Sort key giving the emitted records a deterministic order: file path,
+/// with language as tiebreak, matching the `row_key` policy in
+/// `extensions-rust/loc` (CL-3 / TASK-2153).
+fn row_key(record: &serde_json::Value) -> (&str, &str) {
+    (
+        record["file"].as_str().unwrap_or_default(),
+        record["language"].as_str().unwrap_or_default(),
+    )
 }
 
 fn report_to_json(
@@ -396,7 +536,10 @@ fn report_to_json(
     report: &tokei::Report,
     workspace_root: &Path,
 ) -> serde_json::Value {
-    let file_str = relativize_path(&report.name, workspace_root);
+    // DUP-1 / TASK-2183: the shared sidecar-path policy lives in
+    // `ops_duckdb::sql::relativize_path`, with the lossy-conversion
+    // rationale documented on it once.
+    let file_str = ops_duckdb::sql::relativize_path(&report.name, workspace_root);
     let stats = &report.stats;
     serde_json::json!({
         "language": language,
@@ -406,22 +549,4 @@ fn report_to_json(
         "blanks": stats.blanks,
         "lines": stats.lines(),
     })
-}
-
-/// Render a tokei `Report.name` path as a workspace-relative UTF-8 string.
-///
-/// READ-5 (TASK-0504): this is intentionally lossy. The `DuckDB` `tokei_files`
-/// view that consumes this column is read-only at the value level (it never
-/// round-trips the path back to disk), so corrupting an invalid UTF-8 byte
-/// to `U+FFFD` only affects display and join-by-string-prefix attribution.
-/// The strict `DbError::NonUtf8Path` policy used by `upsert_data_source`
-/// applies to **paths interpolated into SQL** — the `tokei_files` view is
-/// populated from a JSON sidecar, not from a SQL string literal, so the
-/// risks differ. The trade-off is recorded here so future refactors stop
-/// at this comment instead of "fixing" the lossy call.
-fn relativize_path(path: &Path, workspace_root: &Path) -> String {
-    path.strip_prefix(workspace_root)
-        .unwrap_or(path)
-        .to_string_lossy()
-        .into_owned()
 }

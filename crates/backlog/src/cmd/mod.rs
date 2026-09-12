@@ -27,6 +27,21 @@ pub use wave::{
 
 use std::io::Write;
 
+/// Output mode for `task view` / `task list`: exactly one renderer.
+///
+/// The two-bool (`plain`, `json`) form this replaces could represent
+/// "plain and json at once", a state that is not a valid output mode;
+/// the enum makes it unrepresentable, and the CLI rejects `--plain --json`
+/// at parse time.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub enum OutputFormat {
+    /// Human-readable rendering; also the mode when no flag is passed.
+    #[default]
+    Plain,
+    /// The machine-readable JSON envelope.
+    Json,
+}
+
 /// Ask `<prompt> [y/N] ` and read one answer line. `y`/`yes`
 /// (case-insensitive) proceeds; empty input — including EOF on a closed
 /// stdin — and anything else cancels. No is the default, matching the
@@ -52,4 +67,55 @@ pub(crate) fn confirm<W: Write>(
         answer.trim().to_ascii_lowercase().as_str(),
         "y" | "yes"
     ))
+}
+
+/// Write `contents` to `path` so the destination is never observable
+/// half-written: the bytes land in a staging file next to the destination
+/// first, and a same-directory `rename` — atomic on POSIX — swaps it in.
+///
+/// The staging name carries this process's id and is created exclusively
+/// (`O_EXCL` via `create_new`), so it can neither follow a symlink
+/// pre-planted at a predictable path nor be truncated by a concurrent
+/// process's staging attempt: both surface as an error naming the staging
+/// path instead of silently writing through the wrong file. A crash
+/// mid-write leaves the previous document intact and at most one leftover
+/// staging file, whose dot-prefixed name keeps it invisible to task scans.
+/// The CLI's write paths are sequential, so two in-process writers staging
+/// the same destination do not occur; if one ever does, the exclusive
+/// creation fails loudly rather than letting the writers interleave.
+///
+/// # Errors
+///
+/// The staging file cannot be created or written, or the rename over the
+/// destination fails — each error names the destination path.
+pub(crate) fn atomic_write(path: &std::path::Path, contents: &str) -> anyhow::Result<()> {
+    use anyhow::Context as _;
+    use std::io::Write as _;
+
+    let Some(name) = path.file_name() else {
+        anyhow::bail!("{} has no file name to stage a write under", path.display());
+    };
+    let staging = path.with_file_name(format!(
+        ".{}.{}.tmp",
+        name.to_string_lossy(),
+        std::process::id()
+    ));
+    let mut handle = std::fs::OpenOptions::new()
+        .write(true)
+        .create_new(true)
+        .open(&staging)
+        .with_context(|| format!("staging {}", path.display()))?;
+    if let Err(err) = handle
+        .write_all(contents.as_bytes())
+        .and_then(|()| handle.sync_all())
+    {
+        std::fs::remove_file(&staging).ok();
+        return Err(err).with_context(|| format!("staging {}", path.display()));
+    }
+    drop(handle);
+    if let Err(err) = std::fs::rename(&staging, path) {
+        std::fs::remove_file(&staging).ok();
+        return Err(err).with_context(|| format!("replacing {}", path.display()));
+    }
+    Ok(())
 }

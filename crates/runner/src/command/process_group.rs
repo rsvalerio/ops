@@ -29,6 +29,20 @@
 //! is a no-op and `kill_on_drop(true)` (set in
 //! [`super::build::build_command_with`]) remains the cancellation mechanism,
 //! with its documented limitation of reaching only the direct child.
+//!
+//! # Miri coverage (UNSAFE-10 / TASK-2094)
+//!
+//! The `killpg` calls in this module cannot run under Miri: they are
+//! direct foreign calls into libc, for which Miri provides no shims, and
+//! the signals they deliver only mean something against a real process
+//! table. The substitute evidence required by UNSAFE-10 is the per-block
+//! `// SAFETY:` prose (the pid-reservation argument for the pre-grace
+//! signal; the probe-then-kill narrowing for the post-grace escalation)
+//! plus the cancellation tests that run this code against real child
+//! processes under the ordinary Test job. The runner crate's
+//! Miri-runnable unsafe (the `EchoGuard` non-TTY construction path) is
+//! covered by the `miri` job in `.github/workflows/ci.yml`; see
+//! `terminal.rs`'s module docs for the termios exemption.
 
 use std::time::Duration;
 

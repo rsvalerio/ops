@@ -17,6 +17,7 @@ mod error_block_color;
 mod error_block_sanitise;
 mod format_duration;
 mod left_pad;
+mod overhead_diagnostic;
 mod render_basics;
 mod render_report;
 mod render_summary;

@@ -7,12 +7,20 @@
 
 use std::io::Write;
 use std::path::{Path, PathBuf};
-use std::process::Command;
 
 use super::{
     run_check_json, run_check_yaml, write_summary, CheckerOptions, CheckerReport, FailedFile,
     FailureKind, NAME, SHORTNAME,
 };
+
+/// Resolve a tempdir root through its symlinked prefix (macOS: `/var` →
+/// `/private/var`), per the caller-canonicalizes-once rule
+/// `ops_core::text::open_refusing_symlinks` documents: the shared bounded
+/// read refuses symlinked directory components, so a raw tempdir path would
+/// be refused for the prefix, not for anything the fixture set up.
+fn canon(dir: &tempfile::TempDir) -> std::path::PathBuf {
+    dir.path().canonicalize().unwrap()
+}
 
 fn write(p: &Path, content: &[u8]) {
     if let Some(parent) = p.parent() {
@@ -23,30 +31,42 @@ fn write(p: &Path, content: &[u8]) {
 
 /// Stage everything under `root` in a fresh git repo.
 ///
-/// Returns `false` when git is unavailable, in which case
-/// `discovery::discover` silently falls back to the full walk and any
-/// tracked-mode assertion would pass vacuously — callers must bail out.
+/// TEST-26 / TASK-2126: `false` now means exactly one thing — this
+/// environment has no git binary, and the skip has already been surfaced on
+/// stderr, so a caller's `return` is visible in the test output instead of a
+/// vacuous pass. A git that *runs* and fails (spawn error, non-zero exit)
+/// panics here: a present-but-refusing git is a broken fixture, not a
+/// missing capability, and bailing out over it would delete the tracked-mode
+/// coverage this suite exists to hold.
 fn stage_all(root: &Path) -> bool {
-    let git = |args: &[&str]| {
-        Command::new("git")
-            .arg("-C")
-            .arg(root)
-            .args(args)
-            .output()
-            .is_ok_and(|o| o.status.success())
-    };
-    git(&["init", "--quiet"]) && git(&["add", "-A"])
+    for args in [["init", "--quiet"], ["add", "-A"]] {
+        if let Err(e) = ops_core::test_utils::git_fixture(root, &args) {
+            match e {
+                ops_core::test_utils::GitFixtureError::BinaryAbsent => {
+                    ops_core::test_utils::skip_precondition(
+                        "git fixture",
+                        "git is not on PATH; tracked-mode assertions did not run",
+                    );
+                    return false;
+                }
+                ops_core::test_utils::GitFixtureError::CommandFailed { .. } => {
+                    panic!("git fixture broke: {e}");
+                }
+            }
+        }
+    }
+    true
 }
 
 #[test]
 fn check_json_flags_only_broken_files() {
     let dir = tempfile::tempdir().unwrap();
-    let root = dir.path();
+    let root = &canon(&dir);
     write(&root.join("ok.json"), br#"{"a": 1}"#);
     write(&root.join("bad.json"), br#"{"a": }"#);
     write(&root.join("note.txt"), br#"{"a": }"#); // wrong ext: ignored
 
-    let opts = CheckerOptions::new(root.to_path_buf(), false);
+    let opts = CheckerOptions::new(root.clone(), false);
     let mut buf = Vec::new();
     let report = run_check_json(&opts, &mut buf).unwrap();
 
@@ -58,14 +78,14 @@ fn check_json_flags_only_broken_files() {
 #[test]
 fn check_json_json5_flag_accepts_comments_and_unquoted_keys() {
     let dir = tempfile::tempdir().unwrap();
-    let root = dir.path();
+    let root = &canon(&dir);
     write(&root.join("c.json"), br#"{ /* x */ "a": 1, }"#);
 
-    let strict = CheckerOptions::new(root.to_path_buf(), false);
+    let strict = CheckerOptions::new(root.clone(), false);
     let mut buf = Vec::new();
     assert!(run_check_json(&strict, &mut buf).unwrap().failed());
 
-    let lenient = CheckerOptions::new(root.to_path_buf(), false).with_allow_json5(true);
+    let lenient = CheckerOptions::new(root.clone(), false).with_allow_json5(true);
     let mut buf = Vec::new();
     assert!(!run_check_json(&lenient, &mut buf).unwrap().failed());
 }
@@ -73,12 +93,12 @@ fn check_json_json5_flag_accepts_comments_and_unquoted_keys() {
 #[test]
 fn check_yaml_flags_only_broken_files() {
     let dir = tempfile::tempdir().unwrap();
-    let root = dir.path();
+    let root = &canon(&dir);
     write(&root.join("ok.yaml"), b"a: 1\nb: 2\n");
     write(&root.join("multi.yml"), b"a: 1\n---\nb: 2\n");
     write(&root.join("bad.yaml"), b"a: : :\n");
 
-    let opts = CheckerOptions::new(root.to_path_buf(), false);
+    let opts = CheckerOptions::new(root.clone(), false);
     let mut buf = Vec::new();
     let report = run_check_yaml(&opts, &mut buf).unwrap();
 
@@ -90,10 +110,10 @@ fn check_yaml_flags_only_broken_files() {
 #[test]
 fn extension_matching_is_case_insensitive() {
     let dir = tempfile::tempdir().unwrap();
-    let root = dir.path();
+    let root = &canon(&dir);
     write(&root.join("UPPER.JSON"), br#"{"ok": true}"#);
 
-    let opts = CheckerOptions::new(root.to_path_buf(), false);
+    let opts = CheckerOptions::new(root.clone(), false);
     let mut buf = Vec::new();
     let report = run_check_json(&opts, &mut buf).unwrap();
     assert_eq!(report.files_scanned, 1);
@@ -112,12 +132,12 @@ fn extension_constants_kebab_case() {
 #[test]
 fn oversized_files_are_skipped_not_parsed() {
     let dir = tempfile::tempdir().unwrap();
-    let root = dir.path();
+    let root = &canon(&dir);
     // A file that would fail strict JSON parse, but exceeds a tiny cap
     // — must be reported as skipped, never reach the parser.
     write(&root.join("huge.json"), b"not valid json at all");
 
-    let opts = CheckerOptions::new(root.to_path_buf(), false).with_max_bytes(4);
+    let opts = CheckerOptions::new(root.clone(), false).with_max_bytes(4);
     let mut buf = Vec::new();
     let report = run_check_json(&opts, &mut buf).unwrap();
 
@@ -132,10 +152,10 @@ fn oversized_files_are_skipped_not_parsed() {
 #[test]
 fn parse_failures_are_recorded_with_the_parse_kind() {
     let dir = tempfile::tempdir().unwrap();
-    let root = dir.path();
+    let root = &canon(&dir);
     write(&root.join("bad.json"), br#"{"a": }"#);
 
-    let opts = CheckerOptions::new(root.to_path_buf(), false);
+    let opts = CheckerOptions::new(root.clone(), false);
     let mut buf = Vec::new();
     let report = run_check_json(&opts, &mut buf).unwrap();
 
@@ -154,17 +174,23 @@ fn unreadable_file_is_reported_as_a_read_failure_not_a_parse_failure() {
 
     // Root bypasses the permission bits entirely, so the assertion below
     // would invert rather than fail — the guard is mandatory, not cosmetic.
+    // TEST-26 / TASK-2126: surfaced, so a root-container run that never
+    // executes these assertions is distinguishable from one that did.
     if ops_core::test_utils::is_root_euid() {
+        ops_core::test_utils::skip_precondition(
+            "unreadable-file fixture",
+            "running as root bypasses DAC; the read-failure assertions did not run",
+        );
         return;
     }
 
     let dir = tempfile::tempdir().unwrap();
-    let root = dir.path();
+    let root = &canon(&dir);
     let p = root.join("locked.json");
     write(&p, br#"{"a": 1}"#);
     std::fs::set_permissions(&p, std::fs::Permissions::from_mode(0o000)).unwrap();
 
-    let opts = CheckerOptions::new(root.to_path_buf(), false);
+    let opts = CheckerOptions::new(root.clone(), false);
     let mut buf = Vec::new();
     let report = run_check_json(&opts, &mut buf).unwrap();
 
@@ -186,14 +212,14 @@ fn unreadable_file_is_reported_as_a_read_failure_not_a_parse_failure() {
 #[test]
 fn tracked_only_validates_the_files_git_lists() {
     let dir = tempfile::tempdir().unwrap();
-    let root = dir.path();
+    let root = &canon(&dir);
     write(&root.join("ok.json"), br#"{"a": 1}"#);
     write(&root.join("bad.json"), br#"{"a": }"#);
     if !stage_all(root) {
         return; // no git: `discover` would fall back to the walk
     }
 
-    let opts = CheckerOptions::new(root.to_path_buf(), true);
+    let opts = CheckerOptions::new(root.clone(), true);
     let mut buf = Vec::new();
     let report = run_check_json(&opts, &mut buf).unwrap();
 
@@ -205,7 +231,7 @@ fn tracked_only_validates_the_files_git_lists() {
 #[test]
 fn tracked_but_deleted_file_is_skipped_rather_than_failing_the_hook() {
     let dir = tempfile::tempdir().unwrap();
-    let root = dir.path();
+    let root = &canon(&dir);
     write(&root.join("ok.json"), br#"{"a": 1}"#);
     write(&root.join("gone.json"), br#"{"a": 1}"#);
     if !stage_all(root) {
@@ -215,7 +241,7 @@ fn tracked_but_deleted_file_is_skipped_rather_than_failing_the_hook() {
     // sparse checkout) still lists the path. That is not a parse failure.
     std::fs::remove_file(root.join("gone.json")).unwrap();
 
-    let opts = CheckerOptions::new(root.to_path_buf(), true);
+    let opts = CheckerOptions::new(root.clone(), true);
     let mut buf = Vec::new();
     let report = run_check_json(&opts, &mut buf).unwrap();
 
@@ -229,11 +255,17 @@ fn tracked_but_deleted_file_is_skipped_rather_than_failing_the_hook() {
 fn tracked_symlink_to_a_character_device_is_never_a_candidate() {
     let device = Path::new("/dev/zero");
     if !device.exists() {
+        // TEST-26 / TASK-2126: surfaced, so a run without the device is
+        // distinguishable from one that exercised the guard.
+        ops_core::test_utils::skip_precondition(
+            "/dev/zero fixture",
+            "character device absent; the device-symlink assertions did not run",
+        );
         return;
     }
 
     let dir = tempfile::tempdir().unwrap();
-    let root = dir.path();
+    let root = &canon(&dir);
     write(&root.join("ok.json"), br#"{"a": 1}"#);
     // A committed symlink to an endless device: `metadata()` reports length
     // 0, so a size gate lets it past, and an unbounded read never reaches
@@ -249,7 +281,7 @@ fn tracked_symlink_to_a_character_device_is_never_a_candidate() {
         return;
     }
 
-    let opts = CheckerOptions::new(root.to_path_buf(), true);
+    let opts = CheckerOptions::new(root.clone(), true);
     let mut buf = Vec::new();
     let report = run_check_json(&opts, &mut buf).unwrap();
 
@@ -343,10 +375,10 @@ impl Write for FailingWriter {
 #[test]
 fn writer_errors_propagate() {
     let dir = tempfile::tempdir().unwrap();
-    let root = dir.path();
+    let root = &canon(&dir);
     write(&root.join("bad.json"), br#"{"a": }"#);
 
-    let opts = CheckerOptions::new(root.to_path_buf(), false);
+    let opts = CheckerOptions::new(root.clone(), false);
     let mut w = FailingWriter;
     let err = run_check_json(&opts, &mut w).unwrap_err();
     assert!(
@@ -359,3 +391,34 @@ fn writer_errors_propagate() {
 // returns an empty list, so the `with_context` wrap on its `?` site is
 // a defensive future-proof — there is no externally-reachable failure
 // mode to assert against today.
+
+// -- extension registration --
+
+/// SEC-13 / TASK-2122 AC#1+#2+#4: the extension-registered specs spawn an
+/// absolute program derived from `current_exe()` (not a bare, PATH-resolved
+/// `"ops"` that any earlier `ops` shim could shadow), while the rendered
+/// step line still reads `ops check-json` / `ops check-yaml`.
+#[test]
+fn registered_checkers_spawn_absolute_ops_and_display_as_ops() {
+    use ops_core::config::CommandSpec;
+    use ops_extension::Extension as _;
+
+    let mut registry = ops_extension::CommandRegistry::new();
+    super::ConfigCheckersExtension.register_commands(&mut registry);
+
+    for id in ["check-json", "check-yaml"] {
+        let Some(CommandSpec::Exec(exec)) = registry.get(id) else {
+            panic!("{id} must be registered as an Exec spec");
+        };
+        // `current_exe()` succeeds under the test harness, so the program
+        // must resolve absolute here; the literal "ops" is only the
+        // fallback for when that lookup fails.
+        assert!(
+            std::path::Path::new(&exec.program).is_absolute(),
+            "{id} must spawn an absolute current_exe()-derived program, got {:?}",
+            exec.program
+        );
+        assert_eq!(exec.display_cmd(), format!("ops {id}"));
+        assert_eq!(exec.args, vec![id.to_string()]);
+    }
+}

@@ -44,7 +44,12 @@ pub enum RunMode {
 
 /// Payload contract of the [`DATA_PROVIDER_NAME`] provider: the review skill
 /// to invoke (e.g. `code-review-rust`) plus one target per review unit.
+///
+/// API-2 / TASK-2114: unknown fields are rejected at decode time so a
+/// provider that drifts from this contract (renamed or not-yet-learned keys)
+/// fails loudly instead of yielding a confusing "no targets" bail.
 #[derive(Debug, Clone, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct ReviewTargets {
     /// Skill name the subtask titles reference, e.g. `code-review-rust`.
     pub skill: String,
@@ -55,6 +60,7 @@ pub struct ReviewTargets {
 /// One review target: a display name (unique per workspace, e.g. the cargo
 /// package name) and its member path relative to the workspace root.
 #[derive(Debug, Clone, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct ReviewTarget {
     /// Display name used in the subtask title.
     pub name: String,
@@ -93,6 +99,12 @@ const MAX_ALLOCATION_ATTEMPTS: u32 = 32;
 ///   [`RunMode::DryRun`] never takes this branch).
 /// - [`MAX_ALLOCATION_ATTEMPTS`] consecutive allocations all lost the race to
 ///   a concurrent writer ([`RunMode::DryRun`] never takes this branch).
+/// - The report could not be written after the set was committed. In
+///   [`RunMode::DryRun`] this fails the run (nothing is on disk). In
+///   [`RunMode::Write`] the run still succeeds — the task set is durably
+///   committed and stays committed — and the failure is surfaced as a
+///   `tracing` warning naming the main task id, recoverable via
+///   `backlog task list --parent <id>`.
 pub fn run_create_review_tasks(
     registry: &DataRegistry,
     workspace_root: &Path,
@@ -143,7 +155,27 @@ fn run_create_review_tasks_at(
     };
     // Deferred until the set exists: the operator is never told a task was
     // created that a rollback then removed.
-    report(out, &plan, mode)
+    //
+    // Once the set is durably committed (Write), a report write failure —
+    // closed stdout, broken pipe, a terminated pager — must not fail the
+    // run: the command's work is done, a non-zero exit invites a retry that
+    // allocates a duplicate review request, and the ids stay recoverable
+    // from the warning. A dry run has written nothing, so there an honest
+    // error is still correct.
+    if let Err(report_err) = report(out, &plan, mode) {
+        if mode == RunMode::Write {
+            tracing::warn!(
+                error = %report_err,
+                main_id = %plan.main_id,
+                "task set was created but the report could not be written; \
+                 recover the ids with `backlog task list --parent {}`",
+                plan.main_id
+            );
+            return Ok(());
+        }
+        return Err(report_err);
+    }
+    Ok(())
 }
 
 /// Query the [`DATA_PROVIDER_NAME`] provider and decode its payload.
@@ -404,7 +436,7 @@ fn stage_task_file(
     let path = tasks_dir.join(&file.name);
     // SEC-25: `create_new` is the atomic check-and-create. `File::create`
     // would silently truncate a task file another run just wrote.
-    let mut handle = match std::fs::File::create_new(&path) {
+    let handle = match std::fs::File::create_new(&path) {
         Ok(handle) => handle,
         Err(err) if err.kind() == std::io::ErrorKind::AlreadyExists => return Ok(false),
         Err(err) => {
@@ -413,7 +445,14 @@ fn stage_task_file(
         }
     };
     staged.track(path.clone());
-    backlog::render_task_file(&mut handle, file.id, file.title, stamp, file.subtask_of)
+    // PERF-13 / TASK-2117: buffer the handle so the ~14 `writeln!` calls in
+    // `render_task_file` reach the filesystem as one write instead of one
+    // `write(2)` per line. The flush is explicit and checked — `BufWriter`'s
+    // `Drop` discards errors — and a flush failure carries the same
+    // path-naming context as the write errors above.
+    let mut writer = std::io::BufWriter::new(handle);
+    backlog::render_task_file(&mut writer, file.id, file.title, stamp, file.subtask_of)
+        .and_then(|()| writer.flush())
         .with_context(|| format!("writing {}", path.display()))?;
     Ok(true)
 }
@@ -457,8 +496,17 @@ impl Drop for StagedTasks {
         }
         for path in self.paths.iter().rev() {
             // Best effort: the caller is already returning an error or about
-            // to retry, and a failed cleanup must not mask that outcome.
-            let _ = std::fs::remove_file(path);
+            // to retry, and a failed cleanup must not mask that outcome. But
+            // a failed delete leaves exactly the half-created set this type
+            // exists to prevent, so surface it as a warning rather than
+            // discarding it silently.
+            if let Err(err) = std::fs::remove_file(path) {
+                tracing::warn!(
+                    path = ?path.display(),
+                    error = %err,
+                    "failed to remove staged task file during rollback; backlog tree may be left partially populated"
+                );
+            }
         }
     }
 }
@@ -576,7 +624,7 @@ mod tests {
         )
         .expect("subtask 1 file");
         assert!(sub1.contains("id: TASK-0001.01\n"), "got: {sub1}");
-        assert!(sub1.contains("parent_task_id: TASK-0001\n"));
+        assert!(sub1.contains("parent_task_id: 'TASK-0001'\n"));
         assert!(sub1.contains("ordinal: 2001\n"));
 
         let sub2 = std::fs::read_to_string(
@@ -620,6 +668,79 @@ mod tests {
             .path()
             .join(".backlog/tasks/task-0001 - review-request-2026-08-20-1.md")
             .exists());
+    }
+
+    /// A `Write` sink whose every operation fails, standing in for a closed
+    /// stdout, a broken pipe, or a terminated pager.
+    struct FailingWriter;
+
+    impl std::io::Write for FailingWriter {
+        fn write(&mut self, _buf: &[u8]) -> std::io::Result<usize> {
+            Err(std::io::Error::new(
+                std::io::ErrorKind::BrokenPipe,
+                "failing writer",
+            ))
+        }
+        fn flush(&mut self) -> std::io::Result<()> {
+            Err(std::io::Error::new(
+                std::io::ErrorKind::BrokenPipe,
+                "failing writer",
+            ))
+        }
+    }
+
+    /// After a durable commit, a report write failure must not fail the run:
+    /// a non-zero exit would invite a retry that allocates a duplicate
+    /// review request, while the committed set is exactly what the operator
+    /// asked for. Pins both halves: the run succeeds and the files exist.
+    #[test]
+    fn report_write_failure_after_commit_still_succeeds() {
+        let dir = scratch_backlog();
+        let registry = registry_with(sample_payload());
+        let result = run_create_review_tasks_at(
+            &registry,
+            dir.path(),
+            &mut FailingWriter,
+            RunMode::Write,
+            &fixed_stamp(),
+        );
+        result.expect("run must succeed once the set is committed");
+        let tasks_dir = dir.path().join(".backlog").join("tasks");
+        assert!(tasks_dir
+            .join("task-0001 - review-request-2026-08-20-1.md")
+            .is_file());
+        assert!(tasks_dir
+            .join("task-0001.01 - REVIEW-Run-skill-code-review-rust-against-ops-core.md")
+            .is_file());
+        assert!(tasks_dir
+            .join("task-0001.02 - REVIEW-Run-skill-code-review-rust-against-ops-cli.md")
+            .is_file());
+    }
+
+    /// In a dry run nothing is on disk, so a report write failure is an
+    /// honest run failure — the operator asked for a prediction and got
+    /// none, and no state was left behind to recover.
+    #[test]
+    fn report_write_failure_in_dry_run_fails_the_run() {
+        let dir = scratch_backlog();
+        let registry = registry_with(sample_payload());
+        let result = run_create_review_tasks_at(
+            &registry,
+            dir.path(),
+            &mut FailingWriter,
+            RunMode::DryRun,
+            &fixed_stamp(),
+        );
+        let err = result.expect_err("dry run with a failing writer must fail");
+        assert!(
+            err.to_string().contains("failing writer"),
+            "error should carry the io failure, got: {err}"
+        );
+        let tasks_dir = dir.path().join(".backlog").join("tasks");
+        assert!(
+            std::fs::read_dir(&tasks_dir).is_ok_and(|mut d| d.next().is_none()),
+            "dry run must leave no task files behind"
+        );
     }
 
     #[test]
@@ -800,6 +921,44 @@ mod tests {
             std::fs::read_to_string(&foreign).expect("foreign"),
             "another run",
             "the foreign file must be untouched"
+        );
+    }
+
+    /// API-2 / TASK-2114: a provider payload carrying a key the engine has
+    /// not learned about must fail at decode time, naming the key — not
+    /// surface later as a confusing "no targets" bail or silently missing
+    /// information. The same strictness applies one level down: an unknown
+    /// key inside a single target object is rejected too.
+    #[test]
+    fn unknown_payload_keys_are_rejected_at_decode_time() {
+        let dir = scratch_backlog();
+
+        let drifted = serde_json::json!({
+            "skill": "code-review-rust",
+            "target": [
+                { "name": "ops-core", "path": "crates/core" }
+            ]
+        });
+        let (_out, result) = run(&dir, &registry_with(drifted), RunMode::DryRun);
+        let err = result.expect_err("a renamed key must fail the run");
+        let rendered = format!("{err:#}");
+        assert!(
+            rendered.contains("target"),
+            "the error must name the unexpected key; got: {rendered}"
+        );
+
+        let unknown_inner = serde_json::json!({
+            "skill": "code-review-rust",
+            "targets": [
+                { "name": "ops-core", "path": "crates/core", "extra": 1 }
+            ]
+        });
+        let (_out, result) = run(&dir, &registry_with(unknown_inner), RunMode::DryRun);
+        let err = result.expect_err("an unknown key inside a target must fail the run");
+        let rendered = format!("{err:#}");
+        assert!(
+            rendered.contains("extra"),
+            "the error must name the unexpected key; got: {rendered}"
         );
     }
 

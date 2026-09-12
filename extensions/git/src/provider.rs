@@ -8,15 +8,32 @@ use serde::Serialize;
 use crate::config;
 use crate::remote::{parse_remote_url, RemoteInfo};
 
+/// Registry key of the `git_info` provider this crate registers.
 pub const DATA_PROVIDER_NAME: &str = "git_info";
 
+/// Local git repository metadata collected from `.git` directly (no subprocess).
+///
+/// Every field is `None` when the corresponding datum is absent or failed the
+/// parser's safety checks; [`GitInfo::collect`] never fails.
 #[derive(Debug, Clone, Default, Serialize)]
 #[non_exhaustive]
 pub struct GitInfo {
+    /// Remote host, canonicalised to ASCII lowercase (`GitHub.com` →
+    /// `github.com`) so comparisons and grouping are case-insensitive.
+    /// `None` outside a git checkout or when the remote URL is rejected.
     pub host: Option<String>,
+    /// Remote owner segment, case-preserved (forge paths are case-sensitive).
+    /// `None` when the remote URL cannot be parsed.
     pub owner: Option<String>,
+    /// Repository name without the `.git` suffix, case-preserved. `None`
+    /// when the remote URL cannot be parsed.
     pub repo: Option<String>,
+    /// Normalised `scheme://host[:port]/owner/repo` URL rebuilt by
+    /// [`parse_remote_url`] with userinfo stripped and the port preserved.
+    /// `None` when the raw remote is not a recognisable remote URL.
     pub remote_url: Option<String>,
+    /// Current branch from `.git/HEAD`; `None` on a detached HEAD or an
+    /// unreadable `HEAD` file.
     pub branch: Option<String>,
 }
 
@@ -96,6 +113,8 @@ impl GitInfo {
     }
 }
 
+/// Data provider serving [`GitInfo`] collected from the context's working
+/// directory under the `git_info` key.
 pub struct GitInfoProvider;
 
 impl DataProvider for GitInfoProvider {
@@ -123,7 +142,9 @@ impl DataProvider for GitInfoProvider {
                     // the same claim PATTERN-1 / TASK-1237 invalidated on
                     // `RemoteInfo.url`. The schema string is the description
                     // consumers read, so it must not promise TLS either.
-                    "Normalized origin remote URL, preserving the input scheme (https/http/ssh/git; scp-style becomes ssh)"
+                    // PATTERN-1 / TASK-2105: an explicit port is preserved so
+                    // the URL keeps naming the endpoint the remote points at.
+                    "Normalized origin remote URL, preserving the input scheme (https/http/ssh/git; scp-style becomes ssh) and any explicit port"
                 ),
                 data_field!(
                     "branch",
@@ -236,11 +257,19 @@ mod tests {
         );
     }
 
-    /// SEC-2 / TASK-1102: a `.git/config` whose `url = ...` value contains
-    /// ASCII control bytes (raw newline, ANSI escape) must not surface
-    /// those bytes through `info.remote_url`. The redaction layer drops
-    /// the line entirely, so the fallback at `GitInfo::collect` never
-    /// observes the poisoned value and `remote_url` ends up `None`.
+    /// SEC-2 / TASK-1102 + TEST-32 / TASK-2118: a `.git/config` whose
+    /// `url = ...` value contains ASCII control bytes (raw newline, ANSI
+    /// escape) must not surface those bytes through `info.remote_url`.
+    /// The redaction layer fails closed — `RedactedUrl::redact` returns
+    /// `None` for any control byte, so the fallback at `GitInfo::collect`
+    /// never observes the poisoned value and `remote_url` ends up `None`.
+    /// There is deliberately no "no raw newline / no ANSI escape in the
+    /// emitted value" assertion here: on this path no value is emitted at
+    /// all, and asserting against an `unwrap_or_default()` empty string
+    /// would be vacuous. The no-leak property against a value that *is*
+    /// emitted is pinned by the parse-level tests in `remote.rs`
+    /// (`rejects_owner_or_repo_with_smuggled_chars`,
+    /// `rejects_invalid_host_charset`).
     #[test]
     fn collect_drops_remote_url_with_control_bytes() {
         let dir = tempfile::tempdir().unwrap();
@@ -255,19 +284,15 @@ mod tests {
         std::fs::write(git_dir.join("config"), cfg.as_bytes()).unwrap();
 
         let info = GitInfo::collect(dir.path());
-        let url = info.remote_url.clone().unwrap_or_default();
-        assert!(
-            !url.contains('\n'),
-            "remote_url leaked raw newline: {url:?}"
-        );
-        assert!(
-            !url.contains('\u{1b}'),
-            "remote_url leaked ANSI escape: {url:?}"
-        );
         assert!(
             info.remote_url.is_none(),
-            "control-byte url= must be dropped, got: {:?}",
+            "control-byte url= must be dropped, not emitted: {:?}",
             info.remote_url
+        );
+        assert!(
+            info.host.is_none(),
+            "a dropped remote must not leave a host behind either, got: {:?}",
+            info.host
         );
     }
 

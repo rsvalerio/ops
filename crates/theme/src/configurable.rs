@@ -29,7 +29,9 @@
 use ops_core::output::{StepLine, StepStatus, ALL_STATUSES};
 
 use super::step_line_theme::{format_duration, SlotLine, StepPrefixParts};
-use super::style::{apply_with_prefix, precompute_sgr_prefix, truncate_to_width, visible_width};
+use super::style::{
+    apply_with_prefix_gated, color_enabled, precompute_sgr_prefix, truncate_to_width, visible_width,
+};
 use super::{PlanHeaderStyle, ThemeConfig};
 
 mod boxed;
@@ -104,7 +106,6 @@ impl ConfigurableTheme {
             .max(1);
         let separator_char_cols =
             visible_width(config.separator_char.encode_utf8(&mut [0u8; 4])).max(1);
-        warn_on_running_template_overhead(&config, spinner_reserve_cols);
         Self {
             header_prefix: precompute_sgr_prefix(&config.header_color),
             summary_prefix: precompute_sgr_prefix(&config.summary_color),
@@ -124,6 +125,38 @@ impl ConfigurableTheme {
         }
     }
 
+    /// READ-5 / TASK-1971 + TEST-33 / TASK-2096: the
+    /// `running_template_overhead` mis-budget diagnostic, as a value.
+    ///
+    /// The field is a hand-maintained column count that a theme author must
+    /// keep consistent with `running_template` by eye; nothing derived it
+    /// and `render_separator` subtracts it from the budget as fact. The
+    /// literal (non-placeholder) text of the template plus the widest
+    /// spinner glyph is a *lower bound* on that overhead — the `{elapsed}`
+    /// placeholder adds more at render time, so a larger configured value
+    /// is legitimate. A configured value below the bound is not: the
+    /// separator then over-runs the terminal width on every running row.
+    ///
+    /// TEST-33 / TASK-2096: [`Self::new`] performs no I/O; the diagnostic
+    /// is returned here so callers (tests, library embeddings) can observe
+    /// it without reading stderr. The theme-resolution entry points
+    /// (`resolve_theme` / `resolve_theme_owned`) render it via
+    /// `ops_core::ui::warn` at resolution time, preserving the operator
+    /// visibility the constructor-side warn used to provide.
+    #[must_use]
+    pub fn template_overhead_diagnostic(&self) -> Option<String> {
+        let minimum = template_literal_width(&self.config.running_template)
+            .saturating_add(self.spinner_reserve_cols);
+        (self.config.running_template_overhead < minimum).then(|| {
+            format!(
+                "theme running_template_overhead is {} but the template's literal text and \
+                 spinner glyph already occupy {minimum} columns; running step lines will \
+                 over-run the terminal width",
+                self.config.running_template_overhead
+            )
+        })
+    }
+
     /// Width of the icon column: the widest [`ALL_STATUSES`] glyph.
     ///
     /// PERF-3 / TASK-1975: computed once in [`Self::new`] and stored, like
@@ -136,18 +169,21 @@ impl ConfigurableTheme {
 
     #[must_use]
     pub fn render_plan_header(&self, command_ids: &[String]) -> Vec<String> {
+        // PERF-3 / TASK-2082: resolve the colour gate (which reads
+        // `NO_COLOR`) once per entry point, not once per styled segment.
+        let color = color_enabled();
         let pad = self.left_pad_str();
         let ids = command_ids.join(", ");
         match self.config.plan_header_style {
             PlanHeaderStyle::Plain => {
                 let body = format!("{}Running: {}", self.config.plan_header_prefix, ids);
-                let colored = apply_with_prefix(&body, self.header_prefix.as_deref());
+                let colored = apply_with_prefix_gated(&body, self.header_prefix.as_deref(), color);
                 let header = format!("{pad}{colored}");
                 vec![String::new(), header, String::new()]
             }
             PlanHeaderStyle::Tree => {
                 let body = format!("┌ Running: {ids}");
-                let colored = apply_with_prefix(&body, self.header_prefix.as_deref());
+                let colored = apply_with_prefix_gated(&body, self.header_prefix.as_deref(), color);
                 vec![
                     String::new(),
                     format!("{}{}", pad, colored),
@@ -158,11 +194,20 @@ impl ConfigurableTheme {
     }
 
     #[must_use]
-    pub fn render_summary_separator(&self, _columns: u16) -> String {
+    pub fn render_summary_separator(&self, columns: u16) -> String {
         if self.config.summary_separator.is_empty() {
             String::new()
         } else {
-            format!("{}{}", self.left_pad_str(), self.config.summary_separator)
+            let line = format!("{}{}", self.left_pad_str(), self.config.summary_separator);
+            // API-18 / TASK-2090: honour the column budget like every other
+            // render path in this crate — a user-configured separator wider
+            // than the terminal must not wrap past the last column. A
+            // `columns` of 0 means "no budget known"; leave the line alone.
+            if columns > 0 {
+                truncate_to_width(&line, usize::from(columns)).into_owned()
+            } else {
+                line
+            }
         }
     }
 
@@ -304,8 +349,17 @@ impl ConfigurableTheme {
     /// (trailing = duration) and report rows (trailing = result string) call
     /// here so the prefix layout, dotted separator, and color application have a
     /// single source of truth.
+    ///
+    /// PERF-3 / TASK-2082: the colour gate is resolved once here — not once
+    /// per styled segment — and threaded through [`Self::render_slot_gated`],
+    /// the same injection pattern `render_error_block_gated` established.
     #[must_use]
     pub fn render_slot(&self, slot: &SlotLine<'_>, columns: u16) -> String {
+        self.render_slot_gated(slot, columns, color_enabled())
+    }
+
+    /// [`Self::render_slot`] with an explicit colour gate.
+    fn render_slot_gated(&self, slot: &SlotLine<'_>, columns: u16, color: bool) -> String {
         let parts = self.icon_prefix_parts(slot.icon, slot.is_running);
         let budget = usize::from(columns);
         let template_overhead = if slot.is_running {
@@ -326,18 +380,19 @@ impl ConfigurableTheme {
             self.left_pad_str()
         };
 
-        let colored_label = apply_with_prefix(&label, self.label_prefix.as_deref());
+        let colored_label = apply_with_prefix_gated(&label, self.label_prefix.as_deref(), color);
         let colored_prefix = format!(
             "{}{}{} {}",
             parts.indent, parts.icon, parts.pad, colored_label
         );
         let colored_separator =
-            apply_with_prefix(&plain_separator, self.separator_prefix.as_deref());
+            apply_with_prefix_gated(&plain_separator, self.separator_prefix.as_deref(), color);
 
         let line = if slot.trailing.is_empty() {
             format!("{pad}{colored_prefix}{colored_separator}")
         } else {
-            let colored_trailing = apply_with_prefix(slot.trailing, slot.trailing_prefix);
+            let colored_trailing =
+                apply_with_prefix_gated(slot.trailing, slot.trailing_prefix, color);
             format!("{pad}{colored_prefix}{colored_separator} {colored_trailing}")
         };
         if budget == 0 {
@@ -396,9 +451,18 @@ impl ConfigurableTheme {
     /// Render an arbitrary summary body with the theme's summary chrome
     /// (left pad + summary glyph/separator + colored body). The runner passes
     /// `"Done in 1.20s"`; reports pass their `footer_text()`.
+    ///
+    /// PERF-3 / TASK-2082: resolves the colour gate once per call via
+    /// [`Self::render_summary_text_gated`].
     #[must_use]
     pub fn render_summary_text(&self, body: &str) -> String {
-        let colored = apply_with_prefix(body, self.summary_prefix.as_deref());
+        self.render_summary_text_gated(body, color_enabled())
+    }
+
+    /// [`Self::render_summary_text`] with an explicit colour gate, so
+    /// `render_report` can resolve the gate once for its whole output.
+    fn render_summary_text_gated(&self, body: &str, color: bool) -> String {
+        let colored = apply_with_prefix_gated(body, self.summary_prefix.as_deref(), color);
         format!(
             "{}{}{}",
             self.left_pad_str(),
@@ -408,32 +472,11 @@ impl ConfigurableTheme {
     }
 }
 
-/// READ-5 / TASK-1971: validate `running_template_overhead` against the
-/// template it is supposed to describe, and surface a mismatch instead of
-/// silently mis-budgeting every running row.
-///
-/// The field is a hand-maintained column count that a theme author must keep
-/// consistent with `running_template` by eye; nothing derived it and
-/// `render_separator` subtracts it from the budget as fact. The literal
-/// (non-placeholder) text of the template plus the widest spinner glyph is a
-/// *lower bound* on that overhead — the `{elapsed}` placeholder adds more at
-/// render time, so a larger configured value is legitimate. A configured
-/// value below the bound is not: the separator then over-runs the terminal
-/// width on every running row.
-fn warn_on_running_template_overhead(config: &ThemeConfig, spinner_cols: usize) {
-    let minimum = template_literal_width(&config.running_template).saturating_add(spinner_cols);
-    if config.running_template_overhead < minimum {
-        ops_core::ui::warn(format!(
-            "theme running_template_overhead is {} but the template's literal text and spinner \
-             glyph already occupy {minimum} columns; running step lines will over-run the \
-             terminal width",
-            config.running_template_overhead
-        ));
-    }
-}
-
 /// Display columns of the literal text in an `indicatif` template — that is,
 /// everything outside a `{…}` placeholder.
+///
+/// Feeds the lower-bound check behind
+/// [`ConfigurableTheme::template_overhead_diagnostic`] (READ-5 / TASK-1971).
 fn template_literal_width(template: &str) -> usize {
     let mut literal = String::with_capacity(template.len());
     let mut depth = 0usize;

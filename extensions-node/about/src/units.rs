@@ -8,10 +8,10 @@
 //! includes, `pnpm-workspace.yaml` is ignored (npm/yarn shadow pnpm). An
 //! `workspaces` array containing only `!`-prefixed exclusions is treated as
 //! "no positive includes" and the pnpm fallback is consulted instead. Both
-//! sources accept `!`-prefixed exclusion entries. ERR-2 / TASK-1725: blank
-//! and whitespace-only entries are trimmed away from both sources, so an
-//! array of only blank entries is likewise "no positive includes" and never
-//! resolves to the project root as its own member.
+//! sources accept `!`-prefixed exclusion entries. Blank and whitespace-only
+//! entries are trimmed away from both sources, so an array of only blank
+//! entries is likewise "no positive includes" and never resolves to the
+//! project root as its own member.
 
 use std::path::Path;
 
@@ -35,17 +35,27 @@ impl DataProvider for NodeUnitsProvider {
     }
 }
 
-fn collect_units(cwd: &Path) -> Vec<ProjectUnit> {
+/// The resolved workspace member set — npm/yarn `workspaces` and
+/// `pnpm-workspace.yaml` globs expanded to member directories.
+///
+/// Shared with the identity provider so the card's `module_count` and this
+/// provider's unit list count the same members, as they are in the Python and
+/// Go stacks. The root `package.json` read goes through the same
+/// `manifest_cache` entry the identity provider's own parse uses, so
+/// resolving the count adds no second manifest IO.
+pub fn resolved_members(cwd: &Path) -> Vec<(String, String)> {
     let (includes, excludes) = workspace_member_globs(cwd);
-    let resolved =
-        ops_about::workspace::resolve_member_globs(&includes, &excludes, cwd, "package.json");
-    resolved
+    ops_about::workspace::resolve_member_globs(&includes, &excludes, cwd, "package.json")
+}
+
+fn collect_units(cwd: &Path) -> Vec<ProjectUnit> {
+    resolved_members(cwd)
         .into_iter()
         .map(|(member, manifest)| {
             let manifest_path = cwd.join(&member).join("package.json");
-            // DUP-3 / TASK-0987: call the shared `parse_package_metadata`
-            // directly so the per-stack `PackageProbe` lives next to the
-            // deserialiser, not behind a parallel shim function.
+            // The shared `parse_package_metadata` is called directly, so
+            // the per-stack `PackageProbe` lives next to its deserialiser
+            // rather than behind a parallel shim.
             let meta =
                 ops_about::workspace::parse_package_metadata(&manifest_path, &manifest, |c| {
                     serde_json::from_str::<PackageProbe>(c).map(|p| {
@@ -56,12 +66,11 @@ fn collect_units(cwd: &Path) -> Vec<ProjectUnit> {
                         }
                     })
                 });
-            // ERR-2 / TASK-1254: trim and drop whitespace-only fields before
-            // constructing the ProjectUnit so the workspace card matches the
-            // policy already enforced by the Node identity provider
-            // (TASK-0563/0813/0814). Without this guard a `name = "  "` field
-            // bypassed the `format_unit_name` directory fallback and a
-            // whitespace-only version/description rendered as a blank bullet.
+            // Trim and drop whitespace-only fields before constructing the
+            // ProjectUnit, matching the policy the identity provider applies:
+            // a whitespace-only `name` must still reach the
+            // `format_unit_name` directory fallback, and a whitespace-only
+            // version or description must not render as a blank bullet.
             let name = ops_about::text_util::trim_nonempty(meta.name)
                 .unwrap_or_else(|| format_unit_name(&member));
             let version = ops_about::text_util::trim_nonempty(meta.version);
@@ -98,11 +107,10 @@ fn workspace_member_globs(root: &Path) -> (Vec<String>, Vec<String>) {
     let mut includes: Vec<String> = Vec::new();
     let mut excludes: Vec<String> = Vec::new();
 
-    let pkg_path = root.join("package.json");
-    // DUP-3 (TASK-0931): share the file read with the identity provider via
-    // the per-process manifest cache. Each consumer still parses its own
-    // typed projection (`RawRoot` here, `RawPackage` for identity) — only
-    // the IO + UTF-8 validation is deduplicated, no Value tree clone.
+    // The file read is shared with the identity provider through the
+    // per-process manifest cache. Each consumer still parses its own typed
+    // projection (`RawRoot` here, `RawPackage` for identity) — only the IO
+    // and UTF-8 validation are deduplicated, with no `Value` tree clone.
     if let Some(content) = ops_about::manifest_cache::for_filename("package.json").read(root) {
         match serde_json::from_str::<RawRoot>(&content) {
             Ok(raw) => {
@@ -115,15 +123,10 @@ fn workspace_member_globs(root: &Path) -> (Vec<String>, Vec<String>) {
                 }
             }
             Err(e) => {
-                // ERR-7 (TASK-0930): Debug-format the path so embedded
-                // newlines/ANSI escapes in attacker-controlled checkout
-                // paths cannot forge log lines. Mirrors the sister site in
-                // `package_json.rs` (TASK-0818).
-                tracing::warn!(
-                    path = ?pkg_path.display(),
-                    error = ?e,
-                    "failed to parse package.json"
-                );
+                // The identity provider parses its own projection of this
+                // same text, so the diagnostic is owned by one shared
+                // reporter that emits a single record per manifest path.
+                super::package_json::warn_parse_failure(&root.join("package.json"), &e);
             }
         }
     }
@@ -137,11 +140,11 @@ fn workspace_member_globs(root: &Path) -> (Vec<String>, Vec<String>) {
                 items,
                 saw_packages_key,
             } = parse_pnpm_workspace_yaml(&content);
-            // ERR-4 / TASK-0684: distinguish "no packages: key" from
-            // "packages: key matched but produced 0 entries" — the second
-            // case is the symptom of a YAML shape we don't recognise (block
-            // scalar, anchored list, nested mapping). Operators couldn't
-            // tell them apart before this debug event landed.
+            // Distinguish "no packages: key" from "packages: key matched
+            // but produced 0 entries" — the second case is the symptom of a
+            // YAML shape this parser does not recognise (block scalar,
+            // anchored list, nested mapping), and only a log record makes it
+            // visible.
             if items.is_empty() && saw_packages_key {
                 tracing::debug!(
                     path = %pnpm_path.display(),
@@ -158,15 +161,13 @@ fn workspace_member_globs(root: &Path) -> (Vec<String>, Vec<String>) {
 /// Split workspace glob entries into positive includes and `!`-prefixed
 /// excludes.
 ///
-/// ERR-2 / TASK-1725: each entry is trimmed and dropped when it is empty
-/// after `./` and `!` stripping — the same trim-and-drop-empty policy the
-/// crate already applies to every other externally-sourced string
-/// (`package_json.rs` name/version/license/`engines.node`, and workspace
-/// member metadata below). Without it, `"workspaces": [""]` resolved to
-/// the project root itself and emitted the root as its own member, and a
-/// blank entry also made `includes` non-empty, suppressing the
-/// `pnpm-workspace.yaml` fallback so a real pnpm workspace reported zero
-/// units.
+/// Each entry is trimmed and dropped when it is empty after `./` and `!`
+/// stripping — the same trim-and-drop-empty policy the crate applies to every
+/// other externally-sourced string. Dropping blanks is what keeps
+/// `"workspaces": [""]` from resolving to the project root itself and
+/// emitting the root as its own member, and what keeps a blank entry from
+/// counting as a positive include that would suppress the
+/// `pnpm-workspace.yaml` fallback.
 fn split_include_exclude(
     items: Vec<String>,
     includes: &mut Vec<String>,
@@ -197,8 +198,7 @@ fn split_include_exclude(
 
 /// Outcome of `parse_pnpm_workspace_yaml`. `saw_packages_key` distinguishes
 /// "no packages: key in this file" from "key matched but the shape isn't
-/// one we recognise" — the caller emits a debug log on the second case
-/// (ERR-4 / TASK-0684).
+/// one we recognise" — the caller emits a debug log on the second case.
 struct PnpmParse {
     items: Vec<String>,
     saw_packages_key: bool,
@@ -213,8 +213,8 @@ struct PnpmParse {
 ///   packages: [apps/*, "libs/*", 'services/api']
 ///   packages: ["a,b", 'c,d']  (commas inside quoted scalars preserved)
 ///
-/// PATTERN-1 (TASK-1168): the YAML 1.2 subset supported here is **flow scalars
-/// without escapes**. Specifically:
+/// The YAML 1.2 subset supported here is **flow scalars without escapes**.
+/// Specifically:
 /// * Plain (unquoted) scalars are taken verbatim.
 /// * Single-quoted scalars are unquoted but `''` (an embedded apostrophe per
 ///   YAML 1.2) is **not** interpreted — the scalar is consumed as-is.
@@ -229,14 +229,36 @@ fn parse_pnpm_workspace_yaml(content: &str) -> PnpmParse {
     let mut out = Vec::new();
     let mut saw_packages_key = false;
     let mut in_packages = false;
+    // Indentation at which the recognised `packages:`
+    // key itself appeared. The block it opens ends at the first later line
+    // whose indentation is not greater than this — a sibling key at the same
+    // level must end the block, so its list items are never read as
+    // workspace globs. Only a column-0 `packages:` is recognised at all (see
+    // below), so this stays 0 in practice; the comparison is written against
+    // the recorded indent rather than the literal.
+    let mut packages_indent = 0usize;
     for raw_line in content.lines() {
         let line = raw_line.trim_end();
         if line.trim_start().starts_with('#') || line.trim().is_empty() {
             continue;
         }
+        let leading_ws = line.chars().take_while(|c| c.is_whitespace()).count();
         let trimmed_start = line.trim_start();
-        if let Some(rest) = trimmed_start.strip_prefix("packages:") {
+        if in_packages && leading_ws <= packages_indent {
+            // A key at or above the `packages:` key's own level ends the
+            // block — the file has moved on to a sibling section.
+            in_packages = false;
+        }
+        // Only a **top-level** `packages:` key is the workspace list.
+        // pnpm's workspace file also carries sibling keys whose values are
+        // lists (`catalog:`, `onlyBuiltDependencies:`,
+        // `ignoredBuiltDependencies:`, `overrides:`, …), and a `packages:`
+        // nested under any other mapping is not the workspace list, so the
+        // match is on the raw line's column rather than the trimmed one.
+        if leading_ws == 0 && trimmed_start.starts_with("packages:") {
+            let rest = trimmed_start.strip_prefix("packages:").unwrap_or_default();
             saw_packages_key = true;
+            packages_indent = leading_ws;
             let rest = rest.trim();
             if let Some(inner) = rest.strip_prefix('[').and_then(|s| s.strip_suffix(']')) {
                 for item in split_inline_list(inner) {
@@ -252,12 +274,6 @@ fn parse_pnpm_workspace_yaml(content: &str) -> PnpmParse {
             continue;
         }
         if in_packages {
-            let leading_ws = line.chars().take_while(|c| c.is_whitespace()).count();
-            if leading_ws == 0 {
-                // Next top-level key ends the block.
-                in_packages = false;
-                continue;
-            }
             let trimmed = line.trim();
             if let Some(rest) = trimmed.strip_prefix("- ") {
                 let stripped = strip_trailing_yaml_comment(rest.trim());
@@ -277,7 +293,7 @@ fn parse_pnpm_workspace_yaml(content: &str) -> PnpmParse {
     }
 }
 
-/// PATTERN-1 / TASK-1084: split a YAML flow-sequence body on `,` while
+/// Split a YAML flow-sequence body on `,` while
 /// preserving commas that appear inside single- or double-quoted scalars.
 /// `inner` is the substring between `[` and `]` — quotes are not stripped
 /// here, the caller passes each piece through `unquote`.
@@ -318,7 +334,7 @@ fn unquote(s: &str) -> &str {
         .unwrap_or(s)
 }
 
-/// PATTERN-1 (TASK-1168): emit a `tracing::debug!` when a pnpm scalar uses a
+/// Emit a `tracing::debug!` when a pnpm scalar uses a
 /// YAML feature outside the supported subset (backslash escapes inside a
 /// double-quoted scalar; doubled apostrophes inside a single-quoted scalar).
 /// The hand-rolled parser will produce silently-wrong glob entries for these
@@ -346,27 +362,26 @@ fn warn_if_unsupported_pnpm_scalar(s: &str) {
     }
 }
 
-/// PATTERN-1 / TASK-1061: drop a trailing YAML `# comment` from a list-item
-/// value. A `#` only starts a comment when it follows whitespace AND is not
-/// inside a matching pair of single or double quotes — `'#literal'` and
-/// `"#literal"` must survive intact. Walks the string left-to-right tracking
-/// quote state; on the first whitespace-then-`#` outside quotes, truncates.
+/// Drop a trailing YAML `# comment` from a list-item value. A `#` only
+/// starts a comment when it follows whitespace AND is not inside a matching
+/// pair of single or double quotes — `'#literal'` and `"#literal"` survive
+/// intact. Walks the string left-to-right tracking quote state; on the first
+/// whitespace-then-`#` outside quotes, truncates.
 ///
-/// PATTERN-1 / TASK-1729: iterate `char_indices`, not raw bytes. The
-/// previous loop computed `prev_ws` as `char::from(byte).is_whitespace()`,
-/// which reads a byte as Latin-1: the UTF-8 continuation bytes `0xA0` and
-/// `0x85` became NBSP / NEL, both `White_Space=Yes`. Any scalar whose
-/// encoding ends in one of those bytes (`U+0120`, `U+30A0`, …) therefore
-/// set `prev_ws`, and a following literal `#` truncated the entry to a glob
-/// matching nothing — silently, since a non-matching glob simply yields no
-/// members.
+/// The walk is over `char_indices`, not raw bytes: a byte-wise loop reads a
+/// UTF-8 continuation byte such as `0xA0` or `0x85` as Latin-1 NBSP / NEL,
+/// both `White_Space=Yes`, so any scalar ending in one of those bytes
+/// (`U+0120`, `U+30A0`, …) would make a following literal `#` look like a
+/// comment and truncate the entry to a glob matching nothing — silently,
+/// since a non-matching glob simply yields no members.
 fn strip_trailing_yaml_comment(s: &str) -> &str {
     let mut in_single = false;
     let mut in_double = false;
     // YAML 1.2 separates a trailing comment from content with `s-white` —
     // space or tab, nothing else. `char::is_whitespace` is the wider Unicode
-    // set, and treating any member of it as a separator resurrects TASK-1729
-    // one level up: `a\u{a0}#b` is one literal scalar, but NBSP-as-separator
+    // set, and treating any member of it as a separator repeats the
+    // byte-wise bug one level up: `a\u{a0}#b` is one literal scalar, but
+    // NBSP-as-separator
     // truncates it to `a`. A leading `#` (no preceding char) still opens a
     // comment, hence the `true` seed.
     let mut prev_ws = true;
@@ -398,14 +413,13 @@ struct PackageProbe {
 mod tests {
     use super::*;
 
-    // DUP-1 / TASK-1736: the fixture-writing helper lives once in
-    // `ops_about::test_support`; alias it so call sites keep the short name.
+    // The fixture-writing helper lives once in `ops_about::test_support`;
+    // alias it so call sites keep the short name.
     use ops_about::test_support::write_file as write;
 
-    /// ERR-7 (TASK-0930): the `workspace_member_globs` warn event
-    /// Debug-formats the path so a checkout containing newlines or ANSI
-    /// escapes cannot forge log records. DUP-3 / TASK-0985: shared
-    /// helper — see `ops_about::test_support`.
+    /// The `package.json` parse-failure warn Debug-formats the path, so a
+    /// checkout containing newlines or ANSI escapes cannot forge log
+    /// records.
     #[test]
     fn workspace_member_globs_path_debug_escapes_control_characters() {
         let p = Path::new("a\nb\u{1b}[31mc/package.json");
@@ -445,9 +459,9 @@ mod tests {
         assert_eq!(units[1].name, "beta");
     }
 
-    /// ERR-2 / TASK-1254: a member whose `name`/`version`/`description`
-    /// fields are whitespace-only must trim+drop to None so the directory
-    /// fallback fires and blank fields don't leak into rendered cards.
+    /// A member whose `name`/`version`/`description` fields are
+    /// whitespace-only trims and drops to `None`, so the directory fallback
+    /// fires and blank fields do not leak into rendered cards.
     #[test]
     fn whitespace_only_metadata_falls_back_and_drops_blank_fields() {
         let dir = tempfile::tempdir().unwrap();
@@ -486,10 +500,10 @@ mod tests {
 
     #[test]
     fn parse_pnpm_block_scalar_shape_flags_empty_with_packages_key() {
-        // ERR-4 / TASK-0684: a block-scalar `packages: |\n  apps/*` is not
-        // a shape we recognise. The parser must record that `packages:`
-        // matched even though no entries came out, so the caller can emit
-        // a debug log distinguishing it from "no packages: key at all".
+        // A block-scalar `packages: |\n  apps/*` is not a recognised shape.
+        // The parser must record that `packages:` matched even though no
+        // entries came out, so the caller can emit a debug log
+        // distinguishing it from "no packages: key at all".
         let yaml = "packages: |\n  apps/*\n";
         let r = parse_pnpm_workspace_yaml(yaml);
         assert!(r.items.is_empty());
@@ -499,6 +513,61 @@ mod tests {
         let r = parse_pnpm_workspace_yaml(no_key);
         assert!(r.items.is_empty());
         assert!(!r.saw_packages_key);
+    }
+
+    /// A `packages:` key nested under another
+    /// mapping is not the workspace list. Nothing under it — and nothing
+    /// under its sibling list keys — may become a workspace glob; the parser
+    /// must not even record the key as seen.
+    #[test]
+    fn nested_packages_key_is_not_the_workspace_list() {
+        let yaml = concat!(
+            "tooling:\n",
+            "  packages:\n",
+            "    - apps/*\n",
+            "  ignoredBuiltDependencies:\n",
+            "    - esbuild\n",
+        );
+        let r = parse_pnpm_workspace_yaml(yaml);
+        assert!(
+            r.items.is_empty(),
+            "nested entries must not leak: {:?}",
+            r.items
+        );
+        assert!(!r.saw_packages_key);
+    }
+
+    /// The packages block ends at the first
+    /// subsequent line whose indentation is not greater than the `packages:`
+    /// key's own — a sibling top-level list key ends it, so its entries stay
+    /// out of the workspace globs.
+    #[test]
+    fn packages_block_ends_at_sibling_key_of_equal_indentation() {
+        let yaml = concat!(
+            "packages:\n",
+            "  - apps/*\n",
+            "ignoredBuiltDependencies:\n",
+            "  - esbuild\n",
+        );
+        let r = parse_pnpm_workspace_yaml(yaml);
+        assert_eq!(r.items, vec!["apps/*".to_string()]);
+        assert!(r.saw_packages_key);
+    }
+
+    /// A nested `packages:` must not shadow or
+    /// suppress a real top-level one elsewhere in the file.
+    #[test]
+    fn top_level_packages_wins_over_a_nested_one() {
+        let yaml = concat!(
+            "tooling:\n",
+            "  packages:\n",
+            "    - apps/*\n",
+            "packages:\n",
+            "  - libs/*\n",
+        );
+        let r = parse_pnpm_workspace_yaml(yaml);
+        assert_eq!(r.items, vec!["libs/*".to_string()]);
+        assert!(r.saw_packages_key);
     }
 
     #[test]
@@ -524,7 +593,7 @@ mod tests {
         assert!(names.contains(&"web"));
     }
 
-    /// TASK-0400: `!`-prefixed yarn/npm exclusion entries filter resolved
+    /// `!`-prefixed yarn/npm exclusion entries filter resolved
     /// members from the `packages/*` glob.
     #[test]
     fn exclusion_pattern_filters_member() {
@@ -584,7 +653,7 @@ mod tests {
         assert_eq!(units[0].name, "Quiet");
     }
 
-    /// TASK-0480: pnpm-workspace.yaml `!`-prefixed entries filter resolved
+    /// pnpm-workspace.yaml `!`-prefixed entries filter resolved
     /// members the same way npm/yarn `!`-prefixed entries do.
     #[test]
     fn pnpm_exclusion_pattern_filters_member() {
@@ -608,7 +677,7 @@ mod tests {
         assert!(!names.contains(&"internal-thing"));
     }
 
-    /// TASK-0488: a `package.json` whose `workspaces` array contains only
+    /// A `package.json` whose `workspaces` array contains only
     /// `!`-prefixed exclusions has no positive includes, so the
     /// pnpm-workspace.yaml fallback still applies.
     #[test]
@@ -644,7 +713,7 @@ mod tests {
         assert_eq!(pats, vec!["apps/*", "libs/core", "services/api"]);
     }
 
-    /// PATTERN-1 / TASK-1061: a trailing `# comment` after a quoted list
+    /// A trailing `# comment` after a quoted list
     /// item must be stripped before `unquote` runs — otherwise the value
     /// retains the closing quote+comment and matches no directory.
     #[test]
@@ -654,7 +723,7 @@ mod tests {
         assert_eq!(pats, vec!["apps/*"]);
     }
 
-    /// PATTERN-1 / TASK-1061: a trailing `# comment` after an unquoted
+    /// A trailing `# comment` after an unquoted
     /// list item is also stripped (whitespace-prefixed `#` is the YAML
     /// comment marker).
     #[test]
@@ -664,11 +733,7 @@ mod tests {
         assert_eq!(pats, vec!["apps/*"]);
     }
 
-    /// PATTERN-1 / TASK-1061: a `#` inside matching quotes is a literal
-    /// character, not a comment marker — `'#literal-pattern'` must pass
-    /// through intact.
-    /// PATTERN-1 / TASK-1084: inline flow-sequence with bare entries splits
-    /// on `,` as expected.
+    /// An inline flow-sequence with bare entries splits on `,`.
     #[test]
     fn pnpm_inline_list_bare_entries_split_on_comma() {
         let yaml = "packages: [apps/*, libs/*]\n";
@@ -676,7 +741,7 @@ mod tests {
         assert_eq!(pats, vec!["apps/*", "libs/*"]);
     }
 
-    /// PATTERN-1 / TASK-1084: a `,` inside a double-quoted scalar is part of
+    /// A `,` inside a double-quoted scalar is part of
     /// the value, not a separator — `["a,b", "c"]` is two items.
     #[test]
     fn pnpm_inline_list_double_quoted_comma_preserved() {
@@ -685,7 +750,7 @@ mod tests {
         assert_eq!(pats, vec!["a,b", "c"]);
     }
 
-    /// PATTERN-1 / TASK-1084: a `,` inside a single-quoted scalar is part of
+    /// A `,` inside a single-quoted scalar is part of
     /// the value, not a separator — `['x', 'y,z']` is two items.
     #[test]
     fn pnpm_inline_list_single_quoted_comma_preserved() {
@@ -694,8 +759,8 @@ mod tests {
         assert_eq!(pats, vec!["x", "y,z"]);
     }
 
-    /// PATTERN-1 (TASK-1168): pin current behaviour on YAML escape shapes the
-    /// hand-rolled parser does not understand. Future migration to a real
+    /// Pin current behaviour on YAML escape shapes the hand-rolled parser
+    /// does not understand. Future migration to a real
     /// YAML crate is then a controlled change — this test will start failing
     /// with the corrected interpretation, prompting an explicit update.
     ///
@@ -712,7 +777,7 @@ mod tests {
         assert_eq!(pats, vec!["a\\\"b"]);
     }
 
-    /// PATTERN-1 (TASK-1168): YAML 1.2 reads `'it''s'` as `it's` (5 chars).
+    /// YAML 1.2 reads `'it''s'` as `it's` (5 chars).
     /// The hand-rolled parser does not interpret the doubled apostrophe; pin
     /// that.
     #[test]
@@ -734,17 +799,16 @@ mod tests {
         assert_eq!(pats, vec!["#literal-pattern"]);
     }
 
-    /// PATTERN-1 / TASK-1729: `U+0120` encodes as `C4 A0` and `U+30A0` as
-    /// `E3 82 A0`; reading that trailing `A0` as Latin-1 NBSP made the parser
-    /// treat the following literal `#` as the start of a comment and truncate
-    /// the entry.
+    /// `U+0120` encodes as `C4 A0` and `U+30A0` as `E3 82 A0`; a parser that
+    /// reads that trailing `A0` as Latin-1 NBSP treats the following literal
+    /// `#` as the start of a comment and truncates the entry.
     ///
     /// The scalars are deliberately **unquoted**. Inside quotes
     /// `strip_trailing_yaml_comment` skips the `#` branch on quote state
-    /// alone, so a quoted fixture passes under the old byte-wise loop too and
-    /// pins nothing. Unquoted, the only thing standing between `#` and a
-    /// comment is whether the preceding scalar byte was read as whitespace —
-    /// which is exactly the regression.
+    /// alone, so a quoted fixture would pass under a byte-wise loop too and
+    /// pin nothing. Unquoted, the only thing standing between `#` and a
+    /// comment is whether the preceding scalar byte counts as whitespace —
+    /// which is exactly the property under test.
     #[test]
     fn pnpm_hash_after_multibyte_scalar_is_not_a_comment() {
         let yaml = "packages:\n  - \u{0120}#literal\n  - \u{30a0}#literal\n";
@@ -755,7 +819,7 @@ mod tests {
     /// A non-ASCII Unicode space between content and `#` is not a YAML
     /// comment separator (`s-white` is space or tab only), so the `#` stays
     /// literal. Same class as the multibyte case above, one level up: there
-    /// the NBSP was a misread byte, here it is a real NBSP character.
+    /// the NBSP is a misread byte, here it is a real NBSP character.
     #[test]
     fn pnpm_unicode_space_before_hash_does_not_start_a_comment() {
         let yaml = "packages:\n  - a\u{a0}#b\n";
@@ -763,9 +827,9 @@ mod tests {
         assert_eq!(pats, vec!["a\u{a0}#b"]);
     }
 
-    /// The separator that *does* count: a plain ASCII space (and a tab) still
-    /// opens a trailing comment, so tightening the rule above did not simply
-    /// disable comment stripping.
+    /// The separator that *does* count: a plain ASCII space (and a tab)
+    /// opens a trailing comment, so the narrow rule above is not the same as
+    /// disabling comment stripping.
     #[test]
     fn pnpm_ascii_space_and_tab_before_hash_still_start_a_comment() {
         let space = parse_pnpm_workspace_yaml("packages:\n  - pkgs/* # comment\n").items;
@@ -775,9 +839,9 @@ mod tests {
         assert_eq!(tab, vec!["pkgs/*"]);
     }
 
-    /// ERR-2 / TASK-1725: an empty `workspaces` entry used to resolve to the
-    /// project root itself (`root.join("")`), listing the root as its own
-    /// member with an empty path.
+    /// An empty `workspaces` entry must not resolve to the project root
+    /// itself (`root.join("")`) and list the root as its own member with an
+    /// empty path.
     #[test]
     fn blank_workspaces_entry_yields_no_units() {
         let dir = tempfile::tempdir().unwrap();
@@ -788,7 +852,7 @@ mod tests {
         assert!(collect_units(dir.path()).is_empty());
     }
 
-    /// ERR-2 / TASK-1725: a whitespace-only entry must not count as a
+    /// A whitespace-only entry must not count as a
     /// positive include, so the `pnpm-workspace.yaml` fallback still fires.
     #[test]
     fn whitespace_only_workspaces_entry_falls_back_to_pnpm() {
@@ -811,7 +875,7 @@ mod tests {
         assert_eq!(units[0].name, "alpha");
     }
 
-    /// ERR-2 / TASK-1725: the same guard applies to the pnpm source, whose
+    /// The same guard applies to the pnpm source, whose
     /// entries flow through the same splitter.
     #[test]
     fn blank_pnpm_packages_entry_yields_no_root_unit() {
@@ -831,7 +895,7 @@ mod tests {
         assert_eq!(units[0].name, "alpha");
     }
 
-    /// TEST-5 / TASK-1732: `PROVIDER_NAME` is the key the registry indexes
+    /// `PROVIDER_NAME` is the key the registry indexes
     /// this provider under (`lib.rs`'s `register_data_providers`), so a typo
     /// there silently unregisters the units card.
     #[test]
@@ -839,7 +903,7 @@ mod tests {
         assert_eq!(NodeUnitsProvider.name(), "project_units");
     }
 
-    /// TEST-5 / TASK-1732: unlike `NodeIdentityProvider`, the units provider
+    /// Unlike `NodeIdentityProvider`, the units provider
     /// deliberately keeps the default (empty) `about_fields` — its payload is
     /// a list rendered by the workspace card, not a set of About bullets.
     #[test]
@@ -847,7 +911,7 @@ mod tests {
         assert!(NodeUnitsProvider.about_fields().is_empty());
     }
 
-    /// TEST-5 / TASK-1732: drive the registered provider end to end, so the
+    /// Drive the registered provider end to end, so the
     /// `serde_json::to_value` step and the emitted JSON shape consumers read
     /// are pinned, not just the `collect_units` free function.
     #[test]
@@ -873,7 +937,7 @@ mod tests {
         assert_eq!(units[0].description.as_deref(), Some("A"));
     }
 
-    /// TEST-5 / TASK-1732: a project with no workspaces must serialise to an
+    /// A project with no workspaces must serialise to an
     /// empty JSON array — not `null`, and not an error.
     #[test]
     fn units_provider_empty_workspace_is_empty_array() {

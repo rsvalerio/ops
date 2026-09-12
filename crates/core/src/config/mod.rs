@@ -44,7 +44,7 @@ pub(crate) mod sections;
 pub mod theme_types;
 
 pub use command_id::CommandId;
-pub use commands::{CommandSpec, CompositeCommandSpec, ExecCommandSpec};
+pub use commands::{current_ops_program, CommandSpec, CompositeCommandSpec, ExecCommandSpec};
 pub use edit::{
     atomic_write, command_names, edit_ops_toml, ensure_table, insert_command, read_ops_toml,
     write_ops_toml,

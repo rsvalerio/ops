@@ -20,28 +20,42 @@ pub enum DbError {
     #[error("database mutex poisoned: {0:?}")]
     MutexPoisoned(String),
 
+    /// An error raised by the underlying `DuckDB` library.
     #[error("database error: {0}")]
     DuckDb(#[from] duckdb::Error),
 
+    /// A filesystem error while opening or reading database artifacts.
     #[error("IO error: {0}")]
     Io(#[from] std::io::Error),
 
+    /// A query failed; `context` names what was being run.
     #[error("{context}: {source}")]
     QueryFailed {
+        /// What the failing query was doing, for the operator message.
         context: String,
+        /// The underlying `DuckDB` error.
         #[source]
         source: duckdb::Error,
     },
 
+    /// A JSON payload failed to (de)serialize.
     #[error("serialization error: {0}")]
     Serialization(#[from] serde_json::Error),
 
+    /// A row count exceeded the `i64` column range.
     #[error("record count overflow: {0} exceeds i64::MAX")]
     RecordCountOverflow(u64),
 
+    /// A table reported a negative row count, which no table can have.
     #[error("invalid record count for {table}: {count} (must be non-negative)")]
-    InvalidRecordCount { table: String, count: i64 },
+    InvalidRecordCount {
+        /// The table whose count was read.
+        table: String,
+        /// The negative count that was read.
+        count: i64,
+    },
 
+    /// A database path is not valid UTF-8 and cannot be persisted.
     #[error("path is not valid UTF-8 (cannot persist to data_sources): {0:?}")]
     NonUtf8Path(std::ffi::OsString),
 
@@ -54,6 +68,7 @@ pub enum DbError {
     #[error("database {0:?} is not file-backed; the ingest pipeline needs a real database path")]
     NotFileBacked(std::path::PathBuf),
 
+    /// A generated SQL statement failed shared validation.
     #[error("SQL validation failed: {0}")]
     SqlValidation(#[from] crate::sql::SqlError),
 
@@ -82,6 +97,9 @@ pub enum DbError {
 }
 
 impl DbError {
+    /// Builds a [`DbError::QueryFailed`] from a context string and the
+    /// underlying `DuckDB` error.
+    #[must_use = "return the constructed error; building it reports nothing"]
     pub fn query_failed(context: impl Into<String>, source: duckdb::Error) -> Self {
         Self::QueryFailed {
             context: context.into(),

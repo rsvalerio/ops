@@ -47,15 +47,14 @@ use build::WorkspaceCanonicalCache;
 pub use events::{OutputLine, RunnerEvent};
 pub use results::StepResult;
 pub use secret_patterns::is_sensitive_env_key;
-pub use secret_patterns::looks_like_secret_value as looks_like_secret_value_public;
+pub use secret_patterns::looks_like_secret_value;
 
 /// Shared "id not found in any store" failure.
 ///
-/// DUP-3 / TASK-0769: [`ResolveExecError`] and [`ExpandError`] previously
-/// each defined an `Unknown(String)` variant with identical Display
-/// strings. Both now wrap this single struct so the message lives in one
-/// place and a future caller can convert between the parent enums via
-/// `#[from]` without reconstructing the inner string.
+/// [`ResolveExecError`] and [`ExpandError`] both wrap this struct for their
+/// `Unknown` variant, so the message lives in one place and a caller can
+/// convert between the parent enums via `#[from]` without reconstructing the
+/// inner string.
 #[derive(Debug, thiserror::Error, PartialEq, Eq, Clone)]
 #[error("unknown command: {0}")]
 pub struct UnknownCommand(pub String);
@@ -68,8 +67,8 @@ impl UnknownCommand {
     }
 }
 
-/// Typed failure for leaf-exec resolution. ERR-10 / TASK-0130: replaces
-/// stringly-typed errors so callers can match on the specific cause.
+/// Typed failure for leaf-exec resolution, so callers can match on the
+/// specific cause rather than inspecting an error string.
 #[derive(Debug, thiserror::Error, PartialEq, Eq)]
 #[non_exhaustive]
 pub enum ResolveExecError {
@@ -81,7 +80,8 @@ pub enum ResolveExecError {
     CompositeInLeafPlan(String),
 }
 
-/// Typed failure for composite expansion. ERR-10 / READ-5 / TASK-0203+0215.
+/// Typed failure for composite expansion, so callers can match on the
+/// specific cause rather than inspecting an error string.
 #[derive(Debug, thiserror::Error, PartialEq, Eq)]
 #[non_exhaustive]
 pub enum ExpandError {
@@ -94,18 +94,17 @@ pub enum ExpandError {
     /// Expansion exceeded the safety depth cap.
     #[error("composite expansion exceeded depth limit {max_depth} at command `{id}`")]
     DepthExceeded { id: String, max_depth: usize },
-    /// TASK-1657: a composite tree declares conflicting values for a
-    /// scheduling flag (`parallel` or `fail_fast`).
+    /// A composite tree declares conflicting values for a scheduling flag
+    /// (`parallel` or `fail_fast`).
     ///
     /// Expansion flattens a composite tree into a single flat leaf plan that
     /// the runner schedules as one unit, so exactly one value per flag can be
-    /// honoured. Previously the flags were OR-folded across the traversal,
-    /// which let a `parallel = true` descendant silently promote a
-    /// `parallel = false` ancestor (and a `fail_fast = false` descendant
-    /// silently disable fail-fast for the whole plan). The flag then did not
-    /// mean what it said and the failure mode — formatters racing checkers
-    /// over the same files — was intermittent. Rejecting at expansion time
-    /// makes the trap loud instead of silent.
+    /// honoured. Folding conflicting values together instead — letting a
+    /// `parallel = true` descendant promote a `parallel = false` ancestor, or
+    /// a `fail_fast = false` descendant disable fail-fast plan-wide — would
+    /// make the flag mean something other than what it says, with an
+    /// intermittent failure mode (formatters racing checkers over the same
+    /// files). Rejecting at expansion time makes the trap loud.
     #[error(
         "conflicting `{flag}` in the plan for `{root}`: `{root}` sets {flag} = {root_value}, \
          but `{conflicting}` sets {flag} = {conflicting_value}\n\
@@ -156,44 +155,38 @@ pub struct CommandRunner {
     /// resolution so user config / stack / extension entries can still
     /// shadow.
     pub(super) builtin_commands: IndexMap<CommandId, CommandSpec>,
-    /// OWN-6 / TASK-0200: pre-built `alias → canonical` map over the
-    /// stack + extension command stores so `canonical_id` / `resolve_alias`
-    /// are O(1) instead of O(N·A) per lookup. Config aliases are served by
-    /// `Config::resolve_alias` which maintains its own map. Rebuilt when
+    /// Pre-built `alias → canonical` map over the stack + extension command
+    /// stores, keeping `canonical_with_spec` / `resolve_alias` O(1) rather
+    /// than O(N·A) per lookup. Config aliases are served by
+    /// `Config::resolve_alias`, which maintains its own map. Rebuilt when
     /// `register_commands` mutates the extension store.
     pub(super) non_config_alias_map: std::collections::HashMap<String, String>,
     pub(super) data_registry: DataRegistry,
-    /// ARCH-9 / TASK-0993: single source of truth for the per-runner data
-    /// cache. The previous shape held both a runner-owned
-    /// `HashMap<String, Arc<serde_json::Value>>` and constructed a fresh
-    /// `Context` per `query_data` call; the throw-away context's own
-    /// `data_cache` was discarded immediately, so any provider that
-    /// composed others via `ctx.get_or_provide(...)` paid recompute cost on
-    /// every outer query. Storing the `Context` directly means transitive
-    /// `get_or_provide` results survive across calls and `in_flight`
-    /// markers are not duplicated state.
+    /// Single source of truth for the per-runner data cache. Storing the
+    /// [`ops_extension::Context`] directly means transitive
+    /// `ctx.get_or_provide(...)` results survive across `query_data`
+    /// calls (a provider that composes others does not pay recompute cost
+    /// on every outer query) and `in_flight` markers are not duplicated
+    /// state.
     pub(super) data_context: ops_extension::Context,
     pub(super) detected_stack: Option<Stack>,
-    /// SEC-14 / TASK-0886: cwd-escape policy applied to every spawn this
-    /// runner orchestrates. Hook-triggered entry points construct the
-    /// runner with `CwdEscapePolicy::Deny` so a coworker-landed `.ops.toml`
-    /// cannot escape the workspace on the next commit; the default
-    /// interactive path keeps `WarnAndAllow`.
+    /// Cwd-escape policy applied to every spawn this runner orchestrates.
+    /// Hook-triggered entry points construct the runner with
+    /// `CwdEscapePolicy::Deny` so a coworker-landed `.ops.toml` cannot
+    /// escape the workspace on the next commit; the default interactive
+    /// path keeps `WarnAndAllow`.
     pub(super) cwd_escape_policy: CwdEscapePolicy,
-    /// CONC-7 / TASK-1063: bounded, runner-scoped cache of
-    /// `canonicalize(workspace)` results. Replaces the prior unbounded
-    /// process-global `OnceLock<RwLock<HashMap>>` in `build.rs`. The cache
-    /// type itself is bounded (LRU eviction at
+    /// Bounded, runner-scoped cache of `canonicalize(workspace)` results.
+    /// The cache is bounded (LRU eviction at
     /// [`build::WORKSPACE_CANONICAL_CACHE_CAP`]); folding it onto the
     /// runner means its lifetime ends with the runner instead of the
     /// process. The runner exposes [`Self::invalidate_workspace_cache`]
     /// so embedders that observe an on-disk symlink swap can force a
     /// re-canonicalize without dropping the runner.
     ///
-    /// Note: today's `build_command_async` call from `exec.rs` still
-    /// reads the static default cache for compatibility; this field is
-    /// the authoritative per-runner instance and the migration target as
-    /// the spawn signatures are reworked. See TASK-1063 notes.
+    /// This is the authoritative instance: the spawn path threads a clone of
+    /// it into `build_command_async` via [`Self::exec_env`], so every escape
+    /// decision consults the same cache the invalidate APIs mutate.
     pub(super) workspace_cache: Arc<WorkspaceCanonicalCache>,
 }
 
@@ -203,12 +196,13 @@ impl CommandRunner {
         Self::from_arc_config(Arc::new(config), cwd)
     }
 
-    /// OWN-2 / TASK-0841: construct a runner directly from an already-shared
-    /// `Arc<Config>`. Callers that already hold the loaded config behind an
-    /// `Arc` (the CLI threads `early_config` from `main` through `dispatch`
-    /// into here) avoid the deep clone of the inner `Config` — every nested
-    /// `IndexMap`, `String`, and theme block is shared rather than duplicated
-    /// per CLI invocation.
+    /// Construct a runner from an already-shared `Arc<Config>`.
+    ///
+    /// Callers that already hold the loaded config behind an `Arc` (the CLI
+    /// threads `early_config` from `main` through `dispatch` into here) avoid
+    /// a deep clone of the inner `Config` — every nested `IndexMap`,
+    /// `String`, and theme block is shared rather than duplicated per CLI
+    /// invocation.
     pub fn from_arc_config(config: Arc<Config>, cwd: PathBuf) -> Self {
         let detected_stack = Stack::resolve(config.stack.as_deref(), &cwd);
 
@@ -282,42 +276,43 @@ impl CommandRunner {
         }
     }
 
-    /// CONC-7 / TASK-1063: forget the cached canonicalization for
-    /// `workspace`. The next escape check will re-run
-    /// `std::fs::canonicalize`, picking up any post-cache symlink swap.
+    /// Forget the cached canonicalization for `workspace`.
+    ///
+    /// The next escape check re-runs `std::fs::canonicalize`, picking up any
+    /// symlink swap that happened after the entry was cached.
     pub fn invalidate_workspace_cache(&self, workspace: &std::path::Path) {
         self.workspace_cache.invalidate(workspace);
     }
 
-    /// CONC-7 / TASK-1063: drop every cached workspace canonicalization.
-    /// For embedders that know the layout has changed wholesale.
+    /// Drop every cached workspace canonicalization, for embedders that know
+    /// the layout has changed wholesale.
     pub fn clear_workspace_cache(&self) {
         self.workspace_cache.clear();
     }
 
-    /// SEC-14 / TASK-0886: opt this runner into the fail-closed cwd-escape
-    /// policy. Hook-triggered entry points (`run-before-commit`,
-    /// `run-before-push`) call this with `CwdEscapePolicy::Deny` so a
-    /// `.ops.toml` `cwd = "/etc"` or `cwd = "../../"` is refused at spawn
-    /// time instead of producing a tracing warning and proceeding.
+    /// Set the cwd-escape policy for every spawn this runner orchestrates.
+    ///
+    /// Hook-triggered entry points (`run-before-commit`, `run-before-push`)
+    /// pass [`CwdEscapePolicy::Deny`] so a `.ops.toml` `cwd = "/etc"` or
+    /// `cwd = "../../"` is refused at spawn time instead of producing a
+    /// tracing warning and proceeding.
     pub const fn set_cwd_escape_policy(&mut self, policy: CwdEscapePolicy) {
         self.cwd_escape_policy = policy;
     }
 
-    /// PERF-3 / TASK-0774: merge a single (id, spec) pair into the
-    /// non-config alias map without re-iterating the stack + extension
-    /// stores. Earlier the registration path called `build_alias_map` over
-    /// every store on each batch, which made N successive
-    /// `register_commands` calls of one entry each O(N · (|stack| +
-    /// |extensions|)). Incremental merge keeps that work O(aliases-of-spec)
-    /// per registration. Stale aliases owned by an earlier version of the
-    /// same id are pruned first so a re-registration that drops an alias
-    /// does not leave the map pointing at a now-invalid spec.
+    /// Merge a single `(id, spec)` pair into the non-config alias map
+    /// without re-iterating the stack + extension stores.
+    ///
+    /// The incremental merge is O(aliases-of-spec) per registration, so N
+    /// successive single-entry `register_commands` calls stay linear rather
+    /// than O(N · (|stack| + |extensions|)). Stale aliases owned by an
+    /// earlier version of the same id are pruned first, so a re-registration
+    /// that drops an alias does not leave the map pointing at a spec that no
+    /// longer claims it.
     fn merge_alias_for(&mut self, id: &CommandId, new_spec: &CommandSpec) {
-        // PATTERN-1 / TASK-0998: route both branches through the `Entry`
-        // API so each alias is looked up exactly once. The previous
-        // `get` → `remove` and `get` → `insert` pairs probed the map
-        // twice and invited drift between the two lookups.
+        // Both branches route through the `Entry` API so each alias is
+        // looked up exactly once; a `get` → `remove` / `get` → `insert` pair
+        // would probe the map twice and invite drift between the lookups.
         use std::collections::hash_map::Entry;
         if let Some(old_spec) = self.extension_commands.get(id) {
             for old_alias in old_spec.aliases() {
@@ -401,13 +396,12 @@ impl CommandRunner {
 
     /// Replace the internal data registry (e.g. with one populated by extensions).
     ///
-    /// ARCH-9 / TASK-1128: also drops every entry the runner's
-    /// `data_context` cached against the previous registry. Without this
-    /// invalidation, a later [`Self::query_data`] for a key whose provider
-    /// has been replaced or removed would still hand back the stale
-    /// `Arc<serde_json::Value>` populated by the prior registry. Re-running
-    /// `register_data_providers` is the operator's signal to rebuild the
-    /// data view; the cache must follow it.
+    /// Also drops every entry the runner's `data_context` cached against the
+    /// outgoing registry. Without that invalidation, a later
+    /// [`Self::query_data`] for a key whose provider was replaced or removed
+    /// would still hand back a stale `Arc<serde_json::Value>`. Calling this
+    /// is the operator's signal to rebuild the data view, and the cache
+    /// follows it.
     pub fn register_data_providers(&mut self, registry: DataRegistry) {
         self.data_registry = registry;
         self.data_context.clear_provider_results();
@@ -415,13 +409,10 @@ impl CommandRunner {
 
     /// Query cached data or compute via provider.
     ///
-    /// ARCH-9 / TASK-0993: dispatches into the persistent
-    /// [`ops_extension::Context`] held on the runner. Earlier this method
-    /// kept its own `HashMap` cache and threw away a freshly-built context
-    /// on every call, which meant transitive `ctx.get_or_provide(other)`
-    /// calls inside a provider were always recomputed on subsequent
-    /// `query_data` invocations. With a single cache, composed providers
-    /// pay the inner cost once per runner.
+    /// Dispatches into the persistent [`ops_extension::Context`] held on the
+    /// runner, so transitive `ctx.get_or_provide(other)` calls made inside a
+    /// provider are cached too: composed providers pay the inner cost once
+    /// per runner rather than once per query.
     ///
     /// # Errors
     ///
@@ -432,12 +423,10 @@ impl CommandRunner {
 
     /// Register commands from extensions (merged with config commands).
     ///
-    /// SEC-31 / TASK-0402: detect duplicates at this final consolidation
-    /// point. If two extensions registered the same id under
-    /// `register_extension_commands`, the upstream warning already fired;
-    /// here we emit a warning if a same id appears more than once in this
-    /// call (e.g. multiple `register_commands` invocations) so the CLI
-    /// shadowing behaviour is never silent.
+    /// Duplicates are detected at this final consolidation point: an id
+    /// already present in the extension store logs a warning, so the CLI
+    /// shadowing behaviour is never silent. (Duplicates seen earlier, in
+    /// `register_extension_commands`, have already warned there.)
     pub fn register_commands(
         &mut self,
         commands: impl IntoIterator<Item = (CommandId, CommandSpec)>,
@@ -449,11 +438,23 @@ impl CommandRunner {
                     "duplicate extension command registration; later registration shadows earlier"
                 );
             }
-            // PERF-3 / TASK-0774: merge this entry's aliases into the alias
-            // map before swapping the spec into the store, so we still see
-            // the previous spec (if any) and can prune its aliases.
+            // Merge this entry's aliases into the alias map before swapping
+            // the spec into the store, so the outgoing spec (if any) is still
+            // visible and its aliases can be pruned.
             self.merge_alias_for(&id, &spec);
             self.extension_commands.insert(id, spec);
+        }
+    }
+
+    /// Bundle the runner-scoped execution handles for the spawn paths this
+    /// runner owns (`run_exec`, `run_plan_raw`, `spawn_parallel_tasks`).
+    /// Building one costs an `Arc` refcount bump per field.
+    fn exec_env(&self) -> exec::ExecEnv {
+        exec::ExecEnv {
+            cwd: Arc::clone(&self.cwd),
+            vars: Arc::clone(&self.vars),
+            policy: self.cwd_escape_policy,
+            workspace_cache: Arc::clone(&self.workspace_cache),
         }
     }
 
@@ -465,20 +466,11 @@ impl CommandRunner {
         spec: &std::sync::Arc<ExecCommandSpec>,
         on_event: &mut impl FnMut(RunnerEvent),
     ) -> StepResult {
-        exec_command(
-            id,
-            spec,
-            &self.workspace_cache,
-            // ↑ PERF-3 / TASK-1125: `&Arc<ExecCommandSpec>` — Arc::clone per
-            // build_command_async dispatch, no spec deep clone per spawn.
-            &self.cwd,
-            &self.vars,
-            self.cwd_escape_policy,
-            on_event,
-        )
-        .await
-        // ↑ `&Arc<PathBuf>` / `&Arc<Variables>` — exec_command Arc::clones
-        // once if the build needs to spawn_blocking, no deep clone.
+        // PERF-3 / TASK-1125: `&Arc<ExecCommandSpec>` — Arc::clone per
+        // build_command_async dispatch, no spec deep clone per spawn. The
+        // `ExecEnv` handles Arc::clone once each if the build needs to
+        // spawn_blocking, no deep clone.
+        exec_command(id, spec, &self.exec_env(), on_event).await
     }
 
     /// Run a named command (single or composite); returns step results.
@@ -496,25 +488,25 @@ impl CommandRunner {
         command_id: &str,
         on_event: &mut impl FnMut(RunnerEvent),
     ) -> anyhow::Result<Vec<StepResult>> {
-        let spec = self
-            .resolve(command_id)
-            .ok_or_else(|| ExpandError::Unknown(UnknownCommand::new(command_id)))?;
-        let plan = self
-            .expand_to_leaves(command_id)
+        // PERF-3 / TASK-2086: one walk of the command stores. The plan and
+        // the scheduling flags both come from `expand_to_leaves_with_flags`
+        // (PATTERN-1 / TASK-1283); a separate `resolve` of the root was a
+        // second traversal and a second source of truth for the same
+        // decision. The aggregated flags are equivalent to the root spec's
+        // own: TASK-1657's agreement check errors on any tree that declares
+        // conflicting values, and an Exec root contributes
+        // `(any_parallel=false, fail_fast_disabled=false)` — the single
+        // fail-fast sequential step it always ran as.
+        let (plan, any_parallel, fail_fast_disabled) = self
+            .expand_to_leaves_with_flags(command_id)
             .map_err(anyhow::Error::from)?;
         debug!(command_id, steps = plan.len(), "running command");
 
-        // API-9: CommandSpec is #[non_exhaustive] in ops-core, so the
-        // wildcard arm below is required, not a lazy catch-all.
-        #[allow(clippy::match_wildcard_for_single_variants)]
-        let results = match spec {
-            CommandSpec::Composite(c) if c.parallel => {
-                self.run_plan_parallel(&plan, c.fail_fast, on_event).await
-            }
-            CommandSpec::Composite(c) => self.run_plan(&plan, c.fail_fast, on_event).await,
-            // API-9: CommandSpec is #[non_exhaustive]; Exec and any future
-            // variant run as a single fail-fast step.
-            _ => self.run_plan(&plan, true, on_event).await,
+        let fail_fast = !fail_fast_disabled;
+        let results = if any_parallel {
+            self.run_plan_parallel(&plan, fail_fast, on_event).await
+        } else {
+            self.run_plan(&plan, fail_fast, on_event).await
         };
         Ok(results)
     }

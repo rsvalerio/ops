@@ -188,10 +188,11 @@ fn reject_untrusted_ingest_dir(data_dir: &Path) -> std::io::Result<Option<std::f
 ///   else, which is precisely the situation in which staging into it is
 ///   unsafe.
 ///
-/// The mode is applied through an open handle (`fchmod`), and the handle is
-/// confirmed to be a directory first, so a symlink at `parent` cannot have
-/// its target chmodded — the same discipline as
-/// [`harden_existing_ingest_dir`].
+/// A symlink or non-directory at `parent` is refused through the same
+/// [`reject_untrusted_ingest_dir`] gate [`harden_existing_ingest_dir`] uses,
+/// and the mode is applied only through a handle whose `(dev, ino)` matches
+/// the `lstat` taken during that rejection — the same discipline, so a
+/// symlink at `parent` cannot have its target chmodded.
 #[cfg(unix)]
 fn harden_ingest_parent(parent: &Path) -> std::io::Result<()> {
     use std::io::{Error, ErrorKind};
@@ -204,13 +205,26 @@ fn harden_ingest_parent(parent: &Path) -> std::io::Result<()> {
     /// inside a shared-writable directory to the entry's own owner.
     const STICKY: u32 = 0o1000;
 
+    // `File::open` follows symlinks, so the parent is `lstat`ed and refused
+    // when it is one (or not a directory) before any handle exists, and the
+    // handle is then confirmed to be the very inode that was inspected —
+    // otherwise the fchmod below could land on a planted symlink's target.
+    let Some(lstat) = reject_untrusted_ingest_dir(parent)? else {
+        return Err(Error::new(
+            ErrorKind::NotFound,
+            format!(
+                "ingest staging parent {} vanished before it could be hardened",
+                parent.display()
+            ),
+        ));
+    };
     let handle = std::fs::File::open(parent)?;
     let meta = handle.metadata()?;
-    if !meta.is_dir() {
+    if !meta.is_dir() || meta.dev() != lstat.dev() || meta.ino() != lstat.ino() {
         return Err(Error::new(
             ErrorKind::InvalidInput,
             format!(
-                "ingest staging parent {} is not a directory",
+                "ingest staging parent {} changed identity between inspection and open",
                 parent.display()
             ),
         ));
@@ -788,14 +802,19 @@ pub const fn external_err(e: anyhow::Error) -> DbError {
 ///
 /// Streams in 64 KiB chunks so multi-megabyte ingests (coverage, tokei) do not
 /// allocate a full file-sized buffer (PERF-1).
-fn checksum_reader<R: std::io::Read>(source: R) -> DbResult<String> {
+///
+/// PERF-2 / TASK-2120: reads go directly from `source` into `buf` — no
+/// `BufReader` wrapper. `BufReader::read` bypasses its own buffer whenever
+/// the caller's slice is at least the internal buffer's size, so an
+/// equally-sized wrapper never buffered anything here; its only effect was
+/// a second 64 KiB allocation per checksum call plus indirection on every
+/// read.
+fn checksum_reader<R: std::io::Read>(mut source: R) -> DbResult<String> {
     use sha2::{Digest, Sha256};
-    use std::io::{BufReader, Read};
-    let mut reader = BufReader::with_capacity(64 * 1024, source);
     let mut hasher = Sha256::new();
     let mut buf = vec![0u8; 64 * 1024];
     loop {
-        let n = reader.read(&mut buf).map_err(DbError::Io)?;
+        let n = source.read(&mut buf).map_err(DbError::Io)?;
         if n == 0 {
             break;
         }
@@ -994,6 +1013,52 @@ mod tests {
         assert_eq!(
             target_mode, 0o755,
             "symlink target must keep its mode; got {target_mode:o}"
+        );
+        assert!(
+            std::fs::symlink_metadata(&link)
+                .expect("link meta")
+                .file_type()
+                .is_symlink(),
+            "the planted symlink must be left in place, not replaced"
+        );
+    }
+
+    /// SEC-25 / TASK-2109: a symlink planted at the staging *parent* must be
+    /// rejected before the parent is opened, not discovered through the
+    /// followed handle. The old `File::open`-then-`is_dir` sequence chmodded
+    /// the symlink's target, created the leaf ingest dir inside it, and
+    /// reported success — relocating the whole staging area.
+    #[cfg(unix)]
+    #[test]
+    fn create_ingest_dir_rejects_a_symlinked_staging_parent() {
+        use std::os::unix::fs::PermissionsExt;
+        let tmp = tempfile::tempdir().expect("tempdir");
+        let target = tmp.path().join("attacker-owned");
+        std::fs::create_dir(&target).expect("target");
+        std::fs::set_permissions(&target, std::fs::Permissions::from_mode(0o777)).expect("mode");
+
+        let link = tmp.path().join("parent");
+        std::os::unix::fs::symlink(&target, &link).expect("symlink");
+        let data_dir = link.join("data.duckdb.ingest");
+
+        let err = create_ingest_dir(&data_dir).expect_err("symlinked parent must be rejected");
+        assert!(
+            err.to_string().contains("symlink"),
+            "error should name the symlink: {err}"
+        );
+
+        let target_mode = std::fs::metadata(&target)
+            .expect("target meta")
+            .permissions()
+            .mode()
+            & 0o7777;
+        assert_eq!(
+            target_mode, 0o777,
+            "the symlink's target must keep its mode; got {target_mode:o}"
+        );
+        assert!(
+            !target.join("data.duckdb.ingest").exists(),
+            "no leaf ingest dir may be created inside the target"
         );
         assert!(
             std::fs::symlink_metadata(&link)

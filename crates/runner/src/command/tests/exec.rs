@@ -546,7 +546,7 @@ mod exec_unit_tests {
 /// of silently flowing the literal `${VAR}` into the spawned command.
 #[cfg(unix)]
 #[tokio::test]
-#[serial_test::serial]
+#[serial_test::serial(env_output_cap)]
 async fn run_exec_fails_loudly_on_non_utf8_env_var() {
     use std::ffi::OsString;
     use std::os::unix::ffi::OsStringExt;

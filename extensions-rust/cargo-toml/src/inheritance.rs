@@ -17,7 +17,13 @@ use crate::types::{
 pub enum InheritanceError {
     /// Dependency marked as `workspace = true` but not found in workspace.
     #[error("dependency '{name}' (in [{section}]) not found in workspace.dependencies")]
-    MissingWorkspaceDependency { name: String, section: &'static str },
+    MissingWorkspaceDependency {
+        /// Name of the dependency declared with `workspace = true`.
+        name: String,
+        /// Manifest section the declaration appeared in (e.g.
+        /// `dependencies`, `dev-dependencies`).
+        section: &'static str,
+    },
 }
 
 impl CargoToml {

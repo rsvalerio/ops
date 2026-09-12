@@ -243,6 +243,18 @@ fn refused_non_regular(path: &Path) -> std::io::Error {
 
 /// SEC-14 / TASK-1810 + SEC-33 / TASK-1853: component-by-component `openat`
 /// walk backing [`open_refusing_symlinks`] on Unix.
+///
+/// # Miri (UNSAFE-10 / TASK-2087)
+///
+/// This walk cannot run under Miri: every descriptor operation here is a
+/// direct foreign call into libc (`openat`, `fstat`, `fcntl`) for which
+/// Miri provides no shims. The substitute evidence required by UNSAFE-10
+/// is (1) the per-block `// SAFETY:` prose on each call below and (2) the
+/// symlink / FIFO / non-regular refusal tests in this file's test module,
+/// which exercise every refusal branch of the walk under the ordinary Test
+/// job. The pure-memory unsafe of this crate's atomic-write path
+/// (`config::edit::build_tmp_basename`) *is* run under Miri — see the
+/// `miri` job in `.github/workflows/ci.yml`.
 #[cfg(unix)]
 mod unix_open {
     use std::ffi::{CStr, CString};
@@ -525,6 +537,81 @@ fn with_path(e: &std::io::Error, path: &Path) -> std::io::Error {
     std::io::Error::new(e.kind(), format!("{}: {e}", path.display()))
 }
 
+/// SEC-2 / TASK-1238 / TASK-2116: whether `c` is a codepoint that must not
+/// reach an operator-facing surface (About cards, JSON, log records) from
+/// untrusted input.
+///
+/// The policy is whole-codepoint and covers the Unicode general categories
+/// `Cc` / `Cf` / `Zl` / `Zp` — `char::is_control` matches `Cc` completely
+/// (C0, DEL, and C1), so no separate ASCII byte pass is required: every
+/// ASCII control byte is a single-byte `char`, and multi-byte sequences
+/// never contain bytes below `0x80`. `Cf` is carried as the exhaustive
+/// Unicode 16.0 range table (see the comment at the match), so the
+/// zero-width family, BOM, the bidi overrides and isolates, and the newer
+/// script-specific format controls are all rejected by construction; `Zl` /
+/// `Zp` (line / paragraph separators) are pinned explicitly since they are
+/// not part of `Cf`.
+///
+/// DUP-2 / TASK-2116: promoted from `ops-git`'s strictest copy so
+/// `ops-git`, `ops-about`, and every About provider that renders
+/// manifest-controlled text reject the same set. Each call site keeps its
+/// own drop-versus-escape decision; this predicate only defines what is
+/// rejected.
+#[must_use]
+pub const fn is_unsafe_display_char(c: char) -> bool {
+    if c.is_control() {
+        return true;
+    }
+    // The Cf (format) category, exhaustive, generated from the Unicode 16.0
+    // UCD (`DerivedGeneralCategory.txt`, lines tagged `Cf`). A hand-picked
+    // "most-abused" subset was here before; it missed e.g. U+061C (Arabic
+    // Letter Mark), a live bidi spoof, and every Unicode bump silently
+    // widened the gap. Regenerate the ranges from the UCD when Unicode
+    // moves; until then this list is the whole category, so the bidi
+    // overrides and isolates, the zero-width family, BOM, the interlinear
+    // annotation controls and the tag characters are all covered by
+    // construction rather than by enumeration.
+    matches!(
+        c,
+        '\u{00AD}' // SOFT HYPHEN
+        | '\u{0600}'..='\u{0605}' // Arabic number signs
+        | '\u{061C}' // ARABIC LETTER MARK (bidi)
+        | '\u{06DD}' // Arabic end-of-ayah mark
+        | '\u{070F}' // Syriac abbreviation mark
+        | '\u{0890}'..='\u{0891}' // Arabic pound/piastre marks
+        | '\u{08E2}' // Arabic disputed end of ayah
+        | '\u{180E}' // Mongolian vowel separator
+        | '\u{200B}'..='\u{200F}' // zero-width family + LRM / RLM
+        | '\u{202A}'..='\u{202E}' // bidi embeddings + overrides + PDF
+        | '\u{2060}'..='\u{2064}' // word joiner, invisible operators
+        | '\u{2066}'..='\u{206F}' // bidi isolates + deprecated set
+        | '\u{FEFF}' // ZERO WIDTH NO-BREAK SPACE (BOM)
+        | '\u{FFF9}'..='\u{FFFB}' // interlinear annotation
+        | '\u{110BD}' // Kaithi number sign
+        | '\u{110CD}' // Kaithi number sign above
+        | '\u{13430}'..='\u{1343F}' // Egyptian format controls
+        | '\u{1BCA0}'..='\u{1BCA3}' // shorthand format controls
+        | '\u{1D173}'..='\u{1D17A}' // musical format controls
+        | '\u{E0001}' // LANGUAGE TAG
+        | '\u{E0020}'..='\u{E007F}' // tag characters
+        // Zl / Zp — line and paragraph separators are newlines to terminals
+        // and report lines; they are their own categories, not Cf, so they
+        // are pinned explicitly.
+        | '\u{2028}' | '\u{2029}'
+    )
+}
+
+/// String-level form of [`is_unsafe_display_char`]: whether `raw` carries any
+/// codepoint the display-safety policy rejects.
+///
+/// SEC-2 / TASK-2116: callers drop the whole field on rejection (never strip
+/// — stripping silently concatenates the attacker-controlled tail into a
+/// clickable value) so the field surfaces as missing.
+#[must_use]
+pub fn contains_unsafe_display_chars(raw: &str) -> bool {
+    raw.chars().any(is_unsafe_display_char)
+}
+
 /// Capitalize the first character of a string.
 #[must_use]
 pub fn capitalize(s: &str) -> String {
@@ -655,6 +742,88 @@ fn for_each_trimmed_line_with<F: FnMut(&str)>(path: &Path, cap: u64, mut f: F) -
 mod tests {
     use super::*;
     use std::path::PathBuf;
+
+    /// SEC-2 / TASK-1238 / TASK-2116: pin the shared rejected set at the
+    /// codepoints the policy names — C0 / DEL / C1 controls plus the
+    /// zero-width, BOM, bidi, and separator list. A codepoint added to one
+    /// consumer's local copy must show up here or the copies have drifted.
+    #[test]
+    fn is_unsafe_display_char_rejects_control_and_formatting_set() {
+        // C0, DEL, C1 (the whole Cc category).
+        for c in ['\u{0000}', '\n', '\u{001b}', '\u{007f}', '\u{0085}'] {
+            assert!(is_unsafe_display_char(c), "{c:?} must be rejected");
+        }
+        // Zero-width family, word joiner, BOM.
+        for c in ['\u{200B}', '\u{200C}', '\u{200D}', '\u{2060}', '\u{FEFF}'] {
+            assert!(is_unsafe_display_char(c), "{c:?} must be rejected");
+        }
+        // Bidi formatting + isolates.
+        for c in [
+            '\u{200E}', '\u{200F}', '\u{202A}', '\u{202B}', '\u{202C}', '\u{202D}', '\u{202E}',
+            '\u{2066}', '\u{2067}', '\u{2068}', '\u{2069}',
+        ] {
+            assert!(is_unsafe_display_char(c), "{c:?} must be rejected");
+        }
+        // Line / paragraph separators (Zl / Zp).
+        for c in ['\u{2028}', '\u{2029}'] {
+            assert!(is_unsafe_display_char(c), "{c:?} must be rejected");
+        }
+        // Codepoints the previous hand-picked list missed — the gap the
+        // exhaustive Unicode 16.0 Cf table closed. U+061C (Arabic Letter
+        // Mark) is a live bidi spoof; the rest are first/last members of
+        // the newly covered Cf ranges.
+        for c in [
+            '\u{061C}', // ARABIC LETTER MARK
+            '\u{00AD}', // SOFT HYPHEN
+            '\u{0600}',
+            '\u{0605}',
+            '\u{08E2}',
+            '\u{180E}',
+            '\u{2064}',
+            '\u{206F}',
+            '\u{FFFB}',
+            '\u{1343F}',
+            '\u{1D17A}',
+            '\u{E0001}',
+            '\u{E007F}',
+        ] {
+            assert!(is_unsafe_display_char(c), "{c:?} must be rejected");
+        }
+        // Boundaries: codepoints just outside the Cf ranges are ordinary
+        // text and must stay accepted.
+        for c in [
+            '\u{00AE}',  // just past SOFT HYPHEN (00AD)
+            '\u{0606}',  // just past the Arabic number signs (0600..0605)
+            '\u{0892}',  // just past 0890..0891
+            '\u{200A}',  // just below the zero-width family (200B..)
+            '\u{FFFC}',  // OBJECT REPLACEMENT CHARACTER is not Cf
+            '\u{110BC}', // just past the Kaithi number sign (110BD)
+        ] {
+            assert!(!is_unsafe_display_char(c), "{c:?} must be accepted");
+        }
+    }
+
+    /// Ordinary text — including multi-byte content, emoji, and combining
+    /// marks — must pass; the predicate is about display-safety, not about
+    /// non-ASCII.
+    #[test]
+    fn is_unsafe_display_char_accepts_ordinary_text() {
+        for c in "ab\u{e9}漢字🎉 Caf\u{e9}".chars() {
+            assert!(!is_unsafe_display_char(c), "{c:?} must be accepted");
+        }
+        assert!(!contains_unsafe_display_chars("https://github.com/o/r"));
+        assert!(!contains_unsafe_display_chars("~> 1.5, >= 1.0"));
+    }
+
+    /// The motivating spoof shapes: a RIGHT-TO-LEFT OVERRIDE and a zero-width
+    /// space inside an otherwise clean URL are rejected (SEC-2 / TASK-1238).
+    #[test]
+    fn contains_unsafe_display_chars_rejects_bidi_and_zero_width() {
+        assert!(contains_unsafe_display_chars(
+            "https://host/\u{202e}fake/repo"
+        ));
+        assert!(contains_unsafe_display_chars("https://host/\u{200b}repo"));
+    }
 
     #[test]
     fn capitalize_empty() {

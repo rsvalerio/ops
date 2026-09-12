@@ -275,3 +275,78 @@ serde = "1.0"
         Some("2024")
     );
 }
+
+/// SEC-25 / TASK-2143: the auto-discovering provider (the no-root shape the
+/// `linkme` factory registers) must resolve its root with the strict walk,
+/// like `about` and `create-review-tasks` do directly — not the lenient walk
+/// it previously used.
+///
+/// Layout (unix): `legit` carries a `Cargo.toml` symlinked into the attacker
+/// tree, and nothing above `legit` declares a workspace. The two walks
+/// disagree here: the lenient walk cannot read the symlinked manifest
+/// (`read_capped_to_string` refuses symlinks), treats it as "no workspace
+/// declared", records `legit` as its first-seen fallback and returns it as
+/// the root; the strict walk resolves the manifest, sees it lives in the
+/// attacker tree, skips the candidate, and reports `NotFound`. The provider
+/// must fail (strict) rather than resolve to the symlink-manifested
+/// directory (lenient).
+#[cfg(unix)]
+#[test]
+fn auto_discovering_provider_uses_the_strict_root_walk() {
+    let tmp = tempfile::tempdir().expect("tempdir");
+    let real_root = std::fs::canonicalize(tmp.path()).expect("canonicalize tempdir");
+
+    let attacker = real_root.join("attacker");
+    std::fs::create_dir(&attacker).expect("attacker dir");
+    let planted = attacker.join("Cargo.toml");
+    std::fs::write(&planted, "[workspace]\nmembers = []\n").expect("planted manifest");
+
+    let legit = real_root.join("legit");
+    std::fs::create_dir(&legit).expect("legit dir");
+    std::os::unix::fs::symlink(&planted, legit.join("Cargo.toml")).expect("symlinked manifest");
+
+    // Pin the disagreement the provider's choice is made against.
+    let lenient = crate::workspace_root::find_workspace_root(&legit)
+        .expect("lenient walk returns its first-seen fallback");
+    assert_eq!(
+        lenient, legit,
+        "lenient walk resolves to the symlink-manifested directory"
+    );
+
+    let provider = CargoTomlProvider::new();
+    let mut ctx = test_context(legit);
+    let err = provider
+        .provide(&mut ctx)
+        .expect_err("strict walk finds no root");
+    assert!(
+        matches!(err, DataProviderError::ComputationFailed(_)),
+        "expected ComputationFailed, got: {err:?}"
+    );
+    let rendered = format!("{err:#}");
+    assert!(
+        rendered.contains("no Cargo.toml found"),
+        "error should surface the strict walk's NotFound, got: {rendered}"
+    );
+}
+
+/// The positive half of TASK-2143: auto-discovery still finds the real
+/// workspace root from inside a member crate, so switching the provider to
+/// the strict walk changed which candidates are *skipped*, not whether a
+/// genuine root is found.
+#[test]
+fn auto_discovering_provider_finds_the_workspace_root_from_a_member() {
+    let member_dir = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
+    let provider = CargoTomlProvider::new();
+    let mut ctx = test_context(member_dir);
+
+    let value = provider.provide(&mut ctx).expect("auto-discovery provides");
+    let manifest: CargoToml =
+        serde_json::from_value(value).expect("should deserialize to CargoToml");
+    assert!(
+        manifest
+            .workspace
+            .as_ref()
+            .is_some_and(|w| !w.members.is_empty()),
+        "the resolved root must be the real workspace root, not the member manifest"
+    );
+}

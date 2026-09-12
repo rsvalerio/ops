@@ -70,7 +70,12 @@ pub fn warm_providers(
     for provider in providers {
         match ctx.get_or_provide(provider, registry) {
             Ok(_) | Err(DataProviderError::NotFound(_)) => {}
-            Err(e) => tracing::warn!("about/{subpage}: warm-up {provider} failed: {e:#}"),
+            Err(e) => tracing::warn!(
+                subpage,
+                provider,
+                error = ?e,
+                "about: provider warm-up failed"
+            ),
         }
     }
 }

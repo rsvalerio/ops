@@ -13,7 +13,7 @@ use ops_core::project_identity::ProjectUnit;
 use ops_extension::{Context, DataProvider, DataProviderError};
 
 use crate::manifest::{load_workspace_manifest, log_manifest_load_failure};
-use crate::members::member_path_is_workspace_safe;
+use crate::members::member_path_is_workspace_safe_or_warn;
 
 /// Subset of crate manifest metadata used by the `project_units` provider.
 ///
@@ -21,13 +21,22 @@ use crate::members::member_path_is_workspace_safe;
 /// positions in tuple destructures at call sites.
 #[derive(Debug, Default, Clone)]
 pub struct CrateMetadata {
+    /// Crate name from `[package].name`; `None` when the member's manifest
+    /// could not be read or parsed (see [`read_crate_metadata`]).
     pub name: Option<String>,
+    /// Crate version from `[package].version`; `None` on read or parse
+    /// failure.
     pub version: Option<String>,
+    /// Crate description from `[package].description`; `None` on read or
+    /// parse failure.
     pub description: Option<String>,
 }
 
+/// Registry key of the `project_units` provider declared in this module.
 pub const PROVIDER_NAME: &str = "project_units";
 
+/// Data provider serving the workspace-member units rendered by the generic
+/// `ops_about` units subpage.
 pub struct RustUnitsProvider;
 
 impl DataProvider for RustUnitsProvider {
@@ -97,15 +106,10 @@ fn crate_dep_counts(ctx: &Context) -> HashMap<String, i64> {
 /// enrichment, test harness) cannot drive `root.join(member)` at arbitrary
 /// filesystem locations. The warn matches the helper's breadcrumb shape so an
 /// attacker-controlled member surfaces exactly once per provider invocation.
+/// DUP-1 / TASK-2160: the reject-and-warn wrapper is shared with
+/// `resolved_workspace_members` and `resolve_crate_display_name`.
 fn member_is_unit_safe(member: &str) -> bool {
-    if member_path_is_workspace_safe(member) {
-        return true;
-    }
-    tracing::warn!(
-        member = %member,
-        "SEC-14 / TASK-1246: rejecting absolute or `..` workspace member in units provider"
-    );
-    false
+    member_path_is_workspace_safe_or_warn(member, "units provider")
 }
 
 /// Assemble one [`ProjectUnit`] from a workspace member.
@@ -260,13 +264,11 @@ pub fn read_crate_metadata(crate_toml_path: &Path) -> CrateMetadata {
 /// before any join and falls back to the formatted member name. `Path::join`
 /// discards `workspace_root` when `member` is absolute and walks parents on
 /// `..`, which would otherwise drive `read_capped_to_string` and tracing
-/// breadcrumbs at any filesystem location.
+/// breadcrumbs at any filesystem location. DUP-1 / TASK-2160: the
+/// reject-and-warn wrapper is shared with `resolved_workspace_members` and
+/// the units provider.
 pub fn resolve_crate_display_name(member: &str, workspace_root: &Path) -> String {
-    if !member_path_is_workspace_safe(member) {
-        tracing::warn!(
-            member = %member,
-            "SEC-14 / TASK-1246: rejecting absolute or `..` workspace member in display-name resolver"
-        );
+    if !member_path_is_workspace_safe_or_warn(member, "display-name resolver") {
         return format_unit_name(member);
     }
     let toml_path = workspace_root.join(member).join("Cargo.toml");
@@ -340,6 +342,51 @@ mod tests {
         assert!(
             logs.contains("\\u{1b}"),
             "paths must be Debug-escaped in the log lines, got: {logs}"
+        );
+    }
+
+    /// DUP-1 / TASK-2160 AC #3: a rejected `[workspace].members` entry
+    /// containing an embedded newline and an ANSI escape must not forge or
+    /// reformat the shared SEC-14 rejection breadcrumb — it is precisely the
+    /// hostile-shaped entries that reach it. The member value is
+    /// Debug-formatted (`member = ?member`) in the shared
+    /// `member_path_is_workspace_safe_or_warn` helper, mirroring the ERR-7 /
+    /// TASK-0941 / TASK-0977 policy `crate_metadata_breadcrumbs_debug_escape_
+    /// control_characters` pins for the sibling breadcrumbs: swapping `?` for
+    /// `%` makes this fail, because the raw newline splits the log record and
+    /// the raw ESC reaches the terminal.
+    #[test]
+    fn member_safety_breadcrumbs_debug_escape_control_characters() {
+        let dir = tempfile::tempdir().expect("tempdir");
+        let hostile = "../a\nb\u{1b}[31mc";
+
+        let (logs, ()) = capture_tracing(tracing::Level::WARN, || {
+            // Both units-provider entry points reject the member
+            // independently (defence in depth, AC #4), so both warn.
+            assert!(!member_is_unit_safe(hostile));
+            let _ = resolve_crate_display_name(hostile, dir.path());
+        });
+
+        assert!(
+            logs.contains("SEC-14 / TASK-1246"),
+            "expected the shared rejection breadcrumb, got: {logs}"
+        );
+        assert!(
+            !logs.contains('\u{1b}'),
+            "raw ESC must not reach the log lines: {logs:?}"
+        );
+        assert_eq!(
+            logs.lines().count(),
+            2,
+            "each breadcrumb must stay on one line, got: {logs:?}"
+        );
+        assert!(
+            logs.contains("\\u{1b}"),
+            "member must be Debug-escaped in the log lines, got: {logs}"
+        );
+        assert!(
+            logs.contains("\\n"),
+            "the embedded newline must be escaped, not emitted raw, got: {logs:?}"
         );
     }
 

@@ -20,12 +20,18 @@ mod sgr;
 mod strip;
 
 pub(crate) use sgr::color_enabled;
-pub use sgr::{apply_style, apply_style_gated, apply_with_prefix, precompute_sgr_prefix};
+pub use sgr::{
+    apply_style, apply_style_gated, apply_with_prefix, apply_with_prefix_gated,
+    precompute_sgr_prefix,
+};
 // The pure gate resolver is exercised by the crate's own tests (CL-3 /
 // TASK-1976); production code always goes through `color_enabled`.
 #[cfg(test)]
 pub(crate) use sgr::color_enabled_for;
-pub use strip::{strip_ansi, truncate_to_width, visible_width, ELLIPSIS, TAB_REPLACEMENT};
+pub use strip::{
+    strip_ansi, strip_ansi_preserving_raw, truncate_to_width, visible_width, ELLIPSIS,
+    TAB_REPLACEMENT,
+};
 
 #[cfg(test)]
 mod tests {
@@ -195,6 +201,34 @@ mod tests {
         assert!(styled.ends_with("\x1b[0m"));
         // Control characters are dropped even when the string already fits.
         assert_eq!(truncate_to_width("a\rb", 10), "ab");
+    }
+
+    /// A C0 control can hide inside a *raw* run — an escape introducer whose
+    /// sequence never terminated, with the scan swallowing the control while
+    /// chasing it (`"\x1b(\r"`). The Char arm has always dropped such
+    /// controls; the Raw arm must apply the same filter instead of pushing
+    /// the run verbatim, or the surviving CR/LF could repaint the terminal
+    /// from inside a "measured" string. The introducer itself is a droppable
+    /// control and goes with it; the non-control bytes of the run survive.
+    #[test]
+    fn truncate_to_width_drops_controls_inside_raw_runs() {
+        // `ESC (` never terminates before the CR, so `\x1b(\r` is one raw
+        // run; filtering leaves `(` and the visible text.
+        assert_eq!(truncate_to_width("\x1b(\rtext", 10), "(text");
+        // The same input under truncation keeps the filter, still marks
+        // the cut, and — the raw run counted as an escape — is reset after
+        // the cut: body budget 2 → "(", "t", "e", then the ellipsis.
+        assert_eq!(truncate_to_width("\x1b(\rtext", 3), "(te\u{2026}\x1b[0m");
+        // No swallowed C0 control survives at any budget. (The appended
+        // reset's ESC is policy — escapes and resets are preserved — so the
+        // invariant is CR/LF, the bytes that would forge new lines.)
+        for cols in [0, 1, 3, 10] {
+            let out = truncate_to_width("\x1b(\rte\nxt", cols);
+            assert!(
+                !out.chars().any(|c| matches!(c, '\r' | '\n')),
+                "control survived at {cols} cols: {out:?}"
+            );
+        }
     }
 
     #[test]

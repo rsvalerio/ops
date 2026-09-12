@@ -103,8 +103,9 @@ pub fn run_wave_list<W: Write>(
 ///
 /// # Errors
 ///
-/// The wave id resolves to nothing (the error names the id), a task file does
-/// not parse, or writing `out` failed.
+/// The wave id resolves to nothing (the error names the id), a lookup or scan
+/// directory cannot be read, a task file does not parse, or writing `out`
+/// failed.
 pub fn run_wave_members<W: Write>(
     store: &Store,
     cfg: &BacklogConfig,
@@ -112,7 +113,7 @@ pub fn run_wave_members<W: Write>(
     out: &mut W,
 ) -> anyhow::Result<()> {
     let wave = store
-        .find(&opts.wave_id)
+        .find(&opts.wave_id)?
         .ok_or_else(|| anyhow::anyhow!("task {} not found", opts.wave_id))?;
     let wave_id = wave.doc.frontmatter.id.clone();
 
@@ -183,7 +184,8 @@ struct WavePlan {
 /// exist, or is claimed by two waves at once. Those three abort before
 /// anything is written, naming the tasks involved. Also when the clock is
 /// unreadable, the confirmation answer cannot be read, or a write failed —
-/// write errors name the path.
+/// the error names the failing path and every path already written before
+/// it.
 pub fn run_wave_migrate<W: Write>(
     store: &Store,
     opts: &WaveMigrateOptions,
@@ -250,10 +252,33 @@ fn migrate_with<W: Write>(
 
     let stamp = UtcStamp::now()?;
     let updated = format!("{} {}", stamp.date, stamp.minutes);
+    let total = writes.len();
+    let mut written: Vec<std::path::PathBuf> = Vec::new();
     for write in &mut writes {
         write.doc.frontmatter.updated_date = Some(updated.clone());
-        std::fs::write(&write.path, write.doc.render())
-            .with_context(|| format!("writing {}", write.path.display()))?;
+        let rendered = write.doc.render();
+        if let Err(err) = crate::cmd::atomic_write(&write.path, &rendered) {
+            // Every file is swapped in whole or not at all, so a stopped
+            // migration is a clean split: report exactly which files landed
+            // so it can be repaired — the preflight above exists to prevent
+            // the split, this reports it.
+            return Err(err).with_context(|| {
+                format!(
+                    "migration stopped after {} of {total} writes; already written: {}",
+                    written.len(),
+                    if written.is_empty() {
+                        "none".to_string()
+                    } else {
+                        written
+                            .iter()
+                            .map(|path| path.display().to_string())
+                            .collect::<Vec<_>>()
+                            .join(", ")
+                    }
+                )
+            });
+        }
+        written.push(write.path.clone());
     }
     writeln!(
         out,
@@ -613,6 +638,45 @@ mod tests {
             doc_of(&dir, "task-0119 - wave.md"),
             before,
             "preflight aborts before the first write"
+        );
+    }
+
+    /// A write that fails mid-migration reports exactly which files already
+    /// landed: every write is atomic, so the listed files are whole and the
+    /// unlisted ones are untouched.
+    #[test]
+    fn a_failing_write_reports_what_already_landed() {
+        let (dir, store) = scratch(&old_shape());
+        // Writes run member-first: task-0120, task-0121, then the wave. A
+        // directory squatting on the second write's staging path — the
+        // predictable `.<name>.<pid>.tmp` this process stages under — makes
+        // its exclusive `create_new` fail after the first member landed.
+        let staging_squat = format!(".task-0121 - stray.md.{}.tmp", std::process::id());
+        std::fs::create_dir(dir.path().join(".backlog/tasks").join(staging_squat))
+            .expect("block the staging path");
+
+        let err = migrate(&store, false, "y\n").expect_err("staging blocked");
+        let message = format!("{err:#}");
+        assert!(
+            message.contains("already written"),
+            "the report names what landed, got: {message}"
+        );
+        assert!(
+            message.contains("task-0120 - member.md"),
+            "the first member is named as written, got: {message}"
+        );
+        // The named file landed whole; the blocked and later ones did not.
+        let member = doc_of(&dir, "task-0120 - member.md");
+        assert_eq!(
+            member.frontmatter.extra_scalar("parent_task_id"),
+            Some("TASK-0119")
+        );
+        assert!(member.frontmatter.assignees.is_empty());
+        let stray = doc_of(&dir, "task-0121 - stray.md");
+        assert_eq!(
+            stray.frontmatter.assignees,
+            vec!["TASK-0119".to_string()],
+            "the blocked file is untouched"
         );
     }
 

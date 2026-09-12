@@ -9,17 +9,18 @@
 
 use std::path::Path;
 
+/// Resolve the package-manager label for the About card from
+/// `package.json`'s `packageManager` value and the lockfiles present in
+/// `project_root`, or `None` when neither identifies one.
 pub fn detect_package_manager(
     project_root: &Path,
     has_packagemanager: Option<&str>,
 ) -> Option<&'static str> {
-    // `packageManager` field takes precedence — but treat an empty or
-    // whitespace-only value (PATTERN-1 / TASK-0627: real corepack-disable
-    // pattern) as effectively unset, so lockfile probing still runs.
-    // PATTERN-1 / TASK-1083: an unknown label (e.g., `"deno"`, a typo like
-    // `"pnmp"`) is informationally equivalent to "no useful hint" — fall
-    // through to lockfile probing, mirroring the whitespace-only branch,
-    // rather than returning `None` and hiding a real lockfile.
+    // The `packageManager` field takes precedence, but an empty or
+    // whitespace-only value is a real corepack-disable pattern and an
+    // unrecognised label carries no usable hint. Both are treated as unset so
+    // control reaches the lockfile probe, rather than returning `None` and
+    // hiding a lockfile that is actually there.
     if let Some(pm) = has_packagemanager.map(str::trim).filter(|s| !s.is_empty()) {
         let name = pm.split_once('@').map_or(pm, |(n, _)| n);
         match name {
@@ -35,12 +36,11 @@ pub fn detect_package_manager(
             }
         }
     }
-    // SEC-25 / TASK-0392: this branch is a pure presence probe — the result is
-    // a static label (`"pnpm"`, `"yarn"`, ...), and the lockfile contents are
-    // never read afterwards. There is no follow-up `read_to_string` to merge
-    // with, so leaving the probe as a metadata stat is acceptable. Using
-    // `symlink_metadata` (rather than `exists()`) avoids following a symlinked
-    // lockfile to an arbitrary target and removes one syscall round-trip.
+    // A pure presence probe: the result is a static label (`"pnpm"`,
+    // `"yarn"`, …) and the lockfile contents are never read, so there is no
+    // check-then-read race to collapse. `symlink_metadata` rather than
+    // `exists()` keeps a symlinked lockfile from being followed to an
+    // arbitrary target, and costs one syscall fewer.
     if probe(project_root, "pnpm-lock.yaml") || probe(project_root, "pnpm-workspace.yaml") {
         return Some("pnpm");
     }
@@ -85,7 +85,6 @@ mod tests {
 
     #[test]
     fn unknown_package_manager_falls_through_to_lockfile_probe() {
-        // PATTERN-1 / TASK-1083: unknown labels mirror the empty-string branch.
         let dir = tempfile::tempdir().unwrap();
         std::fs::write(dir.path().join("pnpm-lock.yaml"), "").unwrap();
         assert_eq!(
@@ -107,7 +106,6 @@ mod tests {
 
     #[test]
     fn known_package_manager_with_version_still_recognised() {
-        // Sanity-check: don't regress recognition while loosening the unknown branch.
         let dir = tempfile::tempdir().unwrap();
         assert_eq!(
             detect_package_manager(dir.path(), Some("pnpm@8.6.1")),

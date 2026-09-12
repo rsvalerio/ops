@@ -259,6 +259,13 @@ pub const ATOMIC_WRITE_MODE_MASK: u32 = 0o7777;
 // unique within the process. A reader scanning this code who assumes
 // `nanos` carries the uniqueness invariant would be wrong; the counter
 // does.
+//
+// UNSAFE-10 / TASK-2087: the `from_encoded_bytes_unchecked` call below is
+// the crate's pure-memory unsafe and is exercised under Miri in CI — the
+// `miri` job runs the `atomic_write*` tests in this module, which build
+// their tmp names through this function. (The other unsafe site,
+// `text::unix_open`, cannot run under Miri; its module docs record why and
+// what substitutes for it.)
 fn build_tmp_basename(file_name: &OsStr) -> OsString {
     use std::fmt::Write as _;
     use std::sync::atomic::{AtomicU64, Ordering};

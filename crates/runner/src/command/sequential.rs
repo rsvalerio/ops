@@ -6,7 +6,7 @@
 use super::events::PlanLifecycle;
 use super::exec::{exec_command_raw, resolution_failure};
 use super::{CommandRunner, RunnerEvent, StepResult};
-use ops_core::config::{CommandId, CommandSpec};
+use ops_core::config::CommandId;
 use std::time::Duration;
 use tracing::{debug, instrument};
 
@@ -85,15 +85,7 @@ impl CommandRunner {
             // PERF-3 / TASK-1125: wrap once at the boundary; build_command_async
             // dispatch is then Arc::clone, not deep clone of args/env.
             let spec = std::sync::Arc::new(spec);
-            let result = exec_command_raw(
-                id.as_str(),
-                &spec,
-                &self.workspace_cache,
-                &self.cwd,
-                &self.vars,
-                self.cwd_escape_policy,
-            )
-            .await;
+            let result = exec_command_raw(id.as_str(), &spec, &self.exec_env()).await;
             let should_stop = !result.success;
             results.push(result);
             if fail_fast && should_stop {
@@ -112,14 +104,13 @@ impl CommandRunner {
     /// If `command_id` cannot be expanded, or if a step cannot be built or
     /// spawned.
     pub async fn run_raw(&self, command_id: &str) -> anyhow::Result<Vec<StepResult>> {
-        let plan = self
-            .expand_to_leaves(command_id)
+        // PERF-3 / TASK-2086: plan and scheduling flags from one walk, per
+        // `run`. An Exec root contributes `fail_fast_disabled=false`, so it
+        // keeps the fail-fast default the old `resolve` match gave it.
+        let (plan, _any_parallel, fail_fast_disabled) = self
+            .expand_to_leaves_with_flags(command_id)
             .map_err(anyhow::Error::from)?;
-        let fail_fast = match self.resolve(command_id) {
-            Some(CommandSpec::Composite(c)) => c.fail_fast,
-            _ => true,
-        };
         debug!(command_id, steps = plan.len(), "running command (raw)");
-        Ok(self.run_plan_raw(&plan, fail_fast).await)
+        Ok(self.run_plan_raw(&plan, !fail_fast_disabled).await)
     }
 }

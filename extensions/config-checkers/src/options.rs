@@ -7,7 +7,13 @@ use crate::DEFAULT_MAX_BYTES;
 /// Options shared by both checkers.
 #[derive(Debug, Clone)]
 pub struct CheckerOptions {
+    /// Directory the discovery walk descends from; every reported failure
+    /// path is relative to it.
     pub root: PathBuf,
+    /// Selects the candidate set: `true` consults the git index
+    /// (`git ls-files`, tracked files only, honouring skip-worktree), while
+    /// `false` walks the directory tree honouring gitignore rules — the two
+    /// sets differ on untracked and ignored files.
     pub tracked_only: bool,
     /// JSON only: accept JSON5 (a strict superset of JSONC — comments and
     /// trailing commas, plus unquoted keys, single-quoted strings, hex
@@ -20,6 +26,8 @@ pub struct CheckerOptions {
 }
 
 impl CheckerOptions {
+    /// Creates options for `root` with `tracked_only` selecting the
+    /// candidate set, JSON5 off, and the default byte cap.
     #[must_use]
     pub const fn new(root: PathBuf, tracked_only: bool) -> Self {
         Self {
@@ -30,12 +38,14 @@ impl CheckerOptions {
         }
     }
 
+    /// Enables JSON5 acceptance (JSON checker only).
     #[must_use]
     pub const fn with_allow_json5(mut self, allow: bool) -> Self {
         self.allow_json5 = allow;
         self
     }
 
+    /// Overrides the per-file byte cap.
     #[must_use]
     pub const fn with_max_bytes(mut self, max_bytes: u64) -> Self {
         self.max_bytes = max_bytes;

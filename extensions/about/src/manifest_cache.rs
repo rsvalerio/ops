@@ -209,7 +209,7 @@ impl ArcTextCache {
     /// Create a new cache that reads `<root>/<filename>` on demand.
     /// `filename` is also used in log breadcrumbs so a poisoned recovery
     /// is attributable to the right manifest type.
-    #[must_use]
+    #[must_use = "keep the returned cache; a dropped one loses its memoised manifests"]
     pub const fn new(filename: &'static str) -> Self {
         Self {
             filename,
@@ -374,7 +374,7 @@ impl ArcTextCache {
 ///
 /// The two extant filenames (`package.json`, `pyproject.toml`) bind eagerly
 /// at first call; subsequent calls reuse the same `ArcTextCache` instance.
-#[must_use]
+#[must_use = "read through the returned cache handle; it is the process-wide instance"]
 pub fn for_filename(filename: &'static str) -> &'static ArcTextCache {
     use std::collections::HashMap as StdHashMap;
     static REGISTRY: OnceLock<Mutex<StdHashMap<&'static str, &'static ArcTextCache>>> =

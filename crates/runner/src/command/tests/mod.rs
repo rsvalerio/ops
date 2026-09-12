@@ -4,7 +4,7 @@ pub use super::*;
 pub use crate::command::abort::AbortSignal;
 pub use crate::command::build::{build_command, WorkspaceCanonicalCache};
 pub use crate::command::events::RunnerEvent;
-pub use crate::command::exec::{emit_output_events, exec_standalone, ExecTaskCtx};
+pub use crate::command::exec::{emit_output_events, exec_standalone, ExecEnv, ExecTaskCtx};
 pub use crate::command::results::StepResult;
 pub use crate::test_support::{test_runner, EventAssertions};
 pub use ops_core::config::CommandSpec;
@@ -21,6 +21,17 @@ pub use tokio::sync::mpsc;
 
 pub fn test_vars() -> Variables {
     Variables::from_env(std::path::Path::new(".")).expect("UTF-8 path")
+}
+
+/// A default [`ExecEnv`] for tests: cwd `.`, env-derived vars, warn-and-allow
+/// escape policy, fresh workspace cache.
+pub fn test_exec_env() -> ExecEnv {
+    ExecEnv {
+        cwd: Arc::new(PathBuf::from(".")),
+        vars: Arc::new(test_vars()),
+        policy: crate::command::CwdEscapePolicy::WarnAndAllow,
+        workspace_cache: Arc::new(WorkspaceCanonicalCache::new()),
+    }
 }
 
 pub fn runner_with_test_commands() -> CommandRunner {

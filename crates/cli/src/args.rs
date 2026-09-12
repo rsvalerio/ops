@@ -490,12 +490,14 @@ pub enum AboutAction {
     Setup,
     /// Display detailed test coverage table (requires `cargo install cargo-llvm-cov` and `rustup component add llvm-tools-preview`).
     Coverage,
-    /// `about code` renders DuckDB-backed code statistics
-    /// (LOC by language). Gating the variant under the `duckdb` feature
-    /// keeps the CLI surface honest — without `DuckDB` the binary has no way
-    /// to compute the stats, so the subcommand simply doesn't exist in help
-    /// / parse / tab completion instead of bailing at runtime after a
-    /// successful parse.
+    // `about code` renders DuckDB-backed code statistics (LOC by language).
+    // Gating the variant under the `duckdb` feature keeps the CLI surface
+    // honest — without `DuckDB` the binary has no way to compute the stats,
+    // so the subcommand simply doesn't exist in help / parse / tab
+    // completion instead of bailing at runtime after a successful parse.
+    //
+    // The rationale is a plain comment, not a doc comment: clap folds every
+    // `///` line on a variant into the user-facing help text.
     #[cfg(feature = "duckdb")]
     /// Display code statistics (lines of code, languages).
     Code,
@@ -504,18 +506,18 @@ pub enum AboutAction {
     // the breakdown is stored in DuckDB, so without that feature the binary
     // cannot answer and the subcommand should not parse.
     //
-    // The rationale above is a plain comment, not a doc comment: clap folds
-    // every `///` line on a variant into the user-facing help text, so the
-    // neighbouring variants' internal reasoning is currently printed to
-    // users by `ops about --help`.
+    // The rationale is a plain comment, not a doc comment: clap folds every
+    // `///` line on a variant into the user-facing help text.
     #[cfg(feature = "duckdb")]
     /// Display Rust line counts split into production, test and example.
     Loc,
     /// Display dependency tree.
     Dependencies,
-    /// `crates` and `modules` render the same stack-aware
-    /// project-units view via `ops_about::run_about_units`; the alias keeps
-    /// the Go-idiomatic name working without duplicating dispatch.
+    // `crates` and `modules` render the same stack-aware project-units view
+    // via `ops_about::units::run_about_units`; the alias keeps the
+    // Go-idiomatic name working without duplicating dispatch. Plain comment so
+    // the rationale stays out of the user-facing help (clap folds `///` lines
+    // on a variant into the help text).
     #[command(visible_alias = "modules")]
     /// Display project units — crates (Rust) or modules (Go).
     Crates,
@@ -964,6 +966,35 @@ mod tests {
             names.contains(&"loc"),
             "about subcommands with duckdb must include `loc`: {names:?}"
         );
+    }
+
+    /// `ops about --help` shows only the one-line summaries of the
+    /// subcommands, never the internal rationale behind a variant (clap
+    /// folds every `///` line on a variant into the help text, so
+    /// rationale lives in plain `//` comments on the enum).
+    #[test]
+    fn about_help_keeps_internal_rationale_out_of_user_facing_text() {
+        let mut cmd = Cli::command();
+        let about = cmd
+            .find_subcommand_mut("about")
+            .expect("about subcommand must exist");
+        let help = about.render_help().to_string();
+        let long_help = about.render_long_help().to_string();
+        for phrase in [
+            "Gating the variant",
+            "CLI surface honest",
+            "duplicating dispatch",
+            "stack-aware",
+        ] {
+            assert!(
+                !help.contains(phrase),
+                "`ops about --help` leaks internal rationale ({phrase}):\n{help}"
+            );
+            assert!(
+                !long_help.contains(phrase),
+                "`ops about --help` (long) leaks internal rationale ({phrase}):\n{long_help}"
+            );
+        }
     }
 
     #[cfg(feature = "duckdb")]

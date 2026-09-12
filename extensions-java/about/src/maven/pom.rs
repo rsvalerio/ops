@@ -6,7 +6,7 @@
 //! standard, prettily-formatted Maven POM shape and intentionally avoids the
 //! complexity (and dependency cost) of `quick-xml`. Specifically:
 //!
-//! - **XML comments are stripped** (CL-3 / TASK-0846). Both single-line
+//! - **XML comments are stripped.** Both single-line
 //!   `<!-- … -->` blocks and multi-line `<!-- …\n…\n -->` blocks are
 //!   removed before tag matching, so a commented-out `<artifactId>fake</artifactId>`
 //!   does not get captured as the project artifact id.
@@ -45,7 +45,14 @@ pub(super) struct PomData {
     pub(super) license: Option<String>,
     pub(super) modules: Vec<String>,
     pub(super) developers: Vec<String>,
+    /// `<scm><url>` — the source-control repository URL. The provider maps
+    /// this to `ParsedManifest::repository`.
     pub(super) scm_url: Option<String>,
+    /// The **top-level** `<url>` — in the Maven POM schema the *project
+    /// homepage*, a distinct element from `<scm><url>`. The provider maps this
+    /// to `ParsedManifest::homepage`, and it is held in its own field so
+    /// neither URL can clobber the other whatever order they appear in.
+    pub(super) project_url: Option<String>,
 }
 
 /// Tracks which POM section we're currently inside.
@@ -69,16 +76,30 @@ enum PomSection {
     },
 }
 
+impl PomSection {
+    /// Construct name for the end-of-input diagnostic, or `None` at top level
+    /// (where nothing can be unterminated).
+    fn unterminated_name(&self) -> Option<&'static str> {
+        match self {
+            Self::TopLevel => None,
+            Self::Modules => Some("modules"),
+            Self::Developers { .. } => Some("developers"),
+            Self::Scm => Some("scm"),
+            Self::Licenses { .. } => Some("licenses"),
+            // `close` is `"</parent>"`-shaped; the construct name is the
+            // bare tag between the angle brackets.
+            Self::Skip { close } => Some(close.trim_matches(['<', '>', '/'])),
+        }
+    }
+}
+
 /// Outcome of matching a top-level line against the section openers.
 ///
-/// PATTERN-1 / TASK-1728: `match_section_open` used to return
-/// `Option<PomSection>`, where `None` meant *both* "not a section opener,
-/// fall through to `parse_top_level`" and "single-line container, already
-/// consumed — do **not** fall through". The dispatcher could not tell them
-/// apart and always fell through, so a single-line `<parent>` /
-/// `<organization>` / `<licenses>` block leaked its children into the
-/// top-level fields. The three states are now distinct variants, so the
-/// invariant lives in the type rather than in a comment (CL-3).
+/// The three states are distinct variants so the dispatcher can tell "not a
+/// section opener, fall through to `parse_top_level`" from "single-line
+/// container, already consumed — do **not** fall through". Collapsing the
+/// latter two would let a single-line `<parent>` / `<organization>` /
+/// `<licenses>` block leak its children into the top-level fields.
 enum SectionOutcome {
     /// A multi-line section opened; the parser moves into it.
     Entered(PomSection),
@@ -100,10 +121,10 @@ const SKIP_SECTIONS: &[(&str, &str)] = &[
 ];
 
 pub(super) fn parse_pom_xml(project_root: &Path) -> Option<PomData> {
-    // DUP-1 / TASK-0683: route through the shared manifest_io helper so the
-    // NotFound-vs-other-IO classification stays consistent with sibling
-    // parsers (go_mod, go_work, package_json, pyproject). Avoids a copy
-    // drifting the next time the policy changes (e.g. log severity bump).
+    // Route through the shared manifest_io helper so the
+    // NotFound-vs-other-IO classification stays consistent with the sibling
+    // parsers (go_mod, go_work, package_json, pyproject) rather than drifting
+    // from them when that policy changes.
     let path = project_root.join("pom.xml");
     let content = ops_about::manifest_io::read_optional_text(&path, "pom.xml")?;
 
@@ -111,7 +132,7 @@ pub(super) fn parse_pom_xml(project_root: &Path) -> Option<PomData> {
     let mut started = false;
     let mut opener_pending = false;
     let mut section = PomSection::TopLevel;
-    // CL-3 / TASK-0846: track whether we're inside a multi-line `<!-- … -->`
+    // Track whether we're inside a multi-line `<!-- … -->`
     // block. Lines (or partial lines) inside the block are stripped before
     // any tag matching so a commented-out `<artifactId>` cannot be captured.
     let mut in_comment = false;
@@ -124,12 +145,12 @@ pub(super) fn parse_pom_xml(project_root: &Path) -> Option<PomData> {
         }
 
         if !started {
-            // TASK-0626: support multi-line `<project ... >` openers, which
+            // Support multi-line `<project ... >` openers, which
             // real-world Maven formatters often emit (xmlns/xsi attributes
             // split across lines). Track an "opener pending" state until the
             // closing `>` arrives.
             if opener_pending {
-                // PATTERN-1 / TASK-1022: when `>` lands on this line, the
+                // When `>` lands on this line, the
                 // opener is closed but the *same* line may carry a real
                 // element after it (e.g. `...">`<artifactId>x</artifactId>`).
                 // Re-feed the post-`>` remainder through the started-line
@@ -159,11 +180,39 @@ pub(super) fn parse_pom_xml(project_root: &Path) -> Option<PomData> {
         }
     }
 
+    // A truncated or hand-mangled pom.xml must not degrade to "empty POM"
+    // with no diagnostic, which is the same failure mode the crate-level
+    // malformed-vs-missing policy exists to prevent. Every construct still
+    // open at end of input is reported; the fields parsed before it are kept,
+    // and everything after it is explicitly dropped rather than silently
+    // swallowed.
+    if in_comment {
+        tracing::warn!(
+            manifest = "pom.xml",
+            construct = "comment",
+            "pom.xml: unterminated XML comment at end of file; every line after the `<!--` was dropped"
+        );
+    }
+    if opener_pending {
+        tracing::warn!(
+            manifest = "pom.xml",
+            construct = "project",
+            "pom.xml: unterminated <project ...> opener at end of file; no fields were parsed"
+        );
+    }
+    if let Some(section_name) = section.unterminated_name() {
+        tracing::warn!(
+            manifest = "pom.xml",
+            construct = section_name,
+            "pom.xml: unterminated section at end of file; top-level fields after it were dropped"
+        );
+    }
+
     Some(data)
 }
 
-/// DUP-1 / TASK-0923: classify a `<project…` line as either an opener
-/// or the *start* of a multi-line opener. Returns `(matched, closed)`:
+/// Classify a `<project…` line as either a complete opener or the *start* of
+/// a multi-line opener. Returns `(matched, closed)`:
 /// - `(true, true)`  — full opener on this line (bare `<project>` or
 ///   single-line `<project xmlns=...>`).
 /// - `(true, false)` — multi-line opener (`<project` + whitespace, no
@@ -200,7 +249,7 @@ fn is_project_open_start(line: &str) -> bool {
     matches!(classify_project_opener(line), (true, false))
 }
 
-/// PATTERN-1 / TASK-1022: process a single trimmed line in "started" state
+/// Process a single trimmed line in "started" state
 /// (i.e. inside `<project>`). Returns `true` when `</project>` was seen and
 /// the outer loop should break. Extracted so the multi-line opener path can
 /// re-feed any post-`>` remainder through the same dispatch.
@@ -272,11 +321,12 @@ fn handle_scm(line: &str, data: &mut PomData) -> bool {
     false
 }
 
-/// DUP-1 / TASK-0869: write `field` from a `<tag>value</tag>` line iff the
-/// field is still empty. Encodes the "first writer wins on duplicates"
-/// invariant in a single helper so a future refactor cannot accidentally
-/// let a later top-level `<url>` clobber the `<scm><url>` already captured
-/// (regression pinned by `parse_pom_scm_takes_precedence_over_url`).
+/// Write `field` from a `<tag>value</tag>` line iff the field is still empty.
+///
+/// This is the single home of the "first writer wins on duplicates" rule, so a
+/// refactor cannot change duplicate resolution one call site at a time. The
+/// top-level `<url>` and `<scm><url>` write *distinct* fields (`project_url`
+/// vs `scm_url`), so neither can clobber the other whatever the source order.
 fn try_set_once(field: &mut Option<String>, line: &str, open: &str, close: &str) {
     if field.is_none() {
         if let Some(val) = extract_xml_value(line, open, close) {
@@ -330,7 +380,7 @@ fn match_section_open(line: &str, data: &mut PomData) -> SectionOutcome {
         try_set_once(&mut data.scm_url, line, "<url>", "</url>");
         return SectionOutcome::Consumed;
     }
-    // READ-2 / TASK-0691: a single-line `<licenses>...</licenses>` may carry
+    // A single-line `<licenses>...</licenses>` may carry
     // multiple `<license>` children. Unlike the `<scm>` shortcut above (which
     // rejects pathological lines with duplicate `<scm>` openers), this branch
     // intentionally accepts the multi-license shape and keeps the **first**
@@ -345,12 +395,12 @@ fn match_section_open(line: &str, data: &mut PomData) -> SectionOutcome {
         return SectionOutcome::Consumed;
     }
 
-    // PATTERN-1: a single-line `<developers>...</developers>` used to fall
-    // through to `parse_top_level`, whose `<name>` rule then captured the
-    // developer's name as the *project* name — and the provider prefers
-    // `name` over `artifact_id`, so the project displayed as a person. Handle
-    // the collapsed form here and keep the developer, mirroring the multi-line
-    // `handle_developers` policy (every `<name>` inside a `<developer>`).
+    // A single-line `<developers>...</developers>` is handled here rather
+    // than falling through to `parse_top_level`, whose `<name>` rule would
+    // capture the developer's name as the *project* name (the provider
+    // prefers `name` over `artifact_id`, so the project would display as a
+    // person). The collapsed form keeps every `<name>` inside a `<developer>`,
+    // mirroring the multi-line `handle_developers` policy.
     if line.starts_with("<developers>")
         && line.ends_with("</developers>")
         && line.matches("<developers>").count() == 1
@@ -400,10 +450,10 @@ fn parse_top_level(line: &str, data: &mut PomData) {
         "</description>",
     );
     try_set_once(&mut data.name, line, "<name>", "</name>");
-    try_set_once(&mut data.scm_url, line, "<url>", "</url>");
+    try_set_once(&mut data.project_url, line, "<url>", "</url>");
 }
 
-/// CL-3 / TASK-0846: strip XML comments from `line`, multi-line aware.
+/// Strip XML comments from `line`, multi-line aware.
 ///
 /// `in_comment` carries the open-comment state across lines. The returned
 /// String is `line` with every `<!-- … -->` region removed (replaced by a
@@ -448,12 +498,11 @@ fn strip_xml_comments(line: &str, in_comment: &mut bool) -> String {
 /// Extract value from `<tag>value</tag>` on a single line. Open/close
 /// markers are passed pre-built to avoid per-line allocation.
 ///
-/// ERR-1 / TASK-0916: decodes the XML predefined entity references
-/// (`&amp;` `&lt;` `&gt;` `&quot;` `&apos;`) plus numeric `&#NNN;` /
-/// `&#xHH;` so `Foo &amp; Bar` no longer renders as the literal
-/// `Foo &amp; Bar` in the About card. Returns `Cow::Borrowed` (no
-/// allocation) for entity-free values, `Cow::Owned` only when a
-/// decoded substitution was needed.
+/// The XML predefined entity references (`&amp;` `&lt;` `&gt;` `&quot;`
+/// `&apos;`) plus numeric `&#NNN;` / `&#xHH;` are decoded, so `Foo &amp; Bar`
+/// renders as `Foo & Bar` in the About card. Returns `Cow::Borrowed` (no
+/// allocation) for entity-free values, `Cow::Owned` only when a substitution
+/// was needed.
 fn extract_xml_value<'a>(
     line: &'a str,
     open: &str,
@@ -475,8 +524,8 @@ fn extract_xml_value<'a>(
     }
 }
 
-/// ERR-1 / TASK-0916: minimal XML-1.0 predefined-entity + numeric-char-ref
-/// decoder. Borrows the input when no `&` is present (the common case).
+/// Minimal XML-1.0 predefined-entity and numeric-character-reference decoder.
+/// Borrows the input when no `&` is present (the common case).
 fn decode_xml_entities(s: &str) -> std::borrow::Cow<'_, str> {
     if !s.contains('&') {
         return std::borrow::Cow::Borrowed(s);
@@ -485,9 +534,9 @@ fn decode_xml_entities(s: &str) -> std::borrow::Cow<'_, str> {
     let mut rest = s;
     while let Some((before, after_amp)) = rest.split_once('&') {
         out.push_str(before);
-        // The `len() <= 8` guard is the former `find(';')` offset bound: the
-        // entity name is everything up to the `;`, so its length is that
-        // offset.
+        // The `len() <= 8` guard bounds how far ahead a `;` may sit: the
+        // entity name is everything up to the `;`, and no recognised entity
+        // name is longer than that.
         let Some((entity, tail)) = after_amp.split_once(';').filter(|(e, _)| e.len() <= 8) else {
             // Stray `&` or runaway entity: leave verbatim and continue.
             out.push('&');
@@ -549,8 +598,8 @@ mod tests {
         );
     }
 
-    /// ERR-1 / TASK-0916: standard XML predefined entities + numeric
-    /// references must be decoded so the rendered About card shows the
+    /// Standard XML predefined entities and numeric references are decoded so
+    /// the rendered About card shows the
     /// human-readable text rather than the raw `&amp;` / `&#39;` source.
     #[test]
     fn extract_xml_value_decodes_predefined_entities() {
@@ -574,8 +623,8 @@ mod tests {
         );
     }
 
-    /// ERR-1 / TASK-0916: an unknown entity is left verbatim (so we
-    /// don't silently corrupt content the parser doesn't understand).
+    /// An unknown entity is left verbatim, so content the decoder does not
+    /// understand is never silently corrupted.
     #[test]
     fn extract_xml_value_passes_through_unknown_entities() {
         assert_eq!(
@@ -691,8 +740,11 @@ mod tests {
         assert!(parse_pom_xml(dir.path()).is_none());
     }
 
+    /// A top-level `<url>` is the project homepage, not the SCM
+    /// repository. It must land in `project_url` and leave `scm_url` empty
+    /// for the provider's git-remote repository fallback.
     #[test]
-    fn parse_pom_top_level_url_fallback() {
+    fn parse_pom_top_level_url_is_the_project_homepage() {
         let dir = tempfile::tempdir().unwrap();
         std::fs::write(
             dir.path().join("pom.xml"),
@@ -701,29 +753,52 @@ mod tests {
         .unwrap();
 
         let pom = parse_pom_xml(dir.path()).unwrap();
-        assert_eq!(pom.scm_url, Some("https://example.com".to_string()));
+        assert_eq!(pom.project_url, Some("https://example.com".to_string()));
+        assert_eq!(pom.scm_url, None);
     }
 
+    /// `<url>` and `<scm><url>` are distinct POM elements and must
+    /// be captured independently, in either source order — the homepage from
+    /// the top-level `<url>`, the repository from `<scm><url>`.
     #[test]
-    fn parse_pom_scm_takes_precedence_over_url() {
-        let dir = tempfile::tempdir().unwrap();
-        std::fs::write(
-            dir.path().join("pom.xml"),
-            r"<project>
+    fn parse_pom_url_and_scm_url_are_captured_independently_in_either_order() {
+        for (label, pom_xml) in [
+            (
+                "scm first, url second",
+                r"<project>
     <artifactId>mylib</artifactId>
     <scm>
         <url>https://github.com/user/mylib</url>
     </scm>
     <url>https://example.com</url>
 </project>",
-        )
-        .unwrap();
+            ),
+            (
+                "url first, scm second",
+                r"<project>
+    <artifactId>mylib</artifactId>
+    <url>https://example.com</url>
+    <scm>
+        <url>https://github.com/user/mylib</url>
+    </scm>
+</project>",
+            ),
+        ] {
+            let dir = tempfile::tempdir().unwrap();
+            std::fs::write(dir.path().join("pom.xml"), pom_xml).unwrap();
 
-        let pom = parse_pom_xml(dir.path()).unwrap();
-        assert_eq!(
-            pom.scm_url,
-            Some("https://github.com/user/mylib".to_string())
-        );
+            let pom = parse_pom_xml(dir.path()).unwrap();
+            assert_eq!(
+                pom.project_url,
+                Some("https://example.com".to_string()),
+                "homepage source must come from the top-level <url> ({label})"
+            );
+            assert_eq!(
+                pom.scm_url,
+                Some("https://github.com/user/mylib".to_string()),
+                "repository source must come from <scm><url> ({label})"
+            );
+        }
     }
 
     #[test]
@@ -784,13 +859,13 @@ mod tests {
 
         let pom = parse_pom_xml(dir.path()).unwrap();
         assert_eq!(pom.scm_url, Some("https://example.com".to_string()));
-        // PATTERN-1 / TASK-1728: the consumed container line must not be
-        // re-parsed at top level (it carries no `<name>`, but the old
-        // fall-through would have run `parse_top_level` on it).
+        // The consumed container line must not be re-parsed at top level:
+        // `SectionOutcome::Consumed` stops the fall-through to
+        // `parse_top_level`.
         assert_eq!(pom.name, None);
     }
 
-    /// PATTERN-1 / TASK-1728: a single-line `<parent>` block — the standard
+    /// A single-line `<parent>` block — the standard
     /// shape in Maven multi-module children — must not leak the parent's
     /// coordinates into the child's own `artifactId` / `version`.
     #[test]
@@ -811,7 +886,7 @@ mod tests {
         assert_eq!(pom.version, Some("1.0.0".to_string()));
     }
 
-    /// PATTERN-1 / TASK-1728: a single-line `<organization>` block must not
+    /// A single-line `<organization>` block must not
     /// contribute its `<name>` / `<url>` to the project name or SCM URL.
     #[test]
     fn parse_pom_single_line_organization_ignored_entirely() {
@@ -842,7 +917,7 @@ mod tests {
 
         let pom = parse_pom_xml(dir.path()).unwrap();
         assert_eq!(pom.license, Some("MIT".to_string()));
-        // PATTERN-1 / TASK-1728: the license `<name>` must not double as the
+        // The license `<name>` must not double as the
         // project name via a top-level re-parse of the consumed line.
         assert_eq!(pom.name, None);
     }
@@ -882,11 +957,12 @@ mod tests {
 
     #[test]
     fn parse_pom_duplicate_scm_opener_deterministic() {
-        // Two `<scm>` openers on one line is malformed. The single-line scm
-        // detector now rejects this shape (it would otherwise extract a URL
-        // from a line we have not really proven to be one scm element). The
-        // top-level `<url>` fallback still picks up the first URL, which is
-        // the deterministic outcome we pin here.
+        // Two `<scm>` openers on one line is malformed, and the single-line
+        // scm detector rejects that shape rather than extracting a URL from a
+        // line it cannot prove is one scm element. The line still carries a
+        // `<url>` the top-level scanner reads into `project_url`, so the
+        // outcome stays deterministic: the first URL becomes the homepage
+        // source and `scm_url` stays empty.
         let dir = tempfile::tempdir().unwrap();
         std::fs::write(
             dir.path().join("pom.xml"),
@@ -895,14 +971,15 @@ mod tests {
         .unwrap();
 
         let pom = parse_pom_xml(dir.path()).unwrap();
-        assert_eq!(pom.scm_url, Some("https://first.example".to_string()));
+        assert_eq!(pom.project_url, Some("https://first.example".to_string()));
+        assert_eq!(pom.scm_url, None);
     }
 
     #[test]
     fn parse_pom_multiline_project_opener() {
         // Real-world formatters often split xmlns/xsi attributes across
-        // lines. TASK-0626: parser must treat the opener as continuing until
-        // the first `>` and resume normal scanning afterwards.
+        // lines, so the parser treats the opener as continuing until the
+        // first `>` and resumes normal scanning afterwards.
         let dir = tempfile::tempdir().unwrap();
         std::fs::write(
             dir.path().join("pom.xml"),
@@ -918,7 +995,7 @@ mod tests {
         assert_eq!(pom.artifact_id, Some("multiline".to_string()));
     }
 
-    /// PATTERN-1 / TASK-1022: a multi-line `<project ...>` opener whose
+    /// A multi-line `<project ...>` opener whose
     /// closing `>` is followed *on the same line* by a real element must
     /// not drop that trailing element. Real-world Maven formatters emit
     /// this shape when the xmlns block is wrapped but the next tag is
@@ -936,7 +1013,7 @@ mod tests {
         assert_eq!(pom.artifact_id, Some("x".to_string()));
     }
 
-    /// CL-3 / TASK-0846: a `<artifactId>` inside an XML comment must NOT
+    /// A `<artifactId>` inside an XML comment must NOT
     /// be captured. The release/SNAPSHOT swap pattern is common in real
     /// repos.
     #[test]
@@ -955,7 +1032,7 @@ mod tests {
         assert_eq!(pom.artifact_id, Some("real-release".to_string()));
     }
 
-    /// CL-3 / TASK-0846: multi-line comment block hides every captured
+    /// A multi-line comment block hides every captured
     /// element it contains, including `<scm><url>` blocks.
     #[test]
     fn parse_pom_multiline_comment_hides_inner_tags() {
@@ -982,7 +1059,7 @@ mod tests {
         assert_eq!(pom.scm_url, Some("https://example.com/new".to_string()));
     }
 
-    /// CL-3 / TASK-0846: helper-level edge cases.
+    /// Helper-level comment-stripping edge cases.
     #[test]
     fn strip_xml_comments_handles_inline_and_multiline() {
         let mut state = false;
@@ -1016,10 +1093,10 @@ mod tests {
         assert_eq!(pom.artifact_id, Some("attr".to_string()));
     }
 
-    /// PATTERN-1: a `<developers>` container collapsed onto one line must not
-    /// leak its developer `<name>` into the project `<name>`. The provider
-    /// prefers `name` over `artifact_id`, so the regression rendered the
-    /// project as whoever was listed first.
+    /// A `<developers>` container collapsed onto one line must not leak its
+    /// developer `<name>` into the project `<name>`. The provider prefers
+    /// `name` over `artifact_id`, so a leak here would render the project as
+    /// whoever is listed first.
     #[test]
     fn single_line_developers_does_not_become_the_project_name() {
         let mut data = PomData::default();
@@ -1069,5 +1146,102 @@ mod tests {
         assert!(matches!(outcome, SectionOutcome::Consumed));
         assert_eq!(data.name, None);
         assert_eq!(data.developers, vec!["Jane".to_string(), "Ada".to_string()]);
+    }
+
+    /// An unterminated `<!--` comment must be
+    /// reported, not silently absorbed as "empty POM". Fields parsed before
+    /// the comment survive; the swallowed remainder is explicitly dropped.
+    #[test]
+    fn pom_with_unterminated_comment_warns_and_keeps_prefix_fields() {
+        let dir = tempfile::tempdir().unwrap();
+        std::fs::write(
+            dir.path().join("pom.xml"),
+            "<project>\n<artifactId>kept</artifactId>\n<!-- swallowed\n<version>1.0</version>\n</project>\n</project>",
+        )
+        .unwrap();
+
+        let (pom, warn_count) =
+            ops_about::test_support::count_warnings(|| parse_pom_xml(dir.path()));
+
+        let pom = pom.unwrap();
+        assert_eq!(pom.artifact_id, Some("kept".to_string()));
+        // The `<version>` after the unterminated `<!--` was dropped, with a
+        // diagnostic — not silently parsed and not silently ignored.
+        assert_eq!(pom.version, None);
+        assert_eq!(warn_count, 1);
+    }
+
+    /// A pom.xml that ends inside a multi-line
+    /// `<project ...` opener must be reported rather than returning a
+    /// silently empty `PomData`.
+    #[test]
+    fn pom_ending_inside_multiline_project_opener_warns() {
+        let dir = tempfile::tempdir().unwrap();
+        std::fs::write(
+            dir.path().join("pom.xml"),
+            "<project xmlns=\"http://maven.apache.org/POM/4.0.0\"\n         xmlns:xsi=\"http://www.w3.org/2001/XMLSchema-instance\"\n",
+        )
+        .unwrap();
+
+        let (pom, warn_count) =
+            ops_about::test_support::count_warnings(|| parse_pom_xml(dir.path()));
+
+        let pom = pom.unwrap();
+        assert!(pom.artifact_id.is_none());
+        assert_eq!(warn_count, 1);
+    }
+
+    /// A `<parent>` section that never closes
+    /// parks the parser in `Skip` for the rest of the file, so a following
+    /// top-level `<artifactId>` is absorbed. The diagnostic reports the
+    /// unterminated construct, and the fields after it are explicitly
+    /// dropped rather than silently swallowed.
+    #[test]
+    fn pom_with_unclosed_parent_section_warns_and_reports_dropped_fields() {
+        let dir = tempfile::tempdir().unwrap();
+        std::fs::write(
+            dir.path().join("pom.xml"),
+            "<project>\n<artifactId>before</artifactId>\n<parent>\n<groupId>com.example</groupId>\n<artifactId>child</artifactId>\n<version>1.0</version>\n",
+        )
+        .unwrap();
+
+        let (pom, warn_count) =
+            ops_about::test_support::count_warnings(|| parse_pom_xml(dir.path()));
+
+        let pom = pom.unwrap();
+        // Parsed before the section opened: kept.
+        assert_eq!(pom.artifact_id, Some("before".to_string()));
+        // Parked inside `<parent>` at EOF: dropped, with exactly one warn.
+        assert_eq!(pom.version, None);
+        assert_eq!(warn_count, 1);
+    }
+
+    /// The same holds for a tracked section (`<scm>`), and the rendered
+    /// diagnostic names both `pom.xml` and the unterminated construct.
+    #[test]
+    fn pom_with_unclosed_scm_section_warns_naming_manifest_and_construct() {
+        let dir = tempfile::tempdir().unwrap();
+        std::fs::write(
+            dir.path().join("pom.xml"),
+            "<project>\n<artifactId>x</artifactId>\n<scm>\n<url>https://example.com/scm</url>\n<name>swallowed</name>\n",
+        )
+        .unwrap();
+
+        let rendered = ops_about::test_support::capture_warn(|| {
+            parse_pom_xml(dir.path());
+        });
+
+        assert!(
+            rendered.contains("pom.xml"),
+            "warn should name the manifest: {rendered}"
+        );
+        assert!(
+            rendered.contains("scm"),
+            "warn should name the unterminated construct: {rendered}"
+        );
+        assert!(
+            rendered.contains("unterminated"),
+            "warn should say what is wrong: {rendered}"
+        );
     }
 }

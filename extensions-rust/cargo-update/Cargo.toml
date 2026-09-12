@@ -8,6 +8,10 @@ license.workspace = true
 [dependencies]
 ops-core = { workspace = true }
 ops-extension = { workspace = true }
+# DUP-3 / TASK-2148: the ANSI grammar this crate used to carry privately
+# lives in ops-theme; the parser consumes it via
+# `ops_theme::strip_ansi_preserving_raw`.
+ops-theme = { workspace = true }
 linkme = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }

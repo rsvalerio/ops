@@ -4,11 +4,11 @@ use ops_core::table::{Cell, OpsTable};
 
 use crate::model::{Action, ClassifiedChange};
 
-/// READ-5 / TASK-0920: minimum width for the wrapping `Module` column.
-/// Below this the table looks broken; we'd rather wrap module paths.
+/// Minimum width for the wrapping `Module` column. Below this the table looks
+/// broken, so module paths are wrapped instead.
 const MODULE_COL_MIN_WIDTH: usize = 20;
 
-/// READ-5 / TASK-0920: columns the change table reserves for the three
+/// Columns the change table reserves for the three
 /// non-wrapping cells (`Action`, `Type`, `Name`) plus the four `│ … │`
 /// separators of `OpsTable`'s frame. The remaining terminal columns
 /// after subtracting this budget are handed to the `Module` column. If a
@@ -26,17 +26,17 @@ const ACTION_DISPLAY_ORDER: [Action; 7] = [
     Action::NoOp,
 ];
 
-/// SEC-11 / TASK-1939, TASK-2032: this crate used to carry its own
-/// sanitizer, but `OpsTable` is the shared sink for every table in the
-/// workspace, so the defence now lives there and every caller gets it.
-/// Re-exported under the local name because the plan model also sanitizes
-/// values that are logged rather than tabulated (see `lib.rs`).
+/// Strips terminal control sequences from untrusted plan text.
+///
+/// `OpsTable` is the shared sink for every table in the workspace, so the
+/// defence lives there and every caller gets it. It is re-exported under a
+/// local name because the plan model also sanitizes values that are logged
+/// rather than tabulated (see `lib.rs`).
 pub(crate) use ops_core::table::sanitise_table_text as sanitize_terminal_text;
 
-/// SEC-31 (TASK-0833 / TASK-1954): the banner shown above a table whose
-/// rows carry an action this build cannot name, so an operator does not
-/// miss audit-relevant changes. Shared by the resource and outputs
-/// tables on the same terms.
+/// Banner shown above a table whose rows carry an action this build cannot
+/// name, so an operator does not miss audit-relevant changes. Shared by the
+/// resource and outputs tables on the same terms.
 fn unknown_banner(unknown_count: usize, noun: &str) -> String {
     if unknown_count == 0 {
         return String::new();
@@ -62,7 +62,7 @@ pub fn render_summary_table(changes: &[ClassifiedChange], use_color: bool) -> St
         return "No changes. Infrastructure is up-to-date.\n".to_string();
     }
 
-    // PATTERN-1 / TASK-1017: `OpsTable::with_tty` only gates colour in
+    // `OpsTable::with_tty` only gates colour in
     // `cell()`, so the colour preference (not TTY detection) is what
     // belongs here. Width-aware rendering is decoupled in
     // `render_resource_table` via a separate `is_tty` flag.
@@ -93,16 +93,15 @@ pub fn render_summary_table(changes: &[ClassifiedChange], use_color: bool) -> St
     format!("{table}\n{summary}")
 }
 
-/// PATTERN-1 / TASK-1017: `is_tty` drives terminal-width probing
-/// (right-sizing the `Module` column); `use_color` drives whether
-/// `Action::color()` is applied to cells.
+/// Renders the per-resource change table.
 ///
-/// The two were previously conflated under one boolean, which (a) made
-/// piped-but-coloured output environment-sensitive and (b) disabled
-/// width probing on a real TTY when `--no-color` was set. Callers must
-/// derive `is_tty` from `IsTerminal` on the actual writer (or pass
-/// `false` for buffered sinks) and `use_color` from the user's
-/// preference (e.g. `!no_color`).
+/// `is_tty` and `use_color` are deliberately separate knobs: `is_tty` drives
+/// terminal-width probing (right-sizing the `Module` column) while `use_color`
+/// drives whether `Action::color()` is applied to cells. Conflating them would
+/// make piped-but-coloured output environment-sensitive and would disable
+/// width probing on a real TTY under `--no-color`. Callers derive `is_tty`
+/// from `IsTerminal` on the actual writer (or pass `false` for buffered sinks)
+/// and `use_color` from the user's preference (e.g. `!no_color`).
 #[must_use]
 pub fn render_resource_table(
     changes: &[ClassifiedChange],
@@ -116,7 +115,7 @@ pub fn render_resource_table(
         return String::new();
     }
 
-    // SEC-31 (TASK-0833): if any change carries an unrecognized action,
+    // If any change carries an unrecognized action,
     // prepend a banner so an operator does not miss audit-relevant rows
     // they cannot name. The rows themselves render with `Action::Unknown`
     // styling and sort to the top of the table.
@@ -134,16 +133,16 @@ pub fn render_resource_table(
             .then_with(|| a.name.cmp(&b.name))
     });
 
-    // PATTERN-1 / TASK-1017: `OpsTable::with_tty` gates colour in
+    // `OpsTable::with_tty` gates colour in
     // `cell()`, so the colour preference is what belongs here. The
     // `is_tty` flag controls width probing below.
     let mut table = OpsTable::with_tty(use_color);
     table.set_header(vec!["Action", "Type", "Name", "Module"]);
 
-    // ARCH-2 / TASK-0849: only consult the real terminal size when the
-    // caller actually has a TTY. Probing it under is_tty=false (piped,
-    // tests, CI snapshots) made render output environment-sensitive and
-    // broke byte-identical snapshot reproducibility.
+    // Only consult the real terminal size when the caller actually has a
+    // TTY. Probing it under is_tty=false (piped, tests, CI snapshots) would
+    // make render output environment-sensitive and break byte-identical
+    // snapshot reproducibility.
     let term_width = if is_tty {
         terminal_size::terminal_size().map(|(w, _)| usize::from(w.0))
     } else {
@@ -181,7 +180,7 @@ pub fn render_outputs_table(
         return String::new();
     }
 
-    // PATTERN-1 / TASK-1017: see `render_summary_table`. The outputs
+    // See `render_summary_table`. The outputs
     // table has no width-aware column, so it only needs the colour
     // preference.
     let mut table = OpsTable::with_tty(use_color);
@@ -202,20 +201,19 @@ pub fn render_outputs_table(
     format!("{}{table}\n", unknown_banner(unknown_count, "output"))
 }
 
-/// SEC-31 / TASK-1954: fail closed when an output's planned change
-/// cannot be read.
+/// Classifies one output's planned change, failing closed when it cannot be
+/// read.
 ///
-/// A missing `actions` key, a value that is not an array, an array
-/// holding non-string entries, and an empty sequence all used to
-/// collapse to `Action::NoOp` — labelling the row "nothing is happening
-/// to this output" precisely when this build could not tell. Terraform
-/// outputs are frequently a stack's sensitive surface (generated
-/// credentials, endpoints), and the operator reads this table before
-/// approving an apply. The resource side has surfaced the same
-/// degradation as `Action::Unknown` with a `tracing::warn!` since
-/// TASK-0833 (`Action::classify`); the outputs table now matches.
+/// A missing `actions` key, a value that is not an array, an array holding
+/// non-string entries, and an empty sequence all yield `Action::Unknown` with
+/// a `tracing::warn!` — never `Action::NoOp`, which would label the row
+/// "nothing is happening to this output" precisely when this build could not
+/// tell. Terraform outputs are frequently a stack's sensitive surface
+/// (generated credentials, endpoints) and the operator reads this table before
+/// approving an apply, so the degradation matches what `Action::classify` does
+/// on the resource side.
 fn classify_output_action(name: &str, value: &serde_json::Value) -> Action {
-    // SEC-11 / TASK-1939: the output key is untrusted plan text and this
+    // The output key is untrusted plan text and this
     // event may land on a terminal, so sanitize before logging it too.
     let Some(array) = value.get("actions").and_then(serde_json::Value::as_array) else {
         tracing::warn!(
@@ -306,9 +304,8 @@ mod tests {
         );
     }
 
-    /// TEST-6 / TASK-1956: `ACTION_DISPLAY_ORDER` lists `Unknown` first
-    /// so an unrecognized action is the first thing in the summary. That
-    /// ordering had no test.
+    /// `ACTION_DISPLAY_ORDER` lists `Unknown` first, so an unrecognized
+    /// action is the first thing in the summary.
     #[test]
     fn summary_table_lists_unknown_before_other_actions() {
         let changes = vec![
@@ -347,9 +344,8 @@ mod tests {
         );
     }
 
-    /// TEST-6 / TASK-1956: the SEC-31 banner exists so an operator cannot
-    /// miss rows the tool cannot name. An inverted condition or a renamed
-    /// label would have passed the whole suite before this test.
+    /// The banner exists so an operator cannot miss rows the tool cannot
+    /// name; this pins both the condition that raises it and its label.
     #[test]
     fn resource_table_unknown_action_shows_warning_banner() {
         let changes = vec![
@@ -370,7 +366,7 @@ mod tests {
         );
     }
 
-    /// TEST-6 / TASK-1956: no banner when nothing is unrecognized.
+    /// No banner is shown when nothing is unrecognized.
     #[test]
     fn resource_table_without_unknown_has_no_banner() {
         let changes = vec![make_change(Action::Create, "aws_instance", "web")];
@@ -381,8 +377,8 @@ mod tests {
         );
     }
 
-    /// TEST-6 / TASK-1956: `sort_priority() == 0` puts Unknown above
-    /// Delete. The existing sort test only compared delete/create/update.
+    /// `sort_priority() == 0` puts Unknown above Delete, even when Unknown's
+    /// resource type sorts later alphabetically.
     #[test]
     fn resource_table_sorts_unknown_above_delete() {
         let changes = vec![
@@ -398,9 +394,9 @@ mod tests {
         );
     }
 
-    /// TEST-6 / TASK-1956: every `make_change` helper set `module: None`,
-    /// so `c.module.as_deref().unwrap_or("")` had only ever been
-    /// exercised on the `None` side.
+    /// Covers the `Some` side of `c.module.as_deref().unwrap_or("")`: a
+    /// change carrying a module path renders it in the `Module` column, while
+    /// one without renders an empty cell.
     #[test]
     fn resource_table_renders_the_module_column() {
         let changes = vec![
@@ -447,7 +443,7 @@ mod tests {
         assert!(output.is_empty(), "only no-op should produce empty output");
     }
 
-    /// SEC-11 / TASK-1939: an escape sequence or a bare carriage return
+    /// An escape sequence or a bare carriage return
     /// in a resource name must never reach the operator's terminal — it
     /// can erase the rows already printed and redraw a fake summary line
     /// on the screen an apply is approved from.
@@ -475,11 +471,9 @@ mod tests {
         );
     }
 
-    /// ARCH-2 / TASK-0849: `render_resource_table`(.., false) must be byte-
-    /// identical regardless of the host TTY size, so snapshot tests stay
-    /// reproducible across CI / local / piped invocations. The function
-    /// previously called `terminal_size::terminal_size()` unconditionally
-    /// which made output environment-sensitive.
+    /// `render_resource_table(.., false, ..)` must be byte-identical
+    /// regardless of the host TTY size, so snapshot tests stay reproducible
+    /// across CI / local / piped invocations.
     #[test]
     fn resource_table_non_tty_output_is_stable_across_term_widths() {
         let changes = vec![
@@ -523,9 +517,9 @@ mod tests {
         assert!(output.is_empty());
     }
 
-    /// SEC-31 / TASK-1954: fail closed. Each of these used to render as
-    /// `no-op`, telling the operator nothing was happening to an output
-    /// whose planned change this build could not read.
+    /// Fail closed: every unreadable `actions` shape renders as `unknown`,
+    /// never as `no-op`, which would tell the operator nothing is happening
+    /// to an output whose planned change this build could not read.
     #[test]
     fn outputs_table_degraded_actions_render_as_unknown() {
         for (label, value) in [
@@ -560,7 +554,7 @@ mod tests {
         }
     }
 
-    /// SEC-31 / TASK-1954: a mixed table counts only the degraded rows.
+    /// A mixed table counts only the degraded rows.
     #[test]
     fn outputs_table_banner_counts_only_unreadable_outputs() {
         let mut outputs = serde_json::Map::new();
@@ -575,7 +569,7 @@ mod tests {
         assert!(output.contains("create"), "readable row still renders");
     }
 
-    /// SEC-11 / TASK-1939: the output map key is untrusted plan text too.
+    /// The output map key is untrusted plan text too.
     #[test]
     fn outputs_table_strips_control_characters_from_keys() {
         let mut outputs = serde_json::Map::new();

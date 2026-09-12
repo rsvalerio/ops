@@ -262,6 +262,45 @@ fn scan_tokei_truncates_at_the_file_cap() {
     assert!(scan.truncated, "a truncated result must say so");
 }
 
+/// CL-3 / TASK-2153: records are emitted sorted by file path (language as
+/// tiebreak), not in tokei's rayon completion order. The exact sequence is
+/// pinned — not just the count — so a regression to worker order fails here
+/// and with it the byte-stable sidecar/DuckDB-ingest contract the sort
+/// exists to keep.
+#[test]
+fn scan_tokei_orders_records_by_file_path() {
+    let dir = tempfile::tempdir().expect("tempdir");
+    std::fs::create_dir_all(dir.path().join("src")).expect("mkdir src");
+    // Three files across two languages, written in an order deliberately
+    // unlike the expected output order.
+    std::fs::write(dir.path().join("src/lib.rs"), "// comment\nfn a() {}\n").expect("write rust");
+    std::fs::write(dir.path().join("zeta.py"), "# c\nprint(1)\n").expect("write zeta");
+    std::fs::write(dir.path().join("app.py"), "# c\nprint(1)\n").expect("write app");
+
+    let scan = super::scan_tokei(dir.path(), super::ScanLimits::DEFAULT, None).expect("scan");
+
+    let sequence: Vec<String> = scan
+        .records
+        .iter()
+        .map(|r| {
+            format!(
+                "{}:{}",
+                r["language"].as_str().unwrap_or_default(),
+                r["file"].as_str().unwrap_or_default()
+            )
+        })
+        .collect();
+    assert_eq!(
+        sequence,
+        vec![
+            "Python:app.py".to_string(),
+            "Rust:src/lib.rs".to_string(),
+            "Python:zeta.py".to_string(),
+        ],
+        "records must be sorted by file path, language as tiebreak — not worker order"
+    );
+}
+
 /// The file cap counts **candidates**, not directory entries: a file tokei has
 /// no language for is never opened, counted, or materialised, so it must not
 /// consume the budget. Counting every regular file instead would make an
@@ -802,40 +841,20 @@ fn tokei_languages_view_aggregates_correctly() {
     assert_eq!(distinct_langs, FIXTURE_LANGUAGE_COUNT);
 }
 
-/// READ-5 (TASK-0504): pin the lossy contract — non-UTF-8 bytes in a
-/// relative path round-trip as `U+FFFD`. Avoids silent regressions if the
-/// `to_string_lossy` is later "fixed" to a strict path policy without
-/// updating the surrounding caller chain.
-#[cfg(unix)]
-#[test]
-fn relativize_path_replaces_invalid_utf8_with_replacement_char() {
-    use std::ffi::OsStr;
-    use std::os::unix::ffi::OsStrExt;
-    use std::path::PathBuf;
-
-    let root = PathBuf::from("/ws");
-    let invalid = OsStr::from_bytes(b"/ws/bad\xFFname");
-    let path = PathBuf::from(invalid);
-    let rendered = super::relativize_path(&path, &root);
-    assert!(
-        rendered.contains('\u{FFFD}'),
-        "expected lossy U+FFFD substitution, got {rendered:?}"
-    );
-    assert!(
-        rendered.starts_with("bad") && rendered.ends_with("name"),
-        "stripped + lossy result: {rendered:?}"
-    );
-}
-
 // -- SEC-33 / TASK-2052: the walk honours the dispatch deadline --
 
 /// AC #2: with a budget already spent, the provider must abort *during* the
 /// walk rather than run it to completion and be told afterwards.
 ///
 /// Driven through `DataRegistry::provide`, which is what installs the
-/// deadline, so this pins the whole path an operator's dispatch takes — not
-/// just `scan_tokei`'s parameter. The control run below shows the same tree
-/// scans cleanly, so the failure is the deadline and not the fixture.
+/// deadline, so this pins the dispatch path an operator's dispatch takes —
+/// not just `scan_tokei`'s parameter. TASK-2156 correction: with no
+/// database attached this exercises the **fallback branch** of
+/// `try_provide_from_db` only; the ingest branch (a `DuckDb` attached,
+/// `tokei_files` empty) is pinned by
+/// `a_spent_budget_keeps_the_typed_timeout_on_the_ingest_path` below. The
+/// control run shows the same tree scans cleanly, so the failure is the
+/// deadline and not the fixture.
 #[test]
 fn a_spent_budget_aborts_the_tokei_walk_with_a_typed_timeout() {
     let dir = fixture_project();
@@ -862,6 +881,36 @@ fn a_spent_budget_aborts_the_tokei_walk_with_a_typed_timeout() {
         Some(FIXTURE_FILE_COUNT),
         "the control run must produce the whole fixture"
     );
+}
+
+/// AC #3 / TASK-2156: the production shape is the **ingest path** — a
+/// `DuckDb` attached and `tokei_files` empty, so dispatch runs
+/// `provide_via_ingestor` → `TokeiIngestor::collect` → `external_err` →
+/// the orchestrator's context wrap. That wrap used to erase the typed
+/// `TimedOut` into `ComputationFailed` (anyhow cannot recurse into a
+/// foreign `DbError` payload); the orchestrator now re-raises typed
+/// payloads through an anyhow-internal context, and this test pins the
+/// variant surviving the whole way out.
+#[test]
+fn a_spent_budget_keeps_the_typed_timeout_on_the_ingest_path() {
+    let dir = fixture_project();
+    let mut registry = ops_extension::DataRegistry::new();
+    let _ = registry.register(DATA_PROVIDER_NAME, Box::new(TokeiProvider));
+
+    // File-backed, not in-memory: the ingest pipeline derives its staging
+    // directory from the database path and refuses a `:memory:` handle
+    // before ever reaching `collect`.
+    let db_path = dir.path().join("tokei-ingest-test.duckdb");
+    let db = DuckDb::open(&db_path).expect("open file-backed db");
+    let mut ctx = Context::test_context(dir.path().to_path_buf())
+        .with_provider_budget(Some(std::time::Duration::from_nanos(1)));
+    ctx.attach_db(std::sync::Arc::new(db));
+    match registry.provide(DATA_PROVIDER_NAME, &mut ctx) {
+        Err(DataProviderError::TimedOut { provider, .. }) => {
+            assert_eq!(provider, DATA_PROVIDER_NAME);
+        }
+        other => panic!("expected a typed TimedOut from the ingest path, got {other:?}"),
+    }
 }
 
 /// A deadline that has not expired must not perturb the scan: the per-entry

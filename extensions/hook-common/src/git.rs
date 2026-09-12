@@ -44,6 +44,12 @@ const MAX_GITDIR_BACKREFERENCE_BYTES: u64 = 64 * 1024;
 ///    and returned.
 /// 3. Otherwise walks up to the parent, up to [`FIND_GIT_DIR_MAX_DEPTH`] times.
 ///
+/// A relative input (including `"."`) is normalised to an absolute path
+/// first, via [`std::path::absolute`] — a pure lexical join onto the current
+/// directory with no filesystem access and no symlink resolution — because
+/// `PathBuf::pop` cannot ascend past the process working directory, so a
+/// relative walk used to stop after one probe (API-2 / TASK-2134).
+///
 /// Symlinked `.git` entries are deliberately skipped: callers like the hook
 /// installer write into this directory and a redirected symlink is a
 /// supply-chain risk. The returned path is canonicalised so downstream
@@ -54,7 +60,15 @@ const MAX_GITDIR_BACKREFERENCE_BYTES: u64 = 64 * 1024;
 /// containment requirement.
 #[must_use]
 pub fn find_git_dir(from: &Path) -> Option<PathBuf> {
-    let mut dir = from.to_path_buf();
+    // API-2 / TASK-2134: `pop` returns false once a relative path has no
+    // parent, so without this normalisation a relative input silently
+    // truncated the walk to one probe and answered "not a git repository"
+    // inside a real repo.
+    let mut dir = if from.is_absolute() {
+        from.to_path_buf()
+    } else {
+        std::path::absolute(from).unwrap_or_else(|_| from.to_path_buf())
+    };
     for _ in 0..FIND_GIT_DIR_MAX_DEPTH {
         if let Some(found) = probe_git_entry(&dir.join(".git")) {
             return Some(found);
@@ -453,6 +467,42 @@ mod tests {
         let dir = tempfile::tempdir().expect("tempdir");
         let result = find_git_dir(dir.path());
         assert!(result.is_none());
+    }
+
+    /// API-2 / TASK-2134: a relative input used to stop the walk after one
+    /// probe (`PathBuf::pop` returns false once a relative path has no
+    /// parent), so `find_git_dir(Path::new("."))` answered None inside a
+    /// real repository. Relative inputs are now normalised to absolute
+    /// first, so the documented walk happens. Driven through a cwd guard
+    /// from a subdirectory several levels below the repo root.
+    #[test]
+    #[serial_test::serial]
+    fn find_git_dir_walks_up_from_a_relative_starting_path() {
+        use crate::test_helpers::CwdGuard;
+
+        let dir = tempfile::tempdir().expect("tempdir");
+        let git = dir.path().join(".git");
+        std::fs::create_dir(&git).unwrap();
+        let deep = dir.path().join("a/b/c");
+        std::fs::create_dir_all(&deep).unwrap();
+        let expected = std::fs::canonicalize(&git).unwrap();
+
+        let _cwd = CwdGuard::new(&deep).expect("CwdGuard");
+        // "." must walk from the cwd, and a bare subdirectory name must walk
+        // from the cwd-relative subdirectory — both several levels below the
+        // repo root.
+        assert_eq!(find_git_dir(Path::new(".")), Some(expected.clone()));
+        std::fs::create_dir_all("a/b/c").unwrap();
+        assert_eq!(
+            find_git_dir(Path::new("a/b/c")),
+            Some(expected.clone()),
+            "a relative subdir must walk up to the repo root"
+        );
+        assert_eq!(
+            find_git_dir(Path::new("..")),
+            Some(expected),
+            "a relative parent hop must walk up to the repo root"
+        );
     }
 
     #[test]

@@ -1,12 +1,14 @@
-//! Tests for the Gradle DSL parser. FN-1 / TASK-0847 split the lexer
-//! primitives into the sibling `lexer` module; tests reach into both via
-//! `super::*` (lexer items are pub(super) so they remain visible here).
+//! Tests for the Gradle DSL parser and its lexer primitives.
+//!
+//! The lexer primitives live in the sibling `lexer` module; tests reach into
+//! both via `super::*` (lexer items are `pub(super)`, so they stay visible
+//! here).
 
 use super::lexer::{extract_quoted, extract_quoted_list};
 use super::*;
 
 /// Resolve the tempdir root through macOS's symlinked `/var` prefix so the
-/// SEC-33 `open_refusing_symlinks` guard accepts it (caller-canonicalizes
+/// `open_refusing_symlinks` guard accepts it (caller-canonicalizes
 /// rule; Linux CI's `/tmp` is not a symlink, so only local runs need this).
 fn canon(dir: &tempfile::TempDir) -> std::path::PathBuf {
     dir.path().canonicalize().unwrap()
@@ -26,8 +28,8 @@ fn extract_quoted_list_bails_on_unbalanced_quote() {
     assert_eq!(out, vec!["core".to_string()]);
 }
 
-/// PATTERN-1 / TASK-1047: backslash-escaped quotes inside a double-quoted
-/// Groovy string must not terminate the value early.
+/// Backslash-escaped quotes inside a double-quoted Groovy string must not
+/// terminate the value early.
 #[test]
 fn extract_quoted_honors_escaped_double_quotes() {
     assert_eq!(
@@ -36,21 +38,21 @@ fn extract_quoted_honors_escaped_double_quotes() {
     );
 }
 
-/// PATTERN-1 / TASK-1047: same shape for single-quoted Groovy strings.
+/// Same escape handling for single-quoted Groovy strings.
 #[test]
 fn extract_quoted_honors_escaped_single_quotes() {
     assert_eq!(extract_quoted(r"'O\'Brien'"), Some(r"O\'Brien"));
 }
 
-/// PATTERN-1 / TASK-1047: a literal `\\` must not eat the closing quote
+/// A literal `\\` must not eat the closing quote
 /// (the second backslash terminates the escape, so the next quote closes).
 #[test]
 fn extract_quoted_double_backslash_does_not_escape_close() {
     assert_eq!(extract_quoted(r#""path\\"rest"#), Some(r"path\\"));
 }
 
-/// PATTERN-1 / TASK-1047: escaped quotes inside a list element must not
-/// truncate the element nor drop subsequent tokens.
+/// Escaped quotes inside a list element must not truncate the element nor
+/// drop subsequent tokens.
 #[test]
 fn extract_quoted_list_honors_escaped_quotes() {
     let mut out = Vec::new();
@@ -266,10 +268,9 @@ fn parse_gradle_settings_inline_comment() {
     assert_eq!(s.includes, vec!["core"]);
 }
 
-/// READ-6 / TASK-1744: the Kotlin `include(...)` and Groovy bare-`include`
-/// spellings of the same argument must agree. The Kotlin path used to split
-/// at the `)` *inside* the string because its quote scan was not
-/// backslash-aware, and the module was silently dropped.
+/// The Kotlin `include(...)` and Groovy bare-`include` spellings of the same
+/// argument must agree: both quote scans are backslash-aware, so neither
+/// splits at a `)` that sits inside an escaped-quote string.
 #[test]
 fn parse_gradle_settings_escaped_quote_include_parity_between_kotlin_and_groovy() {
     let expected = vec![r#"legacy\")module"#.to_string()];
@@ -294,8 +295,8 @@ fn parse_gradle_settings_escaped_quote_include_parity_between_kotlin_and_groovy(
     assert_eq!(groovy.includes, expected);
 }
 
-/// READ-6 / TASK-1744: comment stripping happens once, and quote-aware, so a
-/// module path containing `//` is no longer truncated to nothing.
+/// Comment stripping happens once and is quote-aware, so a module path
+/// containing `//` survives intact.
 #[test]
 fn parse_gradle_settings_include_argument_containing_double_slash_is_kept() {
     let dir = tempfile::tempdir().unwrap();
@@ -309,7 +310,59 @@ fn parse_gradle_settings_include_argument_containing_double_slash_is_kept() {
     assert_eq!(s.includes, vec!["a//b".to_string()]);
 }
 
-/// CL-3 / TASK-1733: `rootProject.name` inside a block is not the root
+/// Gradle treats `include` as idempotent on the
+/// project path, so `':app'` and `'app'` are one subproject, not two — the
+/// raw spellings differ but their normalised paths collide, and the first
+/// writer's spelling is kept.
+#[test]
+fn parse_gradle_settings_dedupes_colon_and_bare_include_spellings() {
+    let dir = tempfile::tempdir().unwrap();
+    std::fs::write(
+        dir.path().join("settings.gradle"),
+        "include ':app'\ninclude 'app'\n",
+    )
+    .unwrap();
+
+    let s = parse_gradle_settings(&canon(&dir)).unwrap();
+    assert_eq!(s.includes.len(), 1);
+    assert_eq!(s.includes, vec![":app".to_string()]);
+}
+
+/// `/`- and `\`-separated spellings of the same
+/// project path collapse onto Gradle's `:` form in the dedup key, so a
+/// Windows- or URL-styled hand edit does not double-count the subproject.
+#[test]
+fn parse_gradle_settings_dedupes_separator_spellings_of_one_path() {
+    let dir = tempfile::tempdir().unwrap();
+    std::fs::write(
+        dir.path().join("settings.gradle"),
+        "include ':apps:web'\ninclude 'apps/web'\ninclude 'apps\\web'\n",
+    )
+    .unwrap();
+
+    let s = parse_gradle_settings(&canon(&dir)).unwrap();
+    assert_eq!(s.includes.len(), 1);
+    assert_eq!(s.includes, vec![":apps:web".to_string()]);
+}
+
+/// An `include` nested inside a block is depth-gated exactly like
+/// `rootProject.name`: the block may never execute, so counting its include
+/// would inflate `module_count`. A top-level include after the block still
+/// counts.
+#[test]
+fn parse_gradle_settings_ignores_includes_nested_in_blocks() {
+    let dir = tempfile::tempdir().unwrap();
+    std::fs::write(
+        dir.path().join("settings.gradle"),
+        "gradle.beforeSettings {\n    include(\":legacy\")\n}\ninclude(\":app\")\n",
+    )
+    .unwrap();
+
+    let s = parse_gradle_settings(&canon(&dir)).unwrap();
+    assert_eq!(s.includes, vec![":app".to_string()]);
+}
+
+/// `rootProject.name` inside a block is not the root
 /// project's name; a top-level assignment elsewhere in the file still wins.
 #[test]
 fn parse_gradle_settings_nested_root_project_name_ignored() {
@@ -379,7 +432,7 @@ fn parse_gradle_properties_inline_comment() {
 
 #[test]
 fn parse_gradle_properties_value_contains_bang() {
-    // READ-2 / TASK-0812: `!` inside the value (no preceding whitespace)
+    // `!` inside the value (no preceding whitespace)
     // is part of the value, not a comment introducer.
     let dir = tempfile::tempdir().unwrap();
     std::fs::write(dir.path().join("gradle.properties"), "version=1.0!beta\n").unwrap();
@@ -389,7 +442,7 @@ fn parse_gradle_properties_value_contains_bang() {
 
 #[test]
 fn parse_gradle_properties_value_contains_hash() {
-    // READ-2 / TASK-0812: `#` inside the value (no preceding whitespace)
+    // `#` inside the value (no preceding whitespace)
     // is part of the value, not a comment introducer.
     let dir = tempfile::tempdir().unwrap();
     std::fs::write(
@@ -449,7 +502,7 @@ fn parse_gradle_build_bare_method() {
 
 #[test]
 fn parse_gradle_build_bare_method_url_in_description() {
-    // READ-2 / TASK-0647: a `//` inside the quoted value (URL) must not
+    // A `//` inside the quoted value (URL) must not
     // be stripped as a trailing comment.
     let dir = tempfile::tempdir().unwrap();
     std::fs::write(
@@ -464,7 +517,7 @@ fn parse_gradle_build_bare_method_url_in_description() {
 
 #[test]
 fn parse_gradle_build_bare_method_trailing_comment_ignored() {
-    // READ-2 / TASK-0647: `extract_quoted` terminates at the closing
+    // `extract_quoted` terminates at the closing
     // quote, so any trailing `// ...` is naturally outside the result.
     let dir = tempfile::tempdir().unwrap();
     std::fs::write(
@@ -490,7 +543,7 @@ fn parse_gradle_build_kts() {
     assert_eq!(b.description, Some("Kotlin Build".to_string()));
 }
 
-/// CL-3 / TASK-1733: a `description` inside a task block is that *task's*
+/// A `description` inside a task block is that *task's*
 /// description; the root project's own assignment must win regardless of
 /// which comes last in the file.
 #[test]
@@ -513,7 +566,7 @@ fn parse_gradle_build_root_description_wins_over_task_block() {
     );
 }
 
-/// CL-3 / TASK-1733: with no root-level assignment, a nested one must not be
+/// With no root-level assignment, a nested one must not be
 /// promoted — the project simply has no description.
 #[test]
 fn parse_gradle_build_task_block_description_alone_yields_none() {
@@ -530,7 +583,7 @@ fn parse_gradle_build_task_block_description_alone_yields_none() {
     assert_eq!(b.description, None);
 }
 
-/// CL-3 / TASK-1733: the Groovy bare-method form (`description 'text'`) is
+/// The Groovy bare-method form (`description 'text'`) is
 /// subject to the same depth rule as the assignment form.
 #[test]
 fn parse_gradle_build_bare_method_inside_block_ignored() {
@@ -547,7 +600,7 @@ fn parse_gradle_build_bare_method_inside_block_ignored() {
     assert_eq!(b.description, None);
 }
 
-/// CL-3 / TASK-1733: a `{` inside a string literal must not open a phantom
+/// A `{` inside a string literal must not open a phantom
 /// block and lock out the following top-level assignment.
 #[test]
 fn parse_gradle_build_brace_inside_quoted_value_is_not_a_block() {
@@ -563,7 +616,7 @@ fn parse_gradle_build_brace_inside_quoted_value_is_not_a_block() {
     assert_eq!(b.description, Some("Still top level".to_string()));
 }
 
-/// CL-3 / TASK-1733: first writer wins, matching the Maven parser's
+/// First writer wins, matching the Maven parser's
 /// `try_set_once`.
 #[test]
 fn parse_gradle_build_duplicate_top_level_description_keeps_first() {
@@ -593,6 +646,42 @@ fn gradle_provider_name() {
 fn gradle_provider_about_fields() {
     let fields = GradleIdentityProvider.about_fields();
     assert!(!fields.is_empty());
+    // The Gradle provider parses no homepage source, so its card must not
+    // declare a homepage row that is structurally always empty.
+    assert!(
+        !fields.iter().any(|f| f.id == "homepage"),
+        "Gradle must not advertise a homepage field it can never fill"
+    );
+}
+
+/// The units provider's list length must equal the identity
+/// card's `module_count` on the same fixture — one unit per `include`, with
+/// `:a:b` project paths normalised to the on-disk `a/b` spelling enrichment
+/// joins against.
+#[test]
+fn gradle_units_length_equals_identity_module_count() {
+    let dir = tempfile::tempdir().unwrap();
+    std::fs::write(
+        dir.path().join("settings.gradle"),
+        "rootProject.name = \"mygradle\"\ninclude \"api\"\ninclude \":app:core\"\n",
+    )
+    .unwrap();
+
+    // canon(): the units provider joins the include paths onto the working
+    // directory, and on macOS the symlinked `/var` tempdir prefix must be
+    // resolved first (same rule as every other test in this module).
+    let mut ctx = ops_extension::Context::test_context(canon(&dir));
+    let identity = GradleIdentityProvider.provide(&mut ctx).unwrap();
+    let units: Vec<ops_core::project_identity::ProjectUnit> =
+        serde_json::from_value(GradleUnitsProvider.provide(&mut ctx).unwrap()).unwrap();
+
+    assert_eq!(identity["module_count"].as_u64(), Some(2));
+    assert_eq!(units.len(), 2, "one unit per include entry");
+    assert_eq!(units[0].path, "api");
+    assert_eq!(units[0].name, "Api");
+    let sep = std::path::MAIN_SEPARATOR;
+    assert_eq!(units[1].path, format!("app{sep}core"));
+    assert_eq!(units[1].name, "Core");
 }
 
 #[test]
@@ -622,7 +711,7 @@ fn gradle_provider_provide_full() {
     assert_eq!(result["module_label"], "subprojects");
 }
 
-/// TEST-11 / TASK-1751: `settings.gradle` exists but declares no
+/// `settings.gradle` exists but declares no
 /// `rootProject.name`, so the identity falls back to the working-directory
 /// name. Asserting the exact value is the whole coverage of that fallback —
 /// `!name.is_empty()` also passes for a hardcoded placeholder or the wrong

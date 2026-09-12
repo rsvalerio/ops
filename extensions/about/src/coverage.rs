@@ -13,6 +13,9 @@ use ops_extension::DataRegistry;
 use crate::providers::{load_or_default, warm_providers};
 use crate::text_util::tty_style;
 
+/// Registry key of the `project_coverage` provider that supplies the
+/// per-unit coverage table rendered on this subpage; when no stack registers
+/// it, the page falls back to "No coverage data available."
 pub const PROJECT_COVERAGE_PROVIDER: &str = "project_coverage";
 
 enum CoverageTier {

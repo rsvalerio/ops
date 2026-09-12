@@ -43,6 +43,19 @@ use std::io::IsTerminal;
 /// TEST-5: Platform-specific terminal control via libc termios. Tested manually;
 /// unit tests would require a PTY or mock which exceeds the complexity budget
 /// for ~60 lines of platform-specific code.
+///
+/// # Miri coverage (UNSAFE-10 / TASK-2094)
+///
+/// CI runs the guard-construction path under Miri: under the test harness
+/// stderr is a pipe, so [`EchoGuard::disable_echo`] takes the non-TTY early
+/// return (the `miri` job's `disable_echo` test). The
+/// `MaybeUninit`/`tcgetattr`/`assume_init` path cannot run under Miri at
+/// all, for two independent reasons: Miri provides no shims for foreign
+/// termios calls, and it cannot put a real TTY on stderr, which the path
+/// requires before it reaches the unsafe. The substitute evidence required
+/// by UNSAFE-10 is the per-block `// SAFETY:` prose in [`Self::disable_echo`]
+/// — the `assume_init` is conditional on the `ret == 0` check POSIX defines
+/// for `tcgetattr` — plus the manual PTY testing named under TEST-5.
 pub struct EchoGuard {
     #[cfg(unix)]
     original: Option<libc::termios>,
