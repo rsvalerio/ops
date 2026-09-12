@@ -26,11 +26,11 @@ pub use ingestor::TokeiIngestor;
 
 use anyhow::Context as _;
 use ignore::{DirEntry, WalkBuilder};
-use ops_duckdb::DuckDb;
 use ops_extension::{
     Context, DataField, DataProvider, DataProviderError, DataProviderSchema, Deadline,
     ExtensionType,
 };
+use ops_sqlite::Sqlite;
 use std::path::Path;
 use tokei::{Config as TokeiConfig, LanguageType, Languages};
 
@@ -72,7 +72,7 @@ impl DataProvider for TokeiProvider {
     }
 
     fn provide(&self, ctx: &mut Context) -> Result<serde_json::Value, DataProviderError> {
-        ops_duckdb::try_provide_from_db(ctx, provide_from_db, |ctx| {
+        ops_sqlite::try_provide_from_db(ctx, provide_from_db, |ctx| {
             collect_tokei(ctx.working_directory(), ctx.deadline_handle().as_ref())
         })
     }
@@ -96,11 +96,11 @@ impl DataProvider for TokeiProvider {
     }
 }
 
-fn query_tokei_files(db: &DuckDb) -> Result<serde_json::Value, anyhow::Error> {
-    ops_duckdb::sql::query_rows_to_json(
+fn query_tokei_files(db: &Sqlite) -> Result<serde_json::Value, anyhow::Error> {
+    ops_sqlite::sql::query_rows_to_json(
         db,
         // CL-3 / TASK-2153: explicit ORDER BY so the queried path is ordered
-        // too, not only the ingested one — DuckDB makes no row-order promise
+        // too, not only the ingested one — SQLite makes no row-order promise
         // for an unordered SELECT.
         "SELECT language, file, code, comments, blanks, lines FROM tokei_files ORDER BY file, language",
         |row| {
@@ -116,8 +116,8 @@ fn query_tokei_files(db: &DuckDb) -> Result<serde_json::Value, anyhow::Error> {
     )
 }
 
-fn provide_from_db(db: &DuckDb, ctx: &Context) -> Result<serde_json::Value, anyhow::Error> {
-    ops_duckdb::sql::provide_via_ingestor(db, ctx, "tokei_files", &TokeiIngestor, query_tokei_files)
+fn provide_from_db(db: &Sqlite, ctx: &Context) -> Result<serde_json::Value, anyhow::Error> {
+    ops_sqlite::sql::provide_via_ingestor(db, ctx, "tokei_files", &TokeiIngestor, query_tokei_files)
 }
 
 /// Top-level directory names pruned from the scan.
@@ -501,7 +501,7 @@ pub fn collect_tokei(
 /// first (tokei 14.0.0, `src/utils/fs.rs`) — so the stored order is
 /// worker-scheduling dependent and differed run to run. Sorting here, with
 /// the same policy as `extensions-rust/loc`'s `row_key`, keeps the JSON
-/// sidecar and the `DuckDB` ingest byte-stable across runs: a diff of two
+/// sidecar and the `SQLite` ingest byte-stable across runs: a diff of two
 /// collections shows real changes only, and `data_sources.checksum` stays a
 /// useful change signal instead of churning on scheduler noise.
 pub(crate) fn flatten_tokei_records(
@@ -537,9 +537,9 @@ fn report_to_json(
     workspace_root: &Path,
 ) -> serde_json::Value {
     // DUP-1 / TASK-2183: the shared sidecar-path policy lives in
-    // `ops_duckdb::sql::relativize_path`, with the lossy-conversion
+    // `ops_sqlite::sql::relativize_path`, with the lossy-conversion
     // rationale documented on it once.
-    let file_str = ops_duckdb::sql::relativize_path(&report.name, workspace_root);
+    let file_str = ops_sqlite::sql::relativize_path(&report.name, workspace_root);
     let stats = &report.stats;
     serde_json::json!({
         "language": language,

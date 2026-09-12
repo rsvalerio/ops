@@ -1453,13 +1453,13 @@ fn clear_provider_results_drops_cached_values() {
 }
 
 // ---------------------------------------------------------------------------
-// TEST-5 / TASK-1877 AC#5 — the duckdb-feature surface
+// TEST-5 / TASK-1877 AC#5 — the sqlite-feature surface
 // ---------------------------------------------------------------------------
 
-#[cfg(feature = "duckdb")]
-mod duckdb_feature {
+#[cfg(feature = "sqlite")]
+mod sqlite_feature {
     use super::test_context;
-    use ops_extension::DuckDbHandle;
+    use ops_extension::SqliteHandle;
     use std::sync::Arc;
 
     #[derive(Debug, PartialEq, Eq)]
@@ -1470,11 +1470,11 @@ mod duckdb_feature {
     /// reference and silently break the documented downcast.
     #[test]
     fn blanket_impl_downcasts_back_to_the_concrete_type() {
-        let handle: Arc<dyn DuckDbHandle> = Arc::new(FakeDb(7));
-        // The receiver must be reborrowed as `&dyn DuckDbHandle` first. See
+        let handle: Arc<dyn SqliteHandle> = Arc::new(FakeDb(7));
+        // The receiver must be reborrowed as `&dyn SqliteHandle` first. See
         // the test below for why calling `as_any()` on the `Arc` does not
         // reach the inner value.
-        let erased: &dyn DuckDbHandle = handle.as_ref();
+        let erased: &dyn SqliteHandle = handle.as_ref();
         let recovered = erased
             .as_any()
             .downcast_ref::<FakeDb>()
@@ -1487,7 +1487,7 @@ mod duckdb_feature {
     }
 
     /// TEST-5 / TASK-1877: the blanket impl covers **every** `'static + Send +
-    /// Sync` type — including `Arc<dyn DuckDbHandle>` itself. Method
+    /// Sync` type — including `Arc<dyn SqliteHandle>` itself. Method
     /// resolution on an `Arc` receiver therefore matches the blanket impl for
     /// the smart pointer before it ever derefs to the inner value, and
     /// `as_any()` returns the `Arc` erased rather than the handle. Pinned
@@ -1495,17 +1495,17 @@ mod duckdb_feature {
     /// `handle.as_any()` and callers copy it verbatim.
     ///
     /// SEC-38 / TASK-2018: this holds *because this module imports
-    /// `DuckDbHandle`*. The blanket impl is only a method-resolution candidate
+    /// `SqliteHandle`*. The blanket impl is only a method-resolution candidate
     /// where the trait is in scope, so a module that never names it sees
     /// `handle.as_any()` fall through the deref chain to the trait object's own
     /// method and downcast correctly — which is exactly how the misresolution
-    /// stayed invisible in `ops_duckdb::downcast_duckdb`. Do not read this test
+    /// stayed invisible in `ops_sqlite::downcast_sqlite`. Do not read this test
     /// as "an `Arc` receiver always fails"; read it as "an `Arc` receiver fails
     /// the moment anyone adds the import". The reborrow is the only shape that
     /// is correct in both modules.
     #[test]
     fn as_any_on_an_arc_receiver_erases_the_arc_not_the_handle() {
-        let handle: Arc<dyn DuckDbHandle> = Arc::new(FakeDb(7));
+        let handle: Arc<dyn SqliteHandle> = Arc::new(FakeDb(7));
         assert!(
             handle.as_any().downcast_ref::<FakeDb>().is_none(),
             "an Arc receiver does not reach the inner value"
@@ -1513,7 +1513,7 @@ mod duckdb_feature {
         assert!(
             handle
                 .as_any()
-                .downcast_ref::<Arc<dyn DuckDbHandle>>()
+                .downcast_ref::<Arc<dyn SqliteHandle>>()
                 .is_some(),
             "it erases the Arc itself instead"
         );
@@ -1524,12 +1524,12 @@ mod duckdb_feature {
         let mut ctx = test_context();
         assert!(ctx.db().is_none(), "a fresh context has no handle");
 
-        let handle: Arc<dyn DuckDbHandle> = Arc::new(FakeDb(42));
+        let handle: Arc<dyn SqliteHandle> = Arc::new(FakeDb(42));
         ctx.attach_db(Arc::clone(&handle));
 
         let stored = ctx.db().expect("handle attached");
         assert!(Arc::ptr_eq(stored, &handle), "the same Arc must come back");
-        let erased: &dyn DuckDbHandle = stored.as_ref();
+        let erased: &dyn SqliteHandle = stored.as_ref();
         assert_eq!(
             erased.as_any().downcast_ref::<FakeDb>(),
             Some(&FakeDb(42)),

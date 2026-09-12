@@ -263,7 +263,7 @@ impl DataProviderError {
 ///
 /// Several provider entry points are `anyhow`-typed free functions —
 /// `collect_tokei`, `collect_rust_loc`, everything reached through
-/// `ops_duckdb::try_provide_from_db`'s fallback closure — so a deadline check
+/// `ops_sqlite::try_provide_from_db`'s fallback closure — so a deadline check
 /// inside one of them can only propagate its [`DataProviderError::TimedOut`]
 /// by boxing it into `anyhow`. Without this downcast the round trip would
 /// degrade a *typed* timeout into an opaque computation failure: the message

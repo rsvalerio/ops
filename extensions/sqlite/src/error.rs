@@ -1,4 +1,4 @@
-//! Database error type for `DuckDb`.
+//! Database error type for `Sqlite`.
 
 use thiserror::Error;
 
@@ -20,9 +20,9 @@ pub enum DbError {
     #[error("database mutex poisoned: {0:?}")]
     MutexPoisoned(String),
 
-    /// An error raised by the underlying `DuckDB` library.
+    /// An error raised by the underlying `rusqlite` library.
     #[error("database error: {0}")]
-    DuckDb(#[from] duckdb::Error),
+    Sqlite(#[from] rusqlite::Error),
 
     /// A filesystem error while opening or reading database artifacts.
     #[error("IO error: {0}")]
@@ -33,9 +33,9 @@ pub enum DbError {
     QueryFailed {
         /// What the failing query was doing, for the operator message.
         context: String,
-        /// The underlying `DuckDB` error.
+        /// The underlying `rusqlite` error.
         #[source]
-        source: duckdb::Error,
+        source: rusqlite::Error,
     },
 
     /// A JSON payload failed to (de)serialize.
@@ -61,7 +61,7 @@ pub enum DbError {
 
     /// READ-5 / TASK-1867: the ingest pipeline stages JSON next to the
     /// database file, so it needs a real filesystem path. `:memory:` is a
-    /// `DuckDB` connection string, not a path — appending `.ingest` to it
+    /// SQLite connection string, not a path — appending `.ingest` to it
     /// produced the *relative* `:memory:.ingest`, which the pipeline then
     /// created inside whatever the process working directory happened to be
     /// (and once got committed to this repository).
@@ -98,9 +98,9 @@ pub enum DbError {
 
 impl DbError {
     /// Builds a [`DbError::QueryFailed`] from a context string and the
-    /// underlying `DuckDB` error.
+    /// underlying `rusqlite` error.
     #[must_use = "return the constructed error; building it reports nothing"]
-    pub fn query_failed(context: impl Into<String>, source: duckdb::Error) -> Self {
+    pub fn query_failed(context: impl Into<String>, source: rusqlite::Error) -> Self {
         Self::QueryFailed {
             context: context.into(),
             source,
@@ -172,7 +172,7 @@ mod tests {
     fn db_error_query_failed_context() {
         let err = DbError::query_failed(
             "test_op",
-            duckdb::Error::InvalidParameterName("test".into()),
+            rusqlite::Error::InvalidParameterName("test".into()),
         );
         assert!(err.to_string().contains("test_op"));
     }

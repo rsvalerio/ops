@@ -1,6 +1,6 @@
-//! Schema initialization and tracking for `DuckDb`.
+//! Schema initialization and tracking for `Sqlite`.
 
-use crate::connection::DuckDb;
+use crate::connection::Sqlite;
 use crate::error::{DbError, DbResult};
 use std::path::Path;
 
@@ -9,19 +9,19 @@ use std::path::Path;
 /// # Errors
 ///
 /// [`DbError::MutexPoisoned`] if the connection lock is poisoned, or
-/// [`DbError::DuckDb`] if the schema batch fails to execute.
-pub fn init_schema(db: &DuckDb) -> DbResult<()> {
+/// [`DbError::Sqlite`] if the schema batch fails to execute.
+pub fn init_schema(db: &Sqlite) -> DbResult<()> {
     let conn = db.lock()?;
     conn.execute_batch(
         r"
         CREATE TABLE IF NOT EXISTS data_sources (
-            source_name    VARCHAR NOT NULL,
-            workspace_root VARCHAR NOT NULL,
-            loaded_at      TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
-            source_path    VARCHAR NOT NULL,
-            record_count   BIGINT NOT NULL DEFAULT 0,
-            checksum       VARCHAR(64) NOT NULL,
-            metadata       JSON,
+            source_name    TEXT NOT NULL,
+            workspace_root TEXT NOT NULL,
+            loaded_at      TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+            source_path    TEXT NOT NULL,
+            record_count   INTEGER NOT NULL DEFAULT 0,
+            checksum       TEXT NOT NULL,
+            metadata       TEXT,
             PRIMARY KEY (source_name, workspace_root)
         );
         ",
@@ -49,7 +49,7 @@ pub fn init_schema(db: &DuckDb) -> DbResult<()> {
 )]
 #[must_use = "the Some/None distinguishes 'already ingested' from 'never ingested'; discarding it skips reload checks"]
 pub fn get_source_checksum(
-    db: &DuckDb,
+    db: &Sqlite,
     source_name: &str,
     workspace_root: &str,
 ) -> DbResult<Option<String>> {
@@ -57,7 +57,7 @@ pub fn get_source_checksum(
     let mut stmt = conn
         .prepare("SELECT checksum FROM data_sources WHERE source_name = ? AND workspace_root = ?")
         .map_err(|e| DbError::query_failed("get_source_checksum", e))?;
-    let row = stmt.query_row(duckdb::params![source_name, workspace_root], |r| {
+    let row = stmt.query_row(rusqlite::params![source_name, workspace_root], |r| {
         r.get::<_, String>(0)
     });
     // CONC-1: release the connection guard before mapping the row outcome.
@@ -66,8 +66,8 @@ pub fn get_source_checksum(
     drop(conn);
     match row {
         Ok(s) => Ok(Some(s)),
-        Err(duckdb::Error::QueryReturnedNoRows) => Ok(None),
-        Err(e) => Err(DbError::DuckDb(e)),
+        Err(rusqlite::Error::QueryReturnedNoRows) => Ok(None),
+        Err(e) => Err(DbError::Sqlite(e)),
     }
 }
 
@@ -148,7 +148,7 @@ impl<'a> DataSourceMetadata<'a> {
 /// `ops_about::identity::build_identity_value`, which rejects a non-UTF-8
 /// `cwd` with a typed [`ops_extension::DataProviderError`] instead of
 /// shipping `U+FFFD`-mangled bytes into the `project_root` JSON field.
-/// Any path persisted into a downstream consumer (this `DuckDB` row, the
+/// Any path persisted into a downstream consumer (this SQLite row, the
 /// `ProjectIdentity` JSON, audit logs) must round-trip faithfully — so
 /// the two callsites share one policy: typed error on non-UTF-8, no
 /// lossy `Path::display` / `to_string_lossy` shortcut.
@@ -156,8 +156,8 @@ impl<'a> DataSourceMetadata<'a> {
 /// # Errors
 ///
 /// [`DbError::NonUtf8Path`] if `source_path` or the workspace root is not
-/// valid UTF-8, or [`DbError::DuckDb`] if the upsert fails.
-pub fn upsert_data_source(db: &DuckDb, meta: &DataSourceMetadata<'_>) -> DbResult<()> {
+/// valid UTF-8, or [`DbError::Sqlite`] if the upsert fails.
+pub fn upsert_data_source(db: &Sqlite, meta: &DataSourceMetadata<'_>) -> DbResult<()> {
     let path_str = meta
         .source_path
         .to_str()
@@ -179,12 +179,12 @@ pub fn upsert_data_source(db: &DuckDb, meta: &DataSourceMetadata<'_>) -> DbResul
         INSERT INTO data_sources (source_name, workspace_root, source_path, record_count, checksum)
         VALUES (?, ?, ?, ?, ?)
         ON CONFLICT (source_name, workspace_root) DO UPDATE SET
-            loaded_at = get_current_timestamp(),
+            loaded_at = CURRENT_TIMESTAMP,
             source_path = excluded.source_path,
             record_count = excluded.record_count,
             checksum = excluded.checksum
         ",
-        duckdb::params![
+        rusqlite::params![
             meta.source_name,
             workspace_root_str,
             path_str,
@@ -200,12 +200,12 @@ pub fn upsert_data_source(db: &DuckDb, meta: &DataSourceMetadata<'_>) -> DbResul
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::connection::DuckDb;
+    use crate::connection::Sqlite;
     use std::path::Path;
 
     #[test]
     fn init_schema_creates_data_sources() {
-        let db = DuckDb::open_in_memory().unwrap();
+        let db = Sqlite::open_in_memory().unwrap();
         init_schema(&db).unwrap();
         let conn = db.lock().unwrap();
         conn.execute("SELECT 1 FROM data_sources LIMIT 0", [])
@@ -214,7 +214,7 @@ mod tests {
 
     #[test]
     fn get_source_checksum_none_when_empty() {
-        let db = DuckDb::open_in_memory().unwrap();
+        let db = Sqlite::open_in_memory().unwrap();
         init_schema(&db).unwrap();
         let c = get_source_checksum(&db, "metadata", "/ws").unwrap();
         assert!(c.is_none());
@@ -225,7 +225,7 @@ mod tests {
     fn upsert_data_source_rejects_non_utf8_path() {
         use std::ffi::OsStr;
         use std::os::unix::ffi::OsStrExt;
-        let db = DuckDb::open_in_memory().unwrap();
+        let db = Sqlite::open_in_memory().unwrap();
         init_schema(&db).unwrap();
         let bytes = b"/ws/\xff\xfe.json";
         let bad_path = std::path::Path::new(OsStr::from_bytes(bytes));
@@ -242,12 +242,12 @@ mod tests {
         assert!(matches!(result, Err(DbError::NonUtf8Path(_))));
     }
 
-    /// ERR-1 (TASK-0885): the column was widened from INTEGER (i32) to
-    /// BIGINT (i64) so counts exceeding `i32::MAX` round-trip without
-    /// truncation or driver-level bind error.
+    /// ERR-1 (TASK-0885): the column must hold i64 so counts exceeding
+    /// `i32::MAX` round-trip without truncation or driver-level bind error
+    /// (SQLite INTEGER is i64 natively).
     #[test]
     fn record_count_over_i32_max_round_trips() {
-        let db = DuckDb::open_in_memory().unwrap();
+        let db = Sqlite::open_in_memory().unwrap();
         init_schema(&db).unwrap();
         // `i32::MAX` is positive, so `unsigned_abs` is an exact widening to
         // `u32` and `u64::from` an exact widening from there.
@@ -267,19 +267,19 @@ mod tests {
         let stored: i64 = conn
             .query_row(
                 "SELECT record_count FROM data_sources WHERE source_name = ? AND workspace_root = ?",
-                duckdb::params!["big", "/ws"],
+                rusqlite::params!["big", "/ws"],
                 |r| r.get(0),
             )
             .unwrap();
         drop(conn);
-        // The stored BIGINT must be exactly `big`; an out-of-`u64` (i.e.
+        // The stored INTEGER must be exactly `big`; an out-of-`u64` (i.e.
         // negative) value fails the assertion instead of wrapping silently.
         assert_eq!(u64::try_from(stored).ok(), Some(big));
     }
 
     #[test]
     fn upsert_and_get_source_checksum() {
-        let db = DuckDb::open_in_memory().unwrap();
+        let db = Sqlite::open_in_memory().unwrap();
         init_schema(&db).unwrap();
         upsert_data_source(
             &db,

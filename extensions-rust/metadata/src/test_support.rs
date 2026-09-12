@@ -10,14 +10,15 @@
 //! `sample_metadata`) went with the unconsumed typed accessor layer they
 //! existed to feed. What remains are the **ingest fixtures**
 //! ([`ingest_metadata`], [`ingest_dep`]), which are written to disk and read
-//! back through `DuckDB`'s `read_json_auto`. They are deliberately *fat*:
+//! back through the ingestor's parameter-bound JSON load. They are
+//! deliberately *fat*:
 //! every nullable string carries an explicit `""`, because a column that is
 //! null in every row infers as INTEGER and the view's casts then fail.
 //! Trimming these to "only what the test exercises" would break schema
 //! inference — the boilerplate is load-bearing, which is why it lives here
 //! exactly once instead of at four call sites.
 
-use ops_duckdb::IngestDir;
+use ops_sqlite::IngestDir;
 use serde_json::{json, Value};
 use std::path::PathBuf;
 
@@ -26,7 +27,7 @@ use std::path::PathBuf;
 const REGISTRY: &str = "registry+https://github.com/rust-lang/crates.io-index";
 
 /// A dependency entry for the ingest path. Every nullable string is an
-/// explicit `""` — see the module docs on `DuckDB` schema inference.
+/// explicit `""` — see the module docs on `SQLite` schema inference.
 pub struct IngestDep {
     name: String,
     req: String,
@@ -163,5 +164,5 @@ pub fn write_metadata_json(dir: &IngestDir, value: &Value) -> PathBuf {
 /// Open a verified ingest anchor inside `tmp`, mirroring what
 /// `provide_via_ingestor` builds before it calls an ingestor.
 pub fn ingest_anchor(tmp: &tempfile::TempDir) -> IngestDir {
-    IngestDir::open(&tmp.path().join("data.duckdb.ingest")).expect("open ingest dir")
+    IngestDir::open(&tmp.path().join("data.db.ingest")).expect("open ingest dir")
 }

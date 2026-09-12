@@ -2,7 +2,7 @@
 //!
 //! Reads `[workspace].members` from Cargo.toml and per-crate Cargo manifests
 //! for display metadata. LOC/file counts are enriched by the generic
-//! `run_about_units` runner when `DuckDB` is available.
+//! `run_about_units` runner when `SQLite` is available.
 
 use std::collections::HashMap;
 use std::path::Path;
@@ -47,7 +47,7 @@ impl DataProvider for RustUnitsProvider {
     /// FN-1 / TASK-1784: orchestration only — load the manifest, fetch the dep
     /// counts, map each safe member to a [`ProjectUnit`]. The per-member work
     /// (canonical-path lookup, dep-count resolution, diagnostics) lives in
-    /// named helpers below that are unit-testable without a live `DuckDB`.
+    /// named helpers below that are unit-testable without a live `SQLite`.
     fn provide(&self, ctx: &mut Context) -> Result<serde_json::Value, DataProviderError> {
         let manifest = match load_workspace_manifest(ctx) {
             Ok(m) => m,
@@ -83,19 +83,19 @@ impl DataProvider for RustUnitsProvider {
     }
 }
 
-/// Per-crate dep counts from `DuckDB`, keyed by `crate_manifest_path`
+/// Per-crate dep counts from `SQLite`, keyed by `crate_manifest_path`
 /// (ERR-2 / TASK-1253 — the previous bare-name key collided for renamed
 /// (`package = "alt-name"`) or duplicate-named workspace members).
 ///
 /// ERR-2 / TASK-0376: query failures route through `query_or_warn` so they
 /// don't manifest as a silent "no deps" on a misconfigured DB.
 fn crate_dep_counts(ctx: &Context) -> HashMap<String, i64> {
-    ops_duckdb::get_db(ctx).map_or_else(HashMap::new, |db| {
-        ops_duckdb::sql::query_or_warn(
+    ops_sqlite::get_db(ctx).map_or_else(HashMap::new, |db| {
+        ops_sqlite::sql::query_or_warn(
             "query_crate_dep_counts",
             "per-crate dep_counts will be empty",
             HashMap::<String, i64>::new(),
-            || ops_duckdb::sql::query_crate_dep_counts(db),
+            || ops_sqlite::sql::query_crate_dep_counts(db),
         )
     })
 }
@@ -155,7 +155,7 @@ fn build_unit(
 /// empty.
 ///
 /// FN-1 / TASK-1784: extracted from `provide`'s map closure so the three
-/// diagnostic branches are reachable from a unit test without a live `DuckDB`,
+/// diagnostic branches are reachable from a unit test without a live `SQLite`,
 /// and so the `clippy::option_if_let_else` suppression the nesting used to
 /// require is no longer needed.
 fn resolve_dep_count(
@@ -443,7 +443,7 @@ mod tests {
     }
 
     /// FN-1 / TASK-1784 AC #2: the dep-count resolution is reachable without a
-    /// live `DuckDB`. All three branches — hit, missing row, and missing
+    /// live `SQLite`. All three branches — hit, missing row, and missing
     /// package name — are pinned here.
     #[test]
     fn resolve_dep_count_hits_missing_and_nameless() {
@@ -608,7 +608,7 @@ mod tests {
     /// cargo when the parent paths differ) must each resolve to a
     /// `ProjectUnit` rather than colliding on the bare `package.name` key
     /// the previous code used. The provider doesn't fail loudly on a
-    /// missing `dep_count` map (`DuckDB` is optional in this provider's
+    /// missing `dep_count` map (`SQLite` is optional in this provider's
     /// contract), so the assertion here is structural — both units appear
     /// with their correct path metadata even when the names duplicate.
     #[test]

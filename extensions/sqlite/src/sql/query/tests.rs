@@ -1,10 +1,10 @@
 use super::*;
 use crate::init_schema;
-use crate::DuckDb;
+use crate::Sqlite;
 
 #[test]
 fn query_project_file_count_with_data() {
-    let db = DuckDb::open_in_memory().expect("open in-memory db");
+    let db = Sqlite::open_in_memory().expect("open in-memory db");
     init_schema(&db).expect("init_schema");
 
     let conn = db.lock().expect("lock");
@@ -24,7 +24,7 @@ fn query_project_file_count_with_data() {
 
 #[test]
 fn query_project_file_count_no_table() {
-    let db = DuckDb::open_in_memory().expect("open in-memory db");
+    let db = Sqlite::open_in_memory().expect("open in-memory db");
     init_schema(&db).expect("init_schema");
 
     let count = query_project_file_count(&db).expect("query should work");
@@ -33,7 +33,7 @@ fn query_project_file_count_no_table() {
 
 #[test]
 fn query_crate_file_count_with_data() {
-    let db = DuckDb::open_in_memory().expect("open in-memory db");
+    let db = Sqlite::open_in_memory().expect("open in-memory db");
     init_schema(&db).expect("init_schema");
 
     let conn = db.lock().expect("lock");
@@ -56,7 +56,7 @@ fn query_crate_file_count_with_data() {
 
 #[test]
 fn query_crate_file_count_empty() {
-    let db = DuckDb::open_in_memory().expect("open in-memory db");
+    let db = Sqlite::open_in_memory().expect("open in-memory db");
     init_schema(&db).expect("init_schema");
 
     let result = query_crate_file_count(&db, &["crates/my-lib"]).expect("query should work");
@@ -65,7 +65,7 @@ fn query_crate_file_count_empty() {
 
 #[test]
 fn query_project_loc_with_data() {
-    let db = DuckDb::open_in_memory().expect("open in-memory db");
+    let db = Sqlite::open_in_memory().expect("open in-memory db");
     init_schema(&db).expect("init_schema");
 
     let conn = db.lock().expect("lock");
@@ -85,7 +85,7 @@ fn query_project_loc_with_data() {
 
 #[test]
 fn query_project_loc_no_table() {
-    let db = DuckDb::open_in_memory().expect("open in-memory db");
+    let db = Sqlite::open_in_memory().expect("open in-memory db");
     init_schema(&db).expect("init_schema");
 
     let loc = query_project_loc(&db).expect("query should work");
@@ -94,7 +94,7 @@ fn query_project_loc_no_table() {
 
 #[test]
 fn query_crate_loc_with_data() {
-    let db = DuckDb::open_in_memory().expect("open in-memory db");
+    let db = Sqlite::open_in_memory().expect("open in-memory db");
     init_schema(&db).expect("init_schema");
 
     let conn = db.lock().expect("lock");
@@ -117,7 +117,7 @@ fn query_crate_loc_with_data() {
 
 #[test]
 fn query_crate_loc_empty_table() {
-    let db = DuckDb::open_in_memory().expect("open in-memory db");
+    let db = Sqlite::open_in_memory().expect("open in-memory db");
     init_schema(&db).expect("init_schema");
 
     let conn = db.lock().expect("lock");
@@ -136,7 +136,7 @@ fn query_crate_loc_empty_table() {
 
 #[test]
 fn query_crate_loc_no_members() {
-    let db = DuckDb::open_in_memory().expect("open in-memory db");
+    let db = Sqlite::open_in_memory().expect("open in-memory db");
     init_schema(&db).expect("init_schema");
 
     let result = query_crate_loc(&db, &[]).expect("query should work");
@@ -145,7 +145,7 @@ fn query_crate_loc_no_members() {
 
 #[test]
 fn query_crate_deps_no_view() {
-    let db = DuckDb::open_in_memory().expect("open in-memory db");
+    let db = Sqlite::open_in_memory().expect("open in-memory db");
     init_schema(&db).expect("init_schema");
     let result = query_crate_deps(&db).expect("query should work");
     assert!(result.is_empty());
@@ -153,19 +153,21 @@ fn query_crate_deps_no_view() {
 
 #[test]
 fn query_crate_deps_with_data() {
-    let db = DuckDb::open_in_memory().expect("open in-memory db");
+    let db = Sqlite::open_in_memory().expect("open in-memory db");
     init_schema(&db).expect("init_schema");
 
     let conn = db.lock().expect("lock");
     conn.execute_batch(
+        // SQLite has no `FROM (VALUES ...) AS t(cols)`; the seed view is a
+        // UNION ALL of aliased single-row SELECTs (is_optional is INTEGER
+        // 0/1, the ported boolean shape).
         "CREATE VIEW crate_dependencies AS \
-         SELECT * FROM (VALUES \
-             ('ops-core', 'anyhow', '^1.0', 'normal', false), \
-             ('ops-core', 'serde', '^1.0', 'normal', false), \
-             ('ops-core', 'tempfile', '^3.0', 'dev', false), \
-             ('ops-cli', 'clap', '^4.0', 'normal', false), \
-             ('ops-cli', 'tokio', '^1.0', 'normal', false) \
-         ) AS t(crate_name, dependency_name, version_req, dependency_kind, is_optional)",
+         SELECT 'ops-core' AS crate_name, 'anyhow' AS dependency_name, \
+                '^1.0' AS version_req, 'normal' AS dependency_kind, 0 AS is_optional \
+         UNION ALL SELECT 'ops-core', 'serde', '^1.0', 'normal', 0 \
+         UNION ALL SELECT 'ops-core', 'tempfile', '^3.0', 'dev', 0 \
+         UNION ALL SELECT 'ops-cli', 'clap', '^4.0', 'normal', 0 \
+         UNION ALL SELECT 'ops-cli', 'tokio', '^1.0', 'normal', 0",
     )
     .expect("create view with test data");
     drop(conn);
@@ -186,7 +188,7 @@ fn query_crate_deps_with_data() {
 
 #[test]
 fn query_crate_dep_counts_no_view() {
-    let db = DuckDb::open_in_memory().expect("open in-memory db");
+    let db = Sqlite::open_in_memory().expect("open in-memory db");
     init_schema(&db).expect("init_schema");
     let result = query_crate_dep_counts(&db).expect("query should work");
     assert!(result.is_empty());
@@ -194,7 +196,7 @@ fn query_crate_dep_counts_no_view() {
 
 #[test]
 fn query_crate_dep_counts_with_data() {
-    let db = DuckDb::open_in_memory().expect("open in-memory db");
+    let db = Sqlite::open_in_memory().expect("open in-memory db");
     init_schema(&db).expect("init_schema");
 
     // ERR-2 / TASK-1253: dep counts now key by `crate_manifest_path`, so
@@ -202,12 +204,12 @@ fn query_crate_dep_counts_with_data() {
     let conn = db.lock().expect("lock");
     conn.execute_batch(
         "CREATE VIEW crate_dependencies AS \
-         SELECT * FROM (VALUES \
-             ('ops-core', 'serde', '^1.0', 'normal', false, '/ws/core/Cargo.toml'), \
-             ('ops-core', 'anyhow', '^1.0', 'normal', false, '/ws/core/Cargo.toml'), \
-             ('ops-core', 'tempfile', '^3.0', 'dev', false, '/ws/core/Cargo.toml'), \
-             ('ops-cli', 'clap', '^4.0', 'normal', false, '/ws/cli/Cargo.toml') \
-         ) AS t(crate_name, dependency_name, version_req, dependency_kind, is_optional, crate_manifest_path)",
+         SELECT 'ops-core' AS crate_name, 'serde' AS dependency_name, \
+                '^1.0' AS version_req, 'normal' AS dependency_kind, 0 AS is_optional, \
+                '/ws/core/Cargo.toml' AS crate_manifest_path \
+         UNION ALL SELECT 'ops-core', 'anyhow', '^1.0', 'normal', 0, '/ws/core/Cargo.toml' \
+         UNION ALL SELECT 'ops-core', 'tempfile', '^3.0', 'dev', 0, '/ws/core/Cargo.toml' \
+         UNION ALL SELECT 'ops-cli', 'clap', '^4.0', 'normal', 0, '/ws/cli/Cargo.toml'",
     )
     .expect("create view with test data");
     drop(conn);
@@ -224,17 +226,17 @@ fn query_crate_dep_counts_with_data() {
 /// entry that silently mis-attributes counts.
 #[test]
 fn query_crate_dep_counts_distinguishes_duplicate_named_members() {
-    let db = DuckDb::open_in_memory().expect("open in-memory db");
+    let db = Sqlite::open_in_memory().expect("open in-memory db");
     init_schema(&db).expect("init_schema");
 
     let conn = db.lock().expect("lock");
     conn.execute_batch(
         "CREATE VIEW crate_dependencies AS \
-         SELECT * FROM (VALUES \
-             ('lib', 'serde', '^1.0', 'normal', false, '/ws/a/lib/Cargo.toml'), \
-             ('lib', 'serde', '^1.0', 'normal', false, '/ws/b/lib/Cargo.toml'), \
-             ('lib', 'anyhow', '^1.0', 'normal', false, '/ws/b/lib/Cargo.toml') \
-         ) AS t(crate_name, dependency_name, version_req, dependency_kind, is_optional, crate_manifest_path)",
+         SELECT 'lib' AS crate_name, 'serde' AS dependency_name, \
+                '^1.0' AS version_req, 'normal' AS dependency_kind, 0 AS is_optional, \
+                '/ws/a/lib/Cargo.toml' AS crate_manifest_path \
+         UNION ALL SELECT 'lib', 'serde', '^1.0', 'normal', 0, '/ws/b/lib/Cargo.toml' \
+         UNION ALL SELECT 'lib', 'anyhow', '^1.0', 'normal', 0, '/ws/b/lib/Cargo.toml'",
     )
     .expect("create view with test data");
     drop(conn);
@@ -247,7 +249,7 @@ fn query_crate_dep_counts_distinguishes_duplicate_named_members() {
 
 #[test]
 fn query_project_coverage_no_table() {
-    let db = DuckDb::open_in_memory().expect("open in-memory db");
+    let db = Sqlite::open_in_memory().expect("open in-memory db");
     init_schema(&db).expect("init_schema");
 
     let cov = query_project_coverage(&db).expect("query should work");
@@ -258,7 +260,7 @@ fn query_project_coverage_no_table() {
 
 #[test]
 fn query_project_coverage_with_data() {
-    let db = DuckDb::open_in_memory().expect("open in-memory db");
+    let db = Sqlite::open_in_memory().expect("open in-memory db");
     init_schema(&db).expect("init_schema");
 
     let conn = db.lock().expect("lock");
@@ -280,7 +282,7 @@ fn query_project_coverage_with_data() {
 
 #[test]
 fn query_crate_coverage_no_table() {
-    let db = DuckDb::open_in_memory().expect("open in-memory db");
+    let db = Sqlite::open_in_memory().expect("open in-memory db");
     init_schema(&db).expect("init_schema");
 
     let result =
@@ -290,7 +292,7 @@ fn query_crate_coverage_no_table() {
 
 #[test]
 fn query_crate_coverage_empty_members() {
-    let db = DuckDb::open_in_memory().expect("open in-memory db");
+    let db = Sqlite::open_in_memory().expect("open in-memory db");
     init_schema(&db).expect("init_schema");
 
     let result = query_crate_coverage(&db, &[], "/workspace").expect("query should work");
@@ -299,7 +301,7 @@ fn query_crate_coverage_empty_members() {
 
 #[test]
 fn query_crate_coverage_with_relative_paths() {
-    let db = DuckDb::open_in_memory().expect("open in-memory db");
+    let db = Sqlite::open_in_memory().expect("open in-memory db");
     init_schema(&db).expect("init_schema");
 
     let conn = db.lock().expect("lock");
@@ -325,7 +327,7 @@ fn query_crate_coverage_with_relative_paths() {
 
 #[test]
 fn query_dependency_count_no_table() {
-    let db = DuckDb::open_in_memory().expect("open in-memory db");
+    let db = Sqlite::open_in_memory().expect("open in-memory db");
     init_schema(&db).expect("init_schema");
 
     let count = query_dependency_count(&db).expect("query should work");
@@ -334,18 +336,17 @@ fn query_dependency_count_no_table() {
 
 #[test]
 fn query_dependency_count_with_data() {
-    let db = DuckDb::open_in_memory().expect("open in-memory db");
+    let db = Sqlite::open_in_memory().expect("open in-memory db");
     init_schema(&db).expect("init_schema");
 
     let conn = db.lock().expect("lock");
     conn.execute_batch(
         "CREATE VIEW crate_dependencies AS \
-         SELECT * FROM (VALUES \
-             ('ops-core', 'serde', '^1.0', 'normal', false), \
-             ('ops-core', 'anyhow', '^1.0', 'normal', false), \
-             ('ops-cli', 'serde', '^1.0', 'normal', false), \
-             ('ops-cli', 'clap', '^4.0', 'normal', false) \
-         ) AS t(crate_name, dependency_name, version_req, dependency_kind, is_optional)",
+         SELECT 'ops-core' AS crate_name, 'serde' AS dependency_name, \
+                '^1.0' AS version_req, 'normal' AS dependency_kind, 0 AS is_optional \
+         UNION ALL SELECT 'ops-core', 'anyhow', '^1.0', 'normal', 0 \
+         UNION ALL SELECT 'ops-cli', 'serde', '^1.0', 'normal', 0 \
+         UNION ALL SELECT 'ops-cli', 'clap', '^4.0', 'normal', 0",
     )
     .expect("create view with test data");
     drop(conn);
@@ -356,7 +357,7 @@ fn query_dependency_count_with_data() {
 
 #[test]
 fn query_project_languages_no_table() {
-    let db = DuckDb::open_in_memory().expect("open in-memory db");
+    let db = Sqlite::open_in_memory().expect("open in-memory db");
     init_schema(&db).expect("init_schema");
 
     let langs = query_project_languages(&db).expect("query should work");
@@ -365,7 +366,7 @@ fn query_project_languages_no_table() {
 
 #[test]
 fn query_project_languages_with_data() {
-    let db = DuckDb::open_in_memory().expect("open in-memory db");
+    let db = Sqlite::open_in_memory().expect("open in-memory db");
     init_schema(&db).expect("init_schema");
 
     let conn = db.lock().expect("lock");
@@ -391,7 +392,7 @@ fn query_project_languages_with_data() {
 
 #[test]
 fn query_project_languages_omits_tiny_percentages() {
-    let db = DuckDb::open_in_memory().expect("open in-memory db");
+    let db = Sqlite::open_in_memory().expect("open in-memory db");
     init_schema(&db).expect("init_schema");
 
     let conn = db.lock().expect("lock");
@@ -416,7 +417,7 @@ fn query_project_languages_returns_empty_when_all_below_threshold() {
     // the function must honour its documented "omit < 0.1%" contract and
     // return an empty Vec. Previously a fallback returned the top entry,
     // hiding "all tiny" behind "single dominant language".
-    let db = DuckDb::open_in_memory().expect("open in-memory db");
+    let db = Sqlite::open_in_memory().expect("open in-memory db");
     init_schema(&db).expect("init_schema");
 
     let conn = db.lock().expect("lock");
@@ -427,9 +428,13 @@ fn query_project_languages_returns_empty_when_all_below_threshold() {
     .expect("create");
     // 5000 unique languages, each contributing 1 line → each ~0.02% < 0.1%.
     conn.execute_batch(
+        // `generate_series` is a loadable extension SQLite does not bundle;
+        // a recursive CTE produces the same 5000-row counter.
         "INSERT INTO tokei_files \
-         SELECT 'Lang' || i, 'f' || i, 1, 0, 0, 1 \
-         FROM generate_series(0, 4999) AS gs(i);",
+         WITH RECURSIVE gs(i) AS ( \
+             SELECT 0 UNION ALL SELECT i + 1 FROM gs WHERE i < 4999 \
+         ) \
+         SELECT 'Lang' || i, 'f' || i, 1, 0, 0, 1 FROM gs;",
     )
     .expect("bulk insert");
     drop(conn);
@@ -450,7 +455,7 @@ fn query_project_languages_returns_empty_when_total_loc_is_zero() {
     // surfacing as a misleading "language stats failed" log. The fix wraps
     // loc_pct in COALESCE(..., 0) so the >= 0.1 filter naturally drops the
     // row and the documented empty-result signal is preserved.
-    let db = DuckDb::open_in_memory().expect("open in-memory db");
+    let db = Sqlite::open_in_memory().expect("open in-memory db");
     init_schema(&db).expect("init_schema");
 
     let conn = db.lock().expect("lock");
@@ -474,7 +479,7 @@ fn query_project_languages_returns_empty_when_total_loc_is_zero() {
 
 #[test]
 fn query_crate_coverage_with_absolute_paths() {
-    let db = DuckDb::open_in_memory().expect("open in-memory db");
+    let db = Sqlite::open_in_memory().expect("open in-memory db");
     init_schema(&db).expect("init_schema");
 
     let conn = db.lock().expect("lock");
@@ -500,7 +505,7 @@ fn query_crate_coverage_with_absolute_paths() {
 /// Create a `rust_loc_files` table shaped like the one the `rust-loc`
 /// ingestor loads, so the summary query runs against realistic column
 /// types. The view on top is created by each test that needs one.
-fn rust_loc_files_fixture(db: &DuckDb) {
+fn rust_loc_files_fixture(db: &Sqlite) {
     let conn = db.lock().expect("lock");
     conn.execute_batch(
         "CREATE TABLE rust_loc_files (file VARCHAR, region VARCHAR, code BIGINT, \
@@ -515,7 +520,7 @@ fn rust_loc_files_fixture(db: &DuckDb) {
 
 #[test]
 fn query_rust_loc_summary_no_view() {
-    let db = DuckDb::open_in_memory().expect("open in-memory db");
+    let db = Sqlite::open_in_memory().expect("open in-memory db");
     init_schema(&db).expect("init_schema");
 
     let stats = query_rust_loc_summary(&db).expect("missing view must not error");
@@ -525,13 +530,13 @@ fn query_rust_loc_summary_no_view() {
     );
 }
 
-/// The aggregate columns come back as `DuckDB` `SUM(BIGINT)` (a 128-bit
+/// The aggregate columns come back as `SQLite` `SUM(BIGINT)` (a 128-bit
 /// HUGEINT), so this pins that they still decode into the `i64` fields of
 /// [`RustLocStat`] — a silent type mismatch here would surface as an
 /// unreadable "invalid column type" at the about page instead.
 #[test]
 fn query_rust_loc_summary_aggregates_per_region() {
-    let db = DuckDb::open_in_memory().expect("open in-memory db");
+    let db = Sqlite::open_in_memory().expect("open in-memory db");
     init_schema(&db).expect("init_schema");
     rust_loc_files_fixture(&db);
 
@@ -578,7 +583,7 @@ fn query_rust_loc_summary_aggregates_per_region() {
 /// even after a successful ingest of an empty workspace.
 #[test]
 fn query_rust_loc_summary_empty_table_yields_no_rows() {
-    let db = DuckDb::open_in_memory().expect("open in-memory db");
+    let db = Sqlite::open_in_memory().expect("open in-memory db");
     init_schema(&db).expect("init_schema");
 
     let conn = db.lock().expect("lock");
@@ -606,7 +611,7 @@ fn query_rust_loc_summary_empty_table_yields_no_rows() {
 /// view's per-region `files` column would report 4 files for 3.
 #[test]
 fn query_rust_loc_file_count_counts_each_file_once() {
-    let db = DuckDb::open_in_memory().expect("open in-memory db");
+    let db = Sqlite::open_in_memory().expect("open in-memory db");
     init_schema(&db).expect("init_schema");
     rust_loc_files_fixture(&db);
 
@@ -616,7 +621,7 @@ fn query_rust_loc_file_count_counts_each_file_once() {
 
 #[test]
 fn query_rust_loc_file_count_no_table() {
-    let db = DuckDb::open_in_memory().expect("open in-memory db");
+    let db = Sqlite::open_in_memory().expect("open in-memory db");
     init_schema(&db).expect("init_schema");
 
     let files = query_rust_loc_file_count(&db).expect("missing table must not error");

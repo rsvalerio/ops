@@ -1,6 +1,6 @@
 //! Stack-agnostic `about code` subpage: language statistics table.
 //!
-//! Reads language LOC and file counts from the `tokei_files` `DuckDB` view
+//! Reads language LOC and file counts from the `tokei_files` `SQLite` view
 //! (populated by the tokei data provider) and renders a table.
 
 use std::io::Write;
@@ -23,10 +23,10 @@ pub fn query_language_stats(
     ctx: &mut Context,
     data_registry: &DataRegistry,
 ) -> Option<Vec<LanguageStat>> {
-    warm_providers(ctx, data_registry, &["duckdb", "tokei"], "code");
+    warm_providers(ctx, data_registry, &["sqlite", "tokei"], "code");
 
-    let db = ops_duckdb::get_db(ctx)?;
-    match ops_duckdb::sql::query_project_languages(db) {
+    let db = ops_sqlite::get_db(ctx)?;
+    match ops_sqlite::sql::query_project_languages(db) {
         Ok(stats) if stats.is_empty() => None,
         Ok(stats) => Some(stats),
         Err(e) => {
@@ -95,7 +95,7 @@ mod tests {
     use super::*;
 
     /// TEST-5 / TASK-1739: `run_about_code_with` is the one runner with no
-    /// worded empty state — with no `DuckDB` handle `query_language_stats`
+    /// worded empty state — with no `SQLite` handle `query_language_stats`
     /// returns `None`, `format_language_stats_section` returns no lines, and
     /// the runner emits a single bare newline. Pinned so the silence is a
     /// deliberate contract rather than an accident, and so a future
@@ -132,7 +132,7 @@ mod tests {
         assert!(output.contains("100.0%"));
     }
 
-    /// Regression for ERR-4: a poisoned `DuckDb` mutex must produce graceful
+    /// Regression for ERR-4: a poisoned `Sqlite` mutex must produce graceful
     /// `None` (not a panic) and exercise the warn-and-continue path. We
     /// verify behavior; tracing assertion would require pulling in
     /// `tracing-subscriber` as a dev-dep, which we deliberately avoid for a
@@ -143,8 +143,8 @@ mod tests {
         use ops_extension::{Context, DataRegistry};
         use std::sync::Arc;
 
-        let db = Arc::new(ops_duckdb::DuckDb::open_in_memory().expect("db"));
-        ops_duckdb::init_schema(&db).expect("init_schema");
+        let db = Arc::new(ops_sqlite::Sqlite::open_in_memory().expect("db"));
+        ops_sqlite::init_schema(&db).expect("init_schema");
 
         // Poison the inner Mutex by panicking inside a guard.
         let poisoner = Arc::clone(&db);

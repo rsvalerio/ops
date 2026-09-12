@@ -1,14 +1,14 @@
 //! Coverage extension: LLVM code coverage via `cargo llvm-cov`.
-//! Collects per-file coverage data and loads into `DuckDB`.
+//! Collects per-file coverage data and loads into `SQLite`.
 //!
 //! ARCH-1 / TASK-1559: the previous monolithic `lib.rs` (412 lines) mixed
 //! six concerns. The crate is now split into:
 //!
 //! - [`subprocess`]: cargo argv + run/check helpers + exit formatter.
 //! - [`parse`]: llvm-cov JSON → `CoverageRow` flattening + soft-fail policy.
-//! - [`provider`]: `CoverageProvider` impl + `DuckDB` readback.
-//! - [`ingestor`]: `CoverageIngestor` (sidecar writer + `DuckDB` loader).
-//! - [`views`]: `DuckDB` view DDL.
+//! - [`provider`]: `CoverageProvider` impl + `SQLite` readback.
+//! - [`ingestor`]: `CoverageIngestor` (sidecar writer + `SQLite` loader).
+//! - [`views`]: `SQLite` view DDL.
 //!
 //! `lib.rs` retains only wiring + `load_coverage` (the crate's public ingest
 //! entry point).
@@ -46,8 +46,8 @@ mod views;
 // is reachable outside the crate.
 
 use crate::ingestor::CoverageIngestor;
-use ops_duckdb::{init_schema, DataIngestor, DuckDb, IngestDir, LoadResult};
 use ops_extension::ExtensionType;
+use ops_sqlite::{init_schema, DataIngestor, IngestDir, LoadResult, Sqlite};
 
 /// Extension identifier used to register this crate in the engine's
 /// extension registry.
@@ -81,7 +81,7 @@ ops_extension::impl_extension! {
     },
 }
 
-/// Ingest coverage sidecar data into `DuckDB` and return the structured load
+/// Ingest coverage sidecar data into `SQLite` and return the structured load
 /// report.
 ///
 /// READ-5 (TASK-0808): the previous signature returned `()` and silently
@@ -103,7 +103,7 @@ ops_extension::impl_extension! {
 /// trait now takes, so this public entry point cannot re-introduce a by-name
 /// resolution of the staging directory that `provide_via_ingestor` verified.
 #[must_use = "load report carries the record_count health signal (TASK-0808)"]
-pub fn load_coverage(dir: &IngestDir, db: &DuckDb) -> Result<LoadResult, anyhow::Error> {
+pub fn load_coverage(dir: &IngestDir, db: &Sqlite) -> Result<LoadResult, anyhow::Error> {
     init_schema(db)?;
     let ingestor = CoverageIngestor;
     let load_result = ingestor.load(dir, db)?;

@@ -93,9 +93,9 @@ where
 /// [`DataProviderError::ComputationMessage`] rather than letting
 /// `Path::display` smuggle `U+FFFD` replacement bytes into the
 /// `project_root` JSON field. This mirrors the strict
-/// [`ops_duckdb::DbError::NonUtf8Path`] policy adopted in TASK-0928 for
+/// [`ops_sqlite::DbError::NonUtf8Path`] policy adopted in TASK-0928 for
 /// `upsert_data_source`: any path persisted into a downstream consumer
-/// (`DuckDB` row, JSON identity payload, audit log) must round-trip
+/// (`SQLite` row, JSON identity payload, audit log) must round-trip
 /// faithfully, so the two paths now share the same fail-fast contract.
 ///
 /// # Errors
@@ -175,7 +175,7 @@ mod tests {
     /// [`DataProviderError::ComputationMessage`] rather than silently
     /// shipping `U+FFFD`-mangled bytes into the `project_root` JSON
     /// field. Mirrors the `upsert_data_source` `NonUtf8Path` test in
-    /// `ops-duckdb`.
+    /// `ops-sqlite`.
     #[test]
     #[cfg(unix)]
     fn build_identity_value_rejects_non_utf8_cwd() {

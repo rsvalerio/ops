@@ -2,32 +2,38 @@
 //!
 //! # Security (SEC-001)
 //!
-//! Path validation and SQL escaping are handled by `ops_duckdb::sql`
-//! (shared defense-in-depth validation). This module only contains
-//! tokei-specific SQL generation.
+//! Identifier validation is handled by `ops_sqlite::sql` (shared
+//! defense-in-depth validation), and the staged JSON reaches the engine as
+//! a bound parameter — never interpolated. This module only contains
+//! tokei-specific SQL specs.
 
-use ops_duckdb::sql::{CreateTableSql, CreateViewSql, SqlError, TableName};
-use std::path::Path;
+use ops_sqlite::sql::{CreateViewSql, JsonColumn, JsonTableLoad, TableName};
 
-/// Builds the `CREATE TABLE` statement loading `tokei_files.json` at `path`
-/// into the `tokei_files` table.
+/// The `tokei_files` load spec.
 ///
-/// # Errors
-///
-/// [`SqlError`] if `path` fails path validation; the table name is a valid
-/// static identifier.
-pub fn tokei_files_create_sql(path: &Path) -> Result<CreateTableSql, SqlError> {
-    ops_duckdb::sql::create_table_from_json_sql("tokei_files", path, None)
-}
+/// The staged sidecar is a flat array with one record per file, produced by
+/// `report_to_json` — the column list mirrors that record shape exactly
+/// (`language`/`file` text, the five counts integers). A record missing one
+/// of these keys fails the `NOT NULL` insert loudly, so a collector/output
+/// drift surfaces as an ingest error rather than a silent NULL column.
+pub const TOKEI_FILES_LOAD: JsonTableLoad = JsonTableLoad::flat_array(
+    "tokei_files",
+    &[
+        JsonColumn::text("language", "$.language"),
+        JsonColumn::text("file", "$.file"),
+        JsonColumn::integer("code", "$.code"),
+        JsonColumn::integer("comments", "$.comments"),
+        JsonColumn::integer("blanks", "$.blanks"),
+        JsonColumn::integer("lines", "$.lines"),
+    ],
+);
 
 /// SEC-12 (TASK-0593) / ERR-5 (TASK-1003): identifiers are routed through
 /// the const-validated [`TableName::from_static`] newtype so the
 /// compile-time invariant replaces the runtime `quoted_ident` Result.
 ///
 /// Both literals are valid SQL identifiers — the assert in `from_static`
-/// would fire at build time on a typo, eliminating the pre-prod
-/// `Result<_, SqlError>` whose `Err` variant could never occur and the
-/// `expect("static idents must validate")` calls in tests.
+/// would fire at build time on a typo.
 ///
 /// SEC-12 / TASK-1864: the statement is returned as the gated
 /// [`CreateViewSql`] newtype, whose only constructor takes const-validated
@@ -47,7 +53,27 @@ pub fn tokei_languages_view_sql() -> CreateViewSql {
 mod tests {
     use super::*;
 
-    ops_duckdb::test_create_sql_validation!(tokei_files_create_sql, "tokei_files.json");
+    /// SEC-12: the load spec's DDL quotes every identifier and declares the
+    /// typed columns the queries decode against.
+    #[test]
+    fn tokei_files_load_declares_typed_quoted_columns() {
+        let sql = TOKEI_FILES_LOAD.create_table_sql().to_string();
+        assert!(
+            sql.contains("CREATE TABLE \"tokei_files\" (\"language\" TEXT NOT NULL"),
+            "expected quoted text column: {sql}"
+        );
+        assert!(
+            sql.contains("\"file\" TEXT NOT NULL"),
+            "expected quoted file column: {sql}"
+        );
+        assert!(
+            sql.contains("\"code\" INTEGER NOT NULL")
+                && sql.contains("\"comments\" INTEGER NOT NULL")
+                && sql.contains("\"blanks\" INTEGER NOT NULL")
+                && sql.contains("\"lines\" INTEGER NOT NULL"),
+            "expected integer count columns: {sql}"
+        );
+    }
 
     #[test]
     fn tokei_languages_view_sql_contains_aggregation() {
@@ -60,7 +86,7 @@ mod tests {
     }
 
     /// SEC-12: identifiers must be double-quoted, matching the parity policy
-    /// of the sister `tokei_files_create_sql` helper.
+    /// of the load spec's DDL.
     #[test]
     fn tokei_languages_view_sql_quotes_identifiers() {
         let sql = tokei_languages_view_sql().to_string();

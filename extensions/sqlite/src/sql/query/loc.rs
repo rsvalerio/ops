@@ -1,7 +1,7 @@
 //! LOC, file count, and per-language queries over `tokei_files`, plus the
 //! Rust production / test / example breakdown over `rust_loc_summary`.
 
-use crate::DuckDb;
+use crate::Sqlite;
 use std::collections::HashMap;
 
 use ops_core::project_identity::LanguageStat;
@@ -18,7 +18,7 @@ use super::helpers::{
 ///
 /// If the database lock is poisoned, or the query fails. A missing table
 /// is not an error — it yields `0`.
-pub fn query_project_file_count(db: &DuckDb) -> anyhow::Result<i64> {
+pub fn query_project_file_count(db: &Sqlite) -> anyhow::Result<i64> {
     query_project_scalar(
         db,
         "tokei_files",
@@ -37,7 +37,7 @@ pub fn query_project_file_count(db: &DuckDb) -> anyhow::Result<i64> {
 /// If the database lock is poisoned, or the query fails. A missing table
 /// is not an error — every member maps to `0`.
 pub fn query_crate_file_count(
-    db: &DuckDb,
+    db: &Sqlite,
     member_paths: &[&str],
 ) -> anyhow::Result<HashMap<String, i64>> {
     query_per_crate_i64(&PerCrateI64Query {
@@ -57,7 +57,7 @@ pub fn query_crate_file_count(
 ///
 /// If the database lock is poisoned, or the query fails. A missing table
 /// is not an error — it yields `0`.
-pub fn query_project_loc(db: &DuckDb) -> anyhow::Result<i64> {
+pub fn query_project_loc(db: &Sqlite) -> anyhow::Result<i64> {
     query_project_scalar(
         db,
         "tokei_files",
@@ -81,7 +81,7 @@ pub fn query_project_loc(db: &DuckDb) -> anyhow::Result<i64> {
 ///
 /// If the database lock is poisoned, or the query or row decode fails. A
 /// missing `tokei_files` table is not an error — it yields an empty vec.
-pub fn query_project_languages(db: &DuckDb) -> anyhow::Result<Vec<LanguageStat>> {
+pub fn query_project_languages(db: &Sqlite) -> anyhow::Result<Vec<LanguageStat>> {
     use anyhow::Context;
 
     let conn = db
@@ -107,7 +107,7 @@ pub fn query_project_languages(db: &DuckDb) -> anyhow::Result<Vec<LanguageStat>>
         .context("preparing query_project_languages")?;
 
     let rows = stmt
-        .query_map([], |row: &duckdb::Row<'_>| {
+        .query_map([], |row: &rusqlite::Row<'_>| {
             Ok(LanguageStat::new(
                 row.get::<_, String>(0)?,
                 row.get(1)?,
@@ -186,7 +186,7 @@ pub struct RustLocStat {
 ///
 /// If the database lock is poisoned, or the query or row decode fails. A
 /// missing `rust_loc_summary` table is not an error — it yields an empty vec.
-pub fn query_rust_loc_summary(db: &DuckDb) -> anyhow::Result<Vec<RustLocStat>> {
+pub fn query_rust_loc_summary(db: &Sqlite) -> anyhow::Result<Vec<RustLocStat>> {
     use anyhow::Context;
 
     let conn = db
@@ -205,7 +205,7 @@ pub fn query_rust_loc_summary(db: &DuckDb) -> anyhow::Result<Vec<RustLocStat>> {
         .context("preparing query_rust_loc_summary")?;
 
     let rows = stmt
-        .query_map([], |row: &duckdb::Row<'_>| {
+        .query_map([], |row: &rusqlite::Row<'_>| {
             Ok(RustLocStat {
                 region: row.get(0)?,
                 files: row.get(1)?,
@@ -242,7 +242,7 @@ pub fn query_rust_loc_summary(db: &DuckDb) -> anyhow::Result<Vec<RustLocStat>> {
 ///
 /// If the database lock is poisoned, or the query fails. A missing table
 /// is not an error — it yields `0`.
-pub fn query_rust_loc_file_count(db: &DuckDb) -> anyhow::Result<i64> {
+pub fn query_rust_loc_file_count(db: &Sqlite) -> anyhow::Result<i64> {
     query_project_scalar(
         db,
         "rust_loc_files",
@@ -260,7 +260,7 @@ pub fn query_rust_loc_file_count(db: &DuckDb) -> anyhow::Result<i64> {
 ///
 /// If the database lock is poisoned, or the query fails. A missing table
 /// is not an error — every member maps to `0`.
-pub fn query_crate_loc(db: &DuckDb, member_paths: &[&str]) -> anyhow::Result<HashMap<String, i64>> {
+pub fn query_crate_loc(db: &Sqlite, member_paths: &[&str]) -> anyhow::Result<HashMap<String, i64>> {
     query_per_crate_i64(&PerCrateI64Query {
         db,
         table: QueryTableName::new("tokei_files")?,

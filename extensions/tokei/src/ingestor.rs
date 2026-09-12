@@ -1,9 +1,9 @@
-//! `TokeiIngestor`: collect tokei statistics and load into `DuckDB`.
+//! `TokeiIngestor`: collect tokei statistics and load into `SQLite`.
 
 use crate::views;
-use ops_duckdb::sql::external_err;
-use ops_duckdb::{DataIngestor, DbResult, DuckDb, IngestDir, LoadResult, SidecarIngestorConfig};
 use ops_extension::Context;
+use ops_sqlite::sql::external_err;
+use ops_sqlite::{DataIngestor, DbResult, IngestDir, LoadResult, SidecarIngestorConfig, Sqlite};
 
 const PIPELINE: SidecarIngestorConfig =
     SidecarIngestorConfig::new("tokei", "tokei_files.json", "tokei_files");
@@ -23,11 +23,9 @@ impl DataIngestor for TokeiIngestor {
         PIPELINE.collect_sidecar(dir, &json, ctx.working_directory())
     }
 
-    fn load(&self, dir: &IngestDir, db: &DuckDb) -> DbResult<LoadResult> {
-        let json_path = dir.entry_path(PIPELINE.json_filename);
-        let create_sql = views::tokei_files_create_sql(&json_path)?;
+    fn load(&self, dir: &IngestDir, db: &Sqlite) -> DbResult<LoadResult> {
         let view_sql = views::tokei_languages_view_sql();
-        PIPELINE.load_with_sidecar(db, dir, &create_sql, &view_sql)
+        PIPELINE.load_with_sidecar(db, dir, &views::TOKEI_FILES_LOAD, &view_sql)
     }
 }
 

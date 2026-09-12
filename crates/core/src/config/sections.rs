@@ -38,13 +38,13 @@ impl AboutConfig {
     }
 }
 
-/// Data storage settings (`DuckDB` path, provider dispatch budget).
+/// Data storage settings (`SQLite` path, provider dispatch budget).
 #[derive(Debug, Clone, Default, Deserialize, Serialize)]
 #[serde(deny_unknown_fields)]
 pub struct DataConfig {
-    /// Optional path override for the `DuckDB` database.
+    /// Optional path override for the `SQLite` database.
     /// Absolute paths are used as-is; relative paths resolve from workspace root.
-    /// Default (when None): .ops/data.duckdb (stack-dependent)
+    /// Default (when None): `<workspace_root>/target/ops/data.db`
     pub path: Option<PathBuf>,
     /// CONC-9 / TASK-2056: wall-clock budget, in whole seconds, for one data
     /// provider dispatch.

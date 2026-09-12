@@ -1,10 +1,10 @@
 //! Rust `project_dependencies` data provider.
 //!
-//! Queries `DuckDB` for per-crate direct dependencies via cargo metadata.
+//! Queries `SQLite` for per-crate direct dependencies via cargo metadata.
 
 use ops_core::project_identity::{ProjectDependencies, UnitDeps};
-use ops_duckdb::sql::{query_crate_deps, query_or_warn};
 use ops_extension::{Context, DataProvider, DataProviderError};
+use ops_sqlite::sql::{query_crate_deps, query_or_warn};
 
 pub const PROVIDER_NAME: &str = "project_dependencies";
 
@@ -16,11 +16,11 @@ impl DataProvider for RustDepsProvider {
     }
 
     fn provide(&self, ctx: &mut Context) -> Result<serde_json::Value, DataProviderError> {
-        let Some(db) = ops_duckdb::get_db(ctx) else {
+        let Some(db) = ops_sqlite::get_db(ctx) else {
             return Ok(serde_json::to_value(ProjectDependencies::default())?);
         };
 
-        // ERR-2 / TASK-0376: a DuckDB schema/migration error here used to
+        // ERR-2 / TASK-0376: a SQLite schema/migration error here used to
         // surface as an empty deps list with no signal. `query_or_warn`
         // routes the failure through tracing::warn before falling back.
         let per_crate = query_or_warn(
@@ -43,8 +43,8 @@ impl DataProvider for RustDepsProvider {
 mod tests {
     use super::{RustDepsProvider, PROVIDER_NAME};
     use ops_about::test_support::capture_tracing;
-    use ops_duckdb::DuckDb;
     use ops_extension::{Context, DataProvider};
+    use ops_sqlite::Sqlite;
     use std::sync::Arc;
 
     /// TEST-5 / TASK-1776 AC #2.
@@ -54,7 +54,7 @@ mod tests {
         assert_eq!(PROVIDER_NAME, "project_dependencies");
     }
 
-    fn provide_with(db: Option<DuckDb>) -> (serde_json::Value, String) {
+    fn provide_with(db: Option<Sqlite>) -> (serde_json::Value, String) {
         let dir = tempfile::tempdir().expect("tempdir");
         let mut ctx = Context::test_context(dir.path().to_path_buf());
         if let Some(db) = db {
@@ -66,10 +66,10 @@ mod tests {
         (value, logs)
     }
 
-    /// TEST-5 / TASK-1776 AC #1: no `DuckDB` in the context serialises a
+    /// TEST-5 / TASK-1776 AC #1: no `SQLite` in the context serialises a
     /// default (empty but well-formed) `ProjectDependencies`, not an error.
     #[test]
-    fn provide_without_duckdb_yields_empty_dependencies() {
+    fn provide_without_sqlite_yields_empty_dependencies() {
         let (value, logs) = provide_with(None);
         assert_eq!(
             value.get("units").and_then(|u| u.as_array()).map(Vec::len),
@@ -78,11 +78,11 @@ mod tests {
         );
         assert!(
             logs.is_empty(),
-            "an absent DuckDB is not a degraded mode; no warn expected, got: {logs}"
+            "an absent SQLite is not a degraded mode; no warn expected, got: {logs}"
         );
     }
 
-    /// TEST-5 / TASK-1776 AC #1: the ERR-2 / TASK-0376 contract — a `DuckDB`
+    /// TEST-5 / TASK-1776 AC #1: the ERR-2 / TASK-0376 contract — a `SQLite`
     /// schema/migration error must warn before falling back, not surface as a
     /// silently empty deps list. The seeded `crate_dependencies` table is
     /// missing the `dependency_name`, `version_req` and `dependency_kind`
@@ -90,7 +90,7 @@ mod tests {
     /// still passes.
     #[test]
     fn provide_warns_and_falls_back_when_the_query_fails() {
-        let db = DuckDb::open_in_memory().expect("open in-memory db");
+        let db = Sqlite::open_in_memory().expect("open in-memory db");
         {
             let conn = db.lock().expect("lock");
             conn.execute_batch(
@@ -116,7 +116,7 @@ mod tests {
     /// Only `dependency_kind = 'normal'` rows are included.
     #[test]
     fn provide_maps_multi_crate_rows_into_unit_deps() {
-        let db = DuckDb::open_in_memory().expect("open in-memory db");
+        let db = Sqlite::open_in_memory().expect("open in-memory db");
         {
             let conn = db.lock().expect("lock");
             conn.execute_batch(

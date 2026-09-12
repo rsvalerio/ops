@@ -141,7 +141,7 @@ mod tests {
     /// Every test stages into a fresh verified anchor, exactly as
     /// `provide_via_ingestor` does.
     fn anchor(tmp: &tempfile::TempDir) -> IngestDir {
-        IngestDir::open(&tmp.path().join("data.duckdb.ingest")).expect("open ingest dir")
+        IngestDir::open(&tmp.path().join("data.db.ingest")).expect("open ingest dir")
     }
 
     #[test]

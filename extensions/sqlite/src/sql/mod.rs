@@ -1,28 +1,27 @@
-//! Shared SQL utilities for `DuckDB` extensions.
+//! Shared SQL utilities for `SQLite` extensions.
 //!
 //! # Security (SEC-001)
 //!
-//! This module constructs SQL queries with string interpolation for `DuckDB`'s
-//! `read_json_auto()` function. While parameterized queries are preferred, `DuckDB`
-//! requires a string literal for file paths in this context.
+//! Ingest data reaches the engine as **bound parameters**: the staged JSON
+//! bytes are read through the verified [`IngestDir`] anchor in Rust and
+//! bound as `?1`, so no file path (and no JSON content) is ever
+//! interpolated into a statement. The remaining interpolation surface is
+//! SQL *identifiers* (table, column, view, alias names), which are gated
+//! behind validated newtypes before they reach a statement:
 //!
-//! We employ **defense-in-depth** validation to prevent SQL injection:
-//!
-//! 1. **`validate_no_traversal()`**: Blocks `..` path components
-//! 2. **`validate_path_chars()`**: Rejects dangerous characters (`;`, `$`, backticks)
-//! 3. **`sanitize_path_for_sql()`**: Removes null bytes
-//! 4. **`escape_sql_string()`**: Escapes quotes and backslashes
-//!
-//! These layers ensure that even if one check fails, others provide protection.
-//! The path is validated before any SQL is constructed.
+//! 1. **[`TableName`]** / **[`JsonColumn`]**: const-validated at construction
+//!    (build-time for statics), the ingest side's currency.
+//! 2. **`QueryTableName` / `ColumnAlias` / `ColumnName`**: runtime-validated
+//!    wrappers for the per-crate query scaffolding.
+//! 3. **`quoted_ident`**: validate-and-quote in one step for the remaining
+//!    dynamic-identifier sites.
 
 pub mod ingest;
 pub mod query;
-// ARCH-9 / TASK-1862: crate-private. The module doc calls `escape_sql_string`
-// and `sanitize_path_for_sql` "not safe to call alone"; a `pub mod` made them
-// reachable as `ops_duckdb::sql::validation::*` regardless of the curated
-// re-export list below, handing downstream callers a documented-as-unsafe
-// shortcut past the `TableName` / `ExtraOpts` / `quoted_ident` gates.
+// ARCH-9 / TASK-1862: crate-private. A `pub mod` would make the granular
+// validators reachable as `ops_sqlite::sql::validation::*` regardless of the
+// curated re-export list below, handing downstream callers a shortcut past
+// the `TableName` / `quoted_ident` gates.
 pub(crate) mod validation;
 
 /// Run `query_fn` and return its `Ok` value, or log the error and return
@@ -36,7 +35,7 @@ pub(crate) mod validation;
 ///
 /// ERR-7 / TASK-0855 — severity routing:
 /// - [`DbError::MutexPoisoned`] and [`DbError::Timeout`] log at `error!`
-///   level. A poisoned `DuckDB` connection reflects partially-applied state
+///   level. A poisoned `SQLite` connection reflects partially-applied state
 ///   the connection module explicitly chose not to trust (see
 ///   `connection.rs`'s rationale); a query timeout signals a real
 ///   concurrency / liveness problem rather than a transient miss. Both
@@ -63,14 +62,14 @@ where
                     query = label,
                     degraded,
                     error = ?e,
-                    "duckdb query failed (hard)"
+                    "sqlite query failed (hard)"
                 );
             } else {
                 tracing::warn!(
                     query = label,
                     degraded,
                     error = ?e,
-                    "duckdb query failed"
+                    "sqlite query failed"
                 );
             }
             fallback
@@ -112,7 +111,7 @@ fn is_hard_failure(err: &anyhow::Error) -> bool {
 ///
 /// DUP-1 / TASK-2183: the `tokei` and `rust-loc` extensions each carried a
 /// byte-identical copy of this helper; the policy now lives here, once,
-/// for every extension that feeds a `DuckDB` view from a JSON sidecar.
+/// for every extension that feeds a `SQLite` view from a JSON sidecar.
 ///
 /// READ-5 (TASK-0504): intentionally lossy. The sidecar-backed views
 /// (`tokei_files`, `rust_loc_files`) are read-only at the value level —
@@ -132,10 +131,10 @@ pub fn relativize_path(path: &std::path::Path, workspace_root: &std::path::Path)
 }
 
 pub use ingest::{
-    create_table_from_json_sql, data_dir_for_db, default_db_path, external_err,
+    data_dir_for_db, default_db_path, execute_json_load, external_err, load_json_string,
     provide_via_ingestor, query_rows_to_json, read_workspace_sidecar, remove_workspace_sidecar,
     sidecar_name, table_has_data, write_workspace_sidecar, CreateTableSql, CreateViewSql,
-    IngestDir,
+    IngestDir, JsonColumn, JsonColumnType, JsonLoadShape, JsonTableLoad,
 };
 pub use query::{
     query_crate_coverage, query_crate_dep_counts, query_crate_deps, query_crate_file_count,
@@ -143,16 +142,14 @@ pub use query::{
     query_project_languages, query_project_loc, query_rust_loc_file_count, query_rust_loc_summary,
     CrateCoverage, RustLocStat,
 };
-// These four are the crate's entire public validation surface: the module
+// These three are the crate's entire public validation surface: the module
 // itself is `pub(crate)` (ARCH-9 / TASK-1862), so the granular helpers
-// (`validate_identifier`, `validate_path_chars`, `validate_no_traversal`,
-// `validate_extra_opts`, `prepare_path_for_sql`, `EXTRA_OPTS_MAX_*`) are
-// reachable inside this crate only, and the two low-level escapers are
-// private to `validation` itself. `quoted_ident` is
-// the SEC-12 defense-in-depth wrapper and is needed at every site that
-// interpolates an identifier into a hand-written SQL string (e.g.
+// (`validate_identifier`, `validate_path_chars`, `validate_no_traversal`)
+// are reachable inside this crate only. `quoted_ident` is the SEC-12
+// defense-in-depth wrapper and is needed at every site that interpolates an
+// identifier into a hand-written SQL string (e.g.
 // `extensions/tokei/src/views::tokei_languages_view_sql`).
-pub use validation::{quoted_ident, ExtraOpts, SqlError, TableName};
+pub use validation::{quoted_ident, SqlError, TableName};
 
 #[cfg(test)]
 mod tests {
@@ -206,7 +203,7 @@ mod tests {
         let io: anyhow::Error = DbError::Io(std::io::Error::other("disk full")).into();
         assert!(!is_hard_failure(&io));
         let qf: anyhow::Error =
-            DbError::query_failed("ctx", duckdb::Error::InvalidParameterName("x".into())).into();
+            DbError::query_failed("ctx", rusqlite::Error::InvalidParameterName("x".into())).into();
         assert!(!is_hard_failure(&qf));
     }
 

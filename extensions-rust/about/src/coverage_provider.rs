@@ -5,9 +5,9 @@ use std::sync::{Arc, Mutex, OnceLock};
 
 use ops_about::lru::BoundedLruCache;
 use ops_core::project_identity::{CoverageStats, ProjectCoverage, UnitCoverage};
-use ops_duckdb::sql::{query_crate_coverage, query_or_warn, query_project_coverage, CrateCoverage};
-use ops_duckdb::DuckDb;
 use ops_extension::{Context, DataProvider, DataProviderError};
+use ops_sqlite::sql::{query_crate_coverage, query_or_warn, query_project_coverage, CrateCoverage};
+use ops_sqlite::Sqlite;
 
 use crate::manifest::{load_workspace_manifest, log_manifest_load_failure};
 use crate::units::resolve_crate_display_name;
@@ -19,14 +19,14 @@ pub const PROVIDER_NAME: &str = "project_coverage";
 /// `RustCoverageProvider::provide` and `identity::metrics::query_identity_metrics`
 /// both run during a single `ops about` invocation and historically each
 /// dispatched their own `query_project_coverage` call against the same
-/// `DuckDB`. That doubled the scan and — more visibly — fired any
+/// `SQLite`. That doubled the scan and — more visibly — fired any
 /// `query_or_warn` schema-drift log line twice.
 ///
 /// ARCH-9 / TASK-1155: dedup with a tiny process-local cache keyed by the
-/// `DuckDb` instance's stable `id()` (a monotonic u64 minted on
+/// `Sqlite` instance's stable `id()` (a monotonic u64 minted on
 /// construction). Earlier this used `std::ptr::from_ref(db) as usize` as
 /// the key, which was vulnerable to pointer-address ABA — a dropped-and-
-/// replaced `DuckDb` could re-allocate at the same address and return a
+/// replaced `Sqlite` could re-allocate at the same address and return a
 /// previous instance's cached value. The id-keyed scheme guarantees two
 /// distinct instances always receive distinct keys regardless of allocation
 /// reuse. `Option<CrateCoverage>` mirrors the `query_or_warn` fallback
@@ -36,25 +36,25 @@ pub const PROVIDER_NAME: &str = "project_coverage";
 ///
 /// # PERF-16 / TASK-1764: cache contract
 ///
-/// - **Key**: `DuckDb::id()`, a monotonic per-instance counter. A key is never
-///   reused, so an entry outlives the `DuckDb` it describes.
+/// - **Key**: `Sqlite::id()`, a monotonic per-instance counter. A key is never
+///   reused, so an entry outlives the `Sqlite` it describes.
 /// - **Value**: `Arc<OnceLock<Option<CrateCoverage>>>` — the memoized project
 ///   total, or the memoized `None` fallback for a failed query.
 /// - **Maximum size**: [`MAX_COVERAGE_CACHE_ENTRIES`], enforced on insert with
 ///   LRU eviction, mirroring the `manifest_cache` policy. Without a cap this
-///   map grew one slot per `DuckDb` ever opened, forever: harmless in the
+///   map grew one slot per `Sqlite` ever opened, forever: harmless in the
 ///   single-shot `ops about` CLI, an unbounded leak in the daemon / CI-worker
 ///   host shape that opens a handle per project or per refresh, and every
 ///   leaked entry describes an instance that is already gone.
-/// - **Invalidation**: none within the life of a `DuckDb` handle. This is
+/// - **Invalidation**: none within the life of a `Sqlite` handle. This is
 ///   deliberate and is the memoization's whole point (one query, one warn per
 ///   run), but it means coverage data re-ingested behind a *live* handle keeps
 ///   serving the pre-ingest number. A caller that re-ingests and needs the new
-///   figure must open a fresh `DuckDb`, which mints a fresh key.
+///   figure must open a fresh `Sqlite`, which mints a fresh key.
 type CoverageSlot = Arc<OnceLock<Option<CrateCoverage>>>;
 
 /// PERF-16 / TASK-1764: soft cap on the memoization map. A single `ops about`
-/// run touches exactly one `DuckDb`; the headroom exists so a host that
+/// run touches exactly one `Sqlite`; the headroom exists so a host that
 /// interleaves a handful of projects still hits the cache while an unbounded
 /// producer cannot grow the map without limit.
 const MAX_COVERAGE_CACHE_ENTRIES: usize = 16;
@@ -91,14 +91,14 @@ fn project_coverage_cache() -> &'static Mutex<ProjectCoverageCache> {
     CACHE.get_or_init(|| Mutex::new(ProjectCoverageCache::new()))
 }
 
-/// Run `query_project_coverage` at most once per `DuckDb` per process.
+/// Run `query_project_coverage` at most once per `Sqlite` per process.
 ///
 /// Both the identity metrics provider and the coverage provider call this
 /// in turn during `ops about`; the second caller gets the cached value
 /// (including the cached `None` when the query failed and `query_or_warn`
 /// already logged the warn).
 ///
-/// CONC-2 / TASK-1193: keyed by an `Arc<OnceLock<...>>` per `DuckDb` id so
+/// CONC-2 / TASK-1193: keyed by an `Arc<OnceLock<...>>` per `Sqlite` id so
 /// concurrent first-callers race only on the inner `OnceLock::get_or_init`
 /// (which guarantees the closure runs exactly once). Pre-fix the outer
 /// mutex was acquired, the entry checked, the guard dropped, and
@@ -106,7 +106,7 @@ fn project_coverage_cache() -> &'static Mutex<ProjectCoverageCache> {
 /// the same time both observed a miss, both dispatched the query, and the
 /// "warn fires exactly once" contract advertised by DUP-1 / TASK-1079
 /// silently degraded to "warn fires once per concurrent first-caller".
-pub fn cached_query_project_coverage(db: &DuckDb) -> Option<CrateCoverage> {
+pub fn cached_query_project_coverage(db: &Sqlite) -> Option<CrateCoverage> {
     let slot: CoverageSlot = {
         // DUP-1 / TASK-2150: the poison-recovering lock scaffold lives in
         // `ops_about::lru::lock_recovering`. Recovery is silent here: the
@@ -143,20 +143,20 @@ impl DataProvider for RustCoverageProvider {
             }
         };
 
-        let Some(db) = ops_duckdb::get_db(ctx) else {
+        let Some(db) = ops_sqlite::get_db(ctx) else {
             return Ok(serde_json::to_value(ProjectCoverage::default())?);
         };
 
         // ERR-2 / TASK-0376 / PATTERN-1 (TASK-0608): route through
         // `query_or_warn` so this site matches the convention used by every
-        // sister DuckDB call in the crate (units, identity::metrics,
+        // sister SQLite call in the crate (units, identity::metrics,
         // deps_provider). Wrapping the return in `Option` preserves the
         // early-return-on-failure semantics — if the project_coverage query
         // fails we return a fully-default `ProjectCoverage` rather than
         // partial data, matching the prior behaviour.
         // DUP-1 / TASK-1079: dispatched via `cached_query_project_coverage`
         // so the parallel call from `identity::metrics` reuses this result
-        // (and any warn it already logged) instead of re-querying DuckDB
+        // (and any warn it already logged) instead of re-querying SQLite
         // and double-warning per `ops about`.
         let Some(p) = cached_query_project_coverage(db) else {
             return Ok(serde_json::to_value(ProjectCoverage::default())?);
@@ -198,7 +198,7 @@ impl DataProvider for RustCoverageProvider {
 
 /// Query per-crate coverage and pair each covered member with its display name.
 fn per_crate_units(
-    db: &DuckDb,
+    db: &Sqlite,
     members: &[String],
     workspace_root: &std::path::Path,
     workspace_root_str: &str,
@@ -256,7 +256,7 @@ mod cache_tests {
     };
     use ops_about::lru::{lock_recovering, VICTIM_QUEUE_SLACK};
     use ops_about::test_support::{capture_tracing, pin_global_dispatcher, TracingBuf};
-    use ops_duckdb::DuckDb;
+    use ops_sqlite::Sqlite;
     use std::sync::Arc;
 
     fn cache_len() -> usize {
@@ -271,14 +271,14 @@ mod cache_tests {
 
     /// DUP-1 / TASK-1079: the identity-metrics and coverage providers used
     /// to dispatch their own `query_project_coverage` against the same
-    /// `DuckDB` during a single `ops about`, so any `query_or_warn`
+    /// `SQLite` during a single `ops about`, so any `query_or_warn`
     /// schema-drift line fired twice. Pin that the per-process cache fires
     /// the underlying query (and its warn) exactly once across both call
     /// sites for a forced query failure.
     #[test]
     #[serial_test::serial(project_coverage_cache)]
     fn project_coverage_warn_fires_once_across_both_call_sites() {
-        let db = DuckDb::open_in_memory().expect("open in-memory db");
+        let db = Sqlite::open_in_memory().expect("open in-memory db");
 
         // Force a hard failure inside `query_project_coverage`:
         // create `coverage_files` with the column `lines_count` typed as
@@ -338,7 +338,7 @@ mod cache_tests {
     #[test]
     #[serial_test::serial(project_coverage_cache)]
     fn project_coverage_warn_fires_once_under_concurrent_first_callers() {
-        let db = Arc::new(DuckDb::open_in_memory().expect("open in-memory db"));
+        let db = Arc::new(Sqlite::open_in_memory().expect("open in-memory db"));
         // Same broken-schema seed as the sister test.
         {
             let conn = db.lock().expect("lock");
@@ -406,7 +406,7 @@ mod cache_tests {
         );
     }
 
-    /// ARCH-9 / TASK-1155: two distinct `DuckDb` instances must receive
+    /// ARCH-9 / TASK-1155: two distinct `Sqlite` instances must receive
     /// distinct cache keys even when one is dropped and the next is
     /// allocated at the same memory address (the ABA hazard the prior
     /// pointer-address scheme had). With the id-keyed scheme each instance
@@ -415,17 +415,17 @@ mod cache_tests {
     ///
     /// TEST-1 / TASK-1571: drive the contract through
     /// `cached_query_project_coverage` itself (the cache aliasing API)
-    /// rather than asserting on `DuckDb::id`.
+    /// rather than asserting on `Sqlite::id`.
     #[test]
     #[serial_test::serial(project_coverage_cache)]
     fn distinct_db_instances_do_not_alias_cache_via_aba() {
         // Open `a`, prime the cache, then drop it. With an open in-memory
-        // DuckDb the `coverage_summary` view doesn't exist, so the
+        // Sqlite the `coverage_summary` view doesn't exist, so the
         // primed entry is the `None` from `query_row` returning a
         // QueryReturnedNoRows error path — we record the *fact* of
         // priming via the slot's existence rather than its payload.
         let a_id = {
-            let a = DuckDb::open_in_memory().expect("open a");
+            let a = Sqlite::open_in_memory().expect("open a");
             let id = a.id();
             let _primed = cached_query_project_coverage(&a);
             assert!(
@@ -437,7 +437,7 @@ mod cache_tests {
         // After `a` drops, a fresh instance must mint a new id even if
         // the allocator reuses the address — and its cache slot must be
         // populated from scratch under that new id, not surface `a`'s.
-        let b = DuckDb::open_in_memory().expect("open b");
+        let b = Sqlite::open_in_memory().expect("open b");
         let b_id = b.id();
         assert_ne!(
             a_id, b_id,
@@ -451,7 +451,7 @@ mod cache_tests {
     }
 
     /// PERF-16 / TASK-1764 AC #3: the memoization map is bounded. Every
-    /// `DuckDb` a process opens mints a fresh monotonic id, so without a cap
+    /// `Sqlite` a process opens mints a fresh monotonic id, so without a cap
     /// this map grew one permanent slot per instance — an unbounded leak in a
     /// daemon or CI worker that opens a handle per project or per refresh.
     #[test]
@@ -460,7 +460,7 @@ mod cache_tests {
         // Each instance is dropped immediately; the point is that the cache
         // must not retain a slot for every id it has ever seen.
         for _ in 0..(MAX_COVERAGE_CACHE_ENTRIES * 3) {
-            let db = DuckDb::open_in_memory().expect("open in-memory db");
+            let db = Sqlite::open_in_memory().expect("open in-memory db");
             let _ = cached_query_project_coverage(&db);
         }
         let len = cache_len();
@@ -474,7 +474,7 @@ mod cache_tests {
     /// LRU victim queue was not. Its only drain runs at the cap, so a process
     /// staying below the cap — every CLI run, which memoizes exactly one
     /// project — pushed one stamp per `slot_for` call and never dropped any.
-    /// Drive the cache directly (no global, no `DuckDb`) and pin that the queue
+    /// Drive the cache directly (no global, no `Sqlite`) and pin that the queue
     /// stays proportional to the live entry count, not to the call count.
     #[test]
     fn repeated_hits_below_cap_keep_the_victim_queue_bounded() {
@@ -528,8 +528,8 @@ mod tests {
     fn non_utf8_workspace_root_skips_per_crate_coverage_with_warn() {
         use super::RustCoverageProvider;
         use ops_about::test_support::capture_tracing;
-        use ops_duckdb::DuckDb;
         use ops_extension::{Context, DataProvider};
+        use ops_sqlite::Sqlite;
         use std::ffi::OsStr;
         use std::os::unix::ffi::OsStrExt;
         use std::sync::Arc;
@@ -552,7 +552,7 @@ mod tests {
         )
         .unwrap();
 
-        let db = DuckDb::open_in_memory().expect("open in-memory db");
+        let db = Sqlite::open_in_memory().expect("open in-memory db");
         {
             let conn = db.lock().expect("lock");
             conn.execute_batch(
@@ -606,17 +606,17 @@ mod tests {
 mod provider_tests {
     use super::{per_crate_units, RustCoverageProvider};
     use ops_about::test_support::capture_tracing;
-    use ops_duckdb::DuckDb;
     use ops_extension::{Context, DataProvider};
+    use ops_sqlite::Sqlite;
     use std::path::PathBuf;
     use std::sync::Arc;
 
     /// Seed `coverage_files` with (`filename`, `lines_count`, `lines_covered`)
     /// rows. `lines_percent` is computed by the SUM/CASE aggregation, so the
     /// fixture does not carry it. All values are static test constants
-    /// interpolated into one batch string (the crate has no direct `duckdb`
+    /// interpolated into one batch string (the crate has no direct `sqlite`
     /// dependency for bound parameters).
-    fn seed_coverage(db: &DuckDb, rows: &[(&str, i64, i64)]) {
+    fn seed_coverage(db: &Sqlite, rows: &[(&str, i64, i64)]) {
         use std::fmt::Write as _;
         let mut sql = String::from(
             "CREATE TABLE coverage_files (\
@@ -676,7 +676,7 @@ mod provider_tests {
     #[serial_test::serial(typed_manifest_cache, project_coverage_cache)]
     fn per_crate_units_maps_rows_onto_named_units() {
         let (_dir, root) = workspace_fixture("map-rows");
-        let db = DuckDb::open_in_memory().expect("open in-memory db");
+        let db = Sqlite::open_in_memory().expect("open in-memory db");
         seed_coverage(
             &db,
             &[
@@ -721,7 +721,7 @@ mod provider_tests {
     #[serial_test::serial(typed_manifest_cache, project_coverage_cache)]
     fn per_crate_units_omits_members_without_coverage_rows() {
         let (_dir, root) = workspace_fixture("omit-uncovered");
-        let db = DuckDb::open_in_memory().expect("open in-memory db");
+        let db = Sqlite::open_in_memory().expect("open in-memory db");
         seed_coverage(&db, &[("crates/foo/src/lib.rs", 100, 80)]);
         let root_str = root.to_str().expect("root is UTF-8");
 
@@ -748,13 +748,13 @@ mod provider_tests {
     }
 
     /// TEST-5 / TASK-2154 AC #3: `provide` end to end against a real
-    /// workspace fixture plus a seeded `DuckDB` — project total and per-crate
+    /// workspace fixture plus a seeded `SQLite` — project total and per-crate
     /// table both asserted.
     #[test]
     #[serial_test::serial(typed_manifest_cache, project_coverage_cache)]
     fn provide_reports_project_total_and_per_crate_table() {
         let (_dir, root) = workspace_fixture("end-to-end");
-        let db = DuckDb::open_in_memory().expect("open in-memory db");
+        let db = Sqlite::open_in_memory().expect("open in-memory db");
         seed_coverage(
             &db,
             &[
@@ -793,12 +793,12 @@ mod provider_tests {
         assert_eq!(foo["stats"]["lines_count"], serde_json::json!(150));
     }
 
-    /// TEST-5 / TASK-2154 AC #4: no `DuckDB` in the context serialises a
+    /// TEST-5 / TASK-2154 AC #4: no `SQLite` in the context serialises a
     /// default (empty but well-formed) `ProjectCoverage`, not an error —
     /// matching `deps_provider`'s no-DB test.
     #[test]
     #[serial_test::serial(typed_manifest_cache, project_coverage_cache)]
-    fn provide_without_duckdb_yields_default_project_coverage() {
+    fn provide_without_sqlite_yields_default_project_coverage() {
         let dir = tempfile::tempdir().expect("tempdir");
         let mut ctx = Context::test_context(dir.path().to_path_buf());
         let (logs, value) = capture_tracing(tracing::Level::WARN, || {
@@ -814,11 +814,11 @@ mod provider_tests {
                 },
                 "units": []
             }),
-            "no DuckDB must yield the default ProjectCoverage: {value}"
+            "no SQLite must yield the default ProjectCoverage: {value}"
         );
         assert!(
             logs.is_empty(),
-            "an absent DuckDB is not a degraded mode; no warn expected: {logs}"
+            "an absent SQLite is not a degraded mode; no warn expected: {logs}"
         );
     }
 
@@ -831,7 +831,7 @@ mod provider_tests {
     #[serial_test::serial(typed_manifest_cache, project_coverage_cache)]
     fn provide_warns_and_falls_back_when_the_query_fails() {
         let dir = tempfile::tempdir().expect("tempdir");
-        let db = DuckDb::open_in_memory().expect("open in-memory db");
+        let db = Sqlite::open_in_memory().expect("open in-memory db");
         {
             let conn = db.lock().expect("lock");
             conn.execute_batch(
@@ -863,14 +863,14 @@ mod provider_tests {
         );
     }
 
-    /// TEST-5 / TASK-2154: the manifest-failed arm — a `DuckDB` with rows but
+    /// TEST-5 / TASK-2154: the manifest-failed arm — a `SQLite` with rows but
     /// no workspace manifest at cwd reports the project total with an empty
     /// per-crate table, not an error.
     #[test]
     #[serial_test::serial(typed_manifest_cache, project_coverage_cache)]
     fn provide_without_manifest_reports_total_with_empty_units() {
         let dir = tempfile::tempdir().expect("tempdir");
-        let db = DuckDb::open_in_memory().expect("open in-memory db");
+        let db = Sqlite::open_in_memory().expect("open in-memory db");
         seed_coverage(&db, &[("crates/foo/src/lib.rs", 100, 80)]);
 
         let mut ctx = Context::test_context(dir.path().to_path_buf());

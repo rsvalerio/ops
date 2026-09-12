@@ -1,6 +1,6 @@
 //! `about loc` subpage: Rust production / test / example line counts.
 //!
-//! Reads the `rust_loc_summary` `DuckDB` view (populated by the `rust-loc`
+//! Reads the `rust_loc_summary` `SQLite` view (populated by the `rust-loc`
 //! data provider) and renders a per-region table plus a totals line.
 //!
 //! Complements [`crate::code`], which reports cross-language LOC from
@@ -13,8 +13,8 @@ use std::io::Write;
 
 use ops_core::table::{Cell, OpsTable};
 use ops_core::text::{capitalize, format_number};
-use ops_duckdb::sql::RustLocStat;
 use ops_extension::{Context, DataRegistry};
+use ops_sqlite::sql::RustLocStat;
 
 use crate::providers::warm_providers;
 
@@ -43,7 +43,7 @@ fn region_display(region: &str) -> (usize, &str) {
         })
 }
 
-/// Everything the page renders, read from one `DuckDB` snapshot.
+/// Everything the page renders, read from one `SQLite` snapshot.
 ///
 /// `files` is a separate figure rather than a sum of the rows' own
 /// `files`: a module with a `#[cfg(test)]` block appears in both the
@@ -59,17 +59,17 @@ pub struct RustLocPage {
 ///
 /// `None` covers every "this workspace has no Rust LOC data" case —
 /// non-Rust stack (the provider is not registered), a build without
-/// `DuckDB` support, or a failed query — because the page renders the same
+/// `SQLite` support, or a failed query — because the page renders the same
 /// message for all of them. Query failures are warn-logged so a real
 /// error is still diagnosable.
 pub fn query_rust_loc_stats(
     ctx: &mut Context,
     data_registry: &DataRegistry,
 ) -> Option<RustLocPage> {
-    warm_providers(ctx, data_registry, &["duckdb", "rust-loc"], "loc");
+    warm_providers(ctx, data_registry, &["sqlite", "rust-loc"], "loc");
 
-    let db = ops_duckdb::get_db(ctx)?;
-    let regions = match ops_duckdb::sql::query_rust_loc_summary(db) {
+    let db = ops_sqlite::get_db(ctx)?;
+    let regions = match ops_sqlite::sql::query_rust_loc_summary(db) {
         Ok(regions) if regions.is_empty() => return None,
         Ok(regions) => regions,
         Err(e) => {
@@ -83,7 +83,7 @@ pub fn query_rust_loc_stats(
     // count from a different snapshot. Accepted for the same reason as the
     // about card's five-query enrich (see `lib::enrich_from_db`): the page
     // re-renders on every invocation, so a stale frame self-corrects.
-    let files = ops_duckdb::sql::query_rust_loc_file_count(db).unwrap_or_else(|e| {
+    let files = ops_sqlite::sql::query_rust_loc_file_count(db).unwrap_or_else(|e| {
         tracing::warn!(error = ?e, "about/loc: query_rust_loc_file_count failed");
         0
     });
@@ -213,7 +213,7 @@ pub fn run_about_loc_with(
 mod tests {
     use super::*;
 
-    /// TEST-5 / TASK-1739: with no `DuckDB` handle on the context,
+    /// TEST-5 / TASK-1739: with no `SQLite` handle on the context,
     /// `query_rust_loc_stats` yields `None` and the runner takes its
     /// Rust-only "not applicable here" branch. That string had no assertion
     /// behind it.
@@ -377,14 +377,14 @@ mod tests {
     }
 
     /// Mirrors `code::query_language_stats_returns_none_when_db_lock_poisoned`:
-    /// a poisoned `DuckDb` mutex degrades to `None` (warn-logged), not a panic.
+    /// a poisoned `Sqlite` mutex degrades to `None` (warn-logged), not a panic.
     #[test]
     fn query_rust_loc_stats_returns_none_when_db_lock_poisoned() {
         use ops_core::config::Config;
         use std::sync::Arc;
 
-        let db = Arc::new(ops_duckdb::DuckDb::open_in_memory().expect("db"));
-        ops_duckdb::init_schema(&db).expect("init_schema");
+        let db = Arc::new(ops_sqlite::Sqlite::open_in_memory().expect("db"));
+        ops_sqlite::init_schema(&db).expect("init_schema");
 
         let poisoner = Arc::clone(&db);
         let _ = std::thread::spawn(move || {

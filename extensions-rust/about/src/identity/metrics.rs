@@ -1,11 +1,11 @@
-//! DuckDB-backed metrics for the Rust identity provider.
+//! SQLite-backed metrics for the Rust identity provider.
 
 use ops_core::project_identity::LanguageStat;
-use ops_duckdb::sql::query_or_warn;
-use ops_duckdb::DuckDb;
 use ops_extension::Context;
+use ops_sqlite::sql::query_or_warn;
+use ops_sqlite::Sqlite;
 
-/// Metrics queried from `DuckDB` (LOC, dependencies, coverage, languages).
+/// Metrics queried from `SQLite` (LOC, dependencies, coverage, languages).
 pub(super) struct IdentityMetrics {
     pub loc: Option<i64>,
     pub file_count: Option<i64>,
@@ -15,11 +15,11 @@ pub(super) struct IdentityMetrics {
 }
 
 /// TASK-0530: resolve `get_db` once and thread the borrowed handle to each
-/// sub-query so we don't re-locate / re-lock the `DuckDB` handle three times
+/// sub-query so we don't re-locate / re-lock the `SQLite` handle three times
 /// per `provide()`. Same anti-pattern that `about/units::enrich_from_db` got
-/// fixed for. Falls back to all-`None` metrics when `DuckDB` is not available.
+/// fixed for. Falls back to all-`None` metrics when `SQLite` is not available.
 pub(super) fn query_identity_metrics(ctx: &Context) -> IdentityMetrics {
-    let Some(db) = ops_duckdb::get_db(ctx) else {
+    let Some(db) = ops_sqlite::get_db(ctx) else {
         return IdentityMetrics {
             loc: None,
             file_count: None,
@@ -39,21 +39,21 @@ pub(super) fn query_identity_metrics(ctx: &Context) -> IdentityMetrics {
     }
 }
 
-// ERR-2 / TASK-0376: every DuckDB query lookup logs at warn before falling
+// ERR-2 / TASK-0376: every SQLite query lookup logs at warn before falling
 // back. A schema mismatch or migration bug used to render as silent zeros
 // because all four call sites used `.ok()` / `.unwrap_or_default()` without
 // any signal.
 
-fn query_dependency_count(db: &DuckDb) -> Option<usize> {
+fn query_dependency_count(db: &Sqlite) -> Option<usize> {
     query_or_warn(
         "query_dependency_count",
         "dependency_count will be None",
         None,
-        || ops_duckdb::sql::query_dependency_count(db).map(Some),
+        || ops_sqlite::sql::query_dependency_count(db).map(Some),
     )
 }
 
-fn query_coverage_and_languages(db: &DuckDb) -> (Option<f64>, Vec<LanguageStat>) {
+fn query_coverage_and_languages(db: &Sqlite) -> (Option<f64>, Vec<LanguageStat>) {
     // DUP-1 / TASK-1079: share the single `query_project_coverage` result
     // with `RustCoverageProvider` via the per-process cache rather than
     // dispatching our own query. The cache memoizes `Option<CrateCoverage>`
@@ -71,21 +71,21 @@ fn query_coverage_and_languages(db: &DuckDb) -> (Option<f64>, Vec<LanguageStat>)
         "query_project_languages",
         "languages will be empty",
         vec![],
-        || ops_duckdb::sql::query_project_languages(db),
+        || ops_sqlite::sql::query_project_languages(db),
     );
 
     (coverage, languages)
 }
 
-fn query_loc_from_db(db: &DuckDb) -> (Option<i64>, Option<i64>) {
+fn query_loc_from_db(db: &Sqlite) -> (Option<i64>, Option<i64>) {
     let loc = query_or_warn("query_project_loc", "loc will be None", None, || {
-        ops_duckdb::sql::query_project_loc(db).map(Some)
+        ops_sqlite::sql::query_project_loc(db).map(Some)
     });
     let files = query_or_warn(
         "query_project_file_count",
         "file_count will be None",
         None,
-        || ops_duckdb::sql::query_project_file_count(db).map(Some),
+        || ops_sqlite::sql::query_project_file_count(db).map(Some),
     );
     (loc, files)
 }
@@ -93,12 +93,12 @@ fn query_loc_from_db(db: &DuckDb) -> (Option<i64>, Option<i64>) {
 #[cfg(test)]
 mod tests {
     use super::{query_coverage_and_languages, query_identity_metrics};
-    use ops_duckdb::DuckDb;
     use ops_extension::Context;
+    use ops_sqlite::Sqlite;
     use std::sync::Arc;
 
-    fn seed_coverage(lines_count: i64, lines_covered: i64, lines_percent: f64) -> DuckDb {
-        let db = DuckDb::open_in_memory().expect("open in-memory db");
+    fn seed_coverage(lines_count: i64, lines_covered: i64, lines_percent: f64) -> Sqlite {
+        let db = Sqlite::open_in_memory().expect("open in-memory db");
         {
             let conn = db.lock().expect("lock");
             conn.execute_batch(
@@ -120,10 +120,10 @@ mod tests {
         db
     }
 
-    /// TEST-5 / TASK-1776 AC #3: with no `DuckDB` attached every metric falls
+    /// TEST-5 / TASK-1776 AC #3: with no `SQLite` attached every metric falls
     /// back to `None` / empty rather than erroring.
     #[test]
-    fn metrics_fall_back_to_none_without_duckdb() {
+    fn metrics_fall_back_to_none_without_sqlite() {
         let dir = tempfile::tempdir().expect("tempdir");
         let ctx = Context::test_context(dir.path().to_path_buf());
         let metrics = query_identity_metrics(&ctx);
@@ -156,11 +156,11 @@ mod tests {
         assert_eq!(coverage, Some(50.0));
     }
 
-    /// The whole-metrics path with a live `DuckDB` still surfaces the coverage
+    /// The whole-metrics path with a live `SQLite` still surfaces the coverage
     /// figure through `query_identity_metrics`.
     #[test]
     #[serial_test::serial(project_coverage_cache)]
-    fn metrics_surface_coverage_from_an_attached_duckdb() {
+    fn metrics_surface_coverage_from_an_attached_sqlite() {
         let dir = tempfile::tempdir().expect("tempdir");
         let mut ctx = Context::test_context(dir.path().to_path_buf());
         ctx.attach_db(Arc::new(seed_coverage(8, 2, 25.0)));

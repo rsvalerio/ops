@@ -19,7 +19,7 @@ ops-extension = { path = "crates/extension" }
 ops-theme = { path = "crates/theme" }
 ops-backlog = { path = "crates/backlog" }
 ops-runner = { path = "crates/runner" }
-ops-duckdb = { path = "extensions/duckdb" }
+ops-sqlite = { path = "extensions/sqlite" }
 ops-tokei = { path = "extensions/tokei" }
 ops-about = { path = "extensions/about" }
 ops-about-rust = { path = "extensions-rust/about" }
@@ -56,15 +56,15 @@ tokio = { version = "1", features = ["process", "macros", "rt-multi-thread", "sy
 libc = "0.2"
 unicode-ident = "1.0"
 tempfile = "3"
-# Already in the binary's graph via duckdb -> arrow -> arrow-arith, so the direct
-# dependency adds no compilation. TIME-1: calendar arithmetic is never hand-rolled.
+# TIME-1: calendar arithmetic is never hand-rolled.
 chrono = { version = "0.4", default-features = false, features = ["std"] }
+# Bundled SQLite: plain-C build, no link env, JSON1 built in (>= 3.38).
+rusqlite = { version = "0.37", features = ["bundled"] }
 sha2 = "0.10"
 hex = "0.4"
 tokei = "14.0"
 toml = "1"
 toml_edit = "0.25"
-duckdb = { version = "1.10502" }
 clap = { version = "4", features = ["derive"] }
 tracing-subscriber = { version = "0.3", features = ["env-filter"] }
 inquire = "0.9"
