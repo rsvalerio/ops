@@ -94,17 +94,17 @@ pub enum ExpandError {
     /// Expansion exceeded the safety depth cap.
     #[error("composite expansion exceeded depth limit {max_depth} at command `{id}`")]
     DepthExceeded { id: String, max_depth: usize },
-    /// A composite tree declares conflicting values for a scheduling flag
-    /// (`parallel` or `fail_fast`).
+    /// A composite tree declares scheduling flags its plan cannot honour: a
+    /// `parallel = false` group inside a parallel plan, or a `fail_fast` value
+    /// that disagrees with the root's.
     ///
     /// Expansion flattens a composite tree into a single flat leaf plan that
-    /// the runner schedules as one unit, so exactly one value per flag can be
-    /// honoured. Folding conflicting values together instead — letting a
-    /// `parallel = true` descendant promote a `parallel = false` ancestor, or
-    /// a `fail_fast = false` descendant disable fail-fast plan-wide — would
-    /// make the flag mean something other than what it says, with an
-    /// intermittent failure mode (formatters racing checkers over the same
-    /// files). Rejecting at expansion time makes the trap loud.
+    /// the runner schedules as one unit, by its root. A sequential root can
+    /// safely run a nested parallel group sequentially, so that is allowed. A
+    /// parallel root would run a nested sequential group's steps concurrently,
+    /// and a `fail_fast = false` descendant would disable fail-fast plan-wide —
+    /// either would make the flag mean something other than what it says, so
+    /// those are rejected at expansion time.
     #[error(
         "conflicting `{flag}` in the plan for `{root}`: `{root}` sets {flag} = {root_value}, \
          but `{conflicting}` sets {flag} = {conflicting_value}\n\
@@ -492,11 +492,10 @@ impl CommandRunner {
         // the scheduling flags both come from `expand_to_leaves_with_flags`
         // (PATTERN-1 / TASK-1283); a separate `resolve` of the root was a
         // second traversal and a second source of truth for the same
-        // decision. The aggregated flags are equivalent to the root spec's
-        // own: TASK-1657's agreement check errors on any tree that declares
-        // conflicting values, and an Exec root contributes
-        // `(any_parallel=false, fail_fast_disabled=false)` — the single
-        // fail-fast sequential step it always ran as.
+        // decision. The flags are the root spec's own: `parallel` is the
+        // root's value and `fail_fast` must agree across the tree, and an
+        // Exec root contributes `(parallel=false, fail_fast_disabled=false)`
+        // — the single fail-fast sequential step it always ran as.
         let (plan, any_parallel, fail_fast_disabled) = self
             .expand_to_leaves_with_flags(command_id)
             .map_err(anyhow::Error::from)?;

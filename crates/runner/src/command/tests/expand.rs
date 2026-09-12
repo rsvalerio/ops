@@ -298,14 +298,14 @@ mod proptest_tests {
     }
 }
 
-/// TASK-1657: composite trees must agree with themselves on the scheduling
-/// flags, because the expanded plan is flat and scheduled as a single unit.
+/// The expanded plan is flat and scheduled as a single unit by its root.
 ///
-/// Before this, `expand_inner` OR-folded `parallel` and `fail_fast` across the
-/// whole traversal, so one `parallel = true` descendant silently promoted a
-/// `parallel = false` ancestor and the config read as though it were
-/// sequential while every step ran concurrently. Option 3 of TASK-1657
-/// (reject at validation) keeps the flat plan model and makes the trap loud.
+/// `expand_inner` once OR-folded `parallel` across the whole traversal, so one
+/// `parallel = true` descendant silently promoted a `parallel = false`
+/// ancestor (TASK-1657). Now the root decides: a sequential root runs a nested
+/// parallel group sequentially, which is always safe; a parallel root rejects
+/// a nested sequential group, whose ordering it could not honour. `fail_fast`
+/// must agree across the plan.
 mod schedule_flag_agreement_tests {
     use super::*;
 
@@ -329,30 +329,20 @@ mod schedule_flag_agreement_tests {
         test_runner(commands)
     }
 
-    /// The headline case from TASK-1656: sequential parent, parallel child.
+    /// Sequential parent, parallel child (a hook group wrapping a parallel
+    /// `verify`): the plan runs sequentially, never promoted to parallel.
     #[test]
-    fn parallel_child_under_sequential_parent_is_rejected() {
+    fn parallel_child_under_sequential_parent_runs_sequentially() {
         let runner = nested_runner((false, true), (true, true));
-        let err = runner
-            .expand_to_leaves("outer")
-            .expect_err("parallel child under sequential parent must be rejected");
-        assert!(
-            matches!(
-                &err,
-                ExpandError::ConflictingSchedule {
-                    flag: "parallel",
-                    root,
-                    root_value: false,
-                    conflicting,
-                    conflicting_value: true,
-                } if root == "outer" && conflicting == "inner"
-            ),
-            "unexpected error: {err:?}"
-        );
+        let (leaves, parallel, _) = runner
+            .expand_to_leaves_with_flags("outer")
+            .expect("a sequential root may contain a parallel group");
+        assert_eq!(leaves, vec!["a", "b"]);
+        assert!(!parallel, "the sequential root schedules the whole plan");
     }
 
-    /// The reverse direction is equally a lie under a flat plan: `inner`
-    /// declares `parallel = false` but every step would run concurrently.
+    /// Parallel parent, sequential child: `inner` declares `parallel = false`
+    /// but every step would run concurrently, so the plan is rejected.
     #[test]
     fn sequential_child_under_parallel_parent_is_rejected() {
         let runner = nested_runner((true, true), (false, true));
@@ -458,7 +448,7 @@ mod schedule_flag_agreement_tests {
     /// and offers a concrete fix.
     #[test]
     fn conflict_message_is_actionable() {
-        let runner = nested_runner((false, true), (true, true));
+        let runner = nested_runner((true, true), (false, true));
         let msg = runner
             .expand_to_leaves("outer")
             .expect_err("must conflict")

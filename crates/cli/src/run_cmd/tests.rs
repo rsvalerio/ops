@@ -898,18 +898,12 @@ mod nested_parallel_detection_tests {
     }
 }
 
-/// `merge_plan` aggregates `parallel` / `fail_fast` flags by walking the
-/// composite tree, and — since TASK-1657 — rejects a tree that disagrees with
-/// itself instead of silently OR-folding the flags.
+/// `merge_plan` takes each name's scheduling flags from its composite tree.
 ///
-/// **Behaviour change (TASK-1657).** These two tests previously asserted the
-/// OR-fold: a `parallel = true` inner composite surfaced `any_parallel = true`
-/// through a `parallel = false` outer one, and a nested `fail_fast = false`
-/// propagated upward. That aggregation is what made the flags lie — the outer
-/// composite still read `parallel = false` while its whole plan ran
-/// concurrently. The plan model is still flat (one scheduling decision for the
-/// whole plan), so rather than pick a winner silently, expansion now fails with
-/// [`ExpandError::ConflictingSchedule`]. The tests are inverted accordingly.
+/// The plan is flat, so its root decides `parallel`: a sequential root runs a
+/// nested `parallel = true` group sequentially (never OR-folded up into a
+/// parallel plan, as before TASK-1657), and a parallel root rejects a nested
+/// sequential group. A nested `fail_fast` that disagrees is rejected.
 mod merge_plan_nested_aggregation_tests {
     use crate::run_cmd::plan::merge_plan;
     use crate::test_utils::TestConfigBuilder;
@@ -920,10 +914,10 @@ mod merge_plan_nested_aggregation_tests {
         ops_runner::command::CommandRunner::new(config, PathBuf::from("."))
     }
 
-    /// TASK-1657: a parallel inner composite under a sequential outer one is a
-    /// config error, not a silent promotion of the whole plan to parallel.
+    /// A parallel inner composite under a sequential outer one runs
+    /// sequentially — never a silent promotion of the whole plan to parallel.
     #[test]
-    fn merge_plan_rejects_nested_parallel_under_sequential_outer() {
+    fn merge_plan_runs_nested_parallel_under_sequential_outer_sequentially() {
         let mut inner = CompositeCommandSpec::new(["a", "b"]);
         inner.parallel = true;
         let outer = CompositeCommandSpec::new(["inner"]); // outer.parallel = false
@@ -938,20 +932,14 @@ mod merge_plan_nested_aggregation_tests {
             .commands
             .insert("outer".to_string(), CommandSpec::Composite(outer));
 
-        let err = merge_plan(&runner_with(config), &["outer"])
-            .expect_err("conflicting `parallel` must be rejected, not OR-folded");
-        let msg = err.to_string();
+        let (leaves, any_parallel, fail_fast) = merge_plan(&runner_with(config), &["outer"])
+            .expect("a sequential root may contain a parallel group");
+        assert_eq!(leaves, vec!["a", "b"]);
         assert!(
-            msg.contains("conflicting `parallel`"),
-            "error must name the conflicting flag, got: {msg}"
+            !any_parallel,
+            "the sequential outer schedules the whole plan"
         );
-        for expected in ["outer", "inner"] {
-            assert!(
-                msg.contains(expected),
-                "error must name `{expected}`, got: {msg}"
-            );
-        }
-        assert!(msg.contains("fix:"), "error must be actionable, got: {msg}");
+        assert!(fail_fast);
     }
 
     /// TASK-1657: same contract for `fail_fast` — a nested `fail_fast = false`
