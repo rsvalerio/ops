@@ -257,7 +257,7 @@ mod max_bytes_env {
     }
 
     #[test]
-    fn ceiling_is_exactly_sqlite_uinteger_max() {
+    fn ceiling_is_exactly_u32_max() {
         assert_eq!(METADATA_MAX_BYTES_CEILING, u64::from(u32::MAX));
     }
 

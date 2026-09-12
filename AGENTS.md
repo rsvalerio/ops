@@ -54,8 +54,9 @@ without reading the diff: it has silently deleted load-bearing code here.
 The embedded analytics engine is rusqlite with bundled SQLite
 (`extensions/sqlite`, crate `ops-sqlite`). Builds need no link env — the
 former prebuilt-libduckdb eval step is gone. The database file is the
-disposable cache `.ops/data.db`; ad-hoc queries work with the stock
-`sqlite3` CLI. Migration notes: `docs/duckdb-to-sqlite.md`.
+disposable cache `target/ops/data.db` under the workspace root; ad-hoc
+queries work with the stock `sqlite3` CLI. Migration notes:
+`docs/duckdb-to-sqlite.md`.
 
 ## Code Map
 

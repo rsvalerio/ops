@@ -10,7 +10,8 @@
 //! `sample_metadata`) went with the unconsumed typed accessor layer they
 //! existed to feed. What remains are the **ingest fixtures**
 //! ([`ingest_metadata`], [`ingest_dep`]), which are written to disk and read
-//! back through `SQLite`'s `read_json_auto`. They are deliberately *fat*:
+//! back through the ingestor's parameter-bound JSON load. They are
+//! deliberately *fat*:
 //! every nullable string carries an explicit `""`, because a column that is
 //! null in every row infers as INTEGER and the view's casts then fail.
 //! Trimming these to "only what the test exercises" would break schema

@@ -13,14 +13,16 @@ for day-to-day work.
   the `eval "$(scripts/fetch-duckdb.sh)"` step is gone, along with the
   fetch script, the pins file, the CI/release fetch steps, and ~140
   dependency crates (the arrow tree among them).
-- **The database file is `.ops/data.db`** (was `.ops/data.duckdb`). It is a
-  disposable cache, same as before: delete it and the next `ops about`
-  re-ingests from the staged sidecars. Old `data.duckdb` files and the
-  `target/duckdb-prebuilt/` cache can be deleted.
-- **Ad-hoc queries**: `sqlite3 target/ops/data.db` (or the `.ops/data.db`
-  next to the project being inspected) — `.tables`, plain SELECTs, JSON1
-  functions all work with the stock `sqlite3` CLI. This is an improvement:
-  the DuckDB file needed a matching `duckdb` CLI.
+- **The default database file is `<workspace_root>/target/ops/data.db`**
+  (was `target/ops/data.duckdb`; `Sqlite::resolve_path` is the source of
+  truth). Setting `data.path` overrides it — `.ops/data.db` is one such
+  explicit override, not the default. It is a disposable cache, same as
+  before: delete it and the next `ops about` re-ingests from the staged
+  sidecars. Old `data.duckdb` files and the `target/duckdb-prebuilt/` cache
+  can be deleted.
+- **Ad-hoc queries**: `sqlite3 target/ops/data.db` — `.tables`, plain
+  SELECTs, JSON1 functions all work with the stock `sqlite3` CLI. This is an
+  improvement: the DuckDB file needed a matching `duckdb` CLI.
 - **Ingest is parameter-bound.** Staged JSON reaches the engine as a bound
   `?1` parameter (`json_each(?1)` / `json(?1)`), never as an interpolated
   `read_json_auto('<path>')` — the former SEC-25/TASK-2067 residual is

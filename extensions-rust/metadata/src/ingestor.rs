@@ -83,6 +83,15 @@ impl DataIngestor for MetadataIngestor {
         // Rust before the bytes reach the engine (the SQLite port replaced
         // the engine-side `maximum_object_size` read option with this check).
         let payload = read_staged_payload(dir)?;
+        // SEC-25 / TASK-2054: checksum the file opened through the anchor, so
+        // the provenance row describes the bytes this pipeline staged. It is
+        // computed *before* anything is published: the checksum reads the
+        // staged file, not the database, so ordering it first removes a
+        // failure point that used to sit between the published table and its
+        // provenance row — a checksum failure there left `metadata_raw`
+        // populated while `table_has_data()` reported data no `data_sources`
+        // row ever certified.
+        let checksum = dir.checksum(METADATA_JSON)?;
         init_schema(db)?;
         // CONC-2: one guard held across table creation *and* the reads of
         // that table. Scoping `build_views` in its own block and re-acquiring
@@ -99,18 +108,10 @@ impl DataIngestor for MetadataIngestor {
         // is enforced here instead of depended on from a distance.
         let conn = db.lock()?;
         build_views(&conn, &payload)?;
-        let record_count = query_record_count(&conn)?;
-        if record_count != 1 {
-            return Err(reject_non_singleton(&conn, record_count));
-        }
-        ensure_object_payload(&conn)?;
-        let workspace_root = extract_workspace_root(&conn)?;
+        let (record_count, workspace_root) = validate_published(&conn)?;
         drop(conn);
 
-        // SEC-25 / TASK-2054: checksum the file opened through the anchor, so
-        // the provenance row describes the bytes this pipeline staged.
-        let checksum = dir.checksum(METADATA_JSON)?;
-        upsert_data_source(
+        if let Err(e) = upsert_data_source(
             db,
             &ops_sqlite::DataSourceMetadata::new(
                 ops_sqlite::SourceName::new(self.name()),
@@ -119,8 +120,49 @@ impl DataIngestor for MetadataIngestor {
                 record_count,
                 &checksum,
             ),
-        )?;
+        ) {
+            // The table is published but its provenance row is not. Tear the
+            // table back down so the orchestrator's `table_has_data()` probe
+            // re-ingests on the next run instead of skipping forever over
+            // data no `data_sources` row certifies. The lock failure path is
+            // deliberately swallowed: the caller's error is the one worth
+            // surfacing (mirrors `drop_metadata_tables`' best-effort stance).
+            if let Ok(conn) = db.lock() {
+                drop_metadata_tables(&conn, "a data_sources upsert failure");
+            }
+            return Err(e);
+        }
         Ok(LoadResult::success(self.name(), record_count))
+    }
+}
+
+/// Runs every post-publication invariant check inside one connection guard,
+/// dropping the just-published tables on **any** failure.
+///
+/// `reject_non_singleton` and `reject_non_object` already tear down on their
+/// own paths; this wrapper extends the same recovery to the failures that
+/// used to leak past them — a raw count/shape query error, and a
+/// `workspace_root` that is present but not a string. Without it those
+/// failures left a populated `metadata_raw` behind, and because
+/// `table_has_data()` then reports data, the orchestrator would skip
+/// re-ingest on every later run and replay the failure forever. The double
+/// teardown on the two reject paths is harmless: `DROP … IF EXISTS`.
+fn validate_published(conn: &rusqlite::Connection) -> DbResult<(u64, String)> {
+    let outcome = (|| {
+        let record_count = query_record_count(conn)?;
+        if record_count != 1 {
+            return Err(reject_non_singleton(conn, record_count));
+        }
+        ensure_object_payload(conn)?;
+        let workspace_root = extract_workspace_root(conn)?;
+        Ok((record_count, workspace_root))
+    })();
+    match outcome {
+        Ok(pair) => Ok(pair),
+        Err(e) => {
+            drop_metadata_tables(conn, "a failed post-publication invariant");
+            Err(e)
+        }
     }
 }
 
@@ -129,28 +171,32 @@ impl DataIngestor for MetadataIngestor {
 /// the engine as a bound parameter.
 ///
 /// One source of truth with `query_metadata_raw`'s read-side cap: the same
-/// env knob governs the ingest-side allocation ceiling and the post-ingest
-/// read guard. A payload over cap is refused here — before any DDL runs — so
-/// an oversized document never becomes a `metadata_raw` row.
+/// env knob governs the ingest-side read ceiling and the post-ingest read
+/// guard. The reader is limited to `cap + 1` bytes — enough to detect an
+/// over-cap payload by the presence of the extra byte, never enough to
+/// allocate an unbounded document just to reject it. A payload over cap is
+/// refused here — before any DDL runs — so an oversized document never
+/// becomes a `metadata_raw` row.
 ///
 /// # Errors
 ///
 /// [`DbError::Io`] if the staged file cannot be read through the anchor, or
-/// [`DbError::External`] if the payload exceeds the cap (naming the observed
-/// byte count, the cap, and the override env var).
+/// [`DbError::External`] if the payload exceeds the cap (naming the byte
+/// count the capped read stopped at, the cap, and the override env var).
 fn read_staged_payload(dir: &IngestDir) -> DbResult<String> {
     use std::io::Read as _;
+    let cap = crate::metadata_max_bytes();
     let mut payload = String::new();
     dir.open_read(METADATA_JSON)?
+        .take(cap.saturating_add(1))
         .read_to_string(&mut payload)
         .map_err(DbError::Io)?;
-    let cap = crate::metadata_max_bytes();
     if payload.len() > usize::try_from(cap).unwrap_or(usize::MAX) {
         return Err(external_err(anyhow::anyhow!(
-            "staged metadata payload is {} bytes, exceeds {cap}-byte cap \
-             (override via {})",
-            payload.len(),
-            crate::METADATA_MAX_BYTES_ENV
+            "staged metadata payload exceeds the {cap}-byte cap (override via \
+             {}); the capped read stopped at {} bytes",
+            crate::METADATA_MAX_BYTES_ENV,
+            payload.len()
         )));
     }
     Ok(payload)
@@ -622,6 +668,42 @@ mod tests {
             .expect("catalog probe");
         drop(conn);
         assert_eq!(tables, 0, "metadata_raw must be gone after a rejected load");
+    }
+
+    /// Regression (PR #54 review): a payload whose `workspace_root` is not a
+    /// string fails *after* `metadata_raw` was published — later than the
+    /// shape/row-count guards — and that failure used to leave the populated
+    /// table behind. `table_has_data()` would then report data on every
+    /// later run, the orchestrator would skip re-ingest, and the failure
+    /// would replay forever. The post-publication wrapper must tear the
+    /// table (and its view) back down.
+    #[test]
+    fn metadata_load_rejection_on_non_string_workspace_root_leaves_no_sticky_table() {
+        let data_dir = tempfile::tempdir().unwrap();
+        let dir = ingest_anchor(&data_dir);
+        let mut metadata_json = ingest_metadata().value();
+        metadata_json["workspace_root"] = serde_json::json!(42);
+        write_metadata_json(&dir, &metadata_json);
+
+        let db = Sqlite::open_in_memory().unwrap();
+        MetadataIngestor
+            .load(&dir, &db)
+            .expect_err("a numeric workspace_root must fail the load");
+
+        let conn = db.lock().unwrap();
+        let objects: i64 = conn
+            .query_row(
+                "SELECT count(*) FROM sqlite_master \
+                 WHERE name IN ('metadata_raw', 'crate_dependencies')",
+                [],
+                |row| row.get(0),
+            )
+            .unwrap();
+        drop(conn);
+        assert_eq!(
+            objects, 0,
+            "no metadata objects may survive a post-publication rejection"
+        );
     }
 
     /// SEC-32 / TASK-2033 AC #2 + #3: the rejection path added by ERR-1 /

@@ -1,8 +1,10 @@
 # Plan: Migrate ops from DuckDB to rusqlite (SQLite)
 
-> On approval, first implementation action is to save this plan into the repo as
-> `plans/duckdb-to-sqlite.md` (the `plans/` folder does not exist yet — create it),
-> then execute the phases below.
+> **Status: executed 2026-09-12** (PR #54). This is the historical plan, kept
+> verbatim as approved. The 354-row count below was measured when the plan was
+> written; the merged migration re-verified the same view at 377 rows — the
+> workspace had grown in between. The "first implementation action" note no
+> longer applies: this file already is the artifact it describes.
 
 ## Context
 

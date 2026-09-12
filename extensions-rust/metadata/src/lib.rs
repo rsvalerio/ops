@@ -125,24 +125,24 @@ pub(crate) fn check_metadata_not_capped(output: &Output) -> Result<(), anyhow::E
 
 /// Hard ceiling on the resolved cap.
 ///
-/// One env knob drives both the post-ingest reader cap and the ingest-time
-/// `maximum_object_size` ceiling, and that sharing is only sound over the range
-/// **both** consumers accept.
-/// `SQLite` types `read_json`'s `maximum_object_size` as `UINTEGER`
-/// (32-bit), so anything above `u32::MAX` does not raise the ingest
-/// ceiling — it makes the `CREATE TABLE … read_json_auto(…)` statement fail
-/// with an option-conversion error attributed to `"metadata_raw create"`,
-/// naming nothing the operator set.
+/// One env knob drives both the ingest-side capped read and the post-ingest
+/// reader guard, and neither consumer has an engine-imposed domain anymore:
+/// the ingest side compares `str::len()` against a `usize`, and the read
+/// side binds the cap as an i64 SQL parameter (`i64::try_from(cap)` with a
+/// saturating fallback), so both accept any `u64` the resolver can produce.
 ///
-/// Verified against the pinned `SQLite` v1.5.5 (`scripts/sqlite-pins.txt`):
-/// `maximum_object_size=4294967295` is accepted, while `=4294967296` fails
-/// with *"Type INT64 with value 4294967296 can't be cast because the value
-/// is out of range for the destination type UINT32"*.
+/// The ceiling that remains is **policy**, not an engine limit: a knob
+/// value above 4 GiB is almost certainly a typo or an attempt to disable
+/// the payload guard rather than a real metadata document size, and an
+/// unbounded knob would silently disable the SEC-33 cap (see
+/// `above_ceiling_warns_and_clamps` in `tests/payload_cap.rs`). The
+/// historical value (`u32::MAX`) is kept from the `DuckDB` era so existing
+/// deployments that reasoned about the old limit see no behavior change.
 ///
 /// Spelled as a literal because `u64::from` is not callable in a `const`
 /// initialiser and `u32::MAX as u64` would need an `as_conversions`
 /// exception (`docs/clippy.md`); the equality with `u32::MAX` is pinned by
-/// `ceiling_is_exactly_sqlite_uinteger_max` in `tests/payload_cap.rs`.
+/// `ceiling_is_exactly_u32_max` in `tests/payload_cap.rs`.
 pub(crate) const METADATA_MAX_BYTES_CEILING: u64 = 4_294_967_295;
 
 /// Validates and bounds the raw `OPS_METADATA_MAX_BYTES` value at the
@@ -184,7 +184,7 @@ pub(crate) fn resolve_metadata_max_bytes(raw: Option<&str>) -> u64 {
             env = METADATA_MAX_BYTES_ENV,
             value = raw,
             ceiling = METADATA_MAX_BYTES_CEILING,
-            "value exceeds SQLite's UINTEGER maximum_object_size domain; clamping to the ceiling"
+            "value exceeds the sanity ceiling; clamping to the ceiling"
         );
         return METADATA_MAX_BYTES_CEILING;
     }
@@ -430,11 +430,12 @@ fn query_metadata_raw_with_cap(db: &Sqlite, cap: u64) -> Result<serde_json::Valu
         )
         .context("reading metadata_raw payload with cap guard")?;
     drop(conn);
-    // READ-5 / TASK-1550: a negative `octet_length` is not a real SQLite
-    // shape — treat any negative i64 as zero-length so the over-cap branch
-    // cannot fire on a sentinel. Overflow on i64 → u64 is impossible after
-    // the `.try_from(len)` succeeds, so we no longer carry a `u64::MAX`
-    // arm whose policy would have been ambiguous.
+    // READ-5 / TASK-1550: a negative byte length from the `length(CAST(…
+    // AS BLOB))` guard is not a real SQLite shape — treat any negative i64
+    // as zero-length so the over-cap branch cannot fire on a sentinel.
+    // Overflow on i64 → u64 is impossible after the `.try_from(len)`
+    // succeeds, so we no longer carry a `u64::MAX` arm whose policy would
+    // have been ambiguous.
     let len = u64::try_from(len).unwrap_or(0);
     if len > cap {
         tracing::warn!(
