@@ -789,38 +789,27 @@ mod tests {
         }
     }
 
-    /// `verify` must run `fmt` before anything reads the sources it rewrites.
+    /// `verify` must finish every step that rewrites files before anything
+    /// reads them.
     ///
-    /// `cargo fmt --all` mutates the `.rs` files `clippy` and `build` read, so
-    /// the three must not overlap.
-    ///
-    /// The transitive check matters and is not paranoia: composite expansion
-    /// flattens to a single leaf plan and ORs the `parallel` flags together
-    /// (`any_parallel` in `runner/src/command/resolve.rs`), so nesting the
-    /// compile steps in a `parallel = true` sub-composite would silently make
-    /// the *whole* plan parallel while `verify.parallel` still read `false`.
+    /// `fmt`, `trailing-whitespace` and `end-of-file-fixer` rewrite files the
+    /// checks read. In a parallel plan that holds only if each rewriter is
+    /// exclusive (a stage of its own) and listed before every reader. `fmt`'s
+    /// flag lives in the stack TOML and is checked here; the text fixers are
+    /// exclusive in their own definitions (tested next to them).
     #[test]
-    fn rust_verify_is_sequential_so_fmt_cannot_race_the_compile_steps() {
+    fn rust_verify_runs_rewriters_alone_before_readers() {
         let cmds = Stack::Rust.default_commands_ref();
         let CommandSpec::Composite(verify) = cmds.get("verify").expect("verify must exist") else {
             panic!("rust `verify` must be a composite command");
         };
+        let Some(CommandSpec::Exec(fmt)) = cmds.get("fmt") else {
+            panic!("rust `fmt` must be an exec command");
+        };
         assert!(
-            !verify.parallel,
-            "rust `verify` must be sequential: fmt rewrites files the compile steps read"
+            !verify.parallel || fmt.exclusive,
+            "rust `verify` is parallel, so `fmt` must be exclusive: it rewrites files the checks read"
         );
-
-        // No descendant may re-enable parallelism, or the flattened plan runs
-        // concurrently regardless of the flag asserted above.
-        for child in &verify.commands {
-            if let Some(CommandSpec::Composite(c)) = cmds.get(child) {
-                assert!(
-                    !c.parallel,
-                    "`{child}` is parallel; expansion ORs the flags, so `verify` would run \
-                     concurrently despite parallel = false"
-                );
-            }
-        }
 
         let pos = |name: &str| {
             verify
@@ -829,14 +818,20 @@ mod tests {
                 .position(|c| c == name)
                 .unwrap_or_else(|| panic!("verify must run {name}"))
         };
-        let fmt = pos("fmt");
-        for reader in ["clippy", "build"] {
-            assert!(
-                fmt < pos(reader),
-                "fmt must precede {reader}, got: {:?}",
-                verify.commands
-            );
+        for rewriter in ["fmt", "trailing-whitespace", "end-of-file-fixer"] {
+            for reader in ["clippy", "build", "check-json", "check-yaml", "doc"] {
+                assert!(
+                    pos(rewriter) < pos(reader),
+                    "{rewriter} must precede {reader}, got: {:?}",
+                    verify.commands
+                );
+            }
         }
+        assert!(
+            pos("trailing-whitespace") < pos("end-of-file-fixer"),
+            "trailing-whitespace must precede end-of-file-fixer, got: {:?}",
+            verify.commands
+        );
     }
 
     #[test]
@@ -892,20 +887,13 @@ mod tests {
         }
     }
 
-    /// TASK-1656: a composite declaring `parallel = false` must not have any
+    /// TASK-1656: a stack default declaring `parallel = false` must not have any
     /// parallel descendant, at any depth.
     ///
-    /// This is the transitive form of the one-level check in
-    /// `rust_verify_is_sequential_so_fmt_cannot_race_the_compile_steps`.
-    /// Composite expansion flattens the tree to a flat leaf plan and ORs the
-    /// `parallel` flags (`ctx.any_parallel` in `runner/src/command/resolve.rs`),
-    /// so *one* parallel node anywhere below a sequential root makes the whole
-    /// plan run concurrently while the root's flag still reads `false`. The
-    /// config is then actively misleading, and the failure mode — formatters
-    /// racing checkers over the same files — is intermittent.
-    ///
-    /// Asserted for every stack so a new default cannot reintroduce the trap.
-    /// Remove or relax this only alongside a resolution to TASK-1657.
+    /// The plan's root schedules the whole flattened plan, so a nested
+    /// `parallel = true` under a sequential root silently runs sequentially:
+    /// the flag would claim a concurrency the default never gets. Asserted for
+    /// every stack so a default cannot ship a flag that misleads.
     #[test]
     fn sequential_composites_have_no_parallel_descendant_in_any_stack() {
         for stack in Stack::iter() {
@@ -927,8 +915,8 @@ mod tests {
                 assert!(
                     found.is_empty(),
                     "stack `{}`: `{name}` declares parallel = false but has parallel \
-                     descendant(s) {found:?}; expansion ORs the flags, so the whole \
-                     plan would run concurrently despite the flag",
+                     descendant(s) {found:?}; the root schedules the whole plan, so \
+                     those groups would silently run sequentially",
                     stack.as_str()
                 );
             }

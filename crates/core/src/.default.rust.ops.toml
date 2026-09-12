@@ -3,6 +3,7 @@
 [commands.fmt]
 program = "cargo"
 args = ["fmt", "--all"]
+exclusive = true
 help = "Format all code"
 category = "Code Quality"
 
@@ -69,26 +70,25 @@ args = ["clean"]
 help = "Remove build artifacts"
 category = "Build"
 
-# Sequential, matching every other stack. `cargo fmt --all` rewrites the very
-# .rs files `clippy` and `build` read, so the two must not overlap. Nesting the
-# compile steps in a parallel sub-composite does NOT work around this: composite
-# expansion flattens to a single leaf plan and ORs the `parallel` flags
-# (`any_parallel` in runner/src/command/resolve.rs), so one parallel descendant
-# makes the whole plan parallel.
+# Staged: the steps that rewrite files run alone and in order, then the
+# readers run together:
 #
-# This costs real but small wall-clock: measured warm on this repo, `verify`
-# goes from ~0.45s parallel to ~0.90s sequential. Concurrent cargo invocations
-# serialise on the build directory lock anyway, so the parallelism was worth
-# less than it looked.
+#   fmt → trailing-whitespace → end-of-file-fixer
+#       → (clippy | build | check-json | check-yaml | doc)
+#
+# `fmt` is exclusive above; the two text fixers are exclusive in their own
+# definitions (`ExecCommandSpec::ops_subcommand`). trailing-whitespace must
+# precede end-of-file-fixer: the EOF fixer strips only newlines, so running it
+# first leaves a double newline where a whitespace-only last line was.
 #
 # `check` is deliberately absent — `build --all-targets` subsumes it and clippy
 # type-checks independently, so including it compiled the workspace a third
 # time under a third fingerprint. It remains available as a standalone command.
 [commands.verify]
-commands = ["fmt", "clippy", "build", "trailing-whitespace", "end-of-file-fixer", "check-json", "check-yaml", "doc"]
-parallel = false
+commands = ["fmt", "trailing-whitespace", "end-of-file-fixer", "clippy", "build", "check-json", "check-yaml", "doc"]
+parallel = true
 fail_fast = true
-help = "Run fmt, clippy, build, trailing-whitespace, end-of-file-fixer, check-json, check-yaml, doc"
+help = "Run fmt, trailing-whitespace, end-of-file-fixer, then clippy, build, check-json, check-yaml, doc in parallel"
 category = "Code Quality"
 
 [commands.qa]
