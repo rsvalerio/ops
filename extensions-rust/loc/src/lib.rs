@@ -25,11 +25,11 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Mutex, PoisonError};
 
 use ignore::{DirEntry, WalkBuilder, WalkState};
-use ops_duckdb::DuckDb;
 use ops_extension::{
     Context, DataField, DataProvider, DataProviderError, DataProviderSchema, Deadline,
     ExtensionType,
 };
+use ops_sqlite::Sqlite;
 
 use counter::{count_source, region_from_path, FileCounts, Region};
 
@@ -73,7 +73,7 @@ impl DataProvider for RustLocProvider {
     }
 
     fn provide(&self, ctx: &mut Context) -> Result<serde_json::Value, DataProviderError> {
-        ops_duckdb::try_provide_from_db(ctx, provide_from_db, |ctx| {
+        ops_sqlite::try_provide_from_db(ctx, provide_from_db, |ctx| {
             collect_rust_loc(ctx.working_directory(), ctx.deadline_handle().as_ref())
         })
     }
@@ -226,7 +226,7 @@ pub fn collect_rust_loc(
 
     let mut records = records.into_inner().unwrap_or_else(PoisonError::into_inner);
     // Workers finish in arbitrary order. Sorting keeps the JSON sidecar
-    // and the DuckDB ingest byte-stable across runs, so a diff of two
+    // and the SQLite ingest byte-stable across runs, so a diff of two
     // collections shows real changes only.
     records.sort_by(|a, b| row_key(a).cmp(&row_key(b)));
     Ok(serde_json::Value::Array(records))
@@ -266,9 +266,9 @@ fn count_entry(entry: &DirEntry, working_dir: &Path, deadline: Option<&Deadline>
     }
 
     // The shared sidecar-path policy lives in
-    // `ops_duckdb::sql::relativize_path`, which documents the
+    // `ops_sqlite::sql::relativize_path`, which documents the
     // lossy-conversion decision once for every ingestor.
-    let relative = ops_duckdb::sql::relativize_path(path, working_dir);
+    let relative = ops_sqlite::sql::relativize_path(path, working_dir);
     let region = region_from_path(Path::new(&relative));
 
     // One open, one size decision: the size comes from the same handle that is
@@ -471,8 +471,8 @@ fn push_records(records: &mut Vec<serde_json::Value>, file: &str, counts: &FileC
     }
 }
 
-fn query_rust_loc_files(db: &DuckDb) -> Result<serde_json::Value, anyhow::Error> {
-    ops_duckdb::sql::query_rows_to_json(
+fn query_rust_loc_files(db: &Sqlite) -> Result<serde_json::Value, anyhow::Error> {
+    ops_sqlite::sql::query_rows_to_json(
         db,
         "SELECT file, region, code, docs, comments, blanks, lines FROM rust_loc_files",
         |row| {
@@ -489,8 +489,8 @@ fn query_rust_loc_files(db: &DuckDb) -> Result<serde_json::Value, anyhow::Error>
     )
 }
 
-fn provide_from_db(db: &DuckDb, ctx: &Context) -> Result<serde_json::Value, anyhow::Error> {
-    ops_duckdb::sql::provide_via_ingestor(
+fn provide_from_db(db: &Sqlite, ctx: &Context) -> Result<serde_json::Value, anyhow::Error> {
+    ops_sqlite::sql::provide_via_ingestor(
         db,
         ctx,
         "rust_loc_files",

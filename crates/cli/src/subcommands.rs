@@ -40,9 +40,9 @@ pub fn run_about(
     let (cwd, registry) = cli_data_context(config)?;
     match action {
         Some(AboutAction::Setup) => about_cmd::run_about_setup(config, &registry, &cwd),
-        #[cfg(feature = "duckdb")]
+        #[cfg(feature = "sqlite")]
         Some(AboutAction::Code) => ops_about::code::run_about_code(&registry),
-        #[cfg(feature = "duckdb")]
+        #[cfg(feature = "sqlite")]
         Some(AboutAction::Loc) => ops_about::loc::run_about_loc(&registry),
         Some(AboutAction::Crates) => ops_about::units::run_about_units(&registry),
         Some(AboutAction::Coverage) => ops_about::coverage::run_about_coverage(&registry),

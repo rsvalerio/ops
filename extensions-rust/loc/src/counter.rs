@@ -18,7 +18,7 @@
 //!
 //! # Known limits
 //!
-//! - Tests generated *by* a macro (e.g. `test_create_sql_validation!`)
+//! - Tests generated *by* a macro (e.g. `test_datasource_extension!`)
 //!   are attributed to the invocation line, which is main code. No tool
 //!   in this space can see through macro expansion; `ops` itself has
 //!   several such sites, so its own numbers under-report test lines.

@@ -1,6 +1,6 @@
 //! Project- and per-crate coverage queries over `coverage_files`.
 
-use crate::DuckDb;
+use crate::Sqlite;
 use std::collections::HashMap;
 
 use super::super::validation::{validate_no_traversal, validate_path_chars};
@@ -20,7 +20,7 @@ use super::helpers::{
 ///
 /// If the database lock is poisoned, or the query or row decode fails. A
 /// missing `coverage_files` table is not an error.
-pub fn query_project_coverage(db: &DuckDb) -> anyhow::Result<CrateCoverage> {
+pub fn query_project_coverage(db: &Sqlite) -> anyhow::Result<CrateCoverage> {
     let sql = format!("SELECT {} FROM coverage_files", coverage_col_select(None));
     query_project_row(
         db,
@@ -51,7 +51,7 @@ pub fn query_project_coverage(db: &DuckDb) -> anyhow::Result<CrateCoverage> {
 /// segments, if the database lock is poisoned, or if the query or row decode
 /// fails.
 pub fn query_crate_coverage(
-    db: &DuckDb,
+    db: &Sqlite,
     member_paths: &[&str],
     workspace_root: &str,
 ) -> anyhow::Result<HashMap<String, CrateCoverage>> {
@@ -95,17 +95,20 @@ pub fn query_crate_coverage(
          SELECT m.path, {} \
          FROM members m \
          LEFT JOIN coverage_files c \
-             ON starts_with(c.filename, m.path || '/') \
-             OR starts_with(c.filename, ? || '/' || m.path || '/') \
+             ON substr(c.filename, 1, length(m.path || '/')) = m.path || '/' \
+             OR substr(c.filename, 1, length(? || '/' || m.path || '/')) = ? || '/' || m.path || '/' \
          GROUP BY m.path",
         coverage_col_select(Some(&join_alias))
     );
 
-    // workspace_root is the last bound parameter (? after VALUES placeholders);
-    // chain it without allocating an intermediate Vec<String>.
+    // workspace_root is bound twice — once in the `length(? …)` prefix-size
+    // expression and once in the prefix value itself — after the VALUES
+    // placeholders; chain both without allocating an intermediate
+    // Vec<String>.
     let params = member_paths
         .iter()
         .copied()
+        .chain(std::iter::once(workspace_root))
         .chain(std::iter::once(workspace_root));
 
     collect_per_crate_map(&conn, &sql, label, params, |row| {
@@ -119,9 +122,9 @@ pub fn query_crate_coverage(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::DuckDb;
+    use crate::Sqlite;
 
-    fn setup_coverage_table(db: &DuckDb, rows: &[(&str, i64, i64)]) {
+    fn setup_coverage_table(db: &Sqlite, rows: &[(&str, i64, i64)]) {
         let conn = db.lock().expect("lock");
         conn.execute_batch(
             "CREATE TABLE coverage_files (filename VARCHAR, lines_count BIGINT, lines_covered BIGINT)",
@@ -130,7 +133,7 @@ mod tests {
         for (filename, count, covered) in rows {
             conn.execute(
                 "INSERT INTO coverage_files VALUES (?, ?, ?)",
-                duckdb::params![filename, count, covered],
+                rusqlite::params![filename, count, covered],
             )
             .expect("insert");
         }
@@ -138,7 +141,7 @@ mod tests {
 
     #[test]
     fn dual_prefix_matches_relative_filenames() {
-        let db = DuckDb::open_in_memory().expect("db");
+        let db = Sqlite::open_in_memory().expect("db");
         // Relative filenames (no workspace_root prefix)
         setup_coverage_table(
             &db,
@@ -156,7 +159,7 @@ mod tests {
 
     #[test]
     fn dual_prefix_matches_absolute_filenames() {
-        let db = DuckDb::open_in_memory().expect("db");
+        let db = Sqlite::open_in_memory().expect("db");
         // Absolute filenames including workspace_root
         setup_coverage_table(
             &db,
@@ -173,7 +176,7 @@ mod tests {
 
     #[test]
     fn dual_prefix_does_not_double_count_when_both_match() {
-        let db = DuckDb::open_in_memory().expect("db");
+        let db = Sqlite::open_in_memory().expect("db");
         // A pathological row matching both branches would otherwise be counted
         // once: starts_with(filename, "crates/foo/") matches relatively.
         // Filename is relative, so only the first branch matches.
@@ -189,8 +192,8 @@ mod tests {
     /// "/ws//crates/foo/" in the prefix join and silently zeroed coverage.
     #[test]
     fn workspace_root_trailing_slash_yields_same_results() {
-        let db_a = DuckDb::open_in_memory().expect("db a");
-        let db_b = DuckDb::open_in_memory().expect("db b");
+        let db_a = Sqlite::open_in_memory().expect("db a");
+        let db_b = Sqlite::open_in_memory().expect("db b");
         let rows = [
             ("/ws/root/crates/foo/src/lib.rs", 200, 100),
             ("/ws/root/crates/bar/src/lib.rs", 10, 0),
@@ -212,7 +215,7 @@ mod tests {
 
     #[test]
     fn dual_prefix_excludes_sibling_with_shared_prefix() {
-        let db = DuckDb::open_in_memory().expect("db");
+        let db = Sqlite::open_in_memory().expect("db");
         setup_coverage_table(&db, &[("crates/foobar/src/lib.rs", 100, 50)]);
         let result = query_crate_coverage(&db, &["crates/foo"], "/ws").expect("query ok");
         let foo = result.get("crates/foo").expect("foo present");

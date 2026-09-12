@@ -14,7 +14,7 @@
 // Crate-root attribute rather than a `[lints.rust]` table because ARCH-11
 // centralizes lint levels in `[workspace.lints]` and Cargo cannot merge a
 // per-crate lints table with `workspace = true` inheritance. Verified:
-// `cargo check -p ops-extension [--features duckdb]` clean under the
+// `cargo check -p ops-extension [--features sqlite]` clean under the
 // forbid, `cargo clippy -p ops-extension --all-targets` clean, and any
 // hand-written unsafe block fails the build.
 #![forbid(unsafe_code)]
@@ -36,5 +36,5 @@ pub use extension::{
     ExtensionType, Stack, EXTENSION_REGISTRY,
 };
 
-#[cfg(feature = "duckdb")]
-pub use db_handle::DuckDbHandle;
+#[cfg(feature = "sqlite")]
+pub use db_handle::SqliteHandle;

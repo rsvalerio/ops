@@ -1,7 +1,7 @@
-//! `DuckDb` extension: per-project `DuckDB` database for data collection.
+//! `Sqlite` extension: per-project `SQLite` database for data collection.
 //!
-//! Tests require `--all-features` or `--features duckdb` to compile.
-//! CI must enable the `duckdb` feature flag to run these tests.
+//! Tests require `--all-features` or `--features sqlite` to compile.
+//! CI must enable the `sqlite` feature flag to run these tests.
 
 #![cfg_attr(
     test,
@@ -22,7 +22,7 @@ pub mod sql;
 // READ-10 / TASK-1873: no `#[allow(unused_imports)]` here. A `pub use` in a
 // library crate is a re-export and is never "unused", so the four
 // suppressions this block used to carry silenced nothing.
-pub use connection::DuckDb;
+pub use connection::Sqlite;
 pub use error::{DbError, DbResult};
 pub use ingestor::{DataIngestor, LoadResult, SidecarIngestorConfig};
 // SEC-25 / TASK-2054: `IngestDir` is in `DataIngestor`'s signature, so it must
@@ -36,30 +36,30 @@ use std::sync::Arc;
 
 /// SEC-38 / TASK-2018: the `as_ref()` reborrow is load-bearing.
 ///
-/// `ops_extension` gives `DuckDbHandle` a blanket impl over every
-/// `'static + Send + Sync` type, and `Arc<dyn DuckDbHandle>` is itself one of
+/// `ops_extension` gives `SqliteHandle` a blanket impl over every
+/// `'static + Send + Sync` type, and `Arc<dyn SqliteHandle>` is itself one of
 /// them. Wherever the trait is in scope, method resolution on an `Arc` (or
 /// `&Arc`) receiver matches that blanket impl *for the smart pointer* before it
-/// derefs, so `as_any()` erases the `Arc` and every downcast to [`DuckDb`]
+/// derefs, so `as_any()` erases the `Arc` and every downcast to [`Sqlite`]
 /// returns `None` — silently, with no error and no compile failure.
 ///
-/// This module happens not to import `DuckDbHandle` by name, which is the only
+/// This module happens not to import `SqliteHandle` by name, which is the only
 /// reason a bare `h.as_any()` resolves through to the trait object's own method
 /// today. That is an accident of the import list, not a contract: a single
-/// `use ops_extension::DuckDbHandle;` anywhere in this module would flip every
-/// downcast to `None`. Reborrowing to `&dyn DuckDbHandle` first names the
+/// `use ops_extension::SqliteHandle;` anywhere in this module would flip every
+/// downcast to `None`. Reborrowing to `&dyn SqliteHandle` first names the
 /// receiver explicitly and drops the dependency on scope entirely. The
-/// `duckdb_handle_in_scope` tests below pin both halves.
-fn downcast_duckdb(handle: Option<&Arc<dyn ops_extension::DuckDbHandle>>) -> Option<&DuckDb> {
+/// `sqlite_handle_in_scope` tests below pin both halves.
+fn downcast_sqlite(handle: Option<&Arc<dyn ops_extension::SqliteHandle>>) -> Option<&Sqlite> {
     handle.and_then(|h| {
-        let erased: &dyn ops_extension::DuckDbHandle = h.as_ref();
-        erased.as_any().downcast_ref::<DuckDb>()
+        let erased: &dyn ops_extension::SqliteHandle = h.as_ref();
+        erased.as_any().downcast_ref::<Sqlite>()
     })
 }
 
-/// Try to provide data from `DuckDB` first, falling back to a direct computation.
+/// Try to provide data from `SQLite` first, falling back to a direct computation.
 ///
-/// Clones the `ctx.db()` Arc to split the borrow so `db_fn` can hold `&DuckDb`
+/// Clones the `ctx.db()` Arc to split the borrow so `db_fn` can hold `&Sqlite`
 /// while `ctx` is still accessible. Arc refcount bump is negligible vs I/O cost.
 ///
 /// # Errors
@@ -72,20 +72,20 @@ pub fn try_provide_from_db<F, G>(
     fallback_fn: G,
 ) -> Result<serde_json::Value, DataProviderError>
 where
-    F: FnOnce(&DuckDb, &Context) -> Result<serde_json::Value, anyhow::Error>,
+    F: FnOnce(&Sqlite, &Context) -> Result<serde_json::Value, anyhow::Error>,
     G: FnOnce(&mut Context) -> Result<serde_json::Value, anyhow::Error>,
 {
     let db_arc = ctx.db().cloned();
-    if let Some(db) = downcast_duckdb(db_arc.as_ref()) {
+    if let Some(db) = downcast_sqlite(db_arc.as_ref()) {
         return db_fn(db, ctx).map_err(Into::into);
     }
     fallback_fn(ctx).map_err(Into::into)
 }
 
-/// Extract the [`DuckDb`] handle from a context by downcasting from the trait object.
+/// Extract the [`Sqlite`] handle from a context by downcasting from the trait object.
 #[must_use]
-pub fn get_db(ctx: &Context) -> Option<&DuckDb> {
-    downcast_duckdb(ctx.db())
+pub fn get_db(ctx: &Context) -> Option<&Sqlite> {
+    downcast_sqlite(ctx.db())
 }
 
 // READ-10 / TASK-1873: these are `pub const`s in a library crate, i.e. part of
@@ -93,28 +93,28 @@ pub fn get_db(ctx: &Context) -> Option<&DuckDb> {
 // suppressions they used to carry silenced nothing.
 /// Extension identifier used to register this crate in the engine's
 /// extension registry.
-pub const NAME: &str = "duckdb";
+pub const NAME: &str = "sqlite";
 /// One-line description shown by `ops about` for this extension.
-pub const DESCRIPTION: &str = "Per-project DuckDB database for data collection";
+pub const DESCRIPTION: &str = "Per-project SQLite database for data collection";
 /// CLI-facing short name (`db`) used in commands and user-facing output.
 pub const SHORTNAME: &str = "db";
-/// Registry key of the `duckdb` data provider this crate registers —
+/// Registry key of the `sqlite` data provider this crate registers —
 /// the key the about code/loc subpages look the database handle up by.
-pub const DATA_PROVIDER_NAME: &str = "duckdb";
+pub const DATA_PROVIDER_NAME: &str = "sqlite";
 
-// TRAIT-9 / TASK-1227: `DuckDbHandle` now has a blanket impl over
+// TRAIT-9 / TASK-1227: `SqliteHandle` now has a blanket impl over
 // `'static + Send + Sync` in `ops_extension::data`, so the explicit
-// `impl DuckDbHandle for DuckDb` block is no longer needed (and can no
+// `impl SqliteHandle for Sqlite` block is no longer needed (and can no
 // longer customise the `as_any` body — the canonical `self` body is
 // the compile-time-enforced contract).
 
-/// Datasource extension opening the per-project `DuckDB` database at the
+/// Datasource extension opening the per-project `SQLite` database at the
 /// configured path and attaching it to the run's [`Context`].
-pub struct DuckDbExtension {
+pub struct SqliteExtension {
     db_path: PathBuf,
 }
 
-impl DuckDbExtension {
+impl SqliteExtension {
     /// Creates an extension that opens (or creates) the database at
     /// `db_path`.
     #[must_use = "register the returned extension; constructing it opens nothing"]
@@ -124,7 +124,7 @@ impl DuckDbExtension {
 }
 
 ops_extension::impl_extension! {
-    DuckDbExtension,
+    SqliteExtension,
     name: NAME,
     description: DESCRIPTION,
     shortname: SHORTNAME,
@@ -133,31 +133,31 @@ ops_extension::impl_extension! {
     register_data_providers: |this, registry| {
         let _ = registry.register(
             DATA_PROVIDER_NAME,
-            Box::new(DuckDbProvider {
+            Box::new(SqliteProvider {
                 db_path: this.db_path.clone(),
             }),
         );
     },
-    factory: DUCKDB_FACTORY = |config, workspace_root| {
-        let db_path = DuckDb::resolve_path(&config.data, workspace_root);
-        Some((NAME, Box::new(DuckDbExtension::new(db_path))))
+    factory: SQLITE_FACTORY = |config, workspace_root| {
+        let db_path = Sqlite::resolve_path(&config.data, workspace_root);
+        Some((NAME, Box::new(SqliteExtension::new(db_path))))
     },
 }
 
-struct DuckDbProvider {
+struct SqliteProvider {
     db_path: PathBuf,
 }
 
-impl DataProvider for DuckDbProvider {
+impl DataProvider for SqliteProvider {
     fn name(&self) -> &'static str {
-        "duckdb"
+        "sqlite"
     }
 
     fn provide(&self, ctx: &mut Context) -> Result<serde_json::Value, DataProviderError> {
         if ctx.db().is_some() {
             return Ok(serde_json::Value::Null);
         }
-        let db = DuckDb::open(&self.db_path).map_err(DataProviderError::computation_error)?;
+        let db = Sqlite::open(&self.db_path).map_err(DataProviderError::computation_error)?;
         init_schema(&db).map_err(DataProviderError::computation_error)?;
         ctx.attach_db(Arc::new(db));
         Ok(serde_json::Value::Null)
@@ -170,20 +170,20 @@ mod tests {
     use ops_extension::Context;
 
     #[test]
-    fn duck_db_open_in_memory() {
-        let db = DuckDb::open_in_memory().expect("should open in-memory db");
+    fn sqlite_open_in_memory() {
+        let db = Sqlite::open_in_memory().expect("should open in-memory db");
         assert_eq!(db.path().to_str(), Some(":memory:"));
     }
 
     #[test]
-    fn duck_db_init_schema_succeeds() {
-        let db = DuckDb::open_in_memory().expect("should open");
+    fn sqlite_init_schema_succeeds() {
+        let db = Sqlite::open_in_memory().expect("should open");
         init_schema(&db).expect("init_schema should succeed");
     }
 
     #[test]
-    fn duck_db_upsert_and_get_checksum() {
-        let db = DuckDb::open_in_memory().expect("should open");
+    fn sqlite_upsert_and_get_checksum() {
+        let db = Sqlite::open_in_memory().expect("should open");
         init_schema(&db).expect("init_schema");
         upsert_data_source(
             &db,
@@ -202,16 +202,16 @@ mod tests {
     }
 
     #[test]
-    fn duck_db_lock_returns_guard() {
-        let db = DuckDb::open_in_memory().expect("should open");
+    fn sqlite_lock_returns_guard() {
+        let db = Sqlite::open_in_memory().expect("should open");
         let guard = db.lock().expect("lock should succeed");
         drop(guard);
     }
 
     #[test]
-    fn duck_db_provider_returns_null() {
-        let db = DuckDb::open_in_memory().expect("should open");
-        let provider = DuckDbProvider {
+    fn sqlite_provider_returns_null() {
+        let db = Sqlite::open_in_memory().expect("should open");
+        let provider = SqliteProvider {
             db_path: std::path::PathBuf::from(":memory:"),
         };
         let config = std::sync::Arc::new(ops_core::config::Config::empty());
@@ -222,10 +222,10 @@ mod tests {
     }
 
     #[test]
-    fn duck_db_provider_opens_real_db_when_ctx_db_is_none() {
+    fn sqlite_provider_opens_real_db_when_ctx_db_is_none() {
         let temp_dir = tempfile::tempdir().expect("tempdir");
-        let db_path = temp_dir.path().join("test_provider.duckdb");
-        let provider = DuckDbProvider {
+        let db_path = temp_dir.path().join("test_provider.db");
+        let provider = SqliteProvider {
             db_path: db_path.clone(),
         };
         let config = std::sync::Arc::new(ops_core::config::Config::empty());
@@ -246,14 +246,14 @@ mod tests {
     // contracts.
 
     #[test]
-    fn get_db_returns_some_for_a_context_carrying_a_duckdb_handle() {
-        let db = DuckDb::open_in_memory().expect("should open");
+    fn get_db_returns_some_for_a_context_carrying_a_sqlite_handle() {
+        let db = Sqlite::open_in_memory().expect("should open");
         let expected_id = db.id();
         let config = std::sync::Arc::new(ops_core::config::Config::empty());
         let mut ctx = Context::new(config, std::path::PathBuf::from("."));
         ctx.attach_db(std::sync::Arc::new(db));
 
-        let got = get_db(&ctx).expect("handle must downcast back to DuckDb");
+        let got = get_db(&ctx).expect("handle must downcast back to Sqlite");
         assert_eq!(got.id(), expected_id, "must be the very handle attached");
     }
 
@@ -266,7 +266,7 @@ mod tests {
 
     #[test]
     fn try_provide_from_db_takes_the_db_branch_when_a_handle_is_attached() {
-        let db = DuckDb::open_in_memory().expect("should open");
+        let db = Sqlite::open_in_memory().expect("should open");
         let config = std::sync::Arc::new(ops_core::config::Config::empty());
         let mut ctx = Context::new(config, std::path::PathBuf::from("."));
         ctx.attach_db(std::sync::Arc::new(db));
@@ -296,7 +296,7 @@ mod tests {
 
     #[test]
     fn try_provide_from_db_maps_the_db_branch_error_into_data_provider_error() {
-        let db = DuckDb::open_in_memory().expect("should open");
+        let db = Sqlite::open_in_memory().expect("should open");
         let config = std::sync::Arc::new(ops_core::config::Config::empty());
         let mut ctx = Context::new(config, std::path::PathBuf::from("."));
         ctx.attach_db(std::sync::Arc::new(db));
@@ -331,19 +331,19 @@ mod tests {
     }
 
     /// SEC-38 / TASK-2018: the accessors above happen to be exercised from a
-    /// module where `DuckDbHandle` is *not* imported, which is exactly the
+    /// module where `SqliteHandle` is *not* imported, which is exactly the
     /// condition under which a bare `as_any()` on an `Arc` receiver resolves
     /// correctly. This module imports the trait, so the blanket impl for
-    /// `Arc<dyn DuckDbHandle>` wins method resolution here — the state the
+    /// `Arc<dyn SqliteHandle>` wins method resolution here — the state the
     /// whole crate is one `use` statement away from. `get_db` and
     /// `try_provide_from_db` must be immune to it.
-    mod duckdb_handle_in_scope {
-        use super::{get_db, try_provide_from_db, DuckDb};
-        use ops_extension::{Context, DuckDbHandle};
+    mod sqlite_handle_in_scope {
+        use super::{get_db, try_provide_from_db, Sqlite};
+        use ops_extension::{Context, SqliteHandle};
         use std::sync::Arc;
 
         fn context_with_a_handle() -> (Context, u64) {
-            let db = DuckDb::open_in_memory().expect("should open");
+            let db = Sqlite::open_in_memory().expect("should open");
             let id = db.id();
             let config = Arc::new(ops_core::config::Config::empty());
             let mut ctx = Context::new(config, std::path::PathBuf::from("."));
@@ -353,17 +353,17 @@ mod tests {
 
         #[test]
         fn an_unreborrowed_as_any_on_an_arc_receiver_erases_the_arc() {
-            let db = DuckDb::open_in_memory().expect("should open");
-            let handle: Arc<dyn DuckDbHandle> = Arc::new(db);
+            let db = Sqlite::open_in_memory().expect("should open");
+            let handle: Arc<dyn SqliteHandle> = Arc::new(db);
 
             assert!(
-                handle.as_any().downcast_ref::<DuckDb>().is_none(),
+                handle.as_any().downcast_ref::<Sqlite>().is_none(),
                 "with the trait in scope an Arc receiver does not reach the handle"
             );
             assert!(
                 handle
                     .as_any()
-                    .downcast_ref::<Arc<dyn DuckDbHandle>>()
+                    .downcast_ref::<Arc<dyn SqliteHandle>>()
                     .is_some(),
                 "it erases the Arc itself instead"
             );
@@ -372,7 +372,7 @@ mod tests {
         #[test]
         fn get_db_finds_the_handle_regardless_of_what_is_in_scope() {
             let (ctx, expected_id) = context_with_a_handle();
-            let got = get_db(&ctx).expect("downcast_duckdb must reborrow, not rely on scope");
+            let got = get_db(&ctx).expect("downcast_sqlite must reborrow, not rely on scope");
             assert_eq!(got.id(), expected_id, "must be the very handle attached");
         }
 
@@ -390,20 +390,20 @@ mod tests {
     }
 
     #[test]
-    fn duck_db_open_file_based() {
+    fn sqlite_open_file_based() {
         let temp_dir = tempfile::tempdir().expect("tempdir");
-        let db_path = temp_dir.path().join("test.duckdb");
-        let db = DuckDb::open(&db_path).expect("should open file-based db");
+        let db_path = temp_dir.path().join("test.db");
+        let db = Sqlite::open(&db_path).expect("should open file-based db");
         assert_eq!(db.path(), db_path);
         assert!(db_path.exists());
     }
 
     #[test]
-    fn duck_db_open_creates_parent_directories() {
+    fn sqlite_open_creates_parent_directories() {
         let temp_dir = tempfile::tempdir().expect("tempdir");
-        let db_path = temp_dir.path().join("nested/dir/test.duckdb");
+        let db_path = temp_dir.path().join("nested/dir/test.db");
         assert!(!db_path.parent().unwrap().exists());
-        let _db = DuckDb::open(&db_path).expect("should create parent dirs");
+        let _db = Sqlite::open(&db_path).expect("should create parent dirs");
         assert!(db_path.parent().unwrap().exists());
     }
 }

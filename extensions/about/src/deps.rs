@@ -41,7 +41,7 @@ pub fn run_about_deps_with(
 ) -> anyhow::Result<()> {
     let mut ctx = crate::providers::subpage_context("deps")?;
 
-    warm_providers(&mut ctx, data_registry, &["duckdb", "metadata"], "deps");
+    warm_providers(&mut ctx, data_registry, &["sqlite", "metadata"], "deps");
 
     let deps: ProjectDependencies =
         load_or_default(&mut ctx, data_registry, PROJECT_DEPENDENCIES_PROVIDER)?;

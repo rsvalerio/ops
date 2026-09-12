@@ -1,8 +1,8 @@
-//! `CoverageIngestor` end-to-end loads into `DuckDB`.
+//! `CoverageIngestor` end-to-end loads into `SQLite`.
 
 use super::{setup_loaded_db, write_coverage_fixture};
 use crate::ingestor::CoverageIngestor;
-use ops_duckdb::{init_schema, DataIngestor, DuckDb};
+use ops_sqlite::{init_schema, DataIngestor, Sqlite};
 
 #[test]
 fn coverage_load_creates_table_and_view() {
@@ -41,9 +41,9 @@ fn coverage_load_creates_table_and_view() {
 
 #[test]
 fn coverage_files_has_data_returns_false_for_empty_db() {
-    let db = DuckDb::open_in_memory().expect("open in-memory db");
+    let db = Sqlite::open_in_memory().expect("open in-memory db");
     init_schema(&db).expect("init schema");
-    let has = ops_duckdb::sql::table_has_data(&db, "coverage_files").expect("check");
+    let has = ops_sqlite::sql::table_has_data(&db, "coverage_files").expect("check");
     assert!(!has, "empty db should have no coverage data");
 }
 

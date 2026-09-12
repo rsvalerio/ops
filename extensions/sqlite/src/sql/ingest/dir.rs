@@ -1,11 +1,11 @@
 //! Ingest directory layout, hardening, checksums, and external-error helpers.
 
-use crate::{DbError, DbResult, DuckDb};
+use crate::{DbError, DbResult, Sqlite};
 use std::path::{Path, PathBuf};
 
 /// Compute the ingest data directory from a DB path (appends `.ingest`).
 ///
-/// READ-5 / TASK-1867: `DuckDb::open_in_memory` stores the `DuckDB`
+/// READ-5 / TASK-1867: `Sqlite::open_in_memory` stores the `SQLite`
 /// connection string `:memory:` as its path. Appending `.ingest` to that
 /// sentinel yielded the *relative* path `:memory:.ingest`, which the ingest
 /// pipeline then created — with staged JSON inside it — in whatever the
@@ -352,18 +352,13 @@ fn harden_existing_ingest_dir(data_dir: &Path) -> std::io::Result<()> {
 /// # What is still resolved by path, and why that is sound
 ///
 /// [`IngestDir::path`] still exists and still hands out a `&Path`, for exactly
-/// two uses:
+/// one use: the `data_sources` provenance row and log breadcrumbs, which record
+/// a name for a human to find later.
 ///
-/// * `DuckDB`'s `read_json_auto('<path>')` — the embedded engine takes a path
-///   string and has no descriptor-passing API, so the *read* of the staged JSON
-///   is unavoidably by name.
-/// * the `data_sources` provenance row and log breadcrumbs, which record a name
-///   for a human to find later.
-///
-/// Neither is a *write*. The finding this type answers is that a swapped
-/// directory captures the data ops stages; a swapped directory on the read side
-/// can at worst feed `DuckDB` attacker-chosen JSON, which the workspace-sidecar
-/// and checksum checks already treat as untrusted input.
+/// That is not a *write*, and since the SQLite port it is not a *read* either
+/// — staged JSON is read through the anchored [`IngestDir::open_read`] and
+/// handed to the engine as a bound parameter, so no code path opens a staged
+/// entry by name.
 ///
 /// # Platform
 ///
@@ -446,8 +441,8 @@ impl IngestDir {
         })
     }
 
-    /// The directory's path, for `DuckDB`'s path-only `read_json_auto`, the
-    /// `data_sources` provenance row, and log breadcrumbs.
+    /// The directory's path, for the `data_sources` provenance row and log
+    /// breadcrumbs.
     ///
     /// Never use this to open a file for writing — that is precisely the
     /// re-resolution this type exists to remove. Use [`IngestDir::write_atomic`],
@@ -458,8 +453,8 @@ impl IngestDir {
         &self.path
     }
 
-    /// The path a staged entry *would* have, for `read_json_auto` and
-    /// provenance. Carries the same "reads and labels only" contract as
+    /// The path a staged entry *would* have, for provenance labels only —
+    /// never for opening. Carries the same "labels only" contract as
     /// [`IngestDir::path`].
     #[must_use]
     pub fn entry_path(&self, name: &str) -> PathBuf {
@@ -694,81 +689,17 @@ impl IngestDir {
         checksum_reader(self.open_read(name)?)
     }
 
-    /// SEC-25 / TASK-2067: assert that [`IngestDir::entry_path`] and the
-    /// anchor still name the same inode.
-    ///
-    /// The one staged access this type cannot anchor is the `DuckDB` engine's
-    /// own read: `read_json_auto('<path>')` takes a path string and the
-    /// embedded engine offers no descriptor-passing API, so that read resolves
-    /// the ingest directory by name (see `create_table_from_json_sql`). Call
-    /// this immediately before handing the path over: it opens the entry
-    /// through the verified descriptor and compares its `(dev, ino)` against
-    /// what the *path* resolves to, so a directory swapped between the
-    /// anchored write and the engine's read is refused rather than silently
-    /// feeding the database an attacker's JSON.
-    ///
-    /// This **shrinks** the window; it does not close it. The path is still
-    /// resolved a second time inside `DuckDB`, and nothing prevents a swap
-    /// between this check and that resolution. Closing it needs either a
-    /// descriptor-passing read in the engine or staging the JSON somewhere
-    /// unreachable by name, neither of which is available here.
-    ///
-    /// Non-Unix has no `(dev, ino)` pair to compare and no anchored open to
-    /// compare it against, so the check is a no-op there — the same split
-    /// [`IngestDir::open`] and [`create_ingest_dir`] already make.
-    ///
-    /// # Errors
-    ///
-    /// [`DbError::Io`] if `name` is not a single path component, the entry
-    /// cannot be opened through the anchor or resolved by path, or the two
-    /// resolve to different inodes.
-    pub fn verify_entry_identity(&self, name: &str) -> DbResult<()> {
-        self.verify_entry_identity_io(name).map_err(DbError::Io)
-    }
-
-    #[cfg(unix)]
-    fn verify_entry_identity_io(&self, name: &str) -> std::io::Result<()> {
-        use std::io::{Error, ErrorKind};
-        use std::os::unix::fs::MetadataExt;
-
-        // Both opens can fail with a bare `ENOENT` that names nothing, and
-        // this check now runs *before* `read_json_auto` would have reported
-        // the missing file itself — so re-attach the entry name, or the
-        // operator loses which staged file went missing.
-        let named = |e: std::io::Error| {
-            Error::new(
-                e.kind(),
-                format!("staged entry {name:?} in {}: {e}", self.path.display()),
-            )
-        };
-        let anchored = self
-            .open_read_io(name)
-            .and_then(|f| f.metadata())
-            .map_err(named)?;
-        // Resolve exactly as the engine will: by path, following symlinks.
-        let by_path = std::fs::metadata(self.entry_path(name)).map_err(named)?;
-        if anchored.dev() != by_path.dev() || anchored.ino() != by_path.ino() {
-            return Err(Error::new(
-                ErrorKind::InvalidInput,
-                format!(
-                    "staged entry {name:?} resolves to a different inode by path than through \
-                     the verified ingest directory; refusing to hand the path to DuckDB"
-                ),
-            ));
-        }
-        Ok(())
-    }
-
-    #[cfg(not(unix))]
-    fn verify_entry_identity_io(&self, name: &str) -> std::io::Result<()> {
-        Self::check_name(name)
-    }
+    // SEC-25 / TASK-2067 residual closed by the SQLite port: the former
+    // `verify_entry_identity` pre-check existed because `read_json_auto` took
+    // an interpolated path; staged bytes are now read through `open_read` in
+    // Rust and bound as a parameter, so there is no by-name engine read left
+    // to defend against.
 }
 
 /// Default DB path for a workspace root (using default `DataConfig`).
 #[must_use]
 pub fn default_db_path(workspace_root: &Path) -> PathBuf {
-    DuckDb::resolve_path(&ops_core::config::DataConfig::default(), workspace_root)
+    Sqlite::resolve_path(&ops_core::config::DataConfig::default(), workspace_root)
 }
 
 /// Convert a non-IO external error into [`DbError::External`].
@@ -842,7 +773,7 @@ mod tests {
     fn create_ingest_dir_uses_restricted_mode_on_unix() {
         use std::os::unix::fs::PermissionsExt;
         let tmp = tempfile::tempdir().expect("tempdir");
-        let dir = tmp.path().join("data.duckdb.ingest");
+        let dir = tmp.path().join("data.db.ingest");
         create_ingest_dir(&dir).expect("create");
         let mode = std::fs::metadata(&dir).expect("meta").permissions().mode();
         assert_eq!(
@@ -868,7 +799,7 @@ mod tests {
     fn create_ingest_dir_does_not_lock_down_intermediate_parents() {
         use std::os::unix::fs::PermissionsExt;
         let tmp = tempfile::tempdir().expect("tempdir");
-        let leaf = tmp.path().join("a/b/data.duckdb.ingest");
+        let leaf = tmp.path().join("a/b/data.db.ingest");
         create_ingest_dir(&leaf).expect("create");
 
         let leaf_mode = std::fs::metadata(&leaf)
@@ -909,7 +840,7 @@ mod tests {
         std::fs::set_permissions(&parent, std::fs::Permissions::from_mode(0o777))
             .expect("make parent shared-writable");
 
-        create_ingest_dir(&parent.join("data.duckdb.ingest")).expect("create");
+        create_ingest_dir(&parent.join("data.db.ingest")).expect("create");
 
         let mode = std::fs::metadata(&parent)
             .expect("meta")
@@ -942,7 +873,7 @@ mod tests {
         std::fs::set_permissions(&parent, std::fs::Permissions::from_mode(0o1777))
             .expect("make parent sticky and shared-writable");
 
-        create_ingest_dir(&parent.join("data.duckdb.ingest")).expect("create");
+        create_ingest_dir(&parent.join("data.db.ingest")).expect("create");
 
         let mode = std::fs::metadata(&parent)
             .expect("meta")
@@ -995,7 +926,7 @@ mod tests {
         std::fs::create_dir(&target).expect("target");
         std::fs::set_permissions(&target, std::fs::Permissions::from_mode(0o755)).expect("mode");
 
-        let link = tmp.path().join("data.duckdb.ingest");
+        let link = tmp.path().join("data.db.ingest");
         std::os::unix::fs::symlink(&target, &link).expect("symlink");
 
         let err = create_ingest_dir(&link).expect_err("symlinked ingest dir must be rejected");
@@ -1039,7 +970,7 @@ mod tests {
 
         let link = tmp.path().join("parent");
         std::os::unix::fs::symlink(&target, &link).expect("symlink");
-        let data_dir = link.join("data.duckdb.ingest");
+        let data_dir = link.join("data.db.ingest");
 
         let err = create_ingest_dir(&data_dir).expect_err("symlinked parent must be rejected");
         assert!(
@@ -1057,7 +988,7 @@ mod tests {
             "the symlink's target must keep its mode; got {target_mode:o}"
         );
         assert!(
-            !target.join("data.duckdb.ingest").exists(),
+            !target.join("data.db.ingest").exists(),
             "no leaf ingest dir may be created inside the target"
         );
         assert!(
@@ -1119,7 +1050,7 @@ mod tests {
     #[test]
     fn create_ingest_dir_rejects_a_non_directory() {
         let tmp = tempfile::tempdir().expect("tempdir");
-        let path = tmp.path().join("data.duckdb.ingest");
+        let path = tmp.path().join("data.db.ingest");
         std::fs::write(&path, b"not a dir").expect("write");
         let err = create_ingest_dir(&path).expect_err("file at ingest path must be rejected");
         assert_eq!(err.kind(), std::io::ErrorKind::InvalidInput);
@@ -1131,11 +1062,11 @@ mod tests {
 
     #[test]
     fn data_dir_for_db_appends_ingest() {
-        let path = PathBuf::from("/home/proj/target/ops/data.duckdb");
+        let path = PathBuf::from("/home/proj/target/ops/data.db");
         let result = data_dir_for_db(&path).expect("file-backed path");
         assert_eq!(
             result,
-            PathBuf::from("/home/proj/target/ops/data.duckdb.ingest")
+            PathBuf::from("/home/proj/target/ops/data.db.ingest")
         );
     }
 
@@ -1155,7 +1086,7 @@ mod tests {
     fn default_db_path_uses_target_dir() {
         let root = PathBuf::from("/home/proj");
         let path = default_db_path(&root);
-        assert_eq!(path, PathBuf::from("/home/proj/target/ops/data.duckdb"));
+        assert_eq!(path, PathBuf::from("/home/proj/target/ops/data.db"));
     }
 
     #[test]
@@ -1216,7 +1147,7 @@ mod tests {
     /// implementation is reachable through now that the path-based
     /// `checksum_file` is gone.
     fn staged_dir(tmp: &tempfile::TempDir) -> IngestDir {
-        IngestDir::open(&tmp.path().join("data.duckdb.ingest")).expect("open")
+        IngestDir::open(&tmp.path().join("data.db.ingest")).expect("open")
     }
 
     #[test]
@@ -1254,7 +1185,7 @@ mod tests {
     #[test]
     fn staged_write_is_not_redirected_by_swapping_the_ingest_dir_name() {
         let tmp = tempfile::tempdir().expect("tempdir");
-        let staging = tmp.path().join("data.duckdb.ingest");
+        let staging = tmp.path().join("data.db.ingest");
         let dir = IngestDir::open(&staging).expect("open verified ingest dir");
 
         // Swap: move the verified directory aside and plant an attacker-owned
@@ -1289,67 +1220,13 @@ mod tests {
         );
     }
 
-    /// SEC-25 / TASK-2067 AC #1: the identity re-check accepts a staged entry
-    /// that the anchor and the path agree on — the ordinary case, on every
-    /// load.
-    #[test]
-    fn entry_identity_holds_for_an_unmolested_staged_entry() {
-        let tmp = tempfile::tempdir().expect("tempdir");
-        let dir = staged_dir(&tmp);
-        dir.write_atomic("staged.json", b"[]").expect("stage");
-        dir.verify_entry_identity("staged.json")
-            .expect("path and anchor must agree");
-    }
-
-    /// SEC-25 / TASK-2067 AC #1: the swap `create_table_from_json_sql` cannot
-    /// defend against on its own. The verified directory is renamed aside and
-    /// an attacker-controlled directory holding a different `staged.json` is
-    /// put at the name `read_json_auto` would resolve — so the path and the
-    /// anchor name different inodes, and the check refuses to hand `DuckDB`
-    /// the path.
-    #[cfg(unix)]
-    #[test]
-    fn entry_identity_refuses_a_directory_swapped_under_the_anchor() {
-        let tmp = tempfile::tempdir().expect("tempdir");
-        let staging = tmp.path().join("data.duckdb.ingest");
-        let dir = IngestDir::open(&staging).expect("open");
-        dir.write_atomic("staged.json", b"[{\"ours\":1}]")
-            .expect("stage through the anchor");
-
-        // Swap the verified directory for an attacker's, at the same name.
-        let moved_aside = tmp.path().join("moved-aside");
-        std::fs::rename(&staging, &moved_aside).expect("move the verified dir aside");
-        let attacker = tmp.path().join("attacker-dir");
-        std::fs::create_dir(&attacker).expect("create attacker dir");
-        std::fs::write(attacker.join("staged.json"), b"[{\"theirs\":1}]").expect("plant");
-        std::os::unix::fs::symlink(&attacker, &staging).expect("plant symlink at the ingest path");
-
-        let err = dir
-            .verify_entry_identity("staged.json")
-            .expect_err("a swapped directory must be refused");
-        match err {
-            DbError::Io(e) => assert_eq!(e.kind(), std::io::ErrorKind::InvalidInput),
-            other => panic!("expected DbError::Io, got {other:?}"),
-        }
-    }
-
-    /// SEC-25 / TASK-2067: a missing staged entry is refused too — there is
-    /// nothing for `read_json_auto` to read, and the anchored open is what
-    /// says so.
-    #[test]
-    fn entry_identity_refuses_a_missing_entry() {
-        let tmp = tempfile::tempdir().expect("tempdir");
-        let dir = staged_dir(&tmp);
-        assert!(dir.verify_entry_identity("never-staged.json").is_err());
-    }
-
     /// SEC-25 / TASK-2054: anchoring is worthless if the *entry name* can walk
     /// out of the directory, so a name that is not a single path component is
     /// refused before it reaches `openat`.
     #[test]
     fn anchored_entry_names_must_be_single_path_components() {
         let tmp = tempfile::tempdir().expect("tempdir");
-        let dir = IngestDir::open(&tmp.path().join("data.duckdb.ingest")).expect("open");
+        let dir = IngestDir::open(&tmp.path().join("data.db.ingest")).expect("open");
         for bad in ["..", ".", "", "../escape.json", "sub/escape.json"] {
             let err = dir
                 .write_atomic(bad, b"x")
@@ -1374,7 +1251,7 @@ mod tests {
         let tmp = tempfile::tempdir().expect("tempdir");
         let elsewhere = tmp.path().join("elsewhere");
         std::fs::create_dir(&elsewhere).expect("create target");
-        let staging = tmp.path().join("data.duckdb.ingest");
+        let staging = tmp.path().join("data.db.ingest");
         std::os::unix::fs::symlink(&elsewhere, &staging).expect("plant symlink");
 
         let err = IngestDir::open(&staging).expect_err("a symlinked ingest dir must be refused");
@@ -1390,7 +1267,7 @@ mod tests {
     #[test]
     fn anchored_write_rename_and_unlink_round_trip() {
         let tmp = tempfile::tempdir().expect("tempdir");
-        let dir = IngestDir::open(&tmp.path().join("data.duckdb.ingest")).expect("open");
+        let dir = IngestDir::open(&tmp.path().join("data.db.ingest")).expect("open");
         dir.write_atomic("data.json", b"payload").expect("write");
 
         let leftover = std::fs::read_dir(dir.path())

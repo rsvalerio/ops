@@ -1,11 +1,11 @@
-//! `CoverageProvider` impl and `DuckDB` readback path.
+//! `CoverageProvider` impl and `SQLite` readback path.
 //!
 //! ARCH-1 / TASK-1559: lifted out of `lib.rs`.
 
 use crate::ingestor::CoverageIngestor;
 use crate::parse::{collect_coverage, CoverageRow};
-use ops_duckdb::DuckDb;
 use ops_extension::{Context, DataProvider, DataProviderError, DataProviderSchema};
+use ops_sqlite::Sqlite;
 
 pub struct CoverageProvider;
 
@@ -15,7 +15,7 @@ impl DataProvider for CoverageProvider {
     }
 
     fn provide(&self, ctx: &mut Context) -> Result<serde_json::Value, DataProviderError> {
-        ops_duckdb::try_provide_from_db(ctx, provide_from_db, |ctx| {
+        ops_sqlite::try_provide_from_db(ctx, provide_from_db, |ctx| {
             collect_coverage(ctx.working_directory(), ctx.deadline())
         })
     }
@@ -58,8 +58,8 @@ impl DataProvider for CoverageProvider {
 /// and the JSON row builder share one schema. Column binding is by name
 /// (TASK-1610) so reordering the SELECT or swapping same-typed columns
 /// produces a clear runtime error instead of silent data corruption.
-pub fn query_coverage_files(db: &DuckDb) -> Result<serde_json::Value, anyhow::Error> {
-    ops_duckdb::sql::query_rows_to_json(
+pub fn query_coverage_files(db: &Sqlite) -> Result<serde_json::Value, anyhow::Error> {
+    ops_sqlite::sql::query_rows_to_json(
         db,
         "SELECT filename, lines_count, lines_covered, lines_percent, \
          functions_count, functions_covered, functions_percent, \
@@ -84,15 +84,16 @@ pub fn query_coverage_files(db: &DuckDb) -> Result<serde_json::Value, anyhow::Er
                 branches_notcovered: row.get::<_, i64>("branches_notcovered")?,
                 branches_percent: row.get::<_, f64>("branches_percent")?,
             };
-            serde_json::to_value(coverage).map_err(|e| {
-                duckdb::Error::FromSqlConversionFailure(0, duckdb::types::Type::Any, Box::new(e))
-            })
+            // rusqlite has no duckdb-rs's `Type::Any`; a serialisation
+            // failure is a value-side (ToSql-direction) conversion error.
+            serde_json::to_value(coverage)
+                .map_err(|e| rusqlite::Error::ToSqlConversionFailure(Box::new(e)))
         },
     )
 }
 
-pub fn provide_from_db(db: &DuckDb, ctx: &Context) -> Result<serde_json::Value, anyhow::Error> {
-    ops_duckdb::sql::provide_via_ingestor(
+pub fn provide_from_db(db: &Sqlite, ctx: &Context) -> Result<serde_json::Value, anyhow::Error> {
+    ops_sqlite::sql::provide_via_ingestor(
         db,
         ctx,
         "coverage_files",

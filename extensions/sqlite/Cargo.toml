@@ -1,16 +1,15 @@
 [package]
-name = "ops-duckdb"
+name = "ops-sqlite"
 publish = false
 version.workspace = true
 edition.workspace = true
 license.workspace = true
-build = "build.rs"
 
 [dependencies]
 ops-core = { workspace = true }
-ops-extension = { workspace = true, features = ["duckdb"] }
+ops-extension = { workspace = true, features = ["sqlite"] }
 linkme = { workspace = true }
-duckdb = { workspace = true }
+rusqlite = { workspace = true }
 sha2 = { workspace = true }
 hex = { workspace = true }
 serde_json = { workspace = true }
@@ -26,8 +25,8 @@ libc = { workspace = true }
 
 [features]
 default = []
-# Exposes test-only helpers (e.g., the test_create_sql_validation macro) for use
-# in dev-dependencies of downstream crates. Not part of the stable API.
+# Exposes test-only helpers for use in dev-dependencies of downstream crates.
+# Not part of the stable API.
 test-helpers = []
 
 [dev-dependencies]

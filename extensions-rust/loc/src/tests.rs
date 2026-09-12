@@ -14,8 +14,8 @@
 
 use std::path::{Path, PathBuf};
 
-use ops_duckdb::{init_schema, DataIngestor, DuckDb};
 use ops_extension::{Context, DataProvider, Extension, ExtensionType};
+use ops_sqlite::{init_schema, DataIngestor, Sqlite};
 
 use super::{RustLocExtension, RustLocIngestor, RustLocProvider};
 use crate::counter::{count_source, region_from_path, LineKind, Locs, Region, MAX_NESTING_DEPTH};
@@ -726,7 +726,7 @@ fn collect_rust_loc_returns_records_for_this_crate() {
     );
 }
 
-// -- provider / DuckDB integration --
+// -- provider / SQLite integration --
 
 #[test]
 fn rust_loc_provider_name() {
@@ -751,8 +751,8 @@ fn rust_loc_collect_and_load_cycle() {
     // Ingestors stage through a verified anchor, so the test drives the same
     // handle `provide_via_ingestor` builds.
     let dir =
-        ops_duckdb::IngestDir::open(&data_dir.path().join("ingest")).expect("open ingest dir");
-    let db = DuckDb::open_in_memory().expect("open in-memory db");
+        ops_sqlite::IngestDir::open(&data_dir.path().join("ingest")).expect("open ingest dir");
+    let db = Sqlite::open_in_memory().expect("open in-memory db");
 
     let ctx = Context::test_context(workspace.path().to_path_buf());
     RustLocIngestor
@@ -789,9 +789,9 @@ fn rust_loc_collect_and_load_cycle() {
 }
 
 /// Cross-crate contract: `ops about loc` reads this crate's summary view
-/// through [`ops_duckdb::sql::query_rust_loc_summary`], which selects the
+/// through [`ops_sqlite::sql::query_rust_loc_summary`], which selects the
 /// columns by name. The view SQL lives here and the SELECT lives in
-/// `ops-duckdb`, so a rename on either side would otherwise only fail at
+/// `ops-sqlite`, so a rename on either side would otherwise only fail at
 /// runtime, on a real workspace, as an empty about page.
 #[test]
 fn rust_loc_summary_view_satisfies_the_shared_summary_query() {
@@ -801,8 +801,8 @@ fn rust_loc_summary_view_satisfies_the_shared_summary_query() {
     // Ingestors stage through a verified anchor, so the test drives the same
     // handle `provide_via_ingestor` builds.
     let dir =
-        ops_duckdb::IngestDir::open(&data_dir.path().join("ingest")).expect("open ingest dir");
-    let db = DuckDb::open_in_memory().expect("open in-memory db");
+        ops_sqlite::IngestDir::open(&data_dir.path().join("ingest")).expect("open ingest dir");
+    let db = Sqlite::open_in_memory().expect("open in-memory db");
 
     let ctx = Context::test_context(workspace.path().to_path_buf());
     RustLocIngestor
@@ -811,9 +811,9 @@ fn rust_loc_summary_view_satisfies_the_shared_summary_query() {
     let loaded = RustLocIngestor
         .load(&dir, &db)
         .expect("load should succeed");
-    assert!(loaded.record_count > 0, "fixture rows must reach DuckDB");
+    assert!(loaded.record_count > 0, "fixture rows must reach SQLite");
 
-    let stats = ops_duckdb::sql::query_rust_loc_summary(&db).expect("summary query");
+    let stats = ops_sqlite::sql::query_rust_loc_summary(&db).expect("summary query");
     assert!(!stats.is_empty(), "ingested fixture must produce regions");
 
     let regions: Vec<&str> = stats.iter().map(|s| s.region.as_str()).collect();
@@ -846,8 +846,8 @@ fn rust_loc_ingestor_load_without_collect_fails() {
     // Ingestors stage through a verified anchor, so the test drives the same
     // handle `provide_via_ingestor` builds.
     let dir =
-        ops_duckdb::IngestDir::open(&data_dir.path().join("ingest")).expect("open ingest dir");
-    let db = DuckDb::open_in_memory().expect("open in-memory db");
+        ops_sqlite::IngestDir::open(&data_dir.path().join("ingest")).expect("open ingest dir");
+    let db = Sqlite::open_in_memory().expect("open in-memory db");
     init_schema(&db).expect("init schema");
     assert!(
         RustLocIngestor.load(&dir, &db).is_err(),

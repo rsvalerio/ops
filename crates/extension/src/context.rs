@@ -7,8 +7,8 @@
 //! the budget type itself lives in `crate::deadline`.
 
 use crate::data::DataRegistry;
-#[cfg(feature = "duckdb")]
-use crate::db_handle::DuckDbHandle;
+#[cfg(feature = "sqlite")]
+use crate::db_handle::SqliteHandle;
 use crate::deadline::{configured_provider_budget, Deadline};
 use crate::error::DataProviderError;
 use ops_core::config::Config;
@@ -33,10 +33,10 @@ use std::time::{Duration, Instant};
 /// re-points path resolution for every provider that runs afterwards (a
 /// confused deputy within a single command invocation). Reads go through
 /// [`Context::config`], [`Context::working_directory`] and
-/// [`Context::is_refreshing`] (plus the `db` accessor under the `duckdb`
+/// [`Context::is_refreshing`] (plus the `db` accessor under the `sqlite`
 /// feature); the only mutators are the constructors,
 /// [`Context::with_refresh`], [`Context::clear_provider_results`] and
-/// `attach_db` under the `duckdb` feature.
+/// `attach_db` under the `sqlite` feature.
 #[non_exhaustive]
 pub struct Context {
     config: Arc<Config>,
@@ -63,8 +63,8 @@ pub struct Context {
     /// cleared by the same call. `None` outside a dispatch, or when the
     /// budget is `None`.
     deadline: Option<Deadline>,
-    #[cfg(feature = "duckdb")]
-    db: Option<Arc<dyn DuckDbHandle>>,
+    #[cfg(feature = "sqlite")]
+    db: Option<Arc<dyn SqliteHandle>>,
 }
 
 impl Context {
@@ -94,7 +94,7 @@ impl Context {
             refresh: false,
             provider_budget,
             deadline: None,
-            #[cfg(feature = "duckdb")]
+            #[cfg(feature = "sqlite")]
             db: None,
         }
     }
@@ -144,26 +144,26 @@ impl Context {
         self.refresh
     }
 
-    /// The attached database handle, if the duckdb extension has installed
+    /// The attached database handle, if the sqlite extension has installed
     /// one on this context.
-    #[cfg(feature = "duckdb")]
+    #[cfg(feature = "sqlite")]
     #[must_use]
-    pub fn db(&self) -> Option<&Arc<dyn DuckDbHandle>> {
+    pub fn db(&self) -> Option<&Arc<dyn SqliteHandle>> {
         self.db.as_ref()
     }
 
     /// Attach (or replace) the database handle.
     ///
     /// ARCH-9 / TASK-1874: unlike `refresh` and `working_directory`, `db` is
-    /// genuinely provider-assigned — the duckdb extension opens the handle
+    /// genuinely provider-assigned — the sqlite extension opens the handle
     /// lazily on first use and installs it here so sibling providers reuse
     /// the same connection. That is a *capability being added*, not a
     /// reinterpretation of what earlier providers already did, so it keeps a
     /// mutator. It is a named method rather than a public field so the
     /// assignment is greppable and cannot be confused with the read-only
     /// fields around it.
-    #[cfg(feature = "duckdb")]
-    pub fn attach_db(&mut self, db: Arc<dyn DuckDbHandle>) {
+    #[cfg(feature = "sqlite")]
+    pub fn attach_db(&mut self, db: Arc<dyn SqliteHandle>) {
         self.db = Some(db);
     }
 
@@ -395,7 +395,7 @@ impl Context {
 }
 
 /// TRAIT-4 / TASK-1879: hand-written because the optional `Arc<dyn
-/// DuckDbHandle>` is not `Debug`. Prints cache and in-flight **keys only** —
+/// SqliteHandle>` is not `Debug`. Prints cache and in-flight **keys only** —
 /// never the cached values, which are arbitrary provider output and may be
 /// large or carry data that has no business in a panic message. Keys are
 /// sorted so the rendering is deterministic across runs despite the backing
@@ -416,7 +416,7 @@ impl std::fmt::Debug for Context {
             .field("refresh", &self.refresh)
             .field("cached_keys", &cached)
             .field("in_flight", &in_flight);
-        #[cfg(feature = "duckdb")]
+        #[cfg(feature = "sqlite")]
         s.field("db", &self.db.is_some());
         s.finish()
     }

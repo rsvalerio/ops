@@ -79,7 +79,7 @@ pub fn run_about_coverage_with(
     warm_providers(
         &mut ctx,
         data_registry,
-        &["duckdb", "coverage", "cargo_toml"],
+        &["sqlite", "coverage", "cargo_toml"],
         "coverage",
     );
 

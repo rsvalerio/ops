@@ -2,26 +2,34 @@
 //!
 //! # Security
 //!
-//! Path validation and SQL escaping are handled by `ops_duckdb::sql`
+//! Path validation and identifier gating are handled by `ops_sqlite::sql`
 //! (shared defense-in-depth validation). This module only contains
-//! rust-loc-specific SQL generation.
+//! rust-loc-specific SQL specs.
 
-use ops_duckdb::sql::{CreateTableSql, CreateViewSql, SqlError, TableName};
-use std::path::Path;
+use ops_sqlite::sql::{CreateViewSql, JsonColumn, JsonTableLoad, TableName};
 
-/// Builds the `CREATE TABLE` statement loading `rust_loc_files.json` at
-/// `path` into the `rust_loc_files` table.
+/// Declarative load spec for `rust_loc_files.json`: one row per file, one
+/// column per counter region.
 ///
-/// # Errors
-///
-/// [`SqlError`] if `path` fails path validation; the table name is a valid
-/// static identifier.
-pub fn rust_loc_files_create_sql(path: &Path) -> Result<CreateTableSql, SqlError> {
-    ops_duckdb::sql::create_table_from_json_sql("rust_loc_files", path, None)
-}
+/// SEC-12: the table and column identifiers are const-validated at
+/// construction, and the staged JSON reaches the engine as a bound `?1`
+/// parameter — the load executes [`JsonTableLoad`]'s DDL batch +
+/// `json_each` insert, never a path-bearing `read_json_auto` statement.
+pub const RUST_LOC_FILES_LOAD: JsonTableLoad = JsonTableLoad::flat_array(
+    "rust_loc_files",
+    &[
+        JsonColumn::text("file", "$.file"),
+        JsonColumn::text("region", "$.region"),
+        JsonColumn::integer("code", "$.code"),
+        JsonColumn::integer("docs", "$.docs"),
+        JsonColumn::integer("comments", "$.comments"),
+        JsonColumn::integer("blanks", "$.blanks"),
+        JsonColumn::integer("lines", "$.lines"),
+    ],
+);
 
-/// Builds the `CREATE OR REPLACE VIEW` statement aggregating
-/// `rust_loc_files` into the per-region `rust_loc_summary` view.
+/// Builds the `rust_loc_summary` view statement aggregating
+/// `rust_loc_files` into per-region totals.
 ///
 /// Both identifiers are const-validated through [`TableName::from_static`], so
 /// the statement is infallible and needs no `Result`. It is returned as the
@@ -43,8 +51,6 @@ pub fn rust_loc_summary_view_sql() -> CreateViewSql {
 mod tests {
     use super::*;
 
-    ops_duckdb::test_create_sql_validation!(rust_loc_files_create_sql, "rust_loc_files.json");
-
     #[test]
     fn rust_loc_summary_view_sql_contains_aggregation() {
         let sql = rust_loc_summary_view_sql().to_string();
@@ -64,6 +70,24 @@ mod tests {
         assert!(
             sql.contains("\"rust_loc_files\""),
             "table name should be double-quoted: {sql}"
+        );
+    }
+
+    /// SEC-12: the load spec's DDL quotes the table name and declares typed
+    /// NOT NULL columns, mirroring the builder tests in `ops_sqlite`.
+    #[test]
+    fn rust_loc_files_load_declares_typed_columns() {
+        let sql = RUST_LOC_FILES_LOAD.create_table_sql().to_string();
+        assert!(
+            sql.contains("DROP TABLE IF EXISTS \"rust_loc_files\";"),
+            "expected drop+create batch: {sql}"
+        );
+        assert!(
+            sql.contains("\"file\" TEXT NOT NULL")
+                && sql.contains("\"region\" TEXT NOT NULL")
+                && sql.contains("\"code\" INTEGER NOT NULL")
+                && sql.contains("\"lines\" INTEGER NOT NULL"),
+            "expected typed NOT NULL columns: {sql}"
         );
     }
 }

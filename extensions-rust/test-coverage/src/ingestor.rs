@@ -1,10 +1,10 @@
-//! `CoverageIngestor`: collect LLVM coverage data and load into `DuckDB`.
+//! `CoverageIngestor`: collect LLVM coverage data and load into `SQLite`.
 
 use crate::parse::collect_coverage;
 use crate::views;
-use ops_duckdb::sql::external_err;
-use ops_duckdb::{DataIngestor, DbResult, DuckDb, IngestDir, LoadResult, SidecarIngestorConfig};
 use ops_extension::Context;
+use ops_sqlite::sql::external_err;
+use ops_sqlite::{DataIngestor, DbResult, IngestDir, LoadResult, SidecarIngestorConfig, Sqlite};
 
 const PIPELINE: SidecarIngestorConfig =
     SidecarIngestorConfig::new("coverage", "coverage_files.json", "coverage_files");
@@ -22,18 +22,16 @@ impl DataIngestor for CoverageIngestor {
         PIPELINE.collect_sidecar(dir, &records, ctx.working_directory())
     }
 
-    fn load(&self, dir: &IngestDir, db: &DuckDb) -> DbResult<LoadResult> {
-        let json_path = dir.entry_path(PIPELINE.json_filename);
-        let create_sql = views::coverage_files_create_sql(&json_path)?;
+    fn load(&self, dir: &IngestDir, db: &Sqlite) -> DbResult<LoadResult> {
         let view_sql = views::coverage_summary_view_sql();
-        PIPELINE.load_with_sidecar(db, dir, &create_sql, &view_sql)
+        PIPELINE.load_with_sidecar(db, dir, &views::COVERAGE_FILES_LOAD, &view_sql)
     }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use ops_duckdb::DuckDb;
+    use ops_sqlite::Sqlite;
 
     #[test]
     fn coverage_ingestor_name() {
@@ -99,9 +97,9 @@ mod tests {
         .unwrap();
 
         // Write workspace sidecar
-        ops_duckdb::sql::write_workspace_sidecar(&dir, PIPELINE.name, working_dir.path()).unwrap();
+        ops_sqlite::sql::write_workspace_sidecar(&dir, PIPELINE.name, working_dir.path()).unwrap();
 
-        let db = DuckDb::open_in_memory().expect("open in-memory db");
+        let db = Sqlite::open_in_memory().expect("open in-memory db");
         let ingestor = CoverageIngestor;
         let result = ingestor.load(&dir, &db);
         assert!(result.is_ok());

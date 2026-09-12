@@ -1,6 +1,6 @@
-//! `DataIngestor` trait for loading data into `DuckDb`.
+//! `DataIngestor` trait for loading data into `Sqlite`.
 
-use crate::connection::DuckDb;
+use crate::connection::Sqlite;
 // READ-4 / TASK-1875: `DbError` is imported for the intra-doc links in the
 // `# Errors` sections below; without it `[`DbError::Io`]` and friends did not
 // resolve. The `use` is doc-only, hence the narrow `expect`.
@@ -11,7 +11,7 @@ use crate::connection::DuckDb;
 use crate::error::DbError;
 use crate::error::DbResult;
 use crate::sql::IngestDir;
-use crate::sql::{CreateTableSql, CreateViewSql};
+use crate::sql::{CreateViewSql, JsonTableLoad};
 use ops_extension::Context;
 use std::path::Path;
 
@@ -27,7 +27,7 @@ use std::path::Path;
 /// record_count, .. }` without regression. `#[must_use]` keeps a silent
 /// discard of `record_count` from compiling without warning.
 #[derive(Debug, Clone)]
-#[must_use = "LoadResult carries the ingested record_count — discarding it silently hides whether any rows landed in DuckDB"]
+#[must_use = "LoadResult carries the ingested record_count — discarding it silently hides whether any rows landed in SQLite"]
 #[non_exhaustive]
 pub struct LoadResult {
     /// Name of the pipeline whose data was loaded.
@@ -95,9 +95,9 @@ impl SidecarIngestorConfig {
     /// `ops_core::config::atomic_write` (sibling temp + fsync + rename),
     /// matching the workspace-sidecar path that TASK-0663 already
     /// hardened. A crash between the JSON write and the sidecar create
-    /// previously left a torn or zero-byte file that
-    /// `load_with_sidecar` would feed to `read_json_auto`, corrupting
-    /// the database with truncated input. With `atomic_write` the
+    /// previously left a torn or zero-byte file that `load_with_sidecar`
+    /// would feed to the engine's JSON parser, corrupting the database
+    /// with truncated input. With `atomic_write` the
     /// destination either holds the previous content or the full new
     /// payload — never a partial write.
     ///
@@ -132,18 +132,16 @@ impl SidecarIngestorConfig {
     /// 1. `init_schema(db)` — idempotent; creates `data_sources` if absent.
     /// 2. Validate `count_table` and read the workspace sidecar (file I/O,
     ///    no lock held). Failure here aborts before any DB mutation.
-    /// 3. Acquire the connection lock, check that `<json_filename>` resolves
-    ///    to the same inode by path as through the anchor (SEC-25 /
-    ///    TASK-2067: `create_sql` hands `DuckDB` that path and the engine
-    ///    re-resolves it by name), then execute `create_sql` and `view_sql`.
-    ///    On failure, the table/view created up to the failing statement
-    ///    remain in `DuckDB` (partial state).
+    /// 3. Acquire the connection lock, read `<json_filename>` through the
+    ///    verified anchor, execute the `load` DDL batch, insert the staged
+    ///    bytes as a bound parameter, then execute `view_sql`. On failure,
+    ///    the table/view created up to the failing statement remain in
+    ///    `SQLite` (partial state).
     /// 4. `SELECT COUNT(*) FROM count_table` runs **under the same lock**
     ///    acquired in step 3 (CONC-2 / TASK-0364), so a concurrent ingestor
-    ///    cannot interleave a `CREATE OR REPLACE TABLE` between create and
-    ///    count and have the reported `record_count` describe a different
-    ///    table than the one this call wrote. Failure leaves table/view
-    ///    intact.
+    ///    cannot interleave a table replacement between load and count and
+    ///    have the reported `record_count` describe a different table than
+    ///    the one this call wrote. Failure leaves table/view intact.
     /// 5. Drop the lock; compute checksum of `<json_filename>` (file I/O).
     /// 6. `upsert_data_source(...)` — upserts the tracking row.
     /// 7. `remove(json_path)` — best-effort delete of the JSON staging file.
@@ -156,8 +154,8 @@ impl SidecarIngestorConfig {
     ///
     /// - Failures before step 7 leave the JSON file and sidecar on disk so
     ///   that a retry can recompute the checksum and re-upsert.
-    /// - `create_sql` and `view_sql` are expected to be `CREATE OR REPLACE`
-    ///   (or otherwise idempotent), so a partially created table is
+    /// - `load` and `view_sql` are idempotent by construction (DROP IF
+    ///   EXISTS + CREATE batches), so a partially created table is
     ///   replaced on retry.
     /// - `upsert_data_source` is idempotent by design (`ON CONFLICT DO
     ///   UPDATE`).
@@ -171,7 +169,7 @@ impl SidecarIngestorConfig {
     /// `upsert_data_source` row is durable but before `remove(json_path)`
     /// or `remove_workspace_sidecar` runs, the next invocation observes:
     ///
-    /// - `DuckDB` row says `(source, checksum)` is fresh.
+    /// - `SQLite` row says `(source, checksum)` is fresh.
     /// - The staging JSON and sidecar are still on disk.
     /// - The next `provide_via_ingestor` short-circuits via
     ///   `table_has_data == true` and skips collect/load entirely.
@@ -181,7 +179,7 @@ impl SidecarIngestorConfig {
     /// The post-success cleanup is best-effort by design — the durable
     /// state-of-truth is the `data_sources` row, and the staged files
     /// carry no information not already encoded in the checksum on that
-    /// row. Operators auditing `target/ops/data.duckdb.ingest/` can
+    /// row. Operators auditing `target/ops/data.db.ingest/` can
     /// remove any file whose corresponding `(source, checksum)` row is
     /// already current; a future ops invocation will repopulate the
     /// stage as needed.
@@ -199,9 +197,9 @@ impl SidecarIngestorConfig {
     /// fails; see [`DbError`] for the specific variants.
     pub fn load_with_sidecar(
         &self,
-        db: &DuckDb,
+        db: &Sqlite,
         dir: &IngestDir,
-        create_sql: &CreateTableSql,
+        load: &JsonTableLoad,
         view_sql: &CreateViewSql,
     ) -> DbResult<crate::ingestor::LoadResult> {
         crate::schema::init_schema(db)?;
@@ -216,27 +214,18 @@ impl SidecarIngestorConfig {
         let record_count = {
             // CONC-2 / TASK-0364: hold the lock for the entire create→count
             // critical section. Splitting these into two `db.lock()` calls
-            // let a concurrent ingestor running CREATE OR REPLACE TABLE
-            // between them produce a record_count from a different table
-            // than the one we just wrote.
+            // let a concurrent ingestor replacing the table between them
+            // produce a record_count from a different table than the one
+            // we just wrote.
             let conn = db.lock()?;
-            // SEC-25 / TASK-2067: `create_sql` reads the staged JSON through
-            // `read_json_auto('<path>')`, the one staged access the anchor
-            // cannot cover — `DuckDB` takes a path string and has no
-            // descriptor-passing API. Check the path and the anchor still name
-            // the same inode, so a directory swapped between the anchored write
-            // and the engine's read is refused instead of feeding the database
-            // an attacker's rows.
-            //
-            // The check's value is the size of the gap between it and the
-            // engine's own `open`, so it sits *inside* the connection lock,
-            // with nothing but `create_tables_with` between the two — waiting
-            // on `db.lock()` after checking would have widened that gap by an
-            // unbounded amount under a concurrent ingest. It shrinks the
-            // window rather than closing it; the reasoning is recorded on
-            // `create_table_from_json_sql`.
-            dir.verify_entry_identity(self.json_filename)?;
-            self.create_tables_with(&conn, create_sql, view_sql)?;
+            // SEC-25 / TASK-2067 (closed by the SQLite port): the staged
+            // JSON is read through the verified anchor (`open_read`) and
+            // handed to the engine as a bound `?1` parameter — no path
+            // reaches SQL, so the swap window the old
+            // `read_json_auto('<path>')` residual left open no longer
+            // exists and the `verify_entry_identity` pre-check is not
+            // needed here.
+            self.load_tables_with(&conn, dir, load, view_sql)?;
             self.count_records_with(&conn, &quoted)?
         };
 
@@ -246,24 +235,22 @@ impl SidecarIngestorConfig {
         Ok(LoadResult::success(self.name, record_count))
     }
 
-    /// Step 1: execute the CREATE TABLE / CREATE VIEW statements on the
-    /// already-locked connection. CONC-2 / TASK-0364: callers hold the
-    /// lock across this *and* `count_records_with` so the row count is
-    /// guaranteed to describe the table written by this call.
-    fn create_tables_with(
+    /// Step 1: execute the table load (DDL batch + bound-parameter insert)
+    /// and the view batch on the already-locked connection. CONC-2 /
+    /// TASK-0364: callers hold the lock across this *and*
+    /// `count_records_with` so the row count is guaranteed to describe the
+    /// table written by this call.
+    fn load_tables_with(
         &self,
-        conn: &duckdb::Connection,
-        create_sql: &CreateTableSql,
+        conn: &rusqlite::Connection,
+        dir: &IngestDir,
+        load: &JsonTableLoad,
         view_sql: &CreateViewSql,
     ) -> DbResult<()> {
-        // PERF-3 / TASK-1243: keep the `format!` inside the `map_err` closure
-        // so the success path (the dominant case on every ingest) allocates
-        // zero strings for the error label. The pre-fix shape allocated two
-        // `String`s per call (one per SQL execute) for labels that the
-        // success path immediately dropped.
-        conn.execute(create_sql.as_str(), [])
-            .map_err(|e| crate::error::DbError::query_failed(format!("{} create", self.name), e))?;
-        conn.execute(view_sql.as_str(), [])
+        crate::sql::execute_json_load(conn, dir, load, self.json_filename)?;
+        // Both statements in the batch (DROP VIEW IF EXISTS + CREATE VIEW)
+        // must run together, hence `execute_batch`.
+        conn.execute_batch(view_sql.as_str())
             .map_err(|e| crate::error::DbError::query_failed(format!("{} view", self.name), e))?;
         Ok(())
     }
@@ -271,12 +258,12 @@ impl SidecarIngestorConfig {
     /// Step 2: read the row count from the loaded count table on the
     /// already-locked connection. `quoted` must already be the validated,
     /// double-quoted identifier returned by `quoted_ident(self.count_table)`.
-    fn count_records_with(&self, conn: &duckdb::Connection, quoted: &str) -> DbResult<u64> {
+    fn count_records_with(&self, conn: &rusqlite::Connection, quoted: &str) -> DbResult<u64> {
         let raw_count: i64 = conn
             .query_row(
                 &format!("SELECT COUNT(*) FROM {quoted}"),
                 [],
-                |row: &duckdb::Row<'_>| row.get::<_, i64>(0),
+                |row: &rusqlite::Row<'_>| row.get::<_, i64>(0),
             )
             .map_err(|e| {
                 crate::error::DbError::query_failed(
@@ -299,7 +286,7 @@ impl SidecarIngestorConfig {
     /// operator reads, never something this code opens.
     fn persist_record(
         &self,
-        db: &DuckDb,
+        db: &Sqlite,
         workspace_root: &std::ffi::OsStr,
         dir: &IngestDir,
         record_count: u64,
@@ -319,7 +306,7 @@ impl SidecarIngestorConfig {
 
     /// Step 4: delete the staged JSON file and the sidecar.
     ///
-    /// Both removals are best-effort: data is already persisted in `DuckDB` by
+    /// Both removals are best-effort: data is already persisted in `SQLite` by
     /// the time we get here, so a leftover staged JSON or sidecar is a
     /// recoverable disk-hygiene issue, not a load failure. A transient
     /// permission error must not fail the whole ingest.
@@ -452,11 +439,11 @@ fn cleanup_artifacts_breadcrumb_paths(original: &Path, effective: &Path) -> Stri
     )
 }
 
-/// Trait for data sources that collect raw data and load it into `DuckDB`.
+/// Trait for data sources that collect raw data and load it into `SQLite`.
 ///
 /// Implementations handle the full lifecycle of external data:
 /// 1. **Collect**: Run external commands or read files to produce JSON
-/// 2. **Load**: Parse JSON and load into `DuckDB` tables/views
+/// 2. **Load**: Parse JSON and load into `SQLite` tables/views
 ///
 /// # Example
 ///
@@ -468,8 +455,8 @@ fn cleanup_artifacts_breadcrumb_paths(original: &Path, effective: &Path) -> Stri
 ///     fn collect(&self, ctx: &Context, dir: &IngestDir) -> DbResult<()> {
 ///         // Run `cargo metadata` and stage it via `dir.write_atomic(..)`
 ///     }
-///     fn load(&self, dir: &IngestDir, db: &DuckDb) -> DbResult<LoadResult> {
-///         // Read the staged JSON through `dir` and create the DuckDB view
+///     fn load(&self, dir: &IngestDir, db: &Sqlite) -> DbResult<LoadResult> {
+///         // Read the staged JSON through `dir` and create the SQLite view
 ///     }
 /// }
 /// ```
@@ -496,28 +483,28 @@ pub trait DataIngestor: Send + Sync {
     /// If the provider cannot gather its data or stage it into `dir`.
     fn collect(&self, ctx: &Context, dir: &IngestDir) -> DbResult<()>;
 
-    /// Load collected data into `DuckDB` tables/views.
+    /// Load collected data into `SQLite` tables/views.
     ///
     /// This method reads the files staged in `dir` and creates or replaces
     /// tables/views in the database. Should be idempotent.
     ///
     /// SEC-25 / TASK-2054: reads and cleanup go through the anchor
     /// ([`IngestDir::open_read`], [`IngestDir::rename`],
-    /// [`IngestDir::remove_file`]). [`IngestDir::entry_path`] is for the one
-    /// thing that cannot take a descriptor — `DuckDB`'s `read_json_auto`,
-    /// which is path-only — and for provenance labels.
+    /// [`IngestDir::remove_file`]); the staged JSON reaches the engine as a
+    /// bound parameter, never as an interpolated path.
+    /// [`IngestDir::entry_path`] remains for provenance labels.
     ///
     /// # Errors
     ///
     /// If the staged files cannot be read or the tables/views cannot be
     /// created.
-    fn load(&self, dir: &IngestDir, db: &DuckDb) -> DbResult<LoadResult>;
+    fn load(&self, dir: &IngestDir, db: &Sqlite) -> DbResult<LoadResult>;
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::{connection::DuckDb, error::DbError};
+    use crate::{connection::Sqlite, error::DbError};
 
     /// ERR-1 / TASK-1242: the cleanup breadcrumb must surface *both* the
     /// original JSON staging path and the post-rename effective path.
@@ -566,7 +553,7 @@ mod tests {
     /// SEC-25 / TASK-2054: every test stages through a verified anchor, the
     /// same way `provide_via_ingestor` does in production.
     fn anchor(tmp: &tempfile::TempDir) -> IngestDir {
-        IngestDir::open(&tmp.path().join("data.duckdb.ingest")).expect("open ingest dir")
+        IngestDir::open(&tmp.path().join("data.db.ingest")).expect("open ingest dir")
     }
 
     #[test]
@@ -589,7 +576,7 @@ mod tests {
             dir.write_atomic("data.json", br#"{"test": "data"}"#)
         }
 
-        fn load(&self, dir: &IngestDir, _db: &DuckDb) -> DbResult<LoadResult> {
+        fn load(&self, dir: &IngestDir, _db: &Sqlite) -> DbResult<LoadResult> {
             let json_path = dir.entry_path("data.json");
             if json_path.exists() {
                 Ok(LoadResult::success(self.name, 1))
@@ -699,7 +686,7 @@ mod tests {
     /// unlink didn't). The next user-driven invocation re-runs
     /// `cleanup_artifacts` against the original JSON path; the helper
     /// must leave no `*.json` and no `*.json.done` residue, so a
-    /// `target/ops/data.duckdb.ingest/` audit shows the directory clean.
+    /// `target/ops/data.db.ingest/` audit shows the directory clean.
     #[test]
     fn cleanup_artifacts_clears_done_residue_left_by_prior_crash() {
         let config = SidecarIngestorConfig {
@@ -759,7 +746,7 @@ mod tests {
         let ingestor = MockIngestor { name: "test" };
         let temp_dir = tempfile::tempdir().expect("tempdir");
         let dir = anchor(&temp_dir);
-        let db = DuckDb::open_in_memory().expect("db");
+        let db = Sqlite::open_in_memory().expect("db");
         dir.write_atomic("data.json", br#"{"test": "data"}"#)
             .unwrap();
         let result = ingestor.load(&dir, &db).expect("load should succeed");
@@ -782,7 +769,7 @@ mod tests {
                     "collect failed",
                 )))
             }
-            fn load(&self, _dir: &IngestDir, _db: &DuckDb) -> DbResult<LoadResult> {
+            fn load(&self, _dir: &IngestDir, _db: &Sqlite) -> DbResult<LoadResult> {
                 Ok(LoadResult::success(self.name(), 0))
             }
         }
@@ -823,20 +810,28 @@ mod tests {
         /// CONC-2 / TASK-0364: two ingestors writing the same `count_table`
         /// concurrently must each observe their *own* row count, not the
         /// other's. The fix holds the connection lock across
-        /// `create_tables_with` and `count_records_with` so a concurrent
-        /// `CREATE OR REPLACE TABLE` cannot interleave between them.
+        /// `load_tables_with` and `count_records_with` so a concurrent
+        /// table replacement cannot interleave between them. Uses the real
+        /// [`JsonTableLoad`] path (staged JSON arrays of different lengths)
+        /// rather than fixture SQL, so the lock is exercised against the
+        /// production load pipeline.
         #[test]
         fn concurrent_load_each_observes_own_record_count() {
+            use crate::sql::JsonColumn;
             use std::sync::Arc;
-            let db = Arc::new(DuckDb::open_in_memory().expect("db"));
+            let db = Arc::new(Sqlite::open_in_memory().expect("db"));
             crate::schema::init_schema(&db).expect("init_schema");
 
             let tmp_a = tempfile::tempdir().expect("dir a");
             let tmp_b = tempfile::tempdir().expect("dir b");
             let dir_a = anchor(&tmp_a);
             let dir_b = anchor(&tmp_b);
-            dir_a.write_atomic("a.json", b"{}").expect("write a.json");
-            dir_b.write_atomic("b.json", b"{}").expect("write b.json");
+            dir_a
+                .write_atomic("a.json", br#"[{"i":1},{"i":2},{"i":3}]"#)
+                .expect("write a.json");
+            dir_b
+                .write_atomic("b.json", br#"[{"i":1},{"i":2},{"i":3},{"i":4},{"i":5}]"#)
+                .expect("write b.json");
             crate::sql::write_workspace_sidecar(&dir_a, "ingA", Path::new("/wA"))
                 .expect("sidecar a");
             crate::sql::write_workspace_sidecar(&dir_b, "ingB", Path::new("/wB"))
@@ -852,26 +847,23 @@ mod tests {
                 json_filename: "b.json",
                 count_table: crate::sql::validation::TableName::from_static("shared_table"),
             };
-            let create_a = CreateTableSql::from_literal_for_tests(
-                "CREATE OR REPLACE TABLE shared_table AS \
-                 SELECT * FROM (VALUES (1),(2),(3)) v(i)",
-            );
-            let create_b = CreateTableSql::from_literal_for_tests(
-                "CREATE OR REPLACE TABLE shared_table AS \
-                 SELECT * FROM (VALUES (1),(2),(3),(4),(5)) v(i)",
-            );
+            // `flat_array` takes `&'static [JsonColumn]`; an inline `&[…]`
+            // literal is not rvalue-promotable (const-fn calls never are),
+            // so the column slice is a named `const`.
+            const SHARED_COLS: &[JsonColumn] = &[JsonColumn::integer("i", "$.i")];
+            let load_a = JsonTableLoad::flat_array("shared_table", SHARED_COLS);
+            let load_b = JsonTableLoad::flat_array("shared_table", SHARED_COLS);
             let view = CreateViewSql::from_literal_for_tests(
-                "CREATE OR REPLACE VIEW shared_v AS SELECT * FROM shared_table",
+                "DROP VIEW IF EXISTS shared_v; CREATE VIEW shared_v AS SELECT * FROM shared_table",
             );
 
             let db_a = Arc::clone(&db);
             let db_b = Arc::clone(&db);
             let view_b = view.clone();
-            let h1 = std::thread::spawn(move || {
-                cfg_a.load_with_sidecar(&db_a, &dir_a, &create_a, &view)
-            });
+            let h1 =
+                std::thread::spawn(move || cfg_a.load_with_sidecar(&db_a, &dir_a, &load_a, &view));
             let h2 = std::thread::spawn(move || {
-                cfg_b.load_with_sidecar(&db_b, &dir_b, &create_b, &view_b)
+                cfg_b.load_with_sidecar(&db_b, &dir_b, &load_b, &view_b)
             });
 
             let res_a = h1.join().expect("join a").expect("ingestor a");

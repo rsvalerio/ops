@@ -17,8 +17,8 @@
 //! known contents and assert the exact counts it implies.
 
 use super::*;
-use ops_duckdb::{init_schema, DataIngestor, DuckDb};
 use ops_extension::{Extension, ExtensionType};
+use ops_sqlite::{init_schema, DataIngestor, Sqlite};
 
 // -- fixtures --
 
@@ -265,7 +265,7 @@ fn scan_tokei_truncates_at_the_file_cap() {
 /// CL-3 / TASK-2153: records are emitted sorted by file path (language as
 /// tiebreak), not in tokei's rayon completion order. The exact sequence is
 /// pinned — not just the count — so a regression to worker order fails here
-/// and with it the byte-stable sidecar/DuckDB-ingest contract the sort
+/// and with it the byte-stable sidecar/SQLite-ingest contract the sort
 /// exists to keep.
 #[test]
 fn scan_tokei_orders_records_by_file_path() {
@@ -532,7 +532,7 @@ fn collect_tokei_on_empty_dir() {
     assert!(result.as_array().unwrap().is_empty());
 }
 
-// -- DuckDB integration tests --
+// -- SQLite integration tests --
 
 #[test]
 #[ignore = "scans CARGO_MANIFEST_DIR; non-deterministic and slow (TEST-17)"]
@@ -542,8 +542,8 @@ fn tokei_collect_and_load_cycle() {
     // SEC-25 / TASK-2054: ingestors stage through a verified anchor, so the
     // test drives the same handle `provide_via_ingestor` builds.
     let dir =
-        ops_duckdb::IngestDir::open(&data_dir.path().join("ingest")).expect("open ingest dir");
-    let db = DuckDb::open_in_memory().expect("open in-memory db");
+        ops_sqlite::IngestDir::open(&data_dir.path().join("ingest")).expect("open ingest dir");
+    let db = Sqlite::open_in_memory().expect("open in-memory db");
 
     let ctx = Context::test_context(manifest_dir);
 
@@ -559,7 +559,7 @@ fn tokei_collect_and_load_cycle() {
     let load_result = ingestor.load(&dir, &db).expect("load should succeed");
     assert!(load_result.record_count > 0);
 
-    // Verify data in DuckDB
+    // Verify data in SQLite
     let conn = db.lock().expect("lock");
     let count: i64 = conn
         .query_row("SELECT COUNT(*) FROM tokei_files", [], |row| row.get(0))
@@ -579,9 +579,9 @@ fn tokei_collect_and_load_cycle() {
 
 #[test]
 fn tokei_files_has_data_returns_false_for_empty_db() {
-    let db = DuckDb::open_in_memory().expect("open in-memory db");
+    let db = Sqlite::open_in_memory().expect("open in-memory db");
     init_schema(&db).expect("init schema");
-    let has = ops_duckdb::sql::table_has_data(&db, "tokei_files").expect("check");
+    let has = ops_sqlite::sql::table_has_data(&db, "tokei_files").expect("check");
     assert!(!has, "empty db should have no tokei data");
 }
 
@@ -597,8 +597,8 @@ fn ingestor_load_errors_when_json_missing() {
     // SEC-25 / TASK-2054: ingestors stage through a verified anchor, so the
     // test drives the same handle `provide_via_ingestor` builds.
     let dir =
-        ops_duckdb::IngestDir::open(&data_dir.path().join("ingest")).expect("open ingest dir");
-    let db = DuckDb::open_in_memory().expect("open in-memory db");
+        ops_sqlite::IngestDir::open(&data_dir.path().join("ingest")).expect("open ingest dir");
+    let db = Sqlite::open_in_memory().expect("open in-memory db");
     init_schema(&db).expect("init schema");
     let ingestor = TokeiIngestor;
     let err = ingestor.load(&dir, &db).unwrap_err();
@@ -616,8 +616,8 @@ fn load_tokei_succeeds_after_collect() {
     // SEC-25 / TASK-2054: ingestors stage through a verified anchor, so the
     // test drives the same handle `provide_via_ingestor` builds.
     let dir =
-        ops_duckdb::IngestDir::open(&data_dir.path().join("ingest")).expect("open ingest dir");
-    let db = DuckDb::open_in_memory().expect("open in-memory db");
+        ops_sqlite::IngestDir::open(&data_dir.path().join("ingest")).expect("open ingest dir");
+    let db = Sqlite::open_in_memory().expect("open in-memory db");
     init_schema(&db).expect("init schema");
 
     // Collect data first
@@ -657,8 +657,8 @@ fn query_tokei_files_returns_json_array() {
     // SEC-25 / TASK-2054: ingestors stage through a verified anchor, so the
     // test drives the same handle `provide_via_ingestor` builds.
     let dir =
-        ops_duckdb::IngestDir::open(&data_dir.path().join("ingest")).expect("open ingest dir");
-    let db = DuckDb::open_in_memory().expect("open in-memory db");
+        ops_sqlite::IngestDir::open(&data_dir.path().join("ingest")).expect("open ingest dir");
+    let db = Sqlite::open_in_memory().expect("open in-memory db");
 
     let ctx = Context::test_context(project.path().to_path_buf());
     let ingestor = TokeiIngestor;
@@ -689,7 +689,7 @@ fn tokei_ingestor_collect_empty_dir() {
     // SEC-25 / TASK-2054: ingestors stage through a verified anchor, so the
     // test drives the same handle `provide_via_ingestor` builds.
     let dir =
-        ops_duckdb::IngestDir::open(&data_dir.path().join("ingest")).expect("open ingest dir");
+        ops_sqlite::IngestDir::open(&data_dir.path().join("ingest")).expect("open ingest dir");
     let ctx = Context::test_context(workspace.path().to_path_buf());
 
     let ingestor = TokeiIngestor;
@@ -712,8 +712,8 @@ fn tokei_ingestor_load_without_collect_fails() {
     // SEC-25 / TASK-2054: ingestors stage through a verified anchor, so the
     // test drives the same handle `provide_via_ingestor` builds.
     let dir =
-        ops_duckdb::IngestDir::open(&data_dir.path().join("ingest")).expect("open ingest dir");
-    let db = DuckDb::open_in_memory().expect("open in-memory db");
+        ops_sqlite::IngestDir::open(&data_dir.path().join("ingest")).expect("open ingest dir");
+    let db = Sqlite::open_in_memory().expect("open in-memory db");
 
     let ingestor = TokeiIngestor;
     let result = ingestor.load(&dir, &db);
@@ -754,38 +754,17 @@ fn flatten_tokei_with_unrelated_prefix_keeps_full_path() {
 }
 
 // -- views tests --
+//
+// SQLite port note: the former `tokei_files_create_sql_with_real_json` test
+// asserted the shape of the DuckDB builder that interpolated the staged JSON
+// path into `read_json_auto('<path>')`. That builder is gone — `tokei_files`
+// now loads from the const `views::TOKEI_FILES_LOAD` spec with the staged
+// bytes bound as a parameter. Its two halves survive elsewhere: the DDL-shape
+// assertions live in `views::tests::tokei_files_load_declares_typed_quoted_columns`,
+// and the real-fixture collect→load→query path in
+// `tokei_languages_view_aggregates_correctly` below.
 
-#[test]
-fn tokei_files_create_sql_with_real_json() {
-    let project = fixture_project();
-    let data_dir = tempfile::tempdir().expect("tempdir");
-    // SEC-25 / TASK-2054: ingestors stage through a verified anchor, so the
-    // test drives the same handle `provide_via_ingestor` builds.
-    let dir =
-        ops_duckdb::IngestDir::open(&data_dir.path().join("ingest")).expect("open ingest dir");
-
-    // Collect from the canned fixture to get a valid JSON file. The
-    // assertions concern only the generated SQL, so there is nothing here a
-    // workspace scan would add (TEST-18, TASK-1977).
-    let ctx = Context::test_context(project.path().to_path_buf());
-    let ingestor = TokeiIngestor;
-    ingestor.collect(&ctx, &dir).expect("collect");
-
-    let json_path = dir.entry_path("tokei_files.json");
-    let sql = views::tokei_files_create_sql(&json_path)
-        .expect("should generate SQL")
-        .to_string();
-    assert!(
-        sql.contains("tokei_files"),
-        "SQL should reference tokei_files table"
-    );
-    assert!(
-        sql.contains("tokei_files.json"),
-        "SQL should reference the JSON file"
-    );
-}
-
-// -- DuckDB query correctness --
+// -- SQLite query correctness --
 
 #[test]
 fn tokei_languages_view_aggregates_correctly() {
@@ -794,8 +773,8 @@ fn tokei_languages_view_aggregates_correctly() {
     // SEC-25 / TASK-2054: ingestors stage through a verified anchor, so the
     // test drives the same handle `provide_via_ingestor` builds.
     let dir =
-        ops_duckdb::IngestDir::open(&data_dir.path().join("ingest")).expect("open ingest dir");
-    let db = DuckDb::open_in_memory().expect("open in-memory db");
+        ops_sqlite::IngestDir::open(&data_dir.path().join("ingest")).expect("open ingest dir");
+    let db = Sqlite::open_in_memory().expect("open in-memory db");
 
     let ctx = Context::test_context(project.path().to_path_buf());
     let ingestor = TokeiIngestor;
@@ -850,7 +829,7 @@ fn tokei_languages_view_aggregates_correctly() {
 /// deadline, so this pins the dispatch path an operator's dispatch takes —
 /// not just `scan_tokei`'s parameter. TASK-2156 correction: with no
 /// database attached this exercises the **fallback branch** of
-/// `try_provide_from_db` only; the ingest branch (a `DuckDb` attached,
+/// `try_provide_from_db` only; the ingest branch (a `Sqlite` attached,
 /// `tokei_files` empty) is pinned by
 /// `a_spent_budget_keeps_the_typed_timeout_on_the_ingest_path` below. The
 /// control run shows the same tree scans cleanly, so the failure is the
@@ -884,7 +863,7 @@ fn a_spent_budget_aborts_the_tokei_walk_with_a_typed_timeout() {
 }
 
 /// AC #3 / TASK-2156: the production shape is the **ingest path** — a
-/// `DuckDb` attached and `tokei_files` empty, so dispatch runs
+/// `Sqlite` attached and `tokei_files` empty, so dispatch runs
 /// `provide_via_ingestor` → `TokeiIngestor::collect` → `external_err` →
 /// the orchestrator's context wrap. That wrap used to erase the typed
 /// `TimedOut` into `ComputationFailed` (anyhow cannot recurse into a
@@ -900,8 +879,8 @@ fn a_spent_budget_keeps_the_typed_timeout_on_the_ingest_path() {
     // File-backed, not in-memory: the ingest pipeline derives its staging
     // directory from the database path and refuses a `:memory:` handle
     // before ever reaching `collect`.
-    let db_path = dir.path().join("tokei-ingest-test.duckdb");
-    let db = DuckDb::open(&db_path).expect("open file-backed db");
+    let db_path = dir.path().join("tokei-ingest-test.db");
+    let db = Sqlite::open(&db_path).expect("open file-backed db");
     let mut ctx = Context::test_context(dir.path().to_path_buf())
         .with_provider_budget(Some(std::time::Duration::from_nanos(1)));
     ctx.attach_db(std::sync::Arc::new(db));

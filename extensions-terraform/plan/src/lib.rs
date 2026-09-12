@@ -497,7 +497,7 @@ fn create_artifact_dir(dir: &Path) -> std::io::Result<()> {
     {
         std::fs::create_dir_all(dir)?;
         // No portable mode to inspect: the rejection half only, as the
-        // ingest-dir checks in `ops-duckdb` do — a pre-existing symlink or
+        // ingest-dir checks in `ops-sqlite` do — a pre-existing symlink or
         // reparse point at the directory path is refused.
         if let Ok(meta) = std::fs::symlink_metadata(dir) {
             if meta.file_type().is_symlink() {

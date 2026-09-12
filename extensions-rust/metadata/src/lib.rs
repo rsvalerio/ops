@@ -1,5 +1,5 @@
 //! Metadata extension: runs `cargo metadata` and provides workspace info as JSON.
-//! `DuckDB` is the single source of truth - metadata is loaded into `metadata_raw` table.
+//! `SQLite` is the single source of truth - metadata is loaded into `metadata_raw` table.
 //!
 //! # Consuming the metadata
 //!
@@ -29,8 +29,8 @@ mod views;
 use ingestor::MetadataIngestor;
 use ops_core::output::format_error_tail;
 use ops_core::subprocess::{run_cargo, RunError};
-use ops_duckdb::DuckDb;
 use ops_extension::{Context, DataProvider, DataProviderError, DataProviderSchema, ExtensionType};
+use ops_sqlite::Sqlite;
 use std::path::Path;
 use std::process::Output;
 use std::time::Duration;
@@ -49,7 +49,7 @@ pub(crate) const CARGO_METADATA_TIMEOUT: Duration = Duration::from_mins(2);
 /// `query_metadata_raw` materialises the row as a `String` (via
 /// `to_json(m)::VARCHAR`) and then parses it into a `serde_json::Value`,
 /// which keeps two full copies live during the round-trip in addition to
-/// the `DuckDB` columnar buffer. A pathologically large workspace (10+ MiB
+/// the `SQLite` columnar buffer. A pathologically large workspace (10+ MiB
 /// cargo-metadata output is possible) could OOM the `ops about` process at
 /// this step. Cap the payload at 64 MiB by default — well above realistic
 /// workspace sizes — and fail with a clear error when exceeded so operators
@@ -128,13 +128,13 @@ pub(crate) fn check_metadata_not_capped(output: &Output) -> Result<(), anyhow::E
 /// One env knob drives both the post-ingest reader cap and the ingest-time
 /// `maximum_object_size` ceiling, and that sharing is only sound over the range
 /// **both** consumers accept.
-/// `DuckDB` types `read_json`'s `maximum_object_size` as `UINTEGER`
+/// `SQLite` types `read_json`'s `maximum_object_size` as `UINTEGER`
 /// (32-bit), so anything above `u32::MAX` does not raise the ingest
 /// ceiling — it makes the `CREATE TABLE … read_json_auto(…)` statement fail
 /// with an option-conversion error attributed to `"metadata_raw create"`,
 /// naming nothing the operator set.
 ///
-/// Verified against the pinned `DuckDB` v1.5.5 (`scripts/duckdb-pins.txt`):
+/// Verified against the pinned `SQLite` v1.5.5 (`scripts/sqlite-pins.txt`):
 /// `maximum_object_size=4294967295` is accepted, while `=4294967296` fails
 /// with *"Type INT64 with value 4294967296 can't be cast because the value
 /// is out of range for the destination type UINT32"*.
@@ -142,7 +142,7 @@ pub(crate) fn check_metadata_not_capped(output: &Output) -> Result<(), anyhow::E
 /// Spelled as a literal because `u64::from` is not callable in a `const`
 /// initialiser and `u32::MAX as u64` would need an `as_conversions`
 /// exception (`docs/clippy.md`); the equality with `u32::MAX` is pinned by
-/// `ceiling_is_exactly_duckdb_uinteger_max` in `tests/payload_cap.rs`.
+/// `ceiling_is_exactly_sqlite_uinteger_max` in `tests/payload_cap.rs`.
 pub(crate) const METADATA_MAX_BYTES_CEILING: u64 = 4_294_967_295;
 
 /// Validates and bounds the raw `OPS_METADATA_MAX_BYTES` value at the
@@ -184,7 +184,7 @@ pub(crate) fn resolve_metadata_max_bytes(raw: Option<&str>) -> u64 {
             env = METADATA_MAX_BYTES_ENV,
             value = raw,
             ceiling = METADATA_MAX_BYTES_CEILING,
-            "value exceeds DuckDB's UINTEGER maximum_object_size domain; clamping to the ceiling"
+            "value exceeds SQLite's UINTEGER maximum_object_size domain; clamping to the ceiling"
         );
         return METADATA_MAX_BYTES_CEILING;
     }
@@ -289,7 +289,7 @@ impl DataProvider for MetadataProvider {
     }
 
     fn provide(&self, ctx: &mut Context) -> Result<serde_json::Value, DataProviderError> {
-        ops_duckdb::try_provide_from_db(ctx, provide_from_db, |ctx| provide_via_cargo_metadata(ctx))
+        ops_sqlite::try_provide_from_db(ctx, provide_from_db, |ctx| provide_via_cargo_metadata(ctx))
     }
 
     fn schema(&self) -> DataProviderSchema {
@@ -381,38 +381,30 @@ impl DataProvider for MetadataProvider {
     }
 }
 
-/// Bounds the JSON payload size **before** materialising the full row into a
+/// Bounds the JSON payload size **before** materialising the full blob into a
 /// Rust `String`, in a single SQL round trip.
 ///
 /// The payload is replaced with `NULL` when over cap, so an oversized document
 /// never crosses the FFI boundary into a Rust allocation, and the caller still
 /// bails with the observed byte count.
 ///
-/// The serialisation cost, stated precisely: this SQL
-/// spells `to_json(m)::VARCHAR` three times (twice inside `octet_length`,
-/// once in the CASE's ELSE branch), but the expression is evaluated **once
-/// per row**. That is a property of `DuckDB`'s common-subexpression
-/// elimination, not of the SQL text, so it is pinned by a test rather than
-/// assumed: `cap_guard_sql_serialises_to_json_once` (`tests/payload_cap.rs`)
-/// reads the `EXPLAIN` physical plan and asserts a single `to_json`
-/// projection node. Measured on the pinned `DuckDB` v1.5.5
-/// (`scripts/duckdb-pins.txt`), the plan collapses to one
-/// `CAST(to_json(struct_pack(...)) AS VARCHAR)` PROJECTION whose output the
-/// node above references as `#0`. A hand-written
-/// `WITH j AS (SELECT to_json(m)::VARCHAR AS txt …)` CTE was measured
-/// against this shape on a 32 MiB row and was not faster — `DuckDB` inlines
-/// the CTE and the extra projection layer costs more than it saves — so the
-/// simpler form stays.
-const CAP_GUARD_SQL: &str = "SELECT octet_length(CAST(to_json(m)::VARCHAR AS BLOB)) AS bytes, \
-            CASE WHEN octet_length(CAST(to_json(m)::VARCHAR AS BLOB)) > ? \
-                 THEN NULL ELSE to_json(m)::VARCHAR END AS payload \
+/// SQLite port note: the blob is already JSON text in a `json TEXT NOT NULL`
+/// column, so no serialisation happens at all — the guard is a pure byte
+/// count. `length()` on TEXT counts *characters*, hence the
+/// `CAST(m.json AS BLOB)`: on a BLOB, `length()` counts bytes, which is the
+/// unit `OPS_METADATA_MAX_BYTES` promises (and matches the Rust-side
+/// `str::len()` check the ingestor applies to the same payload before it is
+/// staged into the table).
+const CAP_GUARD_SQL: &str = "SELECT length(CAST(m.json AS BLOB)) AS bytes, \
+            CASE WHEN length(CAST(m.json AS BLOB)) > ? \
+                 THEN NULL ELSE m.json END AS payload \
      FROM metadata_raw m";
 
-fn query_metadata_raw(db: &DuckDb) -> Result<serde_json::Value, anyhow::Error> {
+fn query_metadata_raw(db: &Sqlite) -> Result<serde_json::Value, anyhow::Error> {
     query_metadata_raw_with_cap(db, metadata_max_bytes())
 }
 
-fn query_metadata_raw_with_cap(db: &DuckDb, cap: u64) -> Result<serde_json::Value, anyhow::Error> {
+fn query_metadata_raw_with_cap(db: &Sqlite, cap: u64) -> Result<serde_json::Value, anyhow::Error> {
     use anyhow::Context as AnyhowContext;
     let conn = db.lock().context("acquiring db lock for metadata query")?;
     // ERR-1: `metadata_raw` is a singleton table. Counting every row and
@@ -423,7 +415,7 @@ fn query_metadata_raw_with_cap(db: &DuckDb, cap: u64) -> Result<serde_json::Valu
         .query_row(
             "SELECT count(*) FROM metadata_raw",
             [],
-            |row: &duckdb::Row<'_>| row.get(0),
+            |row: &rusqlite::Row<'_>| row.get(0),
         )
         .context("counting metadata_raw rows")?;
     anyhow::ensure!(
@@ -433,12 +425,12 @@ fn query_metadata_raw_with_cap(db: &DuckDb, cap: u64) -> Result<serde_json::Valu
     let (len, json_text): (i64, Option<String>) = conn
         .query_row(
             CAP_GUARD_SQL,
-            duckdb::params![i64::try_from(cap).unwrap_or(i64::MAX)],
-            |row: &duckdb::Row<'_>| Ok((row.get(0)?, row.get(1)?)),
+            rusqlite::params![i64::try_from(cap).unwrap_or(i64::MAX)],
+            |row: &rusqlite::Row<'_>| Ok((row.get(0)?, row.get(1)?)),
         )
         .context("reading metadata_raw payload with cap guard")?;
     drop(conn);
-    // READ-5 / TASK-1550: a negative `octet_length` is not a real DuckDB
+    // READ-5 / TASK-1550: a negative `octet_length` is not a real SQLite
     // shape — treat any negative i64 as zero-length so the over-cap branch
     // cannot fire on a sentinel. Overflow on i64 → u64 is impossible after
     // the `.try_from(len)` succeeds, so we no longer carry a `u64::MAX`
@@ -463,8 +455,8 @@ fn query_metadata_raw_with_cap(db: &DuckDb, cap: u64) -> Result<serde_json::Valu
     Ok(json)
 }
 
-fn provide_from_db(db: &DuckDb, ctx: &Context) -> Result<serde_json::Value, anyhow::Error> {
-    ops_duckdb::sql::provide_via_ingestor(
+fn provide_from_db(db: &Sqlite, ctx: &Context) -> Result<serde_json::Value, anyhow::Error> {
+    ops_sqlite::sql::provide_via_ingestor(
         db,
         ctx,
         "metadata_raw",

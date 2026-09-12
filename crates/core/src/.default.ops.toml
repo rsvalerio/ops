@@ -126,7 +126,7 @@ color = "red dim"
 # stack = "rust"   # rust, node, go, python, terraform, ansible, generic
 
 # [data]
-# path = ".ops/data.duckdb"   # default; override to share a DB across projects
+# path = ".ops/data.db"       # default; override to share a DB across projects
 # provider_budget_secs = 1200 # wall-clock budget for one data-provider dispatch
 #                             # (default: 1200 = 20 min). Lower it on a slow
 #                             # network filesystem; 0 removes the bound for a

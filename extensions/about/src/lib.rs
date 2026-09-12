@@ -28,10 +28,10 @@ pub mod text_util;
 pub mod units;
 pub mod workspace;
 
-#[cfg(feature = "duckdb")]
+#[cfg(feature = "sqlite")]
 pub mod code;
 
-#[cfg(feature = "duckdb")]
+#[cfg(feature = "sqlite")]
 pub mod loc;
 
 use std::io::Write;
@@ -139,10 +139,10 @@ fn warm_generic_providers(
     data_registry: &ops_extension::DataRegistry,
     refresh: bool,
 ) {
-    // ERR-1 (TASK-0516): duckdb/tokei warm-up failures are now warn-logged
+    // ERR-1 (TASK-0516): sqlite/tokei warm-up failures are now warn-logged
     // for parity with the coverage branch. Previously a real provider
     // error (permissions, disk full) silently rendered as zeros.
-    crate::providers::warm_providers(ctx, data_registry, &["duckdb", "tokei"], "main");
+    crate::providers::warm_providers(ctx, data_registry, &["sqlite", "tokei"], "main");
     if refresh {
         match ctx.get_or_provide("coverage", data_registry) {
             Ok(_) | Err(DataProviderError::NotFound(_)) => {}
@@ -170,7 +170,7 @@ fn resolve_identity(
     }
 }
 
-/// Enrich identity with LOC/file count from `DuckDB` if available.
+/// Enrich identity with LOC/file count from `SQLite` if available.
 ///
 /// ERR-1 (TASK-1148, mirrors TASK-0431 in `units::enrich_from_db`): each of
 /// the five underlying queries acquires `db.lock()` independently, so a
@@ -181,35 +181,35 @@ fn resolve_identity(
 /// holding a single lock across all five queries would require reshaping
 /// the helper layer to take an already-held `&Connection`, and the about
 /// card re-renders on every invocation, so a stale frame is self-correcting.
-#[cfg(feature = "duckdb")]
+#[cfg(feature = "sqlite")]
 fn enrich_from_db(ctx: &ops_extension::Context, identity: &mut ProjectIdentity) {
-    let Some(db) = ops_duckdb::get_db(ctx) else {
+    let Some(db) = ops_sqlite::get_db(ctx) else {
         return;
     };
 
     if identity.loc.is_none() {
-        match ops_duckdb::sql::query_project_loc(db) {
+        match ops_sqlite::sql::query_project_loc(db) {
             Ok(loc) if loc > 0 => identity.loc = Some(loc),
             Ok(_) => {}
             Err(e) => tracing::warn!(error = ?e, "about: query_project_loc failed"),
         }
     }
     if identity.file_count.is_none() {
-        match ops_duckdb::sql::query_project_file_count(db) {
+        match ops_sqlite::sql::query_project_file_count(db) {
             Ok(files) if files > 0 => identity.file_count = Some(files),
             Ok(_) => {}
             Err(e) => tracing::warn!(error = ?e, "about: query_project_file_count failed"),
         }
     }
     if identity.dependency_count.is_none() {
-        match ops_duckdb::sql::query_dependency_count(db) {
+        match ops_sqlite::sql::query_dependency_count(db) {
             Ok(count) if count > 0 => identity.dependency_count = Some(count),
             Ok(_) => {}
             Err(e) => tracing::warn!(error = ?e, "about: query_dependency_count failed"),
         }
     }
     if identity.coverage_percent.is_none() {
-        match ops_duckdb::sql::query_project_coverage(db) {
+        match ops_sqlite::sql::query_project_coverage(db) {
             Ok(cov) if cov.lines_count > 0 => {
                 identity.coverage_percent = Some(cov.lines_percent);
             }
@@ -218,16 +218,16 @@ fn enrich_from_db(ctx: &ops_extension::Context, identity: &mut ProjectIdentity) 
         }
     }
     if identity.languages.is_empty() {
-        match ops_duckdb::sql::query_project_languages(db) {
+        match ops_sqlite::sql::query_project_languages(db) {
             Ok(langs) => identity.languages = langs,
             Err(e) => tracing::warn!(error = ?e, "about: query_project_languages failed"),
         }
     }
 }
 
-#[cfg(not(feature = "duckdb"))]
+#[cfg(not(feature = "sqlite"))]
 // CLIPPY (TASK-2027): `const` keeps `cargo clippy -p ops-about` green with the
-// `duckdb` feature off, where `missing_const_for_fn` fires on this empty stub.
+// `sqlite` feature off, where `missing_const_for_fn` fires on this empty stub.
 const fn enrich_from_db(_ctx: &ops_extension::Context, _identity: &mut ProjectIdentity) {}
 
 /// Build a minimal identity from the filesystem when no stack provider exists.
@@ -385,13 +385,13 @@ mod tests {
         assert!(opts_default.visible_fields.is_none());
     }
 
-    #[cfg(feature = "duckdb")]
+    #[cfg(feature = "sqlite")]
     #[test]
     fn enrich_from_db_logs_and_defaults_when_tables_missing() {
         // No tokei/coverage/metadata tables exist — every query returns 0 / empty
         // and per-query failures are warned (we exercise the fallible branches).
-        let db = ops_duckdb::DuckDb::open_in_memory().expect("open in-memory db");
-        ops_duckdb::init_schema(&db).expect("init_schema");
+        let db = ops_sqlite::Sqlite::open_in_memory().expect("open in-memory db");
+        ops_sqlite::init_schema(&db).expect("init_schema");
 
         let config = std::sync::Arc::new(ops_core::config::Config::empty());
         let mut ctx = ops_extension::Context::new(config, std::path::PathBuf::from("/tmp"));
@@ -408,11 +408,11 @@ mod tests {
         assert!(identity.languages.is_empty());
     }
 
-    #[cfg(feature = "duckdb")]
+    #[cfg(feature = "sqlite")]
     #[test]
     fn enrich_from_db_preserves_provider_loc_when_db_returns_zero() {
-        let db = ops_duckdb::DuckDb::open_in_memory().expect("open in-memory db");
-        ops_duckdb::init_schema(&db).expect("init_schema");
+        let db = ops_sqlite::Sqlite::open_in_memory().expect("open in-memory db");
+        ops_sqlite::init_schema(&db).expect("init_schema");
 
         let config = std::sync::Arc::new(ops_core::config::Config::empty());
         let mut ctx = ops_extension::Context::new(config, std::path::PathBuf::from("/tmp"));
@@ -425,11 +425,11 @@ mod tests {
         assert_eq!(identity.loc, Some(42), "provider-supplied loc must survive");
     }
 
-    #[cfg(feature = "duckdb")]
+    #[cfg(feature = "sqlite")]
     #[test]
     fn enrich_from_db_skips_all_queries_when_identity_fully_populated() {
-        let db = ops_duckdb::DuckDb::open_in_memory().expect("open in-memory db");
-        ops_duckdb::init_schema(&db).expect("init_schema");
+        let db = ops_sqlite::Sqlite::open_in_memory().expect("open in-memory db");
+        ops_sqlite::init_schema(&db).expect("init_schema");
 
         let config = std::sync::Arc::new(ops_core::config::Config::empty());
         let mut ctx = ops_extension::Context::new(config, std::path::PathBuf::from("/tmp"));
@@ -455,9 +455,9 @@ mod tests {
         assert_eq!(identity.languages.len(), lang_count_before);
     }
 
-    #[cfg(not(feature = "duckdb"))]
+    #[cfg(not(feature = "sqlite"))]
     #[test]
-    fn enrich_from_db_noop_without_duckdb() {
+    fn enrich_from_db_noop_without_sqlite() {
         let config = std::sync::Arc::new(ops_core::config::Config::empty());
         let ctx = ops_extension::Context::new(config, std::path::PathBuf::from("/tmp"));
         let mut identity = ProjectIdentity::default();

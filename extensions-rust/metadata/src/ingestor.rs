@@ -1,12 +1,12 @@
-//! `MetadataIngestor`: collect cargo metadata and load into `DuckDB`.
+//! `MetadataIngestor`: collect cargo metadata and load into `SQLite`.
 
 use crate::views;
 use crate::{check_metadata_not_capped, check_metadata_output, run_cargo_metadata};
-use ops_duckdb::sql::external_err;
-use ops_duckdb::{
-    init_schema, upsert_data_source, DataIngestor, DbError, DbResult, DuckDb, IngestDir, LoadResult,
-};
 use ops_extension::Context;
+use ops_sqlite::sql::external_err;
+use ops_sqlite::{
+    init_schema, upsert_data_source, DataIngestor, DbError, DbResult, IngestDir, LoadResult, Sqlite,
+};
 use std::path::Path;
 
 /// The single staged entry name this ingestor writes and reads.
@@ -49,7 +49,7 @@ impl DataIngestor for MetadataIngestor {
         // SEC-25: persist `cargo metadata` stdout atomically (sibling temp +
         // fsync + rename), matching `SidecarIngestorConfig::collect_sidecar`,
         // so a crash mid-write cannot leave a torn or zero-byte
-        // `metadata.json` for the subsequent `load` step to feed to DuckDB's
+        // `metadata.json` for the subsequent `load` step to feed to SQLite's
         // `read_json_auto` and corrupt the database with truncated input.
         // The write is also anchored: temp create and publish rename both
         // resolve against the verified directory descriptor.
@@ -68,39 +68,42 @@ impl DataIngestor for MetadataIngestor {
             })
     }
 
-    fn load(&self, dir: &IngestDir, db: &DuckDb) -> DbResult<LoadResult> {
-        // `read_json_auto` is path-only, so the *read* still names the file;
-        // every mutation below goes through the anchor.
+    fn load(&self, dir: &IngestDir, db: &Sqlite) -> DbResult<LoadResult> {
         let path = dir.entry_path(METADATA_JSON);
         // SEC-32: arm the cleanup *before* the first fallible step, so every
-        // exit from `load` unlinks the staged file. `init_schema`,
-        // `build_views`, the record count, the `reject_non_singleton`
-        // rejection, the workspace-root extract and the checksum/upsert all
-        // return via `?`; a guard armed any later would leave a full
-        // `cargo metadata` dump — every workspace member, every dependency and
-        // absolute local paths — on disk indefinitely.
+        // exit from `load` unlinks the staged file. `read_staged_payload`,
+        // `init_schema`, `build_views`, the invariant guards, the
+        // workspace-root extract and the checksum/upsert all return via `?`;
+        // a guard armed any later would leave a full `cargo metadata` dump —
+        // every workspace member, every dependency and absolute local paths —
+        // on disk indefinitely.
         let _staged = StagedFile::new(dir);
+        // ARCH-9 / TASK-1247 successor: the payload is read through the
+        // anchor once, here, so the OPS_METADATA_MAX_BYTES cap is enforced in
+        // Rust before the bytes reach the engine (the SQLite port replaced
+        // the engine-side `maximum_object_size` read option with this check).
+        let payload = read_staged_payload(dir)?;
         init_schema(db)?;
         // CONC-2: one guard held across table creation *and* the reads of
         // that table. Scoping `build_views` in its own block and re-acquiring
         // the lock on the next line would release nothing useful (nothing runs
-        // in between) while splitting
-        // `CREATE OR REPLACE TABLE metadata_raw` from the `count(*)` and
-        // `workspace_root` reads whose results are persisted into the
-        // `data_sources` provenance row below. Anything replacing
+        // in between) while splitting the `metadata_raw` (re)build from the
+        // `count(*)` and `workspace_root` reads whose results are persisted
+        // into the `data_sources` provenance row below. Anything replacing
         // `metadata_raw` in that gap would leave the recorded provenance
         // describing data that is no longer there. The orchestrator's
         // per-table ingest mutex
-        // (`extensions/duckdb/src/sql/ingest/orchestrator.rs`) happens to
+        // (`extensions/sqlite/src/sql/ingest/orchestrator.rs`) happens to
         // close the gap today, but `DataIngestor::load` is a public trait
         // method and its signature promises no such caller, so the atomicity
         // is enforced here instead of depended on from a distance.
         let conn = db.lock()?;
-        build_views(&conn, &path)?;
+        build_views(&conn, &payload)?;
         let record_count = query_record_count(&conn)?;
         if record_count != 1 {
             return Err(reject_non_singleton(&conn, record_count));
         }
+        ensure_object_payload(&conn)?;
         let workspace_root = extract_workspace_root(&conn)?;
         drop(conn);
 
@@ -109,9 +112,9 @@ impl DataIngestor for MetadataIngestor {
         let checksum = dir.checksum(METADATA_JSON)?;
         upsert_data_source(
             db,
-            &ops_duckdb::DataSourceMetadata::new(
-                ops_duckdb::SourceName::new(self.name()),
-                ops_duckdb::WorkspaceRoot::new(std::ffi::OsStr::new(&workspace_root)),
+            &ops_sqlite::DataSourceMetadata::new(
+                ops_sqlite::SourceName::new(self.name()),
+                ops_sqlite::WorkspaceRoot::new(std::ffi::OsStr::new(&workspace_root)),
                 &path,
                 record_count,
                 &checksum,
@@ -121,16 +124,50 @@ impl DataIngestor for MetadataIngestor {
     }
 }
 
-/// Builds the `metadata_raw` table and the `crate_dependencies` view.
+/// Reads the staged `metadata.json` through the anchor, enforcing the
+/// [`crate::metadata_max_bytes`] cap on the bytes before they are handed to
+/// the engine as a bound parameter.
+///
+/// One source of truth with `query_metadata_raw`'s read-side cap: the same
+/// env knob governs the ingest-side allocation ceiling and the post-ingest
+/// read guard. A payload over cap is refused here — before any DDL runs — so
+/// an oversized document never becomes a `metadata_raw` row.
+///
+/// # Errors
+///
+/// [`DbError::Io`] if the staged file cannot be read through the anchor, or
+/// [`DbError::External`] if the payload exceeds the cap (naming the observed
+/// byte count, the cap, and the override env var).
+fn read_staged_payload(dir: &IngestDir) -> DbResult<String> {
+    use std::io::Read as _;
+    let mut payload = String::new();
+    dir.open_read(METADATA_JSON)?
+        .read_to_string(&mut payload)
+        .map_err(DbError::Io)?;
+    let cap = crate::metadata_max_bytes();
+    if payload.len() > usize::try_from(cap).unwrap_or(usize::MAX) {
+        return Err(external_err(anyhow::anyhow!(
+            "staged metadata payload is {} bytes, exceeds {cap}-byte cap \
+             (override via {})",
+            payload.len(),
+            crate::METADATA_MAX_BYTES_ENV
+        )));
+    }
+    Ok(payload)
+}
+
+/// Builds the `metadata_raw` table (single JSON blob row) and the
+/// `crate_dependencies` view over it.
 ///
 /// Kept separate from `MetadataIngestor::load` so the loader reads at one
-/// nesting level.
-fn build_views(conn: &duckdb::Connection, path: &Path) -> DbResult<()> {
-    let sql = views::metadata_raw_create_sql(path)?;
-    conn.execute(sql.as_str(), [])
-        .map_err(|e| DbError::query_failed("metadata_raw create", e))?;
+/// nesting level. The staged payload arrives as an already-read string and is
+/// bound as `?1` — no path reaches SQL (the SEC-25 / TASK-2067 residual is
+/// closed by construction under the SQLite port).
+fn build_views(conn: &rusqlite::Connection, payload: &str) -> DbResult<()> {
+    ops_sqlite::sql::load_json_string(conn, &views::METADATA_RAW_LOAD, payload)?;
     let view_sql = views::crate_dependencies_view_sql();
-    conn.execute(view_sql.as_str(), [])
+    // DROP VIEW + CREATE VIEW must run together, hence `execute_batch`.
+    conn.execute_batch(view_sql.as_str())
         .map_err(|e| DbError::query_failed("crate_dependencies view", e))?;
     Ok(())
 }
@@ -157,40 +194,81 @@ fn io_at(op: &str, path: &Path, e: &std::io::Error) -> DbError {
 /// it so the next run re-ingests from scratch.
 ///
 /// `metadata_raw` is a singleton table and [`crate::query_metadata_raw`] — its
-/// only reader — hard-fails on any other row count. Enforcing that invariant
-/// here, at ingest, is the last point where the bad state can still be undone:
-/// accepting a multi-row table would leave the two halves of the crate
-/// disagreeing, and because the table would then report `table_has_data()`,
-/// every subsequent run would skip re-ingest and replay the same failure. The
-/// dependent view is dropped along with the table.
-fn reject_non_singleton(conn: &duckdb::Connection, record_count: u64) -> DbError {
+/// only reader — hard-fails on any other row count. The blob load makes the
+/// invariant structural (drop + create + one insert), so this firing signals
+/// a foreign writer; it is kept as the last point where the bad state can
+/// still be undone: accepting a multi-row table would leave the two halves of
+/// the crate disagreeing, and because the table would then report
+/// `table_has_data()`, every subsequent run would skip re-ingest and replay
+/// the same failure. The dependent view is dropped along with the table.
+fn reject_non_singleton(conn: &rusqlite::Connection, record_count: u64) -> DbError {
     tracing::warn!(
         rows = record_count,
         "metadata_raw must hold exactly one workspace_root row; dropping the table so the \
          next run re-ingests"
     );
-    // Best-effort teardown: if it fails the error below still surfaces, and
-    // the operator sees both the invariant breach and why the state is
-    // sticky. `crate_dependencies` selects from `metadata_raw`, so it has to
-    // go first.
-    if let Err(e) = conn
-        .execute_batch("DROP VIEW IF EXISTS crate_dependencies; DROP TABLE IF EXISTS metadata_raw;")
-    {
-        tracing::warn!(
-            error = %e,
-            "failed to drop metadata_raw after a non-singleton ingest; the next run may \
-             replay this failure"
-        );
-    }
+    drop_metadata_tables(conn, "a non-singleton ingest");
     external_err(anyhow::anyhow!(
         "metadata_raw must contain exactly one row, found {record_count}; \
          dropped metadata_raw so the next ingest starts clean"
     ))
 }
 
+/// Rejects a staged payload that is not a single JSON object, dropping
+/// `metadata_raw` so the next run re-ingests from scratch.
+///
+/// The single-blob load stores whatever JSON document was staged, verbatim —
+/// `json(?1)` accepts arrays and scalars too. The `crate_dependencies` view
+/// and the `workspace_root` extract both assume the cargo-metadata document
+/// shape (an object), so anything else is refused with the observed shape
+/// named rather than surfacing later as a confusing NULL-decode failure.
+fn reject_non_object(conn: &rusqlite::Connection, observed: &str) -> DbError {
+    tracing::warn!(
+        shape = observed,
+        "metadata_raw payload must be a single JSON object; dropping the table so the \
+         next run re-ingests"
+    );
+    drop_metadata_tables(conn, "a non-object payload ingest");
+    external_err(anyhow::anyhow!(
+        "staged metadata payload must be a single JSON object, found {observed}; \
+         dropped metadata_raw so the next ingest starts clean"
+    ))
+}
+
+/// Checks that the loaded blob is a JSON object, rejecting the ingest
+/// otherwise (see [`reject_non_object`]).
+fn ensure_object_payload(conn: &rusqlite::Connection) -> DbResult<()> {
+    let shape: String = conn
+        .query_row("SELECT json_type(json) FROM metadata_raw", [], |row| {
+            row.get(0)
+        })
+        .map_err(|e| DbError::query_failed("metadata_raw payload shape", e))?;
+    if shape != "object" {
+        return Err(reject_non_object(conn, &shape));
+    }
+    Ok(())
+}
+
+/// Best-effort teardown shared by the ingest rejection paths: drop the
+/// `metadata_raw` table and the view that selects from it (view first), so
+/// the next run's `table_has_data()` probe re-ingests instead of replaying
+/// the failure. If the teardown itself fails the caller's error still
+/// surfaces, and the operator sees both the invariant breach and why the
+/// state is sticky.
+fn drop_metadata_tables(conn: &rusqlite::Connection, reason: &'static str) {
+    if let Err(e) = conn
+        .execute_batch("DROP VIEW IF EXISTS crate_dependencies; DROP TABLE IF EXISTS metadata_raw;")
+    {
+        tracing::warn!(
+            error = %e,
+            "failed to drop metadata_raw after {reason}; the next run may replay this failure"
+        );
+    }
+}
+
 /// Counts rows in `metadata_raw`, mapping the raw `i64` to `u64` through the
 /// project's `InvalidRecordCount` policy.
-fn query_record_count(conn: &duckdb::Connection) -> DbResult<u64> {
+fn query_record_count(conn: &rusqlite::Connection) -> DbResult<u64> {
     let raw: i64 = conn
         .query_row("SELECT count(*) FROM metadata_raw", [], |row| {
             row.get::<_, i64>(0)
@@ -202,20 +280,21 @@ fn query_record_count(conn: &duckdb::Connection) -> DbResult<u64> {
     })
 }
 
-/// Reads the first `workspace_root` from `metadata_raw`.
+/// Reads `workspace_root` out of the loaded JSON blob.
 ///
-/// A failure is enriched with a probe of the column's observed type, so a
-/// schema mismatch names the type it found rather than only the query.
-fn extract_workspace_root(conn: &duckdb::Connection) -> DbResult<String> {
+/// A failure is enriched with a probe of the extracted value's observed type,
+/// so a payload whose `workspace_root` is not a string names the type it
+/// found rather than only the query.
+fn extract_workspace_root(conn: &rusqlite::Connection) -> DbResult<String> {
     conn.query_row(
-        "SELECT workspace_root FROM metadata_raw ORDER BY rowid LIMIT 1",
+        "SELECT json_extract(json, '$.workspace_root') FROM metadata_raw",
         [],
         |row| row.get(0),
     )
     .map_err(|e| {
         let observed_type = conn
             .query_row(
-                "SELECT typeof(workspace_root) FROM metadata_raw ORDER BY rowid LIMIT 1",
+                "SELECT typeof(json_extract(json, '$.workspace_root')) FROM metadata_raw",
                 [],
                 |row| row.get::<_, String>(0),
             )
@@ -256,7 +335,7 @@ impl Drop for StagedFile<'_> {
 
 /// Best-effort removal of the staged JSON file.
 ///
-/// A failure here never propagates: on the success path the `DuckDB` row is
+/// A failure here never propagates: on the success path the `SQLite` row is
 /// already committed and a propagated error would send the caller into a
 /// re-ingest loop, and on a failure path the caller's own error is the one
 /// worth surfacing.
@@ -398,7 +477,7 @@ mod tests {
         let metadata_json = ingest_metadata().dep(ingest_dep("serde", "^1.0")).value();
         let json_path = write_metadata_json(&dir, &metadata_json);
 
-        let db = DuckDb::open_in_memory().expect("open in-memory db");
+        let db = Sqlite::open_in_memory().expect("open in-memory db");
         let ingestor = MetadataIngestor;
         let result = ingestor.load(&dir, &db);
         assert!(result.is_ok());
@@ -436,7 +515,7 @@ mod tests {
             .value();
         write_metadata_json(&dir, &metadata_json);
 
-        let db = DuckDb::open_in_memory().expect("open in-memory db");
+        let db = Sqlite::open_in_memory().expect("open in-memory db");
         let ingestor = MetadataIngestor;
         let _ = ingestor.load(&dir, &db).unwrap();
 
@@ -459,49 +538,50 @@ mod tests {
         assert_eq!(path_dep_count, 1, "path dep (source=null) must be retained");
     }
 
-    /// ERR-1 / TASK-1891 (was TASK-1043): when `metadata_raw` ends up with
-    /// more than one row (multi-target metadata, partial re-ingest without
-    /// truncate), `load` must reject the ingest rather than committing a
-    /// state that `query_metadata_raw` then refuses to read. Drive the path
-    /// with a JSON array of two cargo-metadata objects (`DuckDB`'s
-    /// `read_json_auto` yields one row per array element) and assert both
-    /// the warn and the error.
+    /// ERR-1 / TASK-1891 (was TASK-1043), ported to the blob shape: a staged
+    /// payload that is not a single JSON object (here: an array of two
+    /// cargo-metadata documents — the shape `DuckDB`'s `read_json_auto` used to
+    /// explode into multiple rows) must be rejected at ingest rather than
+    /// committed as a state `query_metadata_raw` then refuses to read.
+    /// Assert both the warn and the error.
     #[test]
     fn metadata_load_rejects_metadata_raw_with_multiple_rows() {
         use ops_about::test_support::capture_tracing;
 
         let data_dir = tempfile::tempdir().unwrap();
         let dir = ingest_anchor(&data_dir);
-        // Two-element JSON array → DuckDB `read_json_auto` emits two rows.
+        // Two-element JSON array → stored verbatim as one blob row, then
+        // rejected by the object-shape guard with the observed shape named.
         let metadata_json = serde_json::Value::Array(vec![
             ingest_metadata().root("/test/a").value(),
             ingest_metadata().root("/test/b").value(),
         ]);
         write_metadata_json(&dir, &metadata_json);
 
-        let db = DuckDb::open_in_memory().expect("open in-memory db");
+        let db = Sqlite::open_in_memory().expect("open in-memory db");
         let ingestor = MetadataIngestor;
         let (logs, result) = capture_tracing(tracing::Level::WARN, || ingestor.load(&dir, &db));
-        let err = result.expect_err("a two-row metadata_raw must not load successfully");
+        let err = result.expect_err("a non-object payload must not load successfully");
         let rendered = format!("{err:#}");
         assert!(
-            rendered.contains("exactly one row") && rendered.contains("found 2"),
-            "error must name the invariant and the observed count, got: {rendered}"
+            rendered.contains("single JSON object") && rendered.contains("found array"),
+            "error must name the invariant and the observed shape, got: {rendered}"
         );
 
         assert!(
-            logs.contains("exactly one workspace_root row"),
-            "expected warn about the singleton invariant, got: {logs}"
+            logs.contains("single JSON object"),
+            "expected warn about the object-shape invariant, got: {logs}"
         );
         assert!(
-            logs.contains("rows=2"),
-            "warn should include rows=2 field, got: {logs}"
+            logs.contains("shape=\"array\""),
+            // tracing renders a &str field value quoted: shape="array"
+            "warn should include the observed shape field, got: {logs}"
         );
     }
 
     /// ERR-1 / TASK-1891 AC #2 + #3: the halves of the crate must agree.
     /// Drive `load` and then `query_metadata_raw` against the *same*
-    /// `DuckDb`, and assert the combined outcome — a rejected load leaves no
+    /// `Sqlite`, and assert the combined outcome — a rejected load leaves no
     /// `metadata_raw` behind, so the orchestrator's `table_has_data()` probe
     /// re-ingests on the next run instead of replaying the read failure
     /// forever.
@@ -515,11 +595,11 @@ mod tests {
         ]);
         write_metadata_json(&dir, &metadata_json);
 
-        let db = DuckDb::open_in_memory().expect("open in-memory db");
+        let db = Sqlite::open_in_memory().expect("open in-memory db");
         let ingestor = MetadataIngestor;
         ingestor
             .load(&dir, &db)
-            .expect_err("two-row load must fail");
+            .expect_err("non-object load must fail");
 
         // The reader is the other half of the invariant: it must fail too,
         // and for the *absence* of the table rather than a row-count
@@ -535,7 +615,7 @@ mod tests {
         let conn = db.lock().expect("lock");
         let tables: i64 = conn
             .query_row(
-                "SELECT count(*) FROM duckdb_tables() WHERE table_name = 'metadata_raw'",
+                "SELECT count(*) FROM sqlite_master WHERE type = 'table' AND name = 'metadata_raw'",
                 [],
                 |row| row.get(0),
             )
@@ -559,7 +639,7 @@ mod tests {
         ]);
         let json_path = write_metadata_json(&dir, &metadata_json);
 
-        let db = DuckDb::open_in_memory().expect("open in-memory db");
+        let db = Sqlite::open_in_memory().expect("open in-memory db");
         MetadataIngestor
             .load(&dir, &db)
             .expect_err("two-row load must fail");
@@ -583,7 +663,7 @@ mod tests {
         dir.write_atomic(METADATA_JSON, b"this is not JSON at all")
             .unwrap();
 
-        let db = DuckDb::open_in_memory().expect("open in-memory db");
+        let db = Sqlite::open_in_memory().expect("open in-memory db");
         MetadataIngestor
             .load(&dir, &db)
             .expect_err("unparseable staged JSON must fail the load");
@@ -612,7 +692,7 @@ mod tests {
             .value();
         write_metadata_json(&dir, &metadata_json);
 
-        let db = DuckDb::open_in_memory().expect("open in-memory db");
+        let db = Sqlite::open_in_memory().expect("open in-memory db");
         let ingestor = MetadataIngestor;
         let _ = ingestor.load(&dir, &db).unwrap();
 
@@ -656,25 +736,28 @@ mod tests {
     }
 
     /// FN-1 / TASK-1543 AC#2: drive the `extract_workspace_root` typeof-probe
-    /// fallback by handing it a `metadata_raw` shape whose `workspace_root`
-    /// column is `INTEGER`-typed (the JSON ingest path coerces null-only
-    /// columns to INTEGER). The probe should observe the type and surface
-    /// it in the error so the operator sees the offending shape.
+    /// fallback by handing it a blob whose `workspace_root` value is
+    /// JSON-numeric (`json_extract` then yields an INTEGER, which cannot
+    /// decode to `String`). The probe should observe the type and surface it
+    /// in the error so the operator sees the offending shape.
     #[test]
     fn extract_workspace_root_typeof_probe_surfaces_observed_type() {
-        let db = DuckDb::open_in_memory().expect("open in-memory db");
+        let db = Sqlite::open_in_memory().expect("open in-memory db");
         let conn = db.lock().expect("acquire connection");
-        conn.execute("CREATE TABLE metadata_raw (workspace_root INTEGER)", [])
+        conn.execute("CREATE TABLE metadata_raw (json TEXT NOT NULL)", [])
             .expect("create table");
-        conn.execute("INSERT INTO metadata_raw VALUES (42)", [])
-            .expect("seed row");
+        conn.execute(
+            "INSERT INTO metadata_raw VALUES ('{\"workspace_root\": 42}')",
+            [],
+        )
+        .expect("seed row");
         let err = super::extract_workspace_root(&conn)
-            .expect_err("INTEGER workspace_root cannot deserialise to String");
+            .expect_err("numeric workspace_root cannot deserialise to String");
         drop(conn);
         let rendered = format!("{err:#}");
         assert!(
-            rendered.contains("observed type: INTEGER"),
-            "typeof-probe must name observed column type; got: {rendered}"
+            rendered.contains("observed type: integer"),
+            "typeof-probe must name observed value type; got: {rendered}"
         );
     }
 
@@ -683,7 +766,7 @@ mod tests {
     // error it created itself — it exercised no production code path. The
     // `InvalidRecordCount` mapping in `MetadataIngestor::load` (see lines
     // ~67-72 above) is already exercised by the loader's existing
-    // success-path tests and by the broader DuckDB record-count plumbing
-    // in `ops-duckdb`; a dedicated tautology test added no coverage and
+    // success-path tests and by the broader SQLite record-count plumbing
+    // in `ops-sqlite`; a dedicated tautology test added no coverage and
     // gave reviewers false confidence, so it has been removed.
 }

@@ -7,19 +7,20 @@ license.workspace = true
 
 [dependencies]
 ops-core = { workspace = true }
-ops-extension = { workspace = true, features = ["duckdb"] }
+ops-extension = { workspace = true, features = ["sqlite"] }
 linkme = { workspace = true }
-ops-duckdb = { workspace = true }
-duckdb = { workspace = true }
 serde_json = { workspace = true }
 anyhow = { workspace = true }
 tracing = { workspace = true }
 
+ops-sqlite = { workspace = true }
+rusqlite = { workspace = true }
 [dev-dependencies]
 ops-core = { workspace = true, features = ["test-support"] }
 ops-extension = { workspace = true, features = ["test-support"] }
 ops-about = { workspace = true, features = ["test-support"] }
-ops-duckdb = { workspace = true, features = ["test-helpers"] }
+rusqlite = { workspace = true }
+ops-sqlite = { workspace = true, features = ["test-helpers"] }
 linkme = { workspace = true }
 tempfile = { workspace = true }
 tracing-subscriber = { workspace = true }

@@ -490,25 +490,25 @@ pub enum AboutAction {
     Setup,
     /// Display detailed test coverage table (requires `cargo install cargo-llvm-cov` and `rustup component add llvm-tools-preview`).
     Coverage,
-    // `about code` renders DuckDB-backed code statistics (LOC by language).
-    // Gating the variant under the `duckdb` feature keeps the CLI surface
-    // honest — without `DuckDB` the binary has no way to compute the stats,
+    // `about code` renders SQLite-backed code statistics (LOC by language).
+    // Gating the variant under the `sqlite` feature keeps the CLI surface
+    // honest — without the database the binary has no way to compute the stats,
     // so the subcommand simply doesn't exist in help / parse / tab
     // completion instead of bailing at runtime after a successful parse.
     //
     // The rationale is a plain comment, not a doc comment: clap folds every
     // `///` line on a variant into the user-facing help text.
-    #[cfg(feature = "duckdb")]
+    #[cfg(feature = "sqlite")]
     /// Display code statistics (lines of code, languages).
     Code,
     // `about loc` renders the Rust production / test / example split from
     // the `rust-loc` provider. Feature-gated for the same reason as `Code`:
-    // the breakdown is stored in DuckDB, so without that feature the binary
+    // the breakdown is stored in the database, so without that feature the binary
     // cannot answer and the subcommand should not parse.
     //
     // The rationale is a plain comment, not a doc comment: clap folds every
     // `///` line on a variant into the user-facing help text.
-    #[cfg(feature = "duckdb")]
+    #[cfg(feature = "sqlite")]
     /// Display Rust line counts split into production, test and example.
     Loc,
     /// Display dependency tree.
@@ -893,13 +893,13 @@ mod tests {
         }
     }
 
-    /// Under a build without the `duckdb` feature the
+    /// Under a build without the `sqlite` feature the
     /// `about code` subcommand must not appear in `about`'s help output —
     /// the binary cannot compute the stats so the CLI surface must reflect
     /// that. Mirrors the `Tools` gating already in place.
-    #[cfg(not(feature = "duckdb"))]
+    #[cfg(not(feature = "sqlite"))]
     #[test]
-    fn about_code_not_in_help_without_duckdb_feature() {
+    fn about_code_not_in_help_without_sqlite_feature() {
         let cmd = Cli::command();
         let about = cmd
             .find_subcommand("about")
@@ -910,13 +910,13 @@ mod tests {
             .collect();
         assert!(
             !names.contains(&"code"),
-            "about subcommands without duckdb must not include `code`: {names:?}"
+            "about subcommands without sqlite must not include `code`: {names:?}"
         );
     }
 
-    #[cfg(feature = "duckdb")]
+    #[cfg(feature = "sqlite")]
     #[test]
-    fn about_code_in_help_with_duckdb_feature() {
+    fn about_code_in_help_with_sqlite_feature() {
         let cmd = Cli::command();
         let about = cmd
             .find_subcommand("about")
@@ -927,16 +927,16 @@ mod tests {
             .collect();
         assert!(
             names.contains(&"code"),
-            "about subcommands with duckdb must include `code`: {names:?}"
+            "about subcommands with sqlite must include `code`: {names:?}"
         );
     }
 
-    /// `about loc` is gated on `duckdb` exactly like `about code` — the
-    /// region breakdown lives in `DuckDB`, so a build without it must not
+    /// `about loc` is gated on `sqlite` exactly like `about code` — the
+    /// region breakdown lives in the database, so a build without it must not
     /// offer a subcommand it cannot answer.
-    #[cfg(not(feature = "duckdb"))]
+    #[cfg(not(feature = "sqlite"))]
     #[test]
-    fn about_loc_not_in_help_without_duckdb_feature() {
+    fn about_loc_not_in_help_without_sqlite_feature() {
         let cmd = Cli::command();
         let about = cmd
             .find_subcommand("about")
@@ -947,13 +947,13 @@ mod tests {
             .collect();
         assert!(
             !names.contains(&"loc"),
-            "about subcommands without duckdb must not include `loc`: {names:?}"
+            "about subcommands without sqlite must not include `loc`: {names:?}"
         );
     }
 
-    #[cfg(feature = "duckdb")]
+    #[cfg(feature = "sqlite")]
     #[test]
-    fn about_loc_in_help_with_duckdb_feature() {
+    fn about_loc_in_help_with_sqlite_feature() {
         let cmd = Cli::command();
         let about = cmd
             .find_subcommand("about")
@@ -964,7 +964,7 @@ mod tests {
             .collect();
         assert!(
             names.contains(&"loc"),
-            "about subcommands with duckdb must include `loc`: {names:?}"
+            "about subcommands with sqlite must include `loc`: {names:?}"
         );
     }
 
@@ -997,7 +997,7 @@ mod tests {
         }
     }
 
-    #[cfg(feature = "duckdb")]
+    #[cfg(feature = "sqlite")]
     #[test]
     fn parse_about_loc() {
         let cli = Cli::parse_from(["ops", "about", "loc"]);

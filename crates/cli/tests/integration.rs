@@ -732,7 +732,7 @@ edition = "2021"
 /// Test rather than Production, which is exactly what a line-based counter
 /// would get wrong.
 #[test]
-#[cfg(feature = "duckdb")]
+#[cfg(feature = "sqlite")]
 #[cfg_attr(not(feature = "stack-rust"), ignore)]
 fn cli_about_loc_splits_production_from_test_lines() {
     let dir = temp_dir();
@@ -783,7 +783,7 @@ mod tests {
 /// never registered, and the command must say so and exit 0 rather than
 /// failing or printing an empty table.
 #[test]
-#[cfg(feature = "duckdb")]
+#[cfg(feature = "sqlite")]
 fn cli_about_loc_without_rust_reports_no_data() {
     let dir = temp_dir();
     std::fs::write(dir.path().join("package.json"), "{}").expect("write package.json");

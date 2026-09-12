@@ -60,9 +60,9 @@ pub fn run_about_units_with(
 ) -> anyhow::Result<()> {
     let mut ctx = crate::providers::subpage_context("units")?;
 
-    // Warm duckdb + tokei so the stack provider can enrich Rust-specific
+    // Warm sqlite + tokei so the stack provider can enrich Rust-specific
     // fields (e.g. dep_count) and so we can fill loc/file_count below.
-    warm_providers(&mut ctx, data_registry, &["duckdb", "tokei"], "units");
+    warm_providers(&mut ctx, data_registry, &["sqlite", "tokei"], "units");
 
     // TASK-2207: "this stack was never wired up" and "the stack's provider
     // ran and found nothing" are different facts; `load_or_default` collapses
@@ -93,7 +93,7 @@ pub fn run_about_units_with(
     Ok(())
 }
 
-/// Enrich `units` with LOC and file-count data sampled from the duckdb
+/// Enrich `units` with LOC and file-count data sampled from the sqlite
 /// `tokei_files` table.
 ///
 /// ERR-1 (TASK-0431): the four underlying queries each acquire `db.lock()`
@@ -103,9 +103,9 @@ pub fn run_about_units_with(
 /// alternative — holding one lock across all four queries — would require
 /// reshaping the helper layer to take an already-held `&Connection`. About
 /// pages re-render on every invocation, so a stale frame is self-correcting.
-#[cfg(feature = "duckdb")]
+#[cfg(feature = "sqlite")]
 fn enrich_from_db(ctx: &Context, units: &mut [ProjectUnit]) {
-    let Some(db) = ops_duckdb::get_db(ctx) else {
+    let Some(db) = ops_sqlite::get_db(ctx) else {
         return;
     };
     // Root-module entries (path == "" or ".") need project-wide totals; the
@@ -126,28 +126,28 @@ fn enrich_from_db(ctx: &Context, units: &mut [ProjectUnit]) {
     // names every field left stale, instead of four scattered messages
     // from which the partial-frame nature has to be reconstructed.
     let mut partial_failures: Vec<(&'static str, String)> = Vec::new();
-    let locs = match ops_duckdb::sql::query_crate_loc(db, &per_crate_paths) {
+    let locs = match ops_sqlite::sql::query_crate_loc(db, &per_crate_paths) {
         Ok(map) => Some(map),
         Err(e) => {
             partial_failures.push(("crate_loc", format!("{e:#}")));
             None
         }
     };
-    let files = match ops_duckdb::sql::query_crate_file_count(db, &per_crate_paths) {
+    let files = match ops_sqlite::sql::query_crate_file_count(db, &per_crate_paths) {
         Ok(map) => Some(map),
         Err(e) => {
             partial_failures.push(("crate_file_count", format!("{e:#}")));
             None
         }
     };
-    let project_loc = match ops_duckdb::sql::query_project_loc(db) {
+    let project_loc = match ops_sqlite::sql::query_project_loc(db) {
         Ok(v) => Some(v),
         Err(e) => {
             partial_failures.push(("project_loc", format!("{e:#}")));
             None
         }
     };
-    let project_files = match ops_duckdb::sql::query_project_file_count(db) {
+    let project_files = match ops_sqlite::sql::query_project_file_count(db) {
         Ok(v) => Some(v),
         Err(e) => {
             partial_failures.push(("project_file_count", format!("{e:#}")));
@@ -193,9 +193,9 @@ fn enrich_from_db(ctx: &Context, units: &mut [ProjectUnit]) {
     }
 }
 
-#[cfg(not(feature = "duckdb"))]
+#[cfg(not(feature = "sqlite"))]
 // CLIPPY (TASK-2027): `const` keeps `cargo clippy -p ops-about` green with the
-// `duckdb` feature off, where `missing_const_for_fn` fires on this empty stub.
+// `sqlite` feature off, where `missing_const_for_fn` fires on this empty stub.
 const fn enrich_from_db(_ctx: &Context, _units: &mut [ProjectUnit]) {}
 
 #[cfg(test)]
@@ -306,7 +306,7 @@ mod tests {
         );
     }
 
-    /// Regression for TASK-0431: when no `DuckDB` is wired up, `enrich_from_db` is
+    /// Regression for TASK-0431: when no `SQLite` is wired up, `enrich_from_db` is
     /// a no-op and leaves caller-supplied unit fields untouched. Codifies the
     /// "independent samples are acceptable" contract — the function never
     /// fails the render pipeline even if the underlying data is inconsistent

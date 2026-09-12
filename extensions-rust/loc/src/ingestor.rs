@@ -1,9 +1,9 @@
-//! `RustLocIngestor`: collect Rust LOC statistics and load into `DuckDB`.
+//! `RustLocIngestor`: collect Rust LOC statistics and load into `SQLite`.
 
 use crate::views;
-use ops_duckdb::sql::external_err;
-use ops_duckdb::{DataIngestor, DbResult, DuckDb, IngestDir, LoadResult, SidecarIngestorConfig};
 use ops_extension::Context;
+use ops_sqlite::sql::external_err;
+use ops_sqlite::{DataIngestor, DbResult, IngestDir, LoadResult, SidecarIngestorConfig, Sqlite};
 
 const PIPELINE: SidecarIngestorConfig =
     SidecarIngestorConfig::new("rust-loc", "rust_loc_files.json", "rust_loc_files");
@@ -24,11 +24,9 @@ impl DataIngestor for RustLocIngestor {
         PIPELINE.collect_sidecar(dir, &json, ctx.working_directory())
     }
 
-    fn load(&self, dir: &IngestDir, db: &DuckDb) -> DbResult<LoadResult> {
-        let json_path = dir.entry_path(PIPELINE.json_filename);
-        let create_sql = views::rust_loc_files_create_sql(&json_path)?;
+    fn load(&self, dir: &IngestDir, db: &Sqlite) -> DbResult<LoadResult> {
         let view_sql = views::rust_loc_summary_view_sql();
-        PIPELINE.load_with_sidecar(db, dir, &create_sql, &view_sql)
+        PIPELINE.load_with_sidecar(db, dir, &views::RUST_LOC_FILES_LOAD, &view_sql)
     }
 }
 

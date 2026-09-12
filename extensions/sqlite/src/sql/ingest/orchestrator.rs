@@ -1,7 +1,7 @@
 //! `provide_via_ingestor` orchestrator: per-table mutex, refresh, poison recovery.
 
 use crate::sql::validation::quoted_ident;
-use crate::DuckDb;
+use crate::Sqlite;
 
 use super::dir::{data_dir_for_db, IngestDir};
 use super::sql::table_has_data;
@@ -73,7 +73,7 @@ impl Drop for ReentryGuard {
 ///
 /// If the ingestor cannot collect or load its data, or if `query_fn` fails.
 pub fn provide_via_ingestor<I, Q>(
-    db: &DuckDb,
+    db: &Sqlite,
     ctx: &ops_extension::Context,
     table_name: &'static str,
     ingestor: &I,
@@ -81,7 +81,7 @@ pub fn provide_via_ingestor<I, Q>(
 ) -> Result<serde_json::Value, anyhow::Error>
 where
     I: crate::DataIngestor,
-    Q: FnOnce(&DuckDb) -> Result<serde_json::Value, anyhow::Error>,
+    Q: FnOnce(&Sqlite) -> Result<serde_json::Value, anyhow::Error>,
 {
     // CONC-2 / TASK-1143: detect same-thread re-entry on the same table
     // before acquiring the lock.
@@ -169,7 +169,7 @@ where
 }
 
 /// Drop a table if it exists (used by refresh to force re-collection).
-pub(super) fn drop_table_if_exists(db: &DuckDb, table_name: &str) -> Result<(), anyhow::Error> {
+pub(super) fn drop_table_if_exists(db: &Sqlite, table_name: &str) -> Result<(), anyhow::Error> {
     use anyhow::Context;
     let quoted = quoted_ident(table_name)?;
     let conn = db.lock().context("acquiring db lock for drop")?;
@@ -182,38 +182,44 @@ pub(super) fn drop_table_if_exists(db: &DuckDb, table_name: &str) -> Result<(), 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::sql::ingest::sql::create_table_from_json_sql;
+    use crate::sql::{execute_json_load, JsonColumn, JsonTableLoad};
     use crate::DbError;
     use crate::{init_schema, DbResult};
     use std::path::PathBuf;
     use std::sync::Arc;
 
+    /// Shared one-column spec for the mock ingestors' loads.
+    /// `flat_array` takes `&'static [JsonColumn]`; an inline `&[…]` literal
+    /// is not rvalue-promotable (const-fn calls never are), so the slice is
+    /// a named `const`.
+    const ID_COLS: &[JsonColumn] = &[JsonColumn::integer("id", "$.id")];
+
     // --- drop_table_if_exists validation (SEC-12) ---
 
     #[test]
     fn drop_table_rejects_whitespace() {
-        let db = DuckDb::open_in_memory().expect("open in-memory db");
+        let db = Sqlite::open_in_memory().expect("open in-memory db");
         init_schema(&db).expect("init_schema");
         assert!(drop_table_if_exists(&db, "my table").is_err());
     }
 
     #[test]
     fn drop_table_rejects_dots() {
-        let db = DuckDb::open_in_memory().expect("open in-memory db");
+        let db = Sqlite::open_in_memory().expect("open in-memory db");
         init_schema(&db).expect("init_schema");
         assert!(drop_table_if_exists(&db, "schema.table").is_err());
     }
 
     #[test]
     fn drop_table_rejects_dashes() {
-        let db = DuckDb::open_in_memory().expect("open in-memory db");
+        let db = Sqlite::open_in_memory().expect("open in-memory db");
         init_schema(&db).expect("init_schema");
         assert!(drop_table_if_exists(&db, "my-table").is_err());
     }
 
     #[test]
     fn drop_table_rejects_injection() {
-        let db = DuckDb::open_in_memory().expect("open in-memory db");
+        let db = Sqlite::open_in_memory().expect("open in-memory db");
         init_schema(&db).expect("init_schema");
         assert!(drop_table_if_exists(&db, "t; DROP TABLE users; --").is_err());
     }
@@ -238,20 +244,18 @@ mod tests {
                 dir.write_atomic("counting.json", b"[{\"id\": 1}]")?;
                 Ok(())
             }
-            fn load(&self, dir: &IngestDir, db: &DuckDb) -> DbResult<crate::LoadResult> {
-                let json_path = dir.entry_path("counting.json");
-                let create_sql = create_table_from_json_sql("counting_test", &json_path, None)?;
+            fn load(&self, dir: &IngestDir, db: &Sqlite) -> DbResult<crate::LoadResult> {
+                let load = JsonTableLoad::flat_array("counting_test", ID_COLS);
                 let conn = db.lock()?;
-                conn.execute(create_sql.as_str(), [])
-                    .map_err(|e| DbError::query_failed("counting_test create", e))?;
+                execute_json_load(&conn, dir, &load, "counting.json")?;
                 drop(conn);
                 Ok(crate::LoadResult::success("counting", 1))
             }
         }
 
         let db_dir = tempfile::tempdir().expect("tempdir");
-        let db_path = db_dir.path().join("counting.duckdb");
-        let db = Arc::new(DuckDb::open(&db_path).expect("db"));
+        let db_path = db_dir.path().join("counting.db");
+        let db = Arc::new(Sqlite::open(&db_path).expect("db"));
         init_schema(&db).expect("init_schema");
 
         let db1 = Arc::clone(&db);
@@ -286,10 +290,10 @@ mod tests {
         );
     }
 
-    /// CONC-7 (TASK-0779): per-table ingest registry is scoped to the `DuckDb`
+    /// CONC-7 (TASK-0779): per-table ingest registry is scoped to the `Sqlite`
     /// instance and bounded by the table count.
     #[test]
-    fn ingest_lock_map_is_scoped_to_duckdb_instance_and_bounded_by_table_count() {
+    fn ingest_lock_map_is_scoped_to_sqlite_instance_and_bounded_by_table_count() {
         use crate::DataIngestor;
 
         struct TrivialIngestor;
@@ -301,20 +305,18 @@ mod tests {
                 dir.write_atomic("trivial.json", b"[{\"id\":1}]")?;
                 Ok(())
             }
-            fn load(&self, dir: &IngestDir, db: &DuckDb) -> DbResult<crate::LoadResult> {
-                let json_path = dir.entry_path("trivial.json");
-                let create_sql = create_table_from_json_sql("trivial_table", &json_path, None)?;
+            fn load(&self, dir: &IngestDir, db: &Sqlite) -> DbResult<crate::LoadResult> {
+                let load = JsonTableLoad::flat_array("trivial_table", ID_COLS);
                 let conn = db.lock()?;
-                conn.execute(create_sql.as_str(), [])
-                    .map_err(|e| DbError::query_failed("trivial create", e))?;
+                execute_json_load(&conn, dir, &load, "trivial.json")?;
                 drop(conn);
                 Ok(crate::LoadResult::success("trivial", 1))
             }
         }
 
         let db_dir = tempfile::tempdir().expect("tempdir");
-        let db_path = db_dir.path().join("bounded.duckdb");
-        let db = DuckDb::open(&db_path).expect("db");
+        let db_path = db_dir.path().join("bounded.db");
+        let db = Sqlite::open(&db_path).expect("db");
         init_schema(&db).expect("init_schema");
 
         let ctx = ops_extension::Context::new(
@@ -344,7 +346,7 @@ mod tests {
         );
 
         drop(db);
-        let db2 = DuckDb::open(&db_path).expect("db reopen");
+        let db2 = Sqlite::open(&db_path).expect("db reopen");
         assert_eq!(db2.ingest_lock_count(), 0, "fresh instance has no entries");
     }
 
@@ -373,20 +375,18 @@ mod tests {
                 dir.write_atomic("panicky.json", b"[{\"id\":1}]")?;
                 Ok(())
             }
-            fn load(&self, dir: &IngestDir, db: &DuckDb) -> DbResult<crate::LoadResult> {
-                let json_path = dir.entry_path("panicky.json");
-                let create_sql = create_table_from_json_sql("panicky_table", &json_path, None)?;
+            fn load(&self, dir: &IngestDir, db: &Sqlite) -> DbResult<crate::LoadResult> {
+                let load = JsonTableLoad::flat_array("panicky_table", ID_COLS);
                 let conn = db.lock()?;
-                conn.execute(create_sql.as_str(), [])
-                    .map_err(|e| DbError::query_failed("panicky create", e))?;
+                execute_json_load(&conn, dir, &load, "panicky.json")?;
                 drop(conn);
                 Ok(crate::LoadResult::success("panicky", 1))
             }
         }
 
         let db_dir = tempfile::tempdir().expect("tempdir");
-        let db_path = db_dir.path().join("panicky.duckdb");
-        let db = Arc::new(DuckDb::open(&db_path).expect("db"));
+        let db_path = db_dir.path().join("panicky.db");
+        let db = Arc::new(Sqlite::open(&db_path).expect("db"));
         init_schema(&db).expect("init_schema");
         let ingestor = Arc::new(PanickyIngestor {
             should_panic: AtomicBool::new(true),
@@ -439,21 +439,18 @@ mod tests {
                 dir.write_atomic("panicky_warn.json", b"[{\"id\":1}]")?;
                 Ok(())
             }
-            fn load(&self, dir: &IngestDir, db: &DuckDb) -> DbResult<crate::LoadResult> {
-                let json_path = dir.entry_path("panicky_warn.json");
-                let create_sql =
-                    create_table_from_json_sql("panicky_warn_table", &json_path, None)?;
+            fn load(&self, dir: &IngestDir, db: &Sqlite) -> DbResult<crate::LoadResult> {
+                let load = JsonTableLoad::flat_array("panicky_warn_table", ID_COLS);
                 let conn = db.lock()?;
-                conn.execute(create_sql.as_str(), [])
-                    .map_err(|e| DbError::query_failed("panicky create", e))?;
+                execute_json_load(&conn, dir, &load, "panicky_warn.json")?;
                 drop(conn);
                 Ok(crate::LoadResult::success("panicky_warn", 1))
             }
         }
 
         let db_dir = tempfile::tempdir().expect("tempdir");
-        let db_path = db_dir.path().join("panicky_warn.duckdb");
-        let db = Arc::new(DuckDb::open(&db_path).expect("db"));
+        let db_path = db_dir.path().join("panicky_warn.db");
+        let db = Arc::new(Sqlite::open(&db_path).expect("db"));
         init_schema(&db).expect("init_schema");
         let ingestor = Arc::new(PanickyIngestor {
             should_panic: AtomicBool::new(true),
@@ -510,20 +507,18 @@ mod tests {
                 dir.write_atomic("race.json", b"[{\"id\":1}]")?;
                 Ok(())
             }
-            fn load(&self, dir: &IngestDir, db: &DuckDb) -> DbResult<crate::LoadResult> {
-                let json_path = dir.entry_path("race.json");
-                let create_sql = create_table_from_json_sql("race_table", &json_path, None)?;
+            fn load(&self, dir: &IngestDir, db: &Sqlite) -> DbResult<crate::LoadResult> {
+                let load = JsonTableLoad::flat_array("race_table", ID_COLS);
                 let conn = db.lock()?;
-                conn.execute(create_sql.as_str(), [])
-                    .map_err(|e| DbError::query_failed("race create", e))?;
+                execute_json_load(&conn, dir, &load, "race.json")?;
                 drop(conn);
                 Ok(crate::LoadResult::success("race", 1))
             }
         }
 
         let db_dir = tempfile::tempdir().expect("tempdir");
-        let db_path = db_dir.path().join("race.duckdb");
-        let db = Arc::new(DuckDb::open(&db_path).expect("db"));
+        let db_path = db_dir.path().join("race.db");
+        let db = Arc::new(Sqlite::open(&db_path).expect("db"));
         init_schema(&db).expect("init_schema");
 
         let prime_ctx = ops_extension::Context::new(
@@ -630,14 +625,14 @@ mod tests {
             // assertions below and pass. `allow-panic-in-tests` does not cover
             // `panic_in_result_fn`, so the exception is spelled here.
             #[allow(clippy::panic_in_result_fn)]
-            fn load(&self, _dir: &IngestDir, _db: &DuckDb) -> DbResult<crate::LoadResult> {
+            fn load(&self, _dir: &IngestDir, _db: &Sqlite) -> DbResult<crate::LoadResult> {
                 panic!("load must not run: collect failed first")
             }
         }
 
         let db_dir = tempfile::tempdir().expect("tempdir");
-        let db_path = db_dir.path().join("ctx.duckdb");
-        let db = DuckDb::open(&db_path).expect("db");
+        let db_path = db_dir.path().join("ctx.db");
+        let db = Sqlite::open(&db_path).expect("db");
         init_schema(&db).expect("init_schema");
         let ctx = ops_extension::Context::new(
             Arc::new(ops_core::config::Config::empty()),
@@ -679,12 +674,12 @@ mod tests {
                 panic!("collect must not run for an in-memory database")
             }
             #[allow(clippy::panic_in_result_fn)]
-            fn load(&self, _dir: &IngestDir, _db: &DuckDb) -> DbResult<crate::LoadResult> {
+            fn load(&self, _dir: &IngestDir, _db: &Sqlite) -> DbResult<crate::LoadResult> {
                 panic!("load must not run for an in-memory database")
             }
         }
 
-        let db = DuckDb::open_in_memory().expect("in-memory db");
+        let db = Sqlite::open_in_memory().expect("in-memory db");
         init_schema(&db).expect("init_schema");
         let ctx = ops_extension::Context::new(
             Arc::new(ops_core::config::Config::empty()),

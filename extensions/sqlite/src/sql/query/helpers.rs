@@ -1,6 +1,6 @@
 //! Shared query scaffolding: locking, table-existence checks, per-crate builders.
 
-use crate::DuckDb;
+use crate::Sqlite;
 use std::collections::HashMap;
 
 use super::super::ingest::table_exists;
@@ -113,14 +113,14 @@ pub(super) struct QuerySpec<'a> {
 /// Lock, check-table, execute no-param SQL, accumulate rows into T.
 /// Returns `init` when the table doesn't exist.
 pub(super) fn query_rows_fold<V, T, RM, FA>(
-    db: &DuckDb,
+    db: &Sqlite,
     spec: &QuerySpec<'_>,
     row_mapper: RM,
     init: T,
     mut fold_fn: FA,
 ) -> anyhow::Result<T>
 where
-    RM: Fn(&duckdb::Row<'_>) -> Result<V, duckdb::Error>,
+    RM: Fn(&rusqlite::Row<'_>) -> Result<V, rusqlite::Error>,
     FA: FnMut(&mut T, V),
 {
     use anyhow::Context;
@@ -157,13 +157,13 @@ where
 /// former hand-rolled `query_project_coverage` each implemented
 /// independently.
 pub(super) fn query_project_row<T, F>(
-    db: &DuckDb,
+    db: &Sqlite,
     spec: &QuerySpec<'_>,
     default: T,
     row_mapper: F,
 ) -> anyhow::Result<T>
 where
-    F: FnOnce(&duckdb::Row<'_>) -> Result<T, duckdb::Error>,
+    F: FnOnce(&rusqlite::Row<'_>) -> Result<T, rusqlite::Error>,
 {
     use anyhow::Context;
 
@@ -190,7 +190,7 @@ where
 /// DUP-1 / TASK-1629: delegates to [`query_project_row`] so the lock +
 /// table-exists + `with_context` prologue lives in exactly one place.
 pub(super) fn query_project_scalar(
-    db: &DuckDb,
+    db: &Sqlite,
     table: &str,
     sql: &str,
     label: &str,
@@ -201,16 +201,16 @@ pub(super) fn query_project_scalar(
 /// Result of preparing per-crate query scaffolding.
 /// `Ready` carries the lock and a `(?),...,(?)` placeholder clause; the
 /// caller binds `member_paths` (or a chain that adds extra bound params)
-/// directly via `duckdb::params_from_iter`.
+/// directly via `rusqlite::params_from_iter`.
 pub(super) enum PerCrateSetup<'a> {
     Empty,
     NoTable,
-    Ready(std::sync::MutexGuard<'a, duckdb::Connection>, String),
+    Ready(std::sync::MutexGuard<'a, rusqlite::Connection>, String),
 }
 
 /// Shared scaffolding: validate paths, lock db, check table exists, build VALUES CTE.
 pub(super) fn prepare_per_crate<'a>(
-    db: &'a DuckDb,
+    db: &'a Sqlite,
     table: &str,
     member_paths: &[&str],
     label: &str,
@@ -254,7 +254,7 @@ pub(super) fn prepare_per_crate<'a>(
 /// placeholders so the caller can build and execute its query.
 pub(super) enum Resolved<'a, T> {
     Done(HashMap<String, T>),
-    Continue(std::sync::MutexGuard<'a, duckdb::Connection>, String),
+    Continue(std::sync::MutexGuard<'a, rusqlite::Connection>, String),
 }
 
 /// Single source of truth for the Empty / `NoTable` / Ready branching that every
@@ -292,14 +292,14 @@ pub(super) fn members_cte_prefix(placeholders: &str) -> String {
 /// `member_paths.iter().copied()` (and `chain` extra `&str` refs as needed)
 /// to avoid allocating an intermediate `Vec<String>` per query.
 pub(super) fn collect_per_crate_map<'p, T, F, I>(
-    conn: &duckdb::Connection,
+    conn: &rusqlite::Connection,
     sql: &str,
     label: &str,
     params: I,
     row_mapper: F,
 ) -> anyhow::Result<HashMap<String, T>>
 where
-    F: Fn(&duckdb::Row<'_>) -> Result<(String, T), duckdb::Error>,
+    F: Fn(&rusqlite::Row<'_>) -> Result<(String, T), rusqlite::Error>,
     I: IntoIterator<Item = &'p str>,
 {
     use anyhow::Context;
@@ -307,7 +307,7 @@ where
         .prepare(sql)
         .with_context(|| format!("preparing {label}"))?;
     let rows = stmt
-        .query_map(duckdb::params_from_iter(params), |row| row_mapper(row))
+        .query_map(rusqlite::params_from_iter(params), |row| row_mapper(row))
         .with_context(|| format!("querying {label}"))?;
     let mut result = HashMap::new();
     for row in rows {
@@ -332,7 +332,7 @@ where
 /// that swapping `join_alias` and `join_column` at construction is a type
 /// error (API-1) and validation is enforced once at construction time.
 pub(super) struct PerCrateI64Query<'a> {
-    pub db: &'a DuckDb,
+    pub db: &'a Sqlite,
     pub table: QueryTableName,
     pub member_paths: &'a [&'a str],
     /// SEC-12 / API-2 / TASK-1630: a SQL fragment interpolated alongside
@@ -368,11 +368,17 @@ pub(super) fn query_per_crate_i64(
     );
 
     let cte = members_cte_prefix(&placeholders);
+    // SQLite port note: DuckDB's `starts_with(x, p)` has no SQLite
+    // equivalent; the prefix test is expressed as a `substr` comparison
+    // instead. The trailing '/' is part of the prefix, so a member
+    // "crates/foo" does not match "crates/foobar/…" (same boundary
+    // semantics the DuckDB form had).
     let sql = format!(
         "{cte} \
          SELECT m.path, {select_expr} \
          FROM members m \
-         LEFT JOIN {table} {join_alias} ON starts_with({join_alias}.{join_column}, m.path || '/') \
+         LEFT JOIN {table} {join_alias} \
+             ON substr({join_alias}.{join_column}, 1, length(m.path || '/')) = m.path || '/' \
          GROUP BY m.path",
     );
 
@@ -427,11 +433,11 @@ mod tests {
 
     /// ERR-1: a query that returns the same key twice (e.g. dropped GROUP BY)
     /// must not silently produce a single row in the resulting map. Pinning
-    /// behaviour via in-memory `DuckDB` so the regression is visible without a
+    /// behaviour via in-memory `SQLite` so the regression is visible without a
     /// tracing-subscriber dev-dep.
     #[test]
     fn collect_per_crate_map_keeps_one_entry_for_duplicate_keys() {
-        let conn = duckdb::Connection::open_in_memory().unwrap();
+        let conn = rusqlite::Connection::open_in_memory().unwrap();
         conn.execute_batch(
             "CREATE TABLE t (path VARCHAR, val INT);
              INSERT INTO t VALUES ('a', 1), ('a', 2), ('b', 3);",
@@ -467,7 +473,7 @@ mod tests {
     /// rendering (e.g. `unit.loc = Some(-123)` in extensions/about).
     #[test]
     fn collect_per_crate_map_clamps_negative_value_to_zero() {
-        let conn = duckdb::Connection::open_in_memory().unwrap();
+        let conn = rusqlite::Connection::open_in_memory().unwrap();
         conn.execute_batch(
             "CREATE TABLE t (path VARCHAR, val INT);
              INSERT INTO t VALUES ('a', -123), ('b', 5);",

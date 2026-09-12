@@ -2,18 +2,34 @@
 
 use super::setup_loaded_db;
 use crate::ingestor::CoverageIngestor;
-use crate::views::coverage_summary_view_sql;
-use ops_duckdb::{DataIngestor, DuckDb};
+use crate::views::{coverage_summary_view_sql, COVERAGE_FILES_LOAD};
+use ops_sqlite::{DataIngestor, Sqlite};
 
-ops_duckdb::test_create_sql_validation!(
-    crate::views::coverage_files_create_sql,
-    "coverage_files.json"
-);
+/// SEC-12 (successor of the `test_create_sql_validation!` macro, which
+/// pinned the deleted `read_json_auto` builder): the load spec's DDL quotes
+/// the table name and declares typed NOT NULL columns — counts INTEGER,
+/// percentages REAL.
+#[test]
+fn coverage_files_load_declares_typed_columns() {
+    let sql = COVERAGE_FILES_LOAD.create_table_sql().to_string();
+    assert!(
+        sql.contains("DROP TABLE IF EXISTS \"coverage_files\";"),
+        "expected drop+create batch: {sql}"
+    );
+    assert!(
+        sql.contains("\"filename\" TEXT NOT NULL")
+            && sql.contains("\"lines_count\" INTEGER NOT NULL")
+            && sql.contains("\"lines_percent\" REAL NOT NULL"),
+        "expected typed NOT NULL columns: {sql}"
+    );
+}
 
 #[test]
 fn coverage_summary_view_sql_contains_aggregation() {
     let sql = coverage_summary_view_sql().to_string();
-    assert!(sql.contains("CREATE OR REPLACE VIEW \"coverage_summary\""));
+    // SQLite has no CREATE OR REPLACE: the batch drops first.
+    assert!(sql.contains("DROP VIEW IF EXISTS \"coverage_summary\""));
+    assert!(sql.contains("CREATE VIEW \"coverage_summary\""));
     assert!(sql.contains("SUM(lines_count)"));
     assert!(sql.contains("SUM(lines_covered)"));
     assert!(sql.contains("SUM(functions_count)"));
@@ -161,8 +177,8 @@ fn coverage_summary_view_handles_zero_counts() {
     let data_dir = tempfile::tempdir().expect("tempdir");
     // SEC-25 / TASK-2054: stage through the same verified anchor
     // `provide_via_ingestor` builds.
-    let dir = ops_duckdb::IngestDir::open(&data_dir.path().join("ingest")).expect("anchor");
-    let db = DuckDb::open_in_memory().expect("open in-memory db");
+    let dir = ops_sqlite::IngestDir::open(&data_dir.path().join("ingest")).expect("anchor");
+    let db = Sqlite::open_in_memory().expect("open in-memory db");
 
     // Write fixture with all-zero counts
     let flat = serde_json::json!([{

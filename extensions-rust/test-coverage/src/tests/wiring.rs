@@ -2,8 +2,8 @@
 
 use super::write_coverage_fixture;
 use crate::{load_coverage, CoverageExtension};
-use ops_duckdb::DuckDb;
 use ops_extension::Extension;
+use ops_sqlite::Sqlite;
 
 ops_extension::test_datasource_extension!(
     CoverageExtension,
@@ -30,17 +30,17 @@ fn load_coverage_missing_json_file_errors() {
     let data_dir = tempfile::tempdir().expect("tempdir");
     // SEC-25 / TASK-2054: stage through the same verified anchor
     // `provide_via_ingestor` builds.
-    let dir = ops_duckdb::IngestDir::open(&data_dir.path().join("ingest")).expect("anchor");
+    let dir = ops_sqlite::IngestDir::open(&data_dir.path().join("ingest")).expect("anchor");
     dir.write_atomic("coverage_workspace.txt", b"/test/workspace")
         .expect("write workspace sidecar");
-    let db = DuckDb::open_in_memory().expect("open in-memory db");
+    let db = Sqlite::open_in_memory().expect("open in-memory db");
     let err = load_coverage(&dir, &db).unwrap_err();
     let msg = err.to_string();
-    // SEC-25 / TASK-2067: the failure now comes from the anchored identity
-    // check `load_with_sidecar` runs immediately before handing `DuckDB` the
-    // staged path — one step earlier than `read_json_auto`'s "No files found
-    // that match the pattern", and still past the sidecar read, which is what
-    // proves this test reaches the path it names.
+    // SQLite port: the failure comes from the anchored `open_read` inside
+    // `execute_json_load` — the staged bytes are read in Rust and bound as a
+    // parameter, so a missing file fails before any SQL runs. The open error
+    // is wrapped with the entry name, which is what proves this test reaches
+    // the file it names.
     assert!(
         msg.contains("coverage_files.json"),
         "expected the missing coverage JSON to be named, got: {msg}"
@@ -55,8 +55,8 @@ fn load_coverage_returns_record_count() {
     let data_dir = tempfile::tempdir().expect("tempdir");
     // SEC-25 / TASK-2054: stage through the same verified anchor
     // `provide_via_ingestor` builds.
-    let dir = ops_duckdb::IngestDir::open(&data_dir.path().join("ingest")).expect("anchor");
-    let db = DuckDb::open_in_memory().expect("open in-memory db");
+    let dir = ops_sqlite::IngestDir::open(&data_dir.path().join("ingest")).expect("anchor");
+    let db = Sqlite::open_in_memory().expect("open in-memory db");
     write_coverage_fixture(&dir);
 
     let result = load_coverage(&dir, &db).expect("load_coverage");

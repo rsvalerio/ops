@@ -1,13 +1,13 @@
 //! Dependency count and per-crate dependency queries.
 
-use crate::DuckDb;
+use crate::Sqlite;
 use std::collections::HashMap;
 
 use super::helpers::{query_project_scalar, query_rows_fold, QuerySpec};
 
 /// Query total normal-dependency count from `crate_dependencies`.
 ///
-/// ERR-1 (TASK-0506): a negative i64 from COUNT (which `DuckDB` should never
+/// ERR-1 (TASK-0506): a negative i64 from COUNT (which `SQLite` should never
 /// emit but a future cast or schema bug could) used to be silently coerced
 /// to 0. Now we surface the anomaly via `tracing::warn` before falling back
 /// so a misbehaving view doesn't impersonate "no dependencies".
@@ -26,7 +26,7 @@ use super::helpers::{query_project_scalar, query_rows_fold, QuerySpec};
 ///
 /// If the database lock is poisoned, or the query or row decode fails. A
 /// missing `crate_dependencies` table is not an error.
-pub fn query_dependency_count(db: &DuckDb) -> anyhow::Result<usize> {
+pub fn query_dependency_count(db: &Sqlite) -> anyhow::Result<usize> {
     let count = query_project_scalar(
         db,
         "crate_dependencies",
@@ -39,7 +39,7 @@ pub fn query_dependency_count(db: &DuckDb) -> anyhow::Result<usize> {
 
 /// Convert a `COUNT(*)` scalar to `usize`, logging anomalous (negative)
 /// values via `tracing::warn` instead of silently returning 0. Negative
-/// values from `DuckDB` COUNT should be impossible; surfacing them lets a
+/// values from `SQLite` COUNT should be impossible; surfacing them lets a
 /// schema bug be diagnosed instead of presenting as "no data".
 fn coerce_count_to_usize(count: i64) -> usize {
     match usize::try_from(count) {
@@ -64,7 +64,7 @@ fn coerce_count_to_usize(count: i64) -> usize {
 ///
 /// If the database lock is poisoned, or the query or row decode fails. A
 /// missing `crate_dependencies` table is not an error.
-pub fn query_crate_deps(db: &DuckDb) -> anyhow::Result<HashMap<String, Vec<(String, String)>>> {
+pub fn query_crate_deps(db: &Sqlite) -> anyhow::Result<HashMap<String, Vec<(String, String)>>> {
     query_rows_fold(
         db,
         &QuerySpec {
@@ -108,7 +108,7 @@ pub fn query_crate_deps(db: &DuckDb) -> anyhow::Result<HashMap<String, Vec<(Stri
 ///
 /// If the database lock is poisoned, or the query or row decode fails. A
 /// missing `crate_dependencies` table is not an error.
-pub fn query_crate_dep_counts(db: &DuckDb) -> anyhow::Result<HashMap<String, i64>> {
+pub fn query_crate_dep_counts(db: &Sqlite) -> anyhow::Result<HashMap<String, i64>> {
     let rows = query_rows_fold(
         db,
         &QuerySpec {
