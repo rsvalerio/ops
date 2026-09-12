@@ -110,6 +110,32 @@ fn resolve_event_budget() -> usize {
     })
 }
 
+/// Split a parallel plan into ordered stage lengths, given each step's
+/// `exclusive` flag in plan order: every exclusive step is a stage of its
+/// own, and each run of consecutive non-exclusive steps shares one stage.
+///
+/// `[x, -, x, -, -]` → `[1, 1, 1, 2]`. The lengths sum to the plan length.
+pub fn stage_lengths(exclusive: impl IntoIterator<Item = bool>) -> Vec<usize> {
+    let mut lengths = Vec::new();
+    let mut run = 0usize;
+    for excl in exclusive {
+        if excl {
+            if run > 0 {
+                lengths.push(run);
+                run = 0;
+            }
+            lengths.push(1);
+        } else {
+            // Bounded by the plan length, so this is exactly `+= 1`.
+            run = run.saturating_add(1);
+        }
+    }
+    if run > 0 {
+        lengths.push(run);
+    }
+    lengths
+}
+
 /// ERR-1 / TASK-1092: the warn-message text emitted when `OPS_MAX_PARALLEL`
 /// (or `OPS_PARALLEL_EVENT_BUDGET`) is set to `0`. Pinned as a `const` so
 /// a unit test can assert the operator-facing diagnostic — distinguishing
@@ -386,6 +412,70 @@ impl CommandRunner {
             }
         };
 
+        let results = if steps.iter().any(|(_, spec)| spec.exclusive) {
+            self.run_stages(steps, fail_fast, on_event).await
+        } else {
+            self.run_parallel_batch(command_ids, steps, fail_fast, on_event)
+                .await
+        };
+
+        lifecycle.finish(results.iter().all(|r| r.success), on_event);
+        results
+    }
+
+    /// Run `steps` as ordered stages split at every `exclusive` step (see
+    /// [`stage_lengths`]). Stages run one after another; a stage of two or
+    /// more steps runs concurrently. Under `fail_fast`, a failing stage stops
+    /// the plan and later stages never start — the same "not started, no
+    /// events" shape as a sequential plan.
+    ///
+    /// Emits no lifecycle bookends: the caller owns the single
+    /// `PlanStarted` / `RunFinished` pair for the whole plan.
+    // Same `!Send` reasoning as `run_plan_parallel`.
+    #[allow(clippy::future_not_send)]
+    async fn run_stages(
+        &self,
+        steps: Vec<(CommandId, ExecCommandSpec)>,
+        fail_fast: bool,
+        on_event: &mut impl FnMut(RunnerEvent),
+    ) -> Vec<StepResult> {
+        let lengths = stage_lengths(steps.iter().map(|(_, spec)| spec.exclusive));
+        let mut results = Vec::with_capacity(steps.len());
+        let mut steps = steps.into_iter();
+        for len in lengths {
+            let batch: Vec<_> = steps.by_ref().take(len).collect();
+            let stage_results = match <[_; 1]>::try_from(batch) {
+                // ASYNC-7: a lone step gains nothing from the channel /
+                // JoinSet orchestration.
+                Ok([(id, spec)]) => {
+                    vec![self.run_exec(id.as_str(), &Arc::new(spec), on_event).await]
+                }
+                Err(batch) => {
+                    let ids: Vec<CommandId> = batch.iter().map(|(id, _)| id.clone()).collect();
+                    self.run_parallel_batch(&ids, batch, fail_fast, on_event)
+                        .await
+                }
+            };
+            let failed = stage_results.iter().any(|r| !r.success);
+            results.extend(stage_results);
+            if fail_fast && failed {
+                break;
+            }
+        }
+        results
+    }
+
+    /// Run `steps` concurrently. `command_ids` must be the ids of `steps`, in
+    /// order. Emits step events only; the caller owns the plan lifecycle.
+    // Same `!Send` reasoning as `run_plan_parallel`.
+    #[allow(clippy::future_not_send)]
+    async fn run_parallel_batch(
+        &self,
+        command_ids: &[CommandId],
+        steps: Vec<(CommandId, ExecCommandSpec)>,
+        fail_fast: bool,
+        on_event: &mut impl FnMut(RunnerEvent),
+    ) -> Vec<StepResult> {
         let (rx, abort, mut join_set, id_map) = Self::spawn_parallel_tasks(steps, &self.exec_env());
         // CONC-6 / TASK-0204: when fail_fast sees the first failure, set
         // the abort flag **and** actively `abort_all()` the JoinSet so
@@ -456,10 +546,7 @@ impl CommandRunner {
                 });
             }
         }
-        let results = Self::collect_join_results_with_pre(harvested, join_set, &id_map).await;
-
-        lifecycle.finish(results.iter().all(|r| r.success), on_event);
-        results
+        Self::collect_join_results_with_pre(harvested, join_set, &id_map).await
     }
 
     /// Drain events, flipping `abort` on first failure under `fail_fast`.

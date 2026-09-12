@@ -163,6 +163,15 @@ pub struct ExecCommandSpec {
     /// Category for grouping in help output.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub category: Option<String>,
+    /// Run this step alone when its plan runs in parallel.
+    ///
+    /// A parallel plan is split into ordered stages at every exclusive step:
+    /// the exclusive step runs by itself, and each run of consecutive
+    /// non-exclusive steps between them runs concurrently. Stages follow plan
+    /// order, so a formatter listed first finishes before anything after it
+    /// starts. No effect in a sequential plan.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub exclusive: bool,
     /// Display-only program name that overrides `program` in rendered
     /// command lines (see [`Self::display_cmd`]). Spawn behaviour is
     /// unchanged — `program` is still what executes.
@@ -196,7 +205,8 @@ impl ExecCommandSpec {
     /// Preferred over struct-literal syntax because [`ExecCommandSpec`] is
     /// `#[non_exhaustive]`: downstream crates cannot use `..Default::default()`
     /// syntax and must go through this constructor. Adjust the remaining
-    /// fields (`env`, `cwd`, `timeout_secs`, `help`, `aliases`, `category`)
+    /// fields (`env`, `cwd`, `timeout_secs`, `help`, `aliases`, `category`,
+    /// `exclusive`)
     /// via direct field access — they remain `pub`.
     #[must_use]
     pub fn new(
@@ -208,6 +218,27 @@ impl ExecCommandSpec {
             args: args.into_iter().map(Into::into).collect(),
             ..Self::default()
         }
+    }
+
+    /// Build a spec that re-invokes the running `ops` binary with `subcommand`.
+    ///
+    /// The one constructor for ops-internal commands (runner builtins and
+    /// extensions), so they cannot drift on:
+    ///
+    /// - **program**: [`current_ops_program`], never a bare `"ops"` resolved
+    ///   through `PATH`, where a shim could shadow it (SEC-13 / TASK-2122);
+    /// - **display**: rendered as `ops <subcommand>`, not the absolute path;
+    /// - **scheduling**: [`Self::exclusive`] defaults to `true`. An ops
+    ///   subcommand may rewrite the worktree, so it opts in to overlapping
+    ///   other steps with `exclusive = false`; forgetting to costs
+    ///   parallelism, never a lost edit. Specs parsed from config keep the
+    ///   `false` default.
+    #[must_use]
+    pub fn ops_subcommand(subcommand: &str) -> Self {
+        let mut spec = Self::new(current_ops_program(), [subcommand]);
+        spec.display_program = Some("ops".to_string());
+        spec.exclusive = true;
+        spec
     }
 
     /// Validate fields that would cause confusing errors at execution time.
@@ -436,19 +467,20 @@ pub struct CompositeCommandSpec {
     pub commands: Vec<String>,
     /// Run this group's steps concurrently.
     ///
-    /// TASK-1657: composite expansion flattens the whole tree into one flat
-    /// leaf plan that the runner schedules as a single unit, so this flag is
-    /// necessarily plan-wide, not per-group. Every composite reachable in one
-    /// plan must therefore declare the *same* value; a tree that disagrees is
-    /// rejected at expansion time with `ExpandError::ConflictingSchedule`
-    /// rather than silently picking a winner. See the "Command groups and
-    /// scheduling" section of `README.md`.
+    /// Composite expansion flattens the whole tree into one flat leaf plan
+    /// that the runner schedules as a single unit, so the invoked root's value
+    /// decides for the whole plan. A sequential root runs a nested
+    /// `parallel = true` group sequentially (always safe); a parallel root
+    /// containing a `parallel = false` group is rejected at expansion time with
+    /// `ExpandError::ConflictingSchedule`. Inside a parallel plan, keep a step
+    /// from overlapping the others with [`ExecCommandSpec::exclusive`]. See the
+    /// "Command groups and scheduling" section of `README.md`.
     #[serde(default)]
     pub parallel: bool,
     /// When true (default), stop remaining steps on first failure. When false, run all steps.
     ///
-    /// TASK-1657: plan-wide for the same reason as [`Self::parallel`], and
-    /// subject to the same agreement requirement.
+    /// TASK-1657: plan-wide because the plan is scheduled as one unit; every
+    /// composite in one plan must declare the same value.
     #[serde(default = "serde_defaults::default_true")]
     pub fail_fast: bool,
     /// Short help text shown in `ops --help`.

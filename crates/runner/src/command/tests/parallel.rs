@@ -628,7 +628,10 @@ async fn run_plan_parallel_resolution_failure() {
 mod parallel_timing_tests {
     use super::*;
 
-    fn rendezvous_cmd(mine: &std::path::Path, theirs: &std::path::Path) -> ExecCommandSpec {
+    pub(super) fn rendezvous_cmd(
+        mine: &std::path::Path,
+        theirs: &std::path::Path,
+    ) -> ExecCommandSpec {
         let script = format!(
             "touch {mine}; for i in $(seq 1 50); do [ -e {theirs} ] && exit 0; sleep 0.1; done; exit 1",
             mine = shell_escape(mine),
@@ -637,7 +640,7 @@ mod parallel_timing_tests {
         exec_spec("sh", &["-c", &script])
     }
 
-    fn shell_escape(p: &std::path::Path) -> String {
+    pub(super) fn shell_escape(p: &std::path::Path) -> String {
         format!("'{}'", p.to_str().unwrap().replace('\'', "'\\''"))
     }
 
@@ -665,6 +668,169 @@ mod parallel_timing_tests {
             results.iter().all(|r| r.success),
             "both commands must rendezvous — failure proves they did not run concurrently"
         );
+    }
+}
+
+#[test]
+fn stage_lengths_split_at_exclusive_steps() {
+    use crate::command::parallel::stage_lengths;
+    assert_eq!(
+        stage_lengths([true, false, true, false, false]),
+        vec![1, 1, 1, 2]
+    );
+    assert_eq!(
+        stage_lengths([true, true, false, false, false]),
+        vec![1, 1, 3]
+    );
+    assert_eq!(stage_lengths([false, false, true]), vec![2, 1]);
+    assert_eq!(stage_lengths([false, false]), vec![2]);
+    assert_eq!(stage_lengths([]), Vec::<usize>::new());
+}
+
+/// Exclusive steps split a parallel plan into ordered stages.
+#[cfg(unix)]
+mod exclusive_stage_tests {
+    use super::parallel_timing_tests::{rendezvous_cmd, shell_escape};
+    use super::*;
+
+    fn sh(script: &str) -> ExecCommandSpec {
+        exec_spec("sh", &["-c", script])
+    }
+
+    fn exclusive(mut spec: ExecCommandSpec) -> ExecCommandSpec {
+        spec.exclusive = true;
+        spec
+    }
+
+    fn ids(names: &[&str]) -> Vec<CommandId> {
+        names.iter().map(|n| CommandId::from(*n)).collect()
+    }
+
+    #[tokio::test(flavor = "multi_thread")]
+    async fn exclusive_step_finishes_before_later_steps_start() {
+        let dir = tempfile::tempdir().unwrap();
+        let marker = shell_escape(&dir.path().join("m"));
+
+        let mut commands = HashMap::new();
+        commands.insert(
+            "slow".to_string(),
+            CommandSpec::Exec(exclusive(sh(&format!("sleep 0.3; touch {marker}")))),
+        );
+        let check = CommandSpec::Exec(sh(&format!("[ -e {marker} ]")));
+        commands.insert("r1".to_string(), check.clone());
+        commands.insert("r2".to_string(), check);
+        let runner = test_runner(commands);
+        let results = runner
+            .run_plan_parallel(&ids(&["slow", "r1", "r2"]), true, &mut |_| {})
+            .await;
+
+        assert_eq!(results.len(), 3);
+        assert!(
+            results.iter().all(|r| r.success),
+            "r1/r2 must start only after the exclusive step finished: {results:?}"
+        );
+    }
+
+    #[tokio::test(flavor = "multi_thread")]
+    async fn exclusive_step_waits_for_earlier_stage() {
+        let dir = tempfile::tempdir().unwrap();
+        let a = shell_escape(&dir.path().join("a"));
+        let b = shell_escape(&dir.path().join("b"));
+
+        let mut commands = HashMap::new();
+        commands.insert(
+            "w1".to_string(),
+            CommandSpec::Exec(sh(&format!("sleep 0.3; touch {a}"))),
+        );
+        commands.insert(
+            "w2".to_string(),
+            CommandSpec::Exec(sh(&format!("sleep 0.3; touch {b}"))),
+        );
+        commands.insert(
+            "check".to_string(),
+            CommandSpec::Exec(exclusive(sh(&format!("[ -e {a} ] && [ -e {b} ]")))),
+        );
+        let runner = test_runner(commands);
+        let results = runner
+            .run_plan_parallel(&ids(&["w1", "w2", "check"]), true, &mut |_| {})
+            .await;
+
+        assert!(
+            results.iter().all(|r| r.success),
+            "the exclusive step must run after the stage listed before it: {results:?}"
+        );
+    }
+
+    #[tokio::test(flavor = "multi_thread")]
+    async fn non_exclusive_steps_between_exclusive_steps_still_overlap() {
+        let dir = tempfile::tempdir().unwrap();
+        let marker_a = dir.path().join("a");
+        let marker_b = dir.path().join("b");
+
+        let mut commands = HashMap::new();
+        commands.insert(
+            "first".to_string(),
+            CommandSpec::Exec(exclusive(true_cmd())),
+        );
+        commands.insert(
+            "rdv_a".to_string(),
+            CommandSpec::Exec(rendezvous_cmd(&marker_a, &marker_b)),
+        );
+        commands.insert(
+            "rdv_b".to_string(),
+            CommandSpec::Exec(rendezvous_cmd(&marker_b, &marker_a)),
+        );
+        let runner = test_runner(commands);
+        let results = runner
+            .run_plan_parallel(&ids(&["first", "rdv_a", "rdv_b"]), true, &mut |_| {})
+            .await;
+
+        assert!(
+            results.iter().all(|r| r.success),
+            "rdv_a and rdv_b share a stage and must rendezvous: {results:?}"
+        );
+    }
+
+    fn staged_failure_runner() -> CommandRunner {
+        let mut commands = HashMap::new();
+        commands.insert("bad".to_string(), CommandSpec::Exec(exclusive(false_cmd())));
+        commands.insert("e1".to_string(), CommandSpec::Exec(echo_cmd("1")));
+        commands.insert("e2".to_string(), CommandSpec::Exec(echo_cmd("2")));
+        test_runner(commands)
+    }
+
+    #[tokio::test(flavor = "multi_thread")]
+    async fn fail_fast_failing_stage_stops_later_stages() {
+        let runner = staged_failure_runner();
+        let mut events = Vec::new();
+        let results = runner
+            .run_plan_parallel(&ids(&["bad", "e1", "e2"]), true, &mut |e| events.push(e))
+            .await;
+
+        assert_eq!(results.len(), 1, "later stages must not run: {results:?}");
+        assert!(!events
+            .iter()
+            .any(|e| matches!(e, RunnerEvent::StepStarted { id, .. } if id != "bad")));
+        assert_eq!(
+            events
+                .iter()
+                .filter(|e| matches!(e, RunnerEvent::PlanStarted { .. }))
+                .count(),
+            1,
+            "a staged plan keeps one lifecycle"
+        );
+        assert!(events.has_run_finished_failure());
+    }
+
+    #[tokio::test(flavor = "multi_thread")]
+    async fn without_fail_fast_every_stage_runs() {
+        let runner = staged_failure_runner();
+        let results = runner
+            .run_plan_parallel(&ids(&["bad", "e1", "e2"]), false, &mut |_| {})
+            .await;
+
+        assert_eq!(results.len(), 3);
+        assert_eq!(results.iter().filter(|r| r.success).count(), 2);
     }
 }
 

@@ -15,10 +15,10 @@ struct ExpandCtx<'a> {
     visited: std::collections::HashSet<&'a str>,
     depth: usize,
     max_depth: usize,
-    any_parallel: bool,
     fail_fast_disabled: bool,
-    /// TASK-1657: `(name, value)` of the first composite in this plan to
-    /// declare `parallel`, used to reject a tree that disagrees with itself.
+    /// `(name, value)` of the plan's root composite's `parallel`, which
+    /// schedules the whole plan. A sequential root runs nested parallel groups
+    /// sequentially; a parallel root rejects a nested sequential group.
     parallel_decl: Option<(&'a str, bool)>,
     /// TASK-1657: same, for `fail_fast`.
     fail_fast_decl: Option<(&'a str, bool)>,
@@ -269,8 +269,9 @@ impl CommandRunner {
     }
 
     /// PATTERN-1 / TASK-1283: walk the composite tree exactly once and
-    /// return both the leaf ids and the aggregated `(any_parallel,
-    /// fail_fast_disabled)` flags. `merge_plan` (and the raw single-command
+    /// return both the leaf ids and the `(parallel, fail_fast_disabled)`
+    /// flags, where `parallel` is the root composite's own flag (`false` for an
+    /// exec root). `merge_plan` (and the raw single-command
     /// path) previously walked the same subtree twice — once via
     /// `expand_to_leaves` to collect leaves, then again via the CLI-side
     /// `composite_tree_flags` to recompute the flags. Two independent
@@ -280,8 +281,8 @@ impl CommandRunner {
     /// # Errors
     ///
     /// [`ExpandError`] if `id` is unknown, the composite tree cycles, expansion
-    /// exceeds the depth limit, or the tree declares conflicting `parallel` /
-    /// `fail_fast` values.
+    /// exceeds the depth limit, a parallel composite contains a sequential one,
+    /// or the tree declares conflicting `fail_fast` values.
     pub fn expand_to_leaves_with_flags(
         &self,
         id: &str,
@@ -298,13 +299,13 @@ impl CommandRunner {
             visited: std::collections::HashSet::new(),
             depth: 0,
             max_depth: MAX_DEPTH,
-            any_parallel: false,
             fail_fast_disabled: false,
             parallel_decl: None,
             fail_fast_decl: None,
         };
         let leaves = self.expand_inner(id, &mut ctx)?;
-        Ok((leaves, ctx.any_parallel, ctx.fail_fast_disabled))
+        let parallel = ctx.parallel_decl.is_some_and(|(_, parallel)| parallel);
+        Ok((leaves, parallel, ctx.fail_fast_disabled))
     }
 
     fn expand_inner<'a>(
@@ -344,20 +345,28 @@ impl CommandRunner {
                 if !ctx.visited.insert(canonical) {
                     return Err(ExpandError::Cycle(canonical.to_string()));
                 }
-                // TASK-1657: the plan is flat and scheduled as one unit, so
-                // every composite in it must agree on the scheduling flags.
-                // Checked before recursing so the error names the shallowest
-                // offender rather than a deeper one that happens to differ.
-                check_schedule_flag(&mut ctx.parallel_decl, "parallel", canonical, c.parallel)?;
-                check_schedule_flag(&mut ctx.fail_fast_decl, "fail_fast", canonical, c.fail_fast)?;
-                // PATTERN-1 / TASK-1283: aggregate parallel/fail_fast flags
-                // along the same single pass that collects leaves. With the
-                // agreement check above these are now uniform across the
-                // plan, but the aggregation is kept so callers keep a single
-                // source of truth for the effective scheduling.
-                if c.parallel {
-                    ctx.any_parallel = true;
+                // The plan is flat and scheduled as one unit by its root.
+                // A sequential root runs every step one at a time, which is
+                // safe whatever a nested group declares, so a nested
+                // `parallel = true` (a hook group wrapping a parallel
+                // `verify`) is only downgraded. A parallel root containing a
+                // sequential group is rejected: running that group's steps
+                // concurrently would break the ordering it declares.
+                // `fail_fast` must agree across the plan. Checked before
+                // recursing so the error names the shallowest offender.
+                if ctx
+                    .parallel_decl
+                    .is_none_or(|(_, root_parallel)| root_parallel)
+                {
+                    check_schedule_flag(&mut ctx.parallel_decl, "parallel", canonical, c.parallel)?;
+                } else if c.parallel {
+                    tracing::debug!(
+                        root = ?ctx.parallel_decl.map(|(name, _)| name),
+                        nested = ?canonical,
+                        "running a parallel group sequentially inside a sequential plan"
+                    );
                 }
+                check_schedule_flag(&mut ctx.fail_fast_decl, "fail_fast", canonical, c.fail_fast)?;
                 if !c.fail_fast {
                     ctx.fail_fast_disabled = true;
                 }

@@ -23,7 +23,7 @@ Below, **exec** lines are `program` plus `args` from config. **Composite** comma
 | `next` | `cargo nextest run --workspace --all-features` |
 | `next-ignored` | `cargo nextest run --workspace --all-features --run-ignored ignored-only` |
 | `clean` | `cargo clean` |
-| `verify` | composite: `fmt`, `clippy`, `build`, `trailing-whitespace`, `end-of-file-fixer`, `check-json`, `check-yaml` (sequential, fail-fast) |
+| `verify` | composite: `fmt`, `trailing-whitespace`, `end-of-file-fixer`, `clippy`, `build`, `check-json`, `check-yaml`, `doc` (staged parallel, fail-fast) |
 | `qa` | composite: `deps`, `test`, `test-ignored`, `test-doc`, `sec` (sequential, fail-fast) |
 | `qa-next` (`qax`) | composite: `deps`, `next`, `next-ignored`, `test-doc`, `sec` (sequential, fail-fast) |
 
@@ -31,10 +31,11 @@ Below, **exec** lines are `program` plus `args` from config. **Composite** comma
 *disables* doctests ("Test all targets (does not include doctests)"), so adding
 it for symmetry would silently drop doctest coverage.
 
-**`verify` is sequential:** `fmt` rewrites the `.rs` files `clippy` and `build`
-read, so they must not overlap. Note that a nested `parallel = true` composite
-would not help: expansion flattens to one leaf plan and ORs the `parallel`
-flags, so a single parallel descendant makes the whole plan parallel.
+**`verify` is staged:** `fmt`, `trailing-whitespace` and `end-of-file-fixer`
+rewrite files the checks read, so each is exclusive and runs alone, in that
+order (`fmt` is marked in the stack TOML, the fixers in their definitions).
+`clippy`, `build`, `check-json`, `check-yaml` and `doc` then run concurrently.
+See "Exclusive steps in a parallel group" in the README.
 
 **`check` is not in `verify`:** `build --all-targets` subsumes it and `clippy`
 type-checks independently, so including it compiled the workspace a third time

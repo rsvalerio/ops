@@ -11,64 +11,58 @@
 //! execution path identical to every other exec leaf and avoids a parallel
 //! dispatch table.
 //!
-//! Path resolution: [`ops_core::config::current_ops_program`] — prefer
-//! [`std::env::current_exe`] (absolute, robust under renamed/aliased shells)
-//! and fall back to `"ops"` when the current-exe lookup fails (e.g. unusual
-//! sandboxing). `PATH` will then resolve it. SEC-13 / TASK-2122: the helper
-//! is shared with the extension registrations of the same command ids, so
-//! the two cannot diverge on program resolution again.
+//! Program resolution, display and scheduling defaults come from
+//! [`ExecCommandSpec::ops_subcommand`], shared with the extension
+//! registrations of the same command ids so the two cannot diverge
+//! (SEC-13 / TASK-2122).
 
 use indexmap::IndexMap;
-use ops_core::config::current_ops_program;
 use ops_core::config::{CommandId, CommandSpec, ExecCommandSpec};
 
 /// Build the always-available builtin command store.
 ///
 /// Currently registers the text fixers (`end-of-file-fixer` / `eof`,
-/// `trailing-whitespace` / `tw`) and the config checkers (`check-json`,
-/// `check-yaml`). Add new entries here whenever a clap-level subcommand
-/// should also be referenceable from composite `commands = [...]`.
+/// `trailing-whitespace` / `tw`), the config checkers (`check-json`,
+/// `check-yaml`) and `sec`. Add new entries here whenever a clap-level
+/// subcommand should also be referenceable from composite `commands = [...]`.
+///
+/// The fixers rewrite files, so they keep `ops_subcommand`'s exclusive
+/// default; the checkers and `sec` only read and are marked [`read_only`].
 pub(super) fn builtin_commands() -> IndexMap<CommandId, CommandSpec> {
-    let ops_bin = current_ops_program();
-
     let mut map = IndexMap::new();
     map.insert(
         CommandId::from("end-of-file-fixer"),
-        CommandSpec::Exec(builtin_exec(&ops_bin, "end-of-file-fixer", &["eof"])),
+        CommandSpec::Exec(builtin_exec("end-of-file-fixer", &["eof"])),
     );
     map.insert(
         CommandId::from("trailing-whitespace"),
-        CommandSpec::Exec(builtin_exec(&ops_bin, "trailing-whitespace", &["tw"])),
+        CommandSpec::Exec(builtin_exec("trailing-whitespace", &["tw"])),
     );
     map.insert(
         CommandId::from("check-json"),
-        CommandSpec::Exec(builtin_exec(&ops_bin, "check-json", &[])),
+        CommandSpec::Exec(read_only(builtin_exec("check-json", &[]))),
     );
     map.insert(
         CommandId::from("check-yaml"),
-        CommandSpec::Exec(builtin_exec(&ops_bin, "check-yaml", &[])),
+        CommandSpec::Exec(read_only(builtin_exec("check-yaml", &[]))),
     );
     map.insert(
         CommandId::from("sec"),
-        CommandSpec::Exec(builtin_exec(&ops_bin, "sec", &[])),
+        CommandSpec::Exec(read_only(builtin_exec("sec", &[]))),
     );
     map
 }
 
-fn builtin_exec(
-    ops_bin: &str,
-    subcommand: &'static str,
-    aliases: &[&'static str],
-) -> ExecCommandSpec {
-    let mut spec = ExecCommandSpec::new(ops_bin.to_string(), [subcommand.to_string()]);
+fn builtin_exec(subcommand: &'static str, aliases: &[&'static str]) -> ExecCommandSpec {
+    let mut spec = ExecCommandSpec::ops_subcommand(subcommand);
     spec.aliases = aliases.iter().map(|a| (*a).to_string()).collect();
     spec.category = Some("Code Quality".to_string());
-    // Spawn via `ops_bin` (current_exe, robust) but render as `ops <subcommand>`
-    // — the same display the extension-registered commands get from their
-    // `display_program = "ops"` (SEC-13 / TASK-2122: both registration sites
-    // now resolve the program the same way). Without this, step lines show
-    // the full absolute path (`/home/…/bin/ops sec`).
-    spec.display_program = Some("ops".to_string());
+    spec
+}
+
+/// Let a builtin that never writes to the worktree overlap other steps.
+const fn read_only(mut spec: ExecCommandSpec) -> ExecCommandSpec {
+    spec.exclusive = false;
     spec
 }
 
@@ -131,5 +125,24 @@ mod tests {
             panic!("expected exec spec");
         };
         assert_eq!(exec.display_cmd(), "ops sec");
+    }
+
+    /// The fixers rewrite files and must run alone in a parallel plan; the
+    /// read-only checkers and `sec` may overlap other steps.
+    #[test]
+    fn only_file_rewriting_builtins_are_exclusive() {
+        let map = builtin_commands();
+        for (name, expected) in [
+            ("end-of-file-fixer", true),
+            ("trailing-whitespace", true),
+            ("check-json", false),
+            ("check-yaml", false),
+            ("sec", false),
+        ] {
+            let Some(CommandSpec::Exec(exec)) = map.get(name) else {
+                panic!("{name} must be an exec builtin");
+            };
+            assert_eq!(exec.exclusive, expected, "{name}.exclusive");
+        }
     }
 }
