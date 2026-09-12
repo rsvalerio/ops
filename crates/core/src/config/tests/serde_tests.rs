@@ -38,6 +38,45 @@ aliases = ["i", "inst"]
 }
 
 #[test]
+fn parse_exec_command_exclusive_flag() {
+    let toml_str = r#"
+[commands.fmt]
+program = "cargo"
+args = ["fmt"]
+exclusive = true
+
+[commands.build]
+program = "cargo"
+"#;
+    let config: Config = toml::from_str(toml_str).unwrap();
+    let Some(CommandSpec::Exec(fmt)) = config.commands.get("fmt") else {
+        panic!("fmt must parse as an exec command");
+    };
+    assert!(fmt.exclusive);
+    let Some(CommandSpec::Exec(build)) = config.commands.get("build") else {
+        panic!("build must parse as an exec command");
+    };
+    assert!(!build.exclusive, "exclusive defaults to false");
+    let rendered = toml::to_string(build).unwrap();
+    assert!(
+        !rendered.contains("exclusive"),
+        "a false flag must not be serialized: {rendered}"
+    );
+}
+
+#[test]
+fn ops_subcommand_spec_is_exclusive_and_displays_as_ops() {
+    let spec = ExecCommandSpec::ops_subcommand("sec");
+    assert!(
+        spec.exclusive,
+        "ops subcommands must opt out of exclusivity explicitly"
+    );
+    assert_eq!(spec.program, crate::config::current_ops_program());
+    assert_eq!(spec.args, vec!["sec".to_string()]);
+    assert_eq!(spec.display_cmd(), "ops sec");
+}
+
+#[test]
 fn parse_exec_command_with_alias_key() {
     let toml_str = r#"
 [commands.install]

@@ -72,40 +72,69 @@ A command with a `commands = [...]` list is a *group* (composite). Groups may
 reference other groups, and `ops` expands the whole tree into a single flat plan
 that is scheduled as one unit.
 
-Because the plan is scheduled as one unit, **every group in a plan must declare
-the same `parallel` and the same `fail_fast`.** A tree that disagrees with
-itself is rejected with an error naming both groups:
+Because the plan is scheduled as one unit, the group you invoke decides how it
+runs:
+
+- **Sequential root:** every step runs one at a time, including the steps of a
+  nested `parallel = true` group. Running a parallel group sequentially is always
+  safe, so a hook group such as `run-before-commit = ["verify", ...]` keeps
+  working when `verify` itself is parallel.
+- **Parallel root:** a nested group must not declare `parallel = false`. Its
+  steps would run concurrently despite the flag, so the config is rejected with
+  an error naming both groups:
 
 ```toml
-[commands.lint]
+[commands.fixers]
 commands = ["ruff", "black"]
-parallel = true
+parallel = false
 
 [commands.verify]
-commands = ["fmt", "lint"]
-parallel = false          # error: conflicts with lint.parallel = true
+commands = ["fixers", "pyright"]
+parallel = true          # error: conflicts with fixers.parallel = false
 ```
 
 ```console
 $ ops verify
-error: conflicting `parallel` in the plan for `verify`: `verify` sets parallel = false,
-but `lint` sets parallel = true
+error: conflicting `parallel` in the plan for `verify`: `verify` sets parallel = true,
+but `fixers` sets parallel = false
 ```
 
-This is deliberate. The flags used to be OR-folded across the tree, so a single
-`parallel = true` group silently promoted the entire plan to parallel while its
-parent still read `parallel = false` — which meant formatters could run
-concurrently with the checkers reading the same files. Rejecting the config
-makes that loud rather than intermittent.
-
-To fix, make the flags agree — either set `lint.parallel = false`, or set
-`verify.parallel = true` if the whole plan really should run concurrently.
+To fix, set `verify.parallel = false`, or keep it parallel and mark the steps
+that must not overlap `exclusive = true` (below). Every group in a plan must
+also declare the same `fail_fast`.
 
 Note that this applies *within* one plan. Naming several commands on one
 invocation (`ops run verify qa`) expands each independently, so they may differ.
 
 > Expressing "run these groups in order, but let the steps inside one group run
 > together" is not supported today; it needs per-group scheduling boundaries.
+> To keep a single step from overlapping the rest, use `exclusive` (below).
+
+### Exclusive steps in a parallel group
+
+Running every step of a parallel group at once is wrong for a step that
+rewrites files the others read. Mark such an exec command `exclusive = true`.
+The plan is then split into ordered stages at each exclusive step: the
+exclusive step runs alone, and each run of consecutive non-exclusive steps
+between them runs concurrently. Stages follow the order of `commands`.
+
+```toml
+[commands.fmt]
+program = "cargo"
+args = ["fmt", "--all"]
+exclusive = true
+
+[commands.verify]
+commands = ["fmt", "clippy", "build", "doc"]
+parallel = true
+# runs: fmt → (clippy | build | doc)
+```
+
+The list order is the schedule. With `a` and `c` exclusive,
+`["a", "b", "c", "d"]` runs `a → b → c → d`, while `["a", "c", "b", "d"]` runs
+`a → c → (b | d)`. Under `fail_fast = true` a failing stage stops the plan and
+later stages never start. `exclusive` has no effect in a sequential group or
+under `--raw`, which always runs sequentially.
 
 ## Commands
 
