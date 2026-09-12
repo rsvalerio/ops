@@ -2,6 +2,16 @@
 All notable changes to this project will be documented in this file. See [conventional commits](https://www.conventionalcommits.org/) for commit guidelines.
 
 - - -
+## [v0.56.0](https://github.com/rsvalerio/ops/compare/4a11b7018df2f032421c456c8dc8a955334e1edd..v0.56.0) - 2026-09-12
+#### 🚀 Features
+- (**builtins**) mark file-rewriting ops subcommands exclusive - ([afd68e1](https://github.com/rsvalerio/ops/commit/afd68e10bff33c99ad23287eedc2f5317f5e39aa)) - [@rsvalerio](https://github.com/rsvalerio), Claude Opus 5
+- (**runner**) run exclusive steps alone in parallel plans - ([af402f5](https://github.com/rsvalerio/ops/commit/af402f5591c1e1610a12a0260dfd2858bd6fc475)) - [@rsvalerio](https://github.com/rsvalerio), Claude Opus 5
+- (**rust-stack**) run verify rewriters alone, then the checks in parallel - ([5adb6be](https://github.com/rsvalerio/ops/commit/5adb6be55190020f592faf51534893a86e30f340)) - [@rsvalerio](https://github.com/rsvalerio), Claude Opus 5
+#### 🐛 Bug Fixes
+- (**runner**) run a parallel group nested in a sequential plan sequentially - ([4a11b70](https://github.com/rsvalerio/ops/commit/4a11b7018df2f032421c456c8dc8a955334e1edd)) - [@rsvalerio](https://github.com/rsvalerio), Claude Opus 5
+
+- - -
+
 ## [v0.55.0](https://github.com/rsvalerio/ops/compare/c16a040b623f7f948fffdecde106eaae582eb533..v0.55.0) - 2026-09-12
 #### 🚀 Features
 - (**engine**) migrate from DuckDB to bundled rusqlite (SQLite) - ([c16a040](https://github.com/rsvalerio/ops/commit/c16a040b623f7f948fffdecde106eaae582eb533)) - [@rsvalerio](https://github.com/rsvalerio), Claude Code
