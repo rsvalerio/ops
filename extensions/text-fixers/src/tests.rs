@@ -501,3 +501,29 @@ fn extension_constants_kebab_case() {
         );
     }
 }
+
+/// SEC-13 / TASK-2122: the registered fixers spawn an absolute
+/// `current_exe()`-derived program, never a bare PATH-resolved `"ops"`, and
+/// render as `ops <fixer>`. They rewrite files other steps read, so they must
+/// be exclusive in a parallel plan.
+#[test]
+fn registered_fixers_spawn_absolute_ops_and_are_exclusive() {
+    use ops_core::config::CommandSpec;
+    use ops_extension::Extension as _;
+
+    let mut registry = ops_extension::CommandRegistry::new();
+    TextFixersExtension.register_commands(&mut registry);
+
+    for id in ["trailing-whitespace", "end-of-file-fixer"] {
+        let Some(CommandSpec::Exec(exec)) = registry.get(id) else {
+            panic!("{id} must be registered as an Exec spec");
+        };
+        assert!(
+            Path::new(&exec.program).is_absolute(),
+            "{id} must spawn an absolute current_exe()-derived program, got {:?}",
+            exec.program
+        );
+        assert_eq!(exec.display_cmd(), format!("ops {id}"));
+        assert!(exec.exclusive, "{id} rewrites files and must run alone");
+    }
+}

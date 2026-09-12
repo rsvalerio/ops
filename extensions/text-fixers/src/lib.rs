@@ -79,18 +79,18 @@ ops_extension::impl_extension! {
     command_names: &["trailing-whitespace", "end-of-file-fixer"],
     data_provider_name: None,
     register_commands: |_self, registry| {
-        registry.insert(
-            "trailing-whitespace".into(),
-            ops_core::config::CommandSpec::Exec(
-                ops_core::config::ExecCommandSpec::new("ops", ["trailing-whitespace"]),
-            ),
-        );
-        registry.insert(
-            "end-of-file-fixer".into(),
-            ops_core::config::CommandSpec::Exec(
-                ops_core::config::ExecCommandSpec::new("ops", ["end-of-file-fixer"]),
-            ),
-        );
+        // SEC-13 / TASK-2122: `ops_subcommand` spawns the absolute
+        // current_exe()-resolved binary (a bare "ops" resolves through PATH,
+        // where a shim could shadow it). Both fixers rewrite files other steps
+        // read, so they keep its exclusive default.
+        for subcommand in ["trailing-whitespace", "end-of-file-fixer"] {
+            registry.insert(
+                subcommand.into(),
+                ops_core::config::CommandSpec::Exec(
+                    ops_core::config::ExecCommandSpec::ops_subcommand(subcommand),
+                ),
+            );
+        }
     },
     register_data_providers: |_self, _registry| {},
     factory: TEXT_FIXERS_FACTORY = |_, _| {

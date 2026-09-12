@@ -90,16 +90,13 @@ ops_extension::impl_extension! {
     register_commands: |_self, registry| {
         // SEC-13 / TASK-2122: a bare "ops" resolves through the invoking
         // environment's PATH, so a shim earlier on PATH silently becomes the
-        // validator. Spawn the absolute current_exe()-resolved binary via the
-        // same shared helper the runner's builtin store uses for these very
-        // command ids, and render as `ops check-json` / `ops check-yaml`.
-        let ops_bin = ops_core::config::current_ops_program();
+        // validator. `ops_subcommand` spawns the absolute current_exe()-resolved
+        // binary, the same constructor the runner's builtin store uses for these
+        // very command ids, and renders as `ops check-json` / `ops check-yaml`.
+        // The checkers only read files, so they opt out of exclusivity.
         for subcommand in ["check-json", "check-yaml"] {
-            let mut spec = ops_core::config::ExecCommandSpec::new(
-                ops_bin.clone(),
-                [subcommand.to_string()],
-            );
-            spec.display_program = Some("ops".to_string());
+            let mut spec = ops_core::config::ExecCommandSpec::ops_subcommand(subcommand);
+            spec.exclusive = false;
             registry.insert(
                 subcommand.into(),
                 ops_core::config::CommandSpec::Exec(spec),

@@ -420,5 +420,9 @@ fn registered_checkers_spawn_absolute_ops_and_display_as_ops() {
         );
         assert_eq!(exec.display_cmd(), format!("ops {id}"));
         assert_eq!(exec.args, vec![id.to_string()]);
+        assert!(
+            !exec.exclusive,
+            "{id} only reads files, so it may overlap other steps"
+        );
     }
 }
