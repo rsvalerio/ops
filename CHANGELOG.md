@@ -2,6 +2,14 @@
 All notable changes to this project will be documented in this file. See [conventional commits](https://www.conventionalcommits.org/) for commit guidelines.
 
 - - -
+## [v0.55.0](https://github.com/rsvalerio/ops/compare/c16a040b623f7f948fffdecde106eaae582eb533..v0.55.0) - 2026-09-12
+#### 🚀 Features
+- (**engine**) migrate from DuckDB to bundled rusqlite (SQLite) - ([c16a040](https://github.com/rsvalerio/ops/commit/c16a040b623f7f948fffdecde106eaae582eb533)) - [@rsvalerio](https://github.com/rsvalerio), Claude Code
+#### 🐛 Bug Fixes
+- (**engine**) address CodeRabbit review on the SQLite migration - ([7c44e59](https://github.com/rsvalerio/ops/commit/7c44e59c88d3e2a21e36bedda456bd918caf555c)) - [@rsvalerio](https://github.com/rsvalerio), Claude Code
+
+- - -
+
 ## [v0.54.0](https://github.com/rsvalerio/ops/compare/a73255404d8686f4aae3fef9547aee0e444b63b2..v0.54.0) - 2026-09-12
 #### 🚀 Features
 - (**core**) add shared is_unsafe_display_char predicate for untrusted display text - ([8b730ef](https://github.com/rsvalerio/ops/commit/8b730ef60584a6f422eca80e2f8ac33c91e3776c)) - [@rsvalerio](https://github.com/rsvalerio)
