@@ -2,6 +2,16 @@
 All notable changes to this project will be documented in this file. See [conventional commits](https://www.conventionalcommits.org/) for commit guidelines.
 
 - - -
+## [v0.57.0](https://github.com/rsvalerio/ops/compare/44166c490535eaeeaab2154a37f217e03d6e5b59..v0.57.0) - 2026-09-13
+#### 🚀 Features
+- (**config**) add [extend.<name>] sections appending commands to existing composites - ([44166c4](https://github.com/rsvalerio/ops/commit/44166c490535eaeeaab2154a37f217e03d6e5b59)) - [@rsvalerio](https://github.com/rsvalerio), Claude Code
+#### 📚 Documentation
+- describe [extend.<name>] sections - ([31e93cb](https://github.com/rsvalerio/ops/commit/31e93cb350a45be4ba6827f94e57d9b81590dd87)) - [@rsvalerio](https://github.com/rsvalerio), Claude Code
+#### ⚙️ Miscellaneous
+- add reference to extend feature - ([1308e65](https://github.com/rsvalerio/ops/commit/1308e65070cce11765a0f4cf5470ece15a59128c)) - [@rsvalerio](https://github.com/rsvalerio)
+
+- - -
+
 ## [v0.56.0](https://github.com/rsvalerio/ops/compare/4a11b7018df2f032421c456c8dc8a955334e1edd..v0.56.0) - 2026-09-12
 #### 🚀 Features
 - (**builtins**) mark file-rewriting ops subcommands exclusive - ([afd68e1](https://github.com/rsvalerio/ops/commit/afd68e10bff33c99ad23287eedc2f5317f5e39aa)) - [@rsvalerio](https://github.com/rsvalerio), Claude Opus 5
