@@ -31,6 +31,13 @@ pub struct Config {
     pub output: OutputConfig,
     #[serde(default, skip_serializing_if = "IndexMap::is_empty")]
     pub commands: IndexMap<String, CommandSpec>,
+    /// `[extend.<target>]` sections — commands appended to an existing
+    /// composite (often a stack default) at load time; applied by
+    /// [`crate::config::extend`] after every config layer has merged.
+    /// Kept on the config after application so diagnostics can show what
+    /// was declared.
+    #[serde(default, skip_serializing_if = "IndexMap::is_empty")]
+    pub extend: IndexMap<String, super::extend::ExtendEntry>,
     #[serde(default, skip_serializing_if = "DataConfig::is_default")]
     pub data: DataConfig,
     #[serde(default, skip_serializing_if = "IndexMap::is_empty")]
@@ -79,6 +86,7 @@ impl Config {
         Self {
             output: OutputConfig::default(),
             commands: IndexMap::default(),
+            extend: IndexMap::default(),
             data: DataConfig::default(),
             themes: IndexMap::default(),
             extensions: ExtensionConfig::default(),

@@ -23,6 +23,8 @@ pub struct ConfigOverlay {
     #[serde(default)]
     pub commands: Option<IndexMap<String, CommandSpec>>,
     #[serde(default)]
+    pub extend: Option<IndexMap<String, super::extend::ExtendEntry>>,
+    #[serde(default)]
     pub data: Option<DataConfigOverlay>,
     #[serde(default)]
     pub themes: Option<IndexMap<String, ThemeConfig>>,
