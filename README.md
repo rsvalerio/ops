@@ -76,7 +76,7 @@ program = "cargo"
 args = ["llvm-cov"]
 
 [extend.verify]
-commands = ["coverage"]   # runs after the default verify steps
+commands = ["coverage"]   # appended to the end of verify's commands list
 ```
 
 The extra commands are appended at load time. Rules:
@@ -84,7 +84,7 @@ The extra commands are appended at load time. Rules:
 - Only composites (`commands = [...]`) can be extended; extending an exec command or an undefined name is a load error.
 - A locally redefined command wins: `[extend.verify]` appends to *your* `[commands.verify]` if you defined one, otherwise to the stack default.
 - Extends concatenate across config layers, so `.ops.d/*.toml` fragments stack on top of `.ops.toml` appends.
-- Ordering matters in parallel groups (see below): appended commands run last, and each keeps the `exclusive` flag of its own definition.
+- Extending controls list order only, not execution order. Each appended command keeps the `exclusive` flag of its own definition. In a sequential group it runs after the earlier steps. In a parallel group (see below), an appended non-exclusive command joins the final stage and may run concurrently with the earlier non-exclusive steps. Mark it `exclusive = true` if it must not overlap them.
 
 ### Command groups and scheduling
 
