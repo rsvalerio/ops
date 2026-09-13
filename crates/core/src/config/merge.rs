@@ -51,6 +51,26 @@ pub(super) fn merge_indexmap<K: Eq + std::hash::Hash + std::fmt::Debug, V>(
     }
 }
 
+/// Merge `[extend.<target>]` overlay entries into base.
+///
+/// Unlike [`merge_indexmap`] (replace on collision), extend entries
+/// **concatenate**: a `[extend.verify]` in `.ops.d` adds to the appends a
+/// `[extend.verify]` in `.ops.toml` already declared, in layer order.
+/// Replacing instead would silently drop the lower layer's appends.
+fn merge_extend(
+    base: &mut IndexMap<String, super::extend::ExtendEntry>,
+    overlay: Option<IndexMap<String, super::extend::ExtendEntry>>,
+) {
+    if let Some(items) = overlay {
+        for (target, entry) in items {
+            base.entry(target)
+                .or_default()
+                .commands
+                .extend(entry.commands);
+        }
+    }
+}
+
 fn merge_output(base: &mut OutputConfig, overlay: OutputConfigOverlay) {
     let OutputConfigOverlay {
         theme,
@@ -92,6 +112,7 @@ pub fn merge_config(base: &mut Config, overlay: ConfigOverlay) {
     let ConfigOverlay {
         output,
         commands,
+        extend,
         data,
         themes,
         extensions,
@@ -103,6 +124,7 @@ pub fn merge_config(base: &mut Config, overlay: ConfigOverlay) {
         merge_output(&mut base.output, output_overlay);
     }
     merge_indexmap(&mut base.commands, commands);
+    merge_extend(&mut base.extend, extend);
     copy_optional_field(&mut base.data.path, data.as_ref().map(|d| &d.path));
     merge_indexmap(&mut base.themes, themes);
     copy_optional_field(
@@ -361,5 +383,56 @@ mod tests {
         merge_config(&mut base, overlay);
         assert!(base.commands.contains_key("existing"));
         assert!(base.commands.contains_key("new_cmd"));
+    }
+
+    /// `[extend]` is the one map-valued section that must NOT follow
+    /// [`merge_indexmap`]'s replace-on-collision rule: an overlay's
+    /// `[extend.verify]` adds to the base's appends for `verify`, so a
+    /// `.ops.d` fragment stacking on `.ops.toml` keeps both lists in layer
+    /// order instead of dropping the lower layer's entries.
+    #[test]
+    fn merge_config_extend_concatenates_per_target() {
+        use super::super::extend::ExtendEntry;
+        let mut base = Config::default();
+        base.extend.insert(
+            "verify".to_string(),
+            ExtendEntry {
+                commands: vec!["from-base".to_string()],
+            },
+        );
+        let overlay = ConfigOverlay {
+            extend: Some(IndexMap::from([
+                (
+                    "verify".to_string(),
+                    ExtendEntry {
+                        commands: vec!["from-overlay".to_string()],
+                    },
+                ),
+                (
+                    "qa".to_string(),
+                    ExtendEntry {
+                        commands: vec!["new-target".to_string()],
+                    },
+                ),
+            ])),
+            ..Default::default()
+        };
+        merge_config(&mut base, overlay);
+        assert_eq!(
+            base.extend
+                .get("verify")
+                .map(|e| e.commands.clone())
+                .unwrap_or_default(),
+            vec!["from-base".to_string(), "from-overlay".to_string()],
+            "same-target entries must concatenate in layer order"
+        );
+        assert_eq!(
+            base.extend
+                .get("qa")
+                .map(|e| e.commands.clone())
+                .unwrap_or_default(),
+            vec!["new-target".to_string()],
+            "new targets must be inserted"
+        );
     }
 }

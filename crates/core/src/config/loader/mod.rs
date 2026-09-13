@@ -260,8 +260,9 @@ pub fn load_config() -> anyhow::Result<Config> {
 /// # Errors
 ///
 /// If the embedded default config, the global config, `.ops.toml`, an
-/// `.ops.d/` fragment, or the `OPS__` env overlay fails to parse, or if a
-/// config file cannot be read.
+/// `.ops.d/` fragment, or the `OPS__` env overlay fails to parse, if a
+/// config file cannot be read, or if an `[extend.<target>]` section names a
+/// command that is undefined or not a composite.
 #[instrument(skip_all)]
 pub fn load_config_at(workspace_root: &Path) -> anyhow::Result<Config> {
     #[cfg(any(test, feature = "test-support"))]
@@ -283,6 +284,9 @@ pub fn load_config_at(workspace_root: &Path) -> anyhow::Result<Config> {
     conf_d::merge_conf_d(&mut config, workspace_root).context("loading .ops.d overlay configs")?;
 
     env::merge_env_vars(&mut config).context("loading OPS__ environment overlay")?;
+
+    super::extend::apply(&mut config, workspace_root)
+        .context("applying [extend] command sections")?;
 
     config.validate()?;
 
@@ -739,5 +743,58 @@ mod tests {
             }),
         );
         assert!(config.validate().is_ok());
+    }
+
+    /// `[extend.verify]` in a rust workspace appends to the stack default
+    /// `verify` — the load-time concat the section exists for. End to end
+    /// through `load_config_at`, so the layered merge and the application
+    /// step are exercised together.
+    #[test]
+    #[serial_test::serial]
+    fn extend_section_appends_to_stack_default_composite() {
+        let dir = tempfile::tempdir().unwrap();
+        let root = crate::test_utils::canonical_root(&dir);
+        let _xdg = crate::test_utils::isolate_global_config(&root);
+        std::fs::write(root.join("Cargo.toml"), "[package]\nname = \"x\"\n").unwrap();
+        std::fs::write(
+            root.join(".ops.toml"),
+            "[commands.extra]\nprogram = \"echo\"\nargs = [\"hi\"]\n\n[extend.verify]\ncommands = [\"extra\"]\n",
+        )
+        .unwrap();
+
+        let config = load_config_at(&root).expect("extend config must load");
+        let Some(super::super::CommandSpec::Composite(verify)) = config.commands.get("verify")
+        else {
+            panic!("extended verify must be materialized into config.commands");
+        };
+        assert_eq!(
+            verify.commands.last().map(String::as_str),
+            Some("extra"),
+            "appended command must land at the end of verify's list"
+        );
+    }
+
+    /// A target that is defined nowhere (here: generic stack, no defaults)
+    /// must fail the load naming the layer and the target — a silent no-op
+    /// would hide the typo behind a `verify` that skips the intended step.
+    #[test]
+    #[serial_test::serial]
+    fn extend_section_with_unknown_target_fails_the_load() {
+        let dir = tempfile::tempdir().unwrap();
+        let root = crate::test_utils::canonical_root(&dir);
+        let _xdg = crate::test_utils::isolate_global_config(&root);
+        std::fs::write(
+            root.join(".ops.toml"),
+            "[extend.verify]\ncommands = [\"extra\"]\n",
+        )
+        .unwrap();
+
+        let err = load_config_at(&root).expect_err("unknown extend target must fail the load");
+        let msg = format!("{err:#}");
+        assert!(
+            msg.starts_with("applying [extend] command sections"),
+            "error chain must start with the layer breadcrumb, got: {msg}"
+        );
+        assert!(msg.contains("verify"), "error must name the target: {msg}");
     }
 }

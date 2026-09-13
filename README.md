@@ -66,6 +66,26 @@ fail_fast = true
 
 Config is merged in order (later overrides earlier): built-in defaults → global config (`~/.config/ops/config.toml`) → local `.ops.toml` → `.ops.d/*.toml` fragments (sorted by filename) → `OPS__*` environment variables. When run inside a project with a detected stack (e.g. Rust), `ops init` pre-fills stack-specific commands.
 
+### Extending existing commands
+
+To add steps to a command that already exists — typically a stack default like the Rust `verify` — without copying (and going stale on) its whole `commands` list, use an `[extend.<name>]` section:
+
+```toml
+[commands.coverage]
+program = "cargo"
+args = ["llvm-cov"]
+
+[extend.verify]
+commands = ["coverage"]   # appended to the end of verify's commands list
+```
+
+The extra commands are appended at load time. Rules:
+
+- Only composites (`commands = [...]`) can be extended; extending an exec command or an undefined name is a load error.
+- A locally redefined command wins: `[extend.verify]` appends to *your* `[commands.verify]` if you defined one, otherwise to the stack default.
+- Extends concatenate across config layers, so `.ops.d/*.toml` fragments stack on top of `.ops.toml` appends.
+- Extending controls list order only, not execution order. Each appended command keeps the `exclusive` flag of its own definition. In a sequential group it runs after the earlier steps. In a parallel group (see below), an appended non-exclusive command joins the final stage and may run concurrently with the earlier non-exclusive steps. Mark it `exclusive = true` if it must not overlap them.
+
 ### Command groups and scheduling
 
 A command with a `commands = [...]` list is a *group* (composite). Groups may

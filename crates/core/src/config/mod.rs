@@ -21,11 +21,20 @@
 //! implemented in `loader::load_config_at` and pinned end-to-end by the
 //! precedence tests there, so reordering those merge calls now fails the suite.
 //!
+//! After every layer has merged, `loader::load_config_at` applies the
+//! `[extend.<target>]` sections (`extend::apply`): each entry's commands are
+//! appended to the target composite — a config-defined target in place, a
+//! stack-default target materialized into `Config::commands` — so the
+//! extended command is what every downstream consumer resolves.
+//!
 //! This module is a re-export hub; the types live in focused submodules:
+//!
 //!
 //! - [`root`] — the root [`Config`] type and its validation.
 //! - [`sections`] — the `[extensions]`, `[about]`, `[data]`, `[output]` sections.
 //! - [`commands`] / [`command_id`] — command specs and the [`CommandId`] newtype.
+//! - [`extend`] — the `[extend.<target>]` sections appending commands to an
+//!   existing composite at load time.
 //! - [`overlay`] / [`merge`] — the partial-config mirror types and their merge.
 //! - [`loader`] — the file/env resolution order described above.
 //! - [`init`] — `ops init` template rendering.
@@ -35,6 +44,7 @@
 pub(crate) mod command_id;
 pub(crate) mod commands;
 mod edit;
+pub(crate) mod extend;
 mod init;
 mod loader;
 pub(crate) mod merge;
@@ -49,6 +59,7 @@ pub use edit::{
     atomic_write, command_names, edit_ops_toml, ensure_table, insert_command, read_ops_toml,
     write_ops_toml,
 };
+pub use extend::ExtendEntry;
 pub use init::{default_ops_toml, init_template, InitSections};
 pub use overlay::{
     AboutConfigOverlay, ConfigOverlay, DataConfigOverlay, ExtensionConfigOverlay,

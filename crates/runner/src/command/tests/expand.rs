@@ -744,4 +744,40 @@ mod depth_limit_tests {
              canonical_id + resolve double-lookup came back (TASK-0766)."
         );
     }
+
+    /// `[extend.verify]` appends to the stack default `verify` at config
+    /// load; pin the full chain — loader materializes the extended composite
+    /// into `config.commands`, runner expansion includes the appended leaf —
+    /// so the section cannot silently stop affecting the actual plan.
+    #[test]
+    #[serial_test::serial]
+    fn expand_includes_commands_appended_by_extend_section() {
+        let dir = tempfile::tempdir().unwrap();
+        // Canonicalized like ops-core's (test-only) `canonical_root` helper:
+        // avoids the symlink-refusal path on hosts where the temp dir sits
+        // behind a symlink.
+        let root = dir
+            .path()
+            .canonicalize()
+            .unwrap_or_else(|_| dir.path().to_path_buf());
+        let _xdg = ops_core::test_utils::isolate_global_config(&root);
+        std::fs::write(root.join("Cargo.toml"), "[package]\nname = \"x\"\n").unwrap();
+        std::fs::write(
+            root.join(".ops.toml"),
+            "[commands.extra]\nprogram = \"echo\"\nargs = [\"hi\"]\n\n[extend.verify]\ncommands = [\"extra\"]\n",
+        )
+        .unwrap();
+
+        let config = ops_core::config::load_config_at(&root).expect("extend config must load");
+        let runner = crate::command::CommandRunner::new(config, root);
+
+        let plan = runner
+            .expand_to_leaves("verify")
+            .expect("extended verify must expand");
+        assert_eq!(
+            plan.last().map(ops_core::config::CommandId::as_str),
+            Some("extra"),
+            "the [extend]-appended command must be the last leaf of the plan"
+        );
+    }
 }
