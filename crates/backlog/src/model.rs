@@ -457,11 +457,29 @@ fn parse_value(lines: &[&str], i: usize, rest: &str) -> anyhow::Result<(FmValue,
         let mut items = Vec::new();
         let mut j = i.saturating_add(1);
         while let Some(candidate) = lines.get(j) {
-            if let Some(item) = block_list_item(candidate) {
+            let Some(item) = block_list_item(candidate) else {
+                break;
+            };
+            // `  - >-` — prettier's wrap of one long item — folds the
+            // following deeper-indented lines into a single space-joined item
+            // (same semantics as the top-level folded scalar above).
+            if item == ">-" || item == ">" {
+                let mut parts = Vec::new();
+                let mut k = j.saturating_add(1);
+                while let Some(continuation) = lines.get(k) {
+                    match continuation.strip_prefix("    ") {
+                        Some(dedented) if !dedented.trim().is_empty() => {
+                            parts.push(dedented.trim_end().to_string());
+                            k = k.saturating_add(1);
+                        }
+                        _ => break,
+                    }
+                }
+                items.push(parts.join(" "));
+                j = k;
+            } else {
                 items.push(item.to_string());
                 j = j.saturating_add(1);
-            } else {
-                break;
             }
         }
         return Ok((FmValue::List(items), j.saturating_sub(i)));
@@ -1006,6 +1024,22 @@ priority: low
         let once = doc.render();
         let twice = TaskDoc::parse(&once).expect("re-parse").render();
         assert_eq!(once, twice, "render must be a fixed point");
+    }
+
+    #[test]
+    fn folded_block_list_item_joins_continuation_lines() {
+        // Prettier wraps one long list item as `  - >-` plus deeper-indented
+        // continuation lines; the fold must rejoin into a single item, and a
+        // following plain item must still be read as its own entry.
+        let src = "---\nid: TASK-0180\ntitle: folded item\ntype: plan\nstatus: Done\nassignee: []\ncreated_date: '2026-08-19 09:00'\nlabels: []\ndependencies: []\nmodified_files:\n  - >-\n    crates/proxy/src/encrypt/mod.rs crates/proxy/src/encrypt/array.rs\n    crates/proxy/src/encrypt/catalog.rs\n  - Cargo.toml\n---\n";
+        let doc = TaskDoc::parse(src).expect("must parse");
+        assert_eq!(
+            doc.frontmatter.modified_files,
+            vec![
+                "crates/proxy/src/encrypt/mod.rs crates/proxy/src/encrypt/array.rs crates/proxy/src/encrypt/catalog.rs".to_string(),
+                "Cargo.toml".to_string(),
+            ]
+        );
     }
 
     #[test]
