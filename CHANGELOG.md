@@ -2,6 +2,12 @@
 All notable changes to this project will be documented in this file. See [conventional commits](https://www.conventionalcommits.org/) for commit guidelines.
 
 - - -
+## [v0.57.1](https://github.com/rsvalerio/ops/compare/f1056c690ac518c5d502b56547cd70a4d13b4d67..v0.57.1) - 2026-09-13
+#### 🐛 Bug Fixes
+- (**backlog**) parse folded (>-) block list items in frontmatter - ([f1056c6](https://github.com/rsvalerio/ops/commit/f1056c690ac518c5d502b56547cd70a4d13b4d67)) - [@rsvalerio](https://github.com/rsvalerio)
+
+- - -
+
 ## [v0.57.0](https://github.com/rsvalerio/ops/compare/44166c490535eaeeaab2154a37f217e03d6e5b59..v0.57.0) - 2026-09-13
 #### 🚀 Features
 - (**config**) add [extend.<name>] sections appending commands to existing composites - ([44166c4](https://github.com/rsvalerio/ops/commit/44166c490535eaeeaab2154a37f217e03d6e5b59)) - [@rsvalerio](https://github.com/rsvalerio), Claude Code
