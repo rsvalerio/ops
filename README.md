@@ -66,6 +66,26 @@ fail_fast = true
 
 Config is merged in order (later overrides earlier): built-in defaults → global config (`~/.config/ops/config.toml`) → local `.ops.toml` → `.ops.d/*.toml` fragments (sorted by filename) → `OPS__*` environment variables. When run inside a project with a detected stack (e.g. Rust), `ops init` pre-fills stack-specific commands.
 
+### Extending existing commands
+
+To add steps to a command that already exists — typically a stack default like the Rust `verify` — without copying (and going stale on) its whole `commands` list, use an `[extend.<name>]` section:
+
+```toml
+[commands.coverage]
+program = "cargo"
+args = ["llvm-cov"]
+
+[extend.verify]
+commands = ["coverage"]   # runs after the default verify steps
+```
+
+The extra commands are appended at load time. Rules:
+
+- Only composites (`commands = [...]`) can be extended; extending an exec command or an undefined name is a load error.
+- A locally redefined command wins: `[extend.verify]` appends to *your* `[commands.verify]` if you defined one, otherwise to the stack default.
+- Extends concatenate across config layers, so `.ops.d/*.toml` fragments stack on top of `.ops.toml` appends.
+- Ordering matters in parallel groups (see below): appended commands run last, and each keeps the `exclusive` flag of its own definition.
+
 ### Command groups and scheduling
 
 A command with a `commands = [...]` list is a *group* (composite). Groups may
