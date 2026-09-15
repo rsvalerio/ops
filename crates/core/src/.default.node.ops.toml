@@ -31,12 +31,11 @@ category = "Code Quality"
 # help = "Format all code"
 # category = "Code Quality"
 
-# Baseline suggestion — uncomment and adjust to opt in (destructive).
-# [commands.clean]
-# program = "rm"
-# args = ["-rf", "node_modules", "dist"]
-# help = "Remove build artifacts and deps"
-# category = "Build"
+[commands.clean]
+program = "rm"
+args = ["-rf", "node_modules", "dist"]
+help = "Remove build artifacts and deps"
+category = "Build"
 
 [commands.verify]
 commands = ["install", "lint", "build", "trailing-whitespace", "end-of-file-fixer", "check-json", "check-yaml"]
