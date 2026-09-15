@@ -33,12 +33,11 @@ category = "Code Quality"
 # help = "Run molecule test suite"
 # category = "Code Quality"
 
-# Baseline suggestion — uncomment and adjust to opt in (destructive).
-# [commands.clean]
-# program = "rm"
-# args = ["-rf", ".ansible", "*.retry"]
-# help = "Remove ansible caches"
-# category = "Build"
+[commands.clean]
+program = "rm"
+args = ["-rf", ".ansible", "*.retry"]
+help = "Remove ansible caches"
+category = "Build"
 
 [commands.verify]
 commands = ["lint", "check", "trailing-whitespace", "end-of-file-fixer", "check-json", "check-yaml"]
