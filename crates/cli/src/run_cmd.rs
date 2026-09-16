@@ -21,7 +21,7 @@ use crate::registry::{as_ext_refs, builtin_extensions, register_extension_comman
 use crate::{ExitCodeOverride, SIGINT_EXIT};
 
 use dry_run::run_command_dry_run;
-use plan::{build_display_map, log_step_results, merge_plan};
+use plan::{build_display_map, log_step_results, plans_for_names, NamePlan};
 
 /// Options for a top-level `run` invocation, threaded through the
 /// `run_command` / `run_commands` helpers. Collapses five positional args
@@ -83,8 +83,8 @@ fn build_runner(
 ) -> anyhow::Result<ops_runner::command::CommandRunner> {
     // build_runner used to accept a `verbose: bool` that it never read
     // (verbose is owned by ProgressDisplay downstream). The slot was a
-    // swap-bug footgun adjacent to other bools that RunOptions/PlanShape
-    // were introduced to eliminate.
+    // swap-bug footgun adjacent to other bools that RunOptions was
+    // introduced to eliminate.
     let cwd = crate::cwd()?;
     let mut runner = ops_runner::command::CommandRunner::from_arc_config(config, cwd);
     runner.set_cwd_escape_policy(cwd_escape_policy);
@@ -164,46 +164,85 @@ fn run_commands(
         return Ok(ExitCode::SUCCESS);
     }
 
-    let (all_leaf_ids, any_parallel, fail_fast) = merge_plan(&runner, names)?;
-    let plan = PlanShape {
-        leaf_ids: &all_leaf_ids,
-        any_parallel,
-        fail_fast,
-    };
+    let plans = plans_for_names(&runner, names)?;
 
     let results = if raw {
-        run_commands_raw(&runner, plan, tap.as_deref(), verbose)?
+        run_commands_raw(&runner, &plans, tap.as_deref(), verbose)?
     } else {
-        run_commands_with_display(&runner, plan, tap.as_deref(), verbose)?
+        run_commands_with_display(&runner, &plans, tap.as_deref(), verbose)?
     };
     Ok(summarize(&results))
 }
 
-/// Shape of a planned execution. Grouping the three
-/// related fields removes the adjacent `bool, bool` swap footgun from
-/// every plan-running entry point and keeps `run_commands_raw` and
-/// `run_commands_with_display` in lock-step on what a "plan" is.
-#[derive(Clone, Copy)]
-struct PlanShape<'a> {
-    leaf_ids: &'a [ops_core::config::CommandId],
-    any_parallel: bool,
-    fail_fast: bool,
+/// Run each named command as its own plan, one after another (TASK-2262).
+///
+/// Scheduling flags are per-name and never merged: a parallel `verify`
+/// followed by a sequential `qax` runs verify's stages concurrently, then
+/// the `qax` steps one at a time. `raw` selects the runner's raw
+/// orchestration (inherited child stdio, no events) over the captured /
+/// display path; inside the display path each plan still picks `parallel`
+/// vs sequential from its own flags.
+///
+/// Sequence-level fail-fast mirrors the step-level flag: a plan whose steps
+/// failed and which declared `fail_fast = true` stops the names after it,
+/// while a `fail_fast = false` name keeps the sequence going — exactly as
+/// the flag keeps later steps going inside a single plan.
+// Same `!Send` reasoning as `run_plan_parallel`: the `on_event` sink is
+// backed by non-`Send` `indicatif` state (docs/clippy.md layer 3).
+#[allow(clippy::future_not_send)]
+async fn run_name_plans(
+    runner: &ops_runner::command::CommandRunner,
+    plans: &[NamePlan],
+    raw: bool,
+    on_event: &mut impl FnMut(ops_runner::command::RunnerEvent),
+) -> Vec<StepResult> {
+    let mut all = Vec::new();
+    for plan in plans {
+        tracing::debug!(
+            name = %plan.name,
+            steps = plan.leaf_ids.len(),
+            parallel = plan.any_parallel,
+            fail_fast = plan.fail_fast,
+            "running named command plan"
+        );
+        let results = if raw {
+            runner.run_plan_raw(&plan.leaf_ids, plan.fail_fast).await
+        } else if plan.any_parallel {
+            runner
+                .run_plan_parallel(&plan.leaf_ids, plan.fail_fast, on_event)
+                .await
+        } else {
+            runner
+                .run_plan(&plan.leaf_ids, plan.fail_fast, on_event)
+                .await
+        };
+        let failed = results.iter().any(|r| !r.success);
+        all.extend(results);
+        if failed && plan.fail_fast {
+            tracing::debug!(
+                name = %plan.name,
+                "named command failed under fail_fast; skipping the commands named after it"
+            );
+            break;
+        }
+    }
+    all
 }
 
 fn run_commands_raw(
     runner: &ops_runner::command::CommandRunner,
-    plan: PlanShape<'_>,
+    plans: &[NamePlan],
     tap: Option<&Path>,
     verbose: bool,
 ) -> anyhow::Result<Vec<StepResult>> {
-    emit_raw_warnings(plan.any_parallel, tap.is_some(), verbose);
+    emit_raw_warnings(plans.iter().any(|p| p.any_parallel), tap.is_some(), verbose);
     // CONC-14 / TASK-1932: raw mode has no EchoGuard to restore, but a
     // SIGTERM still has to cancel the plan rather than leave its children
     // behind. Ctrl-C additionally reaches raw children through the tty
     // (they deliberately stay in the runner's process group); `SIGTERM`
     // does not, and this is what covers it.
     let outcome = run_with_runtime(async {
-        Ok(run_until_signal(runner.run_plan_raw(plan.leaf_ids, plan.fail_fast)).await)
+        Ok(run_until_signal(run_name_plans(runner, plans, true, &mut |_| {})).await)
     })?;
     match outcome {
         PlanOutcome::Completed(results) => {
@@ -453,11 +492,18 @@ fn interrupted_error(signo: i32) -> anyhow::Error {
 
 fn run_commands_with_display(
     runner: &ops_runner::command::CommandRunner,
-    plan: PlanShape<'_>,
+    plans: &[NamePlan],
     tap: Option<&Path>,
     verbose: bool,
 ) -> anyhow::Result<Vec<StepResult>> {
-    let display_map = build_display_map(runner, plan.leaf_ids);
+    // One display covering every named command's steps (TASK-2262 AC #4):
+    // the map is built over all leaves across all plans, so the progress
+    // display and the final summary see a single run, not one per name.
+    let all_leaf_ids: Vec<ops_core::config::CommandId> = plans
+        .iter()
+        .flat_map(|p| p.leaf_ids.iter().cloned())
+        .collect();
+    let display_map = build_display_map(runner, &all_leaf_ids);
     let mut display = ProgressDisplay::new(DisplayOptions::new(
         runner.output_config(),
         display_map,
@@ -471,7 +517,7 @@ fn run_commands_with_display(
     // a 1-leaf plan with `parallel = true` shortcuts to `run_plan` in
     // `run_plan_parallel` (parallel.rs), so picking MultiThread here would
     // pay worker-thread spin-up for nothing. Mirror that threshold.
-    let kind = if plan.any_parallel && plan.leaf_ids.len() > 1 {
+    let kind = if plans.iter().any(|p| p.any_parallel && p.leaf_ids.len() > 1) {
         RuntimeKind::MultiThread
     } else {
         RuntimeKind::Sequential
@@ -480,22 +526,12 @@ fn run_commands_with_display(
     // SIGTERM/SIGINT drops it and the runner's own cancellation path
     // (process-group teardown, CONC-9 / TASK-1919) runs.
     let outcome = run_with_runtime_kind(kind, async {
-        Ok(run_until_signal(async {
-            if plan.any_parallel {
-                runner
-                    .run_plan_parallel(plan.leaf_ids, plan.fail_fast, &mut |event| {
-                        display.handle_event(event);
-                    })
-                    .await
-            } else {
-                runner
-                    .run_plan(plan.leaf_ids, plan.fail_fast, &mut |event| {
-                        display.handle_event(event);
-                    })
-                    .await
-            }
-        })
-        .await)
+        Ok(
+            run_until_signal(run_name_plans(runner, plans, false, &mut |event| {
+                display.handle_event(event);
+            }))
+            .await,
+        )
     })?;
     // Restore the terminal on *both* paths — on the signal path this is the
     // destructor that would otherwise never have run.
@@ -573,7 +609,8 @@ pub fn composite_tree_has_parallel(
 /// Walk the composite tree rooted at `name` and report whether any node has
 /// `parallel = true` or `fail_fast = false`.
 ///
-/// `merge_plan` previously inspected only the top-level composite for these
+/// The plan builder (`plan::plans_for_names`) previously inspected only the
+/// top-level composite for these
 /// flags, dropping nested parallelism / fail-fast aggregation silently. The
 /// raw single-command path already walked the tree for its `parallel`
 /// warning; callers that need the same semantics for `fail_fast` use the
