@@ -2,6 +2,17 @@
 All notable changes to this project will be documented in this file. See [conventional commits](https://www.conventionalcommits.org/) for commit guidelines.
 
 - - -
+## [v0.58.0](https://github.com/rsvalerio/ops/compare/14656a611d8c782bb36041b0672ed61155659cc1..v0.58.0) - 2026-09-16
+#### 🚀 Features
+- (**stack**) activate clean command defaults for node, vite, terraform and ansible - ([14656a6](https://github.com/rsvalerio/ops/commit/14656a611d8c782bb36041b0672ed61155659cc1)) - [@rsvalerio](https://github.com/rsvalerio), Claude Code
+#### 🐛 Bug Fixes
+- (**stack**) expand ansible clean retry glob via shell - ([54b34e4](https://github.com/rsvalerio/ops/commit/54b34e48cc46b5b544b5a864b20024e3f5c9c6d1)) - [@rsvalerio](https://github.com/rsvalerio), Claude Code
+#### 📚 Documentation
+- reflect ansible clean shell command in README contract table - ([0c27fcf](https://github.com/rsvalerio/ops/commit/0c27fcf83401898929f3f51163085bbc473ac453)) - [@rsvalerio](https://github.com/rsvalerio), Claude Code
+- mark clean active in stack command tables - ([7f348c9](https://github.com/rsvalerio/ops/commit/7f348c997a665ed97488d823666076fe18775f30)) - [@rsvalerio](https://github.com/rsvalerio), Claude Code
+
+- - -
+
 ## [v0.57.1](https://github.com/rsvalerio/ops/compare/f1056c690ac518c5d502b56547cd70a4d13b4d67..v0.57.1) - 2026-09-13
 #### 🐛 Bug Fixes
 - (**backlog**) parse folded (>-) block list items in frontmatter - ([f1056c6](https://github.com/rsvalerio/ops/commit/f1056c690ac518c5d502b56547cd70a4d13b4d67)) - [@rsvalerio](https://github.com/rsvalerio)
