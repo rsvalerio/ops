@@ -23,7 +23,7 @@
 
 use ops_about::cards::format_unit_name;
 use ops_about_rust::{
-    member_path_is_workspace_safe, read_crate_metadata, resolved_workspace_members,
+    member_path_is_workspace_safe_or_warn, read_crate_metadata, resolved_workspace_members,
 };
 use ops_cargo_toml::{find_workspace_root_strict, CargoToml, CargoTomlProvider};
 use ops_extension::{Context, DataProvider, DataProviderError};
@@ -116,14 +116,11 @@ fn neither_reviewable_shape(manifest: &CargoToml, root: &std::path::Path) -> Dat
 /// is the defence-in-depth layer that keeps that true if this provider is
 /// ever fed a member list from elsewhere.
 fn member_target_name(member: &str, root: &std::path::Path) -> String {
-    // `member` is untrusted `Cargo.toml` content, so every tracing field
-    // carrying it uses the `?` (Debug) formatter — embedded newlines and
-    // ANSI escapes are escaped and cannot forge log records.
-    if !member_path_is_workspace_safe(member) {
-        tracing::warn!(
-            member = ?member,
-            "workspace member is absolute or contains `..`; not reading its manifest"
-        );
+    // DUP-1 / TASK-2251: the reject-and-warn routes through the shared
+    // `member_path_is_workspace_safe_or_warn` helper, which Debug-formats the
+    // untrusted `member` (ERR-7: embedded newlines and ANSI escapes cannot
+    // forge log records) and tags this surface via the `site` field.
+    if !member_path_is_workspace_safe_or_warn(member, "create-review-tasks provider") {
         return format_unit_name(member);
     }
     let member_toml = root.join(member).join("Cargo.toml");
