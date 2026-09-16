@@ -20,6 +20,12 @@
 //! The scaffold now lives here once; caches keep only their key type,
 //! value type and cap.
 //!
+//! DUP-1 / TASK-2257: the fourth instance — the raw-text `ArcTextCache` in
+//! [`crate::manifest_cache`] — migrated too, via
+//! [`BoundedLruCache::insert_filtered`]: its CONC-1 / TASK-1144
+//! in-flight-entry pinning is expressed as an eviction-candidate filter on
+//! the shared type rather than a per-cache eviction loop.
+//!
 //! Caches still own their own value type (a typed `LoadedManifest` pairs with
 //! freshness metadata; raw text pairs with a per-key `OnceLock`) and their
 //! own cap; only the *policy shape* is shared.
@@ -29,7 +35,6 @@ use std::cmp::Reverse;
 use std::collections::{BinaryHeap, HashMap};
 use std::hash::Hash;
 use std::sync::atomic::{AtomicU64, Ordering};
-use std::sync::{Mutex, MutexGuard};
 
 /// Strictly-increasing per-process access tick. Stamped on every cache hit
 /// or insert. The smallest tick recorded against a live entry is the
@@ -220,6 +225,12 @@ where
         self.map.keys()
     }
 
+    /// Live values, in map order (diagnostics and debug assertions; eviction
+    /// order is the victim queue's business).
+    pub fn values(&self) -> impl Iterator<Item = &V> {
+        self.map.values().map(|entry| &entry.value)
+    }
+
     /// Whether `key` has a live entry. Does not stamp an access.
     #[must_use = "branch on the verdict; the probe stamps no access, so discarding it is a no-op"]
     pub fn contains_key<QL>(&self, key: &QL) -> bool
@@ -293,27 +304,22 @@ where
         K: Borrow<QL>,
         QL: Hash + Eq + ?Sized,
     {
-        let Self {
-            map, victim_queue, ..
-        } = self;
-        let entry = map.get_mut(key)?;
-        if !accept(&entry.value) {
-            return None;
-        }
-        let tick = next_lru_tick();
-        entry.last_accessed = tick;
-        let queue_key = Q::clone(&entry.queue_key);
-        // The mutable borrow of the entry ends here; compaction and the
-        // returned shared reference borrow the map immutably.
-        victim_queue.push(tick, queue_key);
-        let threshold = map
-            .len()
-            .saturating_mul(2)
-            .saturating_add(VICTIM_QUEUE_SLACK);
-        if victim_queue.len() > threshold {
-            victim_queue.retain_fresh(|key, tick| Self::stamp_is_fresh(map, key, tick));
-        }
-        map.get(key).map(|entry| &entry.value)
+        // DUP-1 / TASK-2260: decide and restamp inside a block so the
+        // mutable map borrow ends before the stamp-and-compact step —
+        // which is `push_stamp`'s to run, not an inline copy of it.
+        let (queue_key, tick) = {
+            let entry = self.map.get_mut(key)?;
+            if !accept(&entry.value) {
+                return None;
+            }
+            let tick = next_lru_tick();
+            entry.last_accessed = tick;
+            (Q::clone(&entry.queue_key), tick)
+        };
+        // The stamp must land after the map reflects the access;
+        // `push_stamp`'s compaction validates stamps against it.
+        self.push_stamp(queue_key, tick);
+        self.map.get(key).map(|entry| &entry.value)
     }
 
     /// Look `key` up and stamp it most-recently-used; [`Self::touch_if`]
@@ -326,15 +332,46 @@ where
         self.touch_if(key, |_| true)
     }
 
-    /// Drop the least-recently-used entry (smallest live tick), if any.
-    fn evict_lru(&mut self) {
-        let map = &mut self.map;
-        if let Some(victim) = self
-            .victim_queue
-            .pop_lru(|key, tick| Self::stamp_is_fresh(map, key, tick))
-        {
+    /// Drop the least-recently-used *evictable* entry (smallest live tick)
+    /// and return its queue key, if any.
+    ///
+    /// `can_evict` decides eviction candidacy. An entry it rejects is
+    /// **pinned** (CONC-1 / TASK-1144, lifted here by DUP-1 / TASK-2257):
+    /// skipped as a victim and pushed back onto the queue with its original
+    /// tick, so it stays evictable the moment the pin lifts. Returning
+    /// `None` (every candidate pinned) deliberately leaves the cache above
+    /// its cap — the transient overshoot is bounded by the number of pinned
+    /// entries, and the caller's policy (e.g. never duplicating an in-flight
+    /// read) is worth more than the cap.
+    pub fn evict_lru_where(&mut self, can_evict: impl Fn(&V) -> bool) -> Option<Q> {
+        let Self {
+            map, victim_queue, ..
+        } = self;
+        let mut pinned: Vec<(u64, Q)> = Vec::new();
+        let victim = loop {
+            let Some(candidate) =
+                victim_queue.pop_lru(|key, tick| Self::stamp_is_fresh(map, key, tick))
+            else {
+                break None;
+            };
+            // A fresh stamp's tick *is* the entry's `last_accessed`, so the
+            // pinned re-push keeps the entry exactly as evictable as before.
+            let pinned_tick = map
+                .get(candidate.borrow())
+                .filter(|entry| !can_evict(&entry.value))
+                .map(|entry| entry.last_accessed);
+            match pinned_tick {
+                Some(original_tick) => pinned.push((original_tick, candidate)),
+                None => break Some(candidate),
+            }
+        };
+        if let Some(victim) = victim.as_ref() {
             map.remove(victim.borrow());
         }
+        for (tick, key) in pinned {
+            victim_queue.push(tick, key);
+        }
+        victim
     }
 
     /// Insert or replace `key`'s entry, first evicting the LRU entry when a
@@ -343,11 +380,26 @@ where
     ///
     /// Replacing an existing key never evicts and resets the entry's tick.
     pub fn insert(&mut self, key: K, value: V) {
+        self.insert_filtered(key, value, |_| true);
+    }
+
+    /// [`Self::insert`] with an eviction-candidate filter: when a *new* key
+    /// would exceed the cap, only entries whose value `can_evict` accepts
+    /// are eviction candidates (DUP-1 / TASK-2257). Returns the evicted
+    /// victim's queue key, if any, so the caller can log the eviction.
+    pub fn insert_filtered(
+        &mut self,
+        key: K,
+        value: V,
+        can_evict: impl Fn(&V) -> bool,
+    ) -> Option<Q> {
         // PERF-1 / TASK-1240: O(log n) eviction via the lazy-invalidation
         // min-heap, replacing the previous O(n) `min_by_key` scan.
-        if !self.map.contains_key(&key) && self.map.len() >= self.cap {
-            self.evict_lru();
-        }
+        let victim = if !self.map.contains_key(&key) && self.map.len() >= self.cap {
+            self.evict_lru_where(can_evict)
+        } else {
+            None
+        };
         let queue_key = Q::from(key.clone());
         let tick = next_lru_tick();
         self.map.insert(
@@ -361,6 +413,7 @@ where
         // Stamp after the map update — `push_stamp`'s compaction validates
         // stamps against the live entry.
         self.push_stamp(queue_key, tick);
+        victim
     }
 
     /// Drop `key`'s entry (ctx.refresh semantics). The victim queue keeps
@@ -387,31 +440,10 @@ where
     }
 }
 
-/// Acquire `lock`, recovering from poisoning instead of propagating it.
-///
-/// DUP-1 / TASK-2150: the poison-recovering `lock()` helpers were one copy
-/// per cache module; the scaffold (and its `on_poison` hook) lives here now.
-///
-/// A poisoned mutex means some thread panicked while holding it. For the
-/// plain-data caches this module serves, the guarded value cannot be torn by
-/// the panic, so `PoisonError::into_inner` recovery is safe and propagating
-/// the poison would turn one unrelated panic into a crash. `on_poison` runs
-/// once per *observed* poisoning, before the guard is handed out — pass a
-/// warn (with a monotonic counter, as the typed-manifest cache does) when a
-/// poisoned lock guards correctness-relevant state, or a no-op when the
-/// worst outcome is a recomputation. The sticky poison flag is cleared
-/// afterwards, so later callers see a healthy mutex; a fresh panic
-/// re-poisons and re-runs `on_poison`.
-pub fn lock_recovering<T: ?Sized>(lock: &Mutex<T>, on_poison: impl FnOnce()) -> MutexGuard<'_, T> {
-    match lock.lock() {
-        Ok(guard) => guard,
-        Err(poison) => {
-            on_poison();
-            lock.clear_poison();
-            poison.into_inner()
-        }
-    }
-}
+// DUP-1 / TASK-2258: the poison-recovering lock helper that used to live
+// here (`lock_recovering`) was deleted — `ops_core::sync` owns the policy
+// (`lock_recover`, `lock_recover_warn`, `lock_recover_with`) and this crate
+// depends on it directly.
 
 #[cfg(test)]
 mod tests {
@@ -500,7 +532,7 @@ mod tests {
     /// `extensions-rust/about` caches used to carry, against the shared
     /// type directly.
     mod bounded_cache {
-        use super::super::{lock_recovering, BoundedLruCache, VICTIM_QUEUE_SLACK};
+        use super::super::{BoundedLruCache, VICTIM_QUEUE_SLACK};
 
         #[test]
         fn cap_evicts_the_least_recently_used_key() {
@@ -585,26 +617,9 @@ mod tests {
             );
         }
 
-        #[test]
-        fn lock_recovering_recovers_and_runs_the_hook_once_per_poisoning() {
-            let poisoned = std::sync::Mutex::new(0u8);
-            let _ = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-                let _g = poisoned.lock().unwrap();
-                panic!("intentional poison");
-            }));
-            assert!(poisoned.lock().is_err(), "premise: mutex is poisoned");
-
-            let mut hook_ran = false;
-            let guard = lock_recovering(&poisoned, || hook_ran = true);
-            assert!(hook_ran, "the hook must run on the observed poisoning");
-            assert_eq!(*guard, 0, "recovery hands out the guarded value");
-
-            // The sticky flag was cleared: a later acquisition is a plain
-            // healthy lock and must not re-run the hook.
-            drop(guard);
-            let mut ran_again = false;
-            let _guard = lock_recovering(&poisoned, || ran_again = true);
-            assert!(!ran_again, "a healthy lock must not re-run the hook");
-        }
+        // DUP-1 / TASK-2258: `lock_recovering`'s hook-once-per-poisoning
+        // test moved to `ops_core::sync` as
+        // `lock_recover_with_runs_the_hook_once_per_poisoning` when the
+        // helper itself was deleted from this module.
     }
 }

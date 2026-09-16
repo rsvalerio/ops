@@ -31,6 +31,13 @@
 //! the eviction *policy shape* lives in one source location so a future
 //! tweak cannot drift between them.
 //!
+//! DUP-1 / TASK-2257: the entry map itself is now
+//! [`crate::lru::BoundedLruCache`] — this module used to hand-roll the same
+//! record/evict scaffold on the raw [`crate::lru`] primitives the shared
+//! type had already lifted. The one policy the shared type did not model,
+//! in-flight-entry pinning (CONC-1 / TASK-1144), rides the shared type's
+//! eviction-candidate filter instead of a local eviction loop.
+//!
 //! # Freshness policy
 //!
 //! PERF-16 / TASK-1723: the cache has **no TTL and no automatic
@@ -50,12 +57,11 @@
 //! on the hot path of every cache hit for a staleness window only daemon
 //! hosts can observe, and only they know when their own edits land.
 
-use crate::lru::{next_lru_tick, LruVictimQueue};
-use std::collections::HashMap;
+use crate::lru::BoundedLruCache;
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex, OnceLock};
 
-/// Cache entry pairing a per-key `OnceLock` with an LRU access tick.
+/// Per-key cache value: a shared slot whose `OnceLock` holds the read text.
 ///
 /// CONC-1 / TASK-1144: the per-key `OnceLock` lets distinct paths run their
 /// `read_optional_text` IO in parallel — only same-path readers serialise on
@@ -68,123 +74,39 @@ use std::sync::{Arc, Mutex, OnceLock};
 /// A `None` payload inside the `OnceLock` marks a previously-attempted read
 /// of a missing/unreadable manifest so the negative result is also
 /// amortised across calls.
-#[derive(Clone)]
-pub struct CacheEntry {
-    text: Arc<OnceLock<Option<Arc<str>>>>,
-    last_accessed: u64,
-}
+type CacheSlot = Arc<OnceLock<Option<Arc<str>>>>;
 
-/// Entry map plus the LRU victim queue that bounds it.
+/// Entry map plus the LRU victim queue that bounds it — the shared
+/// [`BoundedLruCache`] scaffold (DUP-1 / TASK-2257).
 ///
-/// PERF-1 / TASK-1240: pair the canonical entry map with a min-heap of
-/// `(last_accessed, path)` so cap-bound eviction picks the least-recently-
-/// used entry in `O(log n)` (heap pop with lazy invalidation) instead of an
-/// `O(n)` `min_by_key` scan over the whole map.
-///
+/// PERF-1 / TASK-1240: the victim queue is a min-heap of
+/// `(last_accessed, path)` pairs, so cap-bound eviction picks the
+/// least-recently-used entry in `O(log n)` (heap pop with lazy
+/// invalidation) instead of an `O(n)` `min_by_key` scan over the whole map.
 /// The heap may contain stale `(tick, path)` pairs (a hit pushes a fresh
-/// entry but leaves the older one in place); the eviction loop discards
-/// those by comparing the popped tick against `map[path].last_accessed`
-/// before removing.
-pub struct CacheMap {
-    map: HashMap<PathBuf, CacheEntry>,
-    victim_queue: LruVictimQueue<PathBuf>,
-}
-
-impl CacheMap {
-    fn new() -> Self {
-        Self {
-            map: HashMap::new(),
-            victim_queue: LruVictimQueue::new(),
-        }
-    }
-
-    fn len(&self) -> usize {
-        self.map.len()
-    }
-
-    /// Stamp an access against `path` and keep the victim queue bounded.
-    ///
-    /// PERF-16 / TASK-1723: every `read` — hit *and* insert — stamps a fresh
-    /// `(tick, path)` pair, but the only drain ([`Self::evict_lru`]) runs
-    /// solely once the map is at [`CACHE_MAX_ENTRIES`]. Below the cap, which
-    /// is the overwhelmingly common case, the queue was never drained at all
-    /// and grew by one `(u64, PathBuf)` per read forever. A long-running
-    /// embedder — the LSP-style hosts and watchers this module's docs name —
-    /// re-reading three manifests in a loop kept a three-entry map behind a
-    /// queue that grew linearly with its uptime.
-    ///
-    /// Compacting once the queue passes `2 * map.len() + VICTIM_QUEUE_SLACK`
-    /// bounds it at that multiple of the live entry count while staying
-    /// amortised `O(1)` per access: compaction leaves exactly one stamp per
-    /// live entry, so at least `map.len() + VICTIM_QUEUE_SLACK` further
-    /// pushes must land before it can trigger again, and each compaction is
-    /// `O(queue len)`.
-    ///
-    /// Call this *after* the map has been updated — the freshness check reads
-    /// `map[path].last_accessed`, so a pre-update call would compact away the
-    /// stamp it just pushed.
-    fn record_access(&mut self, path: PathBuf, tick: u64) {
-        let Self { map, victim_queue } = self;
-        victim_queue.push(tick, path);
-        let threshold = map
-            .len()
-            .saturating_mul(2)
-            .saturating_add(VICTIM_QUEUE_SLACK);
-        if victim_queue.len() > threshold {
-            victim_queue
-                .retain_fresh(|path, tick| map.get(path).is_some_and(|e| e.last_accessed == tick));
-        }
-    }
-
-    /// Pop the LRU victim. Stale heap heads (whose tick no longer matches
-    /// the live `map[path].last_accessed`) are skipped by the shared
-    /// [`LruVictimQueue`].
-    /// CONC-1 / TASK-1144 follow-up: an entry whose `OnceLock` has not been
-    /// initialised yet is *in flight* — another thread inserted it, released
-    /// the outer mutex, and is currently reading the file. Evicting it there
-    /// breaks the per-process Arc dedup contract: the next reader for the same
-    /// root finds no entry, inserts a second slot, and re-reads the file, so
-    /// the two callers get `Arc`s that are equal but not `ptr_eq`.
-    ///
-    /// In-flight entries are therefore pinned — skipped as victims and pushed
-    /// back onto the queue with their original tick, so they stay evictable as
-    /// soon as initialisation completes. Returning `None` (every candidate
-    /// pinned) lets the cache sit transiently above the cap rather than
-    /// duplicating a read; the overshoot is bounded by the number of
-    /// concurrent first-time readers.
-    fn evict_lru(&mut self) -> Option<PathBuf> {
-        let Self { map, victim_queue } = self;
-        let mut pinned: Vec<(u64, PathBuf)> = Vec::new();
-        let victim = loop {
-            let Some(candidate) = victim_queue
-                .pop_lru(|path, tick| map.get(path).is_some_and(|e| e.last_accessed == tick))
-            else {
-                break None;
-            };
-            match map.get(&candidate) {
-                Some(entry) if entry.text.get().is_none() => {
-                    pinned.push((entry.last_accessed, candidate));
-                }
-                _ => break Some(candidate),
-            }
-        };
-        if let Some(path) = victim.as_ref() {
-            map.remove(path);
-        }
-        for (tick, path) in pinned {
-            victim_queue.push(tick, path);
-        }
-        victim
-    }
-}
-
-/// Slack added to the victim-queue compaction threshold.
+/// entry but leaves the older one in place); the shared eviction loop
+/// discards those by comparing the popped tick against the entry's
+/// `last_accessed` before removing.
 ///
-/// PERF-16 / TASK-1723: without it a cache holding a single root would
-/// compact on every other read. Sixteen stale stamps is a few hundred bytes
-/// and buys amortisation for the small-root-count shape the CLI actually
-/// runs.
-const VICTIM_QUEUE_SLACK: usize = 16;
+/// The value type is the per-key slot; eviction candidacy is
+/// [`is_evictable`] below.
+type CacheMap = BoundedLruCache<PathBuf, CacheSlot>;
+
+/// CONC-1 / TASK-1144: an entry whose `OnceLock` has not been initialised
+/// yet is *in flight* — another thread inserted it, released the outer
+/// mutex, and is currently reading the file. Evicting it there breaks the
+/// per-process Arc dedup contract: the next reader for the same root finds
+/// no entry, inserts a second slot, and re-reads the file, so the two
+/// callers get `Arc`s that are equal but not `ptr_eq`.
+///
+/// In-flight entries are therefore pinned — not eviction candidates until
+/// initialisation completes. The cache may sit transiently above its cap
+/// rather than duplicate a read; the overshoot is bounded by the number of
+/// concurrent first-time readers. DUP-1 / TASK-2257: the pin rides
+/// [`BoundedLruCache::insert_filtered`] as an eviction-candidate filter.
+fn is_evictable(slot: &CacheSlot) -> bool {
+    slot.get().is_some()
+}
 
 /// Hard cap on cached manifests.
 ///
@@ -223,7 +145,9 @@ impl ArcTextCache {
     /// `manifest_io::read_optional_text` which logs non-NotFound IO errors
     /// at warn).
     pub fn read(&self, root: &Path) -> Option<Arc<str>> {
-        let cache = self.cache.get_or_init(|| Mutex::new(CacheMap::new()));
+        let cache = self
+            .cache
+            .get_or_init(|| Mutex::new(BoundedLruCache::new(CACHE_MAX_ENTRIES)));
         let path = root.join(self.filename);
         // CONC-1 / TASK-1144: take the outer mutex only long enough to
         // get-or-insert a per-key OnceLock and bump the LRU tick. The
@@ -238,7 +162,7 @@ impl ArcTextCache {
         // leave a torn invariant; treating poison as fatal would let one
         // panic permanently brick the cache for every other provider in
         // the process.
-        let entry_slot: Arc<OnceLock<Option<Arc<str>>>> = {
+        let entry_slot: CacheSlot = {
             let mut guard = cache.lock().unwrap_or_else(|e| {
                 tracing::warn!(
                     filename = self.filename,
@@ -246,68 +170,51 @@ impl ArcTextCache {
                 );
                 e.into_inner()
             });
-            if let Some(entry) = guard.map.get_mut(&path) {
-                // ARCH-1 / TASK-1106: bump LRU tick on hit so frequently
-                // accessed manifests survive eviction in a daemon visiting
-                // many roots. Mirrors TASK-1023's typed-manifest-cache
-                // LRU policy.
-                //
-                // PERF-1 / TASK-1240: push the fresh tick onto the victim
-                // heap as well; the older `(prev_tick, path)` entry stays
-                // and is discarded as stale during eviction.
-                //
-                // PERF-16 / TASK-1723: go through `record_access`, which
-                // compacts the queue on a growth threshold. Pushing directly
-                // here leaked one stamp per hit for every process that never
-                // reached the cap.
-                let tick = next_lru_tick();
-                entry.last_accessed = tick;
-                let arc = Arc::clone(&entry.text);
-                guard.record_access(path.clone(), tick);
-                // CONC-1: release the outer mutex before leaving the
-                // get-or-insert block; the slot Arc carries everything the
-                // read path still needs.
-                drop(guard);
-                arc
+            // `map_or_else` cannot replace this if/else: the miss branch
+            // needs `&mut guard` (insert_filtered) while the scrutinee's
+            // `Option<&CacheSlot>` still borrows it, so the closure form
+            // does not borrow-check. The if/else is load-bearing.
+            #[allow(clippy::option_if_let_else)]
+            if let Some(slot) = guard.touch(&path) {
+                // ARCH-1 / TASK-1106: `touch` bumps the LRU tick on hit so
+                // frequently accessed manifests survive eviction in a daemon
+                // visiting many roots (mirroring TASK-1023's
+                // typed-manifest-cache policy). PERF-1 / TASK-1240: it also
+                // pushes the fresh tick onto the victim heap, the older
+                // `(prev_tick, path)` entry staying behind as stale; and
+                // PERF-16 / TASK-1723: it compacts the queue on the growth
+                // threshold, so stamping cannot leak one queue entry per hit
+                // while the map sits below the cap.
+                Arc::clone(slot)
             } else {
-                // ARCH-1 / TASK-1106: cap-eviction picks the entry with
-                // the smallest `last_accessed` tick (LRU) instead of
-                // clearing the whole map. The previous full-flush caused
-                // eviction storms for long-running hosts. Kept in
-                // lockstep with TASK-1023's `typed_manifest_cache` policy.
-                //
-                // PERF-1 / TASK-1240: O(log n) eviction via a min-heap of
-                // `(last_accessed, path)` with lazy invalidation. The
-                // previous shape walked the entire HashMap on every
-                // cap-bound miss — 1024 probes per evicting read on the
-                // long-running daemon path.
-                if guard.len() >= CACHE_MAX_ENTRIES {
-                    if let Some(victim) = guard.evict_lru() {
-                        tracing::debug!(
-                            filename = self.filename,
-                            cap = CACHE_MAX_ENTRIES,
-                            victim = ?victim.display(),
-                            "manifest cache reached cap; evicting LRU entry"
-                        );
-                    }
+                // ARCH-1 / TASK-1106 + PERF-1 / TASK-1240: the shared
+                // insert preamble cap-evicts by the smallest
+                // `last_accessed` tick (LRU, O(log n) via the min-heap
+                // with lazy invalidation) instead of clearing the whole
+                // map — the previous full-flush caused eviction storms
+                // for long-running hosts. CONC-1 / TASK-1144: entries
+                // whose read is still in flight are pinned by the
+                // `is_evictable` filter, never evicted.
+                let slot: CacheSlot = Arc::new(OnceLock::new());
+                if let Some(victim) =
+                    guard.insert_filtered(path.clone(), Arc::clone(&slot), is_evictable)
+                {
+                    tracing::debug!(
+                        filename = self.filename,
+                        cap = CACHE_MAX_ENTRIES,
+                        victim = ?victim.display(),
+                        "manifest cache reached cap; evicting LRU entry"
+                    );
                 }
-                let slot: Arc<OnceLock<Option<Arc<str>>>> = Arc::new(OnceLock::new());
-                let tick = next_lru_tick();
-                guard.map.insert(
-                    path.clone(),
-                    CacheEntry {
-                        text: Arc::clone(&slot),
-                        last_accessed: tick,
-                    },
-                );
-                guard.record_access(path.clone(), tick);
                 debug_assert!(
                     guard.len() <= CACHE_MAX_ENTRIES
-                        || guard.map.values().any(|e| e.text.get().is_none()),
+                        || guard.values().any(|slot| slot.get().is_none()),
                     "manifest cache exceeded cap of {CACHE_MAX_ENTRIES} with no in-flight entry pinning it"
                 );
-                // CONC-1: release the outer mutex before the file read below
-                // — the whole point of the per-key `OnceLock` design.
+                // CONC-1: release the outer mutex before the file read
+                // below — the whole point of the per-key `OnceLock`
+                // design. The guard leaves the hit branch the same way,
+                // at the end of this block.
                 drop(guard);
                 slot
             }
@@ -344,14 +251,10 @@ impl ArcTextCache {
             return false;
         };
         let path = root.join(self.filename);
-        let mut guard = cache.lock().unwrap_or_else(|e| {
-            tracing::warn!(
-                filename = self.filename,
-                "manifest cache mutex was poisoned by a prior panic; recovered"
-            );
-            e.into_inner()
-        });
-        guard.map.remove(&path).is_some()
+        // DUP-1 / TASK-2258: recovery (and its filename-tagged breadcrumb)
+        // is `ops_core::sync`'s policy, not this module's.
+        let mut guard = ops_core::sync::lock_recover_warn(cache, self.filename);
+        guard.remove(&path).is_some()
     }
 
     /// Return the underlying mutex if it has been initialised. Test-only
@@ -380,9 +283,10 @@ pub fn for_filename(filename: &'static str) -> &'static ArcTextCache {
     static REGISTRY: OnceLock<Mutex<StdHashMap<&'static str, &'static ArcTextCache>>> =
         OnceLock::new();
     let registry = REGISTRY.get_or_init(|| Mutex::new(StdHashMap::new()));
-    let mut guard = registry
-        .lock()
-        .unwrap_or_else(std::sync::PoisonError::into_inner);
+    // DUP-1 / TASK-2258: silent poison recovery via the shared policy; the
+    // registry is plain data, so a panic in another registrant cannot tear
+    // it. `clear_poison` additionally leaves later callers a healthy lock.
+    let mut guard = ops_core::sync::lock_recover(registry);
     if let Some(cache) = guard.get(filename) {
         return cache;
     }
@@ -397,6 +301,7 @@ pub fn for_filename(filename: &'static str) -> &'static ArcTextCache {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::lru::VICTIM_QUEUE_SLACK;
 
     #[test]
     fn second_call_returns_same_arc() {
@@ -421,48 +326,35 @@ mod tests {
     /// value yet.
     #[test]
     fn eviction_skips_in_flight_entry_and_keeps_it_evictable_after_init() {
-        let mut cache = CacheMap::new();
+        let mut cache: CacheMap = BoundedLruCache::new(CACHE_MAX_ENTRIES);
 
         let in_flight = PathBuf::from("/in-flight/manifest.txt");
         let settled = PathBuf::from("/settled/manifest.txt");
 
-        // The in-flight entry is the *oldest*, so it is the natural LRU victim.
-        let in_flight_slot: Arc<OnceLock<Option<Arc<str>>>> = Arc::new(OnceLock::new());
-        cache.map.insert(
-            in_flight.clone(),
-            CacheEntry {
-                text: Arc::clone(&in_flight_slot),
-                last_accessed: 1,
-            },
-        );
-        cache.victim_queue.push(1, in_flight.clone());
+        // The in-flight entry is inserted first, so it is the *oldest* and
+        // the natural LRU victim.
+        let in_flight_slot: CacheSlot = Arc::new(OnceLock::new());
+        cache.insert(in_flight.clone(), Arc::clone(&in_flight_slot));
 
-        let settled_slot: Arc<OnceLock<Option<Arc<str>>>> = Arc::new(OnceLock::new());
+        let settled_slot: CacheSlot = Arc::new(OnceLock::new());
         let _ = settled_slot.set(Some(Arc::<str>::from("done")));
-        cache.map.insert(
-            settled.clone(),
-            CacheEntry {
-                text: settled_slot,
-                last_accessed: 2,
-            },
-        );
-        cache.victim_queue.push(2, settled.clone());
+        cache.insert(settled.clone(), settled_slot);
 
         // The initialised entry is evicted even though it is newer.
-        assert_eq!(cache.evict_lru(), Some(settled));
+        assert_eq!(cache.evict_lru_where(is_evictable), Some(settled));
         assert!(
-            cache.map.contains_key(&in_flight),
+            cache.contains_key(&in_flight),
             "in-flight entry must stay pinned so same-path readers share its slot"
         );
 
         // Nothing else is evictable while the read is still pending.
-        assert_eq!(cache.evict_lru(), None);
-        assert!(cache.map.contains_key(&in_flight));
+        assert_eq!(cache.evict_lru_where(is_evictable), None);
+        assert!(cache.contains_key(&in_flight));
 
         // Once initialisation completes the pin lifts and the entry is a
         // normal victim again — the queue entry was pushed back, not dropped.
         let _ = in_flight_slot.set(Some(Arc::<str>::from("now here")));
-        assert_eq!(cache.evict_lru(), Some(in_flight));
+        assert_eq!(cache.evict_lru_where(is_evictable), Some(in_flight));
         assert_eq!(cache.len(), 0);
     }
 
@@ -498,7 +390,7 @@ mod tests {
             .lock()
             .unwrap_or_else(std::sync::PoisonError::into_inner);
         let map_len = guard.len();
-        let queue_len = guard.victim_queue.len();
+        let queue_len = guard.victim_queue_len();
         // CONC-1: release the cache mutex before asserting so a failing
         // assert panics without holding it.
         drop(guard);
