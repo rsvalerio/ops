@@ -163,12 +163,11 @@ impl ArcTextCache {
         // panic permanently brick the cache for every other provider in
         // the process.
         let entry_slot: CacheSlot = {
-            let mut guard = cache.lock().unwrap_or_else(|e| {
+            let mut guard = ops_core::sync::lock_recover_with(cache, || {
                 tracing::warn!(
                     filename = self.filename,
                     "manifest cache mutex was poisoned by a prior panic; recovered"
                 );
-                e.into_inner()
             });
             // `map_or_else` cannot replace this if/else: the miss branch
             // needs `&mut guard` (insert_filtered) while the scrutinee's

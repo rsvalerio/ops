@@ -45,8 +45,8 @@ pub fn run_about_units(data_registry: &DataRegistry) -> anyhow::Result<()> {
 ///
 /// `term_width` is also caller-supplied — buffer-writing call sites pick a
 /// width matching their destination instead of inheriting the stdout
-/// TTY/`COLUMNS` probe, which silently falls back to 120 columns in
-/// non-TTY contexts.
+/// TTY/`COLUMNS` probe, which falls back to 120 columns only when the
+/// output is not a TTY and `COLUMNS` is unset or unparseable.
 ///
 /// # Errors
 ///

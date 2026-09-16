@@ -297,7 +297,8 @@ impl CommandRunner {
         // Bounded channel so a chatty child
         // back-pressures on the display pump instead of growing the mpsc
         // buffer until the process OOMs. Capacity is sized to
-        // MAX_PARALLEL × per-task event budget so the steady-state batch
+        // min(steps.len(), MAX_PARALLEL) × per-task event budget — the
+        // active-producer count — so the steady-state batch
         // of events never blocks; only pathological bursts of >N lines
         // per tick will pause a producer — which is exactly the
         // throttling we want.

@@ -12,10 +12,10 @@ use std::time::Instant;
 ///
 /// Holds an `Arc<str>` view onto the parent capture buffer plus the byte
 /// range of this line. `emit_output_events` constructs one `Arc<str>` per
-/// buffer (transferring ownership of the existing `String` alloc — no copy)
-/// and emits per-line `OutputLine` values that share the buffer via cheap
-/// atomic refcount increments, so even a noisy step pays one heap
-/// allocation per buffer rather than per line.
+/// buffer (copying the captured `String` into the refcounted allocation)
+/// and emits per-line `OutputLine` values that share that buffer via cheap
+/// atomic refcount increments, so even a noisy step pays one copy per
+/// buffer rather than per line.
 ///
 /// JSON serialization preserves that shape: the field renders as a plain
 /// string.

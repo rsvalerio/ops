@@ -1147,6 +1147,60 @@ mod run_name_plans_tests {
         );
     }
 
+    /// TASK-2262 AC #4: the display lifecycle covers the whole named
+    /// sequence — exactly one outer `PlanStarted` naming every leaf of
+    /// every plan before any step event, and one `RunFinished` with the
+    /// aggregate success after all of them — instead of the per-plan
+    /// bookend pair that resets and finalizes the shared display between
+    /// names.
+    #[tokio::test(flavor = "multi_thread")]
+    async fn named_sequence_emits_one_outer_lifecycle_for_all_plans() {
+        let config = TestConfigBuilder::new()
+            .exec("first", "echo", &["first"])
+            .exec("second", "echo", &["second"])
+            .build();
+        let runner = ops_runner::command::CommandRunner::new(config, std::path::PathBuf::from("."));
+
+        let plans = plans_for_names(&runner, &["first", "second"]).expect("both names must expand");
+        let mut events = Vec::new();
+        run_named_sequence_lifecycle(&runner, &plans, &mut |e| events.push(e)).await;
+
+        let started = events
+            .iter()
+            .filter(|e| matches!(e, ops_runner::command::RunnerEvent::PlanStarted { .. }))
+            .count();
+        let finished = events
+            .iter()
+            .filter(|e| matches!(e, ops_runner::command::RunnerEvent::RunFinished { .. }))
+            .count();
+        assert_eq!(
+            started, 1,
+            "one outer PlanStarted for the whole sequence: {events:?}"
+        );
+        assert_eq!(
+            finished, 1,
+            "one outer RunFinished for the whole sequence: {events:?}"
+        );
+
+        match &events[0] {
+            ops_runner::command::RunnerEvent::PlanStarted { command_ids } => {
+                assert_eq!(
+                    command_ids.len(),
+                    plans.iter().map(|p| p.leaf_ids.len()).sum::<usize>(),
+                    "the outer PlanStarted names every leaf of every plan: {events:?}"
+                );
+            }
+            other => panic!("the sequence must open with the outer PlanStarted: {other:?}"),
+        }
+        assert!(
+            matches!(
+                events.last(),
+                Some(ops_runner::command::RunnerEvent::RunFinished { success: true, .. })
+            ),
+            "the sequence must close with one aggregate-success RunFinished: {events:?}"
+        );
+    }
+
     /// TASK-2262 AC #3: under `fail_fast`, a failing command stops the
     /// commands named after it.
     #[tokio::test(flavor = "multi_thread")]

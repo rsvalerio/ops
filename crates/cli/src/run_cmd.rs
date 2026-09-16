@@ -229,6 +229,45 @@ async fn run_name_plans(
     all
 }
 
+/// One display lifecycle for the whole named sequence (TASK-2262 AC #4).
+///
+/// `run_plan` / `run_plan_parallel` emit their own `PlanStarted` /
+/// `RunFinished` bookends per plan; forwarded straight to the shared
+/// display, those reset the display between names and finalize a per-name
+/// summary. This wrapper drops the per-plan bookends from the event stream
+/// and emits one outer pair instead — `PlanStarted` naming every leaf of
+/// every plan before the first step, `RunFinished` with the aggregate
+/// success after the last — so the shared display and its final summary
+/// see a single run, not one per name.
+// Same `!Send` reasoning as `run_name_plans`: the `on_event` sink is
+// backed by non-`Send` `indicatif` state (docs/clippy.md layer 3).
+#[allow(clippy::future_not_send)]
+async fn run_named_sequence_lifecycle(
+    runner: &ops_runner::command::CommandRunner,
+    plans: &[NamePlan],
+    on_event: &mut impl FnMut(ops_runner::command::RunnerEvent),
+) -> Vec<StepResult> {
+    let command_ids: Vec<ops_core::config::CommandId> = plans
+        .iter()
+        .flat_map(|p| p.leaf_ids.iter().cloned())
+        .collect();
+    let start = std::time::Instant::now();
+    on_event(ops_runner::command::RunnerEvent::PlanStarted { command_ids });
+    let results = run_name_plans(runner, plans, false, &mut |event| match event {
+        // The outer bookends above replace the per-plan pair.
+        ops_runner::command::RunnerEvent::PlanStarted { .. }
+        | ops_runner::command::RunnerEvent::RunFinished { .. } => {}
+        _ => on_event(event),
+    })
+    .await;
+    let success = results.iter().all(|r| r.success);
+    on_event(ops_runner::command::RunnerEvent::RunFinished {
+        duration_secs: start.elapsed().as_secs_f64(),
+        success,
+    });
+    results
+}
+
 fn run_commands_raw(
     runner: &ops_runner::command::CommandRunner,
     plans: &[NamePlan],
@@ -497,8 +536,10 @@ fn run_commands_with_display(
     verbose: bool,
 ) -> anyhow::Result<Vec<StepResult>> {
     // One display covering every named command's steps (TASK-2262 AC #4):
-    // the map is built over all leaves across all plans, so the progress
-    // display and the final summary see a single run, not one per name.
+    // the map is built over all leaves across all plans and
+    // `run_named_sequence_lifecycle` emits one outer `PlanStarted` /
+    // `RunFinished` pair around the sequence, so the progress display and
+    // the final summary see a single run, not one per name.
     let all_leaf_ids: Vec<ops_core::config::CommandId> = plans
         .iter()
         .flat_map(|p| p.leaf_ids.iter().cloned())
@@ -527,7 +568,7 @@ fn run_commands_with_display(
     // (process-group teardown, CONC-9 / TASK-1919) runs.
     let outcome = run_with_runtime_kind(kind, async {
         Ok(
-            run_until_signal(run_name_plans(runner, plans, false, &mut |event| {
+            run_until_signal(run_named_sequence_lifecycle(runner, plans, &mut |event| {
                 display.handle_event(event);
             }))
             .await,

@@ -632,7 +632,7 @@ fn write_skip_dirs(w: &mut dyn std::io::Write, no_default_skips: bool) -> std::i
     if no_default_skips {
         writeln!(
             w,
-            "  default skip dirs disabled (--no-default-skips); Trivy's own defaults apply"
+            "  Trivy skip dirs disabled (--no-default-skips); scan auto-detection unchanged"
         )?;
         return Ok(());
     }

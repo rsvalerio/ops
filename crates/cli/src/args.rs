@@ -231,8 +231,9 @@ pub enum CoreSubcommand {
         /// Force a scan to run even if detection would skip it (repeatable).
         #[arg(long = "force", value_enum, value_name = "SCAN")]
         force: Vec<crate::sec_cmd::ScanArg>,
-        /// Do not pass the default build/dependency skip dirs to Trivy;
-        /// Trivy's own built-in defaults still apply.
+        /// Do not pass the default build/dependency skip dirs to Trivy.
+        /// Scan auto-detection still skips them; `--force <scan>` overrides
+        /// detection.
         #[arg(long = "no-default-skips")]
         no_default_skips: bool,
     },
