@@ -2,9 +2,9 @@
 //! provider dispatch — config, cwd, cache, cycle guard, deadline, and the
 //! feature-gated database handle.
 //!
-//! ARCH-1 / TASK-2095: split out of `data.rs` — the per-invocation state is
-//! a cohesive unit distinct from the registry/schema surface (`crate::data`);
-//! the budget type itself lives in `crate::deadline`.
+//! The per-invocation state is a cohesive unit distinct from the
+//! registry/schema surface (`crate::data`); the budget type itself lives in
+//! `crate::deadline`.
 
 use crate::data::DataRegistry;
 #[cfg(feature = "sqlite")]
@@ -19,13 +19,13 @@ use std::time::{Duration, Instant};
 
 /// Per-invocation context shared with data providers.
 ///
-/// API-9 / TASK-0349: marked `#[non_exhaustive]` so that adding a field is
-/// not a `SemVer` break for downstream providers. `data_cache` is no longer
-/// `pub`; reads go through [`Context::cached`] and writes go through
+/// Marked `#[non_exhaustive]` so that adding a field is not a `SemVer`
+/// break for downstream providers. `data_cache` is private; reads go
+/// through [`Context::cached`] and writes go through
 /// [`Context::get_or_provide`] so callers cannot bypass the
 /// caching/provider contract by inserting raw values directly.
 ///
-/// ARCH-9 / TASK-1874: every remaining field is private too. Providers
+/// Every field is private. Providers
 /// receive `&mut Context`, so a public field is a mutation channel one
 /// provider can use to change what its *siblings* observe later in the same
 /// traversal — `refresh` flips the cache-bypass semantics for every
@@ -41,13 +41,13 @@ use std::time::{Duration, Instant};
 pub struct Context {
     config: Arc<Config>,
     data_cache: HashMap<String, Arc<serde_json::Value>>,
-    /// SEC-38 / TASK-0744: keys whose providers are currently executing on
+    /// Keys whose providers are currently executing on
     /// this context. Inserted before dispatching in
     /// [`DataRegistry::provide`] and removed on the way out, so a provider
     /// that transitively re-requests its own key surfaces as
     /// `DataProviderError::Cycle` instead of recursing until stack overflow.
     in_flight: HashSet<String>,
-    /// PERF-3 / TASK-0890: stored as `Arc<PathBuf>` so the runner can hand
+    /// Stored as `Arc<PathBuf>` so the runner can hand
     /// out cheap `Arc::clone`s on every `query_data` invocation instead of
     /// deep-cloning the inner path. Read it as a `&Path` via
     /// [`Context::working_directory`], or share the allocation via
@@ -55,10 +55,10 @@ pub struct Context {
     working_directory: Arc<PathBuf>,
     /// When true, data providers should re-collect data instead of using cached/persisted results.
     refresh: bool,
-    /// SEC-33 / TASK-2017: wall-clock budget applied to a provider dispatch
-    /// started on this context. `None` means explicitly unbounded.
+    /// Wall-clock budget applied to a provider dispatch started on this
+    /// context. `None` means explicitly unbounded.
     provider_budget: Option<Duration>,
-    /// SEC-33 / TASK-2017: the deadline of the dispatch currently in flight,
+    /// The deadline of the dispatch currently in flight,
     /// installed by [`DataRegistry::provide`] for the outermost provider and
     /// cleared by the same call. `None` outside a dispatch, or when the
     /// budget is `None`.
@@ -78,11 +78,10 @@ impl Context {
         Self::from_cwd_arc(config, Arc::new(working_directory))
     }
 
-    /// PERF-3 / TASK-0890: zero-clone constructor used by the runner's
-    /// `query_data` hot path. The cwd `Arc<PathBuf>` is stored directly so
-    /// repeat provider lookups within the same runner share one heap
-    /// allocation, mirroring the OWN-2 invariant established for the
-    /// parallel-exec path in TASK-0462.
+    /// Zero-clone constructor used by the runner's `query_data` hot path.
+    /// The cwd `Arc<PathBuf>` is stored directly so repeat provider
+    /// lookups within the same runner share one heap allocation — the
+    /// same Arc-sharing discipline the parallel-exec path uses.
     #[must_use]
     pub fn from_cwd_arc(config: Arc<Config>, working_directory: Arc<PathBuf>) -> Self {
         let provider_budget = configured_provider_budget(&config);
@@ -101,7 +100,7 @@ impl Context {
 
     /// The configuration this invocation was started with.
     ///
-    /// ARCH-9 / TASK-1874: read-only. Swapping the config mid-traversal would
+    /// Read-only. Swapping the config mid-traversal would
     /// change what every later provider sees, so the field is set once by the
     /// constructors.
     #[must_use]
@@ -118,7 +117,7 @@ impl Context {
 
     /// The directory paths in this invocation resolve against.
     ///
-    /// ARCH-9 / TASK-1874: read-only. Re-pointing it mid-traversal would make
+    /// Read-only. Re-pointing it mid-traversal would make
     /// providers composed later read from a directory the caller never asked
     /// for.
     #[must_use]
@@ -126,8 +125,7 @@ impl Context {
         self.working_directory.as_path()
     }
 
-    /// Share the cwd allocation (PERF-3 / TASK-0890) without deep-cloning the
-    /// inner [`PathBuf`].
+    /// Share the cwd allocation without deep-cloning the inner [`PathBuf`].
     #[must_use]
     pub const fn working_directory_arc(&self) -> &Arc<PathBuf> {
         &self.working_directory
@@ -136,7 +134,7 @@ impl Context {
     /// Whether providers should re-collect instead of serving cached or
     /// persisted results.
     ///
-    /// ARCH-9 / TASK-1874: read-only for providers. Set it at construction
+    /// Read-only for providers. Set it at construction
     /// time via [`Context::with_refresh`]; a provider that assigned to it
     /// would change caching behaviour for every sibling that ran afterwards.
     #[must_use]
@@ -154,7 +152,7 @@ impl Context {
 
     /// Attach (or replace) the database handle.
     ///
-    /// ARCH-9 / TASK-1874: unlike `refresh` and `working_directory`, `db` is
+    /// Unlike `refresh` and `working_directory`, `db` is
     /// genuinely provider-assigned — the sqlite extension opens the handle
     /// lazily on first use and installs it here so sibling providers reuse
     /// the same connection. That is a *capability being added*, not a
@@ -167,7 +165,7 @@ impl Context {
         self.db = Some(db);
     }
 
-    /// SEC-38 / TASK-1865: mark `key` as executing on this context.
+    /// Mark `key` as executing on this context.
     ///
     /// Returns [`DataProviderError::Cycle`] when a provider for `key` is
     /// already in flight — the re-entrancy that would otherwise recurse to a
@@ -191,12 +189,11 @@ impl Context {
         self.in_flight.remove(key);
     }
 
-    /// Read-only accessor for an entry in the data cache (API-9 / TASK-0349).
+    /// Read-only accessor for an entry in the data cache.
     ///
-    /// Replaces direct field access on `data_cache` so callers can read
-    /// previously-provided JSON values without the ability to insert
-    /// arbitrary keys outside the [`Context::get_or_provide`] caching
-    /// contract.
+    /// Lets callers read previously-provided JSON values without the
+    /// ability to insert arbitrary keys outside the
+    /// [`Context::get_or_provide`] caching contract.
     #[must_use]
     pub fn cached(&self, key: &str) -> Option<&Arc<serde_json::Value>> {
         self.data_cache.get(key)
@@ -216,7 +213,7 @@ impl Context {
         self
     }
 
-    /// SEC-33 / TASK-2017: override the wall-clock budget a provider dispatch
+    /// Override the wall-clock budget a provider dispatch
     /// started on this context gets, or pass `None` to opt out of the bound
     /// entirely.
     ///
@@ -230,8 +227,7 @@ impl Context {
         self
     }
 
-    /// SEC-33 / TASK-2017: the deadline of the dispatch currently in flight,
-    /// if any.
+    /// The deadline of the dispatch currently in flight, if any.
     ///
     /// Providers that hand work to something with its own timeout knob (an
     /// external command, a database statement) can use this to size that
@@ -242,7 +238,7 @@ impl Context {
         self.deadline.as_ref().map(Deadline::expires_at)
     }
 
-    /// SEC-33 / TASK-2052: a detached, `Send + Sync` copy of the in-flight
+    /// A detached, `Send + Sync` copy of the in-flight
     /// deadline, for a provider whose work happens somewhere a `&Context`
     /// cannot go — a free walker function, or `rust-loc`'s parallel walk,
     /// whose per-entry closure runs on `ignore`'s worker threads.
@@ -255,7 +251,7 @@ impl Context {
         self.deadline.clone()
     }
 
-    /// CONC-9 / TASK-2056: the budget a dispatch started on this context gets,
+    /// The budget a dispatch started on this context gets,
     /// or `None` when it is explicitly unbounded. Resolved from
     /// `[data] provider_budget_secs` at construction and overridable with
     /// [`Context::with_provider_budget`].
@@ -264,7 +260,7 @@ impl Context {
         self.provider_budget
     }
 
-    /// SEC-33 / TASK-2017: the cooperative cancellation point providers are
+    /// The cooperative cancellation point providers are
     /// required to honour.
     ///
     /// `DataProvider::provide` is synchronous and runs on the caller's
@@ -289,7 +285,7 @@ impl Context {
         self.deadline.as_ref().map_or(Ok(()), Deadline::check)
     }
 
-    /// SEC-33 / TASK-2017: install the deadline for a dispatch of `provider`
+    /// Install the deadline for a dispatch of `provider`
     /// if this is the outermost one, and report whether it was installed.
     ///
     /// Nested dispatches inherit the outermost deadline rather than starting
@@ -328,7 +324,7 @@ impl Context {
         }
     }
 
-    /// SEC-33 / TASK-2017: the `TimedOut` error for the in-flight dispatch,
+    /// The `TimedOut` error for the in-flight dispatch,
     /// if its deadline has passed. Used by [`DataRegistry::provide`] to
     /// enforce the bound on providers that never poll
     /// [`Context::check_deadline`].
@@ -338,7 +334,7 @@ impl Context {
 
     /// Get cached value or compute via provider and cache.
     ///
-    /// SEC-38 / TASK-0744, TASK-1865: re-entrant requests for an in-flight key
+    /// Re-entrant requests for an in-flight key
     /// (a provider transitively asking for itself, e.g. A → B → A) surface as
     /// [`DataProviderError::Cycle`] instead of recursing into stack overflow.
     /// The guard itself lives in [`DataRegistry::provide`] — the single
@@ -346,14 +342,13 @@ impl Context {
     /// without going through this cache wrapper. This method is the cache
     /// fast-path plus a call into that dispatch.
     ///
-    /// ERR-1 / TASK-1170: when `self.refresh` is true the cache fast-path is
-    /// bypassed and the provider is re-invoked, then the fresh value
-    /// overwrites the cached entry. Without this, `Context::with_refresh()`
-    /// (and any caller setting `refresh = true`) would silently serve stale
-    /// cached values for any key already populated on this context — a
-    /// regression that became user-visible once TASK-0993 folded the cache
-    /// onto the persistent runner `Context`, which lives across repeat
-    /// queries within a single runner lifetime.
+    /// When `self.refresh` is true the cache fast-path is bypassed and the
+    /// provider is re-invoked, then the fresh value overwrites the cached
+    /// entry. Without this, `Context::with_refresh()` (and any caller
+    /// setting `refresh = true`) would silently serve stale cached values
+    /// for any key already populated on this context — which matters
+    /// because the cache lives on the persistent runner `Context`, which
+    /// spans repeat queries within a single runner lifetime.
     ///
     /// # Errors
     ///
@@ -375,7 +370,7 @@ impl Context {
         Ok(v)
     }
 
-    /// ARCH-9 / TASK-1128: drop every cached provider result. The runner
+    /// Drop every cached provider result. The runner
     /// calls this from `register_data_providers` so swapping in a new
     /// [`DataRegistry`] does not leave callers reading values produced by
     /// the previous registry's providers (or by a different implementation
@@ -394,8 +389,8 @@ impl Context {
     }
 }
 
-/// TRAIT-4 / TASK-1879: hand-written because the optional `Arc<dyn
-/// SqliteHandle>` is not `Debug`. Prints cache and in-flight **keys only** —
+/// Hand-written because the optional `Arc<dyn SqliteHandle>` is not
+/// `Debug`. Prints cache and in-flight **keys only** —
 /// never the cached values, which are arbitrary provider output and may be
 /// large or carry data that has no business in a panic message. Keys are
 /// sorted so the rendering is deterministic across runs despite the backing

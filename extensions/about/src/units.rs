@@ -25,10 +25,10 @@ pub const PROJECT_UNITS_PROVIDER: &str = "project_units";
 /// fails, or writing the rendered output fails.
 pub fn run_about_units(data_registry: &DataRegistry) -> anyhow::Result<()> {
     let is_tty = std::io::stdout().is_terminal();
-    // ERR-1 / TASK-0784: only the direct-stdout entry point probes the
-    // terminal/`COLUMNS`. Buffer-writing call sites must hand in an explicit
-    // width via `run_about_units_with` so the 120-column fallback never
-    // sneaks into output destined for a `Vec<u8>` or pipe.
+    // Only the direct-stdout entry point probes the terminal/`COLUMNS`.
+    // Buffer-writing call sites must hand in an explicit width via
+    // `run_about_units_with` so the 120-column fallback never sneaks into
+    // output destined for a `Vec<u8>` or pipe.
     run_about_units_with(
         data_registry,
         &mut std::io::stdout(),
@@ -37,16 +37,16 @@ pub fn run_about_units(data_registry: &DataRegistry) -> anyhow::Result<()> {
     )
 }
 
-/// READ-5/TASK-0411: `is_tty` is supplied by the caller and reflects the
-/// `writer` they hand in, not stdout.
+/// `is_tty` is supplied by the caller and reflects the `writer` they hand
+/// in, not stdout.
 ///
 /// Passing a `Vec<u8>` writer with `is_tty = false` guarantees no ANSI
 /// escapes regardless of stdout state.
 ///
-/// ERR-1/TASK-0784: `term_width` is also caller-supplied — buffer-writing
-/// call sites pick a width matching their destination instead of inheriting
-/// the stdout TTY/`COLUMNS` probe, which silently falls back to 120 columns
-/// in non-TTY contexts.
+/// `term_width` is also caller-supplied — buffer-writing call sites pick a
+/// width matching their destination instead of inheriting the stdout
+/// TTY/`COLUMNS` probe, which silently falls back to 120 columns in
+/// non-TTY contexts.
 ///
 /// # Errors
 ///
@@ -64,12 +64,12 @@ pub fn run_about_units_with(
     // fields (e.g. dep_count) and so we can fill loc/file_count below.
     warm_providers(&mut ctx, data_registry, &["sqlite", "tokei"], "units");
 
-    // TASK-2207: "this stack was never wired up" and "the stack's provider
-    // ran and found nothing" are different facts; `load_or_default` collapses
-    // them to the same empty vec. Probe the registry first so an unregistered
-    // stack says so, and an empty answer from a registered one (a Maven POM
-    // with no `<modules>`, a Gradle settings file with no `include`) remains
-    // the honest "No project units found."
+    // "This stack was never wired up" and "the stack's provider ran and
+    // found nothing" are different facts; `load_or_default` collapses them
+    // to the same empty vec. Probe the registry first so an unregistered
+    // stack says so, and an empty answer from a registered one (a Maven
+    // POM with no `<modules>`, a Gradle settings file with no `include`)
+    // remains the honest "No project units found."
     if data_registry.get(PROJECT_UNITS_PROVIDER).is_none() {
         writeln!(writer, "No units provider is registered for this stack.")?;
         return Ok(());
@@ -96,7 +96,7 @@ pub fn run_about_units_with(
 /// Enrich `units` with LOC and file-count data sampled from the sqlite
 /// `tokei_files` table.
 ///
-/// ERR-1 (TASK-0431): the four underlying queries each acquire `db.lock()`
+/// The four underlying queries each acquire `db.lock()`
 /// independently, so a concurrent ingestion that runs between samples can
 /// leave per-crate sums inconsistent with the project totals shown in the
 /// same render. This is accepted as a render-time visual artefact: the
@@ -117,11 +117,11 @@ fn enrich_from_db(ctx: &Context, units: &mut [ProjectUnit]) {
         .collect();
 
     let unit_count = units.len();
-    // ERR-1 (TASK-0463): a query failure must NOT silently overwrite
-    // provider-supplied unit fields with None. Track each query's outcome
-    // separately and only enrich units when we actually have data.
+    // A query failure must NOT silently overwrite provider-supplied unit
+    // fields with None. Track each query's outcome separately and only
+    // enrich units when we actually have data.
     //
-    // READ-5 (TASK-0786): collect per-query failures into a single
+    // Collect per-query failures into a single
     // consolidated warn so an operator scanning logs sees one line that
     // names every field left stale, instead of four scattered messages
     // from which the partial-frame nature has to be reconstructed.
@@ -194,15 +194,15 @@ fn enrich_from_db(ctx: &Context, units: &mut [ProjectUnit]) {
 }
 
 #[cfg(not(feature = "sqlite"))]
-// CLIPPY (TASK-2027): `const` keeps `cargo clippy -p ops-about` green with the
-// `sqlite` feature off, where `missing_const_for_fn` fires on this empty stub.
+// `const` keeps `cargo clippy -p ops-about` green with the `sqlite`
+// feature off, where `missing_const_for_fn` fires on this empty stub.
 const fn enrich_from_db(_ctx: &Context, _units: &mut [ProjectUnit]) {}
 
 #[cfg(test)]
 mod tests {
     use super::*;
 
-    /// TEST-5 / TASK-1739: a `project_units` provider under test control, so
+    /// A `project_units` provider under test control, so
     /// the runner can be driven past its empty branch and into the grid.
     struct StubUnitsProvider(Vec<ProjectUnit>);
 
@@ -227,15 +227,14 @@ mod tests {
         registry
     }
 
-    /// TEST-5 / TASK-1739: the `writer` / `is_tty` / `term_width` seams were
-    /// added by three separate tasks so this runner could be driven from a
-    /// test, and no test ever did. This pins the exact user-facing message
-    /// that previously had no assertion behind it.
+    /// The `writer` / `is_tty` / `term_width` seams exist so this runner
+    /// can be driven from a test; this pins the exact user-facing message
+    /// for the empty-registry branch.
     ///
-    /// TASK-2207: an empty registry (no `project_units` provider registered)
-    /// now says so — distinct from a registered provider that found nothing
-    /// (below), so "this stack was never wired up" is no longer
-    /// indistinguishable from "this project genuinely has no units".
+    /// An empty registry (no `project_units` provider registered) says so
+    /// — distinct from a registered provider that found nothing (below) —
+    /// keeping "this stack was never wired up" distinguishable from "this
+    /// project genuinely has no units".
     #[test]
     fn run_about_units_with_reports_no_units_for_an_empty_registry() {
         let registry = DataRegistry::new();
@@ -247,9 +246,9 @@ mod tests {
         );
     }
 
-    /// TASK-2207 AC #3: a registered provider whose list is empty (a Maven
-    /// POM with no `<modules>`, a Gradle settings file with no `include`) is
-    /// the honest "No project units found." — a different fact from the
+    /// A registered provider whose list is empty (a Maven POM with no
+    /// `<modules>`, a Gradle settings file with no `include`) gets the
+    /// honest "No project units found." — a different fact from the
     /// unregistered case above.
     #[test]
     fn run_about_units_with_reports_no_units_for_a_registered_empty_provider() {
@@ -259,10 +258,9 @@ mod tests {
         assert_eq!(String::from_utf8(out).unwrap(), "No project units found.\n");
     }
 
-    /// TEST-5 / TASK-1739 (ERR-1 / TASK-0784): the caller-supplied
-    /// `term_width` must decide the grid layout. Nothing pinned that, so a
-    /// refactor re-probing `get_terminal_width()` inside the runner passed
-    /// the whole suite. A narrow width fits fewer cards per row than a wide
+    /// The caller-supplied `term_width` must decide the grid layout — a
+    /// refactor re-probing `get_terminal_width()` inside the runner must
+    /// fail this test. A narrow width fits fewer cards per row than a wide
     /// one, so it needs more rows to render the same units.
     #[test]
     fn run_about_units_with_honours_the_caller_supplied_term_width() {
@@ -286,10 +284,9 @@ mod tests {
         );
     }
 
-    /// TEST-5 / TASK-1739 (READ-5 / TASK-0411): the contract the `is_tty`
-    /// parameter exists for — a non-TTY writer receives zero ANSI escapes —
-    /// asserted end to end through the runner rather than through a section
-    /// formatter.
+    /// The contract the `is_tty` parameter exists for — a non-TTY writer
+    /// receives zero ANSI escapes — asserted end to end through the runner
+    /// rather than through a section formatter.
     #[test]
     fn run_about_units_with_emits_no_ansi_escapes_for_a_non_tty_writer() {
         let registry = registry_with_units(3);
@@ -306,11 +303,11 @@ mod tests {
         );
     }
 
-    /// Regression for TASK-0431: when no `SQLite` is wired up, `enrich_from_db` is
-    /// a no-op and leaves caller-supplied unit fields untouched. Codifies the
+    /// When no `SQLite` is wired up, `enrich_from_db` is a no-op and
+    /// leaves caller-supplied unit fields untouched. Pins the
     /// "independent samples are acceptable" contract — the function never
-    /// fails the render pipeline even if the underlying data is inconsistent
-    /// or absent.
+    /// fails the render pipeline even if the underlying data is
+    /// inconsistent or absent.
     #[test]
     fn enrich_from_db_without_db_is_noop() {
         let cwd = std::env::current_dir().expect("cwd");

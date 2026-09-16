@@ -1,8 +1,8 @@
 //! Parallel exec orchestration: bounded mpsc channel, fail-fast cancellation,
 //! `JoinSet` collection.
 //!
-//! Split out of `command/mod.rs` (ARCH-1 / TASK-0303) so the orchestrator
-//! file isn't carrying both sequential and parallel scheduling concerns.
+//! Kept apart from `command/mod.rs` so the orchestrator file isn't
+//! carrying both sequential and parallel scheduling concerns.
 
 use super::abort::AbortSignal;
 use super::events::PlanLifecycle;
@@ -19,9 +19,9 @@ use tracing::instrument;
 
 /// Default cap on concurrent parallel exec tasks.
 ///
-/// CONC-3 / TASK-0873: overridable via `OPS_MAX_PARALLEL`. The default
-/// (32) is generous for developer machines; CI runners with tight FD or
-/// process limits can dial it down without recompiling.
+/// Overridable via `OPS_MAX_PARALLEL`. The default (32) is generous for
+/// developer machines; CI runners with tight FD or process limits can
+/// dial it down without recompiling.
 const DEFAULT_MAX_PARALLEL: usize = 32;
 
 /// Per-parallel-task event budget used to size the bounded event channel.
@@ -32,7 +32,7 @@ const DEFAULT_MAX_PARALLEL: usize = 32;
 /// `send`, which naturally back-pressures chatty children instead of
 /// letting the process drift toward OOM.
 ///
-/// CONC-3 / TASK-0873: overridable via `OPS_PARALLEL_EVENT_BUDGET`.
+/// Overridable via `OPS_PARALLEL_EVENT_BUDGET`.
 const DEFAULT_PARALLEL_EVENT_BUDGET_PER_TASK: usize = 256;
 
 /// Hard ceiling on the env-overridable parallel cap. Rejects pathological
@@ -44,11 +44,11 @@ pub const MAX_PARALLEL_CEILING: usize = 1024;
 /// rationale as [`MAX_PARALLEL_CEILING`].
 const MAX_EVENT_BUDGET_CEILING: usize = 65_536;
 
-/// PERF-3 / TASK-1171: cache the resolved (clamped, validated) values
-/// behind `OnceLock<usize>` so repeated parallel-plan dispatches do not
+/// The resolved (clamped, validated) values are cached behind
+/// `OnceLock<usize>` so repeated parallel-plan dispatches do not
 /// re-acquire the global env lock, re-`String`-allocate the raw value, and
 /// re-emit the warn-on-fallback diagnostic. Both env knobs are documented
-/// as process-global; this mirrors the `OnceLock` discipline already used by
+/// as process-global; this mirrors the `OnceLock` discipline used by
 /// `output_byte_cap` (results.rs) and `manifest_max_bytes` (text.rs).
 static MAX_PARALLEL_CACHED: OnceLock<usize> = OnceLock::new();
 static EVENT_BUDGET_CACHED: OnceLock<usize> = OnceLock::new();
@@ -57,16 +57,15 @@ static EVENT_BUDGET_CACHED: OnceLock<usize> = OnceLock::new();
 /// zero, or above-ceiling values fall back to the default with a
 /// `tracing::warn!` so misconfiguration is visible.
 ///
-/// PERF-3 / TASK-0995: exposed to `command::results` so the
-/// `output_byte_cap` peak-RSS warning is computed against the same
-/// (clamped, validated) value the orchestrator actually uses, instead of
-/// silently re-parsing the raw env var with different fallback rules.
+/// Exposed to `command::results` so the `output_byte_cap` peak-RSS
+/// warning is computed against the same (clamped, validated) value the
+/// orchestrator actually uses, instead of silently re-parsing the raw env
+/// var with different fallback rules.
 ///
-/// PERF-3 / TASK-1171: memoised for the lifetime of the process. The first
-/// call parses and clamps; subsequent calls return the cached value
-/// without re-reading `std::env`. Tests exercising the parse/clamp matrix
-/// must call [`resolve_env_usize`] directly (the pure helper) to bypass
-/// the cache.
+/// Memoised for the lifetime of the process. The first call parses and
+/// clamps; subsequent calls return the cached value without re-reading
+/// `std::env`. Tests exercising the parse/clamp matrix must call
+/// [`resolve_env_usize`] directly (the pure helper) to bypass the cache.
 pub fn resolve_max_parallel() -> usize {
     *MAX_PARALLEL_CACHED.get_or_init(|| {
         resolve_env_usize(
@@ -77,12 +76,12 @@ pub fn resolve_max_parallel() -> usize {
     })
 }
 
-/// PATTERN-1 (TASK-1236): mpsc channel capacity for a parallel plan.
-/// Pure arithmetic — no caching, no env access.
+/// Mpsc channel capacity for a parallel plan. Pure arithmetic — no
+/// caching, no env access.
 /// Sized as `min(steps_len, max_parallel) × event_budget` (with a floor of
-/// `event_budget` so an empty plan still yields a non-zero capacity). The
-/// previous shape used `max_parallel × event_budget` unconditionally, which
-/// pre-allocated 32-step worth of slots even on a 2-step plan.
+/// `event_budget` so an empty plan still yields a non-zero capacity).
+/// Sizing by the raw `max_parallel × event_budget` would pre-allocate
+/// 32-step worth of slots even on a 2-step plan.
 pub fn compute_channel_capacity(
     steps_len: usize,
     max_parallel: usize,
@@ -95,7 +94,7 @@ pub fn compute_channel_capacity(
 /// Resolve [`DEFAULT_PARALLEL_EVENT_BUDGET_PER_TASK`] honoring
 /// `OPS_PARALLEL_EVENT_BUDGET`.
 ///
-/// PERF-3 / TASK-1171: memoised sibling of [`resolve_max_parallel`]. Same
+/// Memoised sibling of [`resolve_max_parallel`]. Same
 /// caching contract: the first call parses and clamps; subsequent calls
 /// return the cached value without re-reading `std::env`, so env mutations
 /// after the first call are ignored. Tests exercising the parse/clamp
@@ -136,7 +135,7 @@ pub fn stage_lengths(exclusive: impl IntoIterator<Item = bool>) -> Vec<usize> {
     lengths
 }
 
-/// ERR-1 / TASK-1092: the warn-message text emitted when `OPS_MAX_PARALLEL`
+/// The warn-message text emitted when `OPS_MAX_PARALLEL`
 /// (or `OPS_PARALLEL_EVENT_BUDGET`) is set to `0`. Pinned as a `const` so
 /// a unit test can assert the operator-facing diagnostic — distinguishing
 /// "explicit 0 (sequential intent)" from a generic parse failure — does
@@ -144,15 +143,15 @@ pub fn stage_lengths(exclusive: impl IntoIterator<Item = bool>) -> Vec<usize> {
 pub const ZERO_NOT_ALLOWED_MSG: &str =
     "zero is not allowed; use 1 for sequential execution; falling back to default";
 
-/// Shared by `exec.rs` for `OPS_OUTPUT_DRAIN_GRACE_SECS` (CONC-9 /
-/// TASK-2022) so every resource knob in the crate answers to the same
+/// Shared by `exec.rs` for `OPS_OUTPUT_DRAIN_GRACE_SECS` so every
+/// resource knob in the crate answers to the same
 /// parse / clamp / warn-on-fallback contract instead of a second copy of
-/// it (DUP-1).
+/// it.
 pub(super) fn resolve_env_usize(var: &'static str, default: usize, ceiling: usize) -> usize {
     let Ok(raw) = std::env::var(var) else {
         return default;
     };
-    // ERR-1 / TASK-1092: empty string (e.g. `OPS_MAX_PARALLEL=`) is
+    // Empty string (e.g. `OPS_MAX_PARALLEL=`) is
     // treated the same as unset — operators clearing the variable should
     // not see a confusing `value = ""` parse-error warning.
     if raw.is_empty() {
@@ -160,7 +159,7 @@ pub(super) fn resolve_env_usize(var: &'static str, default: usize, ceiling: usiz
     }
     match raw.parse::<usize>() {
         Ok(0) => {
-            // ERR-1 / TASK-1092: distinguish "user explicitly asked for
+            // Distinguish "user explicitly asked for
             // sequential by setting 0" from "garbage value". Zero is a
             // valid intent but not a legal channel/semaphore size, so we
             // still fall back to the default — but say so explicitly so
@@ -212,7 +211,7 @@ impl CommandRunner {
         Self::collect_join_results_with_pre(Vec::new(), join_set, id_map).await
     }
 
-    /// CONC-6 / TASK-1177: merge results harvested by
+    /// Merge results harvested by
     /// `handle_parallel_events_with_cancel_inner` (which already drained
     /// completed tasks during the events loop so panics could trigger
     /// `fail_fast`) with whatever still remains in the `JoinSet`.
@@ -225,7 +224,7 @@ impl CommandRunner {
         for (task_id, res) in pre {
             Self::push_one(&mut results, task_id, res, id_map);
         }
-        // READ-5 / TASK-0767: use `join_next_with_id` so a panicking task
+        // Use `join_next_with_id` so a panicking task
         // surfaces the originating `CommandId` (looked up via `id_map`)
         // instead of a sentinel "<panicked>". JSON event consumers and CI
         // dashboards can then correlate the panicked StepResult with the
@@ -254,7 +253,7 @@ impl CommandRunner {
                     .get(&e.id())
                     .cloned()
                     .unwrap_or_else(|| CommandId::from("<panicked>"));
-                // CONC-6 / TASK-0214: distinguish a cancellation
+                // Distinguish a cancellation
                 // (fail_fast aborted the JoinSet) from a real panic so
                 // users see "cancelled" rather than misleading
                 // "panicked" for siblings that were intentionally
@@ -263,13 +262,13 @@ impl CommandRunner {
                     tracing::debug!(id = ?cmd_id.as_str(), "parallel task cancelled (fail_fast abort)");
                     results.push(StepResult::cancelled(cmd_id));
                 } else {
-                    // SEC-21 / TASK-0334: a JoinError's Display embeds the
-                    // panic payload, which often contains attacker-influenced
-                    // data (absolute paths from `expect`/`unwrap` panics,
-                    // user-supplied strings). That message flows into
+                    // A JoinError's Display embeds the panic payload, which
+                    // often contains attacker-influenced data (absolute
+                    // paths from `expect`/`unwrap` panics, user-supplied
+                    // strings). That message flows into
                     // StepResult.message → StepFailed → tap file / TAP CI
-                    // output, mirroring the leak channel SEC-22 closed for
-                    // spawn errors. Surface a generic message and log the
+                    // output — the same leak channel guarded for spawn
+                    // errors. Surface a generic message and log the
                     // raw payload at debug for operators.
                     tracing::debug!(id = ?cmd_id.as_str(), error = %e, "parallel task panicked (full payload)");
                     results.push(StepResult::failure(
@@ -295,7 +294,7 @@ impl CommandRunner {
         tokio::task::JoinSet<StepResult>,
         HashMap<TaskId, CommandId>,
     ) {
-        // CONC-3 / TASK-0158+0209: bounded channel so a chatty child
+        // Bounded channel so a chatty child
         // back-pressures on the display pump instead of growing the mpsc
         // buffer until the process OOMs. Capacity is sized to
         // MAX_PARALLEL × per-task event budget so the steady-state batch
@@ -304,12 +303,12 @@ impl CommandRunner {
         // throttling we want.
         let max_parallel = resolve_max_parallel();
         let event_budget = resolve_event_budget();
-        // PATTERN-1 (TASK-1236): cap the live-producer count at
-        // `min(steps.len(), max_parallel)` rather than the unconditional
-        // `max_parallel`. The previous shape sized a 2-step plan's channel as
-        // if 32 producers could be active, pre-allocating ~8 KiB × event-row
-        // worth of slots that no task could ever fill. Embedders driving many
-        // small parallel plans pay the worst-case sizing per plan otherwise.
+        // Cap the live-producer count at `min(steps.len(), max_parallel)`
+        // rather than the unconditional `max_parallel`: the raw knob would
+        // size a 2-step plan's channel as if 32 producers could be active,
+        // pre-allocating ~8 KiB × event-row worth of slots that no task
+        // could ever fill. Embedders driving many small parallel plans
+        // would pay the worst-case sizing per plan.
         let capacity = compute_channel_capacity(steps.len(), max_parallel, event_budget);
         tracing::debug!(
             steps = steps.len(),
@@ -324,27 +323,25 @@ impl CommandRunner {
         let mut join_set = tokio::task::JoinSet::new();
         let mut id_map: HashMap<TaskId, CommandId> = HashMap::new();
         for (id, spec) in steps {
-            // PERF-3 / TASK-1125: wrap once per task; subsequent forwards
+            // Wrap once per task; subsequent forwards
             // through exec_standalone → exec_command → build_command_async
             // are Arc::clone (refcount bump) instead of deep clones of
             // args/env/cwd/program.
             let spec = Arc::new(spec);
             let tx = tx.clone();
             let abort = Arc::clone(&abort);
-            // OWN-2 / TASK-0462: one ExecEnv clone per task — an Arc
-            // refcount bump per field, the allocation profile the parallel
-            // hot path has always had.
+            // One ExecEnv clone per task — an Arc refcount bump per
+            // field, not a deep copy.
             let env = env.clone();
             let sem = Arc::clone(&semaphore);
             let task_id = id.clone();
             let cmd_id = id.clone();
             let handle = join_set.spawn(async move {
-                // ERR-5 / TASK-0210: a closed semaphore panicked the worker
-                // with expect("semaphore closed"), yielding a generic
-                // <panicked> StepResult. Since the semaphore is scoped to
-                // the parent spawn frame it can never be closed while a
-                // child holds an Arc to it — but rather than encode that
-                // invariant via `expect`, surface a descriptive failure
+                // The semaphore is scoped to the parent spawn frame, so it
+                // can never be closed while a child holds an Arc to it —
+                // but rather than encode that invariant via `expect`
+                // (whose panic would yield a generic `<panicked>`
+                // StepResult), surface a descriptive failure
                 // so any future refactor that does drop the semaphore
                 // shows up as a clear error instead of a panic.
                 let Ok(permit) = sem.acquire().await else {
@@ -358,7 +355,7 @@ impl CommandRunner {
                 let _permit = permit;
                 exec_standalone(id, spec, ExecTaskCtx { env, tx, abort }).await
             });
-            // READ-5 / TASK-0767: remember which tokio task carries which
+            // Remember which tokio task carries which
             // CommandId so `collect_join_results` can preserve the id even
             // when the task panics (JoinError carries the task `Id`, not the
             // CommandId).
@@ -376,7 +373,7 @@ impl CommandRunner {
     /// this may consume significant system resources (file descriptors, memory, CPU).
     /// Consider splitting large parallel groups into smaller batches if resource
     /// exhaustion is a concern.
-    // CONC / TASK-1682: the returned future is `!Send` because `on_event` is a
+    // The returned future is `!Send` because `on_event` is a
     // bare `FnMut` sink that the CLI backs with `indicatif` state, which is not
     // `Send`. Adding a `+ Send` bound here would push that requirement onto
     // every caller and rule out the display sink the binary actually uses; the
@@ -390,7 +387,7 @@ impl CommandRunner {
         fail_fast: bool,
         on_event: &mut impl FnMut(RunnerEvent),
     ) -> Vec<StepResult> {
-        // ASYNC-7 / TASK-0777: parallel orchestration (channel + JoinSet +
+        // Parallel orchestration (channel + JoinSet +
         // AbortSignal + forwarder) only pays off when there are at least two
         // tasks to overlap. For command_ids.len() <= 1, delegate to the
         // sequential `run_plan` path: identical observable semantics
@@ -445,7 +442,7 @@ impl CommandRunner {
         for len in lengths {
             let batch: Vec<_> = steps.by_ref().take(len).collect();
             let stage_results = match <[_; 1]>::try_from(batch) {
-                // ASYNC-7: a lone step gains nothing from the channel /
+                // A lone step gains nothing from the channel /
                 // JoinSet orchestration.
                 Ok([(id, spec)]) => {
                     vec![self.run_exec(id.as_str(), &Arc::new(spec), on_event).await]
@@ -477,18 +474,18 @@ impl CommandRunner {
         on_event: &mut impl FnMut(RunnerEvent),
     ) -> Vec<StepResult> {
         let (rx, abort, mut join_set, id_map) = Self::spawn_parallel_tasks(steps, &self.exec_env());
-        // CONC-6 / TASK-0204: when fail_fast sees the first failure, set
-        // the abort flag **and** actively `abort_all()` the JoinSet so
-        // siblings stop rendering output. Previously the loop kept
-        // draining rx until every tx dropped, so a 5s sibling kept
+        // When fail_fast sees the first failure, set the abort flag
+        // **and** actively `abort_all()` the JoinSet so siblings stop
+        // rendering output — without the active abort the loop keeps
+        // draining rx until every tx dropped, so a 5s sibling keeps
         // emitting events long after the 100ms failure that triggered
         // fail_fast. Pass a JoinSet handle to `handle_parallel_events` so
         // it can cancel in-flight work.
-        // ERR-1 / TASK-0768: track terminal-event counts per plan command
+        // Track terminal-event counts per plan command
         // id so we can synthesize a `StepSkipped` for any orphan whose
         // task was aborted before its terminal event reached the channel.
         //
-        // PATTERN-1 / TASK-0997: count occurrences instead of using a
+        // Count occurrences instead of using a
         // `HashSet`. A composite that fans the same leaf id twice (legal
         // — `expand_to_leaves` only guards cycles, not duplicates) and
         // aborts both before either terminal event arrived would
@@ -514,7 +511,7 @@ impl CommandRunner {
                 }
                 on_event_inner(ev);
             };
-            // CONC-6 / TASK-1177: route through the inner variant so a
+            // Route through the inner variant so a
             // panicked sibling is observed during the events loop and
             // trips fail_fast at the same point a `StepFailed` would,
             // instead of leaking a 5s sibling that keeps emitting events
@@ -567,12 +564,12 @@ impl CommandRunner {
     /// Drain events, and on first failure under `fail_fast` abort any
     /// in-flight parallel tasks via `JoinSet::abort_all`.
     ///
-    /// CONC-6 / TASK-1177: also poll the `JoinSet` alongside the events
-    /// channel so a task that **panics** (rather than returning a non-zero
-    /// exit code) trips `fail_fast` at the same point a `StepFailed` event
-    /// would. Pre-fix, a panicked sibling surfaced only after the channel
-    /// drained naturally — defeating `fail_fast` for the panic path while a
-    /// 5-second sibling kept emitting output. Panic results captured here
+    /// Also poll the `JoinSet` alongside the events channel so a task
+    /// that **panics** (rather than returning a non-zero exit code) trips
+    /// `fail_fast` at the same point a `StepFailed` event would. Without
+    /// this polling a panicked sibling surfaces only after the channel
+    /// drains naturally — defeating `fail_fast` for the panic path while
+    /// a 5-second sibling keeps emitting output. Panic results captured here
     /// are stashed in `panic_results` and merged by [`collect_join_results`]
     /// so the caller still observes the synthesized failure.
     #[cfg(test)]
@@ -597,7 +594,7 @@ impl CommandRunner {
         }
     }
 
-    /// CONC-6 / TASK-1177: inner select-loop variant that also drains
+    /// Inner select-loop variant that also drains
     /// completed tasks from the `JoinSet` so panics trigger `fail_fast`.
     /// Harvested `(task_id, result)` pairs are appended to
     /// `harvested_results` so callers can merge them into the
@@ -615,20 +612,19 @@ impl CommandRunner {
         let mut cancelled = false;
         let mut rx_open = true;
         loop {
-            // CONC-3 / TASK-1921: harvest every *already finished* task
-            // before parking on the `select!`.
+            // Harvest every *already finished* task before parking on the
+            // `select!`.
             //
             // This loop's whole reason for watching the `JoinSet` is that a
             // task which **panics** emits no `StepFailed` event, so the join
-            // arm is the only trigger `fail_fast` has for that failure class
-            // (CONC-6 / TASK-1177). Leaving that to the `select!` alone made
-            // the trigger conditional on the event channel being *idle*:
+            // arm is the only trigger `fail_fast` has for that failure
+            // class. Leaving that to the `select!` alone makes the trigger
+            // conditional on the event channel being *idle*:
             // `select!` returns as soon as any arm is ready, so on a plan of
             // chatty steps — a permanently non-empty mpsc, which is exactly
             // the workload `fail_fast` exists to cut short — the join arm
-            // could go unpolled for as long as a sibling kept talking, and
-            // the panic surfaced only once the flood stopped. That is the
-            // pre-TASK-1177 behaviour the doc comment above says was fixed.
+            // can go unpolled for as long as a sibling keeps talking, and
+            // the panic surfaces only once the flood stops.
             //
             // `try_join_next_with_id` never yields, so this cannot starve
             // event delivery in the other direction: it drains what is
@@ -688,7 +684,7 @@ impl CommandRunner {
         }
     }
 
-    /// CONC-3 / TASK-1921: record one joined task, tripping `fail_fast` on a
+    /// Record one joined task, tripping `fail_fast` on a
     /// panic. Shared by the non-blocking pre-drain and the `select!` arm in
     /// [`Self::handle_parallel_events_with_cancel_inner`] so the two cannot
     /// drift apart.
@@ -711,7 +707,7 @@ impl CommandRunner {
                 harvested_results.push((task_id, Ok(result)));
             }
             Some(Err(join_err)) => {
-                // CONC-6 / TASK-1177: a JoinError that is NOT a
+                // A JoinError that is NOT a
                 // cancellation surfaces a panicked task. Trip
                 // fail_fast so live siblings stop.
                 if !join_err.is_cancelled() && fail_fast && !*cancelled {
@@ -730,38 +726,38 @@ impl CommandRunner {
 mod resolve_tests {
     use super::*;
 
-    /// PATTERN-1 (TASK-1236): a small parallel plan must size the channel
-    /// against `steps.len()`, not the raw `max_parallel`. Pin the new
-    /// sizing on a 2-step plan with `max_parallel = 32`, `event_budget = 256`.
+    /// A small parallel plan must size the channel against `steps.len()`,
+    /// not the raw `max_parallel`. Pins the sizing on a 2-step plan with
+    /// `max_parallel = 32`, `event_budget = 256`.
     #[test]
     fn channel_capacity_clamped_to_steps_len_for_small_plan() {
         // 2 producers max ⇒ 2 × 256 = 512, not 32 × 256 = 8192.
         assert_eq!(compute_channel_capacity(2, 32, 256), 512);
     }
 
-    /// PATTERN-1 (TASK-1236): when the plan has more steps than
+    /// When the plan has more steps than
     /// `max_parallel`, the cap stays at `max_parallel × event_budget`.
     #[test]
     fn channel_capacity_capped_at_max_parallel_for_large_plan() {
         assert_eq!(compute_channel_capacity(64, 32, 256), 32 * 256);
     }
 
-    /// PATTERN-1 (TASK-1236): empty plan gets a non-zero floor so the
+    /// An empty plan gets a non-zero floor so the
     /// `mpsc::channel(capacity)` constructor (which panics on 0) still works.
     #[test]
     fn channel_capacity_empty_plan_has_floor() {
         assert_eq!(compute_channel_capacity(0, 32, 256), 256);
     }
 
-    /// PERF-3 / TASK-0995: an out-of-range `OPS_MAX_PARALLEL` must clamp
-    /// to [`MAX_PARALLEL_CEILING`] so the `output_byte_cap` peak-RSS
-    /// warning (which now reuses this resolver) is computed against the
+    /// An out-of-range `OPS_MAX_PARALLEL` must clamp to
+    /// [`MAX_PARALLEL_CEILING`] so the `output_byte_cap` peak-RSS
+    /// warning (which reuses this resolver) is computed against the
     /// same clamped value the orchestrator actually uses, not against the
     /// raw env var.
     ///
-    /// PERF-3 / TASK-1171: exercises the pure [`resolve_env_usize`] helper
-    /// directly because the public `resolve_max_parallel` now memoises and
-    /// would observe whichever value was cached by the first caller.
+    /// Exercises the pure [`resolve_env_usize`] helper directly because
+    /// the public `resolve_max_parallel` memoises and would observe
+    /// whichever value was cached by the first caller.
     #[serial_test::serial(env_output_cap)]
     #[test]
     fn resolve_max_parallel_clamps_above_ceiling() {
@@ -808,7 +804,7 @@ mod resolve_tests {
         assert_eq!(resolved_zero, DEFAULT_MAX_PARALLEL);
     }
 
-    /// PERF-3 / TASK-1171 AC #2: mutating the env between two
+    /// Mutating the env between two
     /// `resolve_max_parallel()` calls must NOT change the second result —
     /// it observes the value snapshotted by the `OnceLock` initialiser.
     /// Runs in its own serial group so the cache snapshot is captured
@@ -833,13 +829,11 @@ mod resolve_tests {
         );
     }
 
-    /// ERR-1 / TASK-1092 AC-1, AC-3: pin the operator-facing warn message
-    /// for the zero case so the diagnostic
-    /// ("use 1 for sequential execution") stays distinct from the generic
-    /// parse-error message. A regression to the old joint
+    /// Pins the operator-facing warn message for the zero case so the
+    /// diagnostic ("use 1 for sequential execution") stays distinct from
+    /// the generic parse-error message. A regression to a joint
     /// "unparseable or zero value" wording would silently re-conflate
-    /// "explicit sequential intent" with "garbage" — exactly the bug
-    /// TASK-1092 closed.
+    /// "explicit sequential intent" with "garbage".
     #[test]
     fn zero_warn_message_distinguishes_sequential_intent() {
         assert!(
@@ -856,7 +850,7 @@ mod resolve_tests {
         );
     }
 
-    /// ERR-1 / TASK-1092 AC-2: an empty-string env var (`OPS_MAX_PARALLEL=`)
+    /// An empty-string env var (`OPS_MAX_PARALLEL=`)
     /// is treated as unset, not as an "unparseable value = \"\"" warning.
     #[serial_test::serial(env_output_cap)]
     #[test]
@@ -864,7 +858,7 @@ mod resolve_tests {
         let prev = std::env::var_os("OPS_MAX_PARALLEL");
         // SAFETY: tests serialised via `serial_test`.
         unsafe { std::env::set_var("OPS_MAX_PARALLEL", "") };
-        // PERF-3 / TASK-1171: bypass the memoising public resolver — the
+        // Bypass the memoising public resolver — the
         // OnceLock cache may have been populated by an earlier test before
         // this one set the empty value.
         let resolved = resolve_env_usize(

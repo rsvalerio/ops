@@ -6,17 +6,17 @@ use crate::Sqlite;
 use super::dir::{data_dir_for_db, IngestDir};
 use super::sql::table_has_data;
 
-// CONC-2 / TASK-1143: thread-local set of `&'static str` table names that
-// the current thread already holds the ingest mutex for.
+// Thread-local set of `&'static str` table names that the current thread
+// already holds the ingest mutex for.
 #[cfg(debug_assertions)]
 thread_local! {
     static HELD_INGEST_TABLES: std::cell::RefCell<std::collections::HashSet<&'static str>> =
         std::cell::RefCell::new(std::collections::HashSet::new());
 }
 
-// CONC-2 / TASK-1143: RAII guard that records the current thread's
-// ownership of the per-table ingest lock and detects re-entry on
-// construction. Release builds compile to a zero-sized stub.
+// RAII guard that records the current thread's ownership of the per-table
+// ingest lock and detects re-entry on construction. Release builds compile
+// to a zero-sized stub.
 pub(super) struct ReentryGuard {
     #[cfg(debug_assertions)]
     table: &'static str,
@@ -52,16 +52,16 @@ impl Drop for ReentryGuard {
     }
 }
 
-/// DUP-028/029/030: Refresh an ingestor (collect + load) and return query results.
+/// Refresh an ingestor (collect + load) and return query results.
 ///
 /// Orchestrates the full pipeline: check if table has data, if not collect and load,
 /// then query.
 ///
-/// CONC-2 (TASK-0728/1073): a per-table ingest lock prevents duplicate
-/// collect+load cycles AND extends across the trailing `query_fn` so a
-/// concurrent refresh cannot DROP the table mid-query.
+/// A per-table ingest lock prevents duplicate collect+load cycles AND
+/// extends across the trailing `query_fn` so a concurrent refresh cannot
+/// DROP the table mid-query.
 ///
-/// # Non-reentrancy contract (CONC-2 / TASK-1143)
+/// # Non-reentrancy contract
 ///
 /// `std::sync::Mutex` is non-reentrant. A `query_fn` that recursively calls
 /// `provide_via_ingestor` for the **same** `table_name` on the **same thread**
@@ -83,13 +83,13 @@ where
     I: crate::DataIngestor,
     Q: FnOnce(&Sqlite) -> Result<serde_json::Value, anyhow::Error>,
 {
-    // CONC-2 / TASK-1143: detect same-thread re-entry on the same table
-    // before acquiring the lock.
+    // Detect same-thread re-entry on the same table before acquiring the
+    // lock.
     let _reentry_guard = ReentryGuard::new(table_name);
 
     let ingest_mutex = db.ingest_mutex_for(table_name);
-    // ERR-5 (TASK-0780): poisoning the per-table mutex must not become a
-    // permanent denial of service for that table — recover via `into_inner`.
+    // Poisoning the per-table mutex must not become a permanent denial of
+    // service for that table — recover via `into_inner`.
     let _ingest_guard = ingest_mutex.lock().unwrap_or_else(|poisoned| {
         tracing::warn!(
             table = %table_name,
@@ -100,17 +100,16 @@ where
 
     use anyhow::Context;
 
-    // ERR-4 / TASK-1628: every `?` inside the orchestrator carries
-    // `.with_context` that names *both* the phase (drop / probe /
-    // create-dir / collect / init-schema / load / query) and the
-    // `table_name`. Without the label, two ingestors failing at the same
-    // syscall produced identical raw `DbError::Io` / `anyhow::Error`
-    // messages and operators had to grep the codebase to localise the
-    // failure. The closure cost is one short allocation per `?`; benign
-    // on the cold ingest path.
+    // Every `?` inside the orchestrator carries `.with_context` that names
+    // *both* the phase (drop / probe / create-dir / collect / init-schema /
+    // load / query) and the `table_name`. Without the label, two ingestors
+    // failing at the same syscall produce identical raw `DbError::Io` /
+    // `anyhow::Error` messages and operators have to grep the codebase to
+    // localise the failure. The closure cost is one short allocation per
+    // `?`; benign on the cold ingest path.
 
-    // CONC-2 / TASK-0909: drop_table_if_exists MUST run inside the per-table
-    // ingest_mutex critical section, before the table_has_data probe.
+    // drop_table_if_exists MUST run inside the per-table ingest_mutex
+    // critical section, before the table_has_data probe.
     if ctx.is_refreshing() {
         drop_table_if_exists(db, table_name)
             .with_context(|| format!("provide_via_ingestor({table_name}): drop phase"))?;
@@ -119,31 +118,32 @@ where
     let has_data = table_has_data(db, table_name)
         .with_context(|| format!("provide_via_ingestor({table_name}): table_has_data probe"))?;
     if !has_data {
-        // READ-5 / TASK-1867: an in-memory handle has no staging area; the
-        // pipeline used to derive the relative `:memory:.ingest` from the
-        // sentinel and litter the process working directory.
+        // An in-memory handle has no staging area; deriving the relative
+        // `:memory:.ingest` from the sentinel would litter the process
+        // working directory.
         let data_dir = data_dir_for_db(db.path())
             .with_context(|| format!("provide_via_ingestor({table_name}): ingest data dir"))?;
-        // SEC-25 / TASK-2054: create, harden and *verify* the staging directory
-        // once, then keep the descriptor open for the whole collect→load
-        // cycle. Every staged write below resolves against this handle, so the
-        // directory the pipeline writes into is provably the one that was
-        // verified — the previous shape verified it, dropped the handle, and
-        // then handed the bare path on to be resolved again at every write.
+        // Create, harden and *verify* the staging directory once, then keep
+        // the descriptor open for the whole collect→load cycle. Every
+        // staged write below resolves against this handle, so the directory
+        // the pipeline writes into is provably the one that was verified —
+        // verifying and then dropping the handle would hand the bare path
+        // on to be resolved again at every write.
         let dir = IngestDir::open(&data_dir)
             .with_context(|| format!("provide_via_ingestor({table_name}): create ingest dir"))?;
-        // ERR-7 / TASK-2156: `.with_context` on a `DbError` erases any typed
-        // `DataProviderError` travelling inside `DbError::External`. anyhow's
-        // context wrapper around a *foreign* error type downcasts by matching
-        // only that type — it cannot recurse into the `External` payload — so
-        // a spent deadline in an ingestor's walk reached the operator as
+        // `.with_context` on a `DbError` erases any typed
+        // `DataProviderError` travelling inside `DbError::External`:
+        // anyhow's context wrapper around a *foreign* error type downcasts
+        // by matching only that type — it cannot recurse into the
+        // `External` payload — so a spent deadline in an ingestor's walk
+        // would reach the operator as
         // `DataProviderError::ComputationFailed` once
-        // `From<anyhow::Error> for DataProviderError` failed its downcast.
-        // Re-raise a typed payload through an *anyhow-internal* context
-        // instead: that chain downcasts recursively, so the variant survives
-        // for every caller that matches on it, and the phase label survives
-        // with it. Every sidecar ingestor's `collect` funnels through here,
-        // so the fix covers them all, not just tokei.
+        // `From<anyhow::Error> for DataProviderError` fails its downcast.
+        // Re-raising a typed payload through an *anyhow-internal* context
+        // instead gives a chain that downcasts recursively, so the variant
+        // survives for every caller that matches on it, and the phase
+        // label survives with it. Every sidecar ingestor's `collect`
+        // funnels through here, so this covers them all, not just tokei.
         if let Err(err) = ingestor.collect(ctx, &dir) {
             let label = format!("provide_via_ingestor({table_name}): ingestor collect");
             return Err(match err {
@@ -194,7 +194,7 @@ mod tests {
     /// a named `const`.
     const ID_COLS: &[JsonColumn] = &[JsonColumn::integer("id", "$.id")];
 
-    // --- drop_table_if_exists validation (SEC-12) ---
+    // --- drop_table_if_exists validation ---
 
     #[test]
     fn drop_table_rejects_whitespace() {
@@ -224,8 +224,8 @@ mod tests {
         assert!(drop_table_if_exists(&db, "t; DROP TABLE users; --").is_err());
     }
 
-    /// CONC-2 (TASK-0728): two threads invoking `provide_via_ingestor` against
-    /// the same empty table must run collect at most once.
+    /// Two threads invoking `provide_via_ingestor` against the same empty
+    /// table must run collect at most once.
     #[test]
     fn concurrent_provide_via_ingestor_collects_once() {
         use crate::DataIngestor;
@@ -290,8 +290,8 @@ mod tests {
         );
     }
 
-    /// CONC-7 (TASK-0779): per-table ingest registry is scoped to the `Sqlite`
-    /// instance and bounded by the table count.
+    /// The per-table ingest registry is scoped to the `Sqlite` instance
+    /// and bounded by the table count.
     #[test]
     fn ingest_lock_map_is_scoped_to_sqlite_instance_and_bounded_by_table_count() {
         use crate::DataIngestor;
@@ -350,8 +350,8 @@ mod tests {
         assert_eq!(db2.ingest_lock_count(), 0, "fresh instance has no entries");
     }
 
-    /// ERR-5 (TASK-0780): a panic inside an ingestor's `collect` must not
-    /// permanently brick the table.
+    /// A panic inside an ingestor's `collect` must not permanently brick
+    /// the table.
     #[test]
     fn panic_in_collect_does_not_brick_subsequent_ingest() {
         use crate::DataIngestor;
@@ -415,7 +415,7 @@ mod tests {
         .expect("recovery ingest must not panic");
     }
 
-    /// TASK-0861: poison recovery emits a warn log.
+    /// Poison recovery emits a warn log.
     #[test]
     fn poison_recovery_emits_warn_log() {
         use crate::DataIngestor;
@@ -490,7 +490,7 @@ mod tests {
         );
     }
 
-    /// CONC-2 (TASK-1073): refresh-driven DROP serializes behind in-flight `query_fn`.
+    /// Refresh-driven DROP serializes behind in-flight `query_fn`.
     #[test]
     fn refresh_during_query_fn_is_serialized_by_ingest_mutex() {
         use crate::DataIngestor;
@@ -580,7 +580,7 @@ mod tests {
         );
     }
 
-    /// CONC-2 / TASK-1143: same-thread re-entry on the same table panics.
+    /// Same-thread re-entry on the same table panics.
     #[cfg(debug_assertions)]
     #[test]
     fn reentry_guard_panics_on_same_thread_same_table_reentry() {
@@ -594,7 +594,7 @@ mod tests {
         );
     }
 
-    /// CONC-2 / TASK-1143: distinct tables on the same thread are fine.
+    /// Distinct tables on the same thread are fine.
     #[cfg(debug_assertions)]
     #[test]
     fn reentry_guard_allows_distinct_tables_on_same_thread() {
@@ -602,7 +602,7 @@ mod tests {
         let _b = ReentryGuard::new("conc2_table_b");
     }
 
-    /// ERR-4 / TASK-1628: a failing `collect` must surface the table name
+    /// A failing `collect` must surface the table name
     /// and the phase label in the anyhow error chain so operators can
     /// localise the failure without grepping the codebase.
     #[test]
@@ -655,10 +655,10 @@ mod tests {
         );
     }
 
-    /// READ-5 / TASK-1867: driving the pipeline with an in-memory handle
-    /// must fail loudly instead of creating a relative `:memory:.ingest`
-    /// directory in the process working directory. The `counting.json`
-    /// artifact this used to leave behind was committed to the repository.
+    /// Driving the pipeline with an in-memory handle must fail loudly
+    /// instead of creating a relative `:memory:.ingest` directory in the
+    /// process working directory — an artifact left behind there can even
+    /// get committed to the repository by accident.
     #[test]
     fn provide_via_ingestor_rejects_in_memory_db_without_touching_the_cwd() {
         use crate::DataIngestor;
