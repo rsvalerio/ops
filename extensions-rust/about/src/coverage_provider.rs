@@ -108,11 +108,11 @@ fn project_coverage_cache() -> &'static Mutex<ProjectCoverageCache> {
 /// silently degraded to "warn fires once per concurrent first-caller".
 pub fn cached_query_project_coverage(db: &Sqlite) -> Option<CrateCoverage> {
     let slot: CoverageSlot = {
-        // DUP-1 / TASK-2150: the poison-recovering lock scaffold lives in
-        // `ops_about::lru::lock_recovering`. Recovery is silent here: the
+        // DUP-1 / TASK-2258: the poison-recovery policy lives in
+        // `ops_core::sync::lock_recover`. Recovery is silent here: the
         // guarded value is the plain-data memoization map, and the worst
         // outcome of a missed poison is a recomputed query.
-        let mut guard = ops_about::lru::lock_recovering(project_coverage_cache(), || {});
+        let mut guard = ops_core::sync::lock_recover(project_coverage_cache());
         guard.slot_for(db.id())
     };
 
@@ -254,17 +254,18 @@ mod cache_tests {
         cached_query_project_coverage, project_coverage_cache, ProjectCoverageCache,
         MAX_COVERAGE_CACHE_ENTRIES,
     };
-    use ops_about::lru::{lock_recovering, VICTIM_QUEUE_SLACK};
+    use ops_about::lru::VICTIM_QUEUE_SLACK;
     use ops_about::test_support::{capture_tracing, pin_global_dispatcher, TracingBuf};
+    use ops_core::sync::lock_recover;
     use ops_sqlite::Sqlite;
     use std::sync::Arc;
 
     fn cache_len() -> usize {
-        lock_recovering(project_coverage_cache(), || {}).cache.len()
+        lock_recover(project_coverage_cache()).cache.len()
     }
 
     fn contains(key: u64) -> bool {
-        lock_recovering(project_coverage_cache(), || {})
+        lock_recover(project_coverage_cache())
             .cache
             .contains_key(&key)
     }
