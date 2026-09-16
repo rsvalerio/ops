@@ -52,12 +52,11 @@ category = "Code Quality"
 # help = "Preview the production build locally"
 # category = "Build"
 
-# Baseline suggestion — uncomment and adjust to opt in (destructive).
-# [commands.clean]
-# program = "rm"
-# args = ["-rf", "node_modules", "dist"]
-# help = "Remove build artifacts and deps"
-# category = "Build"
+[commands.clean]
+program = "rm"
+args = ["-rf", "node_modules", "dist"]
+help = "Remove build artifacts and deps"
+category = "Build"
 
 [commands.verify]
 commands = ["install", "typecheck", "lint", "build", "trailing-whitespace", "end-of-file-fixer", "check-json", "check-yaml"]

@@ -59,10 +59,11 @@ under a third fingerprint. It remains available standalone.
 | `build` | `npm run build` |
 | `test` | `npm test` |
 | `lint` | `npm run lint` |
+| `clean` | `rm -rf node_modules dist` |
 | `verify` | composite: `install`, `lint`, `build`, `trailing-whitespace`, `end-of-file-fixer`, `check-json`, `check-yaml` (sequential, fail-fast) |
 | `qa` | composite: `test` (sequential, fail-fast) |
 
-Suggested `fmt` and `clean` commands exist only as **commented** templates in the default TOML.
+A suggested `fmt` command exists only as a **commented** template in the default TOML.
 
 ---
 
@@ -77,10 +78,11 @@ Detected **before** node, since every Vite project also ships a `package.json`. 
 | `build` | `bunx vite build` |
 | `lint` | `bunx eslint .` |
 | `test` | `bunx vitest run` |
+| `clean` | `rm -rf node_modules dist` |
 | `verify` | composite: `install`, `typecheck`, `lint`, `build`, `trailing-whitespace`, `end-of-file-fixer`, `check-json`, `check-yaml` (sequential, fail-fast) |
 | `qa` | composite: `test` (sequential, fail-fast) |
 
-Suggested `fmt` (`bunx prettier --write .`), `preview` (`bunx vite preview`), and `clean` commands exist only as **commented** templates in the default TOML.
+Suggested `fmt` (`bunx prettier --write .`) and `preview` (`bunx vite preview`) commands exist only as **commented** templates in the default TOML.
 
 ---
 
@@ -128,10 +130,11 @@ A suggested `build` (`uv build`) is commented in the default TOML.
 | `fmt` | `terraform fmt -recursive` |
 | `validate` | `terraform validate` |
 | `plan` | `terraform plan` |
+| `clean` | `rm -rf .terraform` (keeps `.terraform.lock.hcl`) |
 | `verify` | composite: `fmt`, `validate`, `trailing-whitespace`, `end-of-file-fixer`, `check-json`, `check-yaml` (sequential, fail-fast) |
 | `qa` | composite: `plan` (sequential, fail-fast) |
 
-Suggested `lint` (`tflint`), `build`, `test`, and `clean` are commented templates.
+Suggested `lint` (`tflint`), `build`, and `test` are commented templates.
 
 ---
 
@@ -141,10 +144,11 @@ Suggested `lint` (`tflint`), `build`, `test`, and `clean` are commented template
 | --- | --- |
 | `lint` | `ansible-lint` |
 | `check` | `ansible-playbook --check site.yml` |
+| `clean` | `sh -c 'rm -rf .ansible *.retry'` (shell expands the glob; the runner execs without one) |
 | `verify` | composite: `lint`, `check`, `trailing-whitespace`, `end-of-file-fixer`, `check-json`, `check-yaml` (sequential, fail-fast) |
 | `qa` | composite: `check` (sequential, fail-fast) |
 
-Suggested `fmt`, `build`, `test`, and `clean` are commented templates.
+Suggested `fmt`, `build`, and `test` are commented templates.
 
 ---
 

@@ -45,12 +45,11 @@ category = "Code Quality"
 # help = "Run terraform test suite"
 # category = "Code Quality"
 
-# Baseline suggestion — uncomment and adjust to opt in (destructive).
-# [commands.clean]
-# program = "rm"
-# args = ["-rf", ".terraform", ".terraform.lock.hcl"]
-# help = "Remove provider cache and lock file"
-# category = "Build"
+[commands.clean]
+program = "rm"
+args = ["-rf", ".terraform"]
+help = "Remove provider cache (keeps .terraform.lock.hcl)"
+category = "Build"
 
 [commands.verify]
 commands = ["fmt", "validate", "trailing-whitespace", "end-of-file-fixer", "check-json", "check-yaml"]

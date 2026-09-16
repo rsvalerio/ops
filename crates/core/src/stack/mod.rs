@@ -442,6 +442,36 @@ mod tests {
         assert!(cmds.contains_key("verify"));
     }
 
+    /// The 7-command stack contract (fmt/lint/build/test/clean/verify/qa):
+    /// every concrete stack ships an active `clean` — the native tool where
+    /// one exists (`cargo clean`, `./mvnw clean`, …) and a targeted `rm`
+    /// otherwise.
+    #[test]
+    fn every_non_generic_stack_ships_clean() {
+        for stack in Stack::iter() {
+            if stack == Stack::Generic {
+                continue;
+            }
+            assert!(
+                stack.default_commands_ref().contains_key("clean"),
+                "{stack:?} must ship a default `clean` command"
+            );
+        }
+    }
+
+    /// `clean` must not delete `.terraform.lock.hcl`: the lock file is
+    /// normally committed and shared by the team, so removing it forces a
+    /// re-lock against potentially newer provider hashes.
+    #[test]
+    fn terraform_clean_preserves_lock_file() {
+        let cmds = Stack::Terraform.default_commands_ref();
+        let Some(CommandSpec::Exec(spec)) = cmds.get("clean") else {
+            panic!("terraform `clean` must be an exec command");
+        };
+        assert_eq!(spec.program, "rm");
+        assert_eq!(spec.args, ["-rf", ".terraform"]);
+    }
+
     #[test]
     fn generic_has_no_default_commands() {
         let cmds = Stack::Generic.default_commands_ref();
