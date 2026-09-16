@@ -1,10 +1,10 @@
 ---
 id: TASK-2261
 title: 'READ-13: doc/comment change-journal narration survives in files that fell outside wave14''s per-task file lists'
-status: To Do
+status: Done
 assignee: []
 created_date: '2026-09-10 19:32'
-updated_date: '2026-09-16 17:12'
+updated_date: '2026-09-16 17:57'
 labels:
   - code-review-rust
   - readability
@@ -50,7 +50,14 @@ Current counts of `TASK-nnnn` citations, plus the usual `previously` / `used to`
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 No TASK-nnnn reference or review rule-ID prefix remains in a doc comment or inline comment in the listed files
-- [ ] #2 Change-history framing (previously / used to / the predecessor / pre-fix / the previous X) is replaced by statements of current behaviour, with the load-bearing rationale kept
-- [ ] #3 cargo doc --workspace --document-private-items still builds with no new warnings and no broken intra-doc links
+- [x] #1 No TASK-nnnn reference or review rule-ID prefix remains in a doc comment or inline comment in the listed files
+- [x] #2 Change-history framing (previously / used to / the predecessor / pre-fix / the previous X) is replaced by statements of current behaviour, with the load-bearing rationale kept
+- [x] #3 cargo doc --workspace --document-private-items still builds with no new warnings and no broken intra-doc links
+
 <!-- AC:END -->
+
+## Implementation Notes
+
+<!-- SECTION:NOTES:BEGIN -->
+Path substitution: the task listed extensions/duckdb/src/sql/ingest/orchestrator.rs, but the extension is named sqlite — applied to extensions/sqlite/src/sql/ingest/orchestrator.rs (21 citations, matching the listed count). Also repaired two pre-existing broken intra-doc links in crates/core/src/config/loader/{mod,global}.rs that made the AC #3 workspace doc build fail at base.
+<!-- SECTION:NOTES:END -->
