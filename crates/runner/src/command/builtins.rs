@@ -27,7 +27,12 @@ use ops_core::config::{CommandId, CommandSpec, ExecCommandSpec};
 /// subcommand should also be referenceable from composite `commands = [...]`.
 ///
 /// The fixers rewrite files, so they keep `ops_subcommand`'s exclusive
-/// default; the checkers and `sec` only read and are marked [`read_only`].
+/// default; the checkers only read and are marked [`read_only`]. `sec` also
+/// never writes the worktree, but it stays exclusive (TASK-2263): Trivy
+/// reads the *whole* tree, build outputs included, and aborts the scan when
+/// a file vanishes mid-walk — which is exactly what a concurrent build or
+/// test step does to `target/`. Overlapping `sec` with those steps is a
+/// race, not a safe read-only overlap.
 pub(super) fn builtin_commands() -> IndexMap<CommandId, CommandSpec> {
     let mut map = IndexMap::new();
     map.insert(
@@ -48,7 +53,7 @@ pub(super) fn builtin_commands() -> IndexMap<CommandId, CommandSpec> {
     );
     map.insert(
         CommandId::from("sec"),
-        CommandSpec::Exec(read_only(builtin_exec("sec", &[]))),
+        CommandSpec::Exec(builtin_exec("sec", &[])),
     );
     map
 }
@@ -61,6 +66,13 @@ fn builtin_exec(subcommand: &'static str, aliases: &[&'static str]) -> ExecComma
 }
 
 /// Let a builtin that never writes to the worktree overlap other steps.
+///
+/// `sec` is deliberately excluded (TASK-2263): although it never *writes*,
+/// its Trivy scan reads the entire tree — build outputs included — and
+/// aborts with `fs scan error … no such file or directory` when a
+/// concurrent build or test step deletes a file mid-walk. A scan that races
+/// the steps around it is not a safe overlap, so `sec` keeps the exclusive
+/// default and runs alone, in list order, in any parallel plan.
 const fn read_only(mut spec: ExecCommandSpec) -> ExecCommandSpec {
     spec.exclusive = false;
     spec
@@ -128,7 +140,9 @@ mod tests {
     }
 
     /// The fixers rewrite files and must run alone in a parallel plan; the
-    /// read-only checkers and `sec` may overlap other steps.
+    /// read-only checkers may overlap other steps. `sec` is exclusive too —
+    /// see [`read_only`] for why a whole-tree Trivy scan is not a safe
+    /// overlap even though it never writes.
     #[test]
     fn only_file_rewriting_builtins_are_exclusive() {
         let map = builtin_commands();
@@ -137,12 +151,28 @@ mod tests {
             ("trailing-whitespace", true),
             ("check-json", false),
             ("check-yaml", false),
-            ("sec", false),
+            ("sec", true),
         ] {
             let Some(CommandSpec::Exec(exec)) = map.get(name) else {
                 panic!("{name} must be an exec builtin");
             };
             assert_eq!(exec.exclusive, expected, "{name}.exclusive");
         }
+    }
+
+    /// TASK-2263 AC #3: pin `sec` as exclusive on its own, so a future
+    /// refactor that reintroduces the `read_only` wrapper for it fails here
+    /// rather than resurrecting the Trivy-vs-build race in a parallel plan.
+    #[test]
+    fn sec_is_registered_exclusive() {
+        let map = builtin_commands();
+        let Some(CommandSpec::Exec(exec)) = map.get("sec") else {
+            panic!("sec must be an exec builtin");
+        };
+        assert!(
+            exec.exclusive,
+            "sec must be exclusive: Trivy walks the whole tree, build outputs included, \
+             and aborts when a concurrent step deletes a file mid-walk"
+        );
     }
 }
