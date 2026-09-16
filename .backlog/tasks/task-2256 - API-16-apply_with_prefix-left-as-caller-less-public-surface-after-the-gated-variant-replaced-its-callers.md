@@ -1,10 +1,10 @@
 ---
 id: TASK-2256
 title: 'API-16: apply_with_prefix left as caller-less public surface after the gated variant replaced its callers'
-status: To Do
+status: Done
 assignee: []
 created_date: '2026-09-09 18:47'
-updated_date: '2026-09-16 17:12'
+updated_date: '2026-09-16 17:27'
 labels:
   - code-review-rust
   - api-design
@@ -31,5 +31,12 @@ ordinal: 1000
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 apply_with_prefix is either removed from the ops-theme public API or has a real caller that justifies the eager-gate convenience form
+- [x] #1 apply_with_prefix is either removed from the ops-theme public API or has a real caller that justifies the eager-gate convenience form
+
 <!-- AC:END -->
+
+## Implementation Notes
+
+<!-- SECTION:NOTES:BEGIN -->
+Removed: `apply_with_prefix` deleted from crates/theme/src/style/sgr.rs along with its `style.rs` re-export; `apply_with_prefix_gated` doc updated to record the removal and the once-per-entry-point gate rule. Workspace-wide grep confirmed zero callers outside the gated variant. `apply_style` (the parallel eager form) keeps a real production caller in crates/runner/src/display/finalize.rs:146 — single-segment cold path, intentionally retained.
+<!-- SECTION:NOTES:END -->
