@@ -6,7 +6,7 @@
 //! gating that owns the SGR application path.
 //!
 //! - [`sgr`]   — SGR token parsing, gated style application,
-//!   `precompute_sgr_prefix` / `apply_with_prefix` (rendering crate
+//!   `precompute_sgr_prefix` / `apply_with_prefix_gated` (rendering crate
 //!   internal API).
 //! - [`strip`] — ANSI escape stripping, visible-width measurement and
 //!   width-bounded truncation (cross-crate read-only API; no TTY/env
@@ -20,10 +20,7 @@ mod sgr;
 mod strip;
 
 pub(crate) use sgr::color_enabled;
-pub use sgr::{
-    apply_style, apply_style_gated, apply_with_prefix, apply_with_prefix_gated,
-    precompute_sgr_prefix,
-};
+pub use sgr::{apply_style, apply_style_gated, apply_with_prefix_gated, precompute_sgr_prefix};
 // The pure gate resolver is exercised by the crate's own tests (CL-3 /
 // TASK-1976); production code always goes through `color_enabled`.
 #[cfg(test)]
