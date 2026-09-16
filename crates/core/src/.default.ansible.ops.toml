@@ -33,9 +33,12 @@ category = "Code Quality"
 # help = "Run molecule test suite"
 # category = "Code Quality"
 
+# Spawns `rm` through `sh -c`: the runner execs program+args directly (no
+# shell), so a bare `rm -rf .ansible *.retry` would pass the glob through
+# literally and never match retry files.
 [commands.clean]
-program = "rm"
-args = ["-rf", ".ansible", "*.retry"]
+program = "sh"
+args = ["-c", "rm -rf .ansible *.retry"]
 help = "Remove ansible caches"
 category = "Build"
 

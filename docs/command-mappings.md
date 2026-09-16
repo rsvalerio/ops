@@ -144,7 +144,7 @@ Suggested `lint` (`tflint`), `build`, and `test` are commented templates.
 | --- | --- |
 | `lint` | `ansible-lint` |
 | `check` | `ansible-playbook --check site.yml` |
-| `clean` | `rm -rf .ansible *.retry` |
+| `clean` | `sh -c 'rm -rf .ansible *.retry'` (shell expands the glob; the runner execs without one) |
 | `verify` | composite: `lint`, `check`, `trailing-whitespace`, `end-of-file-fixer`, `check-json`, `check-yaml` (sequential, fail-fast) |
 | `qa` | composite: `check` (sequential, fail-fast) |
 
