@@ -1,15 +1,15 @@
 ---
 id: TASK-2253
-title: >-
-  READ-5: fix_eof converts a lone trailing CR to LF (b"abc\r" -> b"abc\n"), the
-  same unrequested line-ending conversion class TASK-2158 closed for CRLF
-status: Triage
+title: 'READ-5: fix_eof converts a lone trailing CR to LF (b"abc\r" -> b"abc\n"), the same unrequested line-ending conversion class TASK-2158 closed for CRLF'
+status: To Do
 assignee: []
 created_date: '2026-09-08 16:14'
+updated_date: '2026-09-16 17:12'
 labels:
   - code-review-rust
   - correctness
 dependencies: []
+parent_task_id: 'TASK-2269'
 modified_files:
   - extensions/text-fixers/src/eof.rs
 priority: low

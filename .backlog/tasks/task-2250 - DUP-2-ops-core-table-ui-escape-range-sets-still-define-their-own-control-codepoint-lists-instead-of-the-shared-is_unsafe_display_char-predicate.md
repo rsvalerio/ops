@@ -1,15 +1,15 @@
 ---
 id: TASK-2250
-title: >-
-  DUP-2: ops-core table/ui escape range sets still define their own
-  control-codepoint lists instead of the shared is_unsafe_display_char predicate
-status: Triage
+title: 'DUP-2: ops-core table/ui escape range sets still define their own control-codepoint lists instead of the shared is_unsafe_display_char predicate'
+status: To Do
 assignee: []
 created_date: '2026-09-08 16:02'
+updated_date: '2026-09-16 17:12'
 labels:
   - code-review-rust
   - duplication
 dependencies: []
+parent_task_id: 'TASK-2267'
 modified_files:
   - crates/core/src/table.rs
   - crates/core/src/ui.rs

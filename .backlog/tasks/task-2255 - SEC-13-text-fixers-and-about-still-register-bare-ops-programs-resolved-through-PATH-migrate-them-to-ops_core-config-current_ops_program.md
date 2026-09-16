@@ -1,15 +1,15 @@
 ---
 id: TASK-2255
-title: >-
-  SEC-13: text-fixers and about still register bare 'ops' programs resolved
-  through PATH; migrate them to ops_core::config::current_ops_program
-status: Triage
+title: 'SEC-13: text-fixers and about still register bare ''ops'' programs resolved through PATH; migrate them to ops_core::config::current_ops_program'
+status: To Do
 assignee: []
 created_date: '2026-09-08 17:49'
+updated_date: '2026-09-16 17:12'
 labels:
   - code-review-rust
   - security
 dependencies: []
+parent_task_id: 'TASK-2269'
 modified_files:
   - extensions/text-fixers/src/lib.rs
   - extensions/about/src/lib.rs

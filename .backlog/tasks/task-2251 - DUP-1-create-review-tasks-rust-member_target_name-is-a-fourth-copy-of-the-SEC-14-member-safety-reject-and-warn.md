@@ -1,16 +1,15 @@
 ---
 id: TASK-2251
-title: >-
-  DUP-1: create-review-tasks-rust member_target_name is a fourth copy of the
-  SEC-14 member-safety reject-and-warn
-status: Triage
+title: 'DUP-1: create-review-tasks-rust member_target_name is a fourth copy of the SEC-14 member-safety reject-and-warn'
+status: To Do
 assignee: []
 created_date: '2026-09-08 16:02'
-updated_date: '2026-09-08 16:07'
+updated_date: '2026-09-16 17:12'
 labels:
   - code-review-rust
   - duplication
 dependencies: []
+parent_task_id: 'TASK-2267'
 modified_files:
   - extensions-rust/create-review-tasks/src/provider.rs
 priority: low

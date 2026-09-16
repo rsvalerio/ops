@@ -1,13 +1,15 @@
 ---
 id: TASK-2261
 title: 'READ-13: doc/comment change-journal narration survives in files that fell outside wave14''s per-task file lists'
-status: Triage
+status: To Do
 assignee: []
 created_date: '2026-09-10 19:32'
+updated_date: '2026-09-16 17:12'
 labels:
   - code-review-rust
   - readability
 dependencies: []
+parent_task_id: 'TASK-2270'
 modified_files:
   - extensions-rust/cargo-update/src/tests.rs
   - crates/runner/src/command/events.rs

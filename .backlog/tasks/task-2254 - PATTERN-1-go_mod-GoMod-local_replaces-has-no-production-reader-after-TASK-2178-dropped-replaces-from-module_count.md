@@ -1,15 +1,15 @@
 ---
 id: TASK-2254
-title: >-
-  PATTERN-1: go_mod::GoMod::local_replaces has no production reader after
-  TASK-2178 dropped replaces from module_count
-status: Triage
+title: 'PATTERN-1: go_mod::GoMod::local_replaces has no production reader after TASK-2178 dropped replaces from module_count'
+status: To Do
 assignee: []
 created_date: '2026-09-08 16:58'
+updated_date: '2026-09-16 17:12'
 labels:
   - code-review-rust
   - pattern
 dependencies: []
+parent_task_id: 'TASK-2268'
 modified_files:
   - extensions-go/about/src/go_mod.rs
 priority: low

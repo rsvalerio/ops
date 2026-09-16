@@ -1,13 +1,15 @@
 ---
 id: TASK-2257
 title: 'DUP-1: ArcTextCache (extensions/about) still hand-rolls the LRU scaffold BoundedLruCache now owns'
-status: Triage
+status: To Do
 assignee: []
 created_date: '2026-09-10 16:27'
+updated_date: '2026-09-16 17:12'
 labels:
   - code-review-rust
   - duplication
 dependencies: []
+parent_task_id: 'TASK-2266'
 modified_files:
   - extensions/about/src/manifest_cache.rs
 priority: low

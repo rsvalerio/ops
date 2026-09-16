@@ -1,13 +1,15 @@
 ---
 id: TASK-2260
 title: 'DUP-1: BoundedLruCache::touch_if re-inlines push_stamp''s body instead of calling it'
-status: Triage
+status: To Do
 assignee: []
 created_date: '2026-09-10 18:41'
+updated_date: '2026-09-16 17:12'
 labels:
   - code-review-rust
   - duplication
 dependencies: []
+parent_task_id: 'TASK-2266'
 modified_files:
   - extensions/about/src/lru.rs
 priority: low

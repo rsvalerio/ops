@@ -1,13 +1,15 @@
 ---
 id: TASK-2256
 title: 'API-16: apply_with_prefix left as caller-less public surface after the gated variant replaced its callers'
-status: Triage
+status: To Do
 assignee: []
 created_date: '2026-09-09 18:47'
+updated_date: '2026-09-16 17:12'
 labels:
   - code-review-rust
   - api-design
 dependencies: []
+parent_task_id: 'TASK-2268'
 modified_files:
   - crates/theme/src/style/sgr.rs
   - crates/theme/src/style.rs
