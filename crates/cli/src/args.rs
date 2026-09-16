@@ -220,10 +220,12 @@ pub enum CoreSubcommand {
     /// legitimately slow).
     ///
     /// Every scan skips each detected stack's build/dependency directories
-    /// (`target`, `node_modules`, `dist`, `.venv`, `vendor`, `.terraform`, …)
-    /// at any depth, plus `.git` — build output is generated artefact, not
-    /// source, and races the builds producing it. Pass `--no-default-skips`
-    /// to scan them anyway.
+    /// (`target`, `node_modules`, `.venv`, `vendor`, `.terraform`, …) at
+    /// any depth, plus `.git` — build output is generated artefact, not
+    /// source, and races the builds producing it. Generic names (`build`,
+    /// `dist`) are skipped only where a stack manifest beside them marks
+    /// them as generated output, so checked-in directories with those
+    /// names stay scanned. Pass `--no-default-skips` to scan them anyway.
     Sec {
         /// Skip a scan even if it would otherwise run (repeatable).
         #[arg(long = "skip", value_enum, value_name = "SCAN")]

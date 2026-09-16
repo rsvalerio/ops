@@ -952,8 +952,9 @@ fn cli_sec_dry_run_prints_the_plan_without_requiring_trivy() {
         .stdout(predicate::str::contains("[skip] vulnerabilities"))
         .stdout(predicate::str::contains("[skip] misconfiguration"))
         // TASK-2264: the preview also names the directories every scan will
-        // skip, in the `**/<dir>` form actually passed to Trivy.
-        .stdout(predicate::str::contains("skipping dirs (any depth)"))
+        // skip, in the `**/<dir>` form actually passed to Trivy; generated
+        // build/dist dirs appear as exact paths (TASK-2271).
+        .stdout(predicate::str::contains("skipping dirs:"))
         .stdout(predicate::str::contains("**/target"))
         // The heads-up keeps the preview honest about a live run.
         .stderr(predicate::str::contains("trivy not found on PATH"));

@@ -1,9 +1,10 @@
 ---
 id: TASK-2271
 title: 'ops sec: generic skip-dir names (build, dist) silently exclude checked-in directories at any depth'
-status: Triage
+status: Done
 assignee: []
 created_date: '2026-09-16 19:28'
+updated_date: '2026-09-16 21:24'
 labels:
   - code-review
 dependencies: []
@@ -33,3 +34,9 @@ Decision needed, then implementation + tests (`markers_inside_gradle_build_dirs_
 - [ ] #1 Design decision recorded on this task (keep / restrict / drop, with rationale)
 - [ ] #2 Implementation + tests match the recorded decision; README skip-list section and detection tests updated in the same change
 <!-- AC:END -->
+
+## Implementation Notes
+
+<!-- SECTION:NOTES:BEGIN -->
+Decision (2026-09-16): restrict. Generic names (build, dist) are excluded only where ops_core::stack::is_generated_build_dir says the parent holds a manifest of a stack declaring that build dir; unambiguous cache/output names (target, node_modules, .venv, venv, __pycache__, .terraform, vendor, .gradle, .git) stay global by-name skips. Trivy receives generic dirs as exact discovered relative paths (verified against Trivy 0.74: nested paths scope to themselves, bare names match root-level only) instead of blanket **/build; the detection walk doubles as the inventory, so its complete() early-exit was removed (walk cost measured at ~76ms on this repo; file-level work stays gated so the k8s content probe still stops early). Implemented on PR #59; gradle marker test now carries a build.gradle fixture (generated case), new tests pin the checked-in services/build case and the per-path Trivy args.
+<!-- SECTION:NOTES:END -->

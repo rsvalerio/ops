@@ -226,18 +226,27 @@ Every Trivy scan `ops sec` runs skips these directories at any depth, plus
 `.git` — build output is generated artefact, not source: slow to walk, noisy
 to scan, and it races the builds producing it (Trivy aborts when a file
 vanishes mid-walk). `--no-default-skips` opts out; `--dry-run` previews the
-exact `**/<dir>` patterns passed to Trivy.
+exact patterns passed to Trivy.
 
 | Stack | Skipped by default |
 |-------|--------------------|
 | Rust | `target` |
-| Node / Vite | `node_modules`, `dist` |
-| Python | `.venv`, `venv`, `__pycache__`, `build`, `dist` |
+| Node / Vite | `node_modules` |
+| Python | `.venv`, `venv`, `__pycache__` |
 | Go | `vendor` |
 | Terraform | `.terraform` |
 | Java (Maven) | `target` |
-| Java (Gradle) | `build`, `.gradle` |
+| Java (Gradle) | `.gradle` |
 | Ansible | — (collection/role caches default to `$HOME/.ansible`, not the repo) |
+
+The generic names — `build` (Gradle, Python) and `dist` (Node, Vite,
+Python) — are plausible checked-in source paths too, so they are never
+skipped by name. A `build/` or `dist/` is skipped only where a manifest of
+a stack that generates it sits in the parent directory (a `build/` beside
+`build.gradle`, a `dist/` beside `package.json`), and Trivy receives those
+as exact discovered paths rather than a blanket `**/build` — so a
+checked-in `services/build` full of Dockerfiles is both detected and
+scanned.
 
 The list is shared with `ops sec`'s own detection walk, so detection and
 scanning always agree on what counts as build output, and nested workspaces

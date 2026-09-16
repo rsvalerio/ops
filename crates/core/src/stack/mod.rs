@@ -64,7 +64,7 @@ impl Stack {
     }
 
     #[must_use]
-    pub const fn manifest_files(&self) -> &[&str] {
+    pub const fn manifest_files(&self) -> &'static [&'static str] {
         metadata::metadata(*self).0
     }
 
@@ -187,13 +187,25 @@ impl Stack {
     }
 }
 
-/// Union of every stack's [`Stack::build_dirs`] plus the VCS directory, in a
-/// stable order (`.git` first, then stack declaration order, first occurrence
-/// wins on duplicates).
+/// Build-dir names that are plausible *checked-in* source directories too
+/// (a `services/build` full of Dockerfiles), so they must never be skipped
+/// by name alone — only as discovered generated output (see
+/// [`is_generated_build_dir`]). Everything else a stack declares
+/// (`target`, `node_modules`, `.venv`, `vendor`, …) is an unambiguous
+/// cache/output name and stays in [`scan_skip_dirs`].
+const GENERIC_BUILD_DIR_NAMES: &[&str] = &["build", "dist"];
+
+/// Unambiguous skip dirs — every stack's [`Stack::build_dirs`] names that
+/// are never plausible source paths, plus `.git`.
 ///
-/// TASK-2264: this is the *one* list both halves of `ops sec` consume — the
-/// detection walk and every Trivy invocation — so the two cannot drift apart.
-/// It is a union rather than "the detected stack's dirs" because detection
+/// Stable order: `.git` first, then stack declaration order, first
+/// occurrence wins on duplicates. Generic names ([`generic_build_dirs`])
+/// are excluded — they are skipped per-path as discovered generated output,
+/// never globally by name.
+///
+/// TASK-2264: both halves of `ops sec` consume this list — the detection
+/// walk and every Trivy invocation — so the two cannot drift apart. It is
+/// a union rather than "the detected stack's dirs" because detection
 /// itself must skip build output before it knows which stack it will find,
 /// and a monorepo legitimately carries several stacks' outputs at once
 /// (a Rust `target/` next to a JS `node_modules/`).
@@ -202,12 +214,64 @@ pub fn scan_skip_dirs() -> Vec<&'static str> {
     let mut dirs: Vec<&'static str> = vec![".git"];
     for stack in Stack::iter() {
         for dir in stack.build_dirs() {
-            if !dirs.contains(dir) {
+            if !dirs.contains(dir) && !GENERIC_BUILD_DIR_NAMES.contains(dir) {
                 dirs.push(dir);
             }
         }
     }
     dirs
+}
+
+/// The build-dir names too generic to skip by name.
+///
+/// `build` and `dist` are declared as build output by Gradle, Python, Node
+/// and Vite, but they are equally plausible names for checked-in source
+/// directories. They are skipped only where they are generated output —
+/// see [`is_generated_build_dir`].
+#[must_use]
+pub fn generic_build_dirs() -> Vec<&'static str> {
+    let mut dirs: Vec<&'static str> = Vec::new();
+    for stack in Stack::iter() {
+        for dir in stack.build_dirs() {
+            if GENERIC_BUILD_DIR_NAMES.contains(dir) && !dirs.contains(dir) {
+                dirs.push(dir);
+            }
+        }
+    }
+    dirs
+}
+
+/// Whether `parent/dir_name` is generated build output rather than a
+/// checked-in source directory.
+///
+/// Some stack that declares `dir_name` among its build dirs has a manifest
+/// file directly in `parent` (a `build/` beside `build.gradle.kts`, a
+/// `dist/` beside `package.json`).
+///
+/// Adjacency, not ancestry: a Gradle subproject's `build/` sits beside its
+/// own `build.gradle`, so the immediate parent is the right probe — and an
+/// ancestor-wide check would skip a checked-in `services/build` merely
+/// because the repo root happens to have a Gradle build, which is exactly
+/// the false exclusion this predicate exists to prevent.
+#[must_use]
+pub fn is_generated_build_dir(parent: &Path, dir_name: &str) -> bool {
+    let mut manifests: Vec<&'static str> = Vec::new();
+    for stack in Stack::iter() {
+        if stack.build_dirs().contains(&dir_name) {
+            manifests.extend(stack.manifest_files().iter().copied());
+        }
+    }
+    if manifests.is_empty() {
+        return false;
+    }
+    let Ok(entries) = std::fs::read_dir(parent) else {
+        return false;
+    };
+    entries.flatten().any(|e| {
+        e.file_name()
+            .to_str()
+            .is_some_and(|n| manifests.contains(&n))
+    })
 }
 
 /// Parse an embedded `.default.<stack>.ops.toml` payload, falling back to an
@@ -1167,7 +1231,8 @@ mod tests {
     }
 
     /// TASK-2264: the shared scan-skip list is every stack's build dirs
-    /// plus `.git`, deduplicated, in a stable order.
+    /// plus `.git`, deduplicated, in a stable order — minus the generic
+    /// names, which are skipped per-path as discovered generated output.
     #[test]
     fn scan_skip_dirs_is_the_deduped_union_plus_git() {
         let dirs = scan_skip_dirs();
@@ -1175,8 +1240,6 @@ mod tests {
         for expected in [
             "target",
             "node_modules",
-            "dist",
-            "build",
             ".venv",
             "venv",
             "__pycache__",
@@ -1186,9 +1249,58 @@ mod tests {
         ] {
             assert!(dirs.contains(&expected), "missing {expected}: {dirs:?}");
         }
+        for generic in generic_build_dirs() {
+            assert!(
+                !dirs.contains(&generic),
+                "generic name {generic} must not be skipped by name: {dirs:?}"
+            );
+        }
         let mut seen = std::collections::HashSet::new();
         for dir in &dirs {
             assert!(seen.insert(*dir), "duplicate {dir} in {dirs:?}");
         }
+
+        // The generic half of the split: exactly the ambiguous names, in
+        // stack declaration order (Vite/Node's `dist` before Python's
+        // `build`).
+        let generic = generic_build_dirs();
+        assert_eq!(generic, vec!["dist", "build"], "generic set is stable");
+    }
+
+    /// A `build/` beside a Gradle or Python manifest is generated output;
+    /// the same name with no declaring manifest beside it is not.
+    #[test]
+    fn is_generated_build_dir_requires_a_declaring_manifest_in_the_parent() {
+        let dir = tempfile::tempdir().unwrap();
+
+        std::fs::write(dir.path().join("build.gradle"), "").unwrap();
+        std::fs::create_dir(dir.path().join("build")).unwrap();
+        assert!(
+            is_generated_build_dir(dir.path(), "build"),
+            "build/ beside build.gradle is Gradle output"
+        );
+
+        std::fs::write(dir.path().join("pyproject.toml"), "").unwrap();
+        assert!(
+            is_generated_build_dir(dir.path(), "dist"),
+            "dist/ beside pyproject.toml is Python output"
+        );
+
+        let checked_in = tempfile::tempdir().unwrap();
+        std::fs::create_dir_all(checked_in.path().join("services/build")).unwrap();
+        assert!(
+            !is_generated_build_dir(&checked_in.path().join("services"), "build"),
+            "services/build with no manifest beside it is checked-in source"
+        );
+
+        // `package.json` declares `dist` (Node/Vite) but not `build`, so a
+        // bare JS project's `build/` is not generated output by adjacency.
+        let node = tempfile::tempdir().unwrap();
+        std::fs::write(node.path().join("package.json"), "").unwrap();
+        assert!(is_generated_build_dir(node.path(), "dist"));
+        assert!(!is_generated_build_dir(node.path(), "build"));
+
+        // A name no stack declares as a build dir is never generated output.
+        assert!(!is_generated_build_dir(dir.path(), "src"));
     }
 }
