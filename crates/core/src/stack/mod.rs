@@ -68,6 +68,15 @@ impl Stack {
         metadata::metadata(*self).0
     }
 
+    /// This stack's default build output and dependency directories
+    /// (TASK-2264): `target` for Rust/Maven, `node_modules`/`dist` for Node,
+    /// and so on. Generated artefacts, not source — the directories a
+    /// whole-tree scanner should skip at any depth.
+    #[must_use]
+    pub const fn build_dirs(&self) -> &'static [&'static str] {
+        metadata::metadata(*self).2
+    }
+
     /// DUP-001: Resolve stack from config override or auto-detection.
     ///
     /// Shared by `CommandRunner::new()` and `extensions::resolve_stack()`.
@@ -176,6 +185,29 @@ impl Stack {
                 .collect()
         })
     }
+}
+
+/// Union of every stack's [`Stack::build_dirs`] plus the VCS directory, in a
+/// stable order (`.git` first, then stack declaration order, first occurrence
+/// wins on duplicates).
+///
+/// TASK-2264: this is the *one* list both halves of `ops sec` consume — the
+/// detection walk and every Trivy invocation — so the two cannot drift apart.
+/// It is a union rather than "the detected stack's dirs" because detection
+/// itself must skip build output before it knows which stack it will find,
+/// and a monorepo legitimately carries several stacks' outputs at once
+/// (a Rust `target/` next to a JS `node_modules/`).
+#[must_use]
+pub fn scan_skip_dirs() -> Vec<&'static str> {
+    let mut dirs: Vec<&'static str> = vec![".git"];
+    for stack in Stack::iter() {
+        for dir in stack.build_dirs() {
+            if !dirs.contains(dir) {
+                dirs.push(dir);
+            }
+        }
+    }
+    dirs
 }
 
 /// Parse an embedded `.default.<stack>.ops.toml` payload, falling back to an
@@ -1111,6 +1143,52 @@ mod tests {
                 "stack {} default TOML must define qa",
                 stack.as_str()
             );
+        }
+    }
+
+    /// TASK-2264 AC #1: every stack declares its default build/dependency
+    /// directories — the generated artefacts a whole-tree scan skips.
+    #[test]
+    fn stacks_declare_their_build_dirs() {
+        assert_eq!(Stack::Rust.build_dirs(), ["target"]);
+        assert_eq!(Stack::JavaMaven.build_dirs(), ["target"]);
+        assert_eq!(Stack::JavaGradle.build_dirs(), ["build", ".gradle"]);
+        assert_eq!(Stack::Vite.build_dirs(), ["node_modules", "dist"]);
+        assert_eq!(Stack::Node.build_dirs(), ["node_modules", "dist"]);
+        assert_eq!(
+            Stack::Python.build_dirs(),
+            [".venv", "venv", "__pycache__", "build", "dist"]
+        );
+        assert_eq!(Stack::Go.build_dirs(), ["vendor"]);
+        assert_eq!(Stack::Terraform.build_dirs(), [".terraform"]);
+        // Ansible's collection/role caches default to $HOME/.ansible, not
+        // the repo, so it declares nothing in-tree.
+        assert!(Stack::Ansible.build_dirs().is_empty());
+    }
+
+    /// TASK-2264: the shared scan-skip list is every stack's build dirs
+    /// plus `.git`, deduplicated, in a stable order.
+    #[test]
+    fn scan_skip_dirs_is_the_deduped_union_plus_git() {
+        let dirs = scan_skip_dirs();
+        assert_eq!(dirs.first(), Some(&".git"), "VCS dir leads the list");
+        for expected in [
+            "target",
+            "node_modules",
+            "dist",
+            "build",
+            ".venv",
+            "venv",
+            "__pycache__",
+            ".terraform",
+            "vendor",
+            ".gradle",
+        ] {
+            assert!(dirs.contains(&expected), "missing {expected}: {dirs:?}");
+        }
+        let mut seen = std::collections::HashSet::new();
+        for dir in &dirs {
+            assert!(seen.insert(*dir), "duplicate {dir} in {dirs:?}");
         }
     }
 }

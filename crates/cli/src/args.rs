@@ -218,6 +218,12 @@ pub enum CoreSubcommand {
     /// Each scan is bounded by a 10-minute timeout; override it with
     /// `OPS_SEC_TIMEOUT_SECS=<seconds>` (a cold vulnerability-DB download is
     /// legitimately slow).
+    ///
+    /// Every scan skips each detected stack's build/dependency directories
+    /// (`target`, `node_modules`, `dist`, `.venv`, `vendor`, `.terraform`, …)
+    /// at any depth, plus `.git` — build output is generated artefact, not
+    /// source, and races the builds producing it. Pass `--no-default-skips`
+    /// to scan them anyway.
     Sec {
         /// Skip a scan even if it would otherwise run (repeatable).
         #[arg(long = "skip", value_enum, value_name = "SCAN")]
@@ -225,6 +231,10 @@ pub enum CoreSubcommand {
         /// Force a scan to run even if detection would skip it (repeatable).
         #[arg(long = "force", value_enum, value_name = "SCAN")]
         force: Vec<crate::sec_cmd::ScanArg>,
+        /// Do not pass the default build/dependency skip dirs to Trivy;
+        /// Trivy's own built-in defaults still apply.
+        #[arg(long = "no-default-skips")]
+        no_default_skips: bool,
     },
     /// Manage `.backlog` task files (backlog.md-compatible subset).
     Backlog {
