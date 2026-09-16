@@ -1,10 +1,10 @@
 ---
 id: TASK-2257
 title: 'DUP-1: ArcTextCache (extensions/about) still hand-rolls the LRU scaffold BoundedLruCache now owns'
-status: To Do
+status: Done
 assignee: []
 created_date: '2026-09-10 16:27'
-updated_date: '2026-09-16 17:12'
+updated_date: '2026-09-16 17:32'
 labels:
   - code-review-rust
   - duplication
@@ -30,7 +30,14 @@ ordinal: 1000
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 CacheMap is expressed in terms of ops_about::lru::BoundedLruCache (or a successor API in ops_about::lru) and no longer defines its own record_access / evict_lru / VICTIM_QUEUE_SLACK
-- [ ] #2 The in-flight-entry pinning policy (CONC-1 / TASK-1144) is preserved: an entry whose OnceLock is uninitialised is never an eviction victim
-- [ ] #3 The existing ArcTextCache tests (cap eviction, LRU victim choice, victim-queue boundedness, ptr_eq dedup) still pass
+- [x] #1 CacheMap is expressed in terms of ops_about::lru::BoundedLruCache (or a successor API in ops_about::lru) and no longer defines its own record_access / evict_lru / VICTIM_QUEUE_SLACK
+- [x] #2 The in-flight-entry pinning policy (CONC-1 / TASK-1144) is preserved: an entry whose OnceLock is uninitialised is never an eviction victim
+- [x] #3 The existing ArcTextCache tests (cap eviction, LRU victim choice, victim-queue boundedness, ptr_eq dedup) still pass
+
 <!-- AC:END -->
+
+## Implementation Notes
+
+<!-- SECTION:NOTES:BEGIN -->
+Migrated via new BoundedLruCache::insert_filtered/evict_lru_where eviction-candidate filter; pinning expressed as is_evictable(slot) = slot.get().is_some(); one documented #[allow(clippy::option_if_let_else)] on the read() hit/miss branch (map_or_else cannot borrow-check there). ops-about lib tests 138/138, clippy clean.
+<!-- SECTION:NOTES:END -->

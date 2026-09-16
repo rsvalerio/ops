@@ -1,10 +1,10 @@
 ---
 id: TASK-2258
 title: 'DUP-1: ops_about::lru::lock_recovering is a second workspace statement of the ops_core::sync poison-recovery policy'
-status: To Do
+status: Done
 assignee: []
 created_date: '2026-09-10 18:41'
-updated_date: '2026-09-16 17:12'
+updated_date: '2026-09-16 17:36'
 labels:
   - code-review-rust
   - duplication
@@ -38,6 +38,13 @@ The blocker to a drop-in reuse is real but small: `lock_recover_warn` is `#[cfg(
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 The poison-recovery policy is stated once in the workspace; ops_about::lru does not define its own lock helper
-- [ ] #2 The three BoundedLruCache callers reach the ops_core helper directly, with the one warn-emitting caller keeping its breadcrumb
+- [x] #1 The poison-recovery policy is stated once in the workspace; ops_about::lru does not define its own lock helper
+- [x] #2 The three BoundedLruCache callers reach the ops_core helper directly, with the one warn-emitting caller keeping its breadcrumb
+
 <!-- AC:END -->
+
+## Implementation Notes
+
+<!-- SECTION:NOTES:BEGIN -->
+ops_core::sync made pub with lock_recover_with (hook form); lock_recover relaxed to <T: ?Sized>; lock_recover_warn ungated (was #[cfg(test)]). ops_about::lru::lock_recovering deleted, hook-once test ported to ops-core. Three BoundedLruCache callers migrated (2x lock_recover, typed manifest cache via lock_recover_with keeping its TASK-0962 monotonic-counter warn). Bonus within policy-stated-once scope: ArcTextCache read/invalidate hand-rolled recoveries moved to lock_recover_warn(cache, filename), for_filename registry to lock_recover — behavior now clears poison per ops-core policy. Crates ops-core/ops-about/ops-about-rust: tests + clippy clean.
+<!-- SECTION:NOTES:END -->

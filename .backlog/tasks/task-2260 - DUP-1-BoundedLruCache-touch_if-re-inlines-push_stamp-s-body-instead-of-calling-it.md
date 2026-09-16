@@ -1,10 +1,10 @@
 ---
 id: TASK-2260
 title: 'DUP-1: BoundedLruCache::touch_if re-inlines push_stamp''s body instead of calling it'
-status: To Do
+status: Done
 assignee: []
 created_date: '2026-09-10 18:41'
-updated_date: '2026-09-16 17:12'
+updated_date: '2026-09-16 17:37'
 labels:
   - code-review-rust
   - duplication
@@ -32,5 +32,12 @@ Bounded fix: restructure `touch_if` so the map borrow ends before the stamp (e.g
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 The victim-queue stamp-and-compact step is written once in BoundedLruCache, or the inline is documented with the borrow constraint that forces it
+- [x] #1 The victim-queue stamp-and-compact step is written once in BoundedLruCache, or the inline is documented with the borrow constraint that forces it
+
 <!-- AC:END -->
+
+## Implementation Notes
+
+<!-- SECTION:NOTES:BEGIN -->
+touch_if restructured: decision + restamp in an inner block, then a single push_stamp call; threshold/compaction now written once. ops-about tests 137/137, clippy clean.
+<!-- SECTION:NOTES:END -->
