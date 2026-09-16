@@ -56,11 +56,17 @@ ops_extension::impl_extension! {
     command_names: &["about"],
     data_provider_name: None,
     register_commands: |_self, registry| {
+        // SEC-13 / TASK-2255: a bare "ops" resolves through the invoking
+        // environment's PATH, so a shim earlier on PATH silently becomes the
+        // binary that renders the card. `ops_subcommand` spawns the absolute
+        // current_exe()-resolved binary and renders as `ops about`. The
+        // command only reads (providers, manifests, the db), so it opts out
+        // of exclusivity.
+        let mut spec = ops_core::config::ExecCommandSpec::ops_subcommand("about");
+        spec.exclusive = false;
         registry.insert(
             "about".into(),
-            ops_core::config::CommandSpec::Exec(
-                ops_core::config::ExecCommandSpec::new("ops", ["about"]),
-            ),
+            ops_core::config::CommandSpec::Exec(spec),
         );
     },
     register_data_providers: |_self, _registry| {},
@@ -245,6 +251,37 @@ fn build_fallback_identity(cwd: &std::path::Path) -> ProjectIdentity {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// SEC-13 / TASK-2255: the registered command spawns an absolute
+    /// `current_exe()`-derived program, never a bare PATH-resolved `"ops"`,
+    /// and renders as `ops about`. It only reads (providers, manifests, the
+    /// db), so it may overlap other steps in a parallel plan.
+    #[test]
+    fn registered_about_spawns_absolute_ops_and_displays_as_ops() {
+        use ops_core::config::CommandSpec;
+        use ops_extension::Extension as _;
+
+        let mut registry = ops_extension::CommandRegistry::new();
+        AboutExtension.register_commands(&mut registry);
+
+        let Some(CommandSpec::Exec(exec)) = registry.get("about") else {
+            panic!("about must be registered as an Exec spec");
+        };
+        // `current_exe()` succeeds under the test harness, so the program
+        // must resolve absolute here; the literal "ops" is only the
+        // fallback for when that lookup fails.
+        assert!(
+            std::path::Path::new(&exec.program).is_absolute(),
+            "about must spawn an absolute current_exe()-derived program, got {:?}",
+            exec.program
+        );
+        assert_eq!(exec.display_cmd(), "ops about");
+        assert_eq!(exec.args, vec!["about".to_string()]);
+        assert!(
+            !exec.exclusive,
+            "about only reads, so it may overlap other steps"
+        );
+    }
 
     /// TEST-5 / TASK-1739: `run_about` composes `resolve_identity`, the
     /// `NotFound` fallback, the four-condition `enrich_from_db` guard and the
