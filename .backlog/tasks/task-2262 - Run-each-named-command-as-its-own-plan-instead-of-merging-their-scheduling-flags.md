@@ -1,10 +1,10 @@
 ---
 id: TASK-2262
 title: 'Run each named command as its own plan instead of merging their scheduling flags'
-status: To Do
+status: Done
 assignee: []
 created_date: '2026-09-16 17:01'
-updated_date: '2026-09-16 17:12'
+updated_date: '2026-09-16 18:48'
 labels:
   - bug
   - runner
@@ -34,9 +34,10 @@ Observed in dbsec with `ops verify qax`: `deps`, `next`, `test-doc` and `sec` al
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 Naming several commands runs them one after another, each scheduled with its own `parallel`, `fail_fast` and `exclusive` settings
-- [ ] #2 `ops verify qax` with a parallel `verify` and a sequential `qax` runs verify's stages, then the qax steps one at a time
-- [ ] #3 Under fail_fast, a failing command stops the commands named after it
-- [ ] #4 The run still shows a single progress display and summary covering every step
-- [ ] #5 A test covers a parallel name followed by a sequential name
+- [x] #1 Naming several commands runs them one after another, each scheduled with its own `parallel`, `fail_fast` and `exclusive` settings
+- [x] #2 `ops verify qax` with a parallel `verify` and a sequential `qax` runs verify's stages, then the qax steps one at a time
+- [x] #3 Under fail_fast, a failing command stops the commands named after it
+- [x] #4 The run still shows a single progress display and summary covering every step
+- [x] #5 A test covers a parallel name followed by a sequential name
+
 <!-- AC:END -->
