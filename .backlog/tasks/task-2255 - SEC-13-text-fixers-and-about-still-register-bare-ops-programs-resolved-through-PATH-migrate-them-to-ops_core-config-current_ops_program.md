@@ -1,10 +1,10 @@
 ---
 id: TASK-2255
 title: 'SEC-13: text-fixers and about still register bare ''ops'' programs resolved through PATH; migrate them to ops_core::config::current_ops_program'
-status: To Do
+status: Done
 assignee: []
 created_date: '2026-09-08 17:49'
-updated_date: '2026-09-16 17:12'
+updated_date: '2026-09-16 17:24'
 labels:
   - code-review-rust
   - security
@@ -31,6 +31,13 @@ ordinal: 161000
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 text-fixers and about register every ops re-invocation with an absolute current_exe()-derived program and display_program = "ops"
-- [ ] #2 a registration test per crate asserts the program is absolute when current_exe() succeeds and the rendered step line still reads ops <subcommand>
+- [x] #1 text-fixers and about register every ops re-invocation with an absolute current_exe()-derived program and display_program = "ops"
+- [x] #2 a registration test per crate asserts the program is absolute when current_exe() succeeds and the rendered step line still reads ops <subcommand>
+
 <!-- AC:END -->
+
+## Implementation Notes
+
+<!-- SECTION:NOTES:BEGIN -->
+text-fixers was already migrated by earlier landed work (ops_subcommand + registered_fixers_spawn_absolute_ops_and_are_exclusive test, commit afd68e10); this task completed the about half: registration migrated to ops_subcommand("about") with exclusive=false (read-only), and registered_about_spawns_absolute_ops_and_displays_as_ops added mirroring the config-checkers test.
+<!-- SECTION:NOTES:END -->
