@@ -2,6 +2,41 @@
 All notable changes to this project will be documented in this file. See [conventional commits](https://www.conventionalcommits.org/) for commit guidelines.
 
 - - -
+## [v0.59.0](https://github.com/rsvalerio/ops/compare/02aa032121966eded956b43dca4b131ee19884a1..v0.59.0) - 2026-09-18
+#### 🚀 Features
+- (**sec**) skip build and dependency directories by default (TASK-2264) - ([0ed53b2](https://github.com/rsvalerio/ops/commit/0ed53b21b2cb4b3ce046c6fbee1356a286df9045)) - [@rsvalerio](https://github.com/rsvalerio)
+#### 🐛 Bug Fixes
+- (**about**) spawn the absolute ops binary for the about command - ([b9124a9](https://github.com/rsvalerio/ops/commit/b9124a9e7ac5e07fcb9c01204e79c4f9f4ba3513)) - [@rsvalerio](https://github.com/rsvalerio)
+- (**about-rust**) pin in-flight coverage slots against LRU eviction - ([913c039](https://github.com/rsvalerio/ops/commit/913c0391a649c365ab33846401eb0bfed40e21c9)) - [@rsvalerio](https://github.com/rsvalerio), Claude Code
+- (**cli**) run each named command as its own plan (TASK-2262) - ([4bae559](https://github.com/rsvalerio/ops/commit/4bae55904d9c9ec11e1c4c77fc9accaa0051328a)) - [@rsvalerio](https://github.com/rsvalerio)
+- (**runner**) run the sec builtin exclusively in parallel plans (TASK-2263) - ([0342270](https://github.com/rsvalerio/ops/commit/03422708071f287198c845edff05e730c903dc0e)) - [@rsvalerio](https://github.com/rsvalerio)
+- (**sec**) skip generic build/dist dirs only where generated beside a stack manifest - ([8bbff87](https://github.com/rsvalerio/ops/commit/8bbff87c551e5aa8319c819879cd93468b78f17c)) - [@rsvalerio](https://github.com/rsvalerio), Claude Code
+- (**text-fixers**) preserve a lone trailing CR terminator in fix_eof - ([8a4f29e](https://github.com/rsvalerio/ops/commit/8a4f29e2de506af97f17111a1f74b34bda23fafb)) - [@rsvalerio](https://github.com/rsvalerio)
+- address CodeRabbit review findings on PR #59 - ([0143150](https://github.com/rsvalerio/ops/commit/0143150ad630b47553b578507286229ff3c04037)) - [@rsvalerio](https://github.com/rsvalerio), Claude Code
+#### 📚 Documentation
+- (**about-rust**) state why the coverage cache has no post-init trim - ([8648e88](https://github.com/rsvalerio/ops/commit/8648e889625969d216f5c3c5e329412fc9551cd5)) - [@rsvalerio](https://github.com/rsvalerio), Claude Code
+- (**core**) repair broken intra-doc links in config loader docs - ([4f26e92](https://github.com/rsvalerio/ops/commit/4f26e92a110554015d379c2acde768b01e105ece)) - [@rsvalerio](https://github.com/rsvalerio)
+- describe the end state instead of the change journal in comments - ([b9e48ce](https://github.com/rsvalerio/ops/commit/b9e48ce830d1623148467aea09f92114b4e6b040)) - [@rsvalerio](https://github.com/rsvalerio)
+#### 🚜 Refactoring
+- (**about-go**) drop reader-less go.mod local replace collection - ([628d9fa](https://github.com/rsvalerio/ops/commit/628d9fa297d374dba55132867a3edba77fe584a3)) - [@rsvalerio](https://github.com/rsvalerio), Claude Code
+- (**core**) expose sync poison-recovery policy with a hook form (TASK-2258) - ([af532ad](https://github.com/rsvalerio/ops/commit/af532ad627b51f4280caa8b61da0af94443e1a63)) - [@rsvalerio](https://github.com/rsvalerio)
+- (**core**) derive table/ui sanitisation sets from is_unsafe_display_char - ([5da18d4](https://github.com/rsvalerio/ops/commit/5da18d453b3eb74fe3173b12b1b3c46be5ab3723)) - [@rsvalerio](https://github.com/rsvalerio)
+- (**create-review-tasks**) route member guard through shared reject-and-warn - ([9eafb55](https://github.com/rsvalerio/ops/commit/9eafb5550e0be161b10f5bc4f093ed996b6e969f)) - [@rsvalerio](https://github.com/rsvalerio)
+- (**ops-about**) migrate ArcTextCache onto BoundedLruCache and drop the local lock helper (TASK-2257, TASK-2258, TASK-2260) - ([1b8a5b8](https://github.com/rsvalerio/ops/commit/1b8a5b86eaaf959a6f6470a5b7d21edd0802ceea)) - [@rsvalerio](https://github.com/rsvalerio)
+- (**ops-about-rust**) reach ops_core::sync lock helpers directly (TASK-2258) - ([a2ec4ba](https://github.com/rsvalerio/ops/commit/a2ec4ba04a69d50a756aea5a1fbdcffc67958271)) - [@rsvalerio](https://github.com/rsvalerio)
+- (**theme**) remove caller-less apply_with_prefix - ([bfbae28](https://github.com/rsvalerio/ops/commit/bfbae28d9e3d0dbfe916a23b558c0c5421d40e09)) - [@rsvalerio](https://github.com/rsvalerio), Claude Code
+#### ⚙️ Miscellaneous
+- (**backlog**) file TASK-2271 for the sec generic skip-dir design tradeoff - ([4ab1a98](https://github.com/rsvalerio/ops/commit/4ab1a981485e8bb4a1d9855ea32b5450d096d927)) - [@rsvalerio](https://github.com/rsvalerio), Claude Code
+- (**backlog**) close code-review wave 16 (TASK-2265) - ([4eac63a](https://github.com/rsvalerio/ops/commit/4eac63a61363ff380dedbf1785f37fe9b8c50811)) - [@rsvalerio](https://github.com/rsvalerio)
+- (**backlog**) close code-review wave 21 (TASK-2270) - ([65e7a46](https://github.com/rsvalerio/ops/commit/65e7a46fd95163c7acd0816dd9d99f322e0a8c2a)) - [@rsvalerio](https://github.com/rsvalerio)
+- (**backlog**) close code-review wave 17 (TASK-2266) - ([13b04cf](https://github.com/rsvalerio/ops/commit/13b04cfde711fc23e461a78a0e3de48df884a954)) - [@rsvalerio](https://github.com/rsvalerio)
+- (**backlog**) close code-review wave 19 (TASK-2268) - ([b3a503a](https://github.com/rsvalerio/ops/commit/b3a503a9ede5d07943aa433a73ef97e4eb37fdee)) - [@rsvalerio](https://github.com/rsvalerio), Claude Code
+- (**backlog**) close code-review wave 20 (TASK-2269) - ([bd55a48](https://github.com/rsvalerio/ops/commit/bd55a48c9f14f2bd053652f8df6d517e80356cc7)) - [@rsvalerio](https://github.com/rsvalerio)
+- (**backlog**) close code-review wave 18 (TASK-2267) - ([adf4cf3](https://github.com/rsvalerio/ops/commit/adf4cf365dd7b4d33db5c12d0cf67a72a656da18)) - [@rsvalerio](https://github.com/rsvalerio)
+- update backlogs tasks - ([02aa032](https://github.com/rsvalerio/ops/commit/02aa032121966eded956b43dca4b131ee19884a1)) - [@rsvalerio](https://github.com/rsvalerio)
+
+- - -
+
 ## [v0.58.0](https://github.com/rsvalerio/ops/compare/14656a611d8c782bb36041b0672ed61155659cc1..v0.58.0) - 2026-09-16
 #### 🚀 Features
 - (**stack**) activate clean command defaults for node, vite, terraform and ansible - ([14656a6](https://github.com/rsvalerio/ops/commit/14656a611d8c782bb36041b0672ed61155659cc1)) - [@rsvalerio](https://github.com/rsvalerio), Claude Code
