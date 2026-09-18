@@ -2,6 +2,21 @@
 All notable changes to this project will be documented in this file. See [conventional commits](https://www.conventionalcommits.org/) for commit guidelines.
 
 - - -
+## [v0.60.0](https://github.com/rsvalerio/ops/compare/0d733fa33bc1c36cac2a4a25fd5d469c7d9e6aff..v0.60.0) - 2026-09-18
+#### 🚀 Features
+- (**config**) append exec args via [extend] and clone commands - ([7da876c](https://github.com/rsvalerio/ops/commit/7da876c47c6f40deb1ffe0380b60b73459bf3651)) - [@rsvalerio](https://github.com/rsvalerio), Claude Code
+#### 🐛 Bug Fixes
+- (**config**) never inherit the source's aliases in a clone - ([4f0525f](https://github.com/rsvalerio/ops/commit/4f0525fce0856c90e2989d9f5a02910d72020691)) - [@rsvalerio](https://github.com/rsvalerio), Claude Code
+#### 🔄 CI/CD
+- fail skip surfacing when the JUnit report is missing - ([4c7c304](https://github.com/rsvalerio/ops/commit/4c7c304112d6bebcdfa195053709493695aaefaf)) - [@rsvalerio](https://github.com/rsvalerio), Claude Code
+- surface skip_precondition lines from the nextest ci profile - ([1addfee](https://github.com/rsvalerio/ops/commit/1addfeecc4a2038af12fd46594841e4f140fa0f7)) - [@rsvalerio](https://github.com/rsvalerio), Claude Code
+#### 🚜 Refactoring
+- (**about**) decompose scan_line into named stages - ([5cc7b2a](https://github.com/rsvalerio/ops/commit/5cc7b2ab43d618b7055747e18c5a92a86c27cf84)) - [@rsvalerio](https://github.com/rsvalerio), Claude Code
+#### ⚙️ Miscellaneous
+- update backlogs tasks - ([0d733fa](https://github.com/rsvalerio/ops/commit/0d733fa33bc1c36cac2a4a25fd5d469c7d9e6aff)) - [@rsvalerio](https://github.com/rsvalerio)
+
+- - -
+
 ## [v0.59.0](https://github.com/rsvalerio/ops/compare/02aa032121966eded956b43dca4b131ee19884a1..v0.59.0) - 2026-09-18
 #### 🚀 Features
 - (**sec**) skip build and dependency directories by default (TASK-2264) - ([0ed53b2](https://github.com/rsvalerio/ops/commit/0ed53b21b2cb4b3ce046c6fbee1356a286df9045)) - [@rsvalerio](https://github.com/rsvalerio)
