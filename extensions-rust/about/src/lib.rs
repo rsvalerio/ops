@@ -66,6 +66,11 @@ pub use members::resolved_workspace_members;
 /// read/parse/log policy or of the absolute-and-`..` rejection. See
 /// [`read_crate_metadata`] and [`member_path_is_workspace_safe`].
 pub use members::member_path_is_workspace_safe;
+/// Re-exported for sibling Rust-stack extension crates (DUP-1 / TASK-2251):
+/// the shared reject-and-warn wrapper around [`member_path_is_workspace_safe`],
+/// so every surface that drops an unsafe member emits the same breadcrumb
+/// shape (`site` field, Debug-formatted member) instead of its own warn.
+pub use members::member_path_is_workspace_safe_or_warn;
 pub use units::{read_crate_metadata, CrateMetadata};
 
 /// Datasource extension supplying the Rust stack's about providers

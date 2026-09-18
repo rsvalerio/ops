@@ -10,16 +10,15 @@ use std::time::Instant;
 
 /// A captured stdout/stderr line carried by [`RunnerEvent::StepOutput`].
 ///
-/// PERF-3 / TASK-0732: holds an `Arc<str>` view onto the parent capture
-/// buffer plus the byte range of this line. `emit_output_events` constructs
-/// one `Arc<str>` per buffer (transferring ownership of the existing
-/// `String` alloc — no copy) and emits per-line `OutputLine` values that
-/// share the buffer via cheap atomic refcount increments. A noisy step that
-/// previously paid one heap allocation per line (`line.to_string()`) now
-/// pays one per buffer.
+/// Holds an `Arc<str>` view onto the parent capture buffer plus the byte
+/// range of this line. `emit_output_events` constructs one `Arc<str>` per
+/// buffer (copying the captured `String` into the refcounted allocation)
+/// and emits per-line `OutputLine` values that share that buffer via cheap
+/// atomic refcount increments, so even a noisy step pays one copy per
+/// buffer rather than per line.
 ///
-/// JSON serialization preserves the historical shape: the field renders as
-/// a plain string, identical to the pre-fix `line: String` form.
+/// JSON serialization preserves that shape: the field renders as a plain
+/// string.
 #[derive(Clone)]
 pub struct OutputLine {
     buf: Arc<str>,
@@ -57,11 +56,11 @@ impl OutputLine {
         self.buf.get(self.range.clone()).unwrap_or("")
     }
 
-    /// PERF-3 / TASK-0838: crate-internal handle on the backing buffer so
-    /// regression tests can pin the Arc-sharing model with `Arc::ptr_eq` /
-    /// `Arc::strong_count`. Not part of the public API — the buffer
-    /// representation is an implementation detail of how per-line events
-    /// avoid per-line allocations.
+    /// Crate-internal handle on the backing buffer so regression tests can
+    /// pin the Arc-sharing model with `Arc::ptr_eq` / `Arc::strong_count`.
+    /// Not part of the public API — the buffer representation is an
+    /// implementation detail of how per-line events avoid per-line
+    /// allocations.
     #[cfg(test)]
     pub(crate) const fn buf_arc(&self) -> &Arc<str> {
         &self.buf
@@ -88,7 +87,7 @@ impl std::ops::Deref for OutputLine {
 }
 
 impl Serialize for OutputLine {
-    /// Preserve the pre-fix JSON shape: the field renders as a plain string.
+    /// Render the field as a plain string, preserving the JSON shape.
     fn serialize<S: Serializer>(&self, ser: S) -> Result<S::Ok, S::Error> {
         ser.serialize_str(self.as_str())
     }
@@ -128,12 +127,12 @@ impl PlanLifecycle {
         }
     }
 
-    /// FN-9 / TASK-0197+0211: take `success` explicitly rather than a full
-    /// `&[StepResult]`. Callers already walk the results inside the run loop
-    /// to compute success anyway, so threading a bool is clearer than
-    /// handing over the entire slice for an `iter().all()` re-walk. It also
-    /// prevents a future refactor from passing a partial-result slice and
-    /// silently misreporting the run outcome.
+    /// Take `success` explicitly rather than a full `&[StepResult]`.
+    /// Callers already walk the results inside the run loop to compute
+    /// success anyway, so threading a bool is clearer than handing over the
+    /// entire slice for an `iter().all()` re-walk. It also prevents a
+    /// future refactor from passing a partial-result slice and silently
+    /// misreporting the run outcome.
     pub(crate) fn finish(self, success: bool, on_event: &mut impl FnMut(RunnerEvent)) {
         on_event(RunnerEvent::RunFinished {
             duration_secs: self.start.elapsed().as_secs_f64(),
@@ -144,10 +143,10 @@ impl PlanLifecycle {
 
 /// Events emitted during command execution for plain-text (theme) output.
 ///
-/// API-9 / TASK-0455: marked `#[non_exhaustive]` so adding new variants
-/// (e.g. `StepOutputDropped` from TASK-0457) is not a `SemVer` break for
-/// downstream matchers in display / CLI / extensions. Cross-crate `match`
-/// sites must include a wildcard arm.
+/// Marked `#[non_exhaustive]` so adding new variants (e.g. a future
+/// dropped-output event) is not a `SemVer` break for downstream matchers
+/// in display / CLI / extensions. Cross-crate `match` sites must include
+/// a wildcard arm.
 #[derive(Debug, Clone, Serialize)]
 #[non_exhaustive]
 pub enum RunnerEvent {
@@ -155,14 +154,14 @@ pub enum RunnerEvent {
     PlanStarted { command_ids: Vec<CommandId> },
     /// A single command started.
     ///
-    /// OWN-3 / TASK-0770: `display_cmd` is kept as `Option<String>` rather
-    /// than `Option<Arc<str>>` intentionally. The Started/Finished pair
-    /// owns a separate snapshot per event so each variant is independently
+    /// `display_cmd` is kept as `Option<String>` rather than
+    /// `Option<Arc<str>>` intentionally. The Started/Finished pair owns a
+    /// separate snapshot per event so each variant is independently
     /// movable into the bounded mpsc channel without lifetime coupling, and
     /// the public `RunnerEvent` serde shape stays a plain string for
-    /// downstream JSON consumers (see AC #3 on the task). The single extra
-    /// allocation per spawn is below the spawn cost itself and not worth
-    /// the API / test churn an `Arc<str>` payload would force.
+    /// downstream JSON consumers. The single extra allocation per spawn is
+    /// below the spawn cost itself and not worth the API / test churn an
+    /// `Arc<str>` payload would force.
     StepStarted {
         id: CommandId,
         /// Display string for the command (e.g. "cargo build --all-targets").
@@ -170,17 +169,17 @@ pub enum RunnerEvent {
     },
     /// A single command produced stdout/stderr line(s).
     ///
-    /// PERF-3 / TASK-0732: `line` is an [`OutputLine`] view sharing one
-    /// `Arc<str>` per capture buffer. Pre-fix this was `String`, paying one
-    /// heap allocation per line; the new shape preserves the JSON
-    /// serialization (the field still renders as a plain string).
+    /// `line` is an [`OutputLine`] view sharing one `Arc<str>` per capture
+    /// buffer, so emitting a line costs a refcount bump rather than a heap
+    /// allocation. The JSON serialization is preserved (the field still
+    /// renders as a plain string).
     StepOutput {
         id: CommandId,
         line: OutputLine,
         stderr: bool,
     },
-    /// CONC-7 / TASK-0457: emitted when the per-task event buffer
-    /// overflowed during a noisy command, so the display can surface
+    /// Emitted when the per-task event buffer overflowed during a noisy
+    /// command, so the display can surface
     /// "(N output lines dropped under load)" instead of silently losing
     /// stdout/stderr lines that explain the failure.
     StepOutputDropped { id: CommandId, dropped_count: u64 },

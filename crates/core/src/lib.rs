@@ -31,7 +31,7 @@ pub mod serde_defaults;
 pub mod stack;
 pub mod style;
 pub mod subprocess;
-pub(crate) mod sync;
+pub mod sync;
 pub mod table;
 pub mod text;
 pub mod ui;

@@ -1,10 +1,10 @@
 ---
 id: TASK-2263
 title: 'Run the sec builtin exclusively in parallel plans'
-status: To Do
+status: Done
 assignee: []
 created_date: '2026-09-16 17:01'
-updated_date: '2026-09-16 17:12'
+updated_date: '2026-09-16 18:48'
 labels:
   - bug
   - runner
@@ -27,7 +27,8 @@ Keeping `sec` exclusive makes it run alone, in list order, in any parallel plan.
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 `sec` is registered exclusive (drop the `read_only` wrapper for it); `check-json` and `check-yaml` stay non-exclusive
-- [ ] #2 The comment on `read_only` says why `sec` is excluded: it reads the whole tree, build outputs included
-- [ ] #3 A test pins `sec` as exclusive in `builtin_commands()`
+- [x] #1 `sec` is registered exclusive (drop the `read_only` wrapper for it); `check-json` and `check-yaml` stay non-exclusive
+- [x] #2 The comment on `read_only` says why `sec` is excluded: it reads the whole tree, build outputs included
+- [x] #3 A test pins `sec` as exclusive in `builtin_commands()`
+
 <!-- AC:END -->

@@ -303,9 +303,9 @@ pub fn load_config_at(workspace_root: &Path) -> anyhow::Result<Config> {
 /// filtered and the user can correlate the warning to what they ran.
 ///
 /// The fallback is [`Config::empty`] (no commands, themes, or stack), not
-/// [`Config::default`]: TRAIT-4 / TASK-0872 gated `default()` to test
-/// scaffolding so production fallbacks never carry blank-slate values that
-/// a caller could mistake for a real config.
+/// `Config::default` — `default()` is gated to test scaffolding so
+/// production fallbacks never carry blank-slate values that a caller
+/// could mistake for a real config.
 ///
 /// DUP-3 / TASK-0345: collapses the same fallback block previously duplicated
 /// across `cli/main.rs`, `cli/about_cmd.rs`, and `cli/hook_shared.rs`.

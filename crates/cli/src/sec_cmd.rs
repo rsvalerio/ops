@@ -19,6 +19,14 @@
 //! *will* run and the ones that *won't*, each with the reason — without
 //! requiring `trivy` to be installed. That is the "check what to run" preview.
 //!
+//! Every scan skips each stack's default build/dependency directories at any
+//! depth plus `.git` (see [`shared_skip_dirs`], TASK-2264): build output is
+//! generated artefact, not source, and Trivy aborts a scan when a concurrent
+//! build deletes a file mid-walk. Generic names — `build`, `dist` — are
+//! plausible checked-in source paths too, so they are skipped only where a
+//! stack manifest beside them says they are generated output (see
+//! [`WalkOutcome::generated`]). `--no-default-skips` opts out.
+//!
 //! # Exit code
 //!
 //! `ops sec` is the terminal step of `ops qa`, so its exit code is what a CI
@@ -42,20 +50,31 @@ use std::time::Duration;
 use anyhow::Context as _;
 use ops_core::subprocess::{run_with_timeout, RunError};
 
-/// Directories never worth walking for detection. Mirrors the text-fixer
-/// discovery deny-list so detection stays fast on large trees and does not
-/// trip over vendored dependencies or build output.
-const SKIP_DIRS: &[&str] = &[
-    ".git",
-    "target",
-    "node_modules",
-    "dist",
-    "build",
-    ".venv",
-    "venv",
-    "__pycache__",
-    ".terraform",
-];
+/// Directories never worth walking, for detection *and* for Trivy — the
+/// *unambiguous* half of the skip policy.
+///
+/// TASK-2264: the single shared list is `ops_core::stack::scan_skip_dirs` —
+/// every stack's declared build/dependency directories plus `.git`, minus
+/// the generic names — so the detection walk and the Trivy invocations
+/// cannot drift apart. Build output is generated artefact, not source:
+/// walking it is slow (~16s on a Rust project, mostly `target/`), scans
+/// generated files rather than the code the user wrote, and races the
+/// builds producing it (Trivy aborts when a file vanishes mid-walk).
+///
+/// The generic names (`build`, `dist`) are *not* in this list: they are
+/// plausible checked-in source paths (`services/build`), so the walk skips
+/// them only where [`ops_core::stack::is_generated_build_dir`] says the
+/// directory beside a stack manifest is generated output, and Trivy receives
+/// those as discovered per-path `--skip-dirs` entries rather than a blanket
+/// `**/build` (TASK-2271).
+///
+/// `--no-default-skips` (see [`run_sec_to`]) removes the list from the
+/// Trivy invocations only; detection keeps skipping, because a marker file
+/// inside build output (a `Cargo.lock` under `target/package/`) says nothing
+/// about the project's own dependency manifests.
+fn shared_skip_dirs() -> Vec<&'static str> {
+    ops_core::stack::scan_skip_dirs()
+}
 
 /// One Trivy scan `ops sec` can run. Declaration order is the order scans run
 /// in: the cheap, universally-relevant secret scan first.
@@ -222,30 +241,48 @@ fn is_k8s_manifest(path: &Path) -> bool {
     false
 }
 
-/// What a detection walk found. Tracked as two bools so the walk can stop
-/// early once both categories are present.
+/// What a detection walk found. Tracked as two bools so file inspection can
+/// stop once both categories are present.
 #[derive(Debug, Default, Clone, Copy)]
 struct Detected {
     vuln: bool,
     misconfig: bool,
 }
 
-impl Detected {
-    const fn complete(self) -> bool {
-        self.vuln && self.misconfig
-    }
+/// A detection walk's full result: the scan categories with a marker file,
+/// plus every *generated* build directory discovered on the way (paths
+/// relative to `root`, e.g. `build` or `app/dist`).
+///
+/// The inventory is what Trivy skips for the generic names: a blanket
+/// `**/build` would also exclude checked-in source directories
+/// (`services/build`), so those names reach Trivy only as the exact
+/// discovered paths (TASK-2271).
+#[derive(Debug)]
+struct WalkOutcome {
+    found: Detected,
+    generated: Vec<PathBuf>,
 }
 
-/// Walk `root` (skipping VCS/build/vendor directories) and report which scan
-/// categories have a marker file. Bounded by `complete()` early-exit so a large
-/// monorepo stops scanning as soon as both categories are confirmed.
-fn detect(root: &Path) -> Detected {
+/// Walk `root` (skipping VCS/build/vendor directories via
+/// [`shared_skip_dirs`]; generic names via
+/// [`ops_core::stack::is_generated_build_dir`]) and report which scan
+/// categories have a marker file.
+///
+/// The walk no longer early-exits once both categories are found: it must also
+/// produce the complete generated-directory inventory for Trivy's
+/// `--skip-dirs`, and a partial inventory would let Trivy walk — and race
+/// the builds deleting files in — the very directories the skip list exists
+/// to avoid. Only the *file* work stays bounded: marker checks are gated on
+/// the category still being unfound, so the (content-reading) Kubernetes
+/// manifest probe stops as early as it ever did; directory enumeration is
+/// getdents-cheap next to the Trivy scans this walk feeds.
+fn detect(root: &Path) -> WalkOutcome {
+    let skip = shared_skip_dirs();
+    let generic = ops_core::stack::generic_build_dirs();
     let mut found = Detected::default();
+    let mut generated: Vec<PathBuf> = Vec::new();
     let mut stack: Vec<PathBuf> = vec![root.to_path_buf()];
     while let Some(dir) = stack.pop() {
-        if found.complete() {
-            break;
-        }
         let Ok(entries) = std::fs::read_dir(&dir) else {
             continue;
         };
@@ -259,7 +296,21 @@ fn detect(root: &Path) -> Detected {
             let name = entry.file_name();
             let name = name.to_string_lossy();
             if file_type.is_dir() {
-                if !SKIP_DIRS.iter().any(|d| *d == name) {
+                let skip_dir = if skip.iter().any(|d| *d == name) {
+                    true
+                } else if generic.iter().any(|d| *d == name)
+                    && ops_core::stack::is_generated_build_dir(&dir, &name)
+                {
+                    // Record the path relative to the scan root: that is
+                    // the exact `--skip-dirs` entry Trivy gets.
+                    if let Ok(rel) = entry.path().strip_prefix(root) {
+                        generated.push(rel.to_path_buf());
+                    }
+                    true
+                } else {
+                    false
+                };
+                if !skip_dir {
                     stack.push(entry.path());
                 }
             } else if file_type.is_file() {
@@ -275,15 +326,26 @@ fn detect(root: &Path) -> Detected {
             }
         }
     }
-    found
+    WalkOutcome { found, generated }
 }
 
 /// Resolve the full scan plan for `root`: every known scan with its selected
 /// flag and the reason behind it. `--force`/`--skip` overrides win over the
 /// auto-detection default; conflicting overrides are rejected upstream in
 /// [`run_sec_to`], so a scan never appears in both lists here.
+/// Test-facing convenience: walk + plan in one call. Production paths go
+/// through [`build_plan_from`] on a walk whose generated-dir inventory they
+/// also reuse for the Trivy invocations.
+#[cfg(test)]
 fn build_plan(root: &Path, skip: &[Scan], force: &[Scan]) -> Vec<PlanEntry> {
-    let found = detect(root);
+    build_plan_from(detect(root).found, skip, force)
+}
+
+/// The plan computation proper, over an already-run detection walk. Split
+/// from the `build_plan` wrapper so [`run_sec_to`] can reuse one walk's outcome —
+/// including its generated-directory inventory — for both the plan and the
+/// Trivy invocations instead of walking twice.
+fn build_plan_from(found: Detected, skip: &[Scan], force: &[Scan]) -> Vec<PlanEntry> {
     Scan::ALL
         .iter()
         .map(|&scan| {
@@ -401,6 +463,42 @@ fn scan_timeout() -> Duration {
     }
 }
 
+/// Full Trivy argv for `scan` over `root`: the scan's own subcommand and
+/// flags, then one `--skip-dirs` pair per skip pattern, then the target
+/// path.
+///
+/// Patterns come in two shapes (TASK-2271): unambiguous skip dirs go as
+/// `**/<name>`, which matches at any depth — verified against Trivy 0.74:
+/// `--skip-dirs '**/target'` skips both a top-level `target/` and a nested
+/// workspace's `nested/target/` — so a monorepo's inner Cargo workspaces
+/// are covered without per-manifest discovery. The generic names arrive as
+/// exact discovered paths (`build`, `app/dist`): a bare name matches only
+/// at the scan root and a relative path only itself (both verified against
+/// Trivy 0.74), which is what keeps a checked-in `services/build` scanned
+/// while generated output is skipped.
+/// An empty pattern list passes no `--skip-dirs` at all, leaving Trivy's
+/// own built-in defaults in charge (`--no-default-skips`).
+fn trivy_argv(scan: Scan, root: &Path, skip_patterns: &[String]) -> Vec<String> {
+    let mut args: Vec<String> = scan.trivy_args().iter().map(|s| (*s).to_string()).collect();
+    for pattern in skip_patterns {
+        args.push("--skip-dirs".to_string());
+        args.push(pattern.clone());
+    }
+    args.push(root.to_string_lossy().into_owned());
+    args
+}
+
+/// The `--skip-dirs` patterns for every scan: `**/<name>` for each
+/// unambiguous shared skip dir, plus the exact discovered paths of
+/// generated `build`/`dist` directories.
+fn trivy_skip_patterns(generated: &[PathBuf]) -> Vec<String> {
+    shared_skip_dirs()
+        .iter()
+        .map(|d| format!("**/{d}"))
+        .chain(generated.iter().map(|p| p.to_string_lossy().into_owned()))
+        .collect()
+}
+
 /// Spawn `trivy <args> <root>`, capturing its output rather than inheriting
 /// stdio. Capturing lets the caller stay silent on a clean scan and only print
 /// Trivy's report when something is actually found.
@@ -409,9 +507,20 @@ fn scan_timeout() -> Duration {
 /// `Command::output()` so the wait has a deadline and each captured stream has
 /// a byte cap — the workspace's established answer for spawning a callee whose
 /// runtime and output volume we do not control.
-fn run_trivy(root: &Path, scan: Scan, timeout: Duration) -> Result<Output, RunError> {
+fn run_trivy(
+    root: &Path,
+    scan: Scan,
+    timeout: Duration,
+    no_default_skips: bool,
+    generated: &[PathBuf],
+) -> Result<Output, RunError> {
+    let patterns: Vec<String> = if no_default_skips {
+        Vec::new()
+    } else {
+        trivy_skip_patterns(generated)
+    };
     let mut cmd = Command::new("trivy");
-    cmd.args(scan.trivy_args()).arg(root);
+    cmd.args(trivy_argv(scan, root, &patterns));
     run_with_timeout(&mut cmd, timeout, &format!("trivy {} scan", scan.label()))
 }
 
@@ -420,9 +529,17 @@ fn run_trivy(root: &Path, scan: Scan, timeout: Duration) -> Result<Output, RunEr
 /// `✗` and Trivy's captured report is printed beneath it — stdout (the report)
 /// to `w`, stderr (logs/errors) to the process stderr. Returns whether the scan
 /// was clean.
-fn run_scan(root: &Path, scan: Scan, w: &mut dyn std::io::Write) -> anyhow::Result<bool> {
+fn run_scan(
+    root: &Path,
+    scan: Scan,
+    w: &mut dyn std::io::Write,
+    no_default_skips: bool,
+    generated: &[PathBuf],
+) -> anyhow::Result<bool> {
     let timeout = scan_timeout();
-    report_scan(scan, timeout, w, || run_trivy(root, scan, timeout))
+    report_scan(scan, timeout, w, || {
+        run_trivy(root, scan, timeout, no_default_skips, generated)
+    })
 }
 
 /// Render one scan's outcome. Split from [`run_scan`] so tests can drive the
@@ -473,28 +590,53 @@ fn report_scan(
     Ok(false)
 }
 
+/// The `ops sec` CLI overrides in one group, mirroring `run_cmd`'s
+/// `RunOptions`: `--skip` / `--force` scan selection plus
+/// `--no-default-skips`. Grouping them keeps [`run_sec_to`] under the
+/// argument count the workspace clippy gate enforces, and removes the
+/// adjacent-bool swap risk a bare `no_default_skips: bool` parameter adds.
+#[derive(Debug, Default, Clone)]
+pub struct SecOverrides {
+    /// Scans to drop even if detection would select them (`--skip`).
+    pub skip: Vec<Scan>,
+    /// Scans to run even if detection would skip them (`--force`).
+    pub force: Vec<Scan>,
+    /// Do not pass the default build/dependency skip dirs to Trivy
+    /// (`--no-default-skips`).
+    pub no_default_skips: bool,
+}
+
 /// Entry point: build the plan, preview-or-run it, and return an aggregated
 /// exit code. `skip`/`force` come straight from the `--skip`/`--force` CLI
-/// flags. Splitting the testable core into [`run_sec_to`] keeps the plan
-/// output assertable without spawning Trivy.
+/// flags, `no_default_skips` from `--no-default-skips`. Splitting the
+/// testable core into [`run_sec_to`] keeps the plan output assertable
+/// without spawning Trivy.
 pub fn run_sec(
     root: &Path,
     dry_run: bool,
     skip: &[ScanArg],
     force: &[ScanArg],
+    no_default_skips: bool,
 ) -> anyhow::Result<ExitCode> {
-    let skip: Vec<Scan> = skip.iter().map(|s| s.to_scan()).collect();
-    let force: Vec<Scan> = force.iter().map(|s| s.to_scan()).collect();
-    run_sec_to(root, dry_run, &skip, &force, &mut std::io::stdout())
+    let overrides = SecOverrides {
+        skip: skip.iter().map(|s| s.to_scan()).collect(),
+        force: force.iter().map(|s| s.to_scan()).collect(),
+        no_default_skips,
+    };
+    run_sec_to(root, dry_run, &overrides, &mut std::io::stdout())
 }
 
 fn run_sec_to(
     root: &Path,
     dry_run: bool,
-    skip: &[Scan],
-    force: &[Scan],
+    overrides: &SecOverrides,
     w: &mut dyn std::io::Write,
 ) -> anyhow::Result<ExitCode> {
+    let SecOverrides {
+        skip,
+        force,
+        no_default_skips,
+    } = overrides;
     // A scan named in both lists is contradictory intent — reject it loudly
     // rather than silently letting one side win.
     if let Some(conflict) = skip.iter().find(|s| force.contains(s)) {
@@ -504,7 +646,10 @@ fn run_sec_to(
         );
     }
 
-    let plan = build_plan(root, skip, force);
+    // One walk feeds everything: the scan plan and the generated-build-dir
+    // inventory the Trivy invocations skip per-path.
+    let walk = detect(root);
+    let plan = build_plan_from(walk.found, skip, force);
     let selected: Vec<Scan> = plan.iter().filter(|e| e.selected).map(|e| e.scan).collect();
 
     if dry_run {
@@ -512,6 +657,8 @@ fn run_sec_to(
         // never execute Trivy, so do not require it installed. A heads-up keeps
         // the preview honest when it would have failed live.
         write_plan(w, &plan).context("failed to write scan plan")?;
+        write_skip_dirs(w, *no_default_skips, &walk.generated)
+            .context("failed to write skip-dir plan")?;
         if !trivy_on_path() {
             ops_core::ui::warn(TRIVY_MISSING_HELP);
         }
@@ -519,7 +666,7 @@ fn run_sec_to(
     }
 
     // SEC-31 (TASK-1754): zero scans selected must not fall through the loop
-    // into SUCCESS. `run_cmd/plan.rs::merge_plan` refuses the same shape for
+    // into SUCCESS. `run_cmd/plan.rs::plans_for_names` refuses the same shape for
     // the same reason — "executed zero steps, reported success" masks an
     // upstream filtering bug — and here the blast radius is a security gate
     // that reports healthy without scanning anything. Checked before the
@@ -539,7 +686,7 @@ fn run_sec_to(
     // only when every scan was clean.
     let mut all_ok = true;
     for scan in selected {
-        if !run_scan(root, scan, w)? {
+        if !run_scan(root, scan, w, *no_default_skips, &walk.generated)? {
             all_ok = false;
         }
     }
@@ -549,6 +696,27 @@ fn run_sec_to(
     } else {
         ExitCode::FAILURE
     })
+}
+
+/// TASK-2264 AC #5: render the directories every Trivy scan will skip, so
+/// `ops sec --dry-run` previews not just *which* scans run but *what* they
+/// walk. Each entry is the pattern actually passed to Trivy: `**/<dir>` for
+/// the unambiguous names (any depth), the exact discovered path for each
+/// generated `build`/`dist` directory (TASK-2271).
+fn write_skip_dirs(
+    w: &mut dyn std::io::Write,
+    no_default_skips: bool,
+    generated: &[PathBuf],
+) -> std::io::Result<()> {
+    if no_default_skips {
+        writeln!(
+            w,
+            "  Trivy skip dirs disabled (--no-default-skips); scan auto-detection unchanged"
+        )?;
+        return Ok(());
+    }
+    let patterns = trivy_skip_patterns(generated);
+    writeln!(w, "  skipping dirs: {}", patterns.join(", "))
 }
 
 /// Report an all-skipped run on the same writer the scan lines use, naming
@@ -688,8 +856,17 @@ mod tests {
     fn conflicting_skip_and_force_is_rejected() {
         let dir = tempfile::tempdir().unwrap();
         let mut buf: Vec<u8> = Vec::new();
-        let err = run_sec_to(dir.path(), true, &[Scan::Vuln], &[Scan::Vuln], &mut buf)
-            .expect_err("a scan in both --skip and --force must error");
+        let err = run_sec_to(
+            dir.path(),
+            true,
+            &SecOverrides {
+                skip: vec![Scan::Vuln],
+                force: vec![Scan::Vuln],
+                ..Default::default()
+            },
+            &mut buf,
+        )
+        .expect_err("a scan in both --skip and --force must error");
         let msg = format!("{err:#}");
         assert!(
             msg.contains("--skip") && msg.contains("--force"),
@@ -737,8 +914,8 @@ mod tests {
         let dir = tempfile::tempdir().unwrap();
         touch(dir.path(), "Cargo.lock");
         let mut buf: Vec<u8> = Vec::new();
-        let code =
-            run_sec_to(dir.path(), true, &[], &[], &mut buf).expect("dry-run must not error");
+        let code = run_sec_to(dir.path(), true, &SecOverrides::default(), &mut buf)
+            .expect("dry-run must not error");
         // ExitCode is opaque; compare Debug form against SUCCESS.
         assert_eq!(format!("{code:?}"), format!("{:?}", ExitCode::SUCCESS));
         let out = String::from_utf8(buf).unwrap();
@@ -866,8 +1043,10 @@ mod tests {
         let code = run_sec_to(
             dir.path(),
             false,
-            &[Scan::Secret, Scan::Vuln, Scan::Misconfig],
-            &[],
+            &SecOverrides {
+                skip: vec![Scan::Secret, Scan::Vuln, Scan::Misconfig],
+                ..Default::default()
+            },
             &mut buf,
         )
         .expect("an all-skipped run must not error");
@@ -904,11 +1083,211 @@ mod tests {
         let code = run_sec_to(
             dir.path(),
             true,
-            &[Scan::Secret, Scan::Vuln, Scan::Misconfig],
-            &[],
+            &SecOverrides {
+                skip: vec![Scan::Secret, Scan::Vuln, Scan::Misconfig],
+                ..Default::default()
+            },
             &mut buf,
         )
         .expect("dry-run must not error");
         assert_eq!(format!("{code:?}"), format!("{:?}", ExitCode::SUCCESS));
+    }
+
+    /// TASK-2264 AC #2: every scan type (secret, vuln, config) receives the
+    /// unambiguous shared skip dirs as `--skip-dirs **/<dir>` before the
+    /// target path. The `**/` form is what makes a nested workspace's
+    /// `target/` skip too (AC #3, verified against Trivy 0.74).
+    #[test]
+    fn trivy_argv_passes_shared_skip_dirs_to_every_scan() {
+        let patterns = trivy_skip_patterns(&[]);
+        for scan in Scan::ALL {
+            let argv = trivy_argv(*scan, Path::new("/proj"), &patterns);
+            for dir in shared_skip_dirs() {
+                let pattern = format!("**/{dir}");
+                assert!(
+                    argv.iter().any(|a| a == &pattern),
+                    "{scan:?} argv must skip {pattern}: {argv:?}"
+                );
+            }
+            // The generic names never appear in their blanket form — they
+            // reach Trivy only as discovered per-path entries (TASK-2271).
+            for generic in ops_core::stack::generic_build_dirs() {
+                let blanket = format!("**/{generic}");
+                assert!(
+                    !argv.iter().any(|a| a == &blanket),
+                    "{scan:?} argv must not blanket-skip {blanket}: {argv:?}"
+                );
+            }
+            // `--skip-dirs` precedes its value, and the root comes last.
+            assert_eq!(argv.last().unwrap(), "/proj");
+            for (i, a) in argv.iter().enumerate() {
+                if a == "--skip-dirs" {
+                    assert!(
+                        argv.get(i + 1).is_some_and(|v| !v.is_empty()),
+                        "--skip-dirs must be followed by its value: {argv:?}"
+                    );
+                }
+            }
+        }
+    }
+
+    /// TASK-2271: a generated `build/` (Gradle manifest beside it) reaches
+    /// Trivy as its exact discovered path — never as `**/build`, which would
+    /// also exclude a checked-in `services/build`.
+    #[test]
+    fn trivy_argv_skips_generated_build_dirs_by_exact_path() {
+        let generated = vec![PathBuf::from("build"), PathBuf::from("app/dist")];
+        let patterns = trivy_skip_patterns(&generated);
+        for path in &generated {
+            assert!(
+                patterns.iter().any(|p| *p == path.to_string_lossy()),
+                "generated dir {path:?} must be skipped by exact path: {patterns:?}"
+            );
+        }
+        assert!(
+            !patterns.iter().any(|p| p == "**/build" || p == "**/dist"),
+            "blanket generic patterns must never be passed: {patterns:?}"
+        );
+        for scan in Scan::ALL {
+            let argv = trivy_argv(*scan, Path::new("/proj"), &patterns);
+            assert!(
+                argv.iter().any(|a| a == "app/dist"),
+                "{scan:?} argv must carry the nested generated path: {argv:?}"
+            );
+        }
+    }
+
+    /// TASK-2264 AC #4: `--no-default-skips` passes no `--skip-dirs` at all,
+    /// leaving Trivy's own built-in defaults in charge.
+    #[test]
+    fn trivy_argv_with_no_default_skips_passes_no_skip_dirs() {
+        for scan in Scan::ALL {
+            let argv = trivy_argv(*scan, Path::new("/proj"), &[]);
+            assert!(
+                !argv.iter().any(|a| a == "--skip-dirs"),
+                "{scan:?} argv must not carry --skip-dirs: {argv:?}"
+            );
+        }
+    }
+
+    /// TASK-2264 AC #5: the dry-run preview names the directories every scan
+    /// will skip, in the `**/<dir>` form actually passed to Trivy.
+    #[test]
+    fn dry_run_lists_the_skipped_directories() {
+        let dir = tempfile::tempdir().unwrap();
+        touch(dir.path(), "Cargo.lock");
+        let mut buf: Vec<u8> = Vec::new();
+        run_sec_to(dir.path(), true, &SecOverrides::default(), &mut buf)
+            .expect("dry-run must not error");
+        let out = String::from_utf8(buf).unwrap();
+        assert!(
+            out.contains("skipping dirs:"),
+            "preview must name the skip list: {out}"
+        );
+        assert!(
+            out.contains("**/target") && out.contains("**/.git"),
+            "preview must list the actual Trivy patterns: {out}"
+        );
+    }
+
+    /// AC #5 counterpart: with `--no-default-skips` the preview says the
+    /// default list is off instead of silently keeping it.
+    #[test]
+    fn dry_run_with_no_default_skips_says_so() {
+        let dir = tempfile::tempdir().unwrap();
+        let mut buf: Vec<u8> = Vec::new();
+        run_sec_to(
+            dir.path(),
+            true,
+            &SecOverrides {
+                no_default_skips: true,
+                ..Default::default()
+            },
+            &mut buf,
+        )
+        .expect("dry-run must not error");
+        let out = String::from_utf8(buf).unwrap();
+        assert!(
+            out.contains("--no-default-skips"),
+            "preview must say the default skips are disabled: {out}"
+        );
+        assert!(
+            !out.contains("**/target"),
+            "no default patterns may be listed under --no-default-skips: {out}"
+        );
+    }
+
+    /// TASK-2264 AC #6: detection and Trivy derive from the one shared
+    /// policy, so a marker inside *generated* build output is invisible to
+    /// detection — pinned for a Gradle `build/` declared by a
+    /// `build.gradle` beside it.
+    #[test]
+    fn markers_inside_gradle_build_dirs_ignored_by_detection() {
+        let dir = tempfile::tempdir().unwrap();
+        touch(dir.path(), "build.gradle");
+        std::fs::create_dir_all(dir.path().join("build/gen")).unwrap();
+        touch(&dir.path().join("build/gen"), "Dockerfile");
+        let plan = build_plan(dir.path(), &[], &[]);
+        let misconfig = plan.iter().find(|e| e.scan == Scan::Misconfig).unwrap();
+        assert!(
+            !misconfig.selected,
+            "markers under build/ must not trigger a scan"
+        );
+    }
+
+    /// TASK-2271: a `build/` with no declaring manifest beside it is
+    /// checked-in source, not generated output — its markers stay
+    /// detectable and it never lands in the generated inventory Trivy
+    /// skips.
+    #[test]
+    fn checked_in_build_dirs_stay_detectable() {
+        let dir = tempfile::tempdir().unwrap();
+        std::fs::create_dir_all(dir.path().join("services/build")).unwrap();
+        touch(&dir.path().join("services/build"), "Dockerfile");
+        let walk = detect(dir.path());
+        let plan = build_plan_from(walk.found, &[], &[]);
+        let misconfig = plan.iter().find(|e| e.scan == Scan::Misconfig).unwrap();
+        assert!(
+            misconfig.selected,
+            "markers under a checked-in services/build must trigger a scan"
+        );
+        assert!(
+            !walk
+                .generated
+                .iter()
+                .any(|p| p.to_string_lossy().contains("services/build")),
+            "checked-in dirs must not be skipped by Trivy: {:?}",
+            walk.generated
+        );
+    }
+
+    /// TASK-2271: generated `build`/`dist` directories land in the walk's
+    /// inventory as root-relative paths — top-level and nested alike — and
+    /// that inventory is what `trivy_skip_patterns` passes per-path.
+    #[test]
+    fn walk_collects_generated_dirs_as_relative_paths() {
+        let dir = tempfile::tempdir().unwrap();
+        touch(dir.path(), "build.gradle");
+        std::fs::create_dir_all(dir.path().join("build")).unwrap();
+        std::fs::create_dir_all(dir.path().join("app")).unwrap();
+        touch(&dir.path().join("app"), "package.json");
+        std::fs::create_dir_all(dir.path().join("app/dist")).unwrap();
+
+        let walk = detect(dir.path());
+        let mut recorded = walk.generated.clone();
+        recorded.sort();
+        assert_eq!(
+            recorded,
+            vec![PathBuf::from("app/dist"), PathBuf::from("build")],
+            "generated dirs are recorded relative to the scan root"
+        );
+
+        let patterns = trivy_skip_patterns(&walk.generated);
+        assert!(patterns.contains(&"build".to_string()));
+        assert!(patterns.contains(&"app/dist".to_string()));
+        assert!(
+            !patterns.contains(&"**/build".to_string()),
+            "no blanket generic pattern: {patterns:?}"
+        );
     }
 }

@@ -317,9 +317,13 @@ fn dispatch(
         Some(CoreSubcommand::CheckYaml { tracked }) => {
             return run_check_yaml(tracked);
         }
-        Some(CoreSubcommand::Sec { skip, force }) => {
+        Some(CoreSubcommand::Sec {
+            skip,
+            force,
+            no_default_skips,
+        }) => {
             let cwd = cwd()?;
-            return sec_cmd::run_sec(&cwd, cli.dry_run, &skip, &force);
+            return sec_cmd::run_sec(&cwd, cli.dry_run, &skip, &force, no_default_skips);
         }
         Some(CoreSubcommand::External(args)) => {
             return run_cmd::run_external_command(

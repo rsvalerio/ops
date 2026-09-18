@@ -1,16 +1,16 @@
 //! Command resolution: lookups across config / stack / extension stores,
 //! alias resolution, and composite expansion.
 //!
-//! Split out of `command/mod.rs` (ARCH-1 / TASK-0303) so the orchestrator
-//! file is purely about *running* plans, not naming them.
+//! Kept apart from `command/mod.rs` so the orchestrator file is purely
+//! about *running* plans, not naming them.
 
 use super::{CommandRunner, ExpandError, ResolveExecError, UnknownCommand};
 use indexmap::IndexMap;
 use ops_core::config::{CommandId, CommandSpec, ExecCommandSpec};
 
-/// PATTERN-1 / TASK-1283: walk state for `expand_inner`. Bundling visited /
-/// depth / aggregated flags into one struct also keeps the recursive
-/// signature within clippy's `too_many_arguments` budget.
+/// Walk state for `expand_inner`. Bundling visited / depth / aggregated
+/// flags into one struct also keeps the recursive signature within
+/// clippy's `too_many_arguments` budget.
 struct ExpandCtx<'a> {
     visited: std::collections::HashSet<&'a str>,
     depth: usize,
@@ -20,12 +20,12 @@ struct ExpandCtx<'a> {
     /// schedules the whole plan. A sequential root runs nested parallel groups
     /// sequentially; a parallel root rejects a nested sequential group.
     parallel_decl: Option<(&'a str, bool)>,
-    /// TASK-1657: same, for `fail_fast`.
+    /// Same, for `fail_fast`.
     fail_fast_decl: Option<(&'a str, bool)>,
 }
 
-/// TASK-1657: enforce that every composite in one plan agrees on a scheduling
-/// flag, recording the first declaration and rejecting any later disagreement.
+/// Enforce that every composite in one plan agrees on a scheduling flag,
+/// recording the first declaration and rejecting any later disagreement.
 ///
 /// Comparing against the *first* composite visited is sufficient to prove
 /// whole-plan agreement: expansion is a depth-first walk from the root, so the
@@ -64,15 +64,14 @@ fn check_schedule_flag<'a>(
     }
 }
 
-// TEST-15 / TASK-1664: counts walks over the command stores.
+// Counts walks over the command stores.
 //
-// PERF-3 / TASK-0766 folded `canonical_id` + `resolve` into the single
-// `canonical_with_spec` pass, halving store traversals per visited node. That
-// contract used to be pinned by timing 1k expansions against a two-second
-// wall-clock budget — which is load-dependent in a debug build (measured at
-// 9.8s under CPU contention) and, worse, too coarse to actually catch the 2x
-// regression it was guarding: a doubling would not reliably breach the
-// budget. Counting the traversals pins it exactly and deterministically.
+// `canonical_with_spec` resolves a command and its canonical name in a
+// single pass, so each visited node costs one store traversal rather than
+// two. That contract is pinned by counting the traversals rather than
+// timing 1k expansions against a wall-clock budget: timing is
+// load-dependent in a debug build and too coarse to catch a 2x
+// regression, while counting pins it exactly and deterministically.
 // **Thread-local**, not a global counter. Test binaries run tests in parallel
 // threads and many of them resolve commands, so a process-wide counter is
 // incremented by unrelated tests between a reader's two observations. Each
@@ -142,10 +141,9 @@ impl CommandRunner {
     /// in a single pass over the command stores and alias maps, where
     /// [`Self::resolve`] and [`Self::resolve_alias`] each walk independently.
     ///
-    /// PERF-3 / TASK-0766: composite expansion previously called a
-    /// canonical-name-only lookup (`canonical_id`, removed by ARCH-6 /
-    /// TASK-2100 once no caller remained) and then `resolve(canonical)`,
-    /// which traversed the config → stack → extension → alias chain twice
+    /// Composite expansion calls this once per node rather than doing a
+    /// canonical-name-only lookup followed by `resolve(canonical)`, which
+    /// would traverse the config → stack → extension → alias chain twice
     /// per node. For a recursion-heavy composite graph the duplication
     /// scales linearly with graph size; this helper folds the work into
     /// one walk.
@@ -171,7 +169,7 @@ impl CommandRunner {
             if let Some((k, v)) = self.config.commands.get_key_value(name) {
                 return Some((k.as_str(), v));
             }
-            // ERR-1 / TASK-1089: orphan config alias (alias map survived a
+            // Orphan config alias (alias map survived a
             // config edit that removed the underlying entry). Fall through
             // to stack / extension lookups below — both by the canonical
             // name the orphan alias points to and by the original id, so a
@@ -208,7 +206,7 @@ impl CommandRunner {
             if let Some(spec) = self.config.commands.get(name) {
                 return Some(spec);
             }
-            // ERR-1 / TASK-1089: orphan config alias — config alias map
+            // Orphan config alias — config alias map
             // points at a name that has no command in `config.commands`
             // (possible when a config edit removes the canonical entry but
             // leaves a stale alias entry, or when alias storage drifts from
@@ -234,11 +232,11 @@ impl CommandRunner {
 
     /// List all available command IDs (config first, then stack, then extension commands; sorted for stable order).
     ///
-    /// PERF-3 / TASK-1180: collect into a `BTreeSet<&str>` so sort+dedup
-    /// happens during insertion, then map straight into `CommandId`. The
-    /// previous shape allocated two `Vec`s (`Vec<&str>` then `Vec<CommandId>`)
-    /// and a separate `sort_unstable`/`dedup` pass; tab-completion latency on
-    /// `--list` and the help/discovery paths benefits from the single-pass form.
+    /// Collects into a `BTreeSet<&str>` so sort+dedup happens during
+    /// insertion, then maps straight into `CommandId` — one pass, with no
+    /// intermediate `Vec<&str>` / `Vec<CommandId>` pair and no separate
+    /// `sort_unstable`/`dedup` pass. Tab-completion latency on `--list` and
+    /// the help/discovery paths benefits from the single-pass form.
     pub fn list_command_ids(&self) -> Vec<CommandId> {
         let ids: std::collections::BTreeSet<&str> = self.all_command_keys().collect();
         ids.into_iter().map(CommandId::from).collect()
@@ -248,7 +246,7 @@ impl CommandRunner {
     ///
     /// Returns [`ExpandError`] distinguishing the three distinct failure modes
     /// — unknown id, cycle, depth exceeded — so callers can render accurate
-    /// diagnostics instead of blanket "unknown command". (ERR-10 / READ-5.)
+    /// diagnostics instead of blanket "unknown command".
     ///
     /// # Recursion Depth
     ///
@@ -268,15 +266,13 @@ impl CommandRunner {
         Ok(leaves)
     }
 
-    /// PATTERN-1 / TASK-1283: walk the composite tree exactly once and
-    /// return both the leaf ids and the `(parallel, fail_fast_disabled)`
-    /// flags, where `parallel` is the root composite's own flag (`false` for an
-    /// exec root). `merge_plan` (and the raw single-command
-    /// path) previously walked the same subtree twice — once via
-    /// `expand_to_leaves` to collect leaves, then again via the CLI-side
-    /// `composite_tree_flags` to recompute the flags. Two independent
-    /// traversals can drift in cycle/order semantics; folding them here
-    /// keeps the leaves and the flags in sync by construction.
+    /// Walks the composite tree exactly once and returns both the leaf ids
+    /// and the `(parallel, fail_fast_disabled)` flags, where `parallel` is
+    /// the root composite's own flag (`false` for an exec root).
+    /// Single-walk matters: collecting leaves and recomputing flags in
+    /// separate traversals lets the two drift in cycle/order semantics,
+    /// and folding them here keeps the leaves and the flags in sync by
+    /// construction.
     ///
     /// # Errors
     ///
@@ -287,7 +283,7 @@ impl CommandRunner {
         &self,
         id: &str,
     ) -> Result<(Vec<CommandId>, bool, bool), ExpandError> {
-        /// CQ-012: Maximum recursion depth for composite expansion.
+        /// Maximum recursion depth for composite expansion.
         ///
         /// This limit prevents stack overflow from pathological configs with deeply
         /// nested composites (e.g., a -> b -> c -> ... -> z with 100+ levels). Normal
@@ -325,21 +321,21 @@ impl CommandRunner {
                 max_depth: ctx.max_depth,
             });
         }
-        // PERF-3 / TASK-0766: fold canonical_id+resolve into one traversal
-        // over the config / stack / extension / alias chain.
+        // One traversal over the config / stack / extension / alias chain
+        // resolves both the canonical name and the spec.
         let (canonical, spec) = self
             .canonical_with_spec(id)
             .ok_or_else(|| ExpandError::Unknown(UnknownCommand::new(id)))?;
         match spec {
             CommandSpec::Exec(_) => Ok(vec![CommandId::from(canonical)]),
             CommandSpec::Composite(c) => {
-                // PATTERN-1 / TASK-0505: track only the active recursion
+                // Track only the active recursion
                 // stack so a diamond DAG (A -> [B, C]; B, C -> [D]) does not
                 // raise a false-positive cycle on the second visit to D.
                 // True cycles (self-reference, A -> B -> A) still re-enter
                 // a node already on the stack and trigger the check.
                 //
-                // OWN-8 (TASK-0714): visited stores `&'a str` borrowed from
+                // `visited` stores `&'a str` borrowed from
                 // the runner's command stores, so canonical names are not
                 // cloned per recursion.
                 if !ctx.visited.insert(canonical) {
@@ -389,7 +385,7 @@ impl CommandRunner {
 
     /// Resolve a leaf ID to an owned [`ExecCommandSpec`], producing a typed
     /// [`ResolveExecError`] that sequential (`execute_step`) and raw
-    /// (`run_plan_raw`) paths both surface identically. (ERR-10 / TASK-0130.)
+    /// (`run_plan_raw`) paths both surface identically.
     pub(super) fn resolve_exec_leaf(&self, id: &str) -> Result<ExecCommandSpec, ResolveExecError> {
         match self.resolve(id) {
             Some(CommandSpec::Exec(e)) => Ok(e.clone()),

@@ -102,8 +102,9 @@ fn unit_from_use_dir(cwd: &Path, dir: &str) -> ProjectUnit {
     // `use ./api/../../../etc` normalises to `api/../../../etc` and reads as
     // in-tree. `Path::join` does not normalise `..` and the OS resolves it
     // lexically on open, so a `..` past a real segment escapes the root too.
-    // The predicate is shared with the `replace`-target path in `go_mod`, so
-    // both directives enforce one traversal policy.
+    // The predicate is the crate's one traversal policy for filesystem-valued
+    // directives — the same one `resolve_member_globs` applies in
+    // `extensions/about/src/workspace.rs`.
     let has_embedded_traversal = crate::go_syntax::has_embedded_parent_dir_segment(&normalized);
     let out_of_tree =
         out_of_tree_via_components || out_of_tree_via_string || has_embedded_traversal;

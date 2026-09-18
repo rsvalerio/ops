@@ -1,10 +1,10 @@
 ---
 id: TASK-2253
 title: 'READ-5: fix_eof converts a lone trailing CR to LF (b"abc\r" -> b"abc\n"), the same unrequested line-ending conversion class TASK-2158 closed for CRLF'
-status: To Do
+status: Done
 assignee: []
 created_date: '2026-09-08 16:14'
-updated_date: '2026-09-16 17:12'
+updated_date: '2026-09-16 17:25'
 labels:
   - code-review-rust
   - correctness
@@ -30,5 +30,12 @@ ordinal: 159000
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 A recorded decision and test pin what fix_eof does with a lone trailing CR, and the module header documents whichever behaviour was chosen
+- [x] #1 A recorded decision and test pin what fix_eof does with a lone trailing CR, and the module header documents whichever behaviour was chosen
+
 <!-- AC:END -->
+
+## Implementation Notes
+
+<!-- SECTION:NOTES:BEGIN -->
+Decision: a lone trailing CR is a terminator to preserve (consistent with the crate position that \r is not convertible payload). A CR-only terminator run now terminates the file with a single \r: fix_eof(b"abc\r") is None, repeated lone CRs collapse to one \r, and a LF-bodied file ending in a lone CR is left alone. Documented in the eof.rs module header (Lone CR terminators section) and pinned by four tests.
+<!-- SECTION:NOTES:END -->

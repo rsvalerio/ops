@@ -25,8 +25,7 @@ use std::io::Write;
 /// | C0 controls (including ESC `U+001B`) | `U+0000..=U+001F` | `\xNN` |
 /// | DEL | `U+007F` | `\x7f` |
 /// | C1 controls (including CSI `U+009B`, OSC `U+009D`) | `U+0080..=U+009F` | `\xNN` |
-/// | Bidi overrides / embeddings | `U+202A..=U+202E` | `\u{NNNN}` |
-/// | Bidi isolates | `U+2066..=U+2069` | `\u{NNNN}` |
+/// | Every other codepoint [`crate::text::is_unsafe_display_char`] rejects — the `Cf` format category (bidi overrides / embeddings / isolates, the zero-width family, BOM, soft hyphen, the script-specific format controls) and the `Zl` / `Zp` separators | see that predicate | `\u{NNNN}` |
 ///
 /// TAB (`\t`) is passed through verbatim; it is the one control character
 /// operators expect to survive in a diagnostic. Newlines are the
@@ -53,10 +52,13 @@ use std::io::Write;
 /// 2. **Bidi controls are neutralised, not passed through.** They are the
 ///    Trojan-Source vector: they reorder rendered text without changing the
 ///    bytes, so a `--dry-run` audit preview could display a command line that
-///    is not the one that will run. Bidi *marks* (`U+200E`/`U+200F`) and
-///    other invisible formatting characters are out of scope — they cannot
-///    reorder a run of text — so this is an escape of the reordering
-///    controls, not general Unicode confusable filtering.
+///    is not the one that will run. DUP-2 / TASK-2250 widened the escaped
+///    set from just the reordering controls to every remaining codepoint the
+///    shared [`crate::text::is_unsafe_display_char`] policy rejects (the
+///    whole `Cf` category plus `Zl` / `Zp`), so this channel can no longer
+///    drift from the drop-based surfaces. Bidi *marks* and other invisible
+///    formatting characters are escaped as text rather than stripped — this
+///    is still not general Unicode confusable filtering.
 ///
 /// SEC-21 / TASK-1184: also exposed for the `ops --dry-run` audit channel,
 /// which prints (env-expanded) program / args / env values / cwd verbatim
@@ -68,26 +70,23 @@ pub fn sanitise_line(line: &str, out: &mut String) {
     for ch in line.chars() {
         match ch {
             '\t' => out.push('\t'),
-            // C0 (ESC included, at U+001B), DEL, and C1. `\xNN` keeps the
-            // existing rendering for the first two.
-            c if u32::from(c) < 0x20 || c == '\u{7f}' || ('\u{80}'..='\u{9f}').contains(&c) => {
+            // C0 (ESC included, at U+001B), DEL, and C1 — the `Cc` category,
+            // which is where the shared policy's `is_control` check lands.
+            // `\xNN` keeps the existing rendering for these.
+            c if c.is_control() => {
                 let _ = write!(out, "\\x{:02x}", u32::from(c));
             }
-            c if is_bidi_control(c) => {
+            // DUP-2 / TASK-2250: every other codepoint the shared
+            // display-safety policy rejects — the `Cf` format category and
+            // the `Zl` / `Zp` separators — is escaped rather than passed
+            // through, so this channel cannot drift from the policy the
+            // drop-based surfaces enforce.
+            c if crate::text::is_unsafe_display_char(c) => {
                 let _ = write!(out, "\\u{{{:04x}}}", u32::from(c));
             }
             c => out.push(c),
         }
     }
-}
-
-/// SEC-21 / TASK-1843: the Unicode bidirectional *reordering* controls —
-/// the embeddings/overrides (`U+202A..=U+202E`) and the isolates
-/// (`U+2066..=U+2069`). These are the Trojan-Source characters; they are
-/// escaped by [`sanitise_line`] rather than stripped so an operator can see
-/// that the input contained them.
-const fn is_bidi_control(c: char) -> bool {
-    matches!(c, '\u{202a}'..='\u{202e}' | '\u{2066}'..='\u{2069}')
 }
 
 fn emit(level: &str, message: &str) {
@@ -190,21 +189,29 @@ mod tests {
         sanitise_line("rm \u{202e}txt.exe\u{202c} now\u{2066}x\u{2069}", &mut out);
         assert_eq!(out, "rm \\u{202e}txt.exe\\u{202c} now\\u{2066}x\\u{2069}");
         assert!(
-            !out.chars().any(super::is_bidi_control),
-            "no bidi control may survive: {out:?}"
+            !out.chars().any(crate::text::is_unsafe_display_char),
+            "no policy-rejected codepoint may survive: {out:?}"
         );
     }
 
-    /// The neighbouring code points must stay untouched — the escape is a
-    /// bounded range, not a blanket filter on non-ASCII text.
+    /// DUP-2 / TASK-2250: the escaped set is the whole shared policy, so the
+    /// `Zp` separator `U+2029` and the deprecated `Cf` block `U+206A..=
+    /// U+206F` — which the old hand-picked bidi list passed through — are
+    /// now escaped like every other rejected codepoint.
+    #[test]
+    fn policy_rejected_non_controls_are_escaped() {
+        let mut out = String::new();
+        sanitise_line("a\u{2029}b\u{206a}c\u{ad}d\u{feff}e", &mut out);
+        assert_eq!(out, "a\\u{2029}b\\u{206a}c\\u{00ad}d\\u{feff}e");
+    }
+
+    /// The neighbouring code points must stay untouched — the escape follows
+    /// the shared policy, it is not a blanket filter on non-ASCII text.
     #[test]
     fn characters_adjacent_to_the_escaped_ranges_pass_through() {
         let mut out = String::new();
-        sanitise_line(
-            "\u{7e}\u{a0}\u{2029}\u{2065}\u{206a}caf\u{e9} 名前",
-            &mut out,
-        );
-        assert_eq!(out, "\u{7e}\u{a0}\u{2029}\u{2065}\u{206a}caf\u{e9} 名前");
+        sanitise_line("\u{7e}\u{a0}\u{2065}\u{205f}caf\u{e9} 名前", &mut out);
+        assert_eq!(out, "\u{7e}\u{a0}\u{2065}\u{205f}caf\u{e9} 名前");
     }
 
     /// SEC-21 AC#1: ANSI ESC and other control bytes are escaped, not passed

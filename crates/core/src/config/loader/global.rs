@@ -59,9 +59,10 @@ use super::super::{merge::merge_config, Config};
 /// resolution result (`None` when the base directory is empty / non-absolute
 /// and we skip the global config). Wrapped in `RwLock` rather than
 /// `OnceLock` so the test-support reset hook
-/// [`reset_global_config_path_cache`] can clear the cache between scenarios
-/// in a single binary — the runtime contract used to be "tests MUST set env
-/// before any code path triggers `load_config`", enforced only by comment.
+/// `reset_global_config_path_cache` can clear the cache between scenarios
+/// in a single binary — without it the runtime contract is "tests MUST set
+/// env before any code path triggers `load_config`", enforced only by
+/// comment.
 // The nesting is meaningful: the outer `Option` is "has the cache been
 // populated?", the inner one is "was a global config found?".
 #[allow(clippy::option_option)]

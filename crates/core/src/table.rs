@@ -124,45 +124,30 @@ impl OpsTable {
 /// approving an apply. A bare carriage return does the same more crudely, and
 /// either desynchronises comfy-table's width accounting.
 ///
-/// `char::is_control` is the Unicode `Cc` category: `U+0000..=U+001F`
-/// (ESC, CR, LF and TAB included) and `U+007F..=U+009F` (DEL and the C1
-/// controls). Everything in it is removed.
+/// DUP-2 / TASK-2250: the dropped set *is*
+/// [`crate::text::is_unsafe_display_char`] — the whole-codepoint
+/// display-safety policy shared with every other operator-facing surface.
+/// That covers the `Cc` controls (`U+0000..=U+001F` with ESC, CR, LF and TAB
+/// included, plus DEL and the C1 range), the exhaustive `Cf` format category
+/// (the bidi overrides / isolates that reverse the rendered order of a name
+/// or path, the zero-width family and BOM that forge alignment or split a
+/// recognizable token such as `aws_db_instance`, and the script-specific
+/// format controls), and the `Zl` / `Zp` line and paragraph separators.
+/// Deriving the set from the shared predicate keeps this drop-based consumer
+/// in lockstep with the escape-based [`crate::ui::sanitise_line`] channel,
+/// which escapes the same set: a codepoint newly added to the policy can no
+/// longer reach table cells while every other surface already rejects it.
 ///
-/// `Cc` is not the whole attack surface. The `Cf` format characters that
-/// matter here are invisible to comfy-table's width accounting yet change
-/// what the operator reads:
-///
-/// - **Bidi overrides / isolates** (`U+202A..=U+202E`, `U+2066..=U+2069`)
-///   reverse the rendered order of a name or path, so the row an operator
-///   scans does not read as what the data actually says.
-/// - **Zero-width characters** (`U+200B..=U+200F`, `U+2060..=U+2064`,
-///   `U+FEFF`) render as nothing at all, so a value can forge alignment or
-///   split a recognizable token such as `aws_db_instance` into something a
-///   reviewer skims past.
-///
-/// The class list mirrors the one [`crate::ui::sanitise_line`] applies on the
-/// stderr channel (bidi controls plus the C1 range, already covered here by
-/// `is_control`) so the two channels do not drift. It deliberately does not
-/// *call* that helper: `sanitise_line` escapes offenders into visible `\xNN`
-/// text, which is right for a log line but wrong for a fixed-width table cell
-/// whose width budget comes from the string it is handed.
+/// The drop-versus-escape decision stays local, as it was before: stripping
+/// is right for a fixed-width table cell whose width budget comes from the
+/// string it is handed, while the stderr channel escapes offenders into
+/// visible `\xNN` / `\u{NNNN}` text so an operator can see they were there.
 #[must_use]
 pub fn sanitise_table_text(value: &str) -> String {
     value
         .chars()
-        .filter(|c| !c.is_control() && !is_forbidden_format_char(*c))
+        .filter(|c| !crate::text::is_unsafe_display_char(*c))
         .collect()
-}
-
-/// The `Cf` format characters [`sanitise_table_text`] removes.
-const fn is_forbidden_format_char(c: char) -> bool {
-    matches!(c,
-        '\u{200b}'..='\u{200f}'   // ZWSP, ZWNJ, ZWJ, LRM, RLM
-        | '\u{202a}'..='\u{202e}' // bidi embeddings and overrides
-        | '\u{2060}'..='\u{2064}' // word joiner and invisible operators
-        | '\u{2066}'..='\u{2069}' // bidi isolates
-        | '\u{feff}'              // zero-width no-break space / BOM
-    )
 }
 
 impl fmt::Display for OpsTable {

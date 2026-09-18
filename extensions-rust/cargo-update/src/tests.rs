@@ -2,11 +2,10 @@
 
 use super::*;
 
-// DUP-3 / TASK-1794: the tracing-capture harness (`BufWriter` + `MakeWriter` +
-// the global-dispatcher pin) and the control-character assertion used to be
-// re-implemented here — a fourth copy of a helper centralised precisely
-// because copies drift, and one that had already drifted into panicking on a
-// poisoned lock and on a flush that splits a multi-byte char.
+// The tracing-capture harness (`BufWriter` + `MakeWriter` + the
+// global-dispatcher pin) and the control-character assertion come from the
+// shared `ops-about` test-support module rather than a local re-implementation
+// that can drift.
 use ops_about::test_support::{assert_rendered_escapes_control_chars, capture_warn};
 
 // -- Extension trait tests --
@@ -21,16 +20,14 @@ mod extension_tests {
     );
 }
 
-/// ERR-7 (TASK-0975) / TEST-25 (TASK-1783): tracing breadcrumbs for
-/// cargo-update lines flow through the `?` formatter, so an attacker-shaped
-/// crate name with an embedded ANSI escape cannot forge a log record or
-/// repaint the operator's terminal.
+/// Tracing breadcrumbs for cargo-update lines flow through the `?`
+/// formatter, so an attacker-shaped crate name with an embedded ANSI
+/// escape cannot forge a log record or repaint the operator's terminal.
 ///
 /// Driven through a real `parse_update_output` call and asserted on the
 /// *captured record*: switching any `?field` to `%field` in `lib.rs` puts a
-/// raw ESC into the capture and fails this test. The previous version built
-/// `format!("{line:?}")` locally and was therefore a test of
-/// `std::fmt::Debug for &str`.
+/// raw ESC into the capture and fails this test — a locally rebuilt
+/// `format!("{line:?}")` would only test `std::fmt::Debug for &str`.
 #[test]
 fn warn_breadcrumb_debug_escapes_control_characters() {
     // A bare ESC followed by a space survives `strip_ansi` (it introduces no
@@ -102,10 +99,11 @@ fn parse_single_remove() {
     assert_eq!(entry.to(), None);
 }
 
-/// PATTERN-1 / TASK-1778: `Downgrading` is one of the verbs cargo's
-/// `print_lockfile_updates` printer emits (a tightened requirement, a lifted
-/// `[patch]`, a yanked release). It used to be dropped with no entry, no count
-/// and no log record — silent data loss on the crate's single purpose.
+/// `Downgrading` is one of the verbs cargo's `print_lockfile_updates`
+/// printer emits (a tightened requirement, a lifted `[patch]`, a yanked
+/// release). It must produce an entry and a count — dropping it with no
+/// entry, no count and no log record would be silent data loss on the
+/// crate's single purpose.
 #[test]
 fn parse_single_downgrade() {
     let stderr = b" Downgrading serde v1.0.220 -> v1.0.219\n";
@@ -121,8 +119,8 @@ fn parse_single_downgrade() {
     assert_eq!(entry.to(), Some("1.0.219"));
 }
 
-/// PATTERN-1 / TASK-1778: a `Downgrading` line must never reach the
-/// format-drift warn — it is a recognised verb now, not drift.
+/// A `Downgrading` line must never reach the format-drift warn — it is a
+/// recognised verb, not drift.
 #[test]
 fn downgrade_line_does_not_warn() {
     let logged = capture_warn(|| {
@@ -135,8 +133,8 @@ fn downgrade_line_does_not_warn() {
     );
 }
 
-/// PATTERN-1 / TASK-1778: the verbose-only `Unchanged` verb is skipped as
-/// noise *deliberately* — no entry, and no drift warn either.
+/// The verbose-only `Unchanged` verb is skipped as noise *deliberately* —
+/// no entry, and no drift warn either.
 #[test]
 fn parse_skips_unchanged_line_without_warning() {
     let logged = capture_warn(|| {
@@ -153,9 +151,8 @@ fn parse_skips_unchanged_line_without_warning() {
     );
 }
 
-/// PATTERN-1 / TASK-1778: an unhandled *shape* of a known verb still reaches
-/// the drift warn — including for `Downgrading`, the verb the table was
-/// missing entirely.
+/// An unhandled *shape* of a known verb still reaches the drift warn —
+/// including for `Downgrading`.
 #[test]
 fn downgrade_line_with_drifted_shape_warns() {
     let logged = capture_warn(|| {
@@ -249,12 +246,11 @@ fn parse_skips_index_update_line() {
     assert!(result.entries.is_empty());
 }
 
-/// TEST-1 / TASK-1077: pin BOTH invariants of the arrow-drift / extra-trailing
-/// path in `parse_action_line` — the warn fires AND `entries` stays empty (or,
-/// for the Adding/Removing extra-tokens case, the entry is still produced
+/// Pins BOTH invariants of the arrow-drift / extra-trailing path in
+/// `parse_action_line` — the warn fires AND `entries` stays empty (or, for
+/// the Adding/Removing extra-tokens case, the entry is still produced
 /// alongside the warn). A refactor that swallows the warn silently (e.g. by
-/// short-circuiting the verb match) would otherwise be undetected by the
-/// existing tests.
+/// short-circuiting the verb match) would otherwise go undetected.
 #[test]
 fn arrow_drift_and_extra_tokens_warn_fires_with_expected_entries() {
     // -- Updating arrow-drift: warn fires AND entries.is_empty() --
@@ -301,7 +297,7 @@ fn arrow_drift_and_extra_tokens_warn_fires_with_expected_entries() {
     );
 }
 
-/// TASK-0472: a verb-prefixed line that does not match the expected shape
+/// A verb-prefixed line that does not match the expected shape
 /// must not silently disappear from the count headline. The dropped line
 /// is still not produced as an `UpdateEntry`, but operators must observe
 /// the drop via tracing — verified here by ensuring the entry list stays
@@ -319,9 +315,9 @@ fn parse_drops_verb_prefixed_line_with_unexpected_shape() {
     assert_eq!(result.update_count, 0);
 }
 
-/// PATTERN-1 / TASK-1030: a verb-prefix without a whitespace boundary must
-/// not classify as a known verb (no false-positive drift warning) and must
-/// not be consumed by `parse_action_line`'s `strip_prefix`. The legitimate
+/// A verb-prefix without a whitespace boundary must not classify as a
+/// known verb (no false-positive drift warning) and must not be consumed
+/// by `parse_action_line`'s `strip_prefix`. The legitimate
 /// `Updating serde v1 -> v2` form must still parse.
 #[test]
 fn verb_prefix_requires_whitespace_boundary() {
@@ -347,9 +343,9 @@ fn verb_prefix_requires_whitespace_boundary() {
     assert_eq!(result_ok.entries[0].to(), Some("1.0.1"));
 }
 
-/// DUP-1 / TASK-1797: `starts_with_known_verb` and `parse_action_line` consume
-/// one shared verb + whitespace-boundary match, so they cannot drift apart —
-/// the failure TASK-1030 had to patch into both sites separately.
+/// `starts_with_known_verb` and `parse_action_line` consume one shared
+/// verb + whitespace-boundary match, so they cannot drift apart — the
+/// boundary rule never needs patching into both sites separately.
 #[test]
 fn match_verb_is_the_single_boundary_definition() {
     for verb in ["Updating", "Downgrading", "Adding", "Removing"] {
@@ -414,10 +410,9 @@ fn strip_v_prefix_without_v() {
     assert_eq!(strip_v_prefix("1.0.0"), "1.0.0");
 }
 
-/// PERF-3 / TASK-0970: the no-escape fast path must avoid the heap
-/// allocation entirely. Verified by asserting the Cow is Borrowed —
-/// every cargo-update stderr line in CI (no terminal colors) flows
-/// through this branch.
+/// The no-escape fast path must avoid the heap allocation entirely.
+/// Verified by asserting the Cow is Borrowed — every cargo-update stderr
+/// line in CI (no terminal colors) flows through this branch.
 #[test]
 fn strip_ansi_borrows_when_no_escape() {
     use std::borrow::Cow;
@@ -449,10 +444,9 @@ fn strip_ansi_removes_escape_codes() {
     assert_eq!(clean, "Updating serde v1.0.0 -> v1.0.1");
 }
 
-/// SEC-21 / TASK-1790: `strip_ansi` claimed to strip "ANSI escape sequences"
-/// but only understood CSI. Cargo emits OSC-8 hyperlinks whenever
-/// `term.hyperlinks` is auto-detected, so `ESC ] … BEL` reaches the parser in
-/// ordinary interactive use.
+/// `strip_ansi` must handle more than CSI: cargo emits OSC-8 hyperlinks
+/// whenever `term.hyperlinks` is auto-detected, so `ESC ] … BEL` reaches
+/// the parser in ordinary interactive use.
 #[test]
 fn strip_ansi_removes_osc8_hyperlink() {
     let bel = "\x1b]8;;https://crates.io/crates/serde\x07serde\x1b]8;;\x07";
@@ -462,8 +456,8 @@ fn strip_ansi_removes_osc8_hyperlink() {
     assert_eq!(strip_ansi_preserving_raw(st), "serde");
 }
 
-/// SEC-21 / TASK-1790: two-character escapes (`ESC c` RIS — a full terminal
-/// reset) and charset selects (`ESC ( B`) previously fell through with the raw
+/// Two-character escapes (`ESC c` RIS — a full terminal reset) and charset
+/// selects (`ESC ( B`) must be stripped, not passed through with the raw
 /// `ESC` intact.
 #[test]
 fn strip_ansi_removes_two_character_escapes() {
@@ -479,7 +473,7 @@ fn parse_output_with_ansi_codes() {
     assert_eq!(result.entries[0].name(), "serde");
 }
 
-/// SEC-21 / TASK-1790: an OSC-8 hyperlink wrapping a real update line still
+/// An OSC-8 hyperlink wrapping a real update line still
 /// parses, and nothing escape-shaped reaches the serialized provider JSON.
 #[test]
 fn osc8_wrapped_update_line_parses_with_no_escape_in_json() {
@@ -496,10 +490,10 @@ fn osc8_wrapped_update_line_parses_with_no_escape_in_json() {
     );
 }
 
-/// SEC-21 / TASK-1790: an `ESC` that survives `strip_ansi` — a bare one that
-/// introduces no recognised sequence, or the truncated-CSI bytes TASK-1028
-/// deliberately preserves — must never be published as part of a crate name
-/// or version. The line is rejected and logged instead.
+/// An `ESC` that survives `strip_ansi` — a bare one that introduces no
+/// recognised sequence, or deliberately preserved truncated-CSI bytes —
+/// must never be published as part of a crate name or version. The line
+/// is rejected and logged instead.
 #[test]
 fn control_characters_never_reach_the_serialized_json() {
     for stderr in [
@@ -561,7 +555,7 @@ fn parse_malformed_removing_line_missing_version() {
 
 #[test]
 fn parse_adding_line_with_trailing_annotation_does_not_glue_into_version() {
-    // TASK-0949: a future cargo annotation must not be silently absorbed into
+    // A trailing cargo annotation must not be silently absorbed into
     // version_raw. The line is parsed (warn-and-keep) but the resulting `to`
     // version is just the version token, not "0.1.0 (locked)".
     let stderr = b"      Adding new-crate v0.1.0 (locked)\n";
@@ -584,9 +578,9 @@ fn parse_removing_line_with_trailing_annotation_does_not_glue_into_version() {
     assert!(entry.to().is_none());
 }
 
-/// SEC-11 / TASK-1799: the version position is validated. Before this, any
-/// token was accepted and published as a version — `(locked)` when the
-/// annotation preceded the version, `latest`, `???`, or the worst case
+/// The version position is validated: no arbitrary token may be accepted
+/// and published as a version — not `(locked)` when the annotation
+/// precedes the version, not `latest`, not `???`, and especially not
 /// `Some("")` from a bare `v`, which reads as a known version to every
 /// consumer that checks `is_some()`.
 #[test]
@@ -611,10 +605,10 @@ fn non_version_shaped_token_is_never_published_as_a_version() {
     }
 }
 
-/// SEC-11 / TASK-1799: a rejected version must still be observable — the whole
-/// point of the crate's loud-on-drift design. `Adding foo v` carries no
-/// `v<digit>` token, so the pre-existing `starts_with_known_verb` gate would
-/// not have warned about it.
+/// A rejected version must still be observable — the whole point of the
+/// crate's loud-on-drift design. `Adding foo v` carries no `v<digit>`
+/// token, so the `starts_with_known_verb` gate alone would not warn about
+/// it.
 #[test]
 fn non_version_shaped_token_reaches_a_warn() {
     for stderr in [
@@ -633,9 +627,9 @@ fn non_version_shaped_token_reaches_a_warn() {
     }
 }
 
-/// ERR-1 / TASK-1252 regression guard for the SEC-11 validation above: real
-/// non-action `Updating` lines (git repositories, index progress) must stay
-/// silent rather than becoming a per-run warn.
+/// Companion to the version-validation tests above: real non-action
+/// `Updating` lines (git repositories, index progress) must stay silent
+/// rather than becoming a per-run warn.
 #[test]
 fn non_action_updating_lines_stay_silent() {
     let logged = capture_warn(|| {
@@ -719,10 +713,10 @@ fn parse_updating_line_with_various_index_names() {
     assert!(result.entries.is_empty());
 }
 
-/// PATTERN-1 / TASK-1054: a crate whose name contains the substring `index`
-/// (e.g. `indexer`, `index-map`, `reindex`) must be parsed as a real update.
-/// The previous `starts_with("Updating") && contains("index")` predicate was
-/// too broad and silently dropped these entries.
+/// A crate whose name contains the substring `index` (e.g. `indexer`,
+/// `index-map`, `reindex`) must be parsed as a real update — a broad
+/// `starts_with("Updating") && contains("index")` noise filter would
+/// silently drop these entries.
 #[test]
 fn parse_update_for_crate_name_containing_index_is_not_dropped() {
     let stderr = b"\
@@ -744,9 +738,9 @@ fn parse_update_for_crate_name_containing_index_is_not_dropped() {
     assert!(!result.entries.iter().any(|e| e.name() == "crates.io"));
 }
 
-/// PATTERN-1 / TASK-1054: alternate-registry index-progress noise lines
-/// (cargo emits a parenthesised suffix for non-default registries) must
-/// continue to be filtered.
+/// Alternate-registry index-progress noise lines (cargo emits a
+/// parenthesised suffix for non-default registries) must continue to be
+/// filtered.
 #[test]
 fn parse_skips_alternate_registry_index_progress_line() {
     let stderr = b"    Updating crates.io index (sparse+https://index.crates.io/)\n";
@@ -757,11 +751,10 @@ fn parse_skips_alternate_registry_index_progress_line() {
     );
 }
 
-/// ERR-1 / TASK-1252: a 2-token `Updating crates.io` progress form (some
-/// cargo releases / locales emit the index-progress line without the third
-/// `index` token) must be filtered as noise — and must NOT trigger the
-/// `starts_with_known_verb` format-drift warn that PATTERN-1 / TASK-1054
-/// installed.
+/// A 2-token `Updating crates.io` progress form (some cargo releases /
+/// locales emit the index-progress line without the third `index` token)
+/// must be filtered as noise — and must NOT trigger the
+/// `starts_with_known_verb` format-drift warn.
 #[test]
 fn parse_skips_two_token_updating_registry_form_no_warn() {
     let logged = capture_warn(|| {
@@ -802,9 +795,9 @@ fn update_action_deserialization() {
     assert_eq!(remove, UpdateAction::Remove);
 }
 
-/// PATTERN-1 / TASK-1778: `downgrade_count` is `#[serde(default)]`, so a
-/// payload produced before the field existed (the about page reads this JSON
-/// from a cache) still deserializes.
+/// `downgrade_count` is `#[serde(default)]`, so a payload that lacks the
+/// field (the about page reads this JSON from a cache) still
+/// deserializes.
 #[test]
 fn cargo_update_result_deserialization() {
     let json = serde_json::json!({
@@ -822,9 +815,8 @@ fn cargo_update_result_deserialization() {
     assert_eq!(result.downgrade_count, 0);
 }
 
-/// PATTERN-1 / TASK-2151: each variant serializes with the same `action`
-/// tag, field names and lowercase verbs the previous `{action, name, from,
-/// to}` struct emitted — the JSON the about page consumes from a cache —
+/// Each variant serializes with the same `action` tag, field names and
+/// lowercase verbs — the JSON shape the about page consumes from a cache —
 /// and each variant round-trips through its own serialized form.
 #[test]
 fn update_entry_serde_per_action() {
@@ -867,11 +859,10 @@ fn update_entry_serde_per_action() {
     }
 }
 
-/// PATTERN-1 / TASK-2151: deserializing a payload whose action and version
-/// presence disagree — the states the old derived `Deserialize` accepted
-/// silently — either fails or normalizes, never producing an entry the
-/// parser itself cannot build. The about page reads this JSON from a cache,
-/// so the direction is reachable, not theoretical.
+/// Deserializing a payload whose action and version presence disagree must
+/// either fail or normalize — never produce an entry the parser itself
+/// cannot build. The about page reads this JSON from a cache, so the
+/// direction is reachable, not theoretical.
 #[test]
 fn update_entry_rejects_or_normalizes_mismatched_presence() {
     // A version the action requires is missing or null: fails.
@@ -908,7 +899,7 @@ fn update_entry_rejects_or_normalizes_mismatched_presence() {
     assert_eq!(normalized.from(), None);
 }
 
-// -- Provider tests (TEST-5 / TASK-1787, TEST-25 / TASK-1783) --
+// -- Provider tests --
 
 /// Build a `std::process::Output` with the given raw wait status, so the
 /// provider's output-interpretation half can be driven without spawning cargo.
@@ -922,10 +913,10 @@ fn output_with(raw_status: i32, stdout: &[u8], stderr: &[u8]) -> Output {
     }
 }
 
-/// SEC-21 / TASK-1537, TEST-25 / TASK-1783: the non-zero-exit branch of the
-/// provider formats the stderr tail via the Debug formatter (`{:?}`) so
-/// embedded ANSI escapes / NULs / newlines from a poisoned crate cannot forge
-/// log records or repaint the operator's terminal.
+/// The non-zero-exit branch of the provider formats the stderr tail via
+/// the Debug formatter (`{:?}`) so embedded ANSI escapes / NULs / newlines
+/// from a poisoned crate cannot forge log records or repaint the
+/// operator's terminal.
 ///
 /// Driven through the production `interpret_output`, not a locally rebuilt
 /// copy of its `format!`: reverting `{:?}` to `{}` fails this test.
@@ -960,8 +951,7 @@ fn non_zero_exit_stderr_tail_debug_escapes_control_bytes() {
     );
 }
 
-/// TASK-0502 / TEST-5 / TASK-1787: a non-zero exit must never be reported as
-/// "no updates available".
+/// A non-zero exit must never be reported as "no updates available".
 #[cfg(unix)]
 #[test]
 fn non_zero_exit_never_reports_an_empty_result() {
@@ -972,9 +962,9 @@ fn non_zero_exit_never_reports_an_empty_result() {
     );
 }
 
-/// TEST-5 / TASK-1787: cargo prints the dry-run lockfile report on **stderr**.
-/// A stdout/stderr wiring mistake would previously have gone unnoticed — the
-/// stdout content here would parse to a different, wrong answer.
+/// Cargo prints the dry-run lockfile report on **stderr**. A stdout/stderr
+/// wiring mistake would otherwise go unnoticed — the stdout content here
+/// would parse to a different, wrong answer.
 #[cfg(unix)]
 #[test]
 fn success_branch_parses_stderr_not_stdout() {
@@ -999,11 +989,11 @@ fn success_branch_parses_stderr_not_stdout() {
     assert_eq!(entries[1]["action"], "add");
 }
 
-/// ERR-4 / TASK-1535, TEST-25 / TASK-1783: when `run_cargo_update_dry_run`
-/// returns a `RunError`, the provider wraps it via `.context(...)` rather than
-/// flattening it to Display. Asserted on the `DataProviderError` production
-/// actually builds, so flattening the wrap back into
-/// `anyhow!("{}: {}", ..)` fails this test — the source chain would be gone.
+/// When `run_cargo_update_dry_run` returns a `RunError`, the provider
+/// wraps it via `.context(...)` rather than flattening it to Display.
+/// Asserted on the `DataProviderError` production actually builds, so
+/// flattening the wrap back into `anyhow!("{}: {}", ..)` fails this test —
+/// the source chain would be gone.
 #[test]
 fn provide_wraps_run_error_with_context_preserving_source_chain() {
     use ops_core::subprocess::RunError;
@@ -1033,8 +1023,8 @@ fn provide_wraps_run_error_with_context_preserving_source_chain() {
     );
 }
 
-/// TEST-5 / TASK-1787: pin the subprocess invocation — argv, working
-/// directory, timeout and label — without spawning cargo.
+/// Pins the subprocess invocation — argv, working directory, timeout and
+/// label — without spawning cargo.
 #[test]
 fn cargo_update_invocation_is_pinned() {
     let dir = Path::new("/tmp/some-workspace");
@@ -1098,24 +1088,24 @@ fn parse_ignores_unknown_lines() {
     assert_eq!(result.entries[0].name(), "serde");
 }
 
-/// ERR-1 / TASK-0882: `strip_ansi` must round-trip non-ASCII UTF-8 input
-/// identically. The previous `bytes[i] as char` cast corrupted every
-/// continuation byte into a Latin-1 code point.
+/// `strip_ansi` must round-trip non-ASCII UTF-8 input identically —
+/// byte-wise `as char` casts corrupt every continuation byte into a
+/// Latin-1 code point.
 #[test]
 fn strip_ansi_round_trips_non_ascii() {
     let input = "café — naïve résumé 日本語";
     assert_eq!(strip_ansi_preserving_raw(input), input);
 }
 
-/// ERR-1 / TASK-0882: ANSI sequences are still removed even when
-/// surrounded by non-ASCII text.
+/// ANSI sequences are still removed even when surrounded by non-ASCII
+/// text.
 #[test]
 fn strip_ansi_removes_csi_around_unicode() {
     let input = "\x1b[31mcafé\x1b[0m";
     assert_eq!(strip_ansi_preserving_raw(input), "café");
 }
 
-/// ERR-1 / TASK-0882: a non-ASCII char that happens to land where a CSI
+/// A non-ASCII char that happens to land where a CSI
 /// final byte would be (0x40..=0x7E) does not break the parser — we only
 /// match the final-byte range against single ASCII codepoints, and
 /// `chars()` decoding ensures we don't see a stray continuation byte
@@ -1127,13 +1117,12 @@ fn strip_ansi_csi_termination_is_byte_safe() {
     assert_eq!(strip_ansi_preserving_raw(input), "日本語");
 }
 
-/// PATTERN-1 / TASK-1028: an input ending mid-CSI (no final byte before
-/// EOF) must not silently swallow the leading visible text. Pinned
-/// behaviour: `foo` is preserved (it precedes the orphan `\x1b[3`), and
-/// the truncated CSI bytes are themselves preserved in the output rather
-/// than dropping everything to EOF. The previous implementation kept
-/// `foo` (since it was already in `result`) but would silently consume
-/// arbitrary trailing characters in inputs like `"\x1b[3foo"`.
+/// An input ending mid-CSI (no final byte before EOF) must not silently
+/// swallow text. Pinned behaviour: `foo` is preserved (it precedes the
+/// orphan `\x1b[3`), and the truncated CSI bytes are themselves preserved
+/// in the output rather than consuming everything to EOF — an unbounded
+/// scan would silently consume arbitrary trailing characters in inputs
+/// like `"\x1b[3foo"`.
 #[test]
 fn strip_ansi_truncated_csi_preserves_leading_text() {
     let input = "foo\x1b[3";
@@ -1146,10 +1135,9 @@ fn strip_ansi_truncated_csi_preserves_leading_text() {
     assert_eq!(out, "foo\x1b[3");
 }
 
-/// PATTERN-1 / TASK-1028: trailing visible text after an orphan `\x1b[`
-/// (the case the bug report flags as "drains chars to EOF") must not be
-/// silently swallowed. The cap of 64 bytes bounds the scan so anything
-/// past it is emitted normally.
+/// Trailing visible text after an orphan `\x1b[` must not be silently
+/// swallowed. The cap of 64 bytes bounds the scan so anything past it is
+/// emitted normally.
 #[test]
 fn strip_ansi_truncated_csi_does_not_swallow_trailing_text() {
     // `\x1b[` with parameter bytes only (no final 0x40..=0x7E), then EOF.
@@ -1163,8 +1151,8 @@ fn strip_ansi_truncated_csi_does_not_swallow_trailing_text() {
     );
 }
 
-/// SEC-21 / TASK-1790: a truncated OSC must be bounded the same way — the
-/// visible text after it survives.
+/// A truncated OSC must be bounded the same way — the visible text after
+/// it survives.
 #[test]
 fn strip_ansi_truncated_osc_preserves_trailing_text() {
     let input = "foo\x1b]8;;https://example.com";
@@ -1175,20 +1163,20 @@ fn strip_ansi_truncated_osc_preserves_trailing_text() {
     );
 }
 
-// -- Property tests (TEST-9 / TASK-1803) --
+// -- Property tests --
 //
-// The parser is a byte-oriented scanner over untrusted subprocess output whose
-// demonstrated failure mode is "an input shape nobody thought to write down":
-// eight bugs (TASK-0472 / 0613 / 0882 / 0949 / 0970 / 1028 / 1030 / 1054), six
-// of them input-shape bugs, each patched with one more hand-written literal.
+// The parser is a byte-oriented scanner over untrusted subprocess output
+// whose demonstrated failure mode is "an input shape nobody thought to
+// write down" — historically eight bugs, six of them input-shape bugs,
+// each patched with one more hand-written literal.
 mod properties {
     use super::*;
     use proptest::prelude::*;
 
     /// Text that provably contains no escape introducer, so the strip must
-    /// be the identity on it. DUP-3 / TASK-2148: the shared grammar also
-    /// treats the 8-bit C1 introducers as escapes, so the filter excludes
-    /// those too — a random C1 CSI would legitimately be stripped.
+    /// be the identity on it. The shared grammar also treats the 8-bit C1
+    /// introducers as escapes, so the filter excludes those too — a random
+    /// C1 CSI would legitimately be stripped.
     fn escape_free_text() -> impl Strategy<Value = String> {
         any::<String>().prop_filter("must contain no escape introducer", |s| {
             !s.chars().any(|c| {
@@ -1215,8 +1203,8 @@ mod properties {
 
     proptest! {
         /// Arbitrary bytes must never panic the parser and must always
-        /// terminate — the class TASK-1028 (CSI scan draining to EOF) belongs
-        /// to.
+        /// terminate — the class an unbounded CSI scan draining to EOF
+        /// belongs to.
         #[test]
         fn parse_update_output_never_panics(bytes in proptest::collection::vec(any::<u8>(), 0..1024)) {
             let result = parse_update_output(&bytes);
@@ -1263,8 +1251,8 @@ mod properties {
         }
 
         /// `strip_ansi` is the identity on escape-free input — including
-        /// non-ASCII, the case TASK-0882's `bytes[i] as char` cast corrupted,
-        /// and the no-allocation fast path TASK-0970 added.
+        /// non-ASCII (where byte-wise casts corrupt continuation bytes)
+        /// and the no-allocation fast path.
         #[test]
         fn strip_ansi_is_identity_without_escapes(s in escape_free_text()) {
             let out = strip_ansi_preserving_raw(&s);
@@ -1272,8 +1260,8 @@ mod properties {
         }
 
         /// Interleaving visible text with complete CSI sequences leaves
-        /// exactly the visible text: no escape survives, and nothing visible
-        /// is swallowed (TASK-1028).
+        /// exactly the visible text: no escape survives, and nothing
+        /// visible is swallowed by a truncated CSI.
         #[test]
         fn strip_ansi_removes_every_complete_csi(
             chunks in proptest::collection::vec(
@@ -1293,9 +1281,9 @@ mod properties {
             prop_assert!(!out.contains('\x1b'));
         }
 
-        /// Round-trip: rendering a cargo-shaped line and re-parsing it yields
-        /// the entry it described. Covers the verb / version / boundary family
-        /// (TASK-0613 / 0949 / 1030 / 1054) instead of one literal at a time.
+        /// Round-trip: rendering a cargo-shaped line and re-parsing it
+        /// yields the entry it described. Covers the verb / version /
+        /// boundary family instead of one literal at a time.
         #[test]
         fn rendered_action_lines_round_trip(
             name in crate_name(),

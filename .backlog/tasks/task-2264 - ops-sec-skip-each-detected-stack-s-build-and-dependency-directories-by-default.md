@@ -1,10 +1,10 @@
 ---
 id: TASK-2264
 title: 'ops sec: skip each detected stack''s build and dependency directories by default'
-status: To Do
+status: Done
 assignee: []
 created_date: '2026-09-16 17:01'
-updated_date: '2026-09-16 17:12'
+updated_date: '2026-09-16 18:48'
 labels:
   - feature
   - sec
@@ -30,11 +30,12 @@ Proposal: each stack declares its default build and dependency directories, and 
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 Every stack declares its default build/dependency directories (Rust: target; Java Maven: target; Java Gradle: build, .gradle; Node/Vite: node_modules, dist; Python: .venv, venv, __pycache__, build, dist; Go: vendor; Terraform: .terraform; Ansible: collections and roles caches if applicable)
-- [ ] #2 `ops sec` passes the skip dirs for every detected stack, plus .git, to every Trivy scan (secret, vuln, config)
-- [ ] #3 The directories are skipped at any depth, so a nested workspace's target/ is covered
-- [ ] #4 There is a way to opt out or extend the list (e.g. a `[sec]` config section or `--no-default-skips`)
-- [ ] #5 `ops --dry-run sec` / the plan output shows the skipped directories
-- [ ] #6 Detection and Trivy use the same skip list, so the two cannot drift apart
-- [ ] #7 README documents the default skip list per stack
+- [x] #1 Every stack declares its default build/dependency directories (Rust: target; Java Maven: target; Java Gradle: build, .gradle; Node/Vite: node_modules, dist; Python: .venv, venv, __pycache__, build, dist; Go: vendor; Terraform: .terraform; Ansible: collections and roles caches if applicable)
+- [x] #2 `ops sec` passes the skip dirs for every detected stack, plus .git, to every Trivy scan (secret, vuln, config)
+- [x] #3 The directories are skipped at any depth, so a nested workspace's target/ is covered
+- [x] #4 There is a way to opt out or extend the list (e.g. a `[sec]` config section or `--no-default-skips`)
+- [x] #5 `ops --dry-run sec` / the plan output shows the skipped directories
+- [x] #6 Detection and Trivy use the same skip list, so the two cannot drift apart
+- [x] #7 README documents the default skip list per stack
+
 <!-- AC:END -->

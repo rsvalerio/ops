@@ -1,10 +1,10 @@
 ---
 id: TASK-2251
 title: 'DUP-1: create-review-tasks-rust member_target_name is a fourth copy of the SEC-14 member-safety reject-and-warn'
-status: To Do
+status: Done
 assignee: []
 created_date: '2026-09-08 16:02'
-updated_date: '2026-09-16 17:12'
+updated_date: '2026-09-16 17:26'
 labels:
   - code-review-rust
   - duplication
@@ -43,7 +43,8 @@ waves are in flight.
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 member_path_is_workspace_safe_or_warn is pub and member_target_name routes through it with a site field, with no behaviour change beyond the unified breadcrumb
+- [x] #1 member_path_is_workspace_safe_or_warn is pub and member_target_name routes through it with a site field, with no behaviour change beyond the unified breadcrumb
+
 <!-- AC:END -->
 
 ## Implementation Notes

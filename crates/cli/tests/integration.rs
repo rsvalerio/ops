@@ -951,8 +951,29 @@ fn cli_sec_dry_run_prints_the_plan_without_requiring_trivy() {
         .stdout(predicate::str::contains("[run ] secrets"))
         .stdout(predicate::str::contains("[skip] vulnerabilities"))
         .stdout(predicate::str::contains("[skip] misconfiguration"))
+        // TASK-2264: the preview also names the directories every scan will
+        // skip, in the `**/<dir>` form actually passed to Trivy; generated
+        // build/dist dirs appear as exact paths (TASK-2271).
+        .stdout(predicate::str::contains("skipping dirs:"))
+        .stdout(predicate::str::contains("**/target"))
         // The heads-up keeps the preview honest about a live run.
         .stderr(predicate::str::contains("trivy not found on PATH"));
+}
+
+/// TASK-2264 AC #4/#5 at the binary level: `--no-default-skips` swaps the
+/// default skip list for an explicit note that it is off.
+#[test]
+fn cli_sec_dry_run_no_default_skips_says_so() {
+    let dir = temp_dir();
+    let empty = temp_dir();
+    ops()
+        .args(["sec", "--dry-run", "--no-default-skips"])
+        .env("PATH", empty.path())
+        .current_dir(dir.path())
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("--no-default-skips"))
+        .stdout(predicate::str::contains("skipping dirs (any depth)").not());
 }
 
 #[test]

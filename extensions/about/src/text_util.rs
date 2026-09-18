@@ -10,16 +10,13 @@ use unicode_segmentation::UnicodeSegmentation;
 /// falling back to `COLUMNS`, then to a constant default.
 ///
 /// When stdout is a TTY the OS is asked for the real window size first;
-/// `COLUMNS` is unset in many shells until the user resizes once, and the
-/// previous 120-column fallback wrapped badly on narrow terminals and
-/// under-utilised wide ones.
+/// `COLUMNS` is unset in many shells until the user resizes once, and a
+/// blind 120-column fallback wraps badly on narrow terminals and
+/// under-utilises wide ones.
 #[must_use = "use the returned width for layout; it is not remembered between calls"]
 pub fn get_terminal_width() -> usize {
-    // ARCH-2 / TASK-0667: when stdout is a TTY, ask the OS for the real
-    // window size first; `COLUMNS` is unset in many shells until the user
-    // resizes once, and the previous 120-column fallback wrapped badly on
-    // narrow terminals and under-utilised wide ones. Rationale in the doc
-    // comment above.
+    // When stdout is a TTY, ask the OS for the real window size first
+    // (rationale in the doc comment above).
     if std::io::stdout().is_terminal() {
         if let Some(width) = detect_terminal_width() {
             return width;
@@ -30,9 +27,9 @@ pub fn get_terminal_width() -> usize {
 
 /// Parse a COLUMNS-style width source.
 ///
-/// Extracted from `get_terminal_width` so tests can exercise the parser
-/// without mutating process-global env, which otherwise races with any
-/// parallel test reading COLUMNS.
+/// A pure parser, kept apart from `get_terminal_width` so tests can
+/// exercise it without mutating process-global env, which otherwise
+/// races with any parallel test reading COLUMNS.
 #[must_use = "use the parsed width; the default fallback is applied here, not by the caller"]
 pub fn parse_terminal_width(raw: Option<&str>) -> usize {
     raw.and_then(|s| s.parse().ok()).unwrap_or(120)
@@ -40,11 +37,9 @@ pub fn parse_terminal_width(raw: Option<&str>) -> usize {
 
 /// Trim an `Option<String>`'s body and drop empty results.
 ///
-/// DUP-3 / TASK-1258: about-node and about-python both reimplemented this
-/// helper verbatim (their per-site copies cite ERR-2 / TASK-0563 and
-/// TASK-0566). Lifting it onto `ops_about` collapses the three drift surfaces
-/// onto one policy — tightening the trim semantics (e.g. dropping
-/// whitespace-only Unicode controls) lands once.
+/// Lives here once rather than reimplemented per stack, so tightening the
+/// trim semantics (e.g. dropping whitespace-only Unicode controls) lands
+/// once for every stack.
 #[must_use = "use the trimmed value; discarding it drops the sanitised string"]
 pub fn trim_nonempty(value: Option<String>) -> Option<String> {
     value
@@ -56,25 +51,22 @@ pub fn trim_nonempty(value: Option<String>) -> Option<String> {
 /// attacker-controllable text value (manifest URLs, repository fields,
 /// package metadata).
 ///
-/// DUP-2 / TASK-2116: delegates to the shared
-/// [`ops_core::text::is_unsafe_display_char`] predicate — the same one the
-/// git remote path uses — so an About-card manifest field rejects exactly
-/// what a git remote rejects: the whole `Cc` control category (C0, DEL, C1)
-/// plus the bidi / zero-width / BOM / separator codepoints (U+202E, U+200B,
-/// U+FEFF, U+2066..U+2069, U+2028 / U+2029, …). The name is kept for the
-/// node / python / terraform callers; the set is the shared one.
+/// Delegates to the shared [`ops_core::text::is_unsafe_display_char`]
+/// predicate — the same one the git remote path uses — so an About-card
+/// manifest field rejects exactly what a git remote rejects: the whole `Cc`
+/// control category (C0, DEL, C1) plus the bidi / zero-width / BOM /
+/// separator codepoints (U+202E, U+200B, U+FEFF, U+2066..U+2069, U+2028 /
+/// U+2029, …). The name is kept for the node / python / terraform callers;
+/// the set is the shared one.
 ///
-/// SEC-2 / TASK-1165 / TASK-1207: any rejected codepoint in such a value is
-/// treated as evidence of tampering and the caller drops the field entirely
-/// rather than stripping it. Stripping silently concatenates the
-/// attacker-controlled tail (`https://demo.dev\nINJECT` →
-/// `https://demo.devINJECT`) into a clickable URL; dropping surfaces the
-/// field as missing.
+/// Any rejected codepoint in such a value is treated as evidence of
+/// tampering and the caller drops the field entirely rather than stripping
+/// it. Stripping silently concatenates the attacker-controlled tail
+/// (`https://demo.dev\nINJECT` → `https://demo.devINJECT`) into a clickable
+/// URL; dropping surfaces the field as missing.
 ///
-/// DUP-3 / TASK-1758: about-node and about-python each carried a verbatim copy
-/// of this predicate for the same policy. Lifting it here keeps the
-/// sanitisation boundary pinned at one source location, so a tightening lands
-/// for every stack at once.
+/// Keeping the predicate in one place pins the sanitisation boundary at a
+/// single source location, so a tightening lands for every stack at once.
 #[must_use = "branch on the verdict; the input is left unvalidated"]
 pub fn contains_control_chars(raw: &str) -> bool {
     ops_core::text::contains_unsafe_display_chars(raw)
@@ -89,17 +81,17 @@ const ALLOWED_URL_SCHEMES: [&str; 2] = ["https://", "http://"];
 
 /// Whether `raw` carries an allowlisted URL scheme (`https://` or `http://`).
 ///
-/// SEC-11 / TASK-1755 / TASK-1722: manifest URL fields are untrusted input —
-/// `ops about` is routinely run against third-party checkouts. Without an
-/// allowlist, `javascript:fetch(…)`, `data:text/html;base64,…`, `vbscript:x`
-/// and `file:///etc/shadow` reach the rendered homepage / repository fields
-/// and become clickable XSS or local-file-exfiltration links in any markdown
-/// or HTML surface.
+/// Manifest URL fields are untrusted input — `ops about` is routinely run
+/// against third-party checkouts. Without an allowlist,
+/// `javascript:fetch(…)`, `data:text/html;base64,…`, `vbscript:x` and
+/// `file:///etc/shadow` reach the rendered homepage / repository fields and
+/// become clickable XSS or local-file-exfiltration links in any markdown or
+/// HTML surface.
 ///
 /// Scheme-less values (`example.com/x`, `//host/x`) are rejected too: guessing
 /// a scheme for them would fabricate a link the manifest never declared.
-/// Callers drop the field to `None` on rejection, extending the SEC-2 /
-/// TASK-1207 drop-not-strip policy to the scheme axis — a partial or rewritten
+/// Callers drop the field to `None` on rejection, extending the
+/// drop-not-strip policy to the scheme axis — a partial or rewritten
 /// URL is never emitted.
 ///
 /// Scheme comparison is ASCII-case-insensitive, per RFC 3986 §3.1.
@@ -115,11 +107,11 @@ pub fn has_allowed_url_scheme(raw: &str) -> bool {
 
 #[must_use = "use the padded string; it is a new allocation, not an in-place edit"]
 pub fn pad_to_width_plain(s: &str, width: usize) -> String {
-    // PATTERN-1 / TASK-1001: delegate to `display_width` so emoji ZWJ
-    // sequences (`👨‍👩‍👧`), regional-indicator flag pairs, and variation
-    // selectors are accounted for at the cluster level. Char-summing
-    // over-counted joiners / VS-16 glyphs and produced misaligned About
-    // cards for unit names containing emoji.
+    // Delegates to `display_width` so emoji ZWJ sequences (`👨‍👩‍👧`),
+    // regional-indicator flag pairs, and variation selectors are accounted
+    // for at the cluster level. Char-summing over-counts joiners / VS-16
+    // glyphs and produces misaligned About cards for unit names containing
+    // emoji.
     let current_width = display_width(s);
     if current_width >= width {
         s.to_string()
@@ -133,28 +125,27 @@ pub fn pad_to_width_plain(s: &str, width: usize) -> String {
 /// Truncate `s` to at most `max_width` display columns, appending a
 /// `\u{2026}` (HORIZONTAL ELLIPSIS) when anything was cut.
 ///
-/// READ-6 / TASK-1730: measures **grapheme clusters** with the same
-/// cluster-aware [`display_width`] that [`pad_to_width_plain`] and
-/// [`wrap_text`] use. It previously summed `unicode_width` per `char`, which
-/// gave this module two disagreeing definitions of a column on the same
-/// strings — `cards.rs` guards with `display_width` and then truncates with
-/// this function. For a ZWJ sequence such as `👨‍👩‍👧` the per-`char` sum is
-/// 2+0+2+0+2 = 6 where `display_width` reports 2, so two things went wrong:
+/// Measures **grapheme clusters** with the same cluster-aware
+/// [`display_width`] that [`pad_to_width_plain`] and [`wrap_text`] use —
+/// one definition of a column across the module. `cards.rs` guards with
+/// `display_width` and then truncates with this function, so a per-`char`
+/// `unicode_width` sum here would disagree with the guard on the same
+/// strings. For a ZWJ sequence such as `👨‍👩‍👧` the per-`char` sum is
+/// 2+0+2+0+2 = 6 where `display_width` reports 2, and two things go wrong:
 ///
-/// 1. **Over-truncation.** A title the guard measured as fitting was cut at
+/// 1. **Over-truncation.** A title the guard measured as fitting is cut at
 ///    up to a third of the available width.
-/// 2. **Cluster splitting.** The per-`char` loop could break *inside* a ZWJ
+/// 2. **Cluster splitting.** A per-`char` loop can break *inside* a ZWJ
 ///    sequence, emitting a lone `👨` plus a dangling joiner whose rendered
-///    width is not the width the loop accounted for — re-introducing on the
-///    truncation side exactly the card misalignment TASK-1001 fixed on the
-///    padding side.
+///    width is not the width the loop accounted for — the same card
+///    misalignment cluster-aware padding avoids.
 ///
-/// Iterating clusters fixes both at once: a cluster is kept whole or dropped
+/// Iterating clusters avoids both: a cluster is kept whole or dropped
 /// whole, and its width is measured the way the terminal renders it. ASCII is
 /// unaffected — every ASCII `char` is its own one-column cluster.
 #[must_use = "use the truncated string; it is a new allocation, not an in-place edit"]
 pub fn truncate_to_width(s: &str, max_width: usize) -> String {
-    // READ-6: a zero-column budget has room for nothing at all — not even the
+    // A zero-column budget has room for nothing at all — not even the
     // ellipsis. Without this guard the loop below compares against
     // `max_width.saturating_sub(1)` == 0, so the first cluster trips the cut
     // and the function returns a one-column `…` for a zero-column request,
@@ -183,16 +174,16 @@ pub fn truncate_to_width(s: &str, max_width: usize) -> String {
     result
 }
 
-// TEST-15 / TASK-1664: counts the characters `wrap_text` hands to
-// `display_width`.
+// Counts the characters `wrap_text` hands to `display_width`.
 //
-// The measurement contract used to be pinned by a wall-clock ratio — a 10x
-// input had to wrap in under 20x the time. That assertion was load-dependent in
-// a debug build, and it could not have caught the regression it guarded twice
-// over: `max_lines` breaks the word loop after at most that many lines, so both
-// input sizes did nearly the same work; and the regression itself is a constant
-// factor rather than a growth change (see the seam below), which no ratio
-// bound can see. Counting the characters measured pins the property directly.
+// The measurement contract is pinned by counting rather than a wall-clock
+// ratio (a 10x input under 20x the time): timing a debug build is
+// load-dependent under CPU contention, and a ratio could not catch the
+// regression this guards twice over: `max_lines` breaks the word loop
+// after at most that many lines, so both input sizes do nearly the same
+// work; and the regression itself is a constant factor rather than a
+// growth change (see the seam below), which no ratio bound can see.
+// Counting the characters measured pins the property directly.
 //
 // **Thread-local**, not a process-wide counter, for the reason given at
 // `runner::command::resolve::STORE_WALKS`: test binaries run their tests in
@@ -207,8 +198,8 @@ thread_local! {
 }
 
 /// Single seam for every width measurement [`wrap_text`] makes, so a
-/// regression that re-measures the accumulated line once per word — the shape
-/// TASK-0709 fixed — shows up in the count above.
+/// regression that re-measures the accumulated line once per word shows
+/// up in the count above.
 fn measure_width(s: &str) -> usize {
     #[cfg(test)]
     // Test-only tally over in-memory strings; the count cannot approach
@@ -228,14 +219,13 @@ fn take_width_chars() -> usize {
 ///
 /// # Truncation behaviour
 ///
-/// PATTERN-1 / TASK-1105: when wrapping exceeds `max_lines`, the function
-/// **does not silently drop** the trailing content. The last emitted line
-/// has a `\u{2026}` (HORIZONTAL ELLIPSIS) appended (replacing its tail if
-/// necessary to stay within `max_width`) so callers can tell at a glance
-/// that the rendered description is truncated. An unbreakable word wider
-/// than `max_width` is still truncated by `truncate_to_width` per the
-/// READ-5 / TASK-0550 contract; the ellipsis policy here applies to the
-/// "ran out of lines" case.
+/// When wrapping exceeds `max_lines`, the function **does not silently
+/// drop** the trailing content. The last emitted line has a `\u{2026}`
+/// (HORIZONTAL ELLIPSIS) appended (replacing its tail if necessary to stay
+/// within `max_width`) so callers can tell at a glance that the rendered
+/// description is truncated. An unbreakable word wider than `max_width` is
+/// still truncated by `truncate_to_width`; the ellipsis policy here
+/// applies to the "ran out of lines" case.
 ///
 /// Empty input or `max_lines == 0` returns an empty vector unchanged.
 #[must_use = "render the returned lines; rewrapping the same input recomputes them"]
@@ -247,16 +237,15 @@ pub fn wrap_text(text: &str, max_width: usize, max_lines: usize) -> Vec<String> 
     let mut lines = Vec::new();
     let mut current_line = String::new();
     // Track current line width incrementally rather than re-scanning
-    // `current_line` via display_width on every iteration. Scanning cost up to
-    // `max_width` columns per word — bounded, so the growth stayed linear, but
-    // the constant was 5.6x on the shape `wrap_text_measures_each_word_and_
-    // line_exactly_once` exercises (TASK-1664 measured it; the original
-    // TASK-0709 note called this O(N^2), which overstated it).
+    // `current_line` via display_width on every iteration. Scanning costs
+    // up to `max_width` columns per word — bounded, so growth stays
+    // linear, but the constant is ~5.6x on the shape
+    // `wrap_text_measures_each_word_and_line_exactly_once` exercises.
     let mut current_width: usize = 0;
-    // PATTERN-1 / TASK-1105: track whether the input had more words than
-    // `max_lines` could accommodate, so the post-loop fixup can append an
-    // ellipsis to the last emitted line. Without this, the trailing word
-    // pushed into `current_line` after the `max_lines` cap was reached was
+    // Track whether the input had more words than `max_lines` could
+    // accommodate, so the post-loop fixup can append an ellipsis to the
+    // last emitted line. Without this, the trailing word pushed into
+    // `current_line` after the `max_lines` cap was reached would be
     // dropped silently.
     let mut truncated = false;
 
@@ -291,13 +280,14 @@ pub fn wrap_text(text: &str, max_width: usize, max_lines: usize) -> Vec<String> 
         lines.push(current_line);
     } else if !current_line.is_empty() {
         // Non-empty `current_line` with no room left: we are about to drop
-        // it, which is exactly the silent-truncation case TASK-1105 fixes.
+        // it, which is exactly the silent-truncation case the ellipsis
+        // policy fixes.
         truncated = true;
     }
 
     lines.truncate(max_lines);
 
-    // PATTERN-1 / TASK-1105: mark the last emitted line as truncated. We
+    // Mark the last emitted line as truncated. We
     // append `\u{2026}` and trim from the end if the resulting display
     // width would exceed max_width, so the contract (every line <=
     // max_width) is preserved. `truncate_to_width` already implements that
@@ -318,7 +308,7 @@ pub fn wrap_text(text: &str, max_width: usize, max_lines: usize) -> Vec<String> 
         }
     }
 
-    // READ-5 (TASK-0550): an unbreakable word wider than max_width is pushed
+    // An unbreakable word wider than max_width is pushed
     // verbatim when current_line is empty and may land on an intermediate
     // line, so truncating only the last line lets earlier lines exceed the
     // contract. Enforce display_width(line) <= max_width on every line.
@@ -352,8 +342,8 @@ pub fn tty_style(
 pub fn pad_header(left: &str, right: &str, target_content_width: usize) -> String {
     let left_display = display_width(left);
     let right_display = display_width(right);
-    // PATTERN-1 / TASK-1115: when `left + right + 1` exceeds the target content
-    // width, `saturating_sub` pins padding at 0 and the formatted result loses
+    // When `left + right + 1` exceeds the target content width,
+    // `saturating_sub` pins padding at 0 and the formatted result loses
     // its whitespace separator entirely (`<left><right> `), making two
     // adjacent identifiers look like a single concatenated token. Floor the
     // separator at one space so the contract — "right-aligned right string,
@@ -370,10 +360,9 @@ mod tests {
     use super::*;
     use ops_core::output::display_width;
 
-    /// DUP-3 / TASK-1758: the per-provider copies of this predicate carried a
-    /// redundant `|| c == '\u{007f}'` clause, implying `char::is_control` had
-    /// a gap at DEL. It does not — `Cc` spans C0, DEL and C1 — so dropping
-    /// the clause must not change behaviour at any of those three points.
+    /// The shared predicate must cover C0, DEL and C1 without an explicit
+    /// DEL clause: `Cc` spans all three, so rejection built on the Unicode
+    /// category needs no special case for `\u{007f}`.
     #[test]
     fn contains_control_chars_covers_c0_del_and_c1() {
         assert!(contains_control_chars("https://demo.dev\nINJECT"));
@@ -389,7 +378,7 @@ mod tests {
         assert!(!contains_control_chars("https://demo.dev/owner/repo"));
     }
 
-    /// DUP-2 / TASK-2116 AC #3: About-card manifest fields must reject the
+    /// About-card manifest fields must reject the
     /// same bidi / zero-width codepoints the git remote path rejects. The
     /// predicate is shared with `ops_core::text::is_unsafe_display_char`
     /// (consumed by `ops_git`), so pin both motivating codepoints here —
@@ -407,7 +396,7 @@ mod tests {
         );
     }
 
-    /// SEC-11 / TASK-1755: only `http(s)` reach a rendered About link.
+    /// Only `http(s)` reach a rendered About link.
     #[test]
     fn has_allowed_url_scheme_allowlists_only_http_and_https() {
         assert!(has_allowed_url_scheme("https://demo.dev"));
@@ -511,31 +500,30 @@ mod tests {
         assert!(!result.is_empty());
     }
 
-    /// PATTERN-1 / TASK-1105: when `max_lines` runs out mid-iteration the
-    /// previous implementation silently dropped the word that would have
-    /// started the next line. Pin the new policy: the last emitted line
-    /// ends with `\u{2026}` so callers can tell content was truncated.
+    /// When `max_lines` runs out mid-iteration the word that would have
+    /// started the next line must not be silently dropped: the last
+    /// emitted line ends with `\u{2026}` so callers can tell content was
+    /// truncated.
     ///
     /// `max_width` is set to 8 here (bigger than the longest word, 5) so
-    /// the READ-5 / TASK-0550 "intermediate-line >= max_width-1" pass does
-    /// not also truncate the otherwise-unchanged words and obscure the
-    /// signal we are pinning.
+    /// the intermediate-line over-width pass does not also truncate the
+    /// otherwise-unchanged words and obscure the signal being pinned.
     #[test]
     fn wrap_text_truncates_with_ellipsis_when_max_lines_exceeded() {
         let result = wrap_text("alpha beta gamma delta", 8, 2);
         assert_eq!(
             result,
             vec!["alpha".to_string(), "beta\u{2026}".to_string()],
-            "TASK-1105: trailing word must drive an ellipsis on the last line"
+            "trailing word must drive an ellipsis on the last line"
         );
         for line in &result {
             assert!(display_width(line) <= 8);
         }
     }
 
-    /// PATTERN-1 / TASK-1105: when the input fits within `max_lines` exactly
-    /// no ellipsis must be appended — only signal truncation when tail
-    /// content was actually dropped.
+    /// When the input fits within `max_lines` exactly no ellipsis must be
+    /// appended — only signal truncation when tail content was actually
+    /// dropped.
     #[test]
     fn wrap_text_no_ellipsis_when_input_fits() {
         let result = wrap_text("alpha beta", 8, 2);
@@ -543,26 +531,25 @@ mod tests {
         assert!(result.iter().all(|l| !l.ends_with('\u{2026}')));
     }
 
-    /// PERF-1 (TASK-0709) + TEST-15 (TASK-1044, TASK-1152, TASK-1664):
-    /// wrapping must measure each word once and each emitted line once, and
-    /// must never re-measure the line it is accumulating. Pre-fix,
-    /// `display_width(&current_line)` was called for every word.
+    /// Wrapping must measure each word once and each emitted line once, and
+    /// must never re-measure the line it is accumulating. Re-introducing
+    /// `display_width(&current_line)` per word reports 80,621 characters
+    /// against 14,300 on the ledgers below.
     ///
-    /// TASK-1664 replaces the wall-clock ratio this used to assert (a 10x
-    /// input under 20x the time), which was wrong twice over. It timed a debug
-    /// build, so it failed under CPU contention — the normal state of a shared
-    /// runner. And it could not have caught the regression it guarded:
-    /// `max_lines` breaks the word loop after 50 lines, so the 1k-word and
-    /// 10k-word inputs consumed the same ~800 words and the ratio sat near 1
-    /// whatever the implementation did.
+    /// The count is asserted exactly rather than as a wall-clock ratio (a
+    /// 10x input under 20x the time): timing a debug build fails under CPU
+    /// contention — the normal state of a shared runner — and a ratio could
+    /// not catch this regression anyway. `max_lines` breaks the word loop
+    /// after 50 lines, so the 1k-word and 10k-word inputs consume the same
+    /// ~800 words and the ratio sits near 1 whatever the implementation
+    /// does.
     ///
-    /// Note the old `O(N^2)` framing overstated the bug. `current_line` is
-    /// capped at `max_width`, so re-scanning it per word costs a bounded
-    /// constant per word — the growth stays linear and only the constant
-    /// moves (measured: 5.6x the characters). That is precisely the class of
-    /// regression a growth-ratio assertion cannot see, whatever its bound, so
-    /// the count is asserted exactly rather than compared between two sizes.
-    /// Re-introducing the call reports 80,621 characters against 14,300.
+    /// Note also that the cost is a constant factor, not a growth change:
+    /// `current_line` is capped at `max_width`, so re-scanning it per word
+    /// costs a bounded constant per word — growth stays linear and only the
+    /// constant moves (measured: 5.6x the characters). That is precisely
+    /// the class of regression a growth-ratio assertion cannot see,
+    /// whatever its bound.
     #[test]
     fn wrap_text_measures_each_word_and_line_exactly_once() {
         // 16 four-character words fit an 80-column line (16*4 + 15 spaces =
@@ -593,8 +580,8 @@ mod tests {
                 "wrap_text measured {measured} characters for {words} words \
                  where {expected} accounts for every word and every emitted \
                  line exactly once. Measuring the accumulated line per word — \
-                 the TASK-0709 regression — costs up to `max_width` extra \
-                 characters per word."
+                 the per-word re-measure regression — costs up to `max_width` \
+                 extra characters per word."
             );
         }
 
@@ -623,11 +610,11 @@ mod tests {
         assert_eq!(pad_to_width_plain("hi", 5).len(), 5);
     }
 
-    /// PATTERN-1 / TASK-1001: a string with an emoji ZWJ sequence
-    /// (`👨‍👩‍👧`) must be padded based on `display_width` (cluster-aware),
-    /// matching how the rest of the `about/text_util` module measures text.
-    /// Char-summing over-counted the joiner / VS-16 glyphs and produced
-    /// off-by-one cards under TTY rendering.
+    /// A string with an emoji ZWJ sequence (`👨‍👩‍👧`) must be padded
+    /// based on `display_width` (cluster-aware), matching how the rest of
+    /// the `about/text_util` module measures text. Char-summing
+    /// over-counts the joiner / VS-16 glyphs and produces off-by-one
+    /// cards under TTY rendering.
     #[test]
     fn pad_to_width_uses_display_width_for_zwj_sequence() {
         let s = "\u{1F468}\u{200D}\u{1F469}\u{200D}\u{1F467}"; // 👨‍👩‍👧
@@ -646,10 +633,10 @@ mod tests {
         assert_eq!(pad_to_width_plain("hello", 3), "hello");
     }
 
-    /// READ-6 / TASK-1730: the truncation counterpart of
-    /// `pad_to_width_uses_display_width_for_zwj_sequence`. A ZWJ family emoji
-    /// is one two-column cluster; the old per-`char` sum measured it as six
-    /// columns and could break between the joiner and its neighbour.
+    /// The truncation counterpart of
+    /// `pad_to_width_uses_display_width_for_zwj_sequence`. A ZWJ family
+    /// emoji is one two-column cluster; a per-`char` sum measures it as
+    /// six columns and can break between the joiner and its neighbour.
     #[test]
     fn truncate_to_width_keeps_zwj_cluster_whole() {
         const FAMILY: &str = "\u{1F468}\u{200D}\u{1F469}\u{200D}\u{1F467}";
@@ -675,7 +662,7 @@ mod tests {
         }
     }
 
-    /// READ-6 / TASK-1730: with enough room the whole cluster survives, and
+    /// With enough room the whole cluster survives, and
     /// with room for the prefix but not the cluster it is dropped entirely
     /// rather than cut in half.
     #[test]
@@ -684,11 +671,11 @@ mod tests {
         let input = format!("ab{FAMILY}");
         assert_eq!(display_width(&input), 4);
 
-        // The function always reserves one column for a possible ellipsis, so
-        // content is kept up to `max_width - 1`. At 5 the whole 4-column
-        // input fits inside that budget and comes back untouched — this is
-        // where the old char-summing model failed, counting the cluster as 6
-        // columns and cutting after "a".
+        // The function always reserves one column for a possible ellipsis,
+        // so content is kept up to `max_width - 1`. At 5 the whole 4-column
+        // input fits inside that budget and comes back untouched — a
+        // char-summing model fails here, counting the cluster as 6 columns
+        // and cutting after "a".
         assert_eq!(truncate_to_width(&input, 5), input);
 
         // At 4 the budget is 3: "ab" fits, the 2-column cluster does not, and
@@ -701,8 +688,8 @@ mod tests {
 
     #[test]
     fn tty_style_applies_when_tty() {
-        // READ-9/TASK-0950: ops_core::style helpers self-gate on
-        // stdout TTY + NO_COLOR, so tests that need to observe the
+        // ops_core::style helpers self-gate on stdout TTY + NO_COLOR, so
+        // tests that need to observe the
         // styled-branch behaviour of tty_style use a local styler.
         fn force_styler(s: &str) -> std::borrow::Cow<'_, str> {
             std::borrow::Cow::Owned(format!("[{s}]"))
@@ -751,11 +738,11 @@ mod tests {
         assert!(result.contains(&right));
     }
 
-    /// PATTERN-1 / TASK-1115: when `left + right + 1` overflows
-    /// `target_content_width`, `pad_header` previously returned
-    /// `<left><right> ` with no whitespace between the two halves, making
-    /// two adjacent identifiers look concatenated. Guarantee at least one
-    /// space separator regardless of width.
+    /// When `left + right + 1` overflows `target_content_width`,
+    /// `pad_header` must not return `<left><right> ` with no whitespace
+    /// between the two halves — that makes two adjacent identifiers look
+    /// concatenated. Guarantee at least one space separator regardless of
+    /// width.
     #[test]
     fn pad_header_preserves_separator_on_overflow() {
         let left = "Foo";

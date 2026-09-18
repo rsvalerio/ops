@@ -89,10 +89,10 @@ fn workspace_root_cache() -> &'static Mutex<WorkspaceRootCache> {
 /// would turn one unrelated panic into an `ops about` crash. The sibling
 /// typed-manifest cache warns on recovery because a poisoned lock there
 /// degrades a correctness-relevant freshness check; here the worst outcome is
-/// an extra ancestor walk, so recovery is silent. DUP-1 / TASK-2150: the
-/// shared helper carries the recovery scaffold.
+/// an extra ancestor walk, so recovery is silent. DUP-1 / TASK-2258: the
+/// poison-recovery policy lives in `ops_core::sync`.
 fn lock() -> std::sync::MutexGuard<'static, WorkspaceRootCache> {
-    ops_about::lru::lock_recovering(workspace_root_cache(), || {})
+    ops_core::sync::lock_recover(workspace_root_cache())
 }
 
 /// The memoized workspace root for `cwd`, if one has been resolved.

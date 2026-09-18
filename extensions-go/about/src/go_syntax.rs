@@ -145,8 +145,7 @@ pub fn unquote_token(token: &str) -> Cow<'_, str> {
 /// cmd/go accepts `../../shared`, but a `..` past a real segment is
 /// traversal. `Path::join` does not normalise `..` and the OS resolves it
 /// lexically on open, so `./api/../../../etc` would otherwise reach outside
-/// the project root. Both `go_mod::parse_replace_directive` and
-/// `modules::unit_from_use_dir` call this, so `replace` targets and `use`
+/// the project root. `modules::unit_from_use_dir` calls this, so `use`
 /// directives enforce one policy — the same one `resolve_member_globs`
 /// applies in `extensions/about/src/workspace.rs`.
 pub fn has_embedded_parent_dir_segment(target: &str) -> bool {

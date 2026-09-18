@@ -1,10 +1,10 @@
 ---
 id: TASK-2250
 title: 'DUP-2: ops-core table/ui escape range sets still define their own control-codepoint lists instead of the shared is_unsafe_display_char predicate'
-status: To Do
+status: Done
 assignee: []
 created_date: '2026-09-08 16:02'
-updated_date: '2026-09-16 17:12'
+updated_date: '2026-09-16 17:26'
 labels:
   - code-review-rust
   - duplication
@@ -44,5 +44,6 @@ prevent.
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 table.rs and ui.rs derive the codepoint set they escape from ops_core::text::is_unsafe_display_char (or a named superset documented against it), keeping the escape-vs-drop decision local
+- [x] #1 table.rs and ui.rs derive the codepoint set they escape from ops_core::text::is_unsafe_display_char (or a named superset documented against it), keeping the escape-vs-drop decision local
+
 <!-- AC:END -->

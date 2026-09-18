@@ -898,14 +898,18 @@ mod nested_parallel_detection_tests {
     }
 }
 
-/// `merge_plan` takes each name's scheduling flags from its composite tree.
+/// `plans_for_names` takes each name's scheduling flags from its own
+/// composite tree (TASK-2262): flags are per-name and never merged across
+/// names, so a parallel name can no longer promote a sequential name's steps
+/// into a parallel plan.
 ///
-/// The plan is flat, so its root decides `parallel`: a sequential root runs a
-/// nested `parallel = true` group sequentially (never OR-folded up into a
-/// parallel plan, as before TASK-1657), and a parallel root rejects a nested
-/// sequential group. A nested `fail_fast` that disagrees is rejected.
-mod merge_plan_nested_aggregation_tests {
-    use crate::run_cmd::plan::merge_plan;
+/// Within one name the plan is flat, so its root decides `parallel`: a
+/// sequential root runs a nested `parallel = true` group sequentially (never
+/// OR-folded up into a parallel plan, as before TASK-1657), and a parallel
+/// root rejects a nested sequential group. A nested `fail_fast` that
+/// disagrees is rejected.
+mod name_plan_expansion_tests {
+    use crate::run_cmd::plan::plans_for_names;
     use crate::test_utils::TestConfigBuilder;
     use ops_core::config::{CommandSpec, CompositeCommandSpec, Config};
     use std::path::PathBuf;
@@ -917,7 +921,7 @@ mod merge_plan_nested_aggregation_tests {
     /// A parallel inner composite under a sequential outer one runs
     /// sequentially — never a silent promotion of the whole plan to parallel.
     #[test]
-    fn merge_plan_runs_nested_parallel_under_sequential_outer_sequentially() {
+    fn nested_parallel_under_sequential_outer_stays_sequential() {
         let mut inner = CompositeCommandSpec::new(["a", "b"]);
         inner.parallel = true;
         let outer = CompositeCommandSpec::new(["inner"]); // outer.parallel = false
@@ -932,20 +936,21 @@ mod merge_plan_nested_aggregation_tests {
             .commands
             .insert("outer".to_string(), CommandSpec::Composite(outer));
 
-        let (leaves, any_parallel, fail_fast) = merge_plan(&runner_with(config), &["outer"])
+        let plans = plans_for_names(&runner_with(config), &["outer"])
             .expect("a sequential root may contain a parallel group");
-        assert_eq!(leaves, vec!["a", "b"]);
+        assert_eq!(plans.len(), 1);
+        assert_eq!(plans[0].leaf_ids, vec!["a", "b"]);
         assert!(
-            !any_parallel,
+            !plans[0].any_parallel,
             "the sequential outer schedules the whole plan"
         );
-        assert!(fail_fast);
+        assert!(plans[0].fail_fast);
     }
 
     /// TASK-1657: same contract for `fail_fast` — a nested `fail_fast = false`
     /// must not silently disable fail-fast for a plan whose root enables it.
     #[test]
-    fn merge_plan_rejects_nested_fail_fast_disabled_under_enabled_outer() {
+    fn nested_fail_fast_disabled_under_enabled_outer_is_rejected() {
         let mut inner = CompositeCommandSpec::new(["a"]);
         inner.fail_fast = false;
         let outer = CompositeCommandSpec::new(["inner"]); // outer.fail_fast defaults true
@@ -957,7 +962,7 @@ mod merge_plan_nested_aggregation_tests {
             .commands
             .insert("outer".to_string(), CommandSpec::Composite(outer));
 
-        let err = merge_plan(&runner_with(config), &["outer"])
+        let err = plans_for_names(&runner_with(config), &["outer"])
             .expect_err("conflicting `fail_fast` must be rejected, not OR-folded");
         let msg = err.to_string();
         assert!(
@@ -967,10 +972,10 @@ mod merge_plan_nested_aggregation_tests {
     }
 
     /// TASK-1657: a tree whose composites *agree* still expands, and the
-    /// agreed value is what `merge_plan` reports. This is the positive case
+    /// agreed value is what the plan reports. This is the positive case
     /// that proves the check rejects disagreement rather than nesting itself.
     #[test]
-    fn merge_plan_allows_nested_composites_that_agree() {
+    fn nested_composites_that_agree_expand() {
         let mut inner = CompositeCommandSpec::new(["a", "b"]);
         inner.parallel = true;
         let mut outer = CompositeCommandSpec::new(["inner"]);
@@ -986,19 +991,22 @@ mod merge_plan_nested_aggregation_tests {
             .commands
             .insert("outer".to_string(), CommandSpec::Composite(outer));
 
-        let (leaves, any_parallel, fail_fast) =
-            merge_plan(&runner_with(config), &["outer"]).expect("agreeing composites must expand");
-        assert_eq!(leaves, vec!["a", "b"]);
-        assert!(any_parallel, "both composites set parallel = true");
-        assert!(fail_fast, "no composite disables fail_fast → defaults true");
+        let plans = plans_for_names(&runner_with(config), &["outer"])
+            .expect("agreeing composites must expand");
+        assert_eq!(plans[0].leaf_ids, vec!["a", "b"]);
+        assert!(plans[0].any_parallel, "both composites set parallel = true");
+        assert!(
+            plans[0].fail_fast,
+            "no composite disables fail_fast → defaults true"
+        );
     }
 
-    /// TASK-1657: the agreement check is scoped to a single expansion root.
-    /// `ops run seq par` names two independent plans, and the user asked for
-    /// both explicitly, so their differing flags are merged (not rejected) —
-    /// exactly as before.
+    /// TASK-2262 AC #1: independent roots keep their own flags — `ops run seq
+    /// par` names two independent plans, and one name's `parallel = true`
+    /// never leaks into the other's scheduling. Before TASK-2262 the merged
+    /// plan OR-folded `any_parallel` across every name.
     #[test]
-    fn merge_plan_does_not_reject_across_independent_roots() {
+    fn independent_roots_keep_their_own_flags() {
         let mut par = CompositeCommandSpec::new(["b"]);
         par.parallel = true;
         let seq = CompositeCommandSpec::new(["a"]); // parallel = false
@@ -1013,27 +1021,298 @@ mod merge_plan_nested_aggregation_tests {
             .commands
             .insert("par".to_string(), CommandSpec::Composite(par));
 
-        let (leaves, any_parallel, _) = merge_plan(&runner_with(config), &["seq", "par"])
+        let plans = plans_for_names(&runner_with(config), &["seq", "par"])
             .expect("independent roots must not trip the intra-plan agreement check");
-        assert_eq!(leaves, vec!["a", "b"]);
-        assert!(any_parallel, "merging across roots still ORs");
+        assert_eq!(plans.len(), 2, "one plan per named command");
+        assert_eq!(plans[0].leaf_ids, vec!["a"], "name order is preserved");
+        assert_eq!(plans[1].leaf_ids, vec!["b"]);
+        assert!(
+            !plans[0].any_parallel,
+            "the sequential name keeps its own scheduling"
+        );
+        assert!(
+            plans[1].any_parallel,
+            "the parallel name keeps its own scheduling"
+        );
     }
 
-    /// `merge_plan` rejects an empty `names` slice
-    /// rather than returning `(empty_plan, false, true)` and letting the
+    /// `plans_for_names` rejects an empty `names` slice
+    /// rather than returning an empty plan list and letting the
     /// executor run zero steps under a silent success. The single
     /// production caller (`run_external_command`) already rejects empty
     /// argv earlier; this test pins the defensive fail-loud contract so a
     /// future refactor cannot regress to the silent-success shape.
     #[test]
-    fn merge_plan_rejects_empty_names() {
+    fn empty_names_are_rejected() {
         let config = TestConfigBuilder::new().exec("a", "echo", &["a"]).build();
-        let err = merge_plan(&runner_with(config), &[]).unwrap_err();
+        let err = plans_for_names(&runner_with(config), &[]).unwrap_err();
         let msg = format!("{err}");
         assert!(
             msg.contains("empty names slice"),
             "error must name the empty-slice contract, got: {msg}"
         );
+    }
+}
+
+/// TASK-2262: each named command runs as its own plan, one after another,
+/// with its own `parallel` / `fail_fast` scheduling. Assertions run against
+/// the captured `RunnerEvent` stream: `StepStarted` vs terminal
+/// (`StepFinished` / `StepFailed` / `StepSkipped`) ordering is the observable
+/// for "ran one after another" and "one at a time". Sleeps widen the margins
+/// so scheduling, not timing, decides the order (same idiom as the runner's
+/// `parallel.rs` tests).
+mod run_name_plans_tests {
+    use super::*;
+    use crate::run_cmd::plan::plans_for_names;
+    use ops_core::config::{CommandSpec, CompositeCommandSpec};
+
+    fn is_started(e: &ops_runner::command::RunnerEvent, id: &str) -> bool {
+        matches!(e, ops_runner::command::RunnerEvent::StepStarted { id: i, .. } if i.as_str() == id)
+    }
+
+    fn is_terminal(e: &ops_runner::command::RunnerEvent, id: &str) -> bool {
+        matches!(
+            e,
+            ops_runner::command::RunnerEvent::StepFinished { id: i, .. }
+                | ops_runner::command::RunnerEvent::StepFailed { id: i, .. }
+                | ops_runner::command::RunnerEvent::StepSkipped { id: i, .. }
+            if i.as_str() == id
+        )
+    }
+
+    fn first_matching<F>(events: &[ops_runner::command::RunnerEvent], f: F) -> usize
+    where
+        F: Fn(&ops_runner::command::RunnerEvent) -> bool,
+    {
+        events
+            .iter()
+            .position(f)
+            .unwrap_or_else(|| panic!("expected event not found in {events:?}"))
+    }
+
+    /// TASK-2262 AC #2 / #5: a parallel name followed by a sequential name
+    /// runs the parallel name's stages concurrently, finishes them, then runs
+    /// the sequential name's steps one at a time. AC #4: the one result set
+    /// covers every step of both names, which is what the single summary is
+    /// computed from.
+    #[tokio::test(flavor = "multi_thread")]
+    async fn parallel_name_then_sequential_name_runs_one_after_another() {
+        let mut config = TestConfigBuilder::new()
+            .exec("p_slow", "sh", &["-c", "sleep 0.3"])
+            .exec("p_quick", "echo", &["par"])
+            .exec("s_slow", "sh", &["-c", "sleep 0.3"])
+            .exec("s_quick", "echo", &["seq"])
+            .build();
+        let mut par = CompositeCommandSpec::new(["p_slow", "p_quick"]);
+        par.parallel = true;
+        let seq = CompositeCommandSpec::new(["s_slow", "s_quick"]); // parallel = false
+        config
+            .commands
+            .insert("par".to_string(), CommandSpec::Composite(par));
+        config
+            .commands
+            .insert("seq".to_string(), CommandSpec::Composite(seq));
+        let runner = ops_runner::command::CommandRunner::new(config, std::path::PathBuf::from("."));
+
+        let plans = plans_for_names(&runner, &["par", "seq"]).expect("both names must expand");
+        let mut events = Vec::new();
+        let results = run_name_plans(&runner, &plans, false, &mut |e| events.push(e)).await;
+
+        assert_eq!(
+            results.len(),
+            4,
+            "the single result set covers every step of both names"
+        );
+
+        // The parallel name still overlaps its own steps.
+        assert!(
+            first_matching(&events, |e| is_started(e, "p_quick"))
+                < first_matching(&events, |e| is_terminal(e, "p_slow")),
+            "the parallel name's steps overlap: {events:?}"
+        );
+        // …and every one of its steps is finished before the sequential
+        // name starts anything.
+        for id in ["p_slow", "p_quick"] {
+            assert!(
+                first_matching(&events, |e| is_terminal(e, id))
+                    < first_matching(&events, |e| is_started(e, "s_slow")),
+                "named commands must run one after another: {events:?}"
+            );
+        }
+        // The sequential name's steps run one at a time.
+        assert!(
+            first_matching(&events, |e| is_terminal(e, "s_slow"))
+                < first_matching(&events, |e| is_started(e, "s_quick")),
+            "the sequential name's steps must not overlap: {events:?}"
+        );
+    }
+
+    /// TASK-2262 AC #4: the display lifecycle covers the whole named
+    /// sequence — exactly one outer `PlanStarted` naming every leaf of
+    /// every plan before any step event, and one `RunFinished` with the
+    /// aggregate success after all of them — instead of the per-plan
+    /// bookend pair that resets and finalizes the shared display between
+    /// names.
+    #[tokio::test(flavor = "multi_thread")]
+    async fn named_sequence_emits_one_outer_lifecycle_for_all_plans() {
+        let config = TestConfigBuilder::new()
+            .exec("first", "echo", &["first"])
+            .exec("second", "echo", &["second"])
+            .build();
+        let runner = ops_runner::command::CommandRunner::new(config, std::path::PathBuf::from("."));
+
+        let plans = plans_for_names(&runner, &["first", "second"]).expect("both names must expand");
+        let mut events = Vec::new();
+        run_named_sequence_lifecycle(&runner, &plans, &mut |e| events.push(e)).await;
+
+        let started = events
+            .iter()
+            .filter(|e| matches!(e, ops_runner::command::RunnerEvent::PlanStarted { .. }))
+            .count();
+        let finished = events
+            .iter()
+            .filter(|e| matches!(e, ops_runner::command::RunnerEvent::RunFinished { .. }))
+            .count();
+        assert_eq!(
+            started, 1,
+            "one outer PlanStarted for the whole sequence: {events:?}"
+        );
+        assert_eq!(
+            finished, 1,
+            "one outer RunFinished for the whole sequence: {events:?}"
+        );
+
+        match &events[0] {
+            ops_runner::command::RunnerEvent::PlanStarted { command_ids } => {
+                assert_eq!(
+                    command_ids.len(),
+                    plans.iter().map(|p| p.leaf_ids.len()).sum::<usize>(),
+                    "the outer PlanStarted names every leaf of every plan: {events:?}"
+                );
+            }
+            other => panic!("the sequence must open with the outer PlanStarted: {other:?}"),
+        }
+        assert!(
+            matches!(
+                events.last(),
+                Some(ops_runner::command::RunnerEvent::RunFinished { success: true, .. })
+            ),
+            "the sequence must close with one aggregate-success RunFinished: {events:?}"
+        );
+    }
+
+    /// TASK-2262 AC #3: under `fail_fast`, a failing command stops the
+    /// commands named after it.
+    #[tokio::test(flavor = "multi_thread")]
+    async fn failing_command_under_fail_fast_stops_the_names_after_it() {
+        let config = TestConfigBuilder::new()
+            .exec("boom", "false", &[])
+            .exec("after", "echo", &["after"])
+            .build();
+        let runner = ops_runner::command::CommandRunner::new(config, std::path::PathBuf::from("."));
+
+        let plans = plans_for_names(&runner, &["boom", "after"]).expect("both names must expand");
+        assert!(plans[0].fail_fast, "fail_fast defaults to true");
+        let mut events = Vec::new();
+        let results = run_name_plans(&runner, &plans, false, &mut |e| events.push(e)).await;
+
+        assert!(
+            events.iter().any(|e| is_started(e, "boom")),
+            "the failing command ran: {events:?}"
+        );
+        assert!(
+            !events.iter().any(|e| is_started(e, "after")),
+            "fail_fast must stop the commands named after a failing one: {events:?}"
+        );
+        assert_eq!(results.len(), 1);
+        assert!(!results[0].success, "the failing step is reported failed");
+    }
+
+    /// The AC #3 counterpart: a name that declares `fail_fast = false` asks
+    /// for continue-on-error, so the sequence keeps going — the same
+    /// semantics the flag has for steps inside one plan.
+    #[tokio::test(flavor = "multi_thread")]
+    async fn failing_fail_fast_false_name_lets_the_next_name_run() {
+        let mut config = TestConfigBuilder::new()
+            .exec("boom", "false", &[])
+            .exec("after", "echo", &["after"])
+            .build();
+        let mut lenient = CompositeCommandSpec::new(["boom"]);
+        lenient.fail_fast = false;
+        config
+            .commands
+            .insert("lenient".to_string(), CommandSpec::Composite(lenient));
+        let runner = ops_runner::command::CommandRunner::new(config, std::path::PathBuf::from("."));
+
+        let plans =
+            plans_for_names(&runner, &["lenient", "after"]).expect("both names must expand");
+        assert!(!plans[0].fail_fast);
+        let mut events = Vec::new();
+        let results = run_name_plans(&runner, &plans, false, &mut |e| events.push(e)).await;
+
+        assert!(
+            events.iter().any(|e| is_started(e, "after")),
+            "a fail_fast = false name must not stop the sequence: {events:?}"
+        );
+        assert_eq!(results.len(), 2);
+        assert!(!results[0].success);
+        assert!(results[1].success);
+    }
+
+    /// TASK-2262 AC #4 (wiring): `run_commands` executes every named
+    /// command and aggregates the summary over all of them.
+    #[test]
+    fn run_commands_two_names_summarise_across_every_step() {
+        // Each scenario is scoped: `CwdGuard` holds CWD_MUTEX for its
+        // lifetime and is not reentrant, so a second `with_temp_config` in
+        // the same test must run after the first guard has dropped —
+        // shadowing the binding would keep the first guard alive and
+        // deadlock the second acquisition.
+        {
+            let (_dir, _guard) = crate::test_utils::with_temp_config(
+                r#"
+[commands.first]
+program = "echo"
+args = ["first"]
+
+[commands.second]
+program = "echo"
+args = ["second"]
+"#,
+            );
+
+            let exit = run_commands(
+                std::sync::Arc::new(ops_core::config::load_config_or_default("test")),
+                &["first", "second"],
+                RunOptions::default(),
+            )
+            .expect("both names run");
+            assert_eq!(exit, ExitCode::SUCCESS, "two passing names succeed");
+        }
+        {
+            let (_dir, _guard) = crate::test_utils::with_temp_config(
+                r#"
+[commands.ok]
+program = "echo"
+args = ["ok"]
+
+[commands.bad]
+program = "false"
+args = []
+"#,
+            );
+            let exit = run_commands(
+                std::sync::Arc::new(ops_core::config::load_config_or_default("test")),
+                &["ok", "bad"],
+                RunOptions::default(),
+            )
+            .expect("both names run");
+            assert_eq!(
+                exit,
+                ExitCode::FAILURE,
+                "a failing name fails the whole invocation"
+            );
+        }
     }
 }
 

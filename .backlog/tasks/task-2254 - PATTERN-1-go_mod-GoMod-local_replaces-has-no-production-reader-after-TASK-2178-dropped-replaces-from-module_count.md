@@ -1,10 +1,10 @@
 ---
 id: TASK-2254
 title: 'PATTERN-1: go_mod::GoMod::local_replaces has no production reader after TASK-2178 dropped replaces from module_count'
-status: To Do
+status: Done
 assignee: []
 created_date: '2026-09-08 16:58'
-updated_date: '2026-09-16 17:12'
+updated_date: '2026-09-16 17:25'
 labels:
   - code-review-rust
   - pattern
@@ -30,5 +30,12 @@ ordinal: 160000
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 A decision is recorded: retain local_replaces with a documented future consumer, or remove the field, its parse arm, and its tests
+- [x] #1 A decision is recorded: retain local_replaces with a documented future consumer, or remove the field, its parse arm, and its tests
+
 <!-- AC:END -->
+
+## Implementation Notes
+
+<!-- SECTION:NOTES:BEGIN -->
+Decision: removed. `local_replaces`, its parse arm (`parse_replace_directive`, `looks_like_module_version`, `is_windows_absolute`), and the replace-target tests are gone; the parser still recognizes and skips `replace` directives (block tracking, unterminated-block rollback and warn kept, entries consumed not parsed). Rationale: `about dependencies` is Rust-only per README and no planned Go consumer exists, so the future-consumer branch of the decision was speculative. Stale sharing-claim doc comments in go_syntax.rs and modules.rs updated.
+<!-- SECTION:NOTES:END -->

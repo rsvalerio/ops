@@ -9,24 +9,22 @@ license.workspace = true
 ops-core = { workspace = true }
 ops-extension = { workspace = true }
 ops-about = { workspace = true }
-# ARCH-11 / TASK-1786: `linkme` is never named in the source, but it is a real
-# dependency — `ops_extension::impl_extension!` expands to
-# `#[linkme::distributed_slice(...)]`. `anyhow` and `ops-git` were declared
-# alongside it and used by nothing; the crate's only error type is the typed
-# `DataProviderError`, and the git-remote fallback lives in
+# `linkme` is never named in the source, but it is a real dependency —
+# `ops_extension::impl_extension!` expands to
+# `#[linkme::distributed_slice(...)]`. The crate's only error type is the
+# typed `DataProviderError`, and the git-remote fallback lives in
 # `ops_about::identity`, which carries its own `ops-git` dependency.
 linkme = { workspace = true }
 serde_json = { workspace = true }
 tracing = { workspace = true }
-# PATTERN-1: HCL identifiers are UAX #31, and heredoc terminators are
-# identifiers. `char::is_alphanumeric` is not a substitute — it rejects the
-# combining marks ID_Continue includes.
+# HCL identifiers are UAX #31, and heredoc terminators are identifiers.
+# `char::is_alphanumeric` is not a substitute — it rejects the combining
+# marks ID_Continue includes.
 unicode-ident = { workspace = true }
 
 [dev-dependencies]
-# DUP-3 / TASK-1788 + TASK-1772: the shared `write_file` fixture helper and the
-# `capture_warn` tracing harness both live behind `ops-about`'s `test-support`
-# feature.
+# The shared `write_file` fixture helper and the `capture_warn` tracing
+# harness both live behind `ops-about`'s `test-support` feature.
 ops-about = { workspace = true, features = ["test-support"] }
 ops-extension = { workspace = true, features = ["test-support"] }
 tempfile = { workspace = true }

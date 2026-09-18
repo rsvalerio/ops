@@ -242,10 +242,10 @@ fn lock_typed_manifest_cache(
     cache: &'static Mutex<TypedManifestCache>,
 ) -> MutexGuard<'static, TypedManifestCache> {
     static POISON_RECOVERY_COUNT: AtomicU64 = AtomicU64::new(0);
-    // DUP-1 / TASK-2150: the recovery scaffold lives in
-    // `ops_about::lru::lock_recovering`; this closure carries the
+    // DUP-1 / TASK-2258: the recovery scaffold lives in
+    // `ops_core::sync::lock_recover_with`; this closure carries the
     // cache-specific observable — the monotonic warn.
-    ops_about::lru::lock_recovering(cache, || {
+    ops_core::sync::lock_recover_with(cache, || {
         // `saturating_add` is exact here: the counter advances once per
         // observed poisoning, so reaching `u64::MAX` would take 2^64
         // panics inside a single process.
