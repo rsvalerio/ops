@@ -153,8 +153,31 @@ jobs:
       # passed on roughly 1% of the suite. `--run-ignored all` (nextest's
       # --include-ignored) runs both. Doctests stay on cargo test: nextest
       # does not run them.
+      #
+      # `--profile ci` (.config/nextest.toml) stores passed tests' captured
+      # output in a JUnit report instead of the console. That is the sink the
+      # step below reads: skip_precondition lines are captured away by both
+      # runners' default output handling, so a passing-but-skipped test is
+      # otherwise invisible in a green log (TEST-26 / TASK-2252).
       - name: cargo nextest run --all --all-features --run-ignored all
-        run: cargo nextest run --all --all-features --run-ignored all
+        run: cargo nextest run --profile ci --all --all-features --run-ignored all
+      # TEST-26 / TASK-2252: surface `skip: …` lines from the JUnit report.
+      # Skips are a warning, not a failure — the guards that emit them exist
+      # precisely so environments lacking a capability can still run the
+      # suite — but the log must never show an unexplained green where
+      # assertions did not run. Only lines carrying the `skip:` marker are
+      # printed, so no whole-suite success-output noise comes with them.
+      - name: Surface skip_precondition lines (TEST-26)
+        run: |
+          set -euo pipefail
+          report=target/nextest/ci/junit.xml
+          count=$(grep -o 'skip: [^<]*' "$report" | wc -l || true)
+          if [ "$count" -gt 0 ]; then
+            echo "::warning::$count skip_precondition line(s) were printed by passing tests — the assertions behind them did not run"
+            grep -o 'skip: [^<]*' "$report" | sort | uniq -c
+          else
+            echo "No skip_precondition lines: every guard that tripped also ran its assertions."
+          fi
       - name: cargo test --all --all-features --doc
         run: cargo test --all --all-features --doc
 

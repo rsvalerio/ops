@@ -1,0 +1,24 @@
+# TEST-26 / TASK-2252: a profile for pipelines, not local runs.
+#
+# `skip_precondition` (ops_core::test_utils) prints a `skip: …` line when a
+# test bails on an unmet precondition — no git on PATH, root EUID, a missing
+# /dev/zero. Both runners capture per-test stderr for *passing* tests, so on
+# a green run those lines land in a captured buffer and never reach the log.
+#
+# The fix is at the sink, not the source: this profile asks nextest to store
+# success output in its JUnit report (the console stays at the default —
+# captured, quiet), and the CI step that consumes the report greps out only
+# the `skip:` lines. A run with skips is distinguishable in the log without
+# turning on success output for the whole suite.
+#
+# Only the `ci` profile sets this; `[profile.default]` is left untouched so
+# `ops next` / plain `cargo nextest run` behave exactly as before.
+
+[profile.ci.junit]
+# Relative paths resolve against target/nextest/<profile>/ — this produces
+# target/nextest/ci/junit.xml, the path the CI surfacing step greps.
+path = "junit.xml"
+# Passed tests' captured output is written into the report (never shown on
+# the console). This is the whole cost of the mechanism: one XML file under
+# target/, discarded with the rest of the build cache.
+store-success-output = true

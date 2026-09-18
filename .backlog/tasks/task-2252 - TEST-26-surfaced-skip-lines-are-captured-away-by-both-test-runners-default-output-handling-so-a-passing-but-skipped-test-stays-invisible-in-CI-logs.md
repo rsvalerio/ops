@@ -1,11 +1,11 @@
 ---
 id: TASK-2252
-title: >-
-  TEST-26: surfaced skip: lines are captured away by both test runners' default
-  output handling, so a passing-but-skipped test stays invisible in CI logs
-status: Triage
-assignee: []
+title: 'TEST-26: surfaced skip: lines are captured away by both test runners'' default output handling, so a passing-but-skipped test stays invisible in CI logs'
+status: Done
+assignee:
+  - claude
 created_date: '2026-09-08 16:13'
+updated_date: '2026-09-18 21:44'
 labels:
   - code-review-rust
   - tests
@@ -30,5 +30,12 @@ ordinal: 158000
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 A run where a skip_precondition line was printed is distinguishable in the gating CI log without also enabling full success-output noise for the whole suite
+- [x] #1 A run where a skip_precondition line was printed is distinguishable in the gating CI log without also enabling full success-output noise for the whole suite
+
 <!-- AC:END -->
+
+## Implementation Notes
+
+<!-- SECTION:NOTES:BEGIN -->
+Verified in working tree: .config/nextest.toml adds [profile.ci.junit] with store-success-output = true (default profile untouched), ci.yml runs --profile ci and a surfacing step greps only the 'skip: ' lines out of target/nextest/ci/junit.xml, emitting a ::warning with a per-line count. Reproduced the tripped condition end to end: ran the ci profile under a git-less PATH — ops-text-fixers tracked_mode tests 10/10 green with guards tripped, junit.xml stored the success output, and the CI grep extracted exactly the 10 skip lines (1 availability probe + 9 fixtures) with no other success-output noise.
+<!-- SECTION:NOTES:END -->
