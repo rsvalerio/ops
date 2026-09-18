@@ -171,6 +171,13 @@ jobs:
         run: |
           set -euo pipefail
           report=target/nextest/ci/junit.xml
+          # A missing report must fail the step: the `|| true` below would
+          # otherwise print "No skip_precondition lines" and succeed — the
+          # exact unexplained green this step exists to prevent.
+          if [ ! -f "$report" ]; then
+            echo "::error::JUnit report not found at $report — skip surfacing could not inspect test output (TEST-26 / TASK-2252)"
+            exit 1
+          fi
           count=$(grep -o 'skip: [^<]*' "$report" | wc -l || true)
           if [ "$count" -gt 0 ]; then
             echo "::warning::$count skip_precondition line(s) were printed by passing tests — the assertions behind them did not run"
