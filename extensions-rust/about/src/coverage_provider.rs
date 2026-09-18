@@ -76,12 +76,23 @@ impl ProjectCoverageCache {
 
     /// Return the slot for `key`, inserting one and evicting the
     /// least-recently-used entry if the cap would otherwise be exceeded.
+    ///
+    /// CONC-1 / TASK-1144, mirroring the manifest cache's `is_evictable`:
+    /// a slot whose `OnceLock` is not yet initialized is *in flight* — the
+    /// caller that inserted it is still running its query outside the
+    /// mutex. Evicting it would drop the memoized result and make the next
+    /// caller for the same `Sqlite` re-run the query and re-fire its warn,
+    /// breaking the at-most-once contract [`cached_query_project_coverage`]
+    /// advertises. In-flight slots are therefore pinned via
+    /// [`BoundedLruCache::insert_filtered`]; the cache may sit transiently
+    /// above its cap, bounded by the number of concurrent first-callers.
     fn slot_for(&mut self, key: u64) -> CoverageSlot {
         if let Some(slot) = self.cache.touch(&key) {
             return Arc::clone(slot);
         }
         let slot: CoverageSlot = Arc::new(OnceLock::new());
-        self.cache.insert(key, Arc::clone(&slot));
+        self.cache
+            .insert_filtered(key, Arc::clone(&slot), |slot| slot.get().is_some());
         slot
     }
 }
@@ -889,6 +900,62 @@ mod provider_tests {
             value["units"].as_array().map(Vec::len),
             Some(0),
             "no manifest → no per-crate table: {value}"
+        );
+    }
+
+    /// CONC-1 / TASK-1144 (mirroring the manifest cache's pinning test): a
+    /// slot whose `OnceLock` is not yet initialized is in flight — its
+    /// caller is still running the query outside the mutex. An insert at
+    /// the cap must evict an *initialized* entry instead, or the memoized
+    /// result would be dropped and the next caller for the same `Sqlite`
+    /// would re-run the query and re-fire its warn, breaking the
+    /// at-most-once contract.
+    #[test]
+    fn slot_for_pins_in_flight_slots_at_the_cap() {
+        use super::{ProjectCoverageCache, MAX_COVERAGE_CACHE_ENTRIES};
+
+        let mut cache = ProjectCoverageCache::new();
+        let cap = u64::try_from(MAX_COVERAGE_CACHE_ENTRIES).expect("cap fits in u64");
+
+        // The in-flight slot is inserted first, so it is the oldest and
+        // the natural LRU victim.
+        let in_flight = cache.slot_for(1);
+
+        // Fill the rest of the cap with initialized slots (`None` memoizes
+        // a failed query — the easiest payload to construct).
+        for key in 2..=cap {
+            let slot = cache.slot_for(key);
+            assert!(slot.set(None).is_ok());
+        }
+
+        // One more key at the cap: the eviction must take an initialized
+        // entry, never the in-flight one.
+        let _fresh = cache.slot_for(cap + 1);
+        assert_eq!(
+            cache.cache.len(),
+            MAX_COVERAGE_CACHE_ENTRIES,
+            "an initialized entry was evicted in the in-flight slot's place"
+        );
+
+        let again = cache.slot_for(1);
+        assert!(
+            Arc::ptr_eq(&again, &in_flight),
+            "an in-flight slot must stay pinned so the memoized query lands in the cache"
+        );
+
+        // Once initialization completes the pin lifts and the entry is a
+        // normal eviction candidate again: initialize it, then insert a
+        // full cache's worth of newer initialized keys. Each insert evicts
+        // the LRU initialized entry, so the sweep eventually claims key 1 —
+        // the pin is lifted, not sticky.
+        assert!(in_flight.set(None).is_ok());
+        for key in cap + 2..=2 * cap + 1 {
+            let slot = cache.slot_for(key);
+            assert!(slot.set(None).is_ok());
+        }
+        assert!(
+            cache.cache.touch(&1u64).is_none(),
+            "the now-initialized slot must be evictable again — the pin lifts"
         );
     }
 }
