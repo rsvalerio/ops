@@ -575,7 +575,10 @@ pub struct CloneCommandSpec {
     /// Short help text shown in `ops --help`; replaces the source's.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub help: Option<String>,
-    /// Alternative names; replace the source's aliases when non-empty.
+    /// Alternative names for the clone, used verbatim (empty means no
+    /// aliases). Never inherited from the source: aliases are identity, and
+    /// a copy would either collide at `validate_aliases` or shadow the
+    /// source's alias at dispatch.
     #[serde(default, alias = "alias", skip_serializing_if = "Vec::is_empty")]
     pub aliases: Vec<String>,
     /// Category for grouping in help output; replaces the source's.

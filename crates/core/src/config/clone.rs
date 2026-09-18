@@ -166,9 +166,13 @@ fn resolve_source(
 /// Copy `source` and apply the declaration's scalar overrides.
 ///
 /// Given fields replace the copied field wholesale (`env` replaces, it does
-/// not merge; `aliases` replace when non-empty). Fields left unset keep the
-/// source's value. TOML has no null, so `cwd`/`timeout_secs` cannot be
-/// cleared, only replaced.
+/// not merge). Fields left unset keep the source's value. TOML has no null,
+/// so `cwd`/`timeout_secs` cannot be cleared, only replaced. `aliases` are
+/// the exception: they are identity, never behaviour, so a clone starts with
+/// no aliases and takes `decl.aliases` verbatim — inheriting the source's
+/// would either fail `validate_aliases` (duplicate-alias load error against
+/// a config-defined source) or silently redirect the source's alias to the
+/// clone at dispatch (stack-default source, config aliases resolve first).
 ///
 /// # Errors
 ///
@@ -184,9 +188,12 @@ fn materialize(
         CommandSpec::Exec(e) => {
             let mut copy = e.clone();
             copy.help = decl.help.clone().or(copy.help);
-            if !decl.aliases.is_empty() {
-                copy.aliases.clone_from(&decl.aliases);
-            }
+            // Aliases identify a command; copying the source's would either
+            // collide at `validate_aliases` (config-defined source) or
+            // shadow the source at dispatch (stack-default source, config
+            // aliases resolve first). A clone starts with no aliases and
+            // takes `decl.aliases` verbatim, empty list included.
+            copy.aliases.clone_from(&decl.aliases);
             copy.category = decl.category.clone().or(copy.category);
             if let Some(env) = &decl.env {
                 copy.env.clone_from(env);
@@ -219,9 +226,9 @@ fn materialize(
             }
             let mut copy = c.clone();
             copy.help = decl.help.clone().or(copy.help);
-            if !decl.aliases.is_empty() {
-                copy.aliases.clone_from(&decl.aliases);
-            }
+            // Same rule as the exec branch: aliases are identity, never
+            // inherited from the source.
+            copy.aliases.clone_from(&decl.aliases);
             copy.category = decl.category.clone().or(copy.category);
             CommandSpec::Composite(copy)
         }
@@ -518,5 +525,55 @@ mod tests {
         );
         apply(&mut config, dir.path()).expect("no clones must be a no-op");
         assert_eq!(config.commands.len(), 1);
+    }
+
+    /// Review finding on PR 60 (major): aliases are identity, never
+    /// inherited.
+    /// Against a config-defined source the inherited alias collided at
+    /// `validate_aliases` and failed the whole load; against a stack default
+    /// it silently redirected the source's alias to the clone. A clone
+    /// starts with no aliases and takes `decl.aliases` verbatim.
+    #[test]
+    fn clone_does_not_inherit_source_aliases() {
+        let dir = rust_workspace();
+        let mut config = Config::empty();
+        let mut source = ExecCommandSpec::new("cargo", ["fmt"]);
+        source.aliases = vec!["fmt-alias".to_string()];
+        config
+            .commands
+            .insert("my-fmt".to_string(), CommandSpec::Exec(source));
+        config.commands.insert(
+            "plain-clone".to_string(),
+            CommandSpec::Clone(CloneCommandSpec::new("my-fmt")),
+        );
+        let mut decl = CloneCommandSpec::new("my-fmt");
+        decl.aliases = vec!["variant".to_string()];
+        config
+            .commands
+            .insert("aliased-clone".to_string(), CommandSpec::Clone(decl));
+        apply(&mut config, dir.path()).expect("clones must apply");
+
+        let Some(CommandSpec::Exec(plain)) = config.commands.get("plain-clone") else {
+            panic!("plain clone must materialize");
+        };
+        assert!(
+            plain.aliases.is_empty(),
+            "a clone with no aliases declared must not inherit the source's: {:?}",
+            plain.aliases
+        );
+        let Some(CommandSpec::Exec(aliased)) = config.commands.get("aliased-clone") else {
+            panic!("aliased clone must materialize");
+        };
+        assert_eq!(
+            aliased.aliases,
+            vec!["variant".to_string()],
+            "declared aliases replace, they do not add to the source's"
+        );
+
+        // The pre-fix behaviour failed here with "alias 'fmt-alias' is
+        // declared by both commands" — the load-time gate the old rule broke.
+        config
+            .validate()
+            .expect("source and clone may share no alias, so validate passes");
     }
 }
