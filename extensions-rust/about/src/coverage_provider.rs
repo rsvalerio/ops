@@ -41,7 +41,12 @@ pub const PROVIDER_NAME: &str = "project_coverage";
 /// - **Value**: `Arc<OnceLock<Option<CrateCoverage>>>` — the memoized project
 ///   total, or the memoized `None` fallback for a failed query.
 /// - **Maximum size**: [`MAX_COVERAGE_CACHE_ENTRIES`], enforced on insert with
-///   LRU eviction, mirroring the `manifest_cache` policy. Without a cap this
+///   LRU eviction, mirroring the `manifest_cache` policy. A burst of
+///   concurrent first-callers can transiently exceed the cap (in-flight
+///   slots are pinned against eviction); the overshoot is bounded by their
+///   number and the next insert trims back — there is deliberately no
+///   post-initialization trim, which would evict just-memoized entries to
+///   no benefit. Without a cap this
 ///   map grew one slot per `Sqlite` ever opened, forever: harmless in the
 ///   single-shot `ops about` CLI, an unbounded leak in the daemon / CI-worker
 ///   host shape that opens a handle per project or per refresh, and every
