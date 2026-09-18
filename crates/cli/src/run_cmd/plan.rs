@@ -83,7 +83,9 @@ pub fn display_cmd_for(runner: &ops_runner::command::CommandRunner, id: &str) ->
     match runner.resolve(id) {
         Some(CommandSpec::Exec(e)) => e.display_cmd().into_owned(),
         Some(CommandSpec::Composite(c)) => c.commands.join(", "),
-        None => id.to_string(),
+        // Unmaterialized clones never reach the runner on the load path;
+        // fall back to the id rather than panicking in a display row.
+        Some(CommandSpec::Clone(_)) | None => id.to_string(),
     }
 }
 

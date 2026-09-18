@@ -56,17 +56,18 @@ pub(super) fn merge_indexmap<K: Eq + std::hash::Hash + std::fmt::Debug, V>(
 /// Unlike [`merge_indexmap`] (replace on collision), extend entries
 /// **concatenate**: a `[extend.verify]` in `.ops.d` adds to the appends a
 /// `[extend.verify]` in `.ops.toml` already declared, in layer order.
-/// Replacing instead would silently drop the lower layer's appends.
+/// Replacing instead would silently drop the lower layer's appends. Both
+/// fields follow the rule — `commands` for composite targets, `args` for
+/// exec targets (TASK-2272).
 fn merge_extend(
     base: &mut IndexMap<String, super::extend::ExtendEntry>,
     overlay: Option<IndexMap<String, super::extend::ExtendEntry>>,
 ) {
     if let Some(items) = overlay {
         for (target, entry) in items {
-            base.entry(target)
-                .or_default()
-                .commands
-                .extend(entry.commands);
+            let base_entry = base.entry(target).or_default();
+            base_entry.commands.extend(entry.commands);
+            base_entry.args.extend(entry.args);
         }
     }
 }
@@ -398,6 +399,7 @@ mod tests {
             "verify".to_string(),
             ExtendEntry {
                 commands: vec!["from-base".to_string()],
+                args: Vec::new(),
             },
         );
         let overlay = ConfigOverlay {
@@ -406,12 +408,14 @@ mod tests {
                     "verify".to_string(),
                     ExtendEntry {
                         commands: vec!["from-overlay".to_string()],
+                        args: Vec::new(),
                     },
                 ),
                 (
                     "qa".to_string(),
                     ExtendEntry {
                         commands: vec!["new-target".to_string()],
+                        args: Vec::new(),
                     },
                 ),
             ])),
@@ -433,6 +437,41 @@ mod tests {
                 .unwrap_or_default(),
             vec!["new-target".to_string()],
             "new targets must be inserted"
+        );
+    }
+
+    /// TASK-2272 #4: exec-target extends concatenate across layers with the
+    /// same rule as composite extends — a `.ops.d` fragment's `args` stack on
+    /// `.ops.toml`'s, never replace them.
+    #[test]
+    fn merge_config_extend_args_concatenate_per_target() {
+        use super::super::extend::ExtendEntry;
+        let mut base = Config::default();
+        base.extend.insert(
+            "clippy".to_string(),
+            ExtendEntry {
+                commands: Vec::new(),
+                args: vec!["--locked".to_string()],
+            },
+        );
+        let overlay = ConfigOverlay {
+            extend: Some(IndexMap::from([(
+                "clippy".to_string(),
+                ExtendEntry {
+                    commands: Vec::new(),
+                    args: vec!["--verbose".to_string()],
+                },
+            )])),
+            ..Default::default()
+        };
+        merge_config(&mut base, overlay);
+        assert_eq!(
+            base.extend
+                .get("clippy")
+                .map(|e| e.args.clone())
+                .unwrap_or_default(),
+            vec!["--locked".to_string(), "--verbose".to_string()],
+            "same-target args must concatenate in layer order"
         );
     }
 }

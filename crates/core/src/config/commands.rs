@@ -25,6 +25,12 @@ use crate::serde_defaults;
 pub enum CommandSpec {
     Exec(ExecCommandSpec),
     Composite(CompositeCommandSpec),
+    /// TASK-2273: a `[commands.<name>] clone = "<source>"` declaration. A
+    /// load-time placeholder only — `config::clone::apply` materializes it
+    /// into a concrete Exec/Composite copy of the source before anything
+    /// downstream runs, so consumers only meet this variant through direct
+    /// `Config` deserialization that bypassed the loader.
+    Clone(CloneCommandSpec),
 }
 
 impl<'de> Deserialize<'de> for CommandSpec {
@@ -39,6 +45,24 @@ impl<'de> Deserialize<'de> for CommandSpec {
             .ok_or_else(|| D::Error::custom("command spec must be a table"))?;
         let has_program = table.contains_key("program");
         let has_commands = table.contains_key("commands");
+        // TASK-2273: `clone` is a third discriminator. It is mutually
+        // exclusive with the copied payload fields — `program`/`args` come
+        // from the source, and extras belong in `[extend.<name>]` — so the
+        // combination is a named error rather than a serde "unknown field"
+        // that leaves the user guessing where the override goes.
+        if table.contains_key("clone") {
+            for key in ["program", "args", "commands"] {
+                if table.contains_key(key) {
+                    return Err(D::Error::custom(format!(
+                        "command spec sets both `clone` and `{key}`; a clone copies the \
+                         source's `{key}` — add extras via [extend.<name>]"
+                    )));
+                }
+            }
+            return CloneCommandSpec::deserialize(value.into_deserializer())
+                .map(CommandSpec::Clone)
+                .map_err(D::Error::custom);
+        }
         if has_program && has_commands {
             return Err(D::Error::custom(
                 "command spec has both `program` (Exec) and `commands` (Composite); pick one",
@@ -108,6 +132,7 @@ impl CommandSpec {
         match self {
             Self::Exec(e) => e,
             Self::Composite(c) => c,
+            Self::Clone(c) => c,
         }
     }
 
@@ -135,6 +160,7 @@ impl CommandSpec {
         match self {
             Self::Exec(e) => e.display_cmd().into_owned(),
             Self::Composite(c) => c.commands.join(", "),
+            Self::Clone(c) => format!("clone of {}", c.clone_source()),
         }
     }
 }
@@ -522,5 +548,95 @@ impl CompositeCommandSpec {
             aliases: Vec::new(),
             category: None,
         }
+    }
+}
+
+/// TASK-2273: a `[commands.<name>] clone = "<source>"` declaration — define
+/// `name` as a copy of an existing command (typically a stack default) under
+/// a new name, at load time.
+///
+/// The source is resolved against `[commands]` and the detected stack's
+/// defaults (the same lookup `[extend.<target>]` uses), and the *resolved*
+/// spec is copied. Scalar fields set beside `clone` override the copy;
+/// `program`/`args`/`commands` are rejected at parse time (see
+/// [`CommandSpec::deserialize`]) — extra args go through
+/// `[extend.<name>] args = [...]`, so the two features compose and there is
+/// one rule for where appended args land (before `--`).
+///
+/// Exec-only overrides (`env`, `cwd`, `timeout_secs`, `exclusive`) set beside
+/// a composite source are load errors; a composite clone can only override
+/// `help`, `category` and `aliases`.
+#[derive(Debug, Clone, PartialEq, Eq, Deserialize, Serialize)]
+#[serde(deny_unknown_fields)]
+#[non_exhaustive]
+pub struct CloneCommandSpec {
+    /// Name of the command to copy: a `[commands]` entry or a stack default.
+    pub clone: String,
+    /// Short help text shown in `ops --help`; replaces the source's.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub help: Option<String>,
+    /// Alternative names; replace the source's aliases when non-empty.
+    #[serde(default, alias = "alias", skip_serializing_if = "Vec::is_empty")]
+    pub aliases: Vec<String>,
+    /// Category for grouping in help output; replaces the source's.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub category: Option<String>,
+    /// Environment map; replaces the source's `env` when set (exec sources
+    /// only).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub env: Option<HashMap<String, String>>,
+    /// Working directory; overrides the source's `cwd` when set (exec
+    /// sources only). TOML has no null, so a source `cwd` cannot be cleared.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub cwd: Option<PathBuf>,
+    /// Timeout in seconds; overrides the source's `timeout_secs` when set
+    /// (exec sources only). Cannot clear a source timeout.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub timeout_secs: Option<u64>,
+    /// Parallel-scheduling flag; overrides the source's `exclusive` when set
+    /// (exec sources only).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub exclusive: Option<bool>,
+}
+
+impl CommandMeta for CloneCommandSpec {
+    fn help(&self) -> Option<&str> {
+        self.help.as_deref()
+    }
+    fn category(&self) -> Option<&str> {
+        self.category.as_deref()
+    }
+    fn aliases(&self) -> &[String] {
+        &self.aliases
+    }
+}
+
+impl CloneCommandSpec {
+    /// Build a bare clone declaration from its source name.
+    ///
+    /// Preferred over struct-literal syntax because [`CloneCommandSpec`] is
+    /// `#[non_exhaustive]`. Adjust the override fields (`help`, `aliases`,
+    /// `category`, `env`, `cwd`, `timeout_secs`, `exclusive`) via direct
+    /// field access.
+    #[must_use]
+    pub fn new(clone: impl Into<String>) -> Self {
+        Self {
+            clone: clone.into(),
+            help: None,
+            aliases: Vec::new(),
+            category: None,
+            env: None,
+            cwd: None,
+            timeout_secs: None,
+            exclusive: None,
+        }
+    }
+
+    /// The name this declaration copies. Field is called `clone` to match
+    /// the config key; the accessor keeps call sites that also handle
+    /// `std::clone::Clone` readable.
+    #[must_use]
+    pub fn clone_source(&self) -> &str {
+        &self.clone
     }
 }

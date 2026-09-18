@@ -380,6 +380,9 @@ impl CommandRunner {
                 ctx.visited.remove(canonical);
                 Ok(out)
             }
+            // The load path materializes clones before the runner exists;
+            // this arm only fires for a Config built outside the loader.
+            CommandSpec::Clone(_) => Err(ExpandError::UnmaterializedClone(canonical.to_string())),
         }
     }
 
@@ -392,6 +395,7 @@ impl CommandRunner {
             Some(CommandSpec::Composite(_)) => {
                 Err(ResolveExecError::CompositeInLeafPlan(id.to_string()))
             }
+            Some(CommandSpec::Clone(_)) => Err(ResolveExecError::CloneInLeafPlan(id.to_string())),
             None => Err(ResolveExecError::Unknown(UnknownCommand::new(id))),
         }
     }

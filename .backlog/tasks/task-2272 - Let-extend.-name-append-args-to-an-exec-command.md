@@ -1,9 +1,11 @@
 ---
 id: TASK-2272
 title: 'Let [extend.<name>] append args to an exec command'
-status: Triage
-assignee: []
+status: Done
+assignee:
+  - claude
 created_date: '2026-09-18 19:30'
+updated_date: '2026-09-18 21:15'
 labels:
   - feature
   - config
@@ -29,10 +31,17 @@ Design point to settle: the rust-stack `clippy` is `clippy --workspace --all-fea
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 `[extend.<exec>] args = [...]` appends to a stack-default or config-defined exec command's args
-- [ ] #2 Appended args land before a `--` separator in the target (or the chosen positional rule is explicit and documented); a test pins the clippy `-- -D warnings` case
-- [ ] #3 `commands` on an exec target and `args` on a composite target are load errors naming the target
-- [ ] #4 Extends concatenate across config layers, as `commands` already do
-- [ ] #5 `ops --dry-run <name>` shows the merged args
-- [ ] #6 README "Extending existing commands" documents the args form
+- [x] #1 `[extend.<exec>] args = [...]` appends to a stack-default or config-defined exec command's args
+- [x] #2 Appended args land before a `--` separator in the target (or the chosen positional rule is explicit and documented); a test pins the clippy `-- -D warnings` case
+- [x] #3 `commands` on an exec target and `args` on a composite target are load errors naming the target
+- [x] #4 Extends concatenate across config layers, as `commands` already do
+- [x] #5 `ops --dry-run <name>` shows the merged args
+- [x] #6 README "Extending existing commands" documents the args form
+
 <!-- AC:END -->
+
+## Implementation Notes
+
+<!-- SECTION:NOTES:BEGIN -->
+Implemented in crates/core/src/config/extend.rs (ExtendEntry.args + append_exec_args inserting before the first `--`), merge.rs (args concatenate across layers), loader e2e test, README + docs/command-mappings.md. Verified: ops --dry-run clippy shows `--locked` before `--`; ops verify and ops qa green.
+<!-- SECTION:NOTES:END -->

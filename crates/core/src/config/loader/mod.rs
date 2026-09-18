@@ -261,8 +261,10 @@ pub fn load_config() -> anyhow::Result<Config> {
 ///
 /// If the embedded default config, the global config, `.ops.toml`, an
 /// `.ops.d/` fragment, or the `OPS__` env overlay fails to parse, if a
-/// config file cannot be read, or if an `[extend.<target>]` section names a
-/// command that is undefined or not a composite.
+/// config file cannot be read, if an `[extend.<target>]` section names a
+/// command that is undefined or not a composite, or if a
+/// `[commands.<name>] clone = "<source>"` declaration names an unknown
+/// source, cycles, or targets a stack-default name.
 #[instrument(skip_all)]
 pub fn load_config_at(workspace_root: &Path) -> anyhow::Result<Config> {
     #[cfg(any(test, feature = "test-support"))]
@@ -284,6 +286,12 @@ pub fn load_config_at(workspace_root: &Path) -> anyhow::Result<Config> {
     conf_d::merge_conf_d(&mut config, workspace_root).context("loading .ops.d overlay configs")?;
 
     env::merge_env_vars(&mut config).context("loading OPS__ environment overlay")?;
+
+    // TASK-2273: clones materialize before extends, so a clone copies the
+    // source pre-extend (extends stay per-name) and `[extend.<clone>]` then
+    // applies to the materialized copy.
+    super::clone::apply(&mut config, workspace_root)
+        .context("applying [commands.<name>] clone sections")?;
 
     super::extend::apply(&mut config, workspace_root)
         .context("applying [extend] command sections")?;
@@ -774,6 +782,40 @@ mod tests {
         );
     }
 
+    /// TASK-2272: `[extend.<exec>] args = [...]` appends to a stack-default
+    /// exec command — the dbsec motivating case, end to end through
+    /// `load_config_at`. The merged args are what `ops --dry-run` renders
+    /// (dry-run consults `config.commands`, already materialized here), so
+    /// this also pins the dry-run visibility.
+    #[test]
+    #[serial_test::serial]
+    fn extend_section_appends_args_to_stack_default_exec() {
+        let dir = tempfile::tempdir().unwrap();
+        let root = crate::test_utils::canonical_root(&dir);
+        let _xdg = crate::test_utils::isolate_global_config(&root);
+        std::fs::write(root.join("Cargo.toml"), "[package]\nname = \"x\"\n").unwrap();
+        std::fs::write(
+            root.join(".ops.toml"),
+            "[extend.clippy]\nargs = [\"--locked\"]\n",
+        )
+        .unwrap();
+
+        let config = load_config_at(&root).expect("extend config must load");
+        let Some(super::super::CommandSpec::Exec(clippy)) = config.commands.get("clippy") else {
+            panic!("extended clippy must be materialized into config.commands");
+        };
+        let sep = clippy
+            .args
+            .iter()
+            .position(|a| a == "--")
+            .expect("rust clippy default keeps its -- separator");
+        assert!(
+            clippy.args[..sep].contains(&"--locked".to_string()),
+            "--locked must land before the -- separator, got {:?}",
+            clippy.args
+        );
+    }
+
     /// A target that is defined nowhere (here: generic stack, no defaults)
     /// must fail the load naming the layer and the target — a silent no-op
     /// would hide the typo behind a `verify` that skips the intended step.
@@ -796,5 +838,97 @@ mod tests {
             "error chain must start with the layer breadcrumb, got: {msg}"
         );
         assert!(msg.contains("verify"), "error must name the target: {msg}");
+    }
+
+    /// TASK-2273: the motivating case, end to end through `load_config_at`.
+    /// `fuzz-clippy` clones the rust `clippy` default and `[extend]` adds
+    /// the `--manifest-path` flag — the composed result is what
+    /// `ops --dry-run fuzz-clippy` renders (dry-run prints the program and
+    /// args of the materialized config spec), so this pins AC #1, #3 and #6
+    /// together.
+    #[test]
+    #[serial_test::serial]
+    fn clone_section_materializes_and_composes_with_extend() {
+        let dir = tempfile::tempdir().unwrap();
+        let root = crate::test_utils::canonical_root(&dir);
+        let _xdg = crate::test_utils::isolate_global_config(&root);
+        std::fs::write(root.join("Cargo.toml"), "[package]\nname = \"x\"\n").unwrap();
+        std::fs::write(
+            root.join(".ops.toml"),
+            "[commands.fuzz-clippy]\nclone = \"clippy\"\n\n[extend.fuzz-clippy]\nargs = [\"--manifest-path\", \"fuzz/Cargo.toml\"]\n",
+        )
+        .unwrap();
+
+        let config = load_config_at(&root).expect("clone config must load");
+        let Some(super::super::CommandSpec::Exec(fuzz_clippy)) = config.commands.get("fuzz-clippy")
+        else {
+            panic!("clone must materialize into config.commands");
+        };
+        assert_eq!(fuzz_clippy.program, "cargo", "clone copies the program");
+        let sep = fuzz_clippy
+            .args
+            .iter()
+            .position(|a| a == "--")
+            .expect("rust clippy default keeps its -- separator");
+        assert!(
+            fuzz_clippy.args[..sep].contains(&"--manifest-path".to_string()),
+            "extend args must land before the -- separator on the clone, got {:?}",
+            fuzz_clippy.args
+        );
+    }
+
+    /// TASK-2273: composites clone too, and `[extend.<clone>] commands`
+    /// applies to the copy (AC #3's composite half).
+    #[test]
+    #[serial_test::serial]
+    fn clone_section_composites_compose_with_extend() {
+        let dir = tempfile::tempdir().unwrap();
+        let root = crate::test_utils::canonical_root(&dir);
+        let _xdg = crate::test_utils::isolate_global_config(&root);
+        std::fs::write(root.join("Cargo.toml"), "[package]\nname = \"x\"\n").unwrap();
+        std::fs::write(
+            root.join(".ops.toml"),
+            "[commands.extra]\nprogram = \"echo\"\n\n[commands.my-verify]\nclone = \"verify\"\n\n[extend.my-verify]\ncommands = [\"extra\"]\n",
+        )
+        .unwrap();
+
+        let config = load_config_at(&root).expect("clone config must load");
+        let Some(super::super::CommandSpec::Composite(my_verify)) =
+            config.commands.get("my-verify")
+        else {
+            panic!("composite clone must materialize");
+        };
+        assert_eq!(
+            my_verify.commands.last().map(String::as_str),
+            Some("extra"),
+            "extend commands must append to the materialized copy"
+        );
+    }
+
+    /// TASK-2273: an unknown clone source fails the load with the layer
+    /// breadcrumb naming both the clone and the source.
+    #[test]
+    #[serial_test::serial]
+    fn clone_section_with_unknown_source_fails_the_load() {
+        let dir = tempfile::tempdir().unwrap();
+        let root = crate::test_utils::canonical_root(&dir);
+        let _xdg = crate::test_utils::isolate_global_config(&root);
+        std::fs::write(
+            root.join(".ops.toml"),
+            "[commands.fuzz-clippy]\nclone = \"nope\"\n",
+        )
+        .unwrap();
+
+        let err = load_config_at(&root).expect_err("unknown clone source must fail the load");
+        let msg = format!("{err:#}");
+        assert!(
+            msg.starts_with("applying [commands.<name>] clone sections"),
+            "error chain must start with the layer breadcrumb, got: {msg}"
+        );
+        assert!(
+            msg.contains("fuzz-clippy"),
+            "error must name the clone: {msg}"
+        );
+        assert!(msg.contains("nope"), "error must name the source: {msg}");
     }
 }
