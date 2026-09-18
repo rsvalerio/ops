@@ -486,78 +486,127 @@ fn scan_line(line: &str, state: &mut ScanState) -> LineScan {
     if state.heredoc.consumes_line(line) {
         return LineScan::Continue;
     }
-    let mut segment_start = 0usize;
-    let mut in_string = false;
-    let mut escaped = false;
-    // A value found at a closing `}` is recorded, not
-    // returned on the spot — the brace still has to pop the stack so the
-    // caller's end-of-file balance check sees a consistent state. Reporting
-    // happens at end of line, after every brace on it has been tracked.
-    let mut found: Option<String> = None;
-    for (idx, ch) in line.char_indices() {
-        if in_string {
-            if escaped {
-                escaped = false;
-            } else if ch == '\\' {
-                escaped = true;
-            } else if ch == '"' {
-                in_string = false;
-            }
-            continue;
-        }
-        // `{` and `}` are single-byte ASCII, so `idx + 1` is a char boundary.
-        let after_brace = idx.saturating_add(1);
-        match ch {
-            '"' => in_string = true,
-            '<' => {
-                // `<<EOT` / `<<-EOT`: the body starts on the next line, and
-                // HCL allows nothing after the opener on this one, so the
-                // rest of the line holds no structure to track.
-                if let Some((terminator, indented)) = line
-                    .get(after_brace..)
-                    .and_then(|rest| rest.strip_prefix('<'))
-                    .and_then(heredoc_terminator)
-                {
-                    // The opener-to-body handoff is the
-                    // tracker's business; the body starts on the next line.
-                    state.heredoc.open(Heredoc {
-                        terminator: terminator.to_owned(),
-                        indented,
-                    });
-                    return LineScan::Continue;
-                }
-            }
-            '{' => {
-                let prefix = line.get(segment_start..idx).unwrap_or_default();
-                state
-                    .stack
-                    .push(block_open_ident(prefix).map(ToOwned::to_owned));
-                segment_start = after_brace;
-            }
-            '}' => {
-                if found.is_none() {
-                    found = required_version_here(line, segment_start, idx, &state.stack);
-                }
-                if state.stack.pop().is_none() {
-                    return LineScan::Malformed;
-                }
-                segment_start = after_brace;
-            }
-            _ => {}
-        }
+    let mut walk = LineWalk::default();
+    // An early result ends the line on the spot — opener recognised or
+    // malformed `}` — and skips the end-of-line checks below; `None` means
+    // the walk ran to the line's end and they get their say.
+    if let Some(early) = scan_code_chars(line, state, &mut walk) {
+        return early;
     }
     // `in_string` is line-local by construction, so
     // it can only be true here if the line's closing `"` never arrived.
     // Report it here rather than in `strip_comments`: this stage sees every
     // line, including files that take the comment-stripper's no-comment fast
     // path.
-    if in_string {
+    if walk.in_string {
         return LineScan::UnterminatedString;
     }
-    if found.is_none() {
-        found = required_version_here(line, segment_start, line.len(), &state.stack);
+    if walk.found.is_none() {
+        walk.found = required_version_here(line, walk.segment_start, line.len(), &state.stack);
     }
-    found.map_or(LineScan::Continue, LineScan::Found)
+    walk.found.map_or(LineScan::Continue, LineScan::Found)
+}
+
+/// Line-local state [`scan_code_chars`] carries across one line's characters:
+/// where the current brace-free segment began, the quoted-string and escape
+/// flags, and a `required_version` value already located on this line.
+#[derive(Default)]
+struct LineWalk {
+    segment_start: usize,
+    in_string: bool,
+    escaped: bool,
+    found: Option<String>,
+}
+
+impl LineWalk {
+    /// Step the quoted-string state machine over `ch` on behalf of an open
+    /// string: an open string consumes every character, and only an unescaped
+    /// `"` closes it.
+    const fn step_string(&mut self, ch: char) {
+        if self.escaped {
+            self.escaped = false;
+        } else if ch == '\\' {
+            self.escaped = true;
+        } else if ch == '"' {
+            self.in_string = false;
+        }
+    }
+}
+
+/// Walk the code portion of one already-classified line, tracking every
+/// structural brace and recognising heredoc openers — the char-level stage of
+/// [`scan_line`], the scan-side counterpart of [`strip_code_chars`].
+///
+/// Returns `Some(early)` when the walk ends the line on the spot — a `<<EOT`
+/// opener recognised (HCL allows nothing structural after it) or a `}` with
+/// an empty stack (malformed input) — and `None` when the line ran to its
+/// end, leaving the end-of-line reporting to [`scan_line`].
+fn scan_code_chars(line: &str, state: &mut ScanState, walk: &mut LineWalk) -> Option<LineScan> {
+    for (idx, ch) in line.char_indices() {
+        if walk.in_string {
+            walk.step_string(ch);
+            continue;
+        }
+        // `{` and `}` are single-byte ASCII, so `idx + 1` is a char boundary.
+        let after_brace = idx.saturating_add(1);
+        match ch {
+            '"' => walk.in_string = true,
+            '<' => {
+                // `<<EOT` / `<<-EOT`: the body starts on the next line, and
+                // HCL allows nothing after the opener on this one, so the
+                // rest of the line holds no structure to track.
+                if open_heredoc_at(line, idx, &mut state.heredoc) {
+                    return Some(LineScan::Continue);
+                }
+            }
+            '{' => {
+                let prefix = line.get(walk.segment_start..idx).unwrap_or_default();
+                state
+                    .stack
+                    .push(block_open_ident(prefix).map(ToOwned::to_owned));
+                walk.segment_start = after_brace;
+            }
+            '}' => {
+                // A value found at a closing `}` is recorded, not returned
+                // on the spot — the brace still has to pop the stack so the
+                // caller's end-of-file balance check sees a consistent
+                // state. Reporting happens at end of line, after every
+                // brace on it has been tracked.
+                if walk.found.is_none() {
+                    walk.found = required_version_here(line, walk.segment_start, idx, &state.stack);
+                }
+                if state.stack.pop().is_none() {
+                    return Some(LineScan::Malformed);
+                }
+                walk.segment_start = after_brace;
+            }
+            _ => {}
+        }
+    }
+    None
+}
+
+/// Recognise a `<<EOT` / `<<-EOT` heredoc opener starting at the `<` at
+/// `idx`, handing it to the shared [`HeredocTracker`] — the scan-side
+/// counterpart of [`push_heredoc_opener`], minus the re-emission, since this
+/// stage keeps no output buffer.
+///
+/// The opener grammar comes from [`heredoc_terminator`], the single
+/// recogniser; the opener-to-body handoff is the tracker's business — the
+/// body starts on the *next* line.
+fn open_heredoc_at(line: &str, idx: usize, heredoc: &mut HeredocTracker) -> bool {
+    let Some((terminator, indented)) = line
+        .get(idx.saturating_add(1)..)
+        .and_then(|rest| rest.strip_prefix('<'))
+        .and_then(heredoc_terminator)
+    else {
+        return false;
+    };
+    heredoc.open(Heredoc {
+        terminator: terminator.to_owned(),
+        indented,
+    });
+    true
 }
 
 /// Is `c` valid as the first character of a heredoc terminator?
