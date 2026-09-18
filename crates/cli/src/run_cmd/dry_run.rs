@@ -55,6 +55,14 @@ pub fn run_command_dry_run_to(
             Some(CommandSpec::Composite(_)) => {
                 writeln!(w, "      (composite - should have been expanded)")?;
             }
+            // Unmaterialized clones never reach the runner on the load path;
+            // say so rather than printing a misleading "(unknown command)".
+            Some(CommandSpec::Clone(_)) => {
+                writeln!(
+                    w,
+                    "      (unmaterialized clone - should have been resolved at load)"
+                )?;
+            }
             None => {
                 writeln!(w, "      (unknown command)")?;
             }

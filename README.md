@@ -79,12 +79,39 @@ args = ["llvm-cov"]
 commands = ["coverage"]   # appended to the end of verify's commands list
 ```
 
-The extra commands are appended at load time. Rules:
+Exec commands extend the same way, with `args` instead of `commands`:
 
-- Only composites (`commands = [...]`) can be extended; extending an exec command or an undefined name is a load error.
+```toml
+[extend.clippy]
+args = ["--locked"]       # added to clippy's args, before any `--` separator
+```
+
+The extras are appended at load time. Rules:
+
+- Composites (`commands = [...]`) extend with `commands`; exec commands extend with `args`. Using the wrong key for the target's kind, extending an undefined name, or an entry that sets neither key is a load error naming the target.
+- Appended `args` land **before the target's first `--` separator** when one is present, otherwise at the end of the args. Cargo commands like the Rust `clippy ... -- -D warnings` pass everything after `--` to the wrapped tool, so inserting before it keeps `--locked` a cargo flag instead of silently turning it into a lint flag.
 - A locally redefined command wins: `[extend.verify]` appends to *your* `[commands.verify]` if you defined one, otherwise to the stack default.
 - Extends concatenate across config layers, so `.ops.d/*.toml` fragments stack on top of `.ops.toml` appends.
 - Extending controls list order only, not execution order. Each appended command keeps the `exclusive` flag of its own definition. In a sequential group it runs after the earlier steps. In a parallel group (see below), an appended non-exclusive command joins the final stage and may run concurrently with the earlier non-exclusive steps. Mark it `exclusive = true` if it must not overlap them.
+
+### Cloning existing commands
+
+To define a command as a variant of an existing one — typically a stack default — without copying (and going stale on) its whole spec, use `clone`:
+
+```toml
+[commands.fuzz-clippy]
+clone = "clippy"
+
+[extend.fuzz-clippy]
+args = ["--manifest-path", "fuzz/Cargo.toml"]
+```
+
+`fuzz-clippy` is a copy of the resolved Rust `clippy` default (program and args included), and `[extend.fuzz-clippy]` adds the fuzz-specific flag — so the variant tracks the default's flags as they evolve. Composites clone the same way (`clone = "verify"` copies the `commands` list). The extras are materialized at load time, so `ops --dry-run fuzz-clippy` shows the resolved program and args. Rules:
+
+- The source resolves like an `[extend]` target: your `[commands]` entry if you defined one, otherwise the detected stack's default. Extension-registered commands cannot be cloned — they register after config load — and naming one is an unknown-source load error.
+- Scalar fields beside `clone` (`help`, `category`, `aliases`, and for exec sources `env`, `cwd`, `timeout_secs`, `exclusive`) override the copy; fields left unset keep the source's value. Given maps and lists replace the copy (`env` replaces, it does not merge). `aliases` are the exception: they are never inherited — a clone with no `aliases` has none, because inheriting the source's would either collide at load or silently redirect the source's alias to the clone. `program`, `args` and `commands` beside `clone` are load errors — extra args go through `[extend.<name>]`.
+- A clone copies the source **before** the source's own `[extend.<source>]` applies: extends stay per-name, so the clone never inherits them. `[extend.<clone>]` applies to the materialized copy.
+- Unknown sources, clone cycles (including self-clones; non-cyclic clone-of-clone chains do resolve), cloning into an existing stack-default name, and exec-only fields beside a composite source are load errors naming the command and the source.
 
 ### Command groups and scheduling
 

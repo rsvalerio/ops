@@ -35,12 +35,16 @@
 //! - [`commands`] / [`command_id`] — command specs and the [`CommandId`] newtype.
 //! - [`extend`] — the `[extend.<target>]` sections appending commands to an
 //!   existing composite at load time.
+//! - `clone` — the `[commands.<name>] clone = "<source>"` declarations,
+//!   materialized into concrete specs at load time before `[extend]` runs
+//!   (TASK-2273).
 //! - [`overlay`] / [`merge`] — the partial-config mirror types and their merge.
 //! - [`loader`] — the file/env resolution order described above.
 //! - [`init`] — `ops init` template rendering.
 //! - [`edit`] — in-place `.ops.toml` editing.
 //! - [`theme_types`] — the `[themes]` payload types.
 
+mod clone;
 pub(crate) mod command_id;
 pub(crate) mod commands;
 mod edit;
@@ -54,7 +58,9 @@ pub(crate) mod sections;
 pub mod theme_types;
 
 pub use command_id::CommandId;
-pub use commands::{current_ops_program, CommandSpec, CompositeCommandSpec, ExecCommandSpec};
+pub use commands::{
+    current_ops_program, CloneCommandSpec, CommandSpec, CompositeCommandSpec, ExecCommandSpec,
+};
 pub use edit::{
     atomic_write, command_names, edit_ops_toml, ensure_table, insert_command, read_ops_toml,
     write_ops_toml,

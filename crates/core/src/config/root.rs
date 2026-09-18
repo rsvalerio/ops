@@ -32,10 +32,10 @@ pub struct Config {
     #[serde(default, skip_serializing_if = "IndexMap::is_empty")]
     pub commands: IndexMap<String, CommandSpec>,
     /// `[extend.<target>]` sections — commands appended to an existing
-    /// composite (often a stack default) at load time; applied by
-    /// [`crate::config::extend`] after every config layer has merged.
-    /// Kept on the config after application so diagnostics can show what
-    /// was declared.
+    /// composite, or args to an existing exec command (often a stack
+    /// default), at load time; applied by [`crate::config::extend`] after
+    /// every config layer has merged. Kept on the config after application
+    /// so diagnostics can show what was declared.
     #[serde(default, skip_serializing_if = "IndexMap::is_empty")]
     pub extend: IndexMap<String, super::extend::ExtendEntry>,
     #[serde(default, skip_serializing_if = "DataConfig::is_default")]
@@ -125,6 +125,19 @@ impl Config {
         for (name, spec) in &self.commands {
             if let CommandSpec::Exec(exec) = spec {
                 exec.validate(name)?;
+            }
+            // TASK-2273: `config::clone::apply` materializes every clone
+            // declaration before validate runs on the load path, so a Clone
+            // variant here means a `Config` was deserialized straight from a
+            // document that never went through the loader. Refuse it — a
+            // half-materialized config flowing into the runner would resolve
+            // to nothing at dispatch time.
+            if let CommandSpec::Clone(decl) = spec {
+                anyhow::bail!(
+                    "command '{name}': clone of '{}' was not materialized; ops resolves \
+                     clones at config load time",
+                    decl.clone_source()
+                );
             }
         }
         // SEC-33 / TASK-1849: `[themes]` was the one config section nothing

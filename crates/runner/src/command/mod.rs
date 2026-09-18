@@ -78,6 +78,12 @@ pub enum ResolveExecError {
     /// The command exists but is a composite; leaf plans must be exec-only.
     #[error("internal error: composite in leaf plan: {0}")]
     CompositeInLeafPlan(String),
+    /// The command exists but is an unmaterialized `clone` declaration. The
+    /// loader resolves clones at config load time (`config::clone::apply`),
+    /// so this only reaches the runner through a `Config` built outside
+    /// `load_config_at`.
+    #[error("internal error: unmaterialized clone in leaf plan: {0}")]
+    CloneInLeafPlan(String),
 }
 
 /// Typed failure for composite expansion, so callers can match on the
@@ -125,6 +131,15 @@ pub enum ExpandError {
         /// The value `conflicting` declared for `flag`.
         conflicting_value: bool,
     },
+    /// A `[commands.<name>] clone` declaration reached the runner without
+    /// being materialized. The loader resolves clones at config load time
+    /// (`config::clone::apply`), so this only happens through a `Config`
+    /// built outside `load_config_at`.
+    #[error(
+        "command `{0}` is an unmaterialized `clone` declaration; \
+         ops resolves clones at config load time"
+    )]
+    UnmaterializedClone(String),
 }
 
 use exec::exec_command;

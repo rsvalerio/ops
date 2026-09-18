@@ -1,9 +1,11 @@
 ---
 id: TASK-2259
 title: 'FN-1: scan_line grew to 84 lines when strip_comments was decomposed under it'
-status: Triage
-assignee: []
+status: Done
+assignee:
+  - claude
 created_date: '2026-09-10 18:41'
+updated_date: '2026-09-18 21:43'
 labels:
   - code-review-rust
   - readability
@@ -30,6 +32,13 @@ The decomposition already demonstrated in `strip_one_line` / `strip_code_chars` 
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 scan_line is under the FN-1 50-line threshold, or is decomposed into named stages that each are
-- [ ] #2 The existing scan_line tests, including both_stages_recognise_the_same_heredoc_openers and the indented-terminator cases, still pass unchanged
+- [x] #1 scan_line is under the FN-1 50-line threshold, or is decomposed into named stages that each are
+- [x] #2 The existing scan_line tests, including both_stages_recognise_the_same_heredoc_openers and the indented-terminator cases, still pass unchanged
+
 <!-- AC:END -->
+
+## Implementation Notes
+
+<!-- SECTION:NOTES:BEGIN -->
+Verified in working tree: scan_line is 31 lines (was 84), decomposed into scan_code_chars (44), open_heredoc_at (14) and LineWalk::step_string — all under the FN-1 50-line threshold, the same template the strip side used. No test functions changed in the diff; full crate suite 138/138 passes, including both_stages_recognise_the_same_heredoc_openers and the indented-terminator cases.
+<!-- SECTION:NOTES:END -->

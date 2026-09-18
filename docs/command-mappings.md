@@ -2,7 +2,7 @@
 
 When no local `[commands]` override exists, `ops` merges **embedded stack defaults** from `crates/core/src/.default.<stack>.ops.toml` (wired in `crates/core/src/stack/`). Detection uses manifest files in the workspace (for example `Cargo.toml` for **rust**, `package.json` for **node**).
 
-To append steps to a default without shadowing the whole list, use an `[extend.<name>]` section in `.ops.toml` (e.g. `[extend.verify]` with `commands = ["coverage"]`) — see "Extending existing commands" in `README.md`.
+To append steps to a default without shadowing the whole list, use an `[extend.<name>]` section in `.ops.toml` — `commands = ["coverage"]` for composites, `args = ["--locked"]` for exec commands (inserted before any `--` separator) — see "Extending existing commands" in `README.md`.
 
 The **generic** stack has **no** embedded commands; define everything in `.ops.toml` or `.ops.d/*.toml`.
 

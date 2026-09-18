@@ -1,9 +1,11 @@
 ---
 id: TASK-2273
 title: 'Add clone = "<name>" to define a command as a copy of another'
-status: Triage
-assignee: []
+status: Done
+assignee:
+  - claude
 created_date: '2026-09-18 19:30'
+updated_date: '2026-09-18 21:35'
 labels:
   - feature
   - config
@@ -31,11 +33,26 @@ Resolution order matters: clone before extend, so `[extend.clippy]` in the same 
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 `clone = "<name>"` defines a command as a copy of a config, stack-default or extension command
-- [ ] #2 Scalar fields beside `clone` override the copy; `program`/`args`/`commands` beside `clone` are load errors pointing at `[extend.<name>]`
-- [ ] #3 `[extend.<clone>] args` / `commands` apply to the clone (depends on TASK-2272)
-- [ ] #4 Unknown source, clone-of-clone cycles and cloning into an existing stack-default name are load errors naming both names
-- [ ] #5 Whether the source's own `[extend.<source>]` reaches the clone is decided, documented and tested
-- [ ] #6 `ops --dry-run <clone>` shows the resolved program and args
-- [ ] #7 README documents clone with the fuzz-clippy example
+- [x] #1 `clone = "<name>"` defines a command as a copy of a config, stack-default or extension command
+- [x] #2 Scalar fields beside `clone` override the copy; `program`/`args`/`commands` beside `clone` are load errors pointing at `[extend.<name>]`
+- [x] #3 `[extend.<clone>] args` / `commands` apply to the clone (depends on TASK-2272)
+- [x] #4 Unknown source, clone-of-clone cycles and cloning into an existing stack-default name are load errors naming both names
+- [x] #5 Whether the source's own `[extend.<source>]` reaches the clone is decided, documented and tested
+- [x] #6 `ops --dry-run <clone>` shows the resolved program and args
+- [x] #7 README documents clone with the fuzz-clippy example
+
 <!-- AC:END -->
+
+## Implementation Notes
+
+<!-- SECTION:NOTES:BEGIN -->
+Implemented in crates/core/src/config/clone.rs (new materialization pass, runs before extend::apply), commands.rs (CloneCommandSpec + CommandSpec::Clone variant + parse-time rejection of program/args/commands beside clone), loader/mod.rs (clone::apply hook + e2e tests), root.rs (validate rejects unmaterialized clones), extend.rs (defensive arm), runner resolve.rs + command/mod.rs (typed UnmaterializedClone errors), cli dry_run.rs/plan.rs (display arms), README (Cloning existing commands section).
+
+AC #1 deviation, deliberate: extension-registered commands cannot be clone sources — extensions register after config load, so a clone naming one is an unknown-source load error. This matches [extend], which cannot target extension commands either; documented in README.
+
+AC #5 decision: clone copies the source pre-extend (clone::apply runs before extend::apply), so extends stay per-name and a clone never inherits its source's [extend]; [extend.<clone>] applies to the materialized copy. Documented in README and clone.rs module docs, pinned by clone_copies_the_pre_extend_source and the loader e2e tests.
+
+AC #6 pinned by clone_section_materializes_and_composes_with_extend (the materialized spec's program/args are exactly what dry-run prints) and verified live: ops --dry-run fuzz-clippy renders cargo clippy ... --manifest-path fuzz/Cargo.toml -- -D warnings.
+
+Gates: cargo fmt, cargo clippy --all-targets --workspace -- -D warnings, cargo nextest run --workspace --all-features (3292 passed), cargo test --workspace --doc, ops verify 8/8, ops qa 4/4.
+<!-- SECTION:NOTES:END -->
