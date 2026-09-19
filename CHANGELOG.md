@@ -2,6 +2,22 @@
 All notable changes to this project will be documented in this file. See [conventional commits](https://www.conventionalcommits.org/) for commit guidelines.
 
 - - -
+## [v0.61.0](https://github.com/rsvalerio/ops/compare/22e50683b7467beaf9c85002c955e9141e6d74ca..v0.61.0) - 2026-09-19
+#### 🚀 Features
+- (**backlog**) render and write the five-key backlog.config.yml subset - ([29ed2ac](https://github.com/rsvalerio/ops/commit/29ed2acb35c13290119809293c5ff202882db489)) - [@rsvalerio](https://github.com/rsvalerio), Claude Code
+- (**cli**) add ops backlog init with .ops.toml-first config precedence - ([3c09834](https://github.com/rsvalerio/ops/commit/3c0983458faa8c4e15bf2628d9c21f5b082e87ce)) - [@rsvalerio](https://github.com/rsvalerio), Claude Code
+- (**core**) add [backlog] config section to .ops.toml - ([d675f40](https://github.com/rsvalerio/ops/commit/d675f40218e16434aeba0a866dcf7db220478a7a)) - [@rsvalerio](https://github.com/rsvalerio), Claude Code
+#### 🐛 Bug Fixes
+- (**backlog**) address review findings on PR #62 - ([4072bd8](https://github.com/rsvalerio/ops/commit/4072bd8109fd48b2c92dd53e024421cfc12775ac)) - [@rsvalerio](https://github.com/rsvalerio), Claude Code
+#### 📚 Documentation
+- (**backlog**) document ops backlog init and the two config sources - ([25b57f0](https://github.com/rsvalerio/ops/commit/25b57f0b40b521319f2670cc15264a59372d9df0)) - [@rsvalerio](https://github.com/rsvalerio), Claude Code
+- (**readme**) adopt a-good-readme-template structure - ([677778f](https://github.com/rsvalerio/ops/commit/677778f7a47c6544e83c49d0bbf9c10b1460af09)) - [@rsvalerio](https://github.com/rsvalerio), Claude Code
+- sync AGENTS.md, README.md, and components.md with the code - ([22e5068](https://github.com/rsvalerio/ops/commit/22e50683b7467beaf9c85002c955e9141e6d74ca)) - [@rsvalerio](https://github.com/rsvalerio), Claude Code
+#### ⚙️ Miscellaneous
+- (**backlog**) file TASK-2274 extend help and TASK-2275 nested group scheduling - ([29821b1](https://github.com/rsvalerio/ops/commit/29821b145fcdcb4e294a9cb680ca5e7fc4fd4191)) - [@rsvalerio](https://github.com/rsvalerio), Claude Opus 5 (1M context)
+
+- - -
+
 ## [v0.60.0](https://github.com/rsvalerio/ops/compare/0d733fa33bc1c36cac2a4a25fd5d469c7d9e6aff..v0.60.0) - 2026-09-18
 #### 🚀 Features
 - (**config**) append exec args via [extend] and clone commands - ([7da876c](https://github.com/rsvalerio/ops/commit/7da876c47c6f40deb1ffe0380b60b73459bf3651)) - [@rsvalerio](https://github.com/rsvalerio), Claude Code
