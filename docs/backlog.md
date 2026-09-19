@@ -14,6 +14,7 @@ into the CLI at `crates/cli/src/backlog_cmd.rs`.
 ## Commands
 
 ```
+ops backlog init [--backlog.md]               # bootstrap config + tasks tree
 ops backlog task create "<title>" [flags]     # prints `Created TASK-NNNN`
 ops backlog task edit <taskId> [flags]        # prints `Updated TASK-NNNN`
 ops backlog task list [flags]
@@ -22,6 +23,34 @@ ops backlog search [query] [flags]
 ops backlog wave list|members|migrate [flags]
 ops backlog cleanup [flags]
 ```
+
+### `init`
+
+Bootstraps a workspace: the backlog config and the `.backlog/tasks/` tree
+(`Store::open`'s one requirement). Non-interactive, idempotent, never
+destructive — no backlog.md init-wizard parity.
+
+| Flag | Meaning |
+|------|---------|
+| `--backlog.md` | Write `backlog.config.yml` instead of the `.ops.toml` section — for workspaces where the npm `backlog` CLI also reads the config |
+
+- Default (no flag): insert a `[backlog]` section (see [Config](#config))
+  with the sane defaults into `.ops.toml` when the section is absent —
+  existing section or file content is left byte-unchanged and the file's
+  formatting and comments survive the edit. A missing `.ops.toml` is
+  created carrying only the section. An existing `backlog.config.yml`
+  keeps ownership: no section is written beside it, because the section
+  would win at resolve time and its defaults would shadow the yml's
+  values.
+- `--backlog.md`: write `backlog.config.yml` — exactly the five-key subset
+  above with the sane defaults — when absent; `.ops.toml` is never touched.
+- Then create `<backlog_directory>/tasks/` under the config that now
+  applies. Every skipped step says so (`already exists, left unchanged` /
+  `already configures [backlog], left unchanged`); a rerun changes nothing.
+
+`ops init` runs the same bootstrap: the generated `.ops.toml` always
+carries `[backlog]`, and over an existing `.ops.toml` the section is
+inserted in place.
 
 ### `task create`
 
@@ -245,11 +274,23 @@ Rules the parser and writer honor:
 
 ## Config
 
-`backlog.config.yml` at the workspace root (cwd-based discovery, no upward
-walk; missing file → defaults). Honored keys: `statuses` (list-group order),
-`default_status`, `backlog_directory`, `task_prefix`, `zero_padded_ids`.
-Everything else (ports, git behaviour, board rendering) is skipped — those
-features are not implemented.
+Two sources, resolved at cwd with no upward walk; **a non-empty `[backlog]`
+section in `.ops.toml` wins** when both are present — its unset keys fall
+back to the built-in defaults, never to the yml:
+
+1. `.ops.toml` `[backlog]` — `default_status`, `statuses`,
+   `zero_padded_ids`, `task_prefix`, `backlog_directory`, each optional
+   (an absent or empty section means the yml applies)
+2. `backlog.config.yml` (missing file → defaults). Honored keys:
+   `statuses` (list-group order), `default_status`, `backlog_directory`,
+   `task_prefix`, `zero_padded_ids`. Everything else (ports, git behaviour,
+   board rendering) is skipped — those features are not implemented.
+
+The built-in defaults both sources fall back to: statuses
+`Triage / To Do / In Progress / Done`, `default_status` `Triage`,
+`backlog_directory` `.backlog`, `task_prefix` `TASK`, `zero_padded_ids` 4.
+`ops backlog init` writes exactly these into whichever file it bootstraps
+(see [`init`](#init)).
 
 ## Output contracts
 
@@ -275,8 +316,9 @@ against backlog.md v1.51.0 and byte-verified against the live tree:
 
 Git integration (auto-commit, branch checks), the terminal board, the web
 browser UI, the MCP server, milestones, docs/decisions, project-level DoD
-defaults from config (per-task DoD items are supported), the init wizard
-(`.backlog/tasks/` just has to exist), and interactive TUIs. Commits and locking stay with the caller
+defaults from config (per-task DoD items are supported), the interactive
+init wizard (the non-interactive `init` above is implemented), the backlog
+CLI's many unused config keys, and interactive TUIs. Commits and locking stay with the caller
 (the code-review skills own their merge lock and `chore(backlog)` commits).
 
 ## Compatibility testing
