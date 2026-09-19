@@ -42,7 +42,7 @@ Create a `.ops.toml` file in your project root (or run `ops init`):
 ```toml
 [output]
 theme = "classic"        # "classic" (default) or "compact"
-columns = 80             # line width for step lines
+columns = 80             # line width for step lines (omit to auto-size: 90% of terminal width, 80 without one)
 show_error_detail = true # show error details below failed steps
 
 [commands.build]
@@ -195,7 +195,7 @@ under `--raw`, which always runs sequentially.
 | `ops import-makefile` | Import Makefile targets as `.ops.toml` commands (interactive picker) |
 | `ops theme list\|select` | List or select output themes |
 | `ops extension list\|show` | List compiled-in extensions |
-| `ops about [setup\|code\|loc\|coverage\|dependencies\|crates\|modules]` | Project identity card and subpages (`--refresh` re-collects) |
+| `ops about [setup\|code\|loc\|coverage\|dependencies\|crates\|modules\|backlog]` | Project identity card and subpages (`--refresh` re-collects) |
 | `ops run-before-commit [install]` | Pre-commit hook runner (`--changed-only` skips when nothing is staged) |
 | `ops run-before-push [install]` | Pre-push hook runner (skips a delete-only or empty push) |
 | `ops sec` | Security scans via Trivy — secrets always, vulnerability/misconfig auto-selected by file types (`--skip`/`--force` to override). Fails closed: non-zero on findings, on a scan timeout, and when `--skip` leaves no scan to run. Each scan is bounded by a 10-minute timeout, overridable with `OPS_SEC_TIMEOUT_SECS=<seconds>`. Build/dependency directories are skipped at any depth by default (see the [skip list](#ops-sec-default-skip-list) below); `--no-default-skips` opts out |
@@ -204,6 +204,9 @@ under `--raw`, which always runs sequentially.
 | `ops check-json` / `check-yaml` | Verify every JSON/YAML file parses (`--tracked` limits to git files; `--allow-json5` for JSON5) |
 | `ops backlog task create/edit/list/view` | Manage `.backlog/` markdown tasks — a compatible subset of [Backlog.md](https://github.com/MrLesk/Backlog.md); see [docs/backlog.md](docs/backlog.md) |
 | `ops backlog search` | Keyword search over tasks, with `--modified-file` filtering |
+| `ops backlog wave list\|members\|migrate` | Inspect code-review waves and their member tasks |
+| `ops backlog cleanup` | Move terminal-status tasks older than a cutoff to `completed/` (`--older-than <days>`, `--dry-run` to preview) |
+| `ops create-review-tasks` | Create `review-request-<date>-<n>` backlog tasks with one review subtask per workspace target (`--dry-run` to preview) |
 
 Global flags: `--dry-run` (preview the resolved plan), `--verbose` (full stderr on
 failure), `--tap <file>` (capture raw output), `--raw` (inherit child stdio, no ops output).
@@ -220,7 +223,7 @@ to let a push or commit through without running the configured hook commands.
 | `ops plans` | Terraform (plan summary tables) |
 | `ops about coverage` / `dependencies` | Rust |
 | `ops about loc` | Rust |
-| `ops about crates` / `modules` | Rust, Go |
+| `ops about crates` / `modules` | Rust, Go, Node, Python (uv), Java-M, Java-G |
 
 ### Stack command baseline
 
@@ -230,9 +233,9 @@ as a suggestion you can uncomment and adjust.
 
 | Command | Rust | Vite | Node | Go | Python | TF | Ansible | Java-M | Java-G |
 |---------|:---:|:---:|:---:|:---:|:---:|:---:|:---:|:---:|:---:|
-| `fmt`       | ✓ (cargo fmt) | * (bunx prettier) | * (prettier)   | ✓ (go fmt) | ✓ (ruff format, key `format`) | ✓ (tf fmt) | * (ansible-lint --fix) | * (spotless) | * (spotless) |
+| `fmt`       | ✓ (cargo fmt) | * (bunx prettier) | * (prettier)   | ✓ (go fmt) | ✓ (ruff --fix then black) | ✓ (tf fmt) | * (ansible-lint --fix) | * (spotless) | * (spotless) |
 | `lint`      | ✓ (cargo clippy, key `clippy`) | ✓ (bunx eslint) | ✓ (npm run lint) | ✓ (go vet, key `vet`) | ✓ (ruff check) | * (tflint) | ✓ (ansible-lint) | * (spotless/checkstyle) | * (spotless/checkstyle) |
-| `build`     | ✓ | ✓ (bunx vite build) | ✓ | ✓ | * (python -m build) | * (terraform plan) | * (galaxy build) | ✓ | ✓ |
+| `build`     | ✓ | ✓ (bunx vite build) | ✓ | ✓ | * (uv build) | * (terraform plan) | * (galaxy build) | ✓ | ✓ |
 | `test`      | ✓ | ✓ (bunx vitest run) | ✓ | ✓ | ✓ (pytest) | * (terraform test) | * (molecule test) | ✓ | ✓ |
 | `clean`     | ✓ (cargo clean) | ✓ (rm node_modules dist) | ✓ (rm node_modules dist) | ✓ (go clean) | ✓ (rm caches) | ✓ (rm .terraform) | ✓ (sh -c rm .ansible *.retry) | ✓ | ✓ |
 | `verify`    | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ |
@@ -244,7 +247,7 @@ and is detected before Node via `vite.config.*` so Vite/TypeScript projects get 
 The Rust stack default goes beyond the contract: it also ships `next` / `next-ignored`
 (cargo-nextest; nextest does not run doctests), `test-doc` for those doctests, and a
 `qa-next` composite (alias `qax`) that runs the test legs through nextest. The Rust `qa`
-runs `deps`, `test`, `test-ignored`, `test-doc`, and `sec` — `sec` requires the
+runs `deps`, `test`, `test-doc`, and `sec` — `sec` requires the
 [Trivy](https://trivy.dev) CLI on `PATH`.
 
 #### `ops sec` default skip list
@@ -304,15 +307,15 @@ Stack flavors currently shipped:
 | 7-command contract (fmt/lint/build/test/clean/verify/qa) | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ |
 | `project_identity` provider                         | ✓   | ✓   | ✓   | ✓   | ✓   | ✓      |
 | Module *count* on identity card                     | ✓   | ✓   | ✓ (modules) | ✓ (subprojects) | ✓ | ✓ |
-| `project_units` provider (`about modules` subpage)  | ✓   | ✓   | ✗   | ✗   | ✓   | ✓ (uv workspace only) |
+| `project_units` provider (`about modules` subpage)  | ✓   | ✓   | ✓ (modules) | ✓ (subprojects) | ✓   | ✓ (uv workspace only) |
 | `about code` (tokei LOC, feature-gated)             | ✓   | ✓   | ✓   | ✓   | ✓   | ✓      |
 | `about loc` (production/test/example split)         | ✓   | ✗   | ✗   | ✗   | ✗   | ✗      |
 | `about coverage` (cargo llvm-cov)                   | ✓   | ✗   | ✗   | ✗   | ✗   | ✗      |
 | `about dependencies` / `ops deps`                   | ✓   | ✗   | ✗   | ✗   | ✗   | ✗      |
 
-Ranked by closeness to Rust parity: **Node** and **Python+uv** (identity + units + baseline CLI), **Go** (~90%, weaker units provider), **Java-Maven** / **Java-Gradle** (identity + module counts, but no `project_units` provider yet for the `about modules` subpage).
+Ranked by closeness to Rust parity: **Node**, **Python+uv**, **Java-Maven** and **Java-Gradle** (identity + units + baseline CLI), **Go** (~90%, weaker units provider).
 
-Rust-only extensions: `deps`, `cargo-toml`, `cargo-update`, `metadata`, `test-coverage`, `rust-loc`. `about code` is stack-agnostic (tokei scans any language) and only gated by the compile-time `tokei` feature on the `ops` binary; `about coverage` and `about dependencies` are Rust-only because their providers shell out to `cargo llvm-cov` / cargo metadata.
+Rust-only extensions: `deps`, `cargo-toml`, `cargo-update`, `metadata`, `coverage` (crate `test-coverage`, behind the `coverage` compile feature), `rust-loc`, `about-rust`, `create-review-tasks-rust`. `about code` is stack-agnostic (tokei scans any language) and gated by the compile-time `sqlite` feature on the `ops` binary (both `tokei` and `stack-rust` enable it; the tokei collector itself only compiles under `tokei`); `about coverage` and `about dependencies` are Rust-only because their providers shell out to `cargo llvm-cov` / cargo metadata.
 
 `about coverage` (and `about --refresh`, which re-collects coverage data) requires external tools that `ops` does not install for you:
 
@@ -328,7 +331,6 @@ When they are missing, the coverage warning/error includes these same install co
 #### Not yet implemented
 
 - Generic Python stack (non-uv: poetry, pip/setuptools, pdm, hatch)
-- Java `project_units` provider — module *counts* already surface on the main about card (Maven modules, Gradle subprojects), but `ops about modules` can't list them per-unit until a `project_units` provider ships
 
 ## Features
 

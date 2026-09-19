@@ -63,7 +63,7 @@ queries work with the stock `sqlite3` CLI. Migration notes:
 - `crates/core/src/config/`: TOML config parsing and theme config types.
 - `crates/core/src/stack/`: stack detection (`detect.rs`) and the embedded `.default.<stack>.ops.toml` command templates.
 - `crates/core/src/output.rs`: step line data types and display width behavior.
-- `crates/theme/src/lib.rs`: `StepLineTheme` and configurable themes.
+- `crates/theme/src/`: `ConfigurableTheme` (`configurable.rs`) and the step-line theme types (`step_line_theme.rs`).
 - `crates/runner/src/command/`: command execution engine and event stream.
 - `crates/runner/src/display.rs`: progress rendering with `indicatif`.
 - `crates/extension/src/lib.rs`: extension, command registry, data registry, context APIs.

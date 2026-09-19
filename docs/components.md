@@ -19,7 +19,7 @@ Running: build, clippy, test
 
 **Configuration:** None. Content is derived from the command IDs in the run plan.
 
-**Implementation:** `StepLineTheme::render_plan_header()` in `crates/theme/src/lib.rs:154-157` (trait default). `ConfigurableTheme` override at `crates/theme/src/lib.rs:63-77`. Default trait method joins command IDs with `, ` and wraps in blank lines.
+**Implementation:** `ConfigurableTheme::render_plan_header()` in `crates/theme/src/configurable.rs`. Joins command IDs with `, ` and wraps in blank lines.
 
 ---
 
@@ -40,9 +40,9 @@ Running: build, clippy, test
 - `output.columns` — total line width used to calculate dot-fill length.
 
 **Implementation:**
-- Full line: `StepLineTheme::render()` in `crates/theme/src/lib.rs:225-239`
-- Prefix (indent + icon + label): `StepLineTheme::render_prefix()` in `crates/theme/src/lib.rs:242-253`
-- Separator dots: `StepLineTheme::render_separator()` in `crates/theme/src/lib.rs:256-282`
+- Full line: `ConfigurableTheme::render()` in `crates/theme/src/configurable.rs`
+- Prefix (indent + icon + label): `ConfigurableTheme::render_prefix()` in `crates/theme/src/configurable.rs`
+- Separator dots: `ConfigurableTheme::render_separator()` in `crates/theme/src/configurable.rs`
 
 ---
 
@@ -68,12 +68,12 @@ Running: build, clippy, test
 
 Both cycle at 80ms via `enable_steady_tick`.
 
-**Configuration:** Spinner characters and template are defined per theme in `ThemeConfig` (`crates/core/src/config/theme_types.rs:88-132`).
+**Configuration:** Spinner characters and template are defined per theme in `ThemeConfig` (`crates/core/src/config/theme_types.rs`, `ThemeConfig::classic()` / `ThemeConfig::compact()`).
 
 **Implementation:**
-- Style: `running_style` in `ProgressDisplay::new_with_tty_check()` at `crates/runner/src/display.rs:144-152`
-- Templates and tick chars: `ThemeConfig::classic()` at `crates/core/src/config/theme_types.rs:97-98`, `ThemeConfig::compact()` at `crates/core/src/config/theme_types.rs:123-124`
-- Template overhead: `running_template_overhead()` method in `crates/theme/src/lib.rs:205-207`, configured per theme via `ThemeConfig.running_template_overhead` field at `crates/core/src/config/theme_types.rs:70`
+- Style: `running_style` set in `ProgressDisplay::new_with_tty_check()` in `crates/runner/src/display.rs`
+- Templates and tick chars: `ThemeConfig::classic()` and `ThemeConfig::compact()` in `crates/core/src/config/theme_types.rs`
+- Template overhead: `running_template_overhead()` method in `crates/theme/src/configurable/config_access.rs`, configured per theme via the `ThemeConfig.running_template_overhead` field in `crates/core/src/config/theme_types.rs`
 
 ---
 
@@ -96,8 +96,8 @@ Icons are right-padded to `icon_column_width()` so labels stay vertically aligne
 **Implementation:**
 - Classic icons: `ThemeConfig::classic()` at `crates/core/src/config/theme_types.rs:88-111`
 - Compact icons: `ThemeConfig::compact()` at `crates/core/src/config/theme_types.rs:114-132`
-- Icon resolution: `ConfigurableTheme::status_icon()` at `crates/theme/src/lib.rs:35-41`
-- Alignment padding: `StepLineTheme::icon_column_width()` at `crates/theme/src/lib.rs:174-181`
+- Icon resolution: `ConfigurableTheme::status_icon()` in `crates/theme/src/configurable/config_access.rs`
+- Alignment padding: `ConfigurableTheme::icon_column_width()` at `crates/theme/src/configurable.rs:166`
 
 ---
 
@@ -121,7 +121,7 @@ Icons are right-padded to `icon_column_width()` so labels stay vertically aligne
 
 **Configuration:** `output.columns` controls available width.
 
-**Implementation:** `StepLineTheme::render_separator()` in `crates/theme/src/lib.rs:256-282`. Uses `running_template_overhead()` to subtract the indicatif template's fixed-width elements for running steps.
+**Implementation:** `ConfigurableTheme::render_separator()` in `crates/theme/src/configurable.rs`. Uses `running_template_overhead()` to subtract the indicatif template's fixed-width elements for running steps.
 
 ---
 
@@ -142,7 +142,7 @@ Icons are right-padded to `icon_column_width()` so labels stay vertically aligne
 **Configuration:** None.
 
 **Implementation:**
-- Finished: `StepLineTheme::format_elapsed()` in `crates/theme/src/lib.rs:165-167`, with standalone `format_duration()` helper at `crates/theme/src/lib.rs:19-33`
+- Finished: `ConfigurableTheme::format_elapsed()` in `crates/theme/src/configurable/config_access.rs`, with standalone `format_duration()` helper in `crates/theme/src/step_line_theme.rs`
 - Running: `{elapsed:.dim}` in the spinner template (see `ThemeConfig` in `crates/core/src/config/theme_types.rs`)
 
 ---
@@ -174,13 +174,13 @@ Icons are right-padded to `icon_column_width()` so labels stay vertically aligne
 
 **Gutter:** Aligned with label column — `icon_column_width() + 3` spaces (2-char line indent + icon width + 1 space).
 
-**Stderr capture:** Last 5 lines of stderr, defined as `STDERR_TAIL_LINES` constant in `crates/runner/src/display.rs:22`.
+**Stderr capture:** Last 5 lines of stderr, defined as the `DEFAULT_STDERR_TAIL_LINES` constant in `crates/runner/src/display.rs`.
 
 **Theme variations:** Gutter width differs because `icon_column_width()` varies (classic: 5 spaces `"     "`, compact: 4 spaces `"    "`).
 
 **Configuration:** `output.show_error_detail` (boolean, default `true`). When `false`, the error box is suppressed entirely.
 
-**Implementation:** `StepLineTheme::render_error_detail()` in `crates/theme/src/lib.rs:216-222`, with `render_error_block()` helper at `crates/theme/src/lib.rs:286-317`. Error detail toggle check at `crates/runner/src/display.rs:371`.
+**Implementation:** `ConfigurableTheme::render_error_detail()` in `crates/theme/src/configurable/boxed.rs`, with the `render_error_block()` helper in `crates/theme/src/render.rs`. Error detail toggle check at `crates/runner/src/display.rs` (`show_error_detail`).
 
 ---
 
@@ -199,7 +199,7 @@ Icons are right-padded to `icon_column_width()` so labels stay vertically aligne
 
 **Configuration:** None. Overridable per theme via `render_summary_separator()`.
 
-**Implementation:** `StepLineTheme::render_summary_separator()` in `crates/theme/src/lib.rs`. Created as a progress bar in `ProgressDisplay::on_plan_started()`. TTY-only during progress; written to stderr on run finish for non-TTY.
+**Implementation:** `ConfigurableTheme::render_summary_separator()` in `crates/theme/src/configurable.rs`. Created as a progress bar in `ProgressDisplay::on_plan_started()`. TTY-only during progress; written to stderr on run finish for non-TTY.
 
 ---
 
@@ -225,7 +225,7 @@ Icons are right-padded to `icon_column_width()` so labels stay vertically aligne
 
 **Configuration:** None.
 
-**Implementation:** Footer bar created in `ProgressDisplay::on_plan_started()`, updated in `finish_step()`, finalized in `on_run_finished()`. `StepLineTheme::summary_prefix()` in `crates/theme/src/lib.rs`.
+**Implementation:** Footer bar created in `ProgressDisplay::on_plan_started()`, updated in `finish_step()`, finalized in `on_run_finished()`. `ConfigurableTheme::summary_prefix()` in `crates/theme/src/configurable/config_access.rs`.
 
 ---
 
@@ -280,7 +280,7 @@ All `[output]` knobs and the components they affect:
 | Config key | Type | Default | Components affected |
 |-----------|------|---------|---------------------|
 | `output.theme` | `"classic"` \| `"compact"` | `"classic"` | [4] Step Status Icons |
-| `output.columns` | `u16` | `80` | [2] Pending Step Line, [5] Separator Dots |
+| `output.columns` | `u16` | auto (90% of terminal width; `80` without a terminal) | [2] Pending Step Line, [5] Separator Dots |
 | `output.show_error_detail` | `bool` | `true` | [7] Error Detail Box |
 
 **Config sources** (later overrides earlier): embedded default → global `~/.config/ops/config.toml` → local `.ops.toml` → `.ops.d/*.toml` fragments (sorted by filename) → environment `OPS__*`.
@@ -379,7 +379,7 @@ Each field in `ProjectIdentity` maps to a specific data source per stack. Stacks
 | `authors` | `[package].authors` / `[workspace.package].authors` | `author` + `contributors` | — | `[project].authors` | `<developers>` | — | — |
 | `repository` | `[package].repository` / `[workspace.package].repository` | `repository.url` | — | `[project].urls.Repository` | `<scm><url>` | — | — |
 
-> **Note:** Only the **Rust** column is currently implemented (via `extensions-rust/about/src/identity.rs`). Other stacks use the fallback path, which provides `name`, `stack_label`, `project_path`, `loc`, and `file_count` (via tokei/DuckDB). The other columns show the *intended* data sources for future stack providers.
+> **Note:** Every stack ships a `project_identity` provider (Rust: `extensions-rust/about/src/identity.rs`; Go/Node/Python/Java under `extensions-*/about/`). The columns describe each provider's field sources; a stack without a provider would use the fallback path, which provides `name`, `stack_label`, `project_path`, `loc`, and `file_count` (via tokei/SQLite).
 
 ### Module Terminology Per Stack
 
@@ -396,10 +396,10 @@ Each stack has its own term for sub-projects within a workspace/monorepo:
 
 ### Data Flow
 
-1. Generic about extension (`extensions/about/`) pre-initializes `duckdb` and `tokei` providers (best-effort)
+1. Generic about extension (`extensions/about/`) pre-initializes `sqlite` and `tokei` providers (best-effort)
 2. Queries `"project_identity"` from the data registry (stack-specific provider)
 3. If no provider is registered, builds a fallback identity from filesystem detection (directory name, detected stack)
-4. If `loc` is still missing, enriches from DuckDB/tokei (works for all stacks when compiled with `duckdb`+`tokei` features)
+4. If `loc` is still missing, enriches from SQLite/tokei (works for all stacks when compiled with `sqlite`+`tokei` features)
 5. Converts `ProjectIdentity` to `AboutCard` and renders
 
 ### Implementing a Stack Provider
@@ -426,4 +426,4 @@ Register it in your stack extension's `register_data_providers`.
 
 **Configuration:** `output.columns` controls the width available for right-aligning the badge.
 
-**Implementation:** `AboutCard::from_identity()` and `AboutCard::render()` in `crates/core/src/project_identity.rs`. Generic extension at `extensions/about/src/lib.rs`.
+**Implementation:** `AboutCard::from_identity()` and rendering in `crates/core/src/project_identity/card.rs`. Generic extension at `extensions/about/src/lib.rs`.
