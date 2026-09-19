@@ -252,6 +252,16 @@ pub enum CoreSubcommand {
 /// `ops backlog …` subcommands.
 #[derive(clap::Subcommand, Debug, Clone)]
 pub enum BacklogAction {
+    /// Bootstrap the backlog: a `[backlog]` section in `.ops.toml` (or,
+    /// with `--backlog.md`, a `backlog.config.yml` for the external
+    /// backlog.md CLI) plus the tasks tree. Idempotent — existing files are
+    /// left unchanged. `ops init` runs this too.
+    Init {
+        /// Write `backlog.config.yml` instead of the `.ops.toml` section —
+        /// for workspaces where the npm `backlog` CLI also reads the config.
+        #[arg(long = "backlog.md")]
+        backlog_md: bool,
+    },
     /// Task create/edit/list/view.
     Task {
         #[command(subcommand)]

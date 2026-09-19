@@ -33,7 +33,7 @@ pub fn run_about(
     let action = match action {
         Some(AboutAction::Backlog) => {
             let cwd = crate::cwd()?;
-            return backlog_cmd::run_about_backlog(&cwd);
+            return backlog_cmd::run_about_backlog(&cwd, &config.backlog);
         }
         other => other,
     };

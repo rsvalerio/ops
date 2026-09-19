@@ -38,6 +38,10 @@ fn run_init_to(
             // tracing::warn line on stderr — invisible under `2>/dev/null` and
             // asymmetric with the `--force` path that does write to stdout.
             writeln!(w, ".ops.toml already exists; pass --force to overwrite")?;
+            // The backlog bootstrap still runs on the existing file: the
+            // shared init step inserts `[backlog]` when the section is
+            // absent and then ensures the tasks tree.
+            crate::backlog_cmd::run_backlog_init_to(&cwd, false, w)?;
             return Ok(());
         }
         Err(e) => return Err(e.into()),
@@ -46,6 +50,11 @@ fn run_init_to(
     // so a hostile cwd cannot smuggle newlines / ANSI into the structured-log
     // pipeline through the same field.
     tracing::info!(path = ?path.display(), "created .ops.toml");
+    // The template just written already carries `[backlog]`, so the backlog
+    // bootstrap only needs its tree half here (`--force` rewrote the file
+    // with the section too). The config half runs in the already-exists
+    // branch above, where the pre-existing file may lack the section.
+    crate::backlog_cmd::ensure_tasks_tree_to(&cwd, w)?;
     if sections.commands {
         let stack = ops_core::stack::Stack::detect(&cwd);
         if stack.is_some() {
@@ -194,12 +203,21 @@ mod tests {
         );
     }
 
+    /// Without `--force` the template is not rewritten, but the backlog
+    /// bootstrap still runs: `[backlog]` is inserted into the existing file
+    /// (which must be valid TOML — an unparseable one is a hard error, not
+    /// something init edits through) and the tasks tree is created.
     #[test]
     fn run_init_no_overwrite_without_force() {
-        let (dir, _guard) = crate::test_utils::with_temp_config("existing");
+        let (dir, _guard) = crate::test_utils::with_temp_config("[output]\ntheme = \"existing\"\n");
         run_init(false, &default_sections()).expect("run_init should succeed (noop)");
         let content = std::fs::read_to_string(dir.path().join(".ops.toml")).unwrap();
-        assert_eq!(content, "existing", "file should not be overwritten");
+        assert!(
+            content.starts_with("[output]\ntheme = \"existing\"\n"),
+            "existing settings must survive: {content}"
+        );
+        assert!(content.contains("[backlog]"), "backlog is bootstrapped");
+        assert!(dir.path().join(".backlog/tasks").is_dir());
     }
 
     #[test]
@@ -343,10 +361,12 @@ mod tests {
     /// writer, not only via tracing. Previously the `AlreadyExists` arm emitted a
     /// `tracing::warn!` and returned `Ok(())` with no stdout output, so users
     /// scripting `ops init 2>/dev/null` saw nothing at all and reasonably
-    /// concluded the file had been created.
+    /// concluded the file had been created. The backlog bootstrap lines land
+    /// in the same writer.
     #[test]
     fn run_init_to_already_exists_writes_hint_to_writer() {
-        let (_dir, _guard) = crate::test_utils::with_temp_config("existing");
+        let (_dir, _guard) =
+            crate::test_utils::with_temp_config("[output]\ntheme = \"existing\"\n");
         let mut buf = Vec::new();
         run_init_to(false, &default_sections(), &mut buf)
             .expect("run_init_to (already-exists noop)");
@@ -358,6 +378,10 @@ mod tests {
         assert!(
             output.contains("--force"),
             "hint must mention the --force escape hatch, got: {output:?}"
+        );
+        assert!(
+            output.contains("Added [backlog] to .ops.toml"),
+            "the backlog bootstrap runs on the existing file, got: {output:?}"
         );
     }
 

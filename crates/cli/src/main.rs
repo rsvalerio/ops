@@ -272,7 +272,7 @@ fn dispatch(
         Some(CoreSubcommand::Theme { action }) => run_theme(early_config, action)?,
         Some(CoreSubcommand::Backlog { action }) => {
             let cwd = cwd()?;
-            backlog_cmd::run_backlog(&cwd, action)?;
+            backlog_cmd::run_backlog(&cwd, &early_config.backlog, action)?;
         }
         Some(CoreSubcommand::Extension { action }) => run_extension(early_config, action)?,
         Some(CoreSubcommand::NewCommand) => {
