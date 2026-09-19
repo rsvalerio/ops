@@ -109,7 +109,9 @@ args = ["--locked"]       # added to clippy's args, before any `--` separator
 
 The extras are appended at load time. Rules:
 
-- Composites (`commands = [...]`) extend with `commands`; exec commands extend with `args`. Using the wrong key for the target's kind, extending an undefined name, or an entry that sets neither key is a load error naming the target.
+- Composites (`commands = [...]`) extend with `commands`; exec commands extend with `args`. Using the wrong key for the target's kind, extending an undefined name, or an entry that sets none of `commands`, `args`, `help`, `category` is a load error naming the target.
+- `help = "..."` replaces the target's help text, and `category = "..."` replaces its category (either kind of target). Given across config layers, the last layer that sets one wins.
+- Without a `help` override, appending `commands` to a composite that has help extends the help to name the appended commands (`"...; then extra-a, extra-b"`), so `ops --help` can never quietly understate what `ops <cmd> --dry-run` runs. The same guard applies across layers: a layer that appends commands without setting `help` gets its commands named in whatever help is in effect, so a later command-only layer cannot hide behind an earlier override. A composite without help needs nothing — its help fallback already renders the materialized command list.
 - Appended `args` land **before the target's first `--` separator** when one is present, otherwise at the end of the args. Cargo commands like the Rust `clippy ... -- -D warnings` pass everything after `--` to the wrapped tool, so inserting before it keeps `--locked` a cargo flag instead of silently turning it into a lint flag.
 - A locally redefined command wins: `[extend.verify]` appends to *your* `[commands.verify]` if you defined one, otherwise to the stack default.
 - Extends concatenate across config layers, so `.ops.d/*.toml` fragments stack on top of `.ops.toml` appends.
@@ -137,19 +139,21 @@ args = ["--manifest-path", "fuzz/Cargo.toml"]
 #### Command groups and scheduling
 
 A command with a `commands = [...]` list is a *group* (composite). Groups may
-reference other groups, and `ops` expands the whole tree into a single flat plan
-that is scheduled as one unit.
+reference other groups, and each group runs under its own `parallel` flag:
 
-Because the plan is scheduled as one unit, the group you invoke decides how it
-runs:
-
-- **Sequential root:** every step runs one at a time, including the steps of a
-  nested `parallel = true` group. Running a parallel group sequentially is always
-  safe, so a hook group such as `run-before-commit = ["verify", ...]` keeps
-  working when `verify` itself is parallel.
-- **Parallel root:** a nested group must not declare `parallel = false`. Its
-  steps would run concurrently despite the flag, so the config is rejected with
-  an error naming both groups:
+- **Sequential group (`parallel = false`, the default):** each entry runs as its
+  own plan, one after another, under that entry's own schedule — exactly what
+  typing the entries on the command line does. A parallel child group runs its
+  steps concurrently (split into stages at `exclusive` steps, below); a
+  sequential child runs its own entries one at a time. So
+  `pre-release = ["verify", "deps", ...]` means `ops verify deps ...`: `verify`
+  keeps the staged parallel schedule it gets when invoked directly, and a hook
+  group such as `run-before-commit = ["verify", ...]` runs `verify` in parallel
+  rather than one step at a time.
+- **Parallel group (`parallel = true`):** the whole tree under it is one flat
+  plan. Every group inside it must also declare `parallel = true` — a nested
+  `parallel = false` group's steps would run concurrently despite the flag, so
+  the config is rejected with an error naming both groups:
 
 ```toml
 [commands.fixers]
@@ -167,16 +171,23 @@ error: conflicting `parallel` in the plan for `verify`: `verify` sets parallel =
 but `fixers` sets parallel = false
 ```
 
-To fix, set `verify.parallel = false`, or keep it parallel and mark the steps
-that must not overlap `exclusive = true` (below). Every group in a plan must
-also declare the same `fail_fast`.
+To fix, set `verify.parallel = false` so each entry keeps its own schedule (the
+nested `fixers` group then runs in whatever order it declares itself), or keep
+it parallel and mark the steps that must not overlap `exclusive = true` (below).
+Inside one parallel plan every group must also declare the same `fail_fast`.
 
-Note that this applies *within* one plan. Naming several commands on one
-invocation (`ops run verify qa`) expands each independently, so they may differ.
+`fail_fast` follows the same boundary rule:
 
-> Expressing "run these groups in order, but let the steps inside one group run
-> together" is not supported today; it needs per-group scheduling boundaries.
-> To keep a single step from overlapping the rest, use `exclusive` (below).
+- Within one parallel plan, every group must agree on `fail_fast` (the plan is
+  scheduled as one unit).
+- Across a sequential group's entries, values may differ: each entry's own
+  `fail_fast` governs its steps, and the sequential group's own `fail_fast`
+  governs the sequence — when false, every entry runs regardless of failures;
+  when true (the default), a failing entry stops the entries after it, unless
+  that entry itself declares `fail_fast = false` (it asked to run through its
+  own failures, so the sequence continues past it). This mirrors what naming
+  several commands on one invocation (`ops run verify qa`) does, where each
+  name keeps its own flags.
 
 #### Exclusive steps in a parallel group
 
