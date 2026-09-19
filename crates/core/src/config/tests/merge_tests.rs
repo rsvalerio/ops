@@ -271,3 +271,34 @@ mod proptest_tests {
         }
     }
 }
+
+/// `[backlog]` merges per key, like `[data]`/`[about]`: a higher layer that
+/// sets one key never blanks the keys a lower layer configured.
+#[test]
+fn merge_backlog_per_key() {
+    let mut base = Config::empty();
+    base.backlog = BacklogSection {
+        default_status: Some("Triage".to_string()),
+        task_prefix: Some("TASK".to_string()),
+        ..BacklogSection::default()
+    };
+    let overlay = ConfigOverlay {
+        backlog: Some(BacklogSection {
+            task_prefix: Some("ISSUE".to_string()),
+            ..BacklogSection::default()
+        }),
+        ..ConfigOverlay::default()
+    };
+    merge_config(&mut base, overlay);
+    assert_eq!(base.backlog.default_status.as_deref(), Some("Triage"));
+    assert_eq!(base.backlog.task_prefix.as_deref(), Some("ISSUE"));
+}
+
+/// A layer without `[backlog]` leaves the base section untouched.
+#[test]
+fn merge_without_backlog_preserves_base() {
+    let mut base = Config::empty();
+    base.backlog = BacklogSection::sane_defaults();
+    merge_config(&mut base, ConfigOverlay::default());
+    assert_eq!(base.backlog, BacklogSection::sane_defaults());
+}

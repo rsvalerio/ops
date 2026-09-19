@@ -38,6 +38,25 @@ fn run_init_to(
             // tracing::warn line on stderr — invisible under `2>/dev/null` and
             // asymmetric with the `--force` path that does write to stdout.
             writeln!(w, ".ops.toml already exists; pass --force to overwrite")?;
+            // The backlog bootstrap still runs on the existing file: the
+            // shared init step inserts `[backlog]` when the section is
+            // absent and then ensures the tasks tree. A `.ops.toml` that
+            // step cannot parse must not abort `ops init` — the early-load
+            // contract in `run()` keeps `ops init` working over a broken
+            // manifest while surfacing the diagnostic. The file is still
+            // never edited through (the refusal lives in the bootstrap),
+            // and the tree is created from the yml-or-defaults config,
+            // which does not read `.ops.toml`. Standalone
+            // `ops backlog init` keeps the hard error.
+            if let Err(err) = crate::backlog_cmd::run_backlog_init_to(&cwd, false, w) {
+                tracing::warn!(
+                    error = %format!("{err:#}"),
+                    "backlog bootstrap during ops init failed; creating the tasks tree from the yml-or-defaults config"
+                );
+                writeln!(w, "warning: backlog config left untouched ({err:#})")?;
+                let cfg = ops_backlog::config::BacklogConfig::load(&cwd)?;
+                crate::backlog_cmd::ensure_tasks_tree_with(&cwd, &cfg, w)?;
+            }
             return Ok(());
         }
         Err(e) => return Err(e.into()),
@@ -46,6 +65,11 @@ fn run_init_to(
     // so a hostile cwd cannot smuggle newlines / ANSI into the structured-log
     // pipeline through the same field.
     tracing::info!(path = ?path.display(), "created .ops.toml");
+    // The template just written already carries `[backlog]`, so the backlog
+    // bootstrap only needs its tree half here (`--force` rewrote the file
+    // with the section too). The config half runs in the already-exists
+    // branch above, where the pre-existing file may lack the section.
+    crate::backlog_cmd::ensure_tasks_tree_to(&cwd, w)?;
     if sections.commands {
         let stack = ops_core::stack::Stack::detect(&cwd);
         if stack.is_some() {
@@ -194,12 +218,21 @@ mod tests {
         );
     }
 
+    /// Without `--force` the template is not rewritten, but the backlog
+    /// bootstrap still runs: `[backlog]` is inserted into the existing file
+    /// (which must be valid TOML — an unparseable one is a hard error, not
+    /// something init edits through) and the tasks tree is created.
     #[test]
     fn run_init_no_overwrite_without_force() {
-        let (dir, _guard) = crate::test_utils::with_temp_config("existing");
+        let (dir, _guard) = crate::test_utils::with_temp_config("[output]\ntheme = \"existing\"\n");
         run_init(false, &default_sections()).expect("run_init should succeed (noop)");
         let content = std::fs::read_to_string(dir.path().join(".ops.toml")).unwrap();
-        assert_eq!(content, "existing", "file should not be overwritten");
+        assert!(
+            content.starts_with("[output]\ntheme = \"existing\"\n"),
+            "existing settings must survive: {content}"
+        );
+        assert!(content.contains("[backlog]"), "backlog is bootstrapped");
+        assert!(dir.path().join(".backlog/tasks").is_dir());
     }
 
     #[test]
@@ -290,6 +323,31 @@ mod tests {
         );
     }
 
+    /// A malformed `.ops.toml` must not abort `ops init` (the early-load
+    /// contract in `run()`): the file is never edited through, the
+    /// diagnostic is surfaced, and the tasks tree is still created from the
+    /// yml-or-defaults config.
+    #[test]
+    fn run_init_over_malformed_ops_toml_warns_and_still_creates_the_tree() {
+        let (dir, _guard) = crate::test_utils::with_temp_config("not [ valid toml");
+        let mut buf = Vec::new();
+        run_init_to(false, &default_sections(), &mut buf).expect("ops init must succeed");
+        let output = String::from_utf8(buf).expect("utf8");
+        assert!(
+            output.contains("warning: backlog config left untouched"),
+            "the diagnostic must surface, got: {output:?}"
+        );
+        assert!(
+            output.contains("Created .backlog/tasks/"),
+            "the tree must still be created, got: {output:?}"
+        );
+        assert_eq!(
+            std::fs::read_to_string(dir.path().join(".ops.toml")).expect("read"),
+            "not [ valid toml",
+            "the malformed file must be byte-unchanged"
+        );
+    }
+
     /// The file must land in the directory that was
     /// cwd at entry, and the path used internally must be absolute (not the
     /// bare relative `".ops.toml"`). Prior to the fix, `path` was relative
@@ -343,10 +401,12 @@ mod tests {
     /// writer, not only via tracing. Previously the `AlreadyExists` arm emitted a
     /// `tracing::warn!` and returned `Ok(())` with no stdout output, so users
     /// scripting `ops init 2>/dev/null` saw nothing at all and reasonably
-    /// concluded the file had been created.
+    /// concluded the file had been created. The backlog bootstrap lines land
+    /// in the same writer.
     #[test]
     fn run_init_to_already_exists_writes_hint_to_writer() {
-        let (_dir, _guard) = crate::test_utils::with_temp_config("existing");
+        let (_dir, _guard) =
+            crate::test_utils::with_temp_config("[output]\ntheme = \"existing\"\n");
         let mut buf = Vec::new();
         run_init_to(false, &default_sections(), &mut buf)
             .expect("run_init_to (already-exists noop)");
@@ -358,6 +418,10 @@ mod tests {
         assert!(
             output.contains("--force"),
             "hint must mention the --force escape hatch, got: {output:?}"
+        );
+        assert!(
+            output.contains("Added [backlog] to .ops.toml"),
+            "the backlog bootstrap runs on the existing file, got: {output:?}"
         );
     }
 

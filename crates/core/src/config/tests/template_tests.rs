@@ -103,3 +103,19 @@ fn resolve_columns_pinned_value_is_not_cached() {
     };
     assert_eq!(cfg.resolve_columns(), 137);
 }
+
+/// `ops init` bootstraps the backlog regardless of section flags: the
+/// template always carries `[backlog]` with the sane defaults.
+#[test]
+fn init_template_always_includes_backlog() {
+    let dir = tempfile::tempdir().expect("tempdir");
+    let sections = InitSections::from_flags(false, false, false);
+    let content = init_template(&crate::test_utils::canonical_root(&dir), &sections)
+        .expect("init_template must succeed");
+    assert!(
+        content.contains("[backlog]"),
+        "template must include [backlog], got:\n{content}"
+    );
+    assert!(content.contains("default_status = \"Triage\""));
+    assert!(content.contains("backlog_directory = \".backlog\""));
+}

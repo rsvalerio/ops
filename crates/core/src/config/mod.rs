@@ -72,7 +72,7 @@ pub use overlay::{
     OutputConfigOverlay,
 };
 pub use root::{Config, MAX_COMPOSITE_DEPTH};
-pub use sections::{AboutConfig, DataConfig, ExtensionConfig, OutputConfig};
+pub use sections::{AboutConfig, BacklogSection, DataConfig, ExtensionConfig, OutputConfig};
 
 #[cfg(test)]
 pub(crate) use loader::resolve_global_config_path;

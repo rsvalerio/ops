@@ -223,6 +223,7 @@ under `--raw`, which always runs sequentially.
 | `ops trailing-whitespace` (`tw`) | Strip trailing whitespace in place; non-zero when files changed (pre-commit contract) |
 | `ops end-of-file-fixer` (`eof`) | Ensure files end with exactly one newline; non-zero when files changed |
 | `ops check-json` / `check-yaml` | Verify every JSON/YAML file parses (`--tracked` limits to git files; `--allow-json5` for JSON5) |
+| `ops backlog init` | Bootstrap the backlog: a `[backlog]` section in `.ops.toml` (or `backlog.config.yml` with `--backlog.md`) plus the tasks tree; also run by `ops init` |
 | `ops backlog task create/edit/list/view` | Manage `.backlog/` markdown tasks — a compatible subset of [Backlog.md](https://github.com/MrLesk/Backlog.md); see [docs/backlog.md](docs/backlog.md) |
 | `ops backlog search` | Keyword search over tasks, with `--modified-file` filtering |
 | `ops backlog wave list\|members\|migrate` | Inspect code-review waves and their member tasks |

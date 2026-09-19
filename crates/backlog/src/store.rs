@@ -103,7 +103,7 @@ impl Store {
             })
         } else {
             anyhow::bail!(
-                "no {} directory found — run `backlog init` in the workspace before \
+                "no {} directory found — run `ops backlog init` in the workspace before \
                  managing tasks",
                 tasks_dir.display()
             )

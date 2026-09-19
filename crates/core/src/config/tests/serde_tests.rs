@@ -131,3 +131,77 @@ args = ["build"]
     let spec = config.commands.get("build").unwrap();
     assert!(spec.aliases().is_empty());
 }
+
+// --- [backlog] -----------------------------------------------------------------
+
+/// The `[backlog]` section parses as an overlay (the shape `.ops.toml`
+/// itself is read as) with each set key landing in its field.
+#[test]
+fn parse_backlog_section_overlay() {
+    let toml = r#"
+[backlog]
+default_status = "Triage"
+statuses = ["Triage", "To Do", "In Progress", "Done"]
+zero_padded_ids = 4
+task_prefix = "TASK"
+backlog_directory = ".backlog"
+"#;
+    let overlay: ConfigOverlay = toml::from_str(toml).expect("should parse");
+    let backlog = overlay.backlog.expect("backlog section");
+    assert_eq!(backlog.default_status.as_deref(), Some("Triage"));
+    assert_eq!(
+        backlog.statuses,
+        Some(vec![
+            "Triage".to_string(),
+            "To Do".to_string(),
+            "In Progress".to_string(),
+            "Done".to_string(),
+        ])
+    );
+    assert_eq!(backlog.zero_padded_ids, Some(4));
+    assert_eq!(backlog.task_prefix.as_deref(), Some("TASK"));
+    assert_eq!(backlog.backlog_directory.as_deref(), Some(".backlog"));
+}
+
+/// A partial section is valid — unset keys stay `None` and fall back to the
+/// built-in defaults at resolve time.
+#[test]
+fn parse_backlog_section_partial() {
+    let overlay: ConfigOverlay =
+        toml::from_str("[backlog]\ndefault_status = \"Review\"\n").expect("should parse");
+    let backlog = overlay.backlog.expect("backlog section");
+    assert_eq!(backlog.default_status.as_deref(), Some("Review"));
+    assert_eq!(backlog.statuses, None);
+    assert_eq!(backlog.task_prefix, None);
+    assert!(BacklogSection::default().is_default());
+    assert!(!backlog.is_default());
+}
+
+/// `deny_unknown_fields`: a key the section does not carry is rejected, so a
+/// typo fails at load instead of silently configuring nothing.
+#[test]
+fn backlog_section_rejects_unknown_keys() {
+    let err = toml::from_str::<ConfigOverlay>("[backlog]\ndefualt_status = \"Triage\"\n")
+        .expect_err("unknown key must fail");
+    assert!(
+        err.to_string().contains("unknown field"),
+        "error must name the unknown field, got: {err}"
+    );
+}
+
+/// `sane_defaults` round-trips through TOML: what `ops init` /
+/// `ops backlog init` write is what the parser reads back.
+#[test]
+fn backlog_sane_defaults_round_trip() {
+    let section = BacklogSection::sane_defaults();
+    let rendered = toml::to_string_pretty(&section).expect("serialize");
+    let parsed: BacklogSection = toml::from_str(&rendered).expect("re-parse");
+    assert_eq!(parsed, section);
+    // The default section serializes to nothing — `skip_serializing_if` on
+    // every leaf keeps unrelated templates free of an empty `[backlog]`.
+    let empty = toml::to_string_pretty(&BacklogSection::default()).expect("serialize default");
+    assert!(
+        empty.trim().is_empty(),
+        "default section must serialize empty, got: {empty}"
+    );
+}

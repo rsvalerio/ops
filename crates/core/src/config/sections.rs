@@ -70,6 +70,68 @@ impl DataConfig {
     }
 }
 
+/// Backlog settings (`[backlog]` in `.ops.toml`) — the five keys the ops
+/// backlog features read.
+///
+/// All leaves are `Option` so a section that sets only some keys falls back
+/// to the built-in defaults for the rest; a missing section means "not
+/// configured here" and the yml fallback (or the defaults) applies.
+///
+/// The values themselves live in `ops-backlog`'s `BacklogConfig::default()`;
+/// [`BacklogSection::sane_defaults`] mirrors them for `ops init` /
+/// `ops backlog init`, and a CLI test pins the two copies together.
+#[derive(Debug, Clone, Default, PartialEq, Eq, Deserialize, Serialize)]
+#[serde(deny_unknown_fields)]
+pub struct BacklogSection {
+    /// Status a fresh task gets when `-s` is absent.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub default_status: Option<String>,
+    /// Status column order for `task list` grouping; the last entry is the
+    /// terminal status cleanup moves.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub statuses: Option<Vec<String>>,
+    /// Zero-padding width of the numeric id part (`TASK-0001`).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub zero_padded_ids: Option<usize>,
+    /// Task id prefix.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub task_prefix: Option<String>,
+    /// Backlog directory relative to the workspace root.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub backlog_directory: Option<String>,
+}
+
+impl BacklogSection {
+    /// The values `ops backlog init` / `ops init` write into a fresh
+    /// `.ops.toml` — the same sane defaults `ops-backlog` ships
+    /// (`Triage/To Do/In Progress/Done`, `.backlog`, `TASK`, width 4).
+    #[must_use]
+    pub fn sane_defaults() -> Self {
+        Self {
+            default_status: Some("Triage".to_string()),
+            statuses: Some(vec![
+                "Triage".to_string(),
+                "To Do".to_string(),
+                "In Progress".to_string(),
+                "Done".to_string(),
+            ]),
+            zero_padded_ids: Some(4),
+            task_prefix: Some("TASK".to_string()),
+            backlog_directory: Some(".backlog".to_string()),
+        }
+    }
+
+    /// True when no key is set — the section is absent or empty, so the
+    /// yml fallback (and the built-in defaults) apply instead.
+    pub(crate) const fn is_default(&self) -> bool {
+        self.default_status.is_none()
+            && self.statuses.is_none()
+            && self.zero_padded_ids.is_none()
+            && self.task_prefix.is_none()
+            && self.backlog_directory.is_none()
+    }
+}
+
 /// Output and theme settings.
 #[derive(Debug, Clone, Deserialize, Serialize)]
 #[serde(deny_unknown_fields)]

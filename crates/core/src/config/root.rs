@@ -4,7 +4,7 @@
 //! because cycle and unknown-reference checks need the whole command map.
 
 use super::commands::CommandSpec;
-use super::sections::{AboutConfig, DataConfig, ExtensionConfig, OutputConfig};
+use super::sections::{AboutConfig, BacklogSection, DataConfig, ExtensionConfig, OutputConfig};
 use super::theme_types::ThemeConfig;
 use indexmap::IndexMap;
 use serde::{Deserialize, Serialize};
@@ -46,6 +46,11 @@ pub struct Config {
     pub extensions: ExtensionConfig,
     #[serde(default, skip_serializing_if = "AboutConfig::is_default")]
     pub about: AboutConfig,
+    /// `[backlog]` — the ops backlog task-manager settings. An empty/absent
+    /// section means the backlog config comes from `backlog.config.yml` or
+    /// the built-in defaults instead (the CLI resolves that precedence).
+    #[serde(default, skip_serializing_if = "BacklogSection::is_default")]
+    pub backlog: BacklogSection,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub stack: Option<String>,
 }
@@ -91,6 +96,7 @@ impl Config {
             themes: IndexMap::default(),
             extensions: ExtensionConfig::default(),
             about: AboutConfig::default(),
+            backlog: BacklogSection::default(),
             stack: None,
         }
     }

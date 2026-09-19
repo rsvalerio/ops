@@ -124,14 +124,48 @@ fn cli_init_creates_ops_toml() {
     assert!(dir.path().join(".ops.toml").exists());
 }
 
+/// Without `--force` the template is not rewritten, but the backlog
+/// bootstrap still runs: `[backlog]` is inserted into the existing file
+/// (which must be valid TOML — an unparseable one is a hard error, not
+/// something init edits through) and the tasks tree is created.
 #[test]
 fn cli_init_no_overwrite_without_force() {
     let dir = temp_dir();
-    write_ops_toml(dir.path(), "existing content");
+    write_ops_toml(dir.path(), "[output]\ntheme = \"compact\"\n");
 
     ops().arg("init").current_dir(dir.path()).assert().success();
 
-    assert_eq!(read_ops_toml(dir.path()), "existing content");
+    let content = read_ops_toml(dir.path());
+    assert!(
+        content.starts_with("[output]\ntheme = \"compact\"\n"),
+        "existing settings must survive: {content}"
+    );
+    assert!(content.contains("[backlog]"), "backlog is bootstrapped");
+    assert!(dir.path().join(".backlog/tasks").is_dir());
+}
+
+/// A malformed `.ops.toml` does not abort `ops init`: the diagnostic
+/// surfaces, the file is untouched (never edited through), and the tasks
+/// tree is still created from the yml-or-defaults config. Standalone
+/// `ops backlog init` keeps the hard error (pinned in `backlog_cmd`'s unit
+/// tests).
+#[test]
+fn cli_init_over_malformed_ops_toml_still_creates_the_backlog_tree() {
+    let dir = temp_dir();
+    write_ops_toml(dir.path(), "not [ valid toml");
+
+    ops()
+        .arg("init")
+        .current_dir(dir.path())
+        .assert()
+        .success()
+        .stdout(predicate::str::contains(
+            "warning: backlog config left untouched",
+        ))
+        .stdout(predicate::str::contains("Created .backlog/tasks/"));
+
+    assert_eq!(read_ops_toml(dir.path()), "not [ valid toml");
+    assert!(dir.path().join(".backlog/tasks").is_dir());
 }
 
 #[test]
@@ -1513,6 +1547,150 @@ fn cli_backlog_missing_tree_names_the_directory() {
     ops_in(dir.path(), &["backlog", "task", "list", "--plain"])
         .failure()
         .stderr(predicate::str::contains("tasks"));
+}
+
+/// `ops backlog init` is the only prerequisite: after it, `task create`
+/// works in a workspace that had neither config nor tree. Rerunning is a
+/// no-op that changes nothing.
+#[test]
+fn cli_backlog_init_bootstraps_then_task_create_works() {
+    let dir = temp_dir();
+
+    ops_in(dir.path(), &["backlog", "init"])
+        .success()
+        .stdout(predicate::str::contains(
+            "Created .ops.toml with a [backlog] section",
+        ))
+        .stdout(predicate::str::contains("Created .backlog/tasks/"));
+
+    let toml = std::fs::read_to_string(dir.path().join(".ops.toml")).expect("read toml");
+    assert!(toml.contains("[backlog]"), "section must land: {toml}");
+    assert!(toml.contains("default_status = \"Triage\""));
+    assert!(dir.path().join(".backlog/tasks").is_dir());
+
+    ops_in(
+        dir.path(),
+        &["backlog", "task", "create", "first", "--plain"],
+    )
+    .success()
+    .stdout(predicate::str::contains("Created TASK-0001"));
+
+    // Rerun: everything exists, nothing is rewritten.
+    ops_in(dir.path(), &["backlog", "init"])
+        .success()
+        .stdout(predicate::str::contains(
+            ".ops.toml already configures [backlog], left unchanged",
+        ));
+    assert_eq!(
+        std::fs::read_to_string(dir.path().join(".ops.toml")).expect("reread toml"),
+        toml,
+        "rerun must be byte-unchanged"
+    );
+}
+
+/// `ops backlog init --backlog.md` writes `backlog.config.yml` (the
+/// five-key subset) instead of `.ops.toml` — for workspaces where the npm
+/// backlog CLI also reads the config.
+#[test]
+fn cli_backlog_init_backlog_md_writes_the_yml() {
+    let dir = temp_dir();
+
+    ops_in(dir.path(), &["backlog", "init", "--backlog.md"])
+        .success()
+        .stdout(predicate::str::contains("Created backlog.config.yml"))
+        .stdout(predicate::str::contains("Created .backlog/tasks/"));
+    assert!(
+        !dir.path().join(".ops.toml").exists(),
+        "--backlog.md must not create .ops.toml"
+    );
+
+    let yml = std::fs::read_to_string(dir.path().join("backlog.config.yml")).expect("read yml");
+    assert!(yml.contains("default_status: \"Triage\""), "got: {yml}");
+    assert!(yml.contains("backlog_directory: \".backlog\""));
+
+    ops_in(
+        dir.path(),
+        &["backlog", "task", "create", "first", "--plain"],
+    )
+    .success()
+    .stdout(predicate::str::contains("Created TASK-0001"));
+}
+
+/// Precedence, observed end-to-end: a `[backlog]` section's
+/// `default_status` wins over a `backlog.config.yml` that says otherwise;
+/// with no section, the yml applies.
+#[test]
+fn cli_backlog_default_status_precedence() {
+    // .ops.toml section present → it wins over the yml.
+    let toml_dir = temp_dir();
+    std::fs::write(
+        toml_dir.path().join("backlog.config.yml"),
+        "default_status: \"To Do\"\n",
+    )
+    .expect("yml");
+    ops_in(toml_dir.path(), &["backlog", "init"]).success();
+    std::fs::write(
+        toml_dir.path().join(".ops.toml"),
+        "[backlog]\ndefault_status = \"Triage\"\n",
+    )
+    .expect("toml overrides");
+    ops_in(
+        toml_dir.path(),
+        &["backlog", "task", "create", "who wins", "--plain"],
+    )
+    .success();
+    ops_in(
+        toml_dir.path(),
+        &["backlog", "task", "list", "-s", "Triage", "--plain"],
+    )
+    .success()
+    .stdout(predicate::str::contains("TASK-0001"));
+
+    // No section → the yml applies.
+    let yml_dir = temp_dir();
+    std::fs::write(
+        yml_dir.path().join("backlog.config.yml"),
+        "default_status: \"To Do\"\n",
+    )
+    .expect("yml");
+    ops_in(yml_dir.path(), &["backlog", "init"]).success();
+    assert!(
+        !yml_dir.path().join(".ops.toml").exists(),
+        "no .ops.toml was seeded, so init's run must not have created one here — \
+         the yml already satisfied the config step"
+    );
+    ops_in(
+        yml_dir.path(),
+        &["backlog", "task", "create", "who wins", "--plain"],
+    )
+    .success();
+    ops_in(
+        yml_dir.path(),
+        &["backlog", "task", "list", "-s", "To Do", "--plain"],
+    )
+    .success()
+    .stdout(predicate::str::contains("TASK-0001"));
+}
+
+/// `ops init` bootstraps the backlog too: the generated `.ops.toml` carries
+/// `[backlog]` and the tasks tree exists.
+#[test]
+fn cli_ops_init_includes_the_backlog_bootstrap() {
+    let dir = temp_dir();
+    ops_in(dir.path(), &["init"]).success();
+    let toml = std::fs::read_to_string(dir.path().join(".ops.toml")).expect("read toml");
+    assert!(
+        toml.contains("[backlog]"),
+        "ops init must include backlog: {toml}"
+    );
+    assert!(dir.path().join(".backlog/tasks").is_dir());
+
+    ops_in(
+        dir.path(),
+        &["backlog", "task", "create", "first", "--plain"],
+    )
+    .success()
+    .stdout(predicate::str::contains("Created TASK-0001"));
 }
 
 /// Search finds a filed finding by its rule id and the `--modified-file`

@@ -63,6 +63,29 @@ impl BacklogConfig {
         Self::parse(&src).map_err(|e| anyhow::anyhow!("parsing {}: {e:#}", path.display()))
     }
 
+    /// Render the config as the `backlog.config.yml` subset this crate
+    /// reads — exactly the five honored keys, in the shape [`Self::parse`]
+    /// reads back (so `parse(to_yaml(cfg)) == cfg` for real-world values).
+    /// Everything the npm CLI carries that ops ignores is deliberately
+    /// absent: this writer owes no backlog.md parity.
+    #[must_use = "rendering without writing the file discards the output"]
+    pub fn to_yaml(&self) -> String {
+        let statuses = self
+            .statuses
+            .iter()
+            .map(|s| format!("\"{s}\""))
+            .collect::<Vec<_>>()
+            .join(", ");
+        // rustfmt::max_literal_line_width: the five-line yml document stays
+        // one literal so the byte shape is greppable.
+        #[rustfmt::skip]
+        let doc = format!(
+            "default_status: \"{}\"\nstatuses: [{}]\nzero_padded_ids: {}\ntask_prefix: \"{}\"\nbacklog_directory: \"{}\"\n",
+            self.default_status, statuses, self.zero_padded_ids, self.task_prefix, self.backlog_directory,
+        );
+        doc
+    }
+
     /// Parse config text. Line-oriented like the task frontmatter parser:
     /// flat `key: value` entries plus one flow-list key (`statuses`).
     ///
@@ -108,6 +131,22 @@ impl BacklogConfig {
         }
         Ok(cfg)
     }
+}
+
+/// Write `<dir>/backlog.config.yml` with `cfg`'s five keys.
+///
+/// Refuses to touch an existing file (the error names it) — the
+/// `ops backlog init --backlog.md` path. Never destructive, matching every
+/// other init step: the name is claimed with a no-clobber atomic link, so a
+/// concurrent creator can never be silently replaced by this write.
+///
+/// # Errors
+///
+/// The file already exists, or the atomic write failed — both name the path
+/// (ERR-13).
+pub fn write_config_yml(dir: &Path, cfg: &BacklogConfig) -> anyhow::Result<()> {
+    let path = dir.join("backlog.config.yml");
+    crate::cmd::atomic_write_noclobber(&path, &cfg.to_yaml())
 }
 
 /// Split a YAML flow list `["a", "b"]` into its items; `None` when `src` is
@@ -188,6 +227,80 @@ backlog_directory: \".backlog\"
         assert!(
             rendered.contains("zero_padded_ids"),
             "error must name the key, got: {rendered}"
+        );
+    }
+
+    /// What the writer emits, the parser reads back: init's yml round-trips.
+    #[test]
+    fn to_yaml_round_trips_through_parse() {
+        let rendered = BacklogConfig::default().to_yaml();
+        assert_eq!(
+            BacklogConfig::parse(&rendered).expect("must parse"),
+            BacklogConfig::default()
+        );
+    }
+
+    /// Round-trip holds for non-default values too — the interop case where
+    /// the yml carries a workspace's real choices.
+    #[test]
+    fn to_yaml_round_trips_custom_values() {
+        let cfg = BacklogConfig {
+            statuses: vec![
+                "Review".to_string(),
+                "Doing".to_string(),
+                "Signed Off".to_string(),
+            ],
+            default_status: "Review".to_string(),
+            backlog_directory: "tasks-tree".to_string(),
+            task_prefix: "ISSUE".to_string(),
+            zero_padded_ids: 6,
+        };
+        let parsed = BacklogConfig::parse(&cfg.to_yaml()).expect("must parse");
+        assert_eq!(parsed, cfg);
+    }
+
+    /// The written file is exactly the five honored keys — no backlog.md
+    /// parity payload.
+    #[test]
+    fn to_yaml_is_the_five_key_subset() {
+        let src = BacklogConfig::default().to_yaml();
+        assert_eq!(
+            src,
+            "default_status: \"Triage\"\n\
+             statuses: [\"Triage\", \"To Do\", \"In Progress\", \"Done\"]\n\
+             zero_padded_ids: 4\n\
+             task_prefix: \"TASK\"\n\
+             backlog_directory: \".backlog\"\n"
+        );
+    }
+
+    /// `write_config_yml` refuses an existing file instead of overwriting it.
+    #[test]
+    fn write_config_yml_refuses_an_existing_file() {
+        let dir = tempfile::tempdir().expect("tempdir");
+        let path = dir.path().join("backlog.config.yml");
+        std::fs::write(&path, "existing").expect("seed");
+        let err = write_config_yml(dir.path(), &BacklogConfig::default()).expect_err("must fail");
+        let rendered = format!("{err:#}");
+        assert!(
+            rendered.contains("refusing to overwrite"),
+            "error must state the refusal, got: {rendered}"
+        );
+        assert_eq!(
+            std::fs::read_to_string(&path).expect("read"),
+            "existing",
+            "the existing file must be untouched"
+        );
+    }
+
+    /// The happy path writes a file the loader reads back as the same config.
+    #[test]
+    fn write_config_yml_writes_a_loadable_file() {
+        let dir = tempfile::tempdir().expect("tempdir");
+        write_config_yml(dir.path(), &BacklogConfig::default()).expect("write");
+        assert_eq!(
+            BacklogConfig::load(dir.path()).expect("load"),
+            BacklogConfig::default()
         );
     }
 }

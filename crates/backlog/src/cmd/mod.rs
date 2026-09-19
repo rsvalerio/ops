@@ -119,3 +119,62 @@ pub(crate) fn atomic_write(path: &std::path::Path, contents: &str) -> anyhow::Re
     }
     Ok(())
 }
+
+/// [`atomic_write`] for a destination that must not already exist — the
+/// config-creation path (`backlog.config.yml`).
+///
+/// `rename` replaces an existing destination, so a check-then-write
+/// sequence races a concurrent creator and silently clobbers it. The
+/// committed name is therefore claimed with a hard link instead:
+/// `link(2)` fails with `EEXIST` when the name is taken — no window in
+/// between — and only then is the staging name dropped. The staging file
+/// is fully written and synced before the claim, so the destination is
+/// either absent or complete, never half-written; a crash before the
+/// staging name is removed leaves one recoverable copy (the same
+/// post-state as `move_to_completed` in `cleanup`).
+///
+/// # Errors
+///
+/// The destination already exists (the error names it), or staging failed
+/// — as [`atomic_write`].
+pub(crate) fn atomic_write_noclobber(path: &std::path::Path, contents: &str) -> anyhow::Result<()> {
+    use anyhow::Context as _;
+    use std::io::Write as _;
+
+    let Some(name) = path.file_name() else {
+        anyhow::bail!("{} has no file name to stage a write under", path.display());
+    };
+    let staging = path.with_file_name(format!(
+        ".{}.{}.tmp",
+        name.to_string_lossy(),
+        std::process::id()
+    ));
+    let mut handle = std::fs::OpenOptions::new()
+        .write(true)
+        .create_new(true)
+        .open(&staging)
+        .with_context(|| format!("staging {}", path.display()))?;
+    if let Err(err) = handle
+        .write_all(contents.as_bytes())
+        .and_then(|()| handle.sync_all())
+    {
+        std::fs::remove_file(&staging).ok();
+        return Err(err).with_context(|| format!("staging {}", path.display()));
+    }
+    drop(handle);
+    if let Err(err) = std::fs::hard_link(&staging, path) {
+        std::fs::remove_file(&staging).ok();
+        if err.kind() == std::io::ErrorKind::AlreadyExists {
+            anyhow::bail!(
+                "{} already exists; refusing to overwrite it",
+                path.display()
+            );
+        }
+        return Err(err).with_context(|| format!("claiming {}", path.display()));
+    }
+    // The link holds the content; the staging name is now redundant. Its
+    // removal is best-effort — a leftover keeps the dot-prefixed staging
+    // name, invisible to task scans.
+    std::fs::remove_file(&staging).ok();
+    Ok(())
+}
