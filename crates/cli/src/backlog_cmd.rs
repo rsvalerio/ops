@@ -127,9 +127,9 @@ pub fn ensure_backlog_config_to(
             writeln!(out, "backlog.config.yml already exists, left unchanged")
                 .context("printing the already-exists notice")?;
         } else {
-            // write_config_yml re-checks and refuses, so a file appearing in
-            // between the check above and this write is an error, never an
-            // overwrite.
+            // write_config_yml claims the name with a no-clobber atomic
+            // link, so a file appearing between the check above and the
+            // write fails the claim with an error — never an overwrite.
             ops_backlog::config::write_config_yml(cwd, &BacklogConfig::default())?;
             writeln!(out, "Created backlog.config.yml")
                 .context("printing the created-config notice")?;
@@ -187,6 +187,24 @@ pub fn ensure_backlog_config_to(
 /// created, or writing `out` failed — each names the path.
 pub fn ensure_tasks_tree_to(cwd: &Path, out: &mut dyn Write) -> anyhow::Result<()> {
     let cfg = effective_backlog_config(cwd)?;
+    ensure_tasks_tree_with(cwd, &cfg, out)
+}
+
+/// The tree-creation step with the config already resolved — the fallback
+/// `ops init` drives when the backlog bootstrap cannot read `.ops.toml`
+/// (malformed TOML): the location comes from the yml-or-defaults config
+/// instead, so the tree still lands while the broken manifest is only
+/// reported, matching `ops init`'s keep-working contract.
+///
+/// # Errors
+///
+/// The directory cannot be created, or writing `out` failed — each names
+/// the path.
+pub fn ensure_tasks_tree_with(
+    cwd: &Path,
+    cfg: &BacklogConfig,
+    out: &mut dyn Write,
+) -> anyhow::Result<()> {
     let tasks = cwd.join(&cfg.backlog_directory).join("tasks");
     if tasks.is_dir() {
         return Ok(());

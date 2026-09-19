@@ -137,7 +137,8 @@ impl BacklogConfig {
 ///
 /// Refuses to touch an existing file (the error names it) — the
 /// `ops backlog init --backlog.md` path. Never destructive, matching every
-/// other init step.
+/// other init step: the name is claimed with a no-clobber atomic link, so a
+/// concurrent creator can never be silently replaced by this write.
 ///
 /// # Errors
 ///
@@ -145,16 +146,7 @@ impl BacklogConfig {
 /// (ERR-13).
 pub fn write_config_yml(dir: &Path, cfg: &BacklogConfig) -> anyhow::Result<()> {
     let path = dir.join("backlog.config.yml");
-    if path
-        .try_exists()
-        .map_err(|e| anyhow::anyhow!("checking {}: {e}", path.display()))?
-    {
-        anyhow::bail!(
-            "{} already exists; refusing to overwrite it",
-            path.display()
-        );
-    }
-    crate::cmd::atomic_write(&path, &cfg.to_yaml())
+    crate::cmd::atomic_write_noclobber(&path, &cfg.to_yaml())
 }
 
 /// Split a YAML flow list `["a", "b"]` into its items; `None` when `src` is

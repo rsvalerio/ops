@@ -50,7 +50,10 @@ destructive — no backlog.md init-wizard parity.
 
 `ops init` runs the same bootstrap: the generated `.ops.toml` always
 carries `[backlog]`, and over an existing `.ops.toml` the section is
-inserted in place.
+inserted in place. A malformed `.ops.toml` is a hard error for
+`ops backlog init` — it never edits a file it cannot parse — while
+`ops init` reports the problem and still creates the tasks tree from the
+yml-or-defaults config, keeping its work-over-a-broken-manifest contract.
 
 ### `task create`
 

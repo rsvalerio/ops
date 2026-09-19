@@ -40,8 +40,23 @@ fn run_init_to(
             writeln!(w, ".ops.toml already exists; pass --force to overwrite")?;
             // The backlog bootstrap still runs on the existing file: the
             // shared init step inserts `[backlog]` when the section is
-            // absent and then ensures the tasks tree.
-            crate::backlog_cmd::run_backlog_init_to(&cwd, false, w)?;
+            // absent and then ensures the tasks tree. A `.ops.toml` that
+            // step cannot parse must not abort `ops init` — the early-load
+            // contract in `run()` keeps `ops init` working over a broken
+            // manifest while surfacing the diagnostic. The file is still
+            // never edited through (the refusal lives in the bootstrap),
+            // and the tree is created from the yml-or-defaults config,
+            // which does not read `.ops.toml`. Standalone
+            // `ops backlog init` keeps the hard error.
+            if let Err(err) = crate::backlog_cmd::run_backlog_init_to(&cwd, false, w) {
+                tracing::warn!(
+                    error = %format!("{err:#}"),
+                    "backlog bootstrap during ops init failed; creating the tasks tree from the yml-or-defaults config"
+                );
+                writeln!(w, "warning: backlog config left untouched ({err:#})")?;
+                let cfg = ops_backlog::config::BacklogConfig::load(&cwd)?;
+                crate::backlog_cmd::ensure_tasks_tree_with(&cwd, &cfg, w)?;
+            }
             return Ok(());
         }
         Err(e) => return Err(e.into()),
@@ -305,6 +320,31 @@ mod tests {
         assert!(
             output.contains("Add commands"),
             "no-stack message expected, got: {output}"
+        );
+    }
+
+    /// A malformed `.ops.toml` must not abort `ops init` (the early-load
+    /// contract in `run()`): the file is never edited through, the
+    /// diagnostic is surfaced, and the tasks tree is still created from the
+    /// yml-or-defaults config.
+    #[test]
+    fn run_init_over_malformed_ops_toml_warns_and_still_creates_the_tree() {
+        let (dir, _guard) = crate::test_utils::with_temp_config("not [ valid toml");
+        let mut buf = Vec::new();
+        run_init_to(false, &default_sections(), &mut buf).expect("ops init must succeed");
+        let output = String::from_utf8(buf).expect("utf8");
+        assert!(
+            output.contains("warning: backlog config left untouched"),
+            "the diagnostic must surface, got: {output:?}"
+        );
+        assert!(
+            output.contains("Created .backlog/tasks/"),
+            "the tree must still be created, got: {output:?}"
+        );
+        assert_eq!(
+            std::fs::read_to_string(dir.path().join(".ops.toml")).expect("read"),
+            "not [ valid toml",
+            "the malformed file must be byte-unchanged"
         );
     }
 

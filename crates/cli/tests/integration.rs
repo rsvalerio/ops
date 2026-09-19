@@ -144,6 +144,30 @@ fn cli_init_no_overwrite_without_force() {
     assert!(dir.path().join(".backlog/tasks").is_dir());
 }
 
+/// A malformed `.ops.toml` does not abort `ops init`: the diagnostic
+/// surfaces, the file is untouched (never edited through), and the tasks
+/// tree is still created from the yml-or-defaults config. Standalone
+/// `ops backlog init` keeps the hard error (pinned in `backlog_cmd`'s unit
+/// tests).
+#[test]
+fn cli_init_over_malformed_ops_toml_still_creates_the_backlog_tree() {
+    let dir = temp_dir();
+    write_ops_toml(dir.path(), "not [ valid toml");
+
+    ops()
+        .arg("init")
+        .current_dir(dir.path())
+        .assert()
+        .success()
+        .stdout(predicate::str::contains(
+            "warning: backlog config left untouched",
+        ))
+        .stdout(predicate::str::contains("Created .backlog/tasks/"));
+
+    assert_eq!(read_ops_toml(dir.path()), "not [ valid toml");
+    assert!(dir.path().join(".backlog/tasks").is_dir());
+}
+
 #[test]
 fn cli_init_force_overwrites() {
     let dir = temp_dir();
