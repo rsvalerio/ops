@@ -1,22 +1,43 @@
 # ops
 
-An opinionated, batteries-included development CLI operator.
+An opinionated, batteries-included development CLI operator: define commands and
+command groups once in TOML and run them with themed, parallel, fail-fast output.
 
-## Installation
+## Features
 
-### Homebrew (macOS and Linux)
+- **Zero config** — works out of the box with sensible defaults; `ops init` and friends scaffold the rest
+- **Declarative commands** — define commands and command groups in TOML
+- **Themed output** — step lines with timing; switch between themes easily
+- **Extension architecture** — compile-time extensions; build your own ops
+- **Parallel execution** — run command groups concurrently with `parallel = true`
+- **Backlog tasks** — native `.backlog` markdown task management, output-compatible with the Backlog.md CLI (`--json` envelopes included), so existing tooling keeps working
+
+## Getting Started
+
+These instructions give you a copy of the project up and running on your local
+machine for development and testing purposes.
+
+### Prerequisites
+
+- A Rust toolchain (rustup recommended) to build from source
+- Optional: the [Trivy](https://trivy.dev) CLI on `PATH`, used by `ops sec`
+- Optional: [cargo-nextest](https://nexte.st) and `cargo-llvm-cov` for the Rust test/coverage commands
+
+### Installing
+
+Homebrew (macOS and Linux):
 
 ```bash
 brew install rsvalerio/tap/ops
 ```
 
-### Local development
+From a checkout of this repository:
 
 ```bash
 cargo install --path crates/cli
 ```
 
-## Quick start
+## Usage
 
 ```bash
 # Initialize config for your project (auto-detects stack)
@@ -35,7 +56,7 @@ ops qa
 ops new-command "cargo fmt --check"
 ```
 
-## Configuration
+### Configuration
 
 Create a `.ops.toml` file in your project root (or run `ops init`):
 
@@ -66,7 +87,7 @@ fail_fast = true
 
 Config is merged in order (later overrides earlier): built-in defaults → global config (`~/.config/ops/config.toml`) → local `.ops.toml` → `.ops.d/*.toml` fragments (sorted by filename) → `OPS__*` environment variables. When run inside a project with a detected stack (e.g. Rust), `ops init` pre-fills stack-specific commands.
 
-### Extending existing commands
+#### Extending existing commands
 
 To add steps to a command that already exists — typically a stack default like the Rust `verify` — without copying (and going stale on) its whole `commands` list, use an `[extend.<name>]` section:
 
@@ -94,7 +115,7 @@ The extras are appended at load time. Rules:
 - Extends concatenate across config layers, so `.ops.d/*.toml` fragments stack on top of `.ops.toml` appends.
 - Extending controls list order only, not execution order. Each appended command keeps the `exclusive` flag of its own definition. In a sequential group it runs after the earlier steps. In a parallel group (see below), an appended non-exclusive command joins the final stage and may run concurrently with the earlier non-exclusive steps. Mark it `exclusive = true` if it must not overlap them.
 
-### Cloning existing commands
+#### Cloning existing commands
 
 To define a command as a variant of an existing one — typically a stack default — without copying (and going stale on) its whole spec, use `clone`:
 
@@ -113,7 +134,7 @@ args = ["--manifest-path", "fuzz/Cargo.toml"]
 - A clone copies the source **before** the source's own `[extend.<source>]` applies: extends stay per-name, so the clone never inherits them. `[extend.<clone>]` applies to the materialized copy.
 - Unknown sources, clone cycles (including self-clones; non-cyclic clone-of-clone chains do resolve), cloning into an existing stack-default name, and exec-only fields beside a composite source are load errors naming the command and the source.
 
-### Command groups and scheduling
+#### Command groups and scheduling
 
 A command with a `commands = [...]` list is a *group* (composite). Groups may
 reference other groups, and `ops` expands the whole tree into a single flat plan
@@ -157,7 +178,7 @@ invocation (`ops run verify qa`) expands each independently, so they may differ.
 > together" is not supported today; it needs per-group scheduling boundaries.
 > To keep a single step from overlapping the rest, use `exclusive` (below).
 
-### Exclusive steps in a parallel group
+#### Exclusive steps in a parallel group
 
 Running every step of a parallel group at once is wrong for a step that
 rewrites files the others read. Mark such an exec command `exclusive = true`.
@@ -183,9 +204,9 @@ The list order is the schedule. With `a` and `c` exclusive,
 later stages never start. `exclusive` has no effect in a sequential group or
 under `--raw`, which always runs sequentially.
 
-## Commands
+### Commands
 
-### Stack-agnostic CLI (same on every stack)
+#### Stack-agnostic CLI (same on every stack)
 
 | Command | Description |
 |---------|-------------|
@@ -215,7 +236,7 @@ Hook escape hatches: set `SKIP_OPS_RUN_BEFORE_PUSH` (or `SKIP_OPS_RUN_BEFORE_COM
 to `1`, `true`, `yes` or `on` — case-insensitive; anything else means "do not skip" —
 to let a push or commit through without running the configured hook commands.
 
-### Stack-gated CLI
+#### Stack-gated CLI
 
 | Command | Available on |
 |---------|--------------|
@@ -225,7 +246,7 @@ to let a push or commit through without running the configured hook commands.
 | `ops about loc` | Rust |
 | `ops about crates` / `modules` | Rust, Go, Node, Python (uv), Java-M, Java-G |
 
-### Stack command baseline
+#### Stack command baseline
 
 Every supported stack ships the same 7-command contract via `ops init --commands`.
 A `✓` means the command is active by default; `*` means it's emitted commented-out
@@ -250,7 +271,7 @@ The Rust stack default goes beyond the contract: it also ships `next` / `next-ig
 runs `deps`, `test`, `test-doc`, and `sec` — `sec` requires the
 [Trivy](https://trivy.dev) CLI on `PATH`.
 
-#### `ops sec` default skip list
+##### `ops sec` default skip list
 
 Every Trivy scan `ops sec` runs skips these directories at any depth, plus
 `.git` — build output is generated artefact, not source: slow to walk, noisy
@@ -286,7 +307,7 @@ exactly like `target/`.
 Commented suggestions show up verbatim when you run `ops init --commands`, so you can
 opt in by uncommenting, or remap to the tool your project actually uses.
 
-### Stack parity matrix
+#### Stack parity matrix
 
 Rust is the reference implementation; the other stacks are data providers compiled
 into the same binary via `ops-extension`. Parity gaps are feature scope, not
@@ -328,18 +349,40 @@ When they are missing, the coverage warning/error includes these same install co
 
 `about code` and `about loc` answer different questions and are not expected to agree: tokei reports every language but has no model for test versus production code, while `rust-loc` parses only `.rs` files and splits `#[cfg(test)]` blocks out of the file that contains them, counting doc comments separately from ordinary ones. On a non-Rust workspace `ops about loc` prints `No Rust LOC data available.`
 
-#### Not yet implemented
+## Running the tests
+
+The project gates itself with its own commands:
+
+```bash
+ops verify   # fmt, check, clippy, build
+ops qa       # deps, test, test-doc, sec (qa needs the Trivy CLI on PATH)
+```
+
+The raw cargo invocations for the format, lint, and test legs (the `check`,
+`build`, `deps`, and `sec` gates have no direct cargo equivalent here):
+
+```bash
+cargo fmt
+cargo clippy --all-targets --workspace -- -D warnings
+cargo nextest run --workspace --all-features   # nextest does not run doctests
+cargo test --workspace --doc                   # doctests
+```
+
+## Roadmap
 
 - Generic Python stack (non-uv: poetry, pip/setuptools, pdm, hatch)
+- Per-group scheduling boundaries — "run these groups in order, but let the
+  steps inside one group run together" (see the note under
+  [Command groups and scheduling](#command-groups-and-scheduling))
 
-## Features
+## Built With
 
-- **Zero config** — works out of the box with sensible defaults; `ops init` and friends scaffold the rest
-- **Declarative commands** — define commands and command groups in TOML
-- **Themed output** — step lines with timing; switch between themes easily
-- **Extension architecture** — compile-time extensions; build your own ops
-- **Parallel execution** — run command groups concurrently with `parallel = true`
-- **Backlog tasks** — native `.backlog` markdown task management, output-compatible with the Backlog.md CLI (`--json` envelopes included), so existing tooling keeps working
+- [clap](https://docs.rs/clap) — CLI parsing
+- [indicatif](https://docs.rs/indicatif) — progress rendering
+- [rusqlite](https://docs.rs/rusqlite) — embedded analytics store (bundled SQLite)
+- [tokei](https://docs.rs/tokei) — LOC counting
+- [Trivy](https://trivy.dev) — security scans (external CLI)
+- [cargo-nextest](https://nexte.st) — test runner (external CLI)
 
 ## Contributing
 
@@ -350,14 +393,40 @@ git commit -m "feat: add new feature"
 git commit -m "fix: resolve bug"
 ```
 
-See [docs/releasing.md](docs/releasing.md) for the full release workflow.
+See [AGENTS.md](AGENTS.md) for the working rules this repo follows (gates, lint
+policy, code map) and [docs/releasing.md](docs/releasing.md) for the full
+release workflow.
+
+## Versioning
+
+We use [Semantic Versioning](http://semver.org/). For the versions available,
+see the [tags on this repository](https://github.com/rsvalerio/ops/tags).
+Releases are automated from conventional commits — see
+[docs/releasing.md](docs/releasing.md).
+
+## Authors
+
+- **Rodrigo Valeri** — [rsvalerio](https://github.com/rsvalerio)
+
+See also the list of
+[contributors](https://github.com/rsvalerio/ops/contributors)
+who participated in this project.
+
+## License
+
+This project is licensed under the Apache License 2.0 - see the [LICENSE](LICENSE)
+file for details.
+
+## Acknowledgments
+
+- [Backlog.md](https://github.com/MrLesk/Backlog.md) — the backlog command and
+  file format `ops backlog` stays compatible with
+- [pre-commit](https://pre-commit.com) — the trailing-whitespace and
+  end-of-file-fixer hooks follow its exit-code contract
+- [Conventional Commits](https://www.conventionalcommits.org/) — release automation
 
 ## Documentation
 
 - [Releasing](docs/releasing.md) — automated releases, conventional commits, Homebrew tap
 - [Visual Components](docs/components.md) — step icons, error boxes, theme comparison
 - [Backlog tasks](docs/backlog.md) — `ops backlog` command reference, file format, and output contracts
-
-## License
-
-Apache-2.0
