@@ -1,9 +1,10 @@
 ---
 id: TASK-2274
 title: 'Let [extend.<name>] override help so an extended command describes what it runs'
-status: Triage
+status: Done
 assignee: []
 created_date: '2026-09-19 11:23'
+updated_date: '2026-09-19 12:48'
 labels:
   - feature
   - config
@@ -29,8 +30,15 @@ Option 2 matters more: a stale help is the default outcome today, and nobody not
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 `[extend.<name>] help = "..."` overrides the target's help; given across layers, the last layer wins
-- [ ] #2 An extended composite with no help override shows help that names the appended commands
-- [ ] #3 `ops --help` and `ops --dry-run` agree on what an extended command runs
-- [ ] #4 README "Extending existing commands" documents the help rule
+- [x] #1 `[extend.<name>] help = "..."` overrides the target's help; given across layers, the last layer wins
+- [x] #2 An extended composite with no help override shows help that names the appended commands
+- [x] #3 `ops --help` and `ops --dry-run` agree on what an extended command runs
+- [x] #4 README "Extending existing commands" documents the help rule
+
 <!-- AC:END -->
+
+## Implementation Notes
+
+<!-- SECTION:NOTES:BEGIN -->
+Implemented: [extend.<name>] help/category override (last layer wins across config layers); composite commands-appends without a help override auto-extend the existing help ('...; then extras'). README extend section documents the rule.
+<!-- SECTION:NOTES:END -->
