@@ -97,20 +97,32 @@ impl CommandRunner {
 
     /// Run a named command (single or composite) with inherited stdio (raw mode).
     ///
-    /// Mirrors [`CommandRunner::run`] but always sequential and without events.
+    /// Mirrors [`CommandRunner::run`] but without events. The plan tree is
+    /// expanded once, per `run`; every stage runs sequentially in raw mode
+    /// (raw inherits child stdio and has no event stream to schedule by),
+    /// and a sequential group still stops after a failing entry under
+    /// fail-fast.
     ///
     /// # Errors
     ///
     /// If `command_id` cannot be expanded, or if a step cannot be built or
     /// spawned.
+    // Same `!Send` reasoning as `run_plan_parallel`: the tree executor's
+    // `on_event` sink is backed by non-`Send` `indicatif` state
+    // (docs/clippy.md layer 3), even though raw mode passes a no-op sink.
+    #[allow(clippy::future_not_send)]
     pub async fn run_raw(&self, command_id: &str) -> anyhow::Result<Vec<StepResult>> {
         // PERF-3 / TASK-2086: plan and scheduling flags from one walk, per
-        // `run`. An Exec root contributes `fail_fast_disabled=false`, so it
-        // keeps the fail-fast default the old `resolve` match gave it.
-        let (plan, _any_parallel, fail_fast_disabled) = self
-            .expand_to_leaves_with_flags(command_id)
+        // `run`. An Exec root contributes `fail_fast = true`, so it keeps
+        // the fail-fast default the old `resolve` match gave it.
+        let plan = self
+            .expand_to_plan(command_id)
             .map_err(anyhow::Error::from)?;
-        debug!(command_id, steps = plan.len(), "running command (raw)");
-        Ok(self.run_plan_raw(&plan, !fail_fast_disabled).await)
+        debug!(
+            command_id,
+            steps = plan.leaf_ids().len(),
+            "running command (raw)"
+        );
+        Ok(self.run_plan_tree(&plan, true, &mut |_| {}).await)
     }
 }

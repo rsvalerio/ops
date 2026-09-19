@@ -329,16 +329,39 @@ mod schedule_flag_agreement_tests {
         test_runner(commands)
     }
 
-    /// Sequential parent, parallel child (a hook group wrapping a parallel
-    /// `verify`): the plan runs sequentially, never promoted to parallel.
+    /// TASK-2275: sequential parent, parallel child (a hook group wrapping
+    /// a parallel `verify`) — the child is its own parallel stage, so its
+    /// staged schedule survives under the sequential parent.
     #[test]
-    fn parallel_child_under_sequential_parent_runs_sequentially() {
+    fn parallel_child_under_sequential_parent_gets_its_own_stage() {
         let runner = nested_runner((false, true), (true, true));
-        let (leaves, parallel, _) = runner
-            .expand_to_leaves_with_flags("outer")
+        let plan = runner
+            .expand_to_plan("outer")
             .expect("a sequential root may contain a parallel group");
-        assert_eq!(leaves, vec!["a", "b"]);
-        assert!(!parallel, "the sequential root schedules the whole plan");
+        match &plan {
+            CommandPlan::Sequence {
+                children,
+                fail_fast,
+            } => {
+                assert!(*fail_fast, "the sequential group defaults to fail-fast");
+                assert_eq!(
+                    children.len(),
+                    1,
+                    "the single entry expands to one child plan"
+                );
+            }
+            other @ CommandPlan::Stage { .. } => {
+                panic!("a sequential root must expand to a sequence, got {other:?}")
+            }
+        }
+        // The flat leaf order is unchanged — dry-run and display still list
+        // every step in declaration order.
+        assert_eq!(plan.leaf_ids(), vec!["a", "b"]);
+        assert!(
+            plan.any_parallel(),
+            "the parallel child schedules its own steps"
+        );
+        assert!(plan.needs_worker_threads());
     }
 
     /// Parallel parent, sequential child: `inner` declares `parallel = false`
@@ -363,14 +386,31 @@ mod schedule_flag_agreement_tests {
         );
     }
 
-    /// `fail_fast` gets the same treatment: a `false` descendant must not
-    /// silently disable fail-fast for a plan whose root enables it.
+    /// TASK-2275: a `fail_fast = false` child under a sequential parent is
+    /// no longer a conflict — each entry keeps its own value, and one
+    /// `false` makes the tree's effective fail-fast false.
     #[test]
-    fn fail_fast_disagreement_is_rejected() {
+    fn fail_fast_false_child_under_sequential_parent_is_allowed() {
         let runner = nested_runner((false, true), (false, false));
+        let plan = runner
+            .expand_to_plan("outer")
+            .expect("a sequential root may mix fail_fast values across entries");
+        assert_eq!(plan.leaf_ids(), vec!["a", "b"]);
+        assert!(
+            !plan.effective_fail_fast(),
+            "a single fail_fast = false makes the tree's effective value false"
+        );
+    }
+
+    /// Inside one *parallel* stage, `fail_fast` disagreement is still
+    /// rejected: a `false` descendant would silently disable fail-fast for
+    /// a stage whose root enables it.
+    #[test]
+    fn fail_fast_disagreement_inside_parallel_stage_is_rejected() {
+        let runner = nested_runner((true, true), (true, false));
         let err = runner
             .expand_to_leaves("outer")
-            .expect_err("fail_fast disagreement must be rejected");
+            .expect_err("fail_fast disagreement inside one stage must be rejected");
         assert!(
             matches!(
                 &err,
@@ -398,18 +438,29 @@ mod schedule_flag_agreement_tests {
         }
     }
 
-    /// The aggregated flags returned alongside the leaves must reflect the
-    /// (now uniform) declared value, so callers scheduling the plan agree with
-    /// what the config says.
+    /// A parallel root's stage carries the (uniform) declared values, so
+    /// callers scheduling the stage agree with what the config says.
     #[test]
-    fn aggregated_flags_match_the_agreed_declaration() {
+    fn parallel_root_stage_matches_the_agreed_declaration() {
         let runner = nested_runner((true, false), (true, false));
-        let (leaves, any_parallel, fail_fast_disabled) = runner
-            .expand_to_leaves_with_flags("outer")
+        let plan = runner
+            .expand_to_plan("outer")
             .expect("agreeing tree must expand");
-        assert_eq!(leaves, vec!["a", "b"]);
-        assert!(any_parallel);
-        assert!(fail_fast_disabled);
+        match &plan {
+            CommandPlan::Stage {
+                leaf_ids,
+                parallel,
+                fail_fast,
+            } => {
+                assert_eq!(leaf_ids, &vec!["a", "b"]);
+                assert!(parallel);
+                assert!(!fail_fast);
+            }
+            other @ CommandPlan::Sequence { .. } => {
+                panic!("a parallel root must flatten to one stage, got {other:?}")
+            }
+        }
+        assert!(!plan.effective_fail_fast());
     }
 
     /// A diamond (`root -> [x, y]`, both `-> shared`) revisits `shared`. The

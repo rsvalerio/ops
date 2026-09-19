@@ -1,7 +1,7 @@
-//! Plan assembly: leaf-id expansion, display-map construction, step logging.
+//! Plan assembly: plan-tree expansion, display-map construction, step logging.
 
 use ops_core::config::CommandSpec;
-use ops_runner::command::StepResult;
+use ops_runner::command::{CommandPlan, StepResult};
 
 /// One named command's own execution plan (TASK-2262).
 ///
@@ -12,19 +12,20 @@ use ops_runner::command::StepResult;
 /// name's was, so a single parallel name (a rust-stack `verify`) promoted the
 /// steps of every other named command — including ones that declared
 /// `parallel = false` — into concurrent execution.
+///
+/// TASK-2275: the plan is a [`CommandPlan`] tree, not one flat leaf list —
+/// a sequential group's entries are separate stages with their own
+/// schedules, so `ops <seq-group>` runs exactly what typing its entries on
+/// the command line runs.
 #[derive(Debug, Clone)]
 pub struct NamePlan {
     /// The name exactly as the user invoked it, for diagnostics.
     pub name: String,
-    /// Exec-only leaf ids for this name, in declaration order.
-    pub leaf_ids: Vec<ops_core::config::CommandId>,
-    /// Whether this name's own tree schedules its steps in parallel.
-    pub any_parallel: bool,
-    /// Whether this name's own tree stops on the first failing step.
-    pub fail_fast: bool,
+    /// This name's expanded plan tree.
+    pub plan: CommandPlan,
 }
 
-/// Expand each named command into its own plan.
+/// Expand each named command into its own plan tree.
 ///
 /// Aggregation walks each name's composite tree so a nested composite
 /// with `parallel = true` or `fail_fast = false` is honoured. The earlier
@@ -39,8 +40,8 @@ pub struct NamePlan {
 /// filtering bugs (callers that ended up with an empty argv after CLI
 /// parsing or hook filtering). The single production caller
 /// [`super::run_external_command`] already rejects empty argv before reaching
-/// here, so the error path is a defensive fail-loud guard rather than a
-/// behavioural change for the happy path.
+/// here, so the error path is a defensive fail-loud guard rather than
+/// a behavioural change for the happy path.
 pub fn plans_for_names(
     runner: &ops_runner::command::CommandRunner,
     names: &[&str],
@@ -52,23 +53,19 @@ pub fn plans_for_names(
              upstream filtering bug)"
         );
     }
-    // A single traversal per name returns both the
-    // leaf ids and the (any_parallel, fail_fast_disabled) flags, so the
-    // executed leaf set and the plan flags are derived from the same walk
-    // (no risk of independent walks drifting in cycle/ordering semantics).
-    // Every name is expanded up front, before the executor starts, so an
-    // unknown or cyclic name anywhere in the invocation fails the whole run
-    // instead of surfacing after earlier names have already executed.
+    // A single traversal per name returns the whole plan tree, so the
+    // executed leaf set and every stage's scheduling flags are derived from
+    // the same walk (no risk of independent walks drifting in cycle/
+    // ordering semantics). Every name is expanded up front, before the
+    // executor starts, so an unknown or cyclic name anywhere in the
+    // invocation fails the whole run instead of surfacing after earlier
+    // names have already executed.
     let mut plans = Vec::with_capacity(names.len());
     for name in names {
-        let (leaf_ids, any_parallel, fail_fast_disabled) = runner
-            .expand_to_leaves_with_flags(name)
-            .map_err(anyhow::Error::from)?;
+        let plan = runner.expand_to_plan(name).map_err(anyhow::Error::from)?;
         plans.push(NamePlan {
             name: (*name).to_string(),
-            leaf_ids,
-            any_parallel,
-            fail_fast: !fail_fast_disabled,
+            plan,
         });
     }
     Ok(plans)

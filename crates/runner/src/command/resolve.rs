@@ -1,5 +1,5 @@
 //! Command resolution: lookups across config / stack / extension stores,
-//! alias resolution, and composite expansion.
+//! alias resolution, and composite expansion into plan trees.
 //!
 //! Kept apart from `command/mod.rs` so the orchestrator file is purely
 //! about *running* plans, not naming them.
@@ -8,30 +8,129 @@ use super::{CommandRunner, ExpandError, ResolveExecError, UnknownCommand};
 use indexmap::IndexMap;
 use ops_core::config::{CommandId, CommandSpec, ExecCommandSpec};
 
-/// Walk state for `expand_inner`. Bundling visited / depth / aggregated
-/// flags into one struct also keeps the recursive signature within
-/// clippy's `too_many_arguments` budget.
-struct ExpandCtx<'a> {
+/// One command's execution plan after composite expansion (TASK-2275).
+///
+/// Expansion used to flatten the whole composite tree into one leaf list
+/// scheduled by its root, so a sequential root silently downgraded a nested
+/// parallel group ("run these groups in order, but let the steps inside one
+/// group run together" was impossible). The tree keeps each group's own
+/// scheduling:
+///
+/// - [`CommandPlan::Stage`] is one schedulable flat plan — everything under a
+///   `parallel = true` group (or a lone exec leaf). The stage's `parallel`
+///   and `fail_fast` come from that group's own subtree.
+/// - [`CommandPlan::Sequence`] is a `parallel = false` group: each entry runs
+///   as its own plan, one after another, under that entry's own schedule —
+///   exactly what typing the entries on the command line does.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum CommandPlan {
+    /// A flat, schedulable plan: `leaf_ids` run sequentially, or in
+    /// exclusive-split stages when `parallel` (see `parallel.rs`).
+    /// `fail_fast` is the value every composite in the stage's subtree
+    /// agreed on (`true` for an exec-only stage).
+    Stage {
+        leaf_ids: Vec<CommandId>,
+        parallel: bool,
+        fail_fast: bool,
+    },
+    /// A sequential group's entries, in declaration order. `fail_fast` is the
+    /// group's *own* declaration: when false, every entry runs regardless of
+    /// failures; when true, a failing entry whose
+    /// [`effective_fail_fast`](CommandPlan::effective_fail_fast) is true
+    /// stops the entries after it.
+    Sequence {
+        children: Vec<Self>,
+        fail_fast: bool,
+    },
+}
+
+impl CommandPlan {
+    /// The group's own `fail_fast` declaration.
+    #[must_use]
+    pub const fn fail_fast(&self) -> bool {
+        match self {
+            Self::Stage { fail_fast, .. } | Self::Sequence { fail_fast, .. } => *fail_fast,
+        }
+    }
+
+    /// `fail_fast` as a parent sees it: the node's own declaration AND every
+    /// descendant's — a single `fail_fast = false` anywhere in the tree makes
+    /// the whole tree non-fail-fast. This is the same whole-tree aggregation
+    /// the pre-TASK-2275 flat walk computed, so a name's plan reports what
+    /// the config's uniform value always said.
+    #[must_use]
+    pub fn effective_fail_fast(&self) -> bool {
+        match self {
+            Self::Stage { .. } => self.fail_fast(),
+            Self::Sequence { children, .. } => {
+                self.fail_fast() && children.iter().all(Self::effective_fail_fast)
+            }
+        }
+    }
+
+    /// Every exec leaf in execution order (left-to-right over the tree).
+    #[must_use]
+    pub fn leaf_ids(&self) -> Vec<CommandId> {
+        match self {
+            Self::Stage { leaf_ids, .. } => leaf_ids.clone(),
+            Self::Sequence { children, .. } => children.iter().flat_map(Self::leaf_ids).collect(),
+        }
+    }
+
+    /// Whether any stage in the tree declares `parallel = true`.
+    #[must_use]
+    pub fn any_parallel(&self) -> bool {
+        match self {
+            Self::Stage { parallel, .. } => *parallel,
+            Self::Sequence { children, .. } => children.iter().any(Self::any_parallel),
+        }
+    }
+
+    /// Whether the tree needs a multi-thread runtime: a parallel stage with
+    /// more than one leaf actually fans out (a 1-leaf parallel stage takes
+    /// `run_plan`'s sequential shortcut, so worker threads would be pure
+    /// start-up cost — mirrors the threshold the pre-tree executor used).
+    #[must_use]
+    pub fn needs_worker_threads(&self) -> bool {
+        match self {
+            Self::Stage {
+                leaf_ids, parallel, ..
+            } => *parallel && leaf_ids.len() > 1,
+            Self::Sequence { children, .. } => children.iter().any(Self::needs_worker_threads),
+        }
+    }
+}
+
+/// Walk state for `expand_node` / `expand_flat_node`. Shared across the
+/// whole expansion so cycle detection and the depth budget span sequential
+/// and flat recursion alike.
+struct PlanCtx<'a> {
     visited: std::collections::HashSet<&'a str>,
     depth: usize,
     max_depth: usize,
-    fail_fast_disabled: bool,
-    /// `(name, value)` of the plan's root composite's `parallel`, which
-    /// schedules the whole plan. A sequential root runs nested parallel groups
-    /// sequentially; a parallel root rejects a nested sequential group.
+}
+
+/// Flag-aggregation state for one flat walk (the subtree of a single
+/// `parallel = true` group). Every composite in that subtree must agree on
+/// both flags; a disagreement is rejected naming the parallel root.
+struct FlatFlags<'a> {
+    /// `(name, value)` of the flat plan's root composite's `parallel`.
     parallel_decl: Option<(&'a str, bool)>,
     /// Same, for `fail_fast`.
     fail_fast_decl: Option<(&'a str, bool)>,
+    fail_fast_disabled: bool,
 }
 
-/// Enforce that every composite in one plan agrees on a scheduling flag,
-/// recording the first declaration and rejecting any later disagreement.
+/// Enforce that every composite in one flat stage agrees on a scheduling
+/// flag, recording the first declaration and rejecting any later
+/// disagreement.
 ///
 /// Comparing against the *first* composite visited is sufficient to prove
-/// whole-plan agreement: expansion is a depth-first walk from the root, so the
-/// first declaration is the root's, and if every later node matches the root
-/// then all nodes match each other. It also makes the error name the root the
-/// user actually invoked rather than an arbitrary interior pair.
+/// whole-stage agreement: expansion is a depth-first walk from the parallel
+/// root, so the first declaration is the root's, and if every later node
+/// matches the root then all nodes match each other. It also makes the error
+/// name the root the user actually invoked rather than an arbitrary interior
+/// pair.
 fn check_schedule_flag<'a>(
     decl: &mut Option<(&'a str, bool)>,
     flag: &'static str,
@@ -62,6 +161,25 @@ fn check_schedule_flag<'a>(
         }
         Some(_) => Ok(()),
     }
+}
+
+/// Shared depth-budget check for both recursion shapes, so the sequential
+/// and flat walks keep one guard (and one warning) instead of two drifting
+/// copies. Returns the [`ExpandError::DepthExceeded`] to propagate, if any.
+fn depth_guard(id: &str, ctx: &PlanCtx<'_>) -> Option<ExpandError> {
+    if ctx.depth > ctx.max_depth {
+        tracing::warn!(
+            id = ?id,
+            depth = ctx.depth,
+            max_depth = ctx.max_depth,
+            "composite expansion depth limit exceeded"
+        );
+        return Some(ExpandError::DepthExceeded {
+            id: id.to_string(),
+            max_depth: ctx.max_depth,
+        });
+    }
+    None
 }
 
 // Counts walks over the command stores.
@@ -242,7 +360,8 @@ impl CommandRunner {
         ids.into_iter().map(CommandId::from).collect()
     }
 
-    /// Expand to a flat list of exec-only command IDs (no composites), so `run_plan` need not recurse.
+    /// Expand to a flat list of exec-only command IDs (no composites), in
+    /// execution order, so `run_plan` need not recurse.
     ///
     /// Returns [`ExpandError`] distinguishing the three distinct failure modes
     /// — unknown id, cycle, depth exceeded — so callers can render accurate
@@ -262,27 +381,22 @@ impl CommandRunner {
     /// [`ExpandError`] if `id` is unknown, the composite tree cycles, or
     /// expansion exceeds the depth limit.
     pub fn expand_to_leaves(&self, id: &str) -> Result<Vec<CommandId>, ExpandError> {
-        let (leaves, _has_parallel, _fail_fast_disabled) = self.expand_to_leaves_with_flags(id)?;
-        Ok(leaves)
+        Ok(self.expand_to_plan(id)?.leaf_ids())
     }
 
-    /// Walks the composite tree exactly once and returns both the leaf ids
-    /// and the `(parallel, fail_fast_disabled)` flags, where `parallel` is
-    /// the root composite's own flag (`false` for an exec root).
-    /// Single-walk matters: collecting leaves and recomputing flags in
-    /// separate traversals lets the two drift in cycle/order semantics,
-    /// and folding them here keeps the leaves and the flags in sync by
-    /// construction.
+    /// Expand a named command into a [`CommandPlan`] tree (TASK-2275).
+    ///
+    /// One walk of the composite tree produces both the structure and every
+    /// stage's scheduling flags, so the executed steps and their schedule
+    /// are derived from the same traversal (no risk of independent walks
+    /// drifting in cycle/ordering semantics).
     ///
     /// # Errors
     ///
     /// [`ExpandError`] if `id` is unknown, the composite tree cycles, expansion
-    /// exceeds the depth limit, a parallel composite contains a sequential one,
-    /// or the tree declares conflicting `fail_fast` values.
-    pub fn expand_to_leaves_with_flags(
-        &self,
-        id: &str,
-    ) -> Result<(Vec<CommandId>, bool, bool), ExpandError> {
+    /// exceeds the depth limit, a parallel group contains a sequential one,
+    /// or a parallel group's subtree declares conflicting `fail_fast` values.
+    pub fn expand_to_plan(&self, id: &str) -> Result<CommandPlan, ExpandError> {
         /// Maximum recursion depth for composite expansion.
         ///
         /// This limit prevents stack overflow from pathological configs with deeply
@@ -291,35 +405,25 @@ impl CommandRunner {
         /// The cycle detection already catches circular references, so this is a
         /// defense against accidental deep nesting.
         const MAX_DEPTH: usize = 100;
-        let mut ctx = ExpandCtx {
+        let mut ctx = PlanCtx {
             visited: std::collections::HashSet::new(),
             depth: 0,
             max_depth: MAX_DEPTH,
-            fail_fast_disabled: false,
-            parallel_decl: None,
-            fail_fast_decl: None,
         };
-        let leaves = self.expand_inner(id, &mut ctx)?;
-        let parallel = ctx.parallel_decl.is_some_and(|(_, parallel)| parallel);
-        Ok((leaves, parallel, ctx.fail_fast_disabled))
+        self.expand_node(id, &mut ctx)
     }
 
-    fn expand_inner<'a>(
+    /// Expand one node of the plan tree: an exec leaf becomes a sequential
+    /// one-leaf stage, a `parallel = true` group becomes one flat stage over
+    /// its whole subtree, and a `parallel = false` group becomes a sequence
+    /// that expands each entry as its own plan.
+    fn expand_node<'a>(
         &'a self,
         id: &str,
-        ctx: &mut ExpandCtx<'a>,
-    ) -> Result<Vec<CommandId>, ExpandError> {
-        if ctx.depth > ctx.max_depth {
-            tracing::warn!(
-                id = ?id,
-                depth = ctx.depth,
-                max_depth = ctx.max_depth,
-                "composite expansion depth limit exceeded"
-            );
-            return Err(ExpandError::DepthExceeded {
-                id: id.to_string(),
-                max_depth: ctx.max_depth,
-            });
+        ctx: &mut PlanCtx<'a>,
+    ) -> Result<CommandPlan, ExpandError> {
+        if let Some(err) = depth_guard(id, ctx) {
+            return Err(err);
         }
         // One traversal over the config / stack / extension / alias chain
         // resolves both the canonical name and the spec.
@@ -327,7 +431,11 @@ impl CommandRunner {
             .canonical_with_spec(id)
             .ok_or_else(|| ExpandError::Unknown(UnknownCommand::new(id)))?;
         match spec {
-            CommandSpec::Exec(_) => Ok(vec![CommandId::from(canonical)]),
+            CommandSpec::Exec(_) => Ok(CommandPlan::Stage {
+                leaf_ids: vec![CommandId::from(canonical)],
+                parallel: false,
+                fail_fast: true,
+            }),
             CommandSpec::Composite(c) => {
                 // Track only the active recursion
                 // stack so a diamond DAG (A -> [B, C]; B, C -> [D]) does not
@@ -341,47 +449,109 @@ impl CommandRunner {
                 if !ctx.visited.insert(canonical) {
                     return Err(ExpandError::Cycle(canonical.to_string()));
                 }
-                // The plan is flat and scheduled as one unit by its root.
-                // A sequential root runs every step one at a time, which is
-                // safe whatever a nested group declares, so a nested
-                // `parallel = true` (a hook group wrapping a parallel
-                // `verify`) is only downgraded. A parallel root containing a
-                // sequential group is rejected: running that group's steps
-                // concurrently would break the ordering it declares.
-                // `fail_fast` must agree across the plan. Checked before
-                // recursing so the error names the shallowest offender.
-                if ctx
-                    .parallel_decl
-                    .is_none_or(|(_, root_parallel)| root_parallel)
-                {
-                    check_schedule_flag(&mut ctx.parallel_decl, "parallel", canonical, c.parallel)?;
-                } else if c.parallel {
-                    tracing::debug!(
-                        root = ?ctx.parallel_decl.map(|(name, _)| name),
-                        nested = ?canonical,
-                        "running a parallel group sequentially inside a sequential plan"
-                    );
-                }
-                check_schedule_flag(&mut ctx.fail_fast_decl, "fail_fast", canonical, c.fail_fast)?;
-                if !c.fail_fast {
-                    ctx.fail_fast_disabled = true;
-                }
-                let mut out = Vec::new();
-                // `expand_inner` returns early above unless `ctx.depth <=
+                // `expand_node` returns early above unless `ctx.depth <=
                 // ctx.max_depth` (`MAX_DEPTH`), so the increment stays far
                 // below `usize::MAX`, and the matching decrement only runs
                 // after it, on a depth `>= 1`. Both saturating forms are
                 // therefore exactly equal to `+= 1` / `-= 1` here.
                 ctx.depth = ctx.depth.saturating_add(1);
+                let plan = if c.parallel {
+                    // The whole subtree is one flat plan scheduled by this
+                    // group. Seed the agreement checks with the root's own
+                    // values so any disagreement names this group as the
+                    // plan the conflicting flag belongs to.
+                    let mut flat = FlatFlags {
+                        parallel_decl: Some((canonical, true)),
+                        fail_fast_decl: Some((canonical, c.fail_fast)),
+                        fail_fast_disabled: !c.fail_fast,
+                    };
+                    let leaf_ids = self.expand_flat(&c.commands, ctx, &mut flat)?;
+                    CommandPlan::Stage {
+                        leaf_ids,
+                        parallel: true,
+                        fail_fast: !flat.fail_fast_disabled,
+                    }
+                } else {
+                    // TASK-2275: a sequential group runs each entry as its
+                    // own plan, under that entry's own schedule — the same
+                    // treatment command-line names get (TASK-2262).
+                    let mut children = Vec::with_capacity(c.commands.len());
+                    for sub in &c.commands {
+                        children.push(self.expand_node(sub, ctx)?);
+                    }
+                    CommandPlan::Sequence {
+                        children,
+                        fail_fast: c.fail_fast,
+                    }
+                };
+                ctx.depth = ctx.depth.saturating_sub(1);
+                ctx.visited.remove(canonical);
+                Ok(plan)
+            }
+            // The load path materializes clones before the runner exists;
+            // this arm only fires for a Config built outside the loader.
+            CommandSpec::Clone(_) => Err(ExpandError::UnmaterializedClone(canonical.to_string())),
+        }
+    }
+
+    /// Flatten one `parallel = true` group's entries into a single leaf
+    /// list, enforcing the whole-stage flag agreement.
+    fn expand_flat<'a>(
+        &'a self,
+        subs: &[String],
+        ctx: &mut PlanCtx<'a>,
+        flat: &mut FlatFlags<'a>,
+    ) -> Result<Vec<CommandId>, ExpandError> {
+        let mut out = Vec::new();
+        for sub in subs {
+            out.extend(self.expand_flat_node(sub, ctx, flat)?);
+        }
+        Ok(out)
+    }
+
+    fn expand_flat_node<'a>(
+        &'a self,
+        id: &str,
+        ctx: &mut PlanCtx<'a>,
+        flat: &mut FlatFlags<'a>,
+    ) -> Result<Vec<CommandId>, ExpandError> {
+        if let Some(err) = depth_guard(id, ctx) {
+            return Err(err);
+        }
+        let (canonical, spec) = self
+            .canonical_with_spec(id)
+            .ok_or_else(|| ExpandError::Unknown(UnknownCommand::new(id)))?;
+        match spec {
+            CommandSpec::Exec(_) => Ok(vec![CommandId::from(canonical)]),
+            CommandSpec::Composite(c) => {
+                if !ctx.visited.insert(canonical) {
+                    return Err(ExpandError::Cycle(canonical.to_string()));
+                }
+                // The stage is flat and scheduled as one unit by its
+                // parallel root. A nested sequential group is rejected:
+                // running that group's steps concurrently would break the
+                // ordering it declares. `fail_fast` must agree across the
+                // stage. Checked before recursing so the error names the
+                // shallowest offender.
+                check_schedule_flag(&mut flat.parallel_decl, "parallel", canonical, c.parallel)?;
+                check_schedule_flag(
+                    &mut flat.fail_fast_decl,
+                    "fail_fast",
+                    canonical,
+                    c.fail_fast,
+                )?;
+                if !c.fail_fast {
+                    flat.fail_fast_disabled = true;
+                }
+                let mut out = Vec::new();
+                ctx.depth = ctx.depth.saturating_add(1);
                 for sub in &c.commands {
-                    out.extend(self.expand_inner(sub, ctx)?);
+                    out.extend(self.expand_flat_node(sub, ctx, flat)?);
                 }
                 ctx.depth = ctx.depth.saturating_sub(1);
                 ctx.visited.remove(canonical);
                 Ok(out)
             }
-            // The load path materializes clones before the runner exists;
-            // this arm only fires for a Config built outside the loader.
             CommandSpec::Clone(_) => Err(ExpandError::UnmaterializedClone(canonical.to_string())),
         }
     }
