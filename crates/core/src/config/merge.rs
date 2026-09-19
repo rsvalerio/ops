@@ -118,6 +118,7 @@ pub fn merge_config(base: &mut Config, overlay: ConfigOverlay) {
         themes,
         extensions,
         about,
+        backlog,
         stack,
     } = overlay;
 
@@ -133,6 +134,24 @@ pub fn merge_config(base: &mut Config, overlay: ConfigOverlay) {
         extensions.as_ref().map(|e| &e.enabled),
     );
     copy_optional_field(&mut base.about.fields, about.as_ref().map(|a| &a.fields));
+    // `[backlog]` merges per key, like data/about: a layer that sets only
+    // `default_status` leaves the base's `task_prefix` (say) intact.
+    if let Some(backlog) = backlog.as_ref() {
+        copy_optional_field(
+            &mut base.backlog.default_status,
+            Some(&backlog.default_status),
+        );
+        copy_optional_field(&mut base.backlog.statuses, Some(&backlog.statuses));
+        copy_optional_field(
+            &mut base.backlog.zero_padded_ids,
+            Some(&backlog.zero_padded_ids),
+        );
+        copy_optional_field(&mut base.backlog.task_prefix, Some(&backlog.task_prefix));
+        copy_optional_field(
+            &mut base.backlog.backlog_directory,
+            Some(&backlog.backlog_directory),
+        );
+    }
     if let Some(s) = stack {
         base.stack = Some(s);
     }

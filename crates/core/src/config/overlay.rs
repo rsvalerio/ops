@@ -11,6 +11,7 @@ use indexmap::IndexMap;
 use serde::Deserialize;
 
 use super::commands::CommandSpec;
+use super::sections::BacklogSection;
 use super::theme_types::ThemeConfig;
 
 /// Overlay configuration with optional fields — only explicitly-set values
@@ -32,6 +33,10 @@ pub struct ConfigOverlay {
     pub extensions: Option<ExtensionConfigOverlay>,
     #[serde(default)]
     pub about: Option<AboutConfigOverlay>,
+    /// The section is already all-`Option`, so it nests directly: each key
+    /// the overlay source sets overwrites the base, the rest are preserved.
+    #[serde(default)]
+    pub backlog: Option<BacklogSection>,
     #[serde(default)]
     pub stack: Option<String>,
 }

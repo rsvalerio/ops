@@ -315,6 +315,7 @@ impl TestConfigBuilder {
             themes: IndexMap::new(),
             extensions: crate::config::ExtensionConfig::default(),
             about: crate::config::AboutConfig::default(),
+            backlog: crate::config::BacklogSection::default(),
             stack: None,
         }
     }
@@ -452,6 +453,7 @@ impl ConfigOverlayBuilder {
             themes: self.themes,
             extensions: self.extensions,
             about: None,
+            backlog: None,
             stack: None,
         }
     }

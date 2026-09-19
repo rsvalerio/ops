@@ -72,5 +72,12 @@ pub fn init_template(workspace_root: &Path, sections: &InitSections) -> anyhow::
         }
     }
 
+    // `ops init` bootstraps the backlog too (config section + tasks tree —
+    // the tree itself is created by the CLI's backlog-init step): the
+    // section carries the sane defaults unconditionally, not behind a
+    // section flag, because a backlog is useful in every workspace ops
+    // manages.
+    config.backlog = super::sections::BacklogSection::sane_defaults();
+
     toml::to_string_pretty(&config).context("failed to serialize init config")
 }
