@@ -18,14 +18,27 @@
 //! args = ["--locked"]
 //! ```
 //!
+//! TASK-2274: an entry may also override the target's `help` (and
+//! `category`, for symmetry) — and when a composite's command list grows
+//! without a `help` override, the existing help is extended to name the
+//! appended commands, so `ops --help` can never silently understate what
+//! `ops --dry-run` runs:
+//!
+//! ```toml
+//! [extend.verify]
+//! commands = ["my-new-command"]
+//! help = "Run fmt, clippy, build, doc in parallel, then my-new-command"
+//! ```
+//!
 //! Overlay merging concatenates the per-target lists across layers (global →
-//! `.ops.toml` → `.ops.d`), and [`apply`] materializes the result into
-//! `Config::commands` after every layer has merged: a config-defined target
-//! is appended to in place (shadow semantics — a local `[commands.verify]`
-//! wins over the stack default and is then extended), a stack-default target
-//! is cloned, appended, and inserted into `Config::commands`. Every consumer
-//! (runner resolution, hooks, help) already consults `Config::commands`
-//! first, so no downstream changes are needed.
+//! `.ops.toml` → `.ops.d`), while `help`/`category` replace (the last layer
+//! wins), and [`apply`] materializes the result into `Config::commands`
+//! after every layer has merged: a config-defined target is appended to in
+//! place (shadow semantics — a local `[commands.verify]` wins over the stack
+//! default and is then extended), a stack-default target is cloned,
+//! appended, and inserted into `Config::commands`. Every consumer (runner
+//! resolution, hooks, help) already consults `Config::commands` first, so no
+//! downstream changes are needed.
 //!
 //! Appended args land *before* the target's first `--` separator when one is
 //! present (see [`append_exec_args`]): a cargo invocation like
@@ -42,11 +55,13 @@ use serde::{Deserialize, Serialize};
 
 use super::{CommandSpec, Config};
 
-/// One `[extend.<target>]` entry: what to append to `target`.
+/// One `[extend.<target>]` entry: what to append to (or override on)
+/// `target`.
 ///
-/// Exactly one field applies per target kind — `commands` for composites,
-/// `args` for exec commands — and [`apply`] rejects the mismatched pair
-/// naming the target. Both are serde-optional; an entry that sets neither
+/// Exactly one list field applies per target kind — `commands` for
+/// composites, `args` for exec commands — and [`apply`] rejects the
+/// mismatched pair naming the target. `help` / `category` apply to either
+/// kind. All fields are serde-optional; an entry that sets none of them
 /// (typically a typo'd key) is rejected at apply time rather than silently
 /// extending nothing.
 #[derive(Debug, Clone, Default, PartialEq, Eq, Deserialize, Serialize)]
@@ -59,6 +74,14 @@ pub struct ExtendEntry {
     /// first `--` separator when one is present (see [`append_exec_args`]).
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub args: Vec<String>,
+    /// Replaces the target's `help` (either kind). Without it, appending
+    /// `commands` to a composite that has help extends the help to name the
+    /// appended commands (see [`apply_to_spec`]).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub help: Option<String>,
+    /// Replaces the target's `category` (either kind).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub category: Option<String>,
 }
 
 /// Splice `extra` into `args` before the first `--` separator, or append at
@@ -85,6 +108,13 @@ fn append_exec_args(args: &mut Vec<String>, extra: &[String]) {
 
 /// Apply one entry to a target spec of matching kind.
 ///
+/// TASK-2274: when a composite's `commands` list grows and the entry sets no
+/// `help` override, an existing help text is extended to name the appended
+/// commands (`"<old>; then <extras>"`) — the default outcome used to be a
+/// stale help that understated the plan, and nobody noticed. A composite
+/// without help needs nothing: the help fallback already renders the
+/// materialized `commands` list.
+///
 /// # Errors
 ///
 /// If the entry sets `commands` on an exec target or `args` on a composite
@@ -101,6 +131,12 @@ fn apply_to_spec(target: &str, spec: &mut CommandSpec, entry: &ExtendEntry) -> a
                 );
             }
             c.commands.extend(entry.commands.iter().cloned());
+            if entry.help.is_none() && !entry.commands.is_empty() {
+                if let Some(help) = &mut c.help {
+                    help.push_str("; then ");
+                    help.push_str(&entry.commands.join(", "));
+                }
+            }
         }
         CommandSpec::Exec(e) => {
             if !entry.commands.is_empty() {
@@ -121,24 +157,46 @@ fn apply_to_spec(target: &str, spec: &mut CommandSpec, entry: &ExtendEntry) -> a
             );
         }
     }
+    apply_meta_overrides(spec, entry);
     Ok(())
+}
+
+/// Replace the target's `help` / `category` when the entry sets them
+/// (TASK-2274). Applies to both composites and exec commands — the fields
+/// exist on either kind, and an override-only entry (no `commands`/`args`)
+/// is the one way to fix a stack default's help without restating its
+/// command list.
+fn apply_meta_overrides(spec: &mut CommandSpec, entry: &ExtendEntry) {
+    let (help, category) = match spec {
+        CommandSpec::Composite(c) => (&mut c.help, &mut c.category),
+        CommandSpec::Exec(e) => (&mut e.help, &mut e.category),
+        // `apply_to_spec` rejects clones before calling here.
+        CommandSpec::Clone(_) => return,
+    };
+    if let Some(new_help) = &entry.help {
+        *help = Some(new_help.clone());
+    }
+    if let Some(new_category) = &entry.category {
+        *category = Some(new_category.clone());
+    }
 }
 
 /// Apply every `[extend.<target>]` entry to `config`.
 ///
 /// The target is looked up in `config.commands` first, then in the detected
 /// stack's default commands (resolved from `config.stack` + `workspace_root`).
-/// Extending a name that is defined nowhere — or with neither `commands` nor
-/// `args` — is an error: both are near-certain typos, and a silent no-op
-/// would hide them behind a `verify` that quietly skips the intended step.
+/// Extending a name that is defined nowhere — or with none of `commands`,
+/// `args`, `help`, `category` — is an error: both are near-certain typos, and
+/// a silent no-op would hide them behind a `verify` that quietly skips the
+/// intended step.
 ///
 /// No-op (and free) when `config.extend` is empty.
 ///
 /// # Errors
 ///
-/// If a target is not a defined command, an entry sets neither `commands`
-/// nor `args`, or the entry's field does not match the target's kind
-/// (see [`apply_to_spec`]).
+/// If a target is not a defined command, an entry sets none of `commands`,
+/// `args`, `help`, `category`, or the entry's list field does not match the
+/// target's kind (see [`apply_to_spec`]).
 pub(super) fn apply(config: &mut Config, workspace_root: &Path) -> anyhow::Result<()> {
     if config.extend.is_empty() {
         return Ok(());
@@ -147,10 +205,14 @@ pub(super) fn apply(config: &mut Config, workspace_root: &Path) -> anyhow::Resul
     let defaults = stack.map(|s| s.default_commands_ref());
 
     for (target, entry) in &config.extend {
-        if entry.commands.is_empty() && entry.args.is_empty() {
+        if entry.commands.is_empty()
+            && entry.args.is_empty()
+            && entry.help.is_none()
+            && entry.category.is_none()
+        {
             anyhow::bail!(
-                "[extend.{target}]: entry sets neither `commands` nor `args` \
-                 (a typo'd key would otherwise extend nothing)"
+                "[extend.{target}]: entry sets none of `commands`, `args`, `help`, \
+                 `category` (a typo'd key would otherwise extend nothing)"
             );
         }
         if let Some(spec) = config.commands.get_mut(target) {
@@ -180,7 +242,7 @@ mod tests {
             target.to_string(),
             ExtendEntry {
                 commands: commands.iter().map(|s| (*s).to_string()).collect(),
-                args: Vec::new(),
+                ..ExtendEntry::default()
             },
         );
         config
@@ -191,8 +253,8 @@ mod tests {
         config.extend.insert(
             target.to_string(),
             ExtendEntry {
-                commands: Vec::new(),
                 args: args.iter().map(|s| (*s).to_string()).collect(),
+                ..ExtendEntry::default()
             },
         );
         config
@@ -396,9 +458,152 @@ mod tests {
         let err = apply(&mut config, dir.path()).expect_err("empty entry must error");
         let msg = format!("{err:#}");
         assert!(
-            msg.contains("neither"),
+            msg.contains("none of"),
             "error must say the entry sets nothing: {msg}"
         );
+    }
+
+    /// TASK-2274 AC #1: `[extend.<name>] help = "..."` replaces the target's
+    /// help verbatim — no auto-suffix, because the override is the user's
+    /// statement of what the command now runs.
+    #[test]
+    fn help_override_replaces_the_targets_help() {
+        let dir = rust_workspace();
+        let mut config = config_with_extend("verify", &["extra"]);
+        config.extend.insert(
+            "verify".to_string(),
+            ExtendEntry {
+                commands: vec!["extra".to_string()],
+                help: Some("Run the default gate, then extra".to_string()),
+                ..ExtendEntry::default()
+            },
+        );
+        apply(&mut config, dir.path()).expect("extend must apply");
+
+        let Some(CommandSpec::Composite(verify)) = config.commands.get("verify") else {
+            panic!("extended verify must be materialized as a config composite");
+        };
+        assert_eq!(
+            verify.help.as_deref(),
+            Some("Run the default gate, then extra"),
+            "the override replaces the help verbatim"
+        );
+    }
+
+    /// TASK-2274 AC #2: extending a composite's `commands` without a help
+    /// override extends the help to name the appended commands, so the
+    /// default rust `verify` help can never silently understate the plan
+    /// (`ops --help` and `ops verify --dry-run` agree on what runs).
+    #[test]
+    fn extended_composite_help_names_the_appended_commands() {
+        let dir = rust_workspace();
+        let mut config = config_with_extend("verify", &["doc-default", "fuzz-fmt"]);
+        apply(&mut config, dir.path()).expect("extend must apply");
+
+        let Some(CommandSpec::Composite(verify)) = config.commands.get("verify") else {
+            panic!("extended verify must be materialized as a config composite");
+        };
+        let default_help = crate::stack::Stack::Rust
+            .default_commands_ref()
+            .get("verify")
+            .and_then(|s| s.help().map(str::to_string))
+            .expect("rust verify default must carry help");
+        assert_eq!(
+            verify.help.as_deref(),
+            Some(format!("{default_help}; then doc-default, fuzz-fmt").as_str()),
+            "the help must name the appended commands"
+        );
+    }
+
+    /// TASK-2274: a help-only entry overrides the text without appending
+    /// anything — the one way to fix a stack default's help short of
+    /// restating the composite (which `[extend]` exists to avoid).
+    #[test]
+    fn help_only_entry_overrides_without_appending() {
+        let dir = rust_workspace();
+        let mut config = Config::empty();
+        config.extend.insert(
+            "verify".to_string(),
+            ExtendEntry {
+                help: Some("The workspace verification gate".to_string()),
+                ..ExtendEntry::default()
+            },
+        );
+        apply(&mut config, dir.path()).expect("help-only entry must apply");
+
+        let Some(CommandSpec::Composite(verify)) = config.commands.get("verify") else {
+            panic!("verify must be materialized");
+        };
+        assert_eq!(
+            verify.help.as_deref(),
+            Some("The workspace verification gate")
+        );
+        let default_len = crate::stack::Stack::Rust
+            .default_commands_ref()
+            .get("verify")
+            .and_then(|s| match s {
+                CommandSpec::Composite(c) => Some(c.commands.len()),
+                CommandSpec::Exec(_) | CommandSpec::Clone(_) => None,
+            })
+            .unwrap_or(0);
+        assert_eq!(
+            verify.commands.len(),
+            default_len,
+            "a help-only entry must not change the command list"
+        );
+    }
+
+    /// TASK-2274: `category` overrides for symmetry, on an exec target —
+    /// help/category apply to either kind.
+    #[test]
+    fn category_and_help_override_exec_target() {
+        let dir = rust_workspace();
+        let mut config = Config::empty();
+        config.extend.insert(
+            "clippy".to_string(),
+            ExtendEntry {
+                help: Some("Lint with the workspace's flags".to_string()),
+                category: Some("Code Quality".to_string()),
+                ..ExtendEntry::default()
+            },
+        );
+        apply(&mut config, dir.path()).expect("extend must apply");
+
+        let Some(CommandSpec::Exec(clippy)) = config.commands.get("clippy") else {
+            panic!("clippy must be materialized as a config exec");
+        };
+        assert_eq!(
+            clippy.help.as_deref(),
+            Some("Lint with the workspace's flags")
+        );
+        assert_eq!(clippy.category.as_deref(), Some("Code Quality"));
+    }
+
+    /// TASK-2274: extending a composite that has *no* help leaves help
+    /// unset — the help fallback already renders the materialized `commands`
+    /// list, so there is nothing to keep accurate.
+    #[test]
+    fn extending_helpless_composite_leaves_help_unset() {
+        let dir = rust_workspace();
+        let mut config = Config::empty();
+        config.commands.insert(
+            "gate".to_string(),
+            CommandSpec::Composite(crate::config::CompositeCommandSpec::new(["fmt"])),
+        );
+        config.extend.insert(
+            "gate".to_string(),
+            ExtendEntry {
+                commands: vec!["build".to_string()],
+                ..ExtendEntry::default()
+            },
+        );
+        apply(&mut config, dir.path()).expect("extend must apply");
+
+        let Some(CommandSpec::Composite(gate)) = config.commands.get("gate") else {
+            panic!("gate must remain a composite");
+        };
+        assert_eq!(gate.help, None);
+        assert_eq!(gate.commands, vec!["fmt".to_string(), "build".to_string()]);
     }
 
     #[test]
@@ -420,7 +625,7 @@ mod tests {
             "verify".to_string(),
             ExtendEntry {
                 commands: vec!["first".to_string()],
-                args: Vec::new(),
+                ..ExtendEntry::default()
             },
         );
         let overlay = super::super::ConfigOverlay {
@@ -428,7 +633,7 @@ mod tests {
                 "verify".to_string(),
                 ExtendEntry {
                     commands: vec!["second".to_string()],
-                    args: Vec::new(),
+                    ..ExtendEntry::default()
                 },
             )])),
             ..Default::default()

@@ -57,8 +57,12 @@ pub(super) fn merge_indexmap<K: Eq + std::hash::Hash + std::fmt::Debug, V>(
 /// **concatenate**: a `[extend.verify]` in `.ops.d` adds to the appends a
 /// `[extend.verify]` in `.ops.toml` already declared, in layer order.
 /// Replacing instead would silently drop the lower layer's appends. Both
-/// fields follow the rule — `commands` for composite targets, `args` for
-/// exec targets (TASK-2272).
+/// list fields follow the rule — `commands` for composite targets, `args`
+/// for exec targets (TASK-2272).
+///
+/// `help` / `category` (TASK-2274) are scalars, not lists: they **replace**,
+/// so the last layer that sets one wins, and a layer that sets none keeps
+/// the earlier layer's value.
 fn merge_extend(
     base: &mut IndexMap<String, super::extend::ExtendEntry>,
     overlay: Option<IndexMap<String, super::extend::ExtendEntry>>,
@@ -68,6 +72,12 @@ fn merge_extend(
             let base_entry = base.entry(target).or_default();
             base_entry.commands.extend(entry.commands);
             base_entry.args.extend(entry.args);
+            if entry.help.is_some() {
+                base_entry.help = entry.help;
+            }
+            if entry.category.is_some() {
+                base_entry.category = entry.category;
+            }
         }
     }
 }
@@ -418,7 +428,7 @@ mod tests {
             "verify".to_string(),
             ExtendEntry {
                 commands: vec!["from-base".to_string()],
-                args: Vec::new(),
+                ..ExtendEntry::default()
             },
         );
         let overlay = ConfigOverlay {
@@ -427,14 +437,14 @@ mod tests {
                     "verify".to_string(),
                     ExtendEntry {
                         commands: vec!["from-overlay".to_string()],
-                        args: Vec::new(),
+                        ..ExtendEntry::default()
                     },
                 ),
                 (
                     "qa".to_string(),
                     ExtendEntry {
                         commands: vec!["new-target".to_string()],
-                        args: Vec::new(),
+                        ..ExtendEntry::default()
                     },
                 ),
             ])),
@@ -459,6 +469,52 @@ mod tests {
         );
     }
 
+    /// TASK-2274: `help` / `category` are scalars, so they replace instead
+    /// of concatenating — the last layer that sets one wins, and a layer
+    /// that sets none keeps the earlier layer's value.
+    #[test]
+    fn merge_config_extend_help_and_category_last_layer_wins() {
+        use super::super::extend::ExtendEntry;
+        let mut base = Config::default();
+        base.extend.insert(
+            "verify".to_string(),
+            ExtendEntry {
+                commands: vec!["from-base".to_string()],
+                help: Some("base help".to_string()),
+                category: Some("Base Cat".to_string()),
+                ..ExtendEntry::default()
+            },
+        );
+        let overlay = ConfigOverlay {
+            extend: Some(IndexMap::from([(
+                "verify".to_string(),
+                ExtendEntry {
+                    commands: vec!["from-overlay".to_string()],
+                    help: Some("overlay help".to_string()),
+                    ..ExtendEntry::default()
+                },
+            )])),
+            ..Default::default()
+        };
+        merge_config(&mut base, overlay);
+        let entry = base.extend.get("verify").expect("merged entry");
+        assert_eq!(
+            entry.commands,
+            vec!["from-base".to_string(), "from-overlay".to_string()],
+            "lists still concatenate"
+        );
+        assert_eq!(
+            entry.help.as_deref(),
+            Some("overlay help"),
+            "the last layer's help wins"
+        );
+        assert_eq!(
+            entry.category.as_deref(),
+            Some("Base Cat"),
+            "a layer that sets no category keeps the earlier value"
+        );
+    }
+
     /// TASK-2272 #4: exec-target extends concatenate across layers with the
     /// same rule as composite extends — a `.ops.d` fragment's `args` stack on
     /// `.ops.toml`'s, never replace them.
@@ -469,16 +525,16 @@ mod tests {
         base.extend.insert(
             "clippy".to_string(),
             ExtendEntry {
-                commands: Vec::new(),
                 args: vec!["--locked".to_string()],
+                ..ExtendEntry::default()
             },
         );
         let overlay = ConfigOverlay {
             extend: Some(IndexMap::from([(
                 "clippy".to_string(),
                 ExtendEntry {
-                    commands: Vec::new(),
                     args: vec!["--verbose".to_string()],
+                    ..ExtendEntry::default()
                 },
             )])),
             ..Default::default()
