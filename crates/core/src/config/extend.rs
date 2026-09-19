@@ -651,4 +651,51 @@ mod tests {
             .collect();
         assert_eq!(tail, vec!["first", "second"]);
     }
+
+    /// TASK-2274 regression (found in review of PR #63): an explicit `help`
+    /// earlier layer must not mask the auto-suffix for commands a *later*
+    /// layer appends without setting `help`. Before the merge-time suffix,
+    /// the merged entry carried the earlier override, `apply_to_spec` saw
+    /// `help` set and skipped its own suffix, and `ops --help` quietly
+    /// understated the plan — the exact staleness `[extend]` exists to
+    /// prevent. Each layer names only what it itself appended; the override
+    /// author stays responsible for their own text.
+    #[test]
+    fn command_only_layer_after_help_override_still_names_its_commands() {
+        let dir = rust_workspace();
+        let mut config = Config::empty();
+        config.extend.insert(
+            "verify".to_string(),
+            ExtendEntry {
+                commands: vec!["first".to_string()],
+                help: Some("Run the default gate, then first".to_string()),
+                ..ExtendEntry::default()
+            },
+        );
+        let overlay = super::super::ConfigOverlay {
+            extend: Some(IndexMap::from([(
+                "verify".to_string(),
+                ExtendEntry {
+                    commands: vec!["second".to_string()],
+                    ..ExtendEntry::default()
+                },
+            )])),
+            ..Default::default()
+        };
+        super::super::merge_config(&mut config, overlay);
+        apply(&mut config, dir.path()).unwrap();
+
+        let Some(CommandSpec::Composite(verify)) = config.commands.get("verify") else {
+            panic!("verify must be materialized");
+        };
+        assert_eq!(
+            verify.help.as_deref(),
+            Some("Run the default gate, then first; then second"),
+            "the later layer's appends must be named in the effective help"
+        );
+        let Some(last) = verify.commands.last() else {
+            panic!("appended command must land");
+        };
+        assert_eq!(last, "second");
+    }
 }

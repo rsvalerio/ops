@@ -62,7 +62,12 @@ pub(super) fn merge_indexmap<K: Eq + std::hash::Hash + std::fmt::Debug, V>(
 ///
 /// `help` / `category` (TASK-2274) are scalars, not lists: they **replace**,
 /// so the last layer that sets one wins, and a layer that sets none keeps
-/// the earlier layer's value.
+/// the earlier layer's value — with one guard: a layer that appends
+/// `commands` without setting `help` gets its commands named in whatever
+/// `help` the entry carries (see [`merge_extend`]). Without the guard, an
+/// explicit `help` from an earlier layer would mask the later appends —
+/// `apply_to_spec` sees `help` set and skips its own auto-suffix, and
+/// `ops --help` quietly understates the plan.
 fn merge_extend(
     base: &mut IndexMap<String, super::extend::ExtendEntry>,
     overlay: Option<IndexMap<String, super::extend::ExtendEntry>>,
@@ -70,6 +75,18 @@ fn merge_extend(
     if let Some(items) = overlay {
         for (target, entry) in items {
             let base_entry = base.entry(target).or_default();
+            // The merge-time twin of `apply_to_spec`'s auto-suffix: name
+            // this layer's appends in an existing override, so a later
+            // command-only layer cannot hide behind an earlier `help`.
+            // Each layer names only what it itself appended — the override
+            // author stays responsible for what their own text describes,
+            // exactly as a same-layer override stays verbatim.
+            if entry.help.is_none() && !entry.commands.is_empty() {
+                if let Some(help) = &mut base_entry.help {
+                    help.push_str("; then ");
+                    help.push_str(&entry.commands.join(", "));
+                }
+            }
             base_entry.commands.extend(entry.commands);
             base_entry.args.extend(entry.args);
             if entry.help.is_some() {
