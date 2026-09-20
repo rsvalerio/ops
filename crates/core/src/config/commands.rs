@@ -493,20 +493,23 @@ pub struct CompositeCommandSpec {
     pub commands: Vec<String>,
     /// Run this group's steps concurrently.
     ///
-    /// Composite expansion flattens the whole tree into one flat leaf plan
-    /// that the runner schedules as a single unit, so the invoked root's value
-    /// decides for the whole plan. A sequential root runs a nested
-    /// `parallel = true` group sequentially (always safe); a parallel root
-    /// containing a `parallel = false` group is rejected at expansion time with
-    /// `ExpandError::ConflictingSchedule`. Inside a parallel plan, keep a step
-    /// from overlapping the others with [`ExecCommandSpec::exclusive`]. See the
-    /// "Command groups and scheduling" section of `README.md`.
+    /// A `parallel = true` group flattens its whole subtree into one leaf
+    /// plan that the runner schedules as a single unit (split into stages at
+    /// exclusive steps). A `parallel = false` group runs each entry as its
+    /// own plan with that entry's own schedule (TASK-2275). A parallel group
+    /// containing a `parallel = false` group is rejected at expansion time
+    /// with `ExpandError::ConflictingSchedule`. Inside a parallel plan, keep
+    /// a step from overlapping the others with [`ExecCommandSpec::exclusive`].
+    /// See the "Command groups and scheduling" section of `README.md`.
     #[serde(default)]
     pub parallel: bool,
     /// When true (default), stop remaining steps on first failure. When false, run all steps.
     ///
-    /// TASK-1657: plan-wide because the plan is scheduled as one unit; every
-    /// composite in one plan must declare the same value.
+    /// Within one parallel plan every group must declare the same value
+    /// (TASK-1657: the plan is scheduled as one unit). Across a sequential
+    /// group's entries the values may differ: each entry's own value governs
+    /// its steps, and the group's own value governs whether the sequence
+    /// stops after a failing entry (TASK-2275).
     #[serde(default = "serde_defaults::default_true")]
     pub fail_fast: bool,
     /// Short help text shown in `ops --help`.

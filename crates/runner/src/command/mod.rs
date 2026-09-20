@@ -45,6 +45,7 @@ mod sequential;
 pub use build::CwdEscapePolicy;
 use build::WorkspaceCanonicalCache;
 pub use events::{OutputLine, RunnerEvent};
+pub use resolve::CommandPlan;
 pub use results::StepResult;
 pub use secret_patterns::is_sensitive_env_key;
 pub use secret_patterns::looks_like_secret_value;
@@ -100,17 +101,18 @@ pub enum ExpandError {
     /// Expansion exceeded the safety depth cap.
     #[error("composite expansion exceeded depth limit {max_depth} at command `{id}`")]
     DepthExceeded { id: String, max_depth: usize },
-    /// A composite tree declares scheduling flags its plan cannot honour: a
-    /// `parallel = false` group inside a parallel plan, or a `fail_fast` value
-    /// that disagrees with the root's.
+    /// A composite tree declares scheduling flags its flat stage cannot
+    /// honour: a `parallel = false` group inside a parallel stage, or a
+    /// `fail_fast` value that disagrees with the stage root's.
     ///
-    /// Expansion flattens a composite tree into a single flat leaf plan that
-    /// the runner schedules as one unit, by its root. A sequential root can
-    /// safely run a nested parallel group sequentially, so that is allowed. A
+    /// A `parallel = true` group flattens its whole subtree into one leaf
+    /// plan that the runner schedules as a single unit, by that group. A
     /// parallel root would run a nested sequential group's steps concurrently,
-    /// and a `fail_fast = false` descendant would disable fail-fast plan-wide —
-    /// either would make the flag mean something other than what it says, so
-    /// those are rejected at expansion time.
+    /// and a `fail_fast = false` descendant would disable fail-fast
+    /// stage-wide — either would make the flag mean something other than what
+    /// it says, so those are rejected at expansion time. A sequential group
+    /// is unaffected: its entries are separate plans with their own flags
+    /// (TASK-2275), so mixed values under a sequential root are fine.
     #[error(
         "conflicting `{flag}` in the plan for `{root}`: `{root}` sets {flag} = {root_value}, \
          but `{conflicting}` sets {flag} = {conflicting_value}\n\
@@ -122,7 +124,7 @@ pub enum ExpandError {
     ConflictingSchedule {
         /// The scheduling flag that disagrees: `parallel` or `fail_fast`.
         flag: &'static str,
-        /// First composite visited in the plan (the expansion root).
+        /// First composite visited in the stage (the parallel root).
         root: String,
         /// The value `root` declared for `flag`.
         root_value: bool,
@@ -504,25 +506,117 @@ impl CommandRunner {
         on_event: &mut impl FnMut(RunnerEvent),
     ) -> anyhow::Result<Vec<StepResult>> {
         // PERF-3 / TASK-2086: one walk of the command stores. The plan and
-        // the scheduling flags both come from `expand_to_leaves_with_flags`
-        // (PATTERN-1 / TASK-1283); a separate `resolve` of the root was a
-        // second traversal and a second source of truth for the same
-        // decision. The flags are the root spec's own: `parallel` is the
-        // root's value and `fail_fast` must agree across the tree, and an
-        // Exec root contributes `(parallel=false, fail_fast_disabled=false)`
-        // — the single fail-fast sequential step it always ran as.
-        let (plan, any_parallel, fail_fast_disabled) = self
-            .expand_to_leaves_with_flags(command_id)
+        // the scheduling flags both come from `expand_to_plan`; a separate
+        // `resolve` of the root was a second traversal and a second source
+        // of truth for the same decision. Each stage keeps its own flags
+        // (TASK-2275): `parallel` from the parallel group that roots the
+        // stage, `fail_fast` agreed across the stage's subtree, and a
+        // sequential group's entries run as their own plans in order.
+        let plan = self
+            .expand_to_plan(command_id)
             .map_err(anyhow::Error::from)?;
-        debug!(command_id, steps = plan.len(), "running command");
+        debug!(command_id, steps = plan.leaf_ids().len(), "running command");
+        Ok(self.run_plan_tree(&plan, false, on_event).await)
+    }
 
-        let fail_fast = !fail_fast_disabled;
-        let results = if any_parallel {
-            self.run_plan_parallel(&plan, fail_fast, on_event).await
-        } else {
-            self.run_plan(&plan, fail_fast, on_event).await
-        };
-        Ok(results)
+    /// Run one expanded [`CommandPlan`] tree (TASK-2275).
+    ///
+    /// A stage runs under its own schedule (`run_plan` / `run_plan_parallel`,
+    /// or `run_plan_raw` when `raw`); a sequence runs its children in order,
+    /// each under its own schedule, stopping after a failing child when the
+    /// sequence declares `fail_fast = true` and the failing child's
+    /// [`CommandPlan::effective_fail_fast`] is true.
+    // Same `!Send` reasoning as `run_plan_parallel`: the `on_event` sink is
+    // backed by non-`Send` `indicatif` state (docs/clippy.md layer 3).
+    #[allow(clippy::future_not_send)]
+    pub async fn run_plan_tree(
+        &self,
+        tree: &CommandPlan,
+        raw: bool,
+        on_event: &mut impl FnMut(RunnerEvent),
+    ) -> Vec<StepResult> {
+        match tree {
+            CommandPlan::Stage {
+                leaf_ids,
+                parallel,
+                fail_fast,
+            } => {
+                if raw {
+                    self.run_plan_raw(leaf_ids, *fail_fast).await
+                } else if *parallel {
+                    self.run_plan_parallel(leaf_ids, *fail_fast, on_event).await
+                } else {
+                    self.run_plan(leaf_ids, *fail_fast, on_event).await
+                }
+            }
+            CommandPlan::Sequence {
+                children,
+                fail_fast,
+            } => {
+                self.run_plan_sequence(children.iter(), *fail_fast, raw, on_event)
+                    .await
+            }
+        }
+    }
+
+    /// Run each named command's plan one after another (TASK-2262).
+    ///
+    /// Scheduling is per-name and never merged: a parallel `verify` followed
+    /// by a sequential `qax` runs verify's stages concurrently, then the
+    /// `qax` steps one at a time. The sequence stops after a failing name
+    /// whose [`CommandPlan::effective_fail_fast`] is true — the same rule a
+    /// sequential group applies to its entries (TASK-2275), because the
+    /// invocation sequence is the implicit fail-fast group.
+    // Same `!Send` reasoning as `run_plan_parallel`: the `on_event` sink is
+    // backed by non-`Send` `indicatif` state (docs/clippy.md layer 3).
+    #[allow(clippy::future_not_send)]
+    pub async fn run_named_plans<'a, I>(
+        &self,
+        trees: I,
+        raw: bool,
+        on_event: &mut impl FnMut(RunnerEvent),
+    ) -> Vec<StepResult>
+    where
+        I: IntoIterator<Item = &'a CommandPlan>,
+    {
+        self.run_plan_sequence(trees.into_iter(), true, raw, on_event)
+            .await
+    }
+
+    /// Shared body of every ordered run: children in order, stopping after
+    /// a failing child when `own_fail_fast` and the failing child's own
+    /// effective fail-fast both say so.
+    // Same `!Send` reasoning as `run_plan_parallel`: the `on_event` sink is
+    // backed by non-`Send` `indicatif` state (docs/clippy.md layer 3).
+    #[allow(clippy::future_not_send)]
+    async fn run_plan_sequence<'a, I>(
+        &self,
+        children: I,
+        own_fail_fast: bool,
+        raw: bool,
+        on_event: &mut impl FnMut(RunnerEvent),
+    ) -> Vec<StepResult>
+    where
+        I: Iterator<Item = &'a CommandPlan>,
+    {
+        let mut all = Vec::new();
+        for child in children {
+            // `run_plan_tree` recurses through here (a sequence child may
+            // itself be a sequence), and async recursion requires boxing.
+            // Only sequence children pay the allocation — stages, the leaf
+            // of the recursion, run unboxed.
+            let results = Box::pin(self.run_plan_tree(child, raw, on_event)).await;
+            let failed = results.iter().any(|r| !r.success);
+            all.extend(results);
+            if failed && own_fail_fast && child.effective_fail_fast() {
+                tracing::debug!(
+                    fail_fast = true,
+                    "failing entry stops the entries after it under fail_fast"
+                );
+                break;
+            }
+        }
+        all
     }
 }
 

@@ -903,25 +903,44 @@ mod nested_parallel_detection_tests {
 /// names, so a parallel name can no longer promote a sequential name's steps
 /// into a parallel plan.
 ///
-/// Within one name the plan is flat, so its root decides `parallel`: a
-/// sequential root runs a nested `parallel = true` group sequentially (never
-/// OR-folded up into a parallel plan, as before TASK-1657), and a parallel
-/// root rejects a nested sequential group. A nested `fail_fast` that
-/// disagrees is rejected.
+/// Within one name the plan is a tree (TASK-2275): a sequential root's
+/// entries are separate stages with their own schedules, a parallel root is
+/// one flat stage that rejects a nested sequential group, and a nested
+/// `fail_fast` that disagrees is only an error inside one parallel stage.
 mod name_plan_expansion_tests {
     use crate::run_cmd::plan::plans_for_names;
     use crate::test_utils::TestConfigBuilder;
     use ops_core::config::{CommandSpec, CompositeCommandSpec, Config};
+    use ops_runner::command::CommandPlan;
     use std::path::PathBuf;
 
     fn runner_with(config: Config) -> ops_runner::command::CommandRunner {
         ops_runner::command::CommandRunner::new(config, PathBuf::from("."))
     }
 
-    /// A parallel inner composite under a sequential outer one runs
-    /// sequentially — never a silent promotion of the whole plan to parallel.
+    fn stage(leaf_ids: &[&str], parallel: bool, fail_fast: bool) -> CommandPlan {
+        CommandPlan::Stage {
+            leaf_ids: leaf_ids
+                .iter()
+                .map(|s| ops_core::config::CommandId::from(*s))
+                .collect(),
+            parallel,
+            fail_fast,
+        }
+    }
+
+    fn sequence(children: Vec<CommandPlan>, fail_fast: bool) -> CommandPlan {
+        CommandPlan::Sequence {
+            children,
+            fail_fast,
+        }
+    }
+
+    /// TASK-2275 AC #4: a parallel inner composite under a sequential outer
+    /// one keeps its own parallel schedule as its own stage — the sequential
+    /// root no longer flattens (and thereby downgrades) it.
     #[test]
-    fn nested_parallel_under_sequential_outer_stays_sequential() {
+    fn nested_parallel_under_sequential_outer_gets_its_own_parallel_stage() {
         let mut inner = CompositeCommandSpec::new(["a", "b"]);
         inner.parallel = true;
         let outer = CompositeCommandSpec::new(["inner"]); // outer.parallel = false
@@ -939,21 +958,148 @@ mod name_plan_expansion_tests {
         let plans = plans_for_names(&runner_with(config), &["outer"])
             .expect("a sequential root may contain a parallel group");
         assert_eq!(plans.len(), 1);
-        assert_eq!(plans[0].leaf_ids, vec!["a", "b"]);
-        assert!(
-            !plans[0].any_parallel,
-            "the sequential outer schedules the whole plan"
+        assert_eq!(
+            plans[0].plan,
+            CommandPlan::Sequence {
+                children: vec![stage(&["a", "b"], true, true)],
+                fail_fast: true,
+            },
+            "the parallel child must be its own parallel stage"
         );
-        assert!(plans[0].fail_fast);
+        assert!(
+            plans[0].plan.any_parallel(),
+            "the parallel child schedules its own steps"
+        );
     }
 
-    /// TASK-1657: same contract for `fail_fast` — a nested `fail_fast = false`
-    /// must not silently disable fail-fast for a plan whose root enables it.
+    /// TASK-2275 AC #1: a sequential group whose entries are groups runs each
+    /// child as its own stage in declaration order, keeping each child's own
+    /// schedule — the shape `ops <child1> <child2> ...` produces.
     #[test]
-    fn nested_fail_fast_disabled_under_enabled_outer_is_rejected() {
+    fn sequential_group_runs_each_child_as_its_own_stage() {
+        let mut par_child = CompositeCommandSpec::new(["p1", "p2"]);
+        par_child.parallel = true;
+        let seq_child = CompositeCommandSpec::new(["s1", "s2"]); // parallel = false
+        let root = CompositeCommandSpec::new(["par_child", "seq_child", "tail"]);
+        let mut config = TestConfigBuilder::new()
+            .exec("p1", "echo", &["p1"])
+            .exec("p2", "echo", &["p2"])
+            .exec("s1", "echo", &["s1"])
+            .exec("s2", "echo", &["s2"])
+            .exec("tail", "echo", &["tail"])
+            .build();
+        for (name, spec) in [
+            ("par_child", par_child),
+            ("seq_child", seq_child),
+            ("root", root),
+        ] {
+            config
+                .commands
+                .insert(name.to_string(), CommandSpec::Composite(spec));
+        }
+
+        let plans = plans_for_names(&runner_with(config), &["root"]).expect("root must expand");
+        assert_eq!(
+            plans[0].plan,
+            sequence(
+                vec![
+                    stage(&["p1", "p2"], true, true),
+                    // A sequential child is itself a sequence of its own
+                    // entries — the recursion is faithful at every depth.
+                    sequence(
+                        vec![stage(&["s1"], false, true), stage(&["s2"], false, true)],
+                        true,
+                    ),
+                    stage(&["tail"], false, true),
+                ],
+                true,
+            ),
+            "each entry keeps its own schedule, in declaration order"
+        );
+    }
+
+    /// TASK-2275 AC #3: `ops <seq-group>` and `ops <children...>` produce the
+    /// same schedule — the group's plan tree is a sequence of exactly the
+    /// children's own plan trees.
+    #[test]
+    fn sequential_group_matches_naming_its_children() {
+        let mut par_child = CompositeCommandSpec::new(["p1", "p2"]);
+        par_child.parallel = true;
+        let seq_child = CompositeCommandSpec::new(["s1"]);
+        let root = CompositeCommandSpec::new(["par_child", "seq_child"]);
+        let mut config = TestConfigBuilder::new()
+            .exec("p1", "echo", &["p1"])
+            .exec("p2", "echo", &["p2"])
+            .exec("s1", "echo", &["s1"])
+            .build();
+        for (name, spec) in [
+            ("par_child", par_child),
+            ("seq_child", seq_child),
+            ("root", root),
+        ] {
+            config
+                .commands
+                .insert(name.to_string(), CommandSpec::Composite(spec));
+        }
+        let runner = runner_with(config);
+
+        let grouped = plans_for_names(&runner, &["root"]).expect("root must expand");
+        let named =
+            plans_for_names(&runner, &["par_child", "seq_child"]).expect("children must expand");
+
+        let child_trees: Vec<CommandPlan> = named.iter().map(|p| p.plan.clone()).collect();
+        assert_eq!(
+            grouped[0].plan,
+            CommandPlan::Sequence {
+                children: child_trees,
+                fail_fast: true,
+            },
+            "`ops root` must schedule exactly what `ops par_child seq_child` does"
+        );
+        // The flattened leaf order — what runs — is identical either way.
+        assert_eq!(
+            grouped[0].plan.leaf_ids(),
+            named
+                .iter()
+                .flat_map(|p| p.plan.leaf_ids())
+                .collect::<Vec<_>>()
+        );
+    }
+
+    /// TASK-2275: a nested `fail_fast = false` under a sequential root is no
+    /// longer a load error — each entry keeps its own value. The
+    /// whole-tree aggregation (a single `false` makes the name's effective
+    /// fail-fast false) still holds.
+    #[test]
+    fn nested_fail_fast_false_under_sequential_outer_is_allowed() {
         let mut inner = CompositeCommandSpec::new(["a"]);
         inner.fail_fast = false;
-        let outer = CompositeCommandSpec::new(["inner"]); // outer.fail_fast defaults true
+        let outer = CompositeCommandSpec::new(["inner"]); // fail_fast defaults true
+        let mut config = TestConfigBuilder::new().exec("a", "echo", &["a"]).build();
+        config
+            .commands
+            .insert("inner".to_string(), CommandSpec::Composite(inner));
+        config
+            .commands
+            .insert("outer".to_string(), CommandSpec::Composite(outer));
+
+        let plans = plans_for_names(&runner_with(config), &["outer"])
+            .expect("a sequential root may contain a fail_fast = false group");
+        assert!(
+            !plans[0].plan.effective_fail_fast(),
+            "a single fail_fast = false makes the tree's effective value false"
+        );
+    }
+
+    /// The TASK-1657 contract that survives TASK-2275: inside one *parallel*
+    /// stage a `fail_fast` disagreement is still rejected.
+    #[test]
+    fn fail_fast_disagreement_inside_parallel_stage_is_rejected() {
+        let mut inner = CompositeCommandSpec::new(["a"]);
+        inner.parallel = true;
+        inner.fail_fast = false;
+        let mut outer = CompositeCommandSpec::new(["inner"]);
+        outer.parallel = true; // outer.fail_fast defaults true
         let mut config = TestConfigBuilder::new().exec("a", "echo", &["a"]).build();
         config
             .commands
@@ -963,7 +1109,7 @@ mod name_plan_expansion_tests {
             .insert("outer".to_string(), CommandSpec::Composite(outer));
 
         let err = plans_for_names(&runner_with(config), &["outer"])
-            .expect_err("conflicting `fail_fast` must be rejected, not OR-folded");
+            .expect_err("conflicting `fail_fast` inside one stage must be rejected");
         let msg = err.to_string();
         assert!(
             msg.contains("conflicting `fail_fast`"),
@@ -972,7 +1118,7 @@ mod name_plan_expansion_tests {
     }
 
     /// TASK-1657: a tree whose composites *agree* still expands, and the
-    /// agreed value is what the plan reports. This is the positive case
+    /// agreed value is what the stage reports. This is the positive case
     /// that proves the check rejects disagreement rather than nesting itself.
     #[test]
     fn nested_composites_that_agree_expand() {
@@ -993,11 +1139,10 @@ mod name_plan_expansion_tests {
 
         let plans = plans_for_names(&runner_with(config), &["outer"])
             .expect("agreeing composites must expand");
-        assert_eq!(plans[0].leaf_ids, vec!["a", "b"]);
-        assert!(plans[0].any_parallel, "both composites set parallel = true");
-        assert!(
-            plans[0].fail_fast,
-            "no composite disables fail_fast → defaults true"
+        assert_eq!(
+            plans[0].plan,
+            stage(&["a", "b"], true, true),
+            "a parallel root flattens its whole subtree into one parallel stage"
         );
     }
 
@@ -1022,16 +1167,16 @@ mod name_plan_expansion_tests {
             .insert("par".to_string(), CommandSpec::Composite(par));
 
         let plans = plans_for_names(&runner_with(config), &["seq", "par"])
-            .expect("independent roots must not trip the intra-plan agreement check");
+            .expect("independent roots must not trip the intra-stage agreement check");
         assert_eq!(plans.len(), 2, "one plan per named command");
-        assert_eq!(plans[0].leaf_ids, vec!["a"], "name order is preserved");
-        assert_eq!(plans[1].leaf_ids, vec!["b"]);
-        assert!(
-            !plans[0].any_parallel,
-            "the sequential name keeps its own scheduling"
+        assert_eq!(
+            plans[0].plan,
+            sequence(vec![stage(&["a"], false, true)], true),
+            "name order is preserved; the sequential name keeps its own scheduling"
         );
-        assert!(
-            plans[1].any_parallel,
+        assert_eq!(
+            plans[1].plan,
+            stage(&["b"], true, true),
             "the parallel name keeps its own scheduling"
         );
     }
@@ -1186,7 +1331,7 @@ mod run_name_plans_tests {
             ops_runner::command::RunnerEvent::PlanStarted { command_ids } => {
                 assert_eq!(
                     command_ids.len(),
-                    plans.iter().map(|p| p.leaf_ids.len()).sum::<usize>(),
+                    plans.iter().map(|p| p.plan.leaf_ids().len()).sum::<usize>(),
                     "the outer PlanStarted names every leaf of every plan: {events:?}"
                 );
             }
@@ -1212,7 +1357,10 @@ mod run_name_plans_tests {
         let runner = ops_runner::command::CommandRunner::new(config, std::path::PathBuf::from("."));
 
         let plans = plans_for_names(&runner, &["boom", "after"]).expect("both names must expand");
-        assert!(plans[0].fail_fast, "fail_fast defaults to true");
+        assert!(
+            plans[0].plan.effective_fail_fast(),
+            "fail_fast defaults to true"
+        );
         let mut events = Vec::new();
         let results = run_name_plans(&runner, &plans, false, &mut |e| events.push(e)).await;
 
@@ -1246,7 +1394,7 @@ mod run_name_plans_tests {
 
         let plans =
             plans_for_names(&runner, &["lenient", "after"]).expect("both names must expand");
-        assert!(!plans[0].fail_fast);
+        assert!(!plans[0].plan.effective_fail_fast());
         let mut events = Vec::new();
         let results = run_name_plans(&runner, &plans, false, &mut |e| events.push(e)).await;
 
@@ -1312,6 +1460,242 @@ args = []
                 ExitCode::FAILURE,
                 "a failing name fails the whole invocation"
             );
+        }
+    }
+}
+
+/// TASK-2275: each nested group keeps its own scheduling. A sequential
+/// group's entries run as their own stages — a parallel child's steps
+/// overlap, a failing child stops the entries after it under fail-fast,
+/// and `ops <seq-group>` behaves exactly like naming its entries — while
+/// the whole run still produces one lifecycle (one display, one summary).
+mod staged_scheduling_tests {
+    use super::*;
+    use crate::run_cmd::plan::plans_for_names;
+    use ops_core::config::{CommandSpec, CompositeCommandSpec};
+
+    fn is_started(e: &ops_runner::command::RunnerEvent, id: &str) -> bool {
+        matches!(e, ops_runner::command::RunnerEvent::StepStarted { id: i, .. } if i.as_str() == id)
+    }
+
+    fn is_terminal(e: &ops_runner::command::RunnerEvent, id: &str) -> bool {
+        matches!(
+            e,
+            ops_runner::command::RunnerEvent::StepFinished { id: i, .. }
+                | ops_runner::command::RunnerEvent::StepFailed { id: i, .. }
+                | ops_runner::command::RunnerEvent::StepSkipped { id: i, .. }
+            if i.as_str() == id
+        )
+    }
+
+    fn first_matching<F>(events: &[ops_runner::command::RunnerEvent], f: F) -> usize
+    where
+        F: Fn(&ops_runner::command::RunnerEvent) -> bool,
+    {
+        events
+            .iter()
+            .position(f)
+            .unwrap_or_else(|| panic!("expected event not found in {events:?}"))
+    }
+
+    /// `root = ["grp", "tail"]` where `grp` is parallel — the motivating
+    /// `pre-release = ["verify", ...]` shape.
+    fn seq_root_with_parallel_child() -> ops_runner::command::CommandRunner {
+        let mut config = TestConfigBuilder::new()
+            .exec("g_slow", "sh", &["-c", "sleep 0.3"])
+            .exec("g_quick", "echo", &["grp"])
+            .exec("tail", "echo", &["tail"])
+            .build();
+        let mut grp = CompositeCommandSpec::new(["g_slow", "g_quick"]);
+        grp.parallel = true;
+        let root = CompositeCommandSpec::new(["grp", "tail"]); // parallel = false
+        config
+            .commands
+            .insert("grp".to_string(), CommandSpec::Composite(grp));
+        config
+            .commands
+            .insert("root".to_string(), CommandSpec::Composite(root));
+        ops_runner::command::CommandRunner::new(config, std::path::PathBuf::from("."))
+    }
+
+    /// TASK-2275 AC #4: the parallel child's staged schedule survives under
+    /// the sequential root — its steps overlap, and nothing after the group
+    /// starts until the group finishes. Before TASK-2275 the root flattened
+    /// the plan and ran `g_slow` and `g_quick` one at a time.
+    #[tokio::test(flavor = "multi_thread")]
+    async fn parallel_child_under_sequential_root_keeps_its_staged_schedule() {
+        let runner = seq_root_with_parallel_child();
+        let plans = plans_for_names(&runner, &["root"]).expect("root must expand");
+        let mut events = Vec::new();
+        let results = run_name_plans(&runner, &plans, false, &mut |e| events.push(e)).await;
+
+        assert_eq!(results.len(), 3, "every step of every entry runs");
+        // Inside the parallel child the quick step starts while the slow one
+        // is still running — the staged schedule `ops grp` would get.
+        assert!(
+            first_matching(&events, |e| is_started(e, "g_quick"))
+                < first_matching(&events, |e| is_terminal(e, "g_slow")),
+            "the parallel child's steps must overlap: {events:?}"
+        );
+        // …and the entry after the group waits for the whole group.
+        for id in ["g_slow", "g_quick"] {
+            assert!(
+                first_matching(&events, |e| is_terminal(e, id))
+                    < first_matching(&events, |e| is_started(e, "tail")),
+                "sequential entries must not overlap: {events:?}"
+            );
+        }
+    }
+
+    /// TASK-2275 AC #2: under fail-fast a failing child group stops the
+    /// entries after it.
+    #[tokio::test(flavor = "multi_thread")]
+    async fn failing_child_group_stops_later_entries_under_fail_fast() {
+        let mut config = TestConfigBuilder::new()
+            .exec("boom", "false", &[])
+            .exec("after", "echo", &["after"])
+            .build();
+        let boom_grp = CompositeCommandSpec::new(["boom"]); // fail_fast defaults true
+        let root = CompositeCommandSpec::new(["boom_grp", "after"]);
+        config
+            .commands
+            .insert("boom_grp".to_string(), CommandSpec::Composite(boom_grp));
+        config
+            .commands
+            .insert("root".to_string(), CommandSpec::Composite(root));
+        let runner = ops_runner::command::CommandRunner::new(config, std::path::PathBuf::from("."));
+
+        let plans = plans_for_names(&runner, &["root"]).expect("root must expand");
+        let mut events = Vec::new();
+        let results = run_name_plans(&runner, &plans, false, &mut |e| events.push(e)).await;
+
+        assert!(
+            events.iter().any(|e| is_started(e, "boom")),
+            "the failing entry ran: {events:?}"
+        );
+        assert!(
+            !events.iter().any(|e| is_started(e, "after")),
+            "fail_fast must stop the entries after a failing one: {events:?}"
+        );
+        assert_eq!(results.len(), 1);
+        assert!(!results[0].success);
+    }
+
+    /// The `fail_fast = false` counterpart, at the sequence level: a root that
+    /// declares `fail_fast = false` runs every entry regardless of failures.
+    #[tokio::test(flavor = "multi_thread")]
+    async fn fail_fast_false_root_runs_every_entry() {
+        let mut config = TestConfigBuilder::new()
+            .exec("boom", "false", &[])
+            .exec("after", "echo", &["after"])
+            .build();
+        let mut root = CompositeCommandSpec::new(["boom", "after"]);
+        root.fail_fast = false;
+        config
+            .commands
+            .insert("root".to_string(), CommandSpec::Composite(root));
+        let runner = ops_runner::command::CommandRunner::new(config, std::path::PathBuf::from("."));
+
+        let plans = plans_for_names(&runner, &["root"]).expect("root must expand");
+        let mut events = Vec::new();
+        let results = run_name_plans(&runner, &plans, false, &mut |e| events.push(e)).await;
+
+        assert!(
+            events.iter().any(|e| is_started(e, "after")),
+            "a fail_fast = false group must run every entry: {events:?}"
+        );
+        assert_eq!(results.len(), 2);
+        assert!(!results[0].success);
+        assert!(results[1].success);
+    }
+
+    /// TASK-2275 AC #3: `ops root` and `ops grp boom c` produce the same
+    /// results — same steps, same order, same outcomes. The failing entry
+    /// is a deterministic exec (not a step inside the parallel group, whose
+    /// in-flight cancellation would make the result set timing-dependent)
+    /// and it stops the entries after it both ways.
+    #[tokio::test(flavor = "multi_thread")]
+    async fn sequential_group_runs_what_naming_its_entries_runs() {
+        let make_runner = || {
+            let mut config = TestConfigBuilder::new()
+                .exec("a", "echo", &["a"])
+                .exec("b", "echo", &["b"])
+                .exec("boom", "false", &[])
+                .exec("c", "echo", &["c"])
+                .build();
+            let mut grp = CompositeCommandSpec::new(["a", "b"]);
+            grp.parallel = true;
+            let root = CompositeCommandSpec::new(["grp", "boom", "c"]);
+            config
+                .commands
+                .insert("grp".to_string(), CommandSpec::Composite(grp));
+            config
+                .commands
+                .insert("root".to_string(), CommandSpec::Composite(root));
+            ops_runner::command::CommandRunner::new(config, std::path::PathBuf::from("."))
+        };
+
+        let grouped_runner = make_runner();
+        let grouped_plans = plans_for_names(&grouped_runner, &["root"]).expect("root must expand");
+        let grouped = run_name_plans(&grouped_runner, &grouped_plans, false, &mut |_| {}).await;
+
+        let named_runner = make_runner();
+        let named_plans = plans_for_names(&named_runner, &["grp", "boom", "c"])
+            .expect("the entries must expand on their own");
+        let named = run_name_plans(&named_runner, &named_plans, false, &mut |_| {}).await;
+
+        // A parallel stage's steps complete in nondeterministic order, so
+        // equivalence is asserted on the step *set* plus each step's
+        // outcome — the stage structure itself is pinned by the expansion
+        // tests above.
+        let outline = |rs: &Vec<StepResult>| {
+            let mut pairs: Vec<(String, bool)> =
+                rs.iter().map(|r| (r.id.to_string(), r.success)).collect();
+            pairs.sort_unstable();
+            pairs
+        };
+        assert_eq!(
+            outline(&grouped),
+            outline(&named),
+            "same steps with the same outcomes"
+        );
+        // …and the shared tail is real: `boom` stops `c` in both forms.
+        assert!(
+            !grouped.iter().any(|r| r.id.as_str() == "c"),
+            "fail-fast stops the entries after the failing one: {:?}",
+            outline(&grouped)
+        );
+    }
+
+    /// TASK-2275 AC #6: a sequential group that fans out into several stages
+    /// still gets exactly one display lifecycle — one outer `PlanStarted`
+    /// naming every leaf, one `RunFinished` with the aggregate success.
+    #[tokio::test(flavor = "multi_thread")]
+    async fn sequential_group_gets_one_lifecycle() {
+        let runner = seq_root_with_parallel_child();
+        let plans = plans_for_names(&runner, &["root"]).expect("root must expand");
+        let mut events = Vec::new();
+        run_named_sequence_lifecycle(&runner, &plans, &mut |e| events.push(e)).await;
+
+        let started = events
+            .iter()
+            .filter(|e| matches!(e, ops_runner::command::RunnerEvent::PlanStarted { .. }))
+            .count();
+        let finished = events
+            .iter()
+            .filter(|e| matches!(e, ops_runner::command::RunnerEvent::RunFinished { .. }))
+            .count();
+        assert_eq!(started, 1, "one outer PlanStarted: {events:?}");
+        assert_eq!(finished, 1, "one outer RunFinished: {events:?}");
+        match &events[0] {
+            ops_runner::command::RunnerEvent::PlanStarted { command_ids } => {
+                assert_eq!(
+                    command_ids.len(),
+                    3,
+                    "the outer PlanStarted names every leaf of every stage: {events:?}"
+                );
+            }
+            other => panic!("the sequence must open with the outer PlanStarted: {other:?}"),
         }
     }
 }

@@ -480,8 +480,8 @@ mod tests {
         config.extend.insert(
             "clippy".to_string(),
             crate::config::ExtendEntry {
-                commands: Vec::new(),
                 args: vec!["--locked".to_string()],
+                ..Default::default()
             },
         );
         apply(&mut config, dir.path()).expect("clone must apply");

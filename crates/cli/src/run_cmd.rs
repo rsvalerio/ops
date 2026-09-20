@@ -184,9 +184,11 @@ fn run_commands(
 /// vs sequential from its own flags.
 ///
 /// Sequence-level fail-fast mirrors the step-level flag: a plan whose steps
-/// failed and which declared `fail_fast = true` stops the names after it,
+/// failed and whose effective `fail_fast` is true stops the names after it,
 /// while a `fail_fast = false` name keeps the sequence going — exactly as
-/// the flag keeps later steps going inside a single plan.
+/// the flag keeps later steps going inside a single plan. TASK-2275 makes
+/// that one rule for every ordered run: a sequential group's entries stop
+/// the same way inside `run_plan_tree`.
 // Same `!Send` reasoning as `run_plan_parallel`: the `on_event` sink is
 // backed by non-`Send` `indicatif` state (docs/clippy.md layer 3).
 #[allow(clippy::future_not_send)]
@@ -196,49 +198,31 @@ async fn run_name_plans(
     raw: bool,
     on_event: &mut impl FnMut(ops_runner::command::RunnerEvent),
 ) -> Vec<StepResult> {
-    let mut all = Vec::new();
     for plan in plans {
         tracing::debug!(
             name = %plan.name,
-            steps = plan.leaf_ids.len(),
-            parallel = plan.any_parallel,
-            fail_fast = plan.fail_fast,
+            steps = plan.plan.leaf_ids().len(),
+            any_parallel = plan.plan.any_parallel(),
+            fail_fast = plan.plan.effective_fail_fast(),
             "running named command plan"
         );
-        let results = if raw {
-            runner.run_plan_raw(&plan.leaf_ids, plan.fail_fast).await
-        } else if plan.any_parallel {
-            runner
-                .run_plan_parallel(&plan.leaf_ids, plan.fail_fast, on_event)
-                .await
-        } else {
-            runner
-                .run_plan(&plan.leaf_ids, plan.fail_fast, on_event)
-                .await
-        };
-        let failed = results.iter().any(|r| !r.success);
-        all.extend(results);
-        if failed && plan.fail_fast {
-            tracing::debug!(
-                name = %plan.name,
-                "named command failed under fail_fast; skipping the commands named after it"
-            );
-            break;
-        }
     }
-    all
+    runner
+        .run_named_plans(plans.iter().map(|p| &p.plan), raw, on_event)
+        .await
 }
 
 /// One display lifecycle for the whole named sequence (TASK-2262 AC #4).
 ///
 /// `run_plan` / `run_plan_parallel` emit their own `PlanStarted` /
-/// `RunFinished` bookends per plan; forwarded straight to the shared
-/// display, those reset the display between names and finalize a per-name
-/// summary. This wrapper drops the per-plan bookends from the event stream
+/// `RunFinished` bookends per stage; forwarded straight to the shared
+/// display, those reset the display between stages and finalize a per-stage
+/// summary. This wrapper drops the per-stage bookends from the event stream
 /// and emits one outer pair instead — `PlanStarted` naming every leaf of
 /// every plan before the first step, `RunFinished` with the aggregate
 /// success after the last — so the shared display and its final summary
-/// see a single run, not one per name.
+/// see a single run, not one per name (TASK-2275 AC #6: still one display
+/// and one summary when a sequential group fans out into several stages).
 // Same `!Send` reasoning as `run_name_plans`: the `on_event` sink is
 // backed by non-`Send` `indicatif` state (docs/clippy.md layer 3).
 #[allow(clippy::future_not_send)]
@@ -247,14 +231,12 @@ async fn run_named_sequence_lifecycle(
     plans: &[NamePlan],
     on_event: &mut impl FnMut(ops_runner::command::RunnerEvent),
 ) -> Vec<StepResult> {
-    let command_ids: Vec<ops_core::config::CommandId> = plans
-        .iter()
-        .flat_map(|p| p.leaf_ids.iter().cloned())
-        .collect();
+    let command_ids: Vec<ops_core::config::CommandId> =
+        plans.iter().flat_map(|p| p.plan.leaf_ids()).collect();
     let start = std::time::Instant::now();
     on_event(ops_runner::command::RunnerEvent::PlanStarted { command_ids });
     let results = run_name_plans(runner, plans, false, &mut |event| match event {
-        // The outer bookends above replace the per-plan pair.
+        // The outer bookends above replace the per-stage pair.
         ops_runner::command::RunnerEvent::PlanStarted { .. }
         | ops_runner::command::RunnerEvent::RunFinished { .. } => {}
         _ => on_event(event),
@@ -274,7 +256,11 @@ fn run_commands_raw(
     tap: Option<&Path>,
     verbose: bool,
 ) -> anyhow::Result<Vec<StepResult>> {
-    emit_raw_warnings(plans.iter().any(|p| p.any_parallel), tap.is_some(), verbose);
+    emit_raw_warnings(
+        plans.iter().any(|p| p.plan.any_parallel()),
+        tap.is_some(),
+        verbose,
+    );
     // CONC-14 / TASK-1932: raw mode has no EchoGuard to restore, but a
     // SIGTERM still has to cancel the plan rather than leave its children
     // behind. Ctrl-C additionally reaches raw children through the tty
@@ -539,11 +525,10 @@ fn run_commands_with_display(
     // the map is built over all leaves across all plans and
     // `run_named_sequence_lifecycle` emits one outer `PlanStarted` /
     // `RunFinished` pair around the sequence, so the progress display and
-    // the final summary see a single run, not one per name.
-    let all_leaf_ids: Vec<ops_core::config::CommandId> = plans
-        .iter()
-        .flat_map(|p| p.leaf_ids.iter().cloned())
-        .collect();
+    // the final summary see a single run, not one per name — including when
+    // a sequential group fans out into several stages (TASK-2275 AC #6).
+    let all_leaf_ids: Vec<ops_core::config::CommandId> =
+        plans.iter().flat_map(|p| p.plan.leaf_ids()).collect();
     let display_map = build_display_map(runner, &all_leaf_ids);
     let mut display = ProgressDisplay::new(DisplayOptions::new(
         runner.output_config(),
@@ -555,10 +540,11 @@ fn run_commands_with_display(
 
     let echo_guard = EchoGuard::disable_echo();
     // Parallel orchestration only pays off with >=2 leaves;
-    // a 1-leaf plan with `parallel = true` shortcuts to `run_plan` in
+    // a 1-leaf parallel stage shortcuts to `run_plan` in
     // `run_plan_parallel` (parallel.rs), so picking MultiThread here would
-    // pay worker-thread spin-up for nothing. Mirror that threshold.
-    let kind = if plans.iter().any(|p| p.any_parallel && p.leaf_ids.len() > 1) {
+    // pay worker-thread spin-up for nothing. `needs_worker_threads` encodes
+    // that same threshold over the whole plan tree.
+    let kind = if plans.iter().any(|p| p.plan.needs_worker_threads()) {
         RuntimeKind::MultiThread
     } else {
         RuntimeKind::Sequential

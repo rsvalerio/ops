@@ -1,9 +1,10 @@
 ---
 id: TASK-2275
 title: 'Honour each nested group''s own scheduling instead of flattening the plan under the root'
-status: Triage
+status: Done
 assignee: []
 created_date: '2026-09-19 11:23'
+updated_date: '2026-09-19 12:48'
 labels:
   - feature
   - runner
@@ -30,10 +31,17 @@ Open questions: whether a parallel root may contain a sequential child (run it a
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 A sequential group whose entries include groups runs each child group with that child's own parallel/exclusive schedule, one child after another
-- [ ] #2 Under fail_fast a failing child stops the children after it
-- [ ] #3 `ops <seq-group>` and `ops <child1> <child2> ...` produce the same schedule and results
-- [ ] #4 Nested parallel-inside-sequential no longer runs sequentially; a test pins the staged schedule of a parallel child under a sequential root
-- [ ] #5 The README "not supported today" note is replaced by the new rule, including what a parallel root with a sequential child does
-- [ ] #6 Still one progress display and summary for the whole run
+- [x] #1 A sequential group whose entries include groups runs each child group with that child's own parallel/exclusive schedule, one child after another
+- [x] #2 Under fail_fast a failing child stops the children after it
+- [x] #3 `ops <seq-group>` and `ops <child1> <child2> ...` produce the same schedule and results
+- [x] #4 Nested parallel-inside-sequential no longer runs sequentially; a test pins the staged schedule of a parallel child under a sequential root
+- [x] #5 The README "not supported today" note is replaced by the new rule, including what a parallel root with a sequential child does
+- [x] #6 Still one progress display and summary for the whole run
+
 <!-- AC:END -->
+
+## Implementation Notes
+
+<!-- SECTION:NOTES:BEGIN -->
+Implemented: expansion builds a CommandPlan tree (Stage/Sequence) instead of one flat leaf plan. A sequential group runs each entry as its own plan under that entry's own parallel/fail_fast/exclusive schedule; sequence stop rule = the group's own fail_fast AND the failing entry's effective fail_fast (same rule TASK-2262 applies to command-line names). Parallel-root rules unchanged (nested sequential still rejected, fail_fast must agree within one parallel stage). One display/summary via the existing named-sequence lifecycle.
+<!-- SECTION:NOTES:END -->
