@@ -2,6 +2,19 @@
 All notable changes to this project will be documented in this file. See [conventional commits](https://www.conventionalcommits.org/) for commit guidelines.
 
 - - -
+## [v0.62.0](https://github.com/rsvalerio/ops/compare/7b0689fa3aeb0bd9074f854bc3bab9bc7bc43791..v0.62.0) - 2026-09-20
+#### 🚀 Features
+- (**core**) let [extend.<name>] override help and auto-extend it for appended commands - ([ba0e39c](https://github.com/rsvalerio/ops/commit/ba0e39cf8c40f08b4fdceb1b92db11ecb97df0be)) - [@rsvalerio](https://github.com/rsvalerio), Claude Code
+- (**runner**) run each nested group under its own schedule via plan trees - ([7b0689f](https://github.com/rsvalerio/ops/commit/7b0689fa3aeb0bd9074f854bc3bab9bc7bc43791)) - [@rsvalerio](https://github.com/rsvalerio), Claude Code
+#### 🐛 Bug Fixes
+- (**core**) name command-only layers' appends in an existing extend help override - ([a335c63](https://github.com/rsvalerio/ops/commit/a335c63fc2eff7b6b18cd819c14a7a4140a9d247)) - [@rsvalerio](https://github.com/rsvalerio), Claude Code
+#### 📚 Documentation
+- update group-scheduling and extend rules in the README - ([180aeae](https://github.com/rsvalerio/ops/commit/180aeaebd278944831e083bd81b6d4cfe14eb8c8)) - [@rsvalerio](https://github.com/rsvalerio), Claude Code
+#### ⚙️ Miscellaneous
+- (**backlog**) close TASK-2274 and TASK-2275 - ([0e71122](https://github.com/rsvalerio/ops/commit/0e7112282019c42a9c05e256c61e08a1b944b5e8)) - [@rsvalerio](https://github.com/rsvalerio), Claude Code
+
+- - -
+
 ## [v0.61.0](https://github.com/rsvalerio/ops/compare/22e50683b7467beaf9c85002c955e9141e6d74ca..v0.61.0) - 2026-09-19
 #### 🚀 Features
 - (**backlog**) render and write the five-key backlog.config.yml subset - ([29ed2ac](https://github.com/rsvalerio/ops/commit/29ed2acb35c13290119809293c5ff202882db489)) - [@rsvalerio](https://github.com/rsvalerio), Claude Code
