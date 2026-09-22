@@ -239,7 +239,7 @@ under `--raw`, which always runs sequentially.
 | `ops backlog search` | Keyword search over tasks, with `--modified-file` filtering |
 | `ops backlog wave list\|members\|migrate` | Inspect code-review waves and their member tasks |
 | `ops backlog cleanup` | Move terminal-status tasks older than a cutoff to `completed/` (`--older-than <days>`, `--dry-run` to preview) |
-| `ops create-review-tasks` | Create `review-request-<date>-<n>` backlog tasks with one review subtask per workspace target (`--dry-run` to preview) |
+| `ops backlog create-review-tasks` | Create `review-request-<date>-<n>` backlog tasks with one review subtask per workspace target (`--dry-run` to preview) |
 
 Global flags: `--dry-run` (preview the resolved plan), `--verbose` (full stderr on
 failure), `--tap <file>` (capture raw output), `--raw` (inherit child stdio, no ops output).
