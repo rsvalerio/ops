@@ -272,7 +272,7 @@ fn dispatch(
         Some(CoreSubcommand::Theme { action }) => run_theme(early_config, action)?,
         Some(CoreSubcommand::Backlog { action }) => {
             let cwd = cwd()?;
-            backlog_cmd::run_backlog(&cwd, &early_config.backlog, action)?;
+            backlog_cmd::run_backlog(&cwd, early_config, action)?;
         }
         Some(CoreSubcommand::Extension { action }) => run_extension(early_config, action)?,
         Some(CoreSubcommand::NewCommand) => {
@@ -297,9 +297,6 @@ fn dispatch(
         }
         #[cfg(feature = "stack-rust")]
         Some(CoreSubcommand::Deps { refresh }) => run_deps(early_config, refresh)?,
-        Some(CoreSubcommand::CreateReviewTasks) => {
-            subcommands::run_create_review_tasks(early_config, cli.dry_run)?;
-        }
         #[cfg(feature = "stack-terraform")]
         Some(CoreSubcommand::Plans(opts)) => return ops_tfplan::run_plan_pipeline(&opts),
         Some(CoreSubcommand::TrailingWhitespace { tracked }) => {

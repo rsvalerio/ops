@@ -14,7 +14,7 @@ use anyhow::Context as _;
 use ops_backlog::cmd;
 use ops_backlog::config::BacklogConfig;
 use ops_backlog::store::Store;
-use ops_core::config::BacklogSection;
+use ops_core::config::{BacklogSection, Config};
 
 use crate::args::{BacklogAction, BacklogTaskAction};
 
@@ -255,26 +255,29 @@ fn insert_backlog_section(
 }
 
 /// Resolve the workspace root (cwd) and the effective backlog config, open
-/// the `.backlog` store, and run the action with stdout. `section` is the
-/// merged `[backlog]` from the already-loaded ops config — threading it
-/// keeps one config load per invocation.
+/// the `.backlog` store, and run the action with stdout. `config` is the
+/// already-loaded ops config — threading it keeps one config load per
+/// invocation; only its `[backlog]` section feeds the backlog resolution.
 ///
 /// # Errors
 ///
 /// The cwd is unreadable, a config file is present but unparseable, the
 /// `.backlog/tasks` tree is missing (the error names it), or a handler
 /// failed — all bubble as anyhow context for `ops: error: …`.
-pub fn run_backlog(
-    cwd: &Path,
-    section: &BacklogSection,
-    action: BacklogAction,
-) -> anyhow::Result<()> {
+pub fn run_backlog(cwd: &Path, config: &Config, action: BacklogAction) -> anyhow::Result<()> {
     // init is the one action that runs without a store — creating the tree
     // (which Store::open requires) is its job.
     if let BacklogAction::Init { backlog_md } = action {
         return run_backlog_init(cwd, backlog_md);
     }
-    let cfg = resolve_backlog_config(cwd, Some(section))?;
+    // create-review-tasks runs without a store too — the engine scans the
+    // tree and writes the task files itself — and it needs the full config
+    // to build the data registry holding the review_targets provider, so it
+    // dispatches before the backlog-only config resolution below.
+    if let BacklogAction::CreateReviewTasks { dry_run } = action {
+        return crate::subcommands::run_create_review_tasks(config, dry_run);
+    }
+    let cfg = resolve_backlog_config(cwd, Some(&config.backlog))?;
     let backlog_root = cwd.join(&cfg.backlog_directory);
     let store = Store::open(&backlog_root)?;
     match action {
@@ -283,6 +286,11 @@ pub fn run_backlog(
         // panicking; if a refactor ever drops the early return, init still
         // lands here (after a spurious store-open failure).
         BacklogAction::Init { backlog_md } => run_backlog_init(cwd, backlog_md),
+        // Same shape as Init: unreachable past the early return above, and
+        // the repeated call keeps the arm total if that return ever moves.
+        BacklogAction::CreateReviewTasks { dry_run } => {
+            crate::subcommands::run_create_review_tasks(config, dry_run)
+        }
         BacklogAction::Task { action } => run_task_action(&store, &cfg, cwd, action),
         BacklogAction::Search {
             query,

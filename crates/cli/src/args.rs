@@ -99,11 +99,6 @@ pub enum CoreSubcommand {
         #[arg(long)]
         refresh: bool,
     },
-    /// Create backlog review-request tasks: a `review-request-<date>-<n>`
-    /// main task plus one `REVIEW: Run skill code-review-<stack> against
-    /// <crate>` subtask per workspace review target. Use the global
-    /// `--dry-run` flag to preview the report without writing files.
-    CreateReviewTasks,
     /// Interactively add a new command to `.ops.toml`.
     NewCommand,
     /// Import Makefile targets as `.ops.toml` commands (interactive picker).
@@ -293,6 +288,14 @@ pub enum BacklogAction {
         #[arg(long = "older-than", value_name = "DAYS", default_value_t = 30)]
         older_than: u32,
         /// Report what would move without moving anything.
+        #[arg(long = "dry-run")]
+        dry_run: bool,
+    },
+    /// Create a code-review request: a `review-request-<date>-<n>` main
+    /// task plus one `REVIEW: Run skill code-review-<stack> against
+    /// <crate>` subtask per workspace review target.
+    CreateReviewTasks {
+        /// Report the tasks that would be created, touching nothing on disk.
         #[arg(long = "dry-run")]
         dry_run: bool,
     },
@@ -883,23 +886,29 @@ mod tests {
 
     #[test]
     fn parse_create_review_tasks() {
-        let cli = Cli::parse_from(["ops", "create-review-tasks"]);
-        assert!(matches!(
-            cli.subcommand,
-            Some(CoreSubcommand::CreateReviewTasks)
-        ));
+        let cli = Cli::parse_from(["ops", "backlog", "create-review-tasks"]);
+        let Some(CoreSubcommand::Backlog {
+            action: BacklogAction::CreateReviewTasks { dry_run },
+        }) = cli.subcommand
+        else {
+            panic!("must parse as backlog create-review-tasks");
+        };
+        assert!(!dry_run);
     }
 
-    /// The global `--dry-run` flag must parse after the subcommand and reach
-    /// the dispatch (`cli.dry_run`), mirroring `ops sec --dry-run`.
+    /// The subcommand-local `--dry-run` (the `backlog cleanup` idiom, not
+    /// the global flag) must reach the variant's field — the handler reads
+    /// it there, never `cli.dry_run`.
     #[test]
     fn parse_create_review_tasks_dry_run() {
-        let cli = Cli::parse_from(["ops", "create-review-tasks", "--dry-run"]);
-        assert!(matches!(
-            cli.subcommand,
-            Some(CoreSubcommand::CreateReviewTasks)
-        ));
-        assert!(cli.dry_run);
+        let cli = Cli::parse_from(["ops", "backlog", "create-review-tasks", "--dry-run"]);
+        let Some(CoreSubcommand::Backlog {
+            action: BacklogAction::CreateReviewTasks { dry_run },
+        }) = cli.subcommand
+        else {
+            panic!("must parse as backlog create-review-tasks");
+        };
+        assert!(dry_run);
     }
 
     /// `ops about modules` must continue to parse — it is
