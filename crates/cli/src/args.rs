@@ -911,6 +911,38 @@ mod tests {
         assert!(dry_run);
     }
 
+    /// The global `--dry-run` spelled *before* the subcommand must still
+    /// reach the backlog actions' local flag: clap propagates global args
+    /// down, and the local field shares the global's arg id. Dispatch reads
+    /// only the variant field, so this propagation is the contract that
+    /// makes `ops --dry-run backlog create-review-tasks` a dry run — pin it
+    /// before anyone "simplifies" the id coincidence away.
+    #[test]
+    fn global_dry_run_propagates_into_backlog_local_flags() {
+        for argv in [
+            ["ops", "--dry-run", "backlog", "create-review-tasks"].as_slice(),
+            ["ops", "backlog", "create-review-tasks", "--dry-run"].as_slice(),
+        ] {
+            let cli = Cli::parse_from(argv);
+            let Some(CoreSubcommand::Backlog {
+                action: BacklogAction::CreateReviewTasks { dry_run },
+            }) = cli.subcommand
+            else {
+                panic!("must parse as backlog create-review-tasks");
+            };
+            assert!(dry_run, "both spellings must set the local flag");
+        }
+
+        let cli = Cli::parse_from(["ops", "--dry-run", "backlog", "cleanup"]);
+        let Some(CoreSubcommand::Backlog {
+            action: BacklogAction::Cleanup { dry_run, .. },
+        }) = cli.subcommand
+        else {
+            panic!("must parse as backlog cleanup");
+        };
+        assert!(dry_run, "cleanup shares the same propagation contract");
+    }
+
     /// `ops about modules` must continue to parse — it is
     /// the Go-idiomatic alias for the stack-aware project-units view
     /// (`AboutAction::Crates`).
