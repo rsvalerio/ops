@@ -543,17 +543,18 @@ mod tests {
     #[test]
     fn ops_toml_section_wins_over_the_yml() {
         let dir = tempfile::tempdir().expect("tempdir");
+        let root = crate::test_utils::canonical_root(&dir);
         std::fs::write(
-            dir.path().join(".ops.toml"),
+            root.join(".ops.toml"),
             "[backlog]\ndefault_status = \"Triage\"\n",
         )
         .expect("toml");
         std::fs::write(
-            dir.path().join("backlog.config.yml"),
+            root.join("backlog.config.yml"),
             "default_status: \"To Do\"\ntask_prefix: \"ISSUE\"\n",
         )
         .expect("yml");
-        let cfg = effective_backlog_config(dir.path()).expect("resolve");
+        let cfg = effective_backlog_config(root.as_path()).expect("resolve");
         assert_eq!(cfg.default_status, "Triage", ".ops.toml must win");
         assert_eq!(cfg.task_prefix, "TASK", "unset key = built-in default");
     }
@@ -563,23 +564,20 @@ mod tests {
     #[test]
     fn yml_applies_when_the_section_is_absent_or_empty() {
         let dir = tempfile::tempdir().expect("tempdir");
+        let root = crate::test_utils::canonical_root(&dir);
+        std::fs::write(root.join(".ops.toml"), "[output]\ntheme = \"classic\"\n").expect("toml");
         std::fs::write(
-            dir.path().join(".ops.toml"),
-            "[output]\ntheme = \"classic\"\n",
-        )
-        .expect("toml");
-        std::fs::write(
-            dir.path().join("backlog.config.yml"),
+            root.join("backlog.config.yml"),
             "default_status: \"To Do\"\ntask_prefix: \"ISSUE\"\n",
         )
         .expect("yml");
-        let cfg = effective_backlog_config(dir.path()).expect("resolve");
+        let cfg = effective_backlog_config(root.as_path()).expect("resolve");
         assert_eq!(cfg.default_status, "To Do");
         assert_eq!(cfg.task_prefix, "ISSUE");
 
         // An explicitly empty section is still "not configured here".
-        std::fs::write(dir.path().join(".ops.toml"), "[backlog]\n").expect("toml");
-        let cfg = effective_backlog_config(dir.path()).expect("resolve");
+        std::fs::write(root.join(".ops.toml"), "[backlog]\n").expect("toml");
+        let cfg = effective_backlog_config(root.as_path()).expect("resolve");
         assert_eq!(
             cfg.default_status, "To Do",
             "empty section must not mask the yml"
@@ -591,19 +589,20 @@ mod tests {
     #[test]
     fn init_creates_ops_toml_section_and_tasks_tree() {
         let dir = tempfile::tempdir().expect("tempdir");
-        let text = run_init(dir.path(), false);
+        let root = crate::test_utils::canonical_root(&dir);
+        let text = run_init(root.as_path(), false);
         assert!(
             text.contains("Created .ops.toml with a [backlog] section"),
             "got: {text}"
         );
         assert!(text.contains("Created .backlog/tasks/"), "got: {text}");
-        let toml = std::fs::read_to_string(dir.path().join(".ops.toml")).expect("read");
+        let toml = std::fs::read_to_string(root.join(".ops.toml")).expect("read");
         assert!(toml.contains("[backlog]"), "got: {toml}");
         assert!(toml.contains("default_status = \"Triage\""));
-        assert!(dir.path().join(".backlog/tasks").is_dir());
+        assert!(root.join(".backlog/tasks").is_dir());
         // What init wrote is what the resolver reads back.
         assert_eq!(
-            effective_backlog_config(dir.path()).expect("resolve"),
+            effective_backlog_config(root.as_path()).expect("resolve"),
             BacklogConfig::default()
         );
     }
@@ -613,11 +612,12 @@ mod tests {
     #[test]
     fn init_adds_the_section_to_an_existing_ops_toml_without_touching_it() {
         let dir = tempfile::tempdir().expect("tempdir");
+        let root = crate::test_utils::canonical_root(&dir);
         let existing = "# my config\n[output]\ntheme = \"compact\"\n";
-        std::fs::write(dir.path().join(".ops.toml"), existing).expect("seed");
-        let text = run_init(dir.path(), false);
+        std::fs::write(root.join(".ops.toml"), existing).expect("seed");
+        let text = run_init(root.as_path(), false);
         assert!(text.contains("Added [backlog] to .ops.toml"), "got: {text}");
-        let toml = std::fs::read_to_string(dir.path().join(".ops.toml")).expect("read");
+        let toml = std::fs::read_to_string(root.join(".ops.toml")).expect("read");
         assert!(
             toml.starts_with("# my config\n"),
             "comment must survive: {toml}"
@@ -631,16 +631,17 @@ mod tests {
     #[test]
     fn rerun_reports_and_changes_nothing() {
         let dir = tempfile::tempdir().expect("tempdir");
-        run_init(dir.path(), false);
-        let first = std::fs::read_to_string(dir.path().join(".ops.toml")).expect("read");
-        let text = run_init(dir.path(), false);
+        let root = crate::test_utils::canonical_root(&dir);
+        run_init(root.as_path(), false);
+        let first = std::fs::read_to_string(root.join(".ops.toml")).expect("read");
+        let text = run_init(root.as_path(), false);
         assert!(
             text.contains(".ops.toml already configures [backlog], left unchanged"),
             "got: {text}"
         );
         assert!(!text.contains("Created"), "nothing new is created: {text}");
         assert_eq!(
-            std::fs::read_to_string(dir.path().join(".ops.toml")).expect("reread"),
+            std::fs::read_to_string(root.join(".ops.toml")).expect("reread"),
             first,
             "the file must be byte-unchanged"
         );
@@ -651,28 +652,29 @@ mod tests {
     #[test]
     fn backlog_md_writes_the_yml_and_never_touches_ops_toml() {
         let dir = tempfile::tempdir().expect("tempdir");
-        let text = run_init(dir.path(), true);
+        let root = crate::test_utils::canonical_root(&dir);
+        let text = run_init(root.as_path(), true);
         assert!(text.contains("Created backlog.config.yml"), "got: {text}");
         assert!(text.contains("Created .backlog/tasks/"), "got: {text}");
         assert!(
-            !dir.path().join(".ops.toml").exists(),
+            !root.join(".ops.toml").exists(),
             "--backlog.md must not create .ops.toml"
         );
-        let yml = std::fs::read_to_string(dir.path().join("backlog.config.yml")).expect("read");
+        let yml = std::fs::read_to_string(root.join("backlog.config.yml")).expect("read");
         assert_eq!(
             yml,
             BacklogConfig::default().to_yaml(),
             "the yml is the five-key subset with the sane defaults"
         );
         // And the rerun refuses to overwrite it.
-        std::fs::write(dir.path().join("backlog.config.yml"), "kept").expect("seed");
-        let text = run_init(dir.path(), true);
+        std::fs::write(root.join("backlog.config.yml"), "kept").expect("seed");
+        let text = run_init(root.as_path(), true);
         assert!(
             text.contains("backlog.config.yml already exists, left unchanged"),
             "got: {text}"
         );
         assert_eq!(
-            std::fs::read_to_string(dir.path().join("backlog.config.yml")).expect("reread"),
+            std::fs::read_to_string(root.join("backlog.config.yml")).expect("reread"),
             "kept"
         );
     }
@@ -683,14 +685,15 @@ mod tests {
     #[test]
     fn tasks_tree_honours_an_existing_sections_directory() {
         let dir = tempfile::tempdir().expect("tempdir");
+        let root = crate::test_utils::canonical_root(&dir);
         std::fs::write(
-            dir.path().join(".ops.toml"),
+            root.join(".ops.toml"),
             "[backlog]\nbacklog_directory = \"tasks-tree\"\n",
         )
         .expect("seed");
-        let text = run_init(dir.path(), false);
+        let text = run_init(root.as_path(), false);
         assert!(
-            dir.path().join("tasks-tree/tasks").is_dir(),
+            root.join("tasks-tree/tasks").is_dir(),
             "tree must honour the section, got: {text}"
         );
     }
@@ -701,23 +704,24 @@ mod tests {
     #[test]
     fn existing_yml_keeps_ownership_of_the_config() {
         let dir = tempfile::tempdir().expect("tempdir");
+        let root = crate::test_utils::canonical_root(&dir);
         std::fs::write(
-            dir.path().join("backlog.config.yml"),
+            root.join("backlog.config.yml"),
             "default_status: \"To Do\"\ntask_prefix: \"ISSUE\"\n",
         )
         .expect("seed yml");
-        let text = run_init(dir.path(), false);
+        let text = run_init(root.as_path(), false);
         assert!(
             text.contains("backlog.config.yml already configures the backlog"),
             "got: {text}"
         );
         assert!(
-            !dir.path().join(".ops.toml").exists(),
+            !root.join(".ops.toml").exists(),
             "no .ops.toml section may be written beside an existing yml"
         );
-        assert!(dir.path().join(".backlog/tasks").is_dir());
+        assert!(root.join(".backlog/tasks").is_dir());
         assert_eq!(
-            effective_backlog_config(dir.path())
+            effective_backlog_config(root.as_path())
                 .expect("resolve")
                 .task_prefix,
             "ISSUE",
@@ -730,9 +734,10 @@ mod tests {
     #[test]
     fn malformed_ops_toml_is_an_error() {
         let dir = tempfile::tempdir().expect("tempdir");
-        std::fs::write(dir.path().join(".ops.toml"), "not [ valid toml").expect("seed");
+        let root = crate::test_utils::canonical_root(&dir);
+        std::fs::write(root.join(".ops.toml"), "not [ valid toml").expect("seed");
         let mut out = Vec::new();
-        let err = run_backlog_init_to(dir.path(), false, &mut out).expect_err("must fail");
+        let err = run_backlog_init_to(root.as_path(), false, &mut out).expect_err("must fail");
         let rendered = format!("{err:#}");
         assert!(
             rendered.contains("refusing to overwrite"),
