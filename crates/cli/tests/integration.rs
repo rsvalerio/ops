@@ -1090,7 +1090,7 @@ fn cli_import_makefile_without_a_terminal_refuses() {
         .stderr(predicate::str::contains("requires an interactive terminal"));
 }
 
-// -- `ops create-review-tasks` and `ops run-before-push` (TEST-31 / TASK-2021) --
+// -- `ops backlog create-review-tasks` and `ops run-before-push` (TEST-31 / TASK-2021) --
 //
 // TASK-1737 covered the rest of the README command table as spawned processes
 // but left these two out of its acceptance criteria. `run-before-push` is the
@@ -1122,7 +1122,7 @@ fn cli_create_review_tasks_dry_run_reports_the_plan_without_writing() {
     std::fs::create_dir_all(&tasks).expect("create .backlog/tasks");
 
     ops()
-        .args(["create-review-tasks", "--dry-run"])
+        .args(["backlog", "create-review-tasks", "--dry-run"])
         .current_dir(dir.path())
         .assert()
         .success()
@@ -1163,7 +1163,7 @@ fn cli_create_review_tasks_writes_the_task_set() {
     std::fs::create_dir_all(&tasks).expect("create .backlog/tasks");
 
     ops()
-        .arg("create-review-tasks")
+        .args(["backlog", "create-review-tasks"])
         .current_dir(dir.path())
         .assert()
         .success()
@@ -1203,7 +1203,7 @@ fn cli_create_review_tasks_without_a_backlog_tree_fails() {
     std::fs::write(dir.path().join("Cargo.toml"), SOLO_CARGO_TOML).expect("write Cargo.toml");
 
     ops()
-        .args(["create-review-tasks", "--dry-run"])
+        .args(["backlog", "create-review-tasks", "--dry-run"])
         .current_dir(dir.path())
         .assert()
         .failure()
