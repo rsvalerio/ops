@@ -2,6 +2,25 @@
 All notable changes to this project will be documented in this file. See [conventional commits](https://www.conventionalcommits.org/) for commit guidelines.
 
 - - -
+## [v0.68.0](https://github.com/rsvalerio/ops/compare/09d646c34dd14c923122239394e3b422dbaa0d9a..v0.68.0) - 2026-09-26
+#### 🚀 Features
+- (**about**) merge rustflags arrays across cargo config layers - ([746c084](https://github.com/rsvalerio/ops/commit/746c0848862a868cdbbe41e1722f1331b9501c08)) - [@rsvalerio](https://github.com/rsvalerio), Claude Opus 5.5 (1M context)
+- (**cli**) warn when a config command is shadowed by a builtin - ([2c1b90a](https://github.com/rsvalerio/ops/commit/2c1b90ae14d156944d7889c7542389ee019b263a)) - [@rsvalerio](https://github.com/rsvalerio), Claude Opus 5.5 (1M context)
+#### 🐛 Bug Fixes
+- (**about**) report no rustflags when cargo rejects a string/array merge - ([00ef11d](https://github.com/rsvalerio/ops/commit/00ef11dea1bec05d7856458ddde37a9e5cdfd337)) - [@rsvalerio](https://github.com/rsvalerio), Claude Opus 5.5 (1M context)
+- (**cli**) keep the shadowed-command warning out of --raw output - ([1b68acc](https://github.com/rsvalerio/ops/commit/1b68acc232e7feb9570f99d5ec14ca3bce0bbaca)) - [@rsvalerio](https://github.com/rsvalerio), Claude Opus 5.5 (1M context)
+#### 📚 Documentation
+- (**readme**) document apt installation - ([5f2359d](https://github.com/rsvalerio/ops/commit/5f2359d73ef486c9a56c5364da5913d69536d549)) - [@rsvalerio](https://github.com/rsvalerio), Claude Opus 5.5 (1M context)
+#### 🔄 CI/CD
+- (**release**) least-privilege deb publish permissions; defer apt README until live - ([d95a078](https://github.com/rsvalerio/ops/commit/d95a078b878e2527ccb74087e24aed19578719d2)) - [@rsvalerio](https://github.com/rsvalerio), Claude Opus 5.5 (1M context)
+- (**release**) publish .debs to rsvalerio/apt via forge publish-deb-dist (dry-run) - ([13c5673](https://github.com/rsvalerio/ops/commit/13c5673c500d779799806d303b7d8d92b115749a)) - [@rsvalerio](https://github.com/rsvalerio), Claude Opus 5.5 (1M context)
+#### ⚙️ Miscellaneous
+- (**backlog**) record PR #71 review outcomes - ([1bcbabd](https://github.com/rsvalerio/ops/commit/1bcbabd7b4e59a39aa841496d7e350cd7da40d09)) - [@rsvalerio](https://github.com/rsvalerio), Claude Opus 5.5 (1M context)
+- (**backlog**) close TASK-2308 and TASK-2306, progress TASK-2302 - ([30caab4](https://github.com/rsvalerio/ops/commit/30caab410b9f7c3023a4477b97bcddc0a8b6f433)) - [@rsvalerio](https://github.com/rsvalerio), Claude Opus 5.5 (1M context)
+- update backlogs tasks - ([09d646c](https://github.com/rsvalerio/ops/commit/09d646c34dd14c923122239394e3b422dbaa0d9a)) - [@rsvalerio](https://github.com/rsvalerio)
+
+- - -
+
 ## [v0.67.0](https://github.com/rsvalerio/ops/compare/433f3ba5af21bb3c067969bcaa302d7c4e1dfb0a..v0.67.0) - 2026-09-26
 #### 🚀 Features
 - (**about**) evaluate cfg target tables and anchor target dir at workspace root - ([82e4880](https://github.com/rsvalerio/ops/commit/82e4880475a6162f600f7f2911da36a5944caf53)) - [@rsvalerio](https://github.com/rsvalerio), Claude Opus 5.5 (1M context)
