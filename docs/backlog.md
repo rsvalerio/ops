@@ -139,6 +139,7 @@ exclusive.
 | `--modified-file <path>` | Keep tasks where any `modified_files` entry contains this substring |
 | `--exclude-status <status>` | Drop tasks with this status, repeatable |
 | `--plain` | Plain output |
+| `--json` | `{"schemaVersion": 1, "kind": "search", "tasks": [...]}` — each task's `id`, `title`, `status`, `priority`, `labels`, `modifiedFiles` and `score` (`null` without a query) |
 
 Scoring is deterministic keyword containment (exact id match = 1.000;
 otherwise per-token weights id 0.35 / title 0.30 / labels 0.15 /
@@ -368,6 +369,8 @@ against backlog.md v1.51.0 and byte-verified against the live tree:
   ISO-8601 Z (`'2026-08-29 18:21'` → `"2026-08-29T18:21:00Z"`).
 - `search --plain`: `Tasks:` header, rows
   `  TASK-1766 - title (Done) [LOW] [score 0.671]`.
+- `search --json`: the `kind: search` envelope above (ours, not a
+  backlog.md shape), hits in the plain listing's order.
 - `wave list --plain` / `wave members --plain`: the `task list` row shape
   above — the skills parse them with the same rules.
 - `wave overlap --json`: the `kind: wave-overlap` envelope described under
