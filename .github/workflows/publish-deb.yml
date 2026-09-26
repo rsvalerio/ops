@@ -22,6 +22,11 @@ on:
       GH_APP_PRIVATE_KEY:
         required: true
 
+# Least privilege by default: forge's job needs only `contents: read`; the
+# apt push uses a GitHub App token it mints itself.
+permissions:
+  contents: read
+
 jobs:
   deb:
     uses: rsvalerio/forge/.github/workflows/publish-deb-dist.yml@v1

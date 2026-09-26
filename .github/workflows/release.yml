@@ -345,12 +345,10 @@ jobs:
     # custom-publish-homebrew above.
     secrets:
       GH_APP_PRIVATE_KEY: ${{ secrets.GH_APP_PRIVATE_KEY }}
-    # publish jobs get escalated permissions; forge's publish-deb-dist also
-    # declares `contents: read`, which a job-level block would otherwise drop.
+    # Only what forge's publish-deb-dist declares: the apt push uses a GitHub
+    # App token it mints itself, so no write scope is granted here.
     permissions:
       "contents": "read"
-      "id-token": "write"
-      "packages": "write"
 
   announce:
     needs:
