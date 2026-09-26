@@ -109,7 +109,7 @@ args = ["--locked"]       # added to clippy's args, before any `--` separator
 
 The extras are appended at load time. Rules:
 
-- Composites (`commands = [...]`) extend with `commands`; exec commands extend with `args`. Using the wrong key for the target's kind, extending an undefined name, or an entry that sets none of `commands`, `args`, `help`, `category` is a load error naming the target.
+- Composites (`commands = [...]`) extend with `commands`; exec commands extend with `args`, and matrix commands also with `matrix.<key> = [...]` (see [Running one command over a matrix](#running-one-command-over-a-matrix)). Using the wrong key for the target's kind, extending an undefined name, or an entry that sets none of `commands`, `args`, `help`, `category`, `matrix` is a load error naming the target.
 - `help = "..."` replaces the target's help text, and `category = "..."` replaces its category (either kind of target). Given across config layers, the last layer that sets one wins.
 - Without a `help` override, appending `commands` to a composite that has help extends the help to name the appended commands (`"...; then extra-a, extra-b"`), so `ops --help` can never quietly understate what `ops <cmd> --dry-run` runs. The same guard applies across layers: a layer that appends commands without setting `help` gets its commands named in whatever help is in effect, so a later command-only layer cannot hide behind an earlier override. A composite without help needs nothing — its help fallback already renders the materialized command list.
 - Appended `args` land **before the target's first `--` separator** when one is present, otherwise at the end of the args. Cargo commands like the Rust `clippy ... -- -D warnings` pass everything after `--` to the wrapped tool, so inserting before it keeps `--locked` a cargo flag instead of silently turning it into a lint flag.
@@ -132,7 +132,7 @@ args = ["--manifest-path", "fuzz/Cargo.toml"]
 `fuzz-clippy` is a copy of the resolved Rust `clippy` default (program and args included), and `[extend.fuzz-clippy]` adds the fuzz-specific flag — so the variant tracks the default's flags as they evolve. Composites clone the same way (`clone = "verify"` copies the `commands` list). The extras are materialized at load time, so `ops --dry-run fuzz-clippy` shows the resolved program and args. Rules:
 
 - The source resolves like an `[extend]` target: your `[commands]` entry if you defined one, otherwise the detected stack's default. Extension-registered commands cannot be cloned — they register after config load — and naming one is an unknown-source load error.
-- Scalar fields beside `clone` (`help`, `category`, `aliases`, and for exec sources `env`, `cwd`, `timeout_secs`, `exclusive`) override the copy; fields left unset keep the source's value. Given maps and lists replace the copy (`env` replaces, it does not merge). `aliases` are the exception: they are never inherited — a clone with no `aliases` has none, because inheriting the source's would either collide at load or silently redirect the source's alias to the clone. `program`, `args` and `commands` beside `clone` are load errors — extra args go through `[extend.<name>]`.
+- Scalar fields beside `clone` (`help`, `category`, `aliases`, and for exec sources `env`, `cwd`, `timeout_secs`, `exclusive`, `strategy`) override the copy; fields left unset keep the source's value. Given maps and lists replace the copy (`env` replaces, it does not merge). `aliases` are the exception: they are never inherited — a clone with no `aliases` has none, because inheriting the source's would either collide at load or silently redirect the source's alias to the clone. `program`, `args` and `commands` beside `clone` are load errors — extra args go through `[extend.<name>]`.
 - A clone copies the source **before** the source's own `[extend.<source>]` applies: extends stay per-name, so the clone never inherits them. `[extend.<clone>]` applies to the materialized copy.
 - Unknown sources, clone cycles (including self-clones; non-cyclic clone-of-clone chains do resolve), cloning into an existing stack-default name, and exec-only fields beside a composite source are load errors naming the command and the source.
 
@@ -214,6 +214,69 @@ The list order is the schedule. With `a` and `c` exclusive,
 `a → c → (b | d)`. Under `fail_fast = true` a failing stage stops the plan and
 later stages never start. `exclusive` has no effect in a sequential group or
 under `--raw`, which always runs sequentially.
+
+#### Running one command over a matrix
+
+To run one exec command once per value — say `cargo doc` per published crate,
+each invocation separate so cargo resolves every crate's default features on
+its own — give it a `strategy`, modelled on GitHub Actions:
+
+```toml
+[commands.doc-default]
+program = "cargo"
+args = ["doc", "--no-deps", "-p", "${matrix.crate}"]
+env = { CARGO_TARGET_DIR = "${CARGO_TARGET_DIR:-target}/doc-default" }
+
+[commands.doc-default.strategy]
+matrix = { crate = ["dbsec-core", "dbsec", "dbsec-pgwire", "dbsec-vault", "dbsec-derive"] }
+max_parallel = 1     # the cells share a target dir; running them together only queues on its lock
+fail_fast = false    # run every crate and report every failure
+
+[extend.verify]
+commands = ["doc-default"]
+```
+
+`ops doc-default` runs `cargo doc --no-deps -p dbsec-core`, then `-p dbsec`, and
+so on, and shows one row per cell, labelled by its values
+(`doc-default [crate=dbsec-core]`). When cells fail, each failed row shows its
+error and the step fails naming every failed cell. `ops --dry-run doc-default`
+lists every cell with its expanded program and args.
+
+A matrix command is **one step** to the plan around it:
+
+- `exclusive` covers the whole matrix: no sibling step overlaps any cell.
+- It succeeds only when every cell succeeds.
+- `strategy.max_parallel` (default: every cell at once, under
+  `OPS_MAX_PARALLEL`) and `strategy.fail_fast` (default `true`: the first
+  failing cell cancels the rest) govern only the cells. They never conflict
+  with the enclosing group's flags. The `fail_fast` agreement rule applies to
+  groups, not to a matrix, so the `fail_fast = false` matrix above can sit
+  inside the parallel, fail-fast `verify`. It runs all five crates, and
+  `verify` treats the matrix's overall failure like any failing step.
+- `--raw` runs the cells one after another, like everything else.
+
+Cells follow GitHub Actions semantics:
+
+- Several keys form the Cartesian product. Cells are ordered by key name, then
+  by value order.
+- `exclude = [{ os = "mac", crate = "dbsec" }]` drops every cell that matches
+  all of an entry's pairs.
+- Each `include` entry is merged into every cell it does not contradict on a
+  matrix key. When it fits none, it becomes a cell of its own. `include` and
+  `exclude` live inside `matrix`, as in GitHub Actions, so neither name can be
+  a key.
+
+`${matrix.<key>}` is substituted in `args`, `env` values and `cwd`, before
+`${VAR}` expansion. It never falls back to the environment. These are load
+errors naming the command: a key that some cell does not define
+(`${matrix.crat}`), a `${matrix.*}` reference on a command with no `strategy`,
+and a reference in `program`. A matrix is capped at 256 cells.
+
+A clone copies the source's `strategy`, and a `strategy` beside `clone`
+replaces the copied one wholesale. `[extend.<name>] matrix.<key> = [...]`
+appends values to an existing key (a key the matrix does not have is a load
+error). `matrix.include` / `matrix.exclude` there append entries. A matrix
+over a composite is not supported.
 
 ### Commands
 
