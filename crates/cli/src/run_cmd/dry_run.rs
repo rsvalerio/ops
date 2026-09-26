@@ -12,7 +12,7 @@ use ops_runner::command::{is_sensitive_env_key, looks_like_secret_value};
 /// `.ops.toml` value (or its `${VAR}` expansion) cannot repaint the
 /// operator's terminal during `ops --dry-run`. Mirrors the stderr policy
 /// from `ops_core::ui::emit_to`.
-fn audit_safe(value: &str) -> String {
+pub(super) fn audit_safe(value: &str) -> String {
     let mut buf = String::with_capacity(value.len());
     sanitise_line(value, &mut buf);
     buf
@@ -141,12 +141,7 @@ pub fn print_exec_spec(
             // Defense in depth: name sensitive env vars with one of the
             // standard prefixes (TOKEN, SECRET, PASSWORD, KEY, AUTH, …) so
             // key-based redaction kicks in even if the value heuristic misses.
-            let expanded = vars.try_expand(v)?;
-            let display_val = if is_sensitive_env_key(k) || looks_like_secret_value(&expanded) {
-                "***REDACTED***".to_string()
-            } else {
-                audit_safe(&expanded)
-            };
+            let display_val = audit_safe(&env_display_value(k, v, vars)?);
             writeln!(w, "        {}={}", audit_safe(k), display_val)?;
         }
     }
@@ -172,4 +167,28 @@ pub fn print_exec_spec(
         writeln!(w, "      timeout: {timeout}s")?;
     }
     Ok(())
+}
+
+/// An env value as previews show it: `${VAR}`-expanded, or redacted when
+/// the key looks sensitive *or* the expanded value itself looks like a
+/// secret (see the known false-negatives listed in [`print_exec_spec`]).
+/// Shared by the dry-run and `ops explain` so the two previews cannot
+/// disagree about what they reveal.
+///
+/// # Errors
+///
+/// The value references a variable that does not expand.
+pub(super) fn env_display_value(
+    key: &str,
+    value: &str,
+    vars: &ops_core::expand::Variables,
+) -> anyhow::Result<String> {
+    let expanded = vars.try_expand(value)?;
+    Ok(
+        if is_sensitive_env_key(key) || looks_like_secret_value(&expanded) {
+            "***REDACTED***".to_string()
+        } else {
+            expanded.into_owned()
+        },
+    )
 }

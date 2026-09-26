@@ -268,6 +268,22 @@ pub enum CoreSubcommand {
         #[arg(last = true, value_name = "LINT_FLAGS")]
         lint_flags: Vec<String>,
     },
+    /// Show a command's resolved execution plan without running anything.
+    ///
+    /// Resolves each command exactly as `ops <cmd>...` would and prints the
+    /// plan: every composite's `parallel` / `fail_fast`, the stages a
+    /// parallel group splits into at its `exclusive` steps, and each step's
+    /// program, args, env, cwd and origin (stack default, config, `clone`,
+    /// `[extend]`, extension or builtin). Never executes a step — not even
+    /// for `run-before-commit` / `run-before-push`.
+    Explain {
+        /// Command names, as `ops <cmd>...` would run them.
+        #[arg(required = true, value_name = "COMMAND")]
+        commands: Vec<String>,
+        /// Versioned machine-readable JSON (`schemaVersion`).
+        #[arg(long)]
+        json: bool,
+    },
     /// Manage `.backlog` task files (backlog.md-compatible subset).
     Backlog {
         #[command(subcommand)]
@@ -1100,6 +1116,20 @@ mod tests {
             panic!("must parse as backlog cleanup");
         };
         assert!(dry_run, "cleanup shares the same propagation contract");
+    }
+
+    #[test]
+    fn parse_explain_names_and_json() {
+        let cli = Cli::parse_from(["ops", "explain", "verify", "qa", "--json"]);
+        let Some(CoreSubcommand::Explain { commands, json }) = cli.subcommand else {
+            panic!("must parse as explain");
+        };
+        assert_eq!(commands, ["verify", "qa"]);
+        assert!(json);
+        assert!(
+            Cli::try_parse_from(["ops", "explain"]).is_err(),
+            "explain without a command must be rejected"
+        );
     }
 
     /// `ops about modules` must continue to parse — it is
