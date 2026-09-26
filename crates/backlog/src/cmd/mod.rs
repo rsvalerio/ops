@@ -6,24 +6,29 @@
 
 pub mod about;
 pub mod cleanup;
+pub mod commit;
 pub mod create;
 pub mod edit;
+mod git;
 pub mod list;
 pub mod search;
 pub mod view;
 pub mod wave;
+pub mod wave_claim;
 
 pub use about::run_about_backlog;
 pub use cleanup::{run_cleanup, CleanupOptions};
+pub use commit::{run_commit, CommitOptions};
 pub use create::{run_create, CreateOptions};
 pub use edit::{run_edit, EditOptions};
 pub use list::{run_list, ListOptions};
 pub use search::{run_search, SearchOptions};
 pub use view::{run_view, ViewOptions};
 pub use wave::{
-    run_wave_list, run_wave_members, run_wave_migrate, WaveListOptions, WaveMembersOptions,
-    WaveMigrateOptions, DEFAULT_WAVE_MARKER,
+    run_wave_list, run_wave_members, run_wave_migrate, run_wave_overlap, WaveListOptions,
+    WaveMembersOptions, WaveMigrateOptions, WaveOverlapOptions, DEFAULT_WAVE_MARKER,
 };
+pub use wave_claim::{run_wave_claim, run_wave_park, WaveClaimOptions, WaveParkOptions};
 
 use std::io::Write;
 

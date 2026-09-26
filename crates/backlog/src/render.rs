@@ -672,6 +672,103 @@ pub fn list_json<W: Write>(
 }
 
 // ---------------------------------------------------------------------------
+// wave overlap
+// ---------------------------------------------------------------------------
+
+/// One wave's row in `wave overlap`: its file scope and the paths it shares
+/// with each other open wave (only waves it actually shares a path with).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct WaveOverlapRow {
+    pub id: String,
+    pub title: String,
+    pub status: String,
+    /// The union of the members' `modified_files`, sorted.
+    pub files: Vec<String>,
+    /// `(other wave id, shared paths)`, sorted by the other wave's id.
+    pub overlaps: Vec<(String, Vec<String>)>,
+}
+
+/// Render `wave overlap` for humans: one block per wave in merge order,
+/// then the suggested merge order on one line.
+///
+/// # Errors
+///
+/// Writing to `out` failed.
+pub fn wave_overlap_plain<W: Write>(w: &mut W, rows: &[WaveOverlapRow]) -> std::io::Result<()> {
+    for row in rows {
+        writeln!(
+            w,
+            "{} - {} [{}] ({} files)",
+            row.id,
+            row.title,
+            row.status,
+            row.files.len()
+        )?;
+        if row.files.is_empty() {
+            writeln!(w, "  files: none recorded")?;
+        } else {
+            writeln!(w, "  files: {}", row.files.join(", "))?;
+        }
+        if row.overlaps.is_empty() {
+            writeln!(w, "  overlaps: none")?;
+        }
+        for (other, shared) in &row.overlaps {
+            writeln!(w, "  overlaps {other}: {}", shared.join(", "))?;
+        }
+        writeln!(w)?;
+    }
+    let order: Vec<&str> = rows.iter().map(|row| row.id.as_str()).collect();
+    writeln!(w, "Suggested merge order: {}", order.join(", "))
+}
+
+/// Render `wave overlap --json`: the `schemaVersion: 1` /
+/// `kind: wave-overlap` envelope. `waves` is in merge order, and
+/// `mergeOrder` repeats just the ids.
+///
+/// # Errors
+///
+/// Writing to `out` failed.
+pub fn wave_overlap_json<W: Write>(w: &mut W, rows: &[WaveOverlapRow]) -> std::io::Result<()> {
+    // `fmt::Write` into a String is infallible; the `let _` discards an
+    // always-`Ok`.
+    use std::fmt::Write as _;
+    let mut s = String::new();
+    s.push_str("{\n  \"schemaVersion\": 1,\n  \"kind\": \"wave-overlap\",\n  \"waves\": [");
+    for (idx, row) in rows.iter().enumerate() {
+        s.push_str(if idx == 0 { "\n" } else { ",\n" });
+        s.push_str("    {\n");
+        for (name, value) in [
+            ("id", jstr(&row.id)),
+            ("title", jstr(&row.title)),
+            ("status", jstr(&row.status)),
+            ("files", str_list_at(&row.files, 6)),
+        ] {
+            let _ = writeln!(s, "      {}: {value},", jstr(name));
+        }
+        s.push_str("      \"overlaps\": [");
+        for (o_idx, (other, shared)) in row.overlaps.iter().enumerate() {
+            s.push_str(if o_idx == 0 { "\n" } else { ",\n" });
+            let _ = write!(
+                s,
+                "        {{\n          \"id\": {},\n          \"files\": {}\n        }}",
+                jstr(other),
+                str_list_at(shared, 10)
+            );
+        }
+        s.push_str(if row.overlaps.is_empty() {
+            "]\n"
+        } else {
+            "\n      ]\n"
+        });
+        s.push_str("    }");
+    }
+    s.push_str(if rows.is_empty() { "],\n" } else { "\n  ],\n" });
+    let order: Vec<String> = rows.iter().map(|row| row.id.clone()).collect();
+    let _ = write!(s, "  \"mergeOrder\": {}\n}}\n", str_list_at(&order, 2));
+    w.write_all(s.as_bytes())
+}
+
+// ---------------------------------------------------------------------------
 // search
 // ---------------------------------------------------------------------------
 
