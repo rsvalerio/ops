@@ -742,11 +742,15 @@ pub enum AboutAction {
         #[arg(long)]
         json: bool,
         /// List crates locked at two or more distinct versions (dev-only
-        /// ones excluded), what pulls each older version in, and whether a
+        /// ones excluded unless --include-dev), what pulls each older version in, and whether a
         /// semver-compatible update of it removes the duplicate (checked
         /// with `cargo update --dry-run`; Cargo.lock is never written).
         #[arg(long)]
         duplicates: bool,
+        /// With --duplicates: also follow dev-dependency edges, so
+        /// duplicates reachable only through dev-dependencies are listed.
+        #[arg(long, requires = "duplicates")]
+        include_dev: bool,
     },
     // `crates` and `modules` render the same stack-aware project-units view
     // via `ops_about::units::run_about_units`; the alias keeps the
@@ -757,7 +761,8 @@ pub enum AboutAction {
     /// Display project units — crates (Rust) or modules (Go).
     Crates {
         /// Versioned machine-readable JSON: name, version, repo-relative
-        /// manifest dir and in-tree flag per unit.
+        /// manifest dir, in-tree flag and build targets (kind + name) per
+        /// unit.
         #[arg(long)]
         json: bool,
     },
@@ -1399,16 +1404,36 @@ mod tests {
             action_of(&["ops", "about", "dependencies", "--json"]),
             Some(AboutAction::Dependencies {
                 json: true,
-                duplicates: false
+                duplicates: false,
+                include_dev: false
             })
         ));
         assert!(matches!(
             action_of(&["ops", "about", "dependencies", "--duplicates"]),
             Some(AboutAction::Dependencies {
                 json: false,
-                duplicates: true
+                duplicates: true,
+                include_dev: false
             })
         ));
+        assert!(matches!(
+            action_of(&[
+                "ops",
+                "about",
+                "dependencies",
+                "--duplicates",
+                "--include-dev"
+            ]),
+            Some(AboutAction::Dependencies {
+                json: false,
+                duplicates: true,
+                include_dev: true
+            })
+        ));
+        assert!(
+            Cli::try_parse_from(["ops", "about", "dependencies", "--include-dev"]).is_err(),
+            "--include-dev requires --duplicates"
+        );
         assert!(matches!(
             action_of(&["ops", "about", "machine", "--json"]),
             Some(AboutAction::Machine { json: true })

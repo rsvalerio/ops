@@ -332,7 +332,8 @@ to let a push or commit through without running the configured hook commands.
 `ops about crates`, `loc` and `dependencies` take `--json` for a versioned
 (`schemaVersion`) machine-readable document; `ops about machine --json`
 likewise. `ops about dependencies --duplicates [--json]` lists crates locked
-at two or more distinct versions (dev-only ones excluded), the direct
+at two or more distinct versions (dev-only ones excluded unless
+`--include-dev` is given), the direct
 dependency pulling each older version, and whether a semver-compatible
 update of it removes the duplicate (`cargo update --dry-run`; `Cargo.lock`
 is never written). `ops deps` (cargo-deny `bans`) flags multiple versions

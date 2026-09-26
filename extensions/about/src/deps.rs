@@ -145,6 +145,11 @@ pub fn run_about_deps_json_with(
 /// --duplicates`: crates locked at two or more distinct versions.
 pub const PROJECT_DUPLICATES_PROVIDER: &str = "project_duplicate_dependencies";
 
+/// Registry key of the provider answering `ops about dependencies
+/// --duplicates --include-dev`: as [`PROJECT_DUPLICATES_PROVIDER`], but
+/// dev-dependency edges count too, so dev-only duplicates are listed.
+pub const PROJECT_DUPLICATES_WITH_DEV_PROVIDER: &str = "project_duplicate_dependencies_with_dev";
+
 /// Version of the `ops about dependencies --duplicates --json` document.
 pub const DUPLICATES_JSON_SCHEMA_VERSION: u32 = 1;
 
@@ -243,15 +248,28 @@ pub fn format_duplicates_section(report: &DuplicateReport, is_tty: bool) -> Vec<
     lines
 }
 
-/// `ops about dependencies --duplicates [--json]`.
+/// `ops about dependencies --duplicates [--json] [--include-dev]`.
+///
+/// `include_dev` also follows dev-dependency edges, so duplicates reachable
+/// only through dev-dependencies are listed too.
 ///
 /// # Errors
 ///
 /// If the current directory cannot be determined, the provider fails, or
 /// writing fails.
-pub fn run_about_duplicates(data_registry: &DataRegistry, json: bool) -> anyhow::Result<()> {
+pub fn run_about_duplicates(
+    data_registry: &DataRegistry,
+    json: bool,
+    include_dev: bool,
+) -> anyhow::Result<()> {
     let is_tty = std::io::stdout().is_terminal();
-    run_about_duplicates_with(data_registry, &mut std::io::stdout(), is_tty, json)
+    run_about_duplicates_with(
+        data_registry,
+        &mut std::io::stdout(),
+        is_tty,
+        json,
+        include_dev,
+    )
 }
 
 /// [`run_about_duplicates`] against an explicit writer.
@@ -265,11 +283,16 @@ pub fn run_about_duplicates_with(
     writer: &mut dyn Write,
     is_tty: bool,
     json: bool,
+    include_dev: bool,
 ) -> anyhow::Result<()> {
     let mut ctx = crate::providers::subpage_context("deps")?;
     warm_providers(&mut ctx, data_registry, &["metadata"], "deps");
-    let report: DuplicateReport =
-        load_or_default(&mut ctx, data_registry, PROJECT_DUPLICATES_PROVIDER)?;
+    let provider = if include_dev {
+        PROJECT_DUPLICATES_WITH_DEV_PROVIDER
+    } else {
+        PROJECT_DUPLICATES_PROVIDER
+    };
+    let report: DuplicateReport = load_or_default(&mut ctx, data_registry, provider)?;
     if json {
         return crate::write_json_document(writer, &duplicates_json(&report));
     }
@@ -432,7 +455,7 @@ mod tests {
     fn run_about_duplicates_with_empty_registry_reports_none() {
         let registry = DataRegistry::new();
         let mut out: Vec<u8> = Vec::new();
-        run_about_duplicates_with(&registry, &mut out, false, true).expect("runner");
+        run_about_duplicates_with(&registry, &mut out, false, true, false).expect("runner");
         let value: serde_json::Value = serde_json::from_slice(&out).expect("json");
         assert_eq!(value["crates"], serde_json::json!([]));
     }

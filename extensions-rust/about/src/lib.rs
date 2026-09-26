@@ -101,7 +101,11 @@ ops_extension::impl_extension! {
         );
         let _ = registry.register(
             deps_provider::DUPLICATES_PROVIDER_NAME,
-            Box::new(deps_provider::RustDuplicatesProvider),
+            Box::new(deps_provider::RustDuplicatesProvider { include_dev: false }),
+        );
+        let _ = registry.register(
+            deps_provider::DUPLICATES_WITH_DEV_PROVIDER_NAME,
+            Box::new(deps_provider::RustDuplicatesProvider { include_dev: true }),
         );
     },
     factory: ABOUT_RUST_FACTORY = |_, _| {

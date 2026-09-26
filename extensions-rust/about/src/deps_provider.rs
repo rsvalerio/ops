@@ -49,15 +49,31 @@ impl DataProvider for RustDepsProvider {
 /// so the renderer and this provider cannot drift).
 pub const DUPLICATES_PROVIDER_NAME: &str = ops_about::deps::PROJECT_DUPLICATES_PROVIDER;
 
+/// Registry key of the dev-inclusive duplicates provider
+/// (`--duplicates --include-dev`).
+pub const DUPLICATES_WITH_DEV_PROVIDER_NAME: &str =
+    ops_about::deps::PROJECT_DUPLICATES_WITH_DEV_PROVIDER;
+
 /// Answers `ops about dependencies --duplicates` from the cached `cargo
 /// metadata` document (warmed by the runner) plus one `cargo update
 /// --dry-run -p <dep>@<version>` per pulling dependency. `--dry-run` never
 /// writes `Cargo.lock`.
-pub struct RustDuplicatesProvider;
+///
+/// Registered twice: `include_dev: false` under [`DUPLICATES_PROVIDER_NAME`]
+/// (dev-only duplicates excluded) and `include_dev: true` under
+/// [`DUPLICATES_WITH_DEV_PROVIDER_NAME`].
+pub struct RustDuplicatesProvider {
+    /// Follow dev-dependency edges too.
+    pub include_dev: bool,
+}
 
 impl DataProvider for RustDuplicatesProvider {
     fn name(&self) -> &'static str {
-        DUPLICATES_PROVIDER_NAME
+        if self.include_dev {
+            DUPLICATES_WITH_DEV_PROVIDER_NAME
+        } else {
+            DUPLICATES_PROVIDER_NAME
+        }
     }
 
     fn provide(&self, ctx: &mut Context) -> Result<serde_json::Value, DataProviderError> {
@@ -65,7 +81,7 @@ impl DataProvider for RustDuplicatesProvider {
             return Ok(serde_json::to_value(DuplicateReport::default())?);
         };
         let working_dir = ctx.working_directory().to_path_buf();
-        let report = find_duplicates(&metadata, &|name: &str, version: &str| {
+        let report = find_duplicates(&metadata, self.include_dev, &|name: &str, version: &str| {
             dry_run_update(&working_dir, name, version)
         });
         serde_json::to_value(&report).map_err(DataProviderError::from)
@@ -111,9 +127,10 @@ fn package_index(metadata: &serde_json::Value) -> HashMap<&str, (&str, &str)> {
         .collect()
 }
 
-/// Non-dev edges of the resolve graph: an edge counts when any of its
-/// `dep_kinds` is normal (`null`) or `build`, or when kinds are absent.
-fn non_dev_edges(metadata: &serde_json::Value) -> HashMap<&str, Vec<&str>> {
+/// Edges of the resolve graph. With `include_dev` every edge counts;
+/// otherwise an edge counts when any of its `dep_kinds` is normal (`null`)
+/// or `build`, or when kinds are absent.
+fn resolve_edges(metadata: &serde_json::Value, include_dev: bool) -> HashMap<&str, Vec<&str>> {
     let nodes = metadata
         .pointer("/resolve/nodes")
         .and_then(serde_json::Value::as_array);
@@ -128,16 +145,17 @@ fn non_dev_edges(metadata: &serde_json::Value) -> HashMap<&str, Vec<&str>> {
                 .into_iter()
                 .flatten()
                 .filter(|d| {
-                    d.get("dep_kinds")
-                        .and_then(serde_json::Value::as_array)
-                        .is_none_or(|kinds| {
-                            kinds.is_empty()
-                                || kinds.iter().any(|k| {
-                                    k.get("kind").is_none_or(|kind| {
-                                        kind.is_null() || kind.as_str() == Some("build")
+                    include_dev
+                        || d.get("dep_kinds")
+                            .and_then(serde_json::Value::as_array)
+                            .is_none_or(|kinds| {
+                                kinds.is_empty()
+                                    || kinds.iter().any(|k| {
+                                        k.get("kind").is_none_or(|kind| {
+                                            kind.is_null() || kind.as_str() == Some("build")
+                                        })
                                     })
-                                })
-                        })
+                            })
                 })
                 .filter_map(|d| d.get("pkg")?.as_str())
                 .collect();
@@ -167,7 +185,7 @@ fn version_key(version: &str) -> (Vec<u64>, bool, String) {
 }
 
 /// Find crates reachable at two or more distinct versions through
-/// non-dev edges from the workspace members, name the direct dependencies
+/// non-dev edges (every edge when `include_dev`) from the workspace members, name the direct dependencies
 /// pulling each older version, and ask `updater` whether updating each
 /// puller drops it.
 ///
@@ -176,10 +194,11 @@ fn version_key(version: &str) -> (Vec<u64>, bool, String) {
 /// puller.
 pub fn find_duplicates(
     metadata: &serde_json::Value,
+    include_dev: bool,
     updater: &dyn Fn(&str, &str) -> Option<Vec<UpdateEntry>>,
 ) -> DuplicateReport {
     let packages = package_index(metadata);
-    let edges = non_dev_edges(metadata);
+    let edges = resolve_edges(metadata, include_dev);
     let members: BTreeSet<&str> = metadata
         .get("workspace_members")
         .and_then(serde_json::Value::as_array)
@@ -452,7 +471,7 @@ mod tests {
                 .entries,
             )
         };
-        let report = super::find_duplicates(&sample_metadata(), &updater);
+        let report = super::find_duplicates(&sample_metadata(), false, &updater);
         let value = serde_json::to_value(&report).expect("serialize");
         assert_eq!(
             value,
@@ -470,17 +489,46 @@ mod tests {
     #[test]
     fn find_duplicates_reports_unfixable_and_failed_checks() {
         let no_change = |_: &str, _: &str| Some(Vec::new());
-        let report = super::find_duplicates(&sample_metadata(), &no_change);
+        let report = super::find_duplicates(&sample_metadata(), false, &no_change);
         assert_eq!(
             report.crates[0].older[0].pulled_by[0].update_removes_duplicate,
             Some(false)
         );
         let failed = |_: &str, _: &str| None;
-        let report = super::find_duplicates(&sample_metadata(), &failed);
+        let report = super::find_duplicates(&sample_metadata(), false, &failed);
         assert_eq!(
             report.crates[0].older[0].pulled_by[0].update_removes_duplicate,
             None
         );
+    }
+
+    /// TASK-2299 AC #2: with `include_dev` the dev-only `old` duplicate
+    /// (pulled by the dev-dependency `mock`) is listed next to `term`.
+    #[test]
+    fn find_duplicates_include_dev_lists_dev_only_duplicates() {
+        let no_change = |_: &str, _: &str| Some(Vec::new());
+        let report = super::find_duplicates(&sample_metadata(), true, &no_change);
+        let names: Vec<&str> = report.crates.iter().map(|c| c.name.as_str()).collect();
+        assert_eq!(names, ["old", "term"]);
+        let old = &report.crates[0];
+        assert_eq!(old.older[0].version, "1.0.0");
+        assert_eq!(old.older[0].pulled_by[0].name, "mock");
+    }
+
+    #[test]
+    fn duplicates_providers_register_under_distinct_names() {
+        use super::{
+            RustDuplicatesProvider, DUPLICATES_PROVIDER_NAME, DUPLICATES_WITH_DEV_PROVIDER_NAME,
+        };
+        assert_eq!(
+            RustDuplicatesProvider { include_dev: false }.name(),
+            DUPLICATES_PROVIDER_NAME
+        );
+        assert_eq!(
+            RustDuplicatesProvider { include_dev: true }.name(),
+            DUPLICATES_WITH_DEV_PROVIDER_NAME
+        );
+        assert_ne!(DUPLICATES_PROVIDER_NAME, DUPLICATES_WITH_DEV_PROVIDER_NAME);
     }
 
     #[test]
@@ -495,7 +543,9 @@ mod tests {
         use super::RustDuplicatesProvider;
         let dir = tempfile::tempdir().expect("tempdir");
         let mut ctx = Context::test_context(dir.path().to_path_buf());
-        let value = RustDuplicatesProvider.provide(&mut ctx).expect("provide");
+        let value = RustDuplicatesProvider { include_dev: false }
+            .provide(&mut ctx)
+            .expect("provide");
         assert_eq!(value, serde_json::json!({"crates": []}));
     }
 }
