@@ -26,8 +26,10 @@ tap = "rsvalerio/homebrew-tap"
 # Publish homebrew formula to tap via the user-owned custom publish job
 # (.github/workflows/publish-homebrew.yml), which mints a GitHub App token
 # instead of using a static HOMEBREW_TAP_TOKEN PAT. Being a custom job, it
-# survives `dist generate` regeneration.
-publish-jobs = ["./publish-homebrew"]
+# survives `dist generate` regeneration. ./publish-deb
+# (.github/workflows/publish-deb.yml) packages the linux-gnu tarballs as .debs
+# for the rsvalerio/apt repository through forge's publish-deb-dist.
+publish-jobs = ["./publish-homebrew", "./publish-deb"]
 # Custom formula name for Homebrew (install with `brew install ops`)
 formula = "ops"
 # Hand-maintained edits to .github/workflows/release.yml are intentional.
