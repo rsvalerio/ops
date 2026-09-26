@@ -23,6 +23,7 @@ use std::path::Path;
 use anyhow::Context as _;
 
 use super::git;
+use crate::model::TaskDoc;
 use crate::store::Store;
 
 /// Arguments of `commit`.
@@ -81,6 +82,9 @@ pub fn run_commit<W: Write>(
         "status",
         "--porcelain=v1",
         "-z",
+        // A staged rename would print as `R  new\0old`; keep every path its
+        // own record so the old path reads as the deletion it is.
+        "--no-renames",
         "--untracked-files=all",
         "--",
     ]
@@ -105,10 +109,19 @@ pub fn run_commit<W: Write>(
         );
     }
 
-    // Step 4.
-    let mut add_args: Vec<String> = vec!["add".to_string(), "--".to_string()];
-    add_args.extend(changed.iter().cloned());
-    git::run(&top, &add_args)?;
+    // Step 4. `git add` is what brings a new untracked file in; a deleted
+    // path is left to `commit --only`, which records the deletion whether or
+    // not it is staged (`git add` of an already-staged deletion fails).
+    let present: Vec<String> = changed
+        .iter()
+        .filter(|path| top.join(path.as_str()).exists())
+        .cloned()
+        .collect();
+    if !present.is_empty() {
+        let mut add_args: Vec<String> = vec!["add".to_string(), "--".to_string()];
+        add_args.extend(present);
+        git::run(&top, &add_args)?;
+    }
     let mut commit_args: Vec<String> = vec![
         "commit".to_string(),
         "--quiet".to_string(),
@@ -173,7 +186,87 @@ fn resolve_task_paths(store: &Store, top: &Path, ids: &[String]) -> anyhow::Resu
             paths.push(rel);
         }
     }
+    for path in deleted_task_paths(store, top, ids)? {
+        if !paths.contains(&path) {
+            paths.push(path);
+        }
+    }
     Ok(paths)
+}
+
+/// Tracked backlog files that are gone from the working tree (or whose
+/// deletion is already staged) and whose `HEAD` content carries one of
+/// `ids`: the old path left behind when `task edit -t` renamed a task or
+/// `cleanup` moved it to `completed/`. Without them the commit would record
+/// the new path but leave `HEAD` holding the old one too — two files with
+/// one id.
+///
+/// # Errors
+///
+/// The backlog root lies outside `top`, or a git listing fails.
+fn deleted_task_paths(store: &Store, top: &Path, ids: &[String]) -> anyhow::Result<Vec<String>> {
+    let root = store
+        .root()
+        .canonicalize()
+        .with_context(|| format!("resolving {}", store.root().display()))?;
+    let root_rel = root
+        .strip_prefix(top)
+        .with_context(|| {
+            format!(
+                "{} is outside the git working tree {}",
+                root.display(),
+                top.display()
+            )
+        })?
+        .components()
+        .map(|c| c.as_os_str().to_string_lossy())
+        .collect::<Vec<_>>()
+        .join("/");
+    let pathspec = if root_rel.is_empty() {
+        ".".to_string()
+    } else {
+        root_rel
+    };
+    // Unstaged deletions are still in the index; staged ones are only in
+    // `HEAD`. Both are the task's own path.
+    let mut candidates = git::nul_records(&git::run(
+        top,
+        ["ls-files", "--deleted", "-z", "--", pathspec.as_str()],
+    )?);
+    candidates.extend(git::nul_records(&git::run(
+        top,
+        [
+            "diff",
+            "--cached",
+            "--name-only",
+            "--no-renames",
+            "--diff-filter=D",
+            "-z",
+            "--",
+            pathspec.as_str(),
+        ],
+    )?));
+    let wanted: Vec<String> = ids.iter().map(|id| id.to_ascii_lowercase()).collect();
+    let mut found: Vec<String> = Vec::new();
+    for path in candidates {
+        if found.contains(&path)
+            || Path::new(&path).extension().and_then(|e| e.to_str()) != Some("md")
+        {
+            continue;
+        }
+        // A path with no `HEAD` blob or unparseable content is not a task
+        // file of ours; skip it rather than fail the whole commit.
+        let Ok(src) = git::run(top, ["show", &format!("HEAD:{path}")]) else {
+            continue;
+        };
+        let Ok(doc) = TaskDoc::parse(&src) else {
+            continue;
+        };
+        if wanted.contains(&doc.frontmatter.id.to_ascii_lowercase()) {
+            found.push(path);
+        }
+    }
+    Ok(found)
 }
 
 #[cfg(test)]
@@ -233,7 +326,13 @@ mod tests {
     fn head_files(dir: &tempfile::TempDir) -> Vec<String> {
         git(
             dir.path(),
-            &["show", "--name-only", "--pretty=format:", "HEAD"],
+            &[
+                "show",
+                "--name-only",
+                "--no-renames",
+                "--pretty=format:",
+                "HEAD",
+            ],
         )
         .lines()
         .filter(|l| !l.is_empty())
@@ -314,6 +413,51 @@ mod tests {
                 ".backlog/tasks/task-4 - t.md"
             ]
         );
+    }
+
+    /// A renamed task (as `task edit -t` leaves it: old path deleted, new
+    /// path untracked) commits both sides, so `HEAD` holds one file per id;
+    /// an unlisted task's deletion stays out.
+    #[test]
+    fn a_renamed_task_commits_the_old_paths_deletion() {
+        let (dir, store) = repo();
+        let tasks = dir.path().join(".backlog/tasks");
+        std::fs::rename(tasks.join("task-1 - t.md"), tasks.join("task-1 - new.md"))
+            .expect("rename");
+        std::fs::remove_file(tasks.join("task-3 - t.md")).expect("unlisted delete");
+        commit(&store, &dir, &["TASK-1"]).expect("commit");
+        let mut files = head_files(&dir);
+        files.sort();
+        assert_eq!(
+            files,
+            vec![
+                ".backlog/tasks/task-1 - new.md",
+                ".backlog/tasks/task-1 - t.md"
+            ]
+        );
+        let tree = git(dir.path(), &["ls-tree", "-r", "--name-only", "HEAD"]);
+        assert!(!tree.contains("task-1 - t.md"), "old path gone: {tree}");
+        assert!(tree.contains("task-3 - t.md"), "unlisted kept: {tree}");
+    }
+
+    /// A deletion of the task's old path that is already staged (a
+    /// `git mv`) is the task's own path, not a foreign one.
+    #[test]
+    fn a_staged_rename_is_the_tasks_own_path() {
+        let (dir, store) = repo();
+        git(
+            dir.path(),
+            &[
+                "mv",
+                ".backlog/tasks/task-2 - t.md",
+                ".backlog/tasks/task-2 - moved.md",
+            ],
+        );
+        commit(&store, &dir, &["TASK-2"]).expect("commit");
+        let tree = git(dir.path(), &["ls-tree", "-r", "--name-only", "HEAD"]);
+        assert!(tree.contains("task-2 - moved.md"), "new path: {tree}");
+        assert!(!tree.contains("task-2 - t.md"), "old path gone: {tree}");
+        assert_eq!(git(dir.path(), &["diff", "--cached", "--name-only"]), "");
     }
 
     #[test]

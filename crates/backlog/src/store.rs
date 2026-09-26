@@ -319,6 +319,12 @@ impl Store {
         self.backlog_root.join("tasks").join(file_name)
     }
 
+    /// The backlog directory this store is rooted at (`.backlog` by default).
+    #[must_use]
+    pub fn root(&self) -> &Path {
+        &self.backlog_root
+    }
+
     /// Absolute path of the `completed/` directory, where `cleanup` moves
     /// terminal-status task files. Created on demand by the caller; a scan
     /// never requires it to exist.
