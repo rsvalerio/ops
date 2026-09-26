@@ -274,7 +274,7 @@ fn dispatch(
         Some(CoreSubcommand::Theme { action }) => run_theme(early_config, action)?,
         Some(CoreSubcommand::Backlog { action }) => {
             let cwd = cwd()?;
-            backlog_cmd::run_backlog(&cwd, early_config, action)?;
+            backlog_cmd::run_backlog(&cwd, early_config, action, cli.dry_run)?;
         }
         Some(CoreSubcommand::Lock(args)) => return run_lock(args),
         Some(CoreSubcommand::Extension { action }) => run_extension(early_config, action)?,
@@ -291,9 +291,16 @@ fn dispatch(
         Some(CoreSubcommand::RunBeforeCommit {
             changed_only,
             action,
-        }) => return run_before_commit(std::sync::Arc::clone(early_config), action, changed_only),
+        }) => {
+            return run_before_commit(
+                std::sync::Arc::clone(early_config),
+                action,
+                changed_only,
+                cli.dry_run,
+            )
+        }
         Some(CoreSubcommand::RunBeforePush { action }) => {
-            return run_before_push(std::sync::Arc::clone(early_config), action);
+            return run_before_push(std::sync::Arc::clone(early_config), action, cli.dry_run);
         }
         Some(CoreSubcommand::About { refresh, action }) => {
             run_about(early_config, refresh, action)?;
@@ -337,6 +344,9 @@ fn dispatch(
         Some(CoreSubcommand::ClippyFindings { lint_flags }) => {
             let cwd = cwd()?;
             return clippy_findings_cmd::run_clippy_findings(&cwd, &lint_flags, cli.dry_run);
+        }
+        Some(CoreSubcommand::Explain { commands, json }) => {
+            return run_cmd::run_explain(std::sync::Arc::clone(early_config), &commands, json);
         }
         Some(CoreSubcommand::External(args)) => {
             return run_cmd::run_external_command(
