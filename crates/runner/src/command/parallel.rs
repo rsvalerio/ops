@@ -7,7 +7,7 @@
 use super::abort::AbortSignal;
 use super::events::PlanLifecycle;
 use super::exec::{exec_standalone, resolution_failure, ExecTaskCtx};
-use super::matrix::{run_matrix, MatrixRun};
+use super::matrix::{run_matrix, Enclosing, MatrixRun};
 use super::{CommandRunner, RunnerEvent, StepResult};
 use ops_core::config::{CommandId, ExecCommandSpec};
 use std::collections::{HashMap, HashSet};
@@ -356,10 +356,16 @@ impl CommandRunner {
                             .to_string(),
                     );
                 };
-                let _permit = permit;
+                // Held until the step ends — except by a matrix step, whose
+                // cells take their own permits from this same semaphore
+                // (see `matrix::Enclosing::budget`).
                 match matrix {
                     None => exec_standalone(id, spec, ExecTaskCtx { env, tx, abort }).await,
-                    Some(Ok(run)) => run_matrix(run, env, tx, Some(abort)).await,
+                    Some(Ok(run)) => {
+                        drop(permit);
+                        let budget = Arc::clone(&sem);
+                        run_matrix(run, env, tx, Some(Enclosing { abort, budget })).await
+                    }
                     Some(Err(message)) => {
                         let _ = tx
                             .send(RunnerEvent::StepFailed {

@@ -275,6 +275,35 @@ async fn raw_matrix_runs_cells_sequentially() {
     );
 }
 
+/// Inside a parallel batch, cells draw from the batch's `OPS_MAX_PARALLEL`
+/// semaphore too: with a shared budget of 1, an otherwise unbounded matrix
+/// runs its cells one at a time — and does not deadlock on the permit its
+/// own step task gave back.
+#[tokio::test(flavor = "multi_thread")]
+async fn cells_share_the_enclosing_batch_budget() {
+    use crate::command::matrix::{run_matrix, Enclosing, MatrixRun};
+    let dir = tempfile::tempdir().unwrap();
+    let lock = dir.path().join("lock");
+    let CommandSpec::Exec(spec) = matrix_cmd(&locked(&lock, "true"), &["1", "2", "3"], 3, false)
+    else {
+        panic!("matrix_cmd builds an exec spec")
+    };
+    let run = MatrixRun::prepare("m", &spec).unwrap().unwrap();
+    let (tx, mut rx) = mpsc::channel(64);
+    let enclosing = Enclosing {
+        abort: Arc::new(AbortSignal::new()),
+        budget: Arc::new(tokio::sync::Semaphore::new(1)),
+    };
+    let result = tokio::time::timeout(
+        Duration::from_secs(20),
+        run_matrix(run, test_exec_env(), tx, Some(enclosing)),
+    )
+    .await
+    .expect("a shared budget of 1 must not deadlock the matrix");
+    while rx.try_recv().is_ok() {}
+    assert!(result.success, "cells overlapped: {:?}", result.message);
+}
+
 #[test]
 fn row_ids_expand_matrix_leaves_only() {
     let mut commands = HashMap::new();

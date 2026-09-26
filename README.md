@@ -246,8 +246,9 @@ A matrix command is **one step** to the plan around it:
 
 - `exclusive` covers the whole matrix: no sibling step overlaps any cell.
 - It succeeds only when every cell succeeds.
-- `strategy.max_parallel` (default: every cell at once, under
-  `OPS_MAX_PARALLEL`) and `strategy.fail_fast` (default `true`: the first
+- `strategy.max_parallel` (default: every cell at once; cells always count
+  against the same `OPS_MAX_PARALLEL` process cap as the plan's other steps)
+  and `strategy.fail_fast` (default `true`: the first
   failing cell cancels the rest) govern only the cells. They never conflict
   with the enclosing group's flags. The `fail_fast` agreement rule applies to
   groups, not to a matrix, so the `fail_fast = false` matrix above can sit

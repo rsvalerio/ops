@@ -92,19 +92,32 @@ enum CellState {
     Panicked,
 }
 
+/// The parallel batch a matrix step runs in.
+pub(super) struct Enclosing {
+    /// The batch's abort: a matrix that starts after it tripped skips every
+    /// cell, like `exec_standalone` skips a plain step. Once running, the
+    /// batch stops the matrix by aborting its task, which drops the cells.
+    pub(super) abort: Arc<AbortSignal>,
+    /// The batch's `OPS_MAX_PARALLEL` semaphore. Every cell also takes a
+    /// permit from it, so several matrices in one batch share the runner-wide
+    /// process cap instead of each getting a full one. The matrix task gives
+    /// its own permit back before calling [`run_matrix`], or with a cap of 1
+    /// its cells would wait on it forever.
+    pub(super) budget: Arc<tokio::sync::Semaphore>,
+}
+
 /// Run every cell of `run`, forwarding their events to `tx`, and fold the
 /// outcome into one [`StepResult`] for the matrix step.
 ///
-/// `outer_abort` is the enclosing parallel plan's signal: a matrix that
-/// starts after it tripped skips every cell, like `exec_standalone` skips a
-/// plain step. Once running, the enclosing plan stops the matrix by
-/// aborting its task, which drops the cell tasks with it.
+/// `enclosing` is set when the matrix runs as one task of a parallel batch
+/// (see [`Enclosing`]); a sequential or exclusive run has nothing beside it.
 pub(super) async fn run_matrix(
     run: MatrixRun,
     env: ExecEnv,
     tx: mpsc::Sender<RunnerEvent>,
-    outer_abort: Option<Arc<AbortSignal>>,
+    enclosing: Option<Enclosing>,
 ) -> StepResult {
+    let (outer_abort, budget) = enclosing.map_or((None, None), |e| (Some(e.abort), Some(e.budget)));
     let start = Instant::now();
     let MatrixRun {
         id,
@@ -164,8 +177,15 @@ pub(super) async fn run_matrix(
                 };
                 let ctx = ExecTaskCtx::new(env.clone(), cell_tx.clone(), Arc::clone(&abort));
                 let (cell_id, spec) = (cell.id.clone(), Arc::clone(&cell.spec));
+                let budget = budget.clone();
                 let handle = join_set.spawn(async move {
                     let _permit = permit;
+                    // The batch-wide cap (see `Enclosing::budget`). Never
+                    // closed; a closed one would only mean "no shared cap".
+                    let _shared = match budget {
+                        Some(budget) => budget.acquire_owned().await.ok(),
+                        None => None,
+                    };
                     exec_standalone(cell_id, spec, ctx).await
                 });
                 index_by_task.insert(handle.id(), next);
