@@ -475,6 +475,49 @@ mod run_command_dry_run_tests {
         assert!(output.contains("program: cargo"), "got: {output}");
     }
 
+    /// TASK-2277 AC #6: a matrix step lists every cell with its fully
+    /// expanded args, under its schedule.
+    #[test]
+    fn dry_run_lists_every_matrix_cell() {
+        let mut spec = ops_core::config::ExecCommandSpec::new(
+            "cargo",
+            ["doc", "--no-deps", "-p", "${matrix.crate}"],
+        );
+        let mut matrix = ops_core::config::Matrix::default();
+        matrix
+            .axes
+            .insert("crate".into(), vec!["core".into(), "vault".into()]);
+        let mut strategy = ops_core::config::Strategy::new(matrix);
+        strategy.max_parallel = Some(1);
+        spec.strategy = Some(strategy);
+        let config = TestConfigBuilder::new()
+            .command("doc-default", ops_core::config::CommandSpec::Exec(spec))
+            .build();
+        let runner = ops_runner::command::CommandRunner::new(config, PathBuf::from("."));
+        let mut buf = Vec::new();
+        run_command_dry_run_to(&runner, "doc-default", &mut buf).unwrap();
+        let output = String::from_utf8(buf).unwrap();
+        assert!(
+            output.contains("matrix:  2 cell(s), max_parallel = 1, fail_fast = true"),
+            "got: {output}"
+        );
+        let core = output.find("- doc-default [crate=core]").expect(&output);
+        let vault = output.find("- doc-default [crate=vault]").expect(&output);
+        assert!(core < vault, "cells in cell order: {output}");
+        assert!(
+            output.contains("args:    doc --no-deps -p core"),
+            "{output}"
+        );
+        assert!(
+            output.contains("args:    doc --no-deps -p vault"),
+            "{output}"
+        );
+        assert!(
+            !output.contains("${matrix."),
+            "no unexpanded refs: {output}"
+        );
+    }
+
     #[test]
     fn dry_run_shows_program_and_args() {
         let config = TestConfigBuilder::new()

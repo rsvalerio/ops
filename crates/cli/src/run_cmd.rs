@@ -231,8 +231,10 @@ async fn run_named_sequence_lifecycle(
     plans: &[NamePlan],
     on_event: &mut impl FnMut(ops_runner::command::RunnerEvent),
 ) -> Vec<StepResult> {
-    let command_ids: Vec<ops_core::config::CommandId> =
+    // TASK-2277: rows, not leaves — a matrix leaf renders one row per cell.
+    let leaf_ids: Vec<ops_core::config::CommandId> =
         plans.iter().flat_map(|p| p.plan.leaf_ids()).collect();
+    let command_ids = runner.row_ids(&leaf_ids);
     let start = std::time::Instant::now();
     on_event(ops_runner::command::RunnerEvent::PlanStarted { command_ids });
     let results = run_name_plans(runner, plans, false, &mut |event| match event {
@@ -529,7 +531,9 @@ fn run_commands_with_display(
     // a sequential group fans out into several stages (TASK-2275 AC #6).
     let all_leaf_ids: Vec<ops_core::config::CommandId> =
         plans.iter().flat_map(|p| p.plan.leaf_ids()).collect();
-    let display_map = build_display_map(runner, &all_leaf_ids);
+    // A matrix cell's row id is its label (`name [key=value]`), which
+    // `display_cmd_for` falls back to since no command has that name.
+    let display_map = build_display_map(runner, &runner.row_ids(&all_leaf_ids));
     let mut display = ProgressDisplay::new(DisplayOptions::new(
         runner.output_config(),
         display_map,
