@@ -8,6 +8,8 @@
     )
 )]
 
+/// Human-readable target/kind/changed descriptions of resource changes.
+mod describe;
 /// Plan model: the deserialization contract with terraform's JSON plan
 /// format and the classification types derived from it.
 pub mod model;
@@ -268,6 +270,12 @@ fn classify_plan(plan: &Plan) -> Vec<ClassifiedChange> {
                         ),
                         name: sanitize_terminal_text(rc.name.as_deref().unwrap_or_default()),
                         module: rc.module.as_deref().map(sanitize_terminal_text),
+                        target: sanitize_terminal_text(&describe::target(rc)),
+                        kind: sanitize_terminal_text(&describe::kind(rc)),
+                        changed: describe::changed(rc, action)
+                            .iter()
+                            .map(|c| sanitize_terminal_text(c))
+                            .collect(),
                         mode: rc
                             .mode
                             .as_deref()
@@ -1032,6 +1040,9 @@ mod tests {
             resource_type: "test".into(),
             name: "test".into(),
             module: None,
+            target: String::new(),
+            kind: "test".into(),
+            changed: Vec::new(),
             mode: "managed".into(),
         }];
         assert!(has_changes(&changes));
@@ -1072,6 +1083,34 @@ mod tests {
         assert_eq!(change.resource_type, "aws_[1minstance");
         assert_eq!(change.name, "webfake");
         assert_eq!(change.mode, "managed");
+    }
+
+    /// Terraform reports the module under `module_address`; the describe
+    /// fields must reach `ClassifiedChange` from real-shaped plan JSON.
+    #[test]
+    fn classify_plan_reads_module_address_and_describes_changes() {
+        let json = r#"{
+            "format_version": "1.2",
+            "resource_changes": [
+                {
+                    "address": "module.vm[\"vm1\"].oci_core_instance.instance",
+                    "module_address": "module.vm[\"vm1\"]",
+                    "type": "oci_core_instance",
+                    "name": "instance",
+                    "change": {
+                        "actions": ["delete", "create"],
+                        "before": { "display_name": "vm1" },
+                        "replace_paths": [["source_details", "image_id"]]
+                    }
+                }
+            ]
+        }"#;
+        let (_plan, changes) = parse_and_classify(json).expect("parse should succeed");
+        let c = &changes[0];
+        assert_eq!(c.module.as_deref(), Some("module.vm[\"vm1\"]"));
+        assert_eq!(c.target, "vm1");
+        assert_eq!(c.kind, "core instance");
+        assert_eq!(c.changed, vec!["source_details.image_id"]);
     }
 
     /// A plan JSON larger than the cap must be
@@ -1536,7 +1575,7 @@ mod tests {
     /// regardless of the host terminal width, even when the caller has *not*
     /// requested `--no-color`. Colour and TTY detection are separate knobs, so
     /// `run_plan_pipeline_to` defaults `is_tty=false` for buffered sinks and
-    /// never probes `terminal_size::terminal_size()` for the module column.
+    /// never probes `terminal_size::terminal_size()` for the Changes column.
     #[test]
     fn run_plan_pipeline_to_buffered_sink_is_terminal_width_independent() {
         let dir = tempfile::tempdir().unwrap();
@@ -1579,6 +1618,9 @@ mod tests {
             resource_type: "test".into(),
             name: "test".into(),
             module: None,
+            target: String::new(),
+            kind: "test".into(),
+            changed: Vec::new(),
             mode: "managed".into(),
         }];
         assert!(!has_changes(&changes));
