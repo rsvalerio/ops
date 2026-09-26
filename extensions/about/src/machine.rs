@@ -172,7 +172,19 @@ fn lookup<'a>(
 /// highest precedence first: arrays concatenate with lower-precedence items
 /// first, while a string replaces whatever lower layers contributed.
 /// Every contributing source is named, in value order.
-fn merge_list(entries: Vec<(&toml::Value, String)>) -> Option<Setting> {
+///
+/// # Errors
+///
+/// A string in one layer and an array in another: cargo refuses to merge
+/// them and fails the build, so there is no effective value to report.
+fn merge_list(entries: Vec<(&toml::Value, String)>) -> Result<Option<Setting>, String> {
+    if let [(first, first_source), rest @ ..] = entries.as_slice() {
+        if let Some((_, source)) = rest.iter().find(|(v, _)| v.is_array() != first.is_array()) {
+            return Err(format!(
+                "cargo cannot merge a string and an array for the same key ({first_source}, {source})"
+            ));
+        }
+    }
     let mut parts: Vec<Setting> = Vec::new();
     for (value, source) in entries.into_iter().rev() {
         if !value.is_array() {
@@ -183,7 +195,7 @@ fn merge_list(entries: Vec<(&toml::Value, String)>) -> Option<Setting> {
             source,
         });
     }
-    join_settings(&parts)
+    Ok(join_settings(&parts))
 }
 
 /// Space-join the values and comma-join the sources of `parts`, skipping
@@ -205,7 +217,7 @@ fn join_settings(parts: &[Setting]) -> Option<Setting> {
 }
 
 /// A list-valued key merged across every layer that sets it.
-fn from_config_list(layers: &[ConfigLayer], keys: &[&str]) -> Option<Setting> {
+fn from_config_list(layers: &[ConfigLayer], keys: &[&str]) -> Result<Option<Setting>, String> {
     merge_list(
         layers
             .iter()
@@ -451,16 +463,27 @@ pub fn resolve_cargo_settings(
             source: "default".to_string(),
         });
     let (linker, target_rustflags) = resolve_target_tables(layers, env, host.as_deref(), &host_cfg);
-    let rustflags = env("CARGO_ENCODED_RUSTFLAGS")
-        .filter(|v| !v.is_empty())
-        .map(|v| Setting {
-            value: v.split('\x1f').collect::<Vec<_>>().join(" "),
-            source: "env:CARGO_ENCODED_RUSTFLAGS".to_string(),
-        })
-        .or_else(|| from_env(env, &["RUSTFLAGS"]))
-        .or(target_rustflags)
-        .or_else(|| from_env(env, &["CARGO_BUILD_RUSTFLAGS"]))
-        .or_else(|| from_config_list(layers, &["build", "rustflags"]));
+    // Cargo merges config files at load, so a rejected merge fails every
+    // build whatever env overrides are set: report no rustflags at all.
+    let rustflags = match (
+        target_rustflags,
+        from_config_list(layers, &["build", "rustflags"]),
+    ) {
+        (Ok(target_rustflags), Ok(build_rustflags)) => env("CARGO_ENCODED_RUSTFLAGS")
+            .filter(|v| !v.is_empty())
+            .map(|v| Setting {
+                value: v.split('\x1f').collect::<Vec<_>>().join(" "),
+                source: "env:CARGO_ENCODED_RUSTFLAGS".to_string(),
+            })
+            .or_else(|| from_env(env, &["RUSTFLAGS"]))
+            .or(target_rustflags)
+            .or_else(|| from_env(env, &["CARGO_BUILD_RUSTFLAGS"]))
+            .or(build_rustflags),
+        (Err(e), _) | (_, Err(e)) => {
+            tracing::warn!(error = %e, "about/machine: invalid rustflags config");
+            None
+        }
+    };
     CargoSettings {
         host,
         jobs,
@@ -479,12 +502,13 @@ pub fn resolve_cargo_settings(
 /// `CARGO_TARGET_<TRIPLE>_*` first, then `target.<triple>`, then matching
 /// `target.'cfg(..)'` tables. Rustflags are merged across layers per key,
 /// then the triple's are followed by each matching cfg key's, sorted by key.
+/// Rustflags are `Err` when a merge is one cargo rejects (see [`merge_list`]).
 fn resolve_target_tables(
     layers: &[ConfigLayer],
     env: &dyn Fn(&str) -> Option<String>,
     triple: Option<&str>,
     host_cfg: &[String],
-) -> (Option<Setting>, Option<Setting>) {
+) -> (Option<Setting>, Result<Option<Setting>, String>) {
     let env_key = triple.map(triple_env_key);
     let env_setting = |suffix: &str| {
         env_key
@@ -504,9 +528,11 @@ fn resolve_target_tables(
             })
         });
 
-    let rustflags = env_setting("RUSTFLAGS").or_else(|| {
-        let triple_flags =
-            triple.and_then(|t| from_config_list(layers, &["target", t, "rustflags"]));
+    let config_rustflags = (|| {
+        let triple_flags = match triple {
+            Some(t) => from_config_list(layers, &["target", t, "rustflags"])?,
+            None => None,
+        };
         // Cargo merges each `cfg(..)` key across layers, then walks the keys
         // in sorted order.
         let mut by_key: BTreeMap<&str, Vec<(&toml::Value, String)>> = BTreeMap::new();
@@ -518,12 +544,13 @@ fn resolve_target_tables(
                     .push((value, cfg_source(layer, key)));
             }
         }
-        let parts: Vec<Setting> = triple_flags
-            .into_iter()
-            .chain(by_key.into_values().filter_map(merge_list))
-            .collect();
-        join_settings(&parts)
-    });
+        let mut parts: Vec<Setting> = triple_flags.into_iter().collect();
+        for entries in by_key.into_values() {
+            parts.extend(merge_list(entries)?);
+        }
+        Ok(join_settings(&parts))
+    })();
+    let rustflags = config_rustflags.map(|flags| env_setting("RUSTFLAGS").or(flags));
     (linker, rustflags)
 }
 
@@ -1129,6 +1156,7 @@ mod tests {
              /home/u/.cargo/config.toml [target.'cfg(unix)'], /w/.cargo/config.toml [target.'cfg(unix)']"
         );
 
+        // A string replaces lower layers only when they are strings too.
         let layers = [
             layer(
                 "/w/.cargo/config.toml",
@@ -1138,16 +1166,45 @@ mod tests {
             layer(
                 "/home/u/.cargo/config.toml",
                 "/home/u",
-                "[build]\nrustflags = [\"-Clink-arg=-fuse-ld=mold\"]\n",
+                "[build]\nrustflags = \"-Clink-arg=-fuse-ld=mold\"\n",
             ),
         ];
-        let flags = resolve_cargo_settings(&layers, &no_env, Path::new("/w"), None, host)
+        let flags = resolve_cargo_settings(&layers, &no_env, Path::new("/w"), None, host.clone())
             .rustflags
             .expect("string rustflags");
         assert_eq!(
             (flags.value.as_str(), flags.source.as_str()),
             ("-Ctarget-cpu=native", "/w/.cargo/config.toml")
         );
+
+        // Cargo rejects a string merged with an array, in either order and
+        // whatever env overrides are set: no effective rustflags.
+        let env = |name: &str| (name == "RUSTFLAGS").then(|| "-Copt-level=1".to_string());
+        for (near, far) in [
+            ("\"-Ctarget-cpu=native\"", "[\"-Clink-arg=-fuse-ld=mold\"]"),
+            ("[\"-Ctarget-cpu=native\"]", "\"-Clink-arg=-fuse-ld=mold\""),
+        ] {
+            for table in [
+                "build",
+                "target.x86_64-unknown-linux-gnu",
+                "target.'cfg(unix)'",
+            ] {
+                let layers = [
+                    layer(
+                        "/w/.cargo/config.toml",
+                        "/w",
+                        &format!("[{table}]\nrustflags = {near}\n"),
+                    ),
+                    layer(
+                        "/home/u/.cargo/config.toml",
+                        "/home/u",
+                        &format!("[{table}]\nrustflags = {far}\n"),
+                    ),
+                ];
+                let s = resolve_cargo_settings(&layers, &env, Path::new("/w"), None, host.clone());
+                assert_eq!(s.rustflags, None, "[{table}] {near} over {far}");
+            }
+        }
     }
 
     /// TASK-2300 AC #2: the default target dir is anchored at the workspace
