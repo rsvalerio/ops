@@ -1,7 +1,9 @@
 //! CLI argument definitions, subcommand enums, and arg preprocessing.
 
+use std::collections::HashSet;
 use std::ffi::OsString;
 use std::path::PathBuf;
+use std::sync::OnceLock;
 
 pub use clap::{CommandFactory, Parser};
 use ops_core::stack::Stack;
@@ -783,6 +785,28 @@ pub fn hide_irrelevant_commands(mut cmd: clap::Command, stack: Option<Stack>) ->
     cmd
 }
 
+/// Every token clap resolves to a builtin before the `External` catch-all:
+/// each registered subcommand's name, every alias (`tw`, `eof`, …) and the
+/// auto-generated `help`. A `[commands.<name>]` entry — user-defined or a
+/// stack default — named any of these parses as the builtin and is never
+/// reachable as `ops <name>`.
+///
+/// Derived from clap's own built command tree (so a new `CoreSubcommand`
+/// is covered without editing a list) and cached for the process lifetime:
+/// `new-command` validates on every keystroke.
+pub fn builtin_subcommand_names() -> &'static HashSet<String> {
+    static NAMES: OnceLock<HashSet<String>> = OnceLock::new();
+    NAMES.get_or_init(|| {
+        let mut cmd = Cli::command();
+        // `build` materialises the implicit `help` subcommand.
+        cmd.build();
+        cmd.get_subcommands()
+            .flat_map(|c| std::iter::once(c.get_name()).chain(c.get_all_aliases()))
+            .map(str::to_owned)
+            .collect()
+    })
+}
+
 pub fn preprocess_args(args: Vec<OsString>) -> Vec<OsString> {
     if args.get(1).is_some_and(|arg| arg == "ops") {
         // Drop the redundant `ops` token in `ops ops <cmd>` (cargo-style
@@ -798,6 +822,38 @@ pub fn preprocess_args(args: Vec<OsString>) -> Vec<OsString> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// TASK-2297: a stack default named like a builtin (or a builtin's
+    /// alias) parses as the builtin and never runs as `ops <name>`. Pin
+    /// that every stack's default command is reachable.
+    #[test]
+    fn every_stack_default_command_is_reachable() {
+        use strum::IntoEnumIterator as _;
+        let builtins = builtin_subcommand_names();
+        for stack in Stack::iter() {
+            for name in stack.default_commands_ref().keys() {
+                assert!(
+                    !builtins.contains(name),
+                    "{} default `{name}` is shadowed by the builtin `ops {name}`",
+                    stack.as_str()
+                );
+                let cli = Cli::parse_from(["ops", name.as_str()]);
+                assert!(
+                    matches!(cli.subcommand, Some(CoreSubcommand::External(_))),
+                    "{} default `{name}` must parse as a config command",
+                    stack.as_str()
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn builtin_names_cover_aliases_and_help() {
+        let builtins = builtin_subcommand_names();
+        for name in ["init", "trailing-whitespace", "tw", "eof", "help"] {
+            assert!(builtins.contains(name), "missing {name} in {builtins:?}");
+        }
+    }
 
     // -- Subcommand parsing --
 

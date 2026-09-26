@@ -1,9 +1,7 @@
 //! `ops new-command` — interactively add a command to `.ops.toml`.
 
-use std::collections::HashSet;
 use std::io::{self, Write};
 use std::path::Path;
-use std::sync::OnceLock;
 
 use ops_core::config::{edit_ops_toml, ensure_table, insert_command};
 
@@ -100,35 +98,12 @@ pub fn validate_command_name(name: &str) -> anyhow::Result<()> {
     // `ops <name>`. The list is derived from clap's own registered
     // subcommands so future additions to `CoreSubcommand` are covered
     // without editing this function.
-    if builtin_subcommand_names().contains(name) {
+    if crate::args::builtin_subcommand_names().contains(name) {
         anyhow::bail!(
             "command name '{name}' collides with a built-in `ops` subcommand; pick a different name"
         );
     }
     Ok(())
-}
-
-/// PERF-1 (TASK-1318): cache the set of clap-registered built-in
-/// subcommand names for the process lifetime. The previous shape rebuilt
-/// the entire derived clap command tree on every `validate_command_name`
-/// call — including from `inquire::Text::with_validator`, which fires on
-/// every keystroke at the `new-command` prompt. Aligned with the
-/// `theme_cmd::BUILTIN_THEME_NAMES` `OnceLock` idiom in the same crate.
-static BUILTIN_SUBCOMMAND_NAMES: OnceLock<HashSet<String>> = OnceLock::new();
-
-/// Names of every clap-registered built-in subcommand on
-/// the `Cli` definition, excluding the `External` catch-all (which is what
-/// `ops <user-command>` resolves to). The `External` variant is registered
-/// via `#[command(external_subcommand)]` and is not enumerated by
-/// `get_subcommands()`, so no filtering is needed.
-fn builtin_subcommand_names() -> &'static HashSet<String> {
-    BUILTIN_SUBCOMMAND_NAMES.get_or_init(|| {
-        use clap::CommandFactory;
-        crate::args::Cli::command()
-            .get_subcommands()
-            .map(|c| c.get_name().to_string())
-            .collect()
-    })
 }
 
 /// Parse a full command string into (program, args), honouring shell
@@ -415,7 +390,7 @@ theme = "classic"
     /// `args::stack_specific_commands` for the same reason.
     #[test]
     fn validate_command_name_rejects_every_builtin_subcommand() {
-        let builtins = builtin_subcommand_names();
+        let builtins = crate::args::builtin_subcommand_names();
         assert!(
             !builtins.is_empty(),
             "clap must expose at least one built-in subcommand for this guard to be meaningful"
@@ -430,6 +405,10 @@ theme = "classic"
             "new-command",
             "run-before-commit",
             "run-before-push",
+            // Aliases and clap's implicit `help` shadow a command too.
+            "tw",
+            "eof",
+            "help",
         ] {
             assert!(
                 builtins.iter().any(|n| n == required),

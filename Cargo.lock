@@ -1368,6 +1368,7 @@ dependencies = [
  "serde_json",
  "serial_test",
  "shlex 1.3.0",
+ "strum",
  "tempfile",
  "tokio",
  "toml 1.1.4+spec-1.1.0",
