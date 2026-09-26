@@ -1,13 +1,15 @@
 ---
 id: TASK-2297
 title: 'Terraform stack default init is unreachable: builtin ops init shadows it'
-status: Triage
+status: To Do
 assignee: []
 created_date: '2026-09-26 19:06'
+updated_date: '2026-09-26 19:55'
 labels:
   - code-review-rust
   - API
 dependencies: []
+parent_task_id: 'TASK-2303'
 modified_files:
   - crates/core/src/.default.terraform.ops.toml
   - crates/cli/src/args.rs

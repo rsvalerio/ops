@@ -1,13 +1,15 @@
 ---
 id: TASK-2294
 title: 'Compile-check the non-Unix allocation-lock branch of Store::lock_allocation'
-status: Triage
+status: To Do
 assignee: []
 created_date: '2026-09-26 19:03'
+updated_date: '2026-09-26 19:55'
 labels:
   - code-review-rust
   - portability
 dependencies: []
+parent_task_id: 'TASK-2305'
 modified_files:
   - crates/backlog/src/store.rs
 priority: low

@@ -1,13 +1,15 @@
 ---
 id: TASK-2301
 title: 'Global --dry-run is still ignored by builtin subcommands that write or spawn (tw, eof, init, lock, import-makefile, new-command, theme select, about setup)'
-status: Triage
+status: To Do
 assignee: []
 created_date: '2026-09-26 19:13'
+updated_date: '2026-09-26 19:55'
 labels:
   - code-review-rust
   - API
 dependencies: []
+parent_task_id: 'TASK-2303'
 modified_files:
   - crates/cli/src/main.rs
   - crates/cli/src/subcommands.rs

@@ -1,13 +1,15 @@
 ---
 id: TASK-2300
 title: 'ops about machine: evaluate target.''cfg(..)'' tables and anchor the default target dir at the workspace root'
-status: Triage
+status: To Do
 assignee: []
 created_date: '2026-09-26 19:08'
+updated_date: '2026-09-26 19:55'
 labels:
   - code-review-rust
   - feature
 dependencies: []
+parent_task_id: 'TASK-2304'
 modified_files:
   - extensions/about/src/machine.rs
 priority: low

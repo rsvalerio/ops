@@ -1,14 +1,16 @@
 ---
 id: TASK-2296
 title: 'Add ops backlog wave create --members: create a wave parent and link its members in one step'
-status: Triage
+status: To Do
 assignee: []
 created_date: '2026-09-26 19:06'
+updated_date: '2026-09-26 19:55'
 labels:
   - feature
   - backlog
   - waves
 dependencies: []
+parent_task_id: 'TASK-2305'
 modified_files:
   - crates/backlog/src/cmd/wave.rs
   - crates/cli/src/args.rs

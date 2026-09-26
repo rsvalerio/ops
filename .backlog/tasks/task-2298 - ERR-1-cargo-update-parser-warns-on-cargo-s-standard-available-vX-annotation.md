@@ -1,13 +1,15 @@
 ---
 id: TASK-2298
 title: 'ERR-1: cargo-update parser warns on cargo''s standard ''(available: vX)'' annotation'
-status: Triage
+status: To Do
 assignee: []
 created_date: '2026-09-26 19:08'
+updated_date: '2026-09-26 19:55'
 labels:
   - code-review-rust
   - ERR
 dependencies: []
+parent_task_id: 'TASK-2304'
 modified_files:
   - extensions-rust/cargo-update/src/lib.rs
 priority: low
