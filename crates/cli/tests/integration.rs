@@ -894,6 +894,37 @@ fn cli_trailing_whitespace_rewrites_and_exits_non_zero() {
         .stdout(predicate::str::contains("0 changed"));
 }
 
+/// TASK-2301: a builtin that cannot preview refuses the global
+/// `--dry-run` instead of silently running — the fixer must not rewrite
+/// the file and `init` must not write `.ops.toml`.
+#[test]
+fn cli_dry_run_refuses_unpreviewable_builtins_and_writes_nothing() {
+    let dir = temp_dir();
+    let file = dir.path().join("dirty.txt");
+    std::fs::write(&file, "a  \n").expect("write fixture");
+
+    for argv in [
+        ["--dry-run", "tw"].as_slice(),
+        ["end-of-file-fixer", "--dry-run"].as_slice(),
+        ["--dry-run", "init"].as_slice(),
+    ] {
+        ops_in(dir.path(), argv)
+            .failure()
+            .stderr(predicate::str::contains(
+                "--dry-run is not supported for `ops ",
+            ));
+    }
+    assert_eq!(
+        std::fs::read_to_string(&file).expect("read back"),
+        "a  \n",
+        "a refused dry run must not rewrite the file"
+    );
+    assert!(
+        !dir.path().join(".ops.toml").exists(),
+        "a refused dry run must not write .ops.toml"
+    );
+}
+
 #[test]
 fn cli_trailing_whitespace_tw_alias_honours_the_same_contract() {
     let dir = temp_dir();

@@ -308,7 +308,10 @@ over a composite is not supported.
 
 Global flags: `--dry-run` (preview the resolved plan — never executes: `run-before-commit` /
 `run-before-push` print their plan, and backlog actions that cannot preview — `backlog init`,
-`task create`/`edit`, `commit` and `wave claim`/`park` — refuse it with an error), `--verbose` (full stderr on
+`task create`/`edit`, `commit` and `wave claim`/`park` — refuse it with an error, as do the
+builtins that write or run tools without a preview mode: `init`, `new-command`,
+`import-makefile`, `trailing-whitespace`, `end-of-file-fixer`, `theme select`, `lock` /
+`lock break`, `about` (except `about backlog`), `deps` and `plans`), `--verbose` (full stderr on
 failure), `--tap <file>` (capture raw output), `--raw` (inherit child stdio, no ops output).
 
 Hook escape hatches: set `SKIP_OPS_RUN_BEFORE_PUSH` (or `SKIP_OPS_RUN_BEFORE_COMMIT`)

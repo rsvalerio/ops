@@ -46,6 +46,7 @@ mod about_cmd;
 mod args;
 mod backlog_cmd;
 mod clippy_findings_cmd;
+mod dry_run;
 mod extension_cmd;
 mod help;
 mod hook_shared;
@@ -261,6 +262,12 @@ fn dispatch(
     // re-loaded the file with a stricter (hard-error) policy than the
     // early `load_config_or_default("early")`, so a malformed manifest
     // could succeed `--help` and bail later in the same run.
+    //
+    // TASK-2301: a builtin that cannot preview refuses the global
+    // `--dry-run` here, before it writes or spawns anything.
+    if let Some(sub) = &cli.subcommand {
+        dry_run::refuse_unpreviewable(sub, cli.dry_run)?;
+    }
     match cli.subcommand {
         Some(CoreSubcommand::Init {
             force,
