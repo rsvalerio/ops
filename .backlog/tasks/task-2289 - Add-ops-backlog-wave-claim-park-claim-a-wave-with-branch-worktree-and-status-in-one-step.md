@@ -1,10 +1,10 @@
 ---
 id: TASK-2289
 title: 'Add ops backlog wave claim/park: claim a wave with branch, worktree and status in one step'
-status: To Do
+status: Done
 assignee: []
 created_date: '2026-09-26 17:47'
-updated_date: '2026-09-26 18:27'
+updated_date: '2026-09-26 19:05'
 labels:
   - feature
   - backlog
@@ -34,7 +34,14 @@ Source: skills-vs-ops audit of rsvalerio/ai dev-skills, 2026-09-26 (https://clau
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 `wave claim` fails without side effects when the wave branch already exists
-- [ ] #2 A successful claim leaves the branch, the worktree and In Progress status all in place
-- [ ] #3 `wave park` keeps the branch and worktree and records why the wave was parked
+- [x] #1 `wave claim` fails without side effects when the wave branch already exists
+- [x] #2 A successful claim leaves the branch, the worktree and In Progress status all in place
+- [x] #3 `wave park` keeps the branch and worktree and records why the wave was parked
+
 <!-- AC:END -->
+
+## Implementation Notes
+
+<!-- SECTION:NOTES:BEGIN -->
+Implemented crates/backlog/src/cmd/wave_claim.rs: claim preflights branch/worktree existence (refuses with no side effects), runs git worktree add -b, then flips to In Progress and records Branch/Worktree notes (undoes the worktree+branch, unforced, if the edit fails). park sets status (default In Progress), appends Parked: <reason> plus resume branch/worktree; touches nothing in git.
+<!-- SECTION:NOTES:END -->

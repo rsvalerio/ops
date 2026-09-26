@@ -1,10 +1,10 @@
 ---
 id: TASK-2285
 title: 'Add ops backlog wave overlap: file scope, pairwise overlap and suggested merge order for waves'
-status: To Do
+status: Done
 assignee: []
 created_date: '2026-09-26 17:47'
-updated_date: '2026-09-26 18:27'
+updated_date: '2026-09-26 19:05'
 labels:
   - feature
   - backlog
@@ -34,7 +34,14 @@ Source: skills-vs-ops audit of rsvalerio/ai dev-skills, 2026-09-26 (https://clau
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 `wave overlap` reports each wave's file scope and the shared paths with every other open wave
-- [ ] #2 It suggests a merge order, least-overlapping first, deterministic for ties
-- [ ] #3 JSON output (`--json`) carries a schemaVersion
+- [x] #1 `wave overlap` reports each wave's file scope and the shared paths with every other open wave
+- [x] #2 It suggests a merge order, least-overlapping first, deterministic for ties
+- [x] #3 JSON output (`--json`) carries a schemaVersion
+
 <!-- AC:END -->
+
+## Implementation Notes
+
+<!-- SECTION:NOTES:BEGIN -->
+Implemented run_wave_overlap in crates/backlog/src/cmd/wave.rs with render::wave_overlap_plain/json (kind wave-overlap, schemaVersion 1). Merge order: fewest shared paths summed over other open waves first, ties by numeric task id. Optional follow-up `wave create --members` not implemented (not in ACs).
+<!-- SECTION:NOTES:END -->

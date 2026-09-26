@@ -1,10 +1,10 @@
 ---
 id: TASK-2286
 title: 'Add ops backlog commit: commit exactly the given tasks'' files and refuse anything else staged'
-status: To Do
+status: Done
 assignee: []
 created_date: '2026-09-26 17:47'
-updated_date: '2026-09-26 18:27'
+updated_date: '2026-09-26 19:05'
 labels:
   - feature
   - backlog
@@ -32,7 +32,14 @@ Source: skills-vs-ops audit of rsvalerio/ai dev-skills, 2026-09-26 (https://clau
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 Only the listed tasks' changed files are committed
-- [ ] #2 Any other staged path aborts the commit and leaves the index as it was
-- [ ] #3 No changed task files means no commit and a non-zero exit with a clear message
+- [x] #1 Only the listed tasks' changed files are committed
+- [x] #2 Any other staged path aborts the commit and leaves the index as it was
+- [x] #3 No changed task files means no commit and a non-zero exit with a clear message
+
 <!-- AC:END -->
+
+## Implementation Notes
+
+<!-- SECTION:NOTES:BEGIN -->
+Implemented crates/backlog/src/cmd/commit.rs: refuses before touching anything if any foreign path is staged; commits only changed task files via `git add` + `git commit --only -- <files>` (race-free against concurrent stagers); no changes -> error, no commit.
+<!-- SECTION:NOTES:END -->

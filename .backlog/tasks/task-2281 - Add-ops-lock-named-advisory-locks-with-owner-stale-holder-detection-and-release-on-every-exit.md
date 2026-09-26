@@ -1,10 +1,10 @@
 ---
 id: TASK-2281
 title: 'Add ops lock: named advisory locks with owner, stale-holder detection and release on every exit'
-status: To Do
+status: Done
 assignee: []
 created_date: '2026-09-26 17:47'
-updated_date: '2026-09-26 18:27'
+updated_date: '2026-09-26 19:05'
 labels:
   - feature
   - cli
@@ -32,8 +32,15 @@ Source: skills-vs-ops audit of rsvalerio/ai dev-skills, 2026-09-26 (https://clau
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 `ops lock <name> -- <cmd>` acquires, runs and releases, including on SIGINT/SIGTERM and non-zero exit
-- [ ] #2 `ops lock status` reports holder PID, worktree, command, age and liveness; a dead holder is reported as stale
-- [ ] #3 Locks are shared across git worktrees of one repository (stored under the common git dir)
-- [ ] #4 Tests cover contention, a stale holder, and release on failure
+- [x] #1 `ops lock <name> -- <cmd>` acquires, runs and releases, including on SIGINT/SIGTERM and non-zero exit
+- [x] #2 `ops lock status` reports holder PID, worktree, command, age and liveness; a dead holder is reported as stale
+- [x] #3 Locks are shared across git worktrees of one repository (stored under the common git dir)
+- [x] #4 Tests cover contention, a stale holder, and release on failure
+
 <!-- AC:END -->
+
+## Implementation Notes
+
+<!-- SECTION:NOTES:BEGIN -->
+Implemented as crates/cli/src/lock_cmd.rs: flock(2) on <git-common-dir>/ops/locks/<name>.lock (kernel drops the lock on any holder death, so no lock can outlive its holder); record (pid, host, worktree, command, acquired) written after locking, cleared on release; SIGINT/SIGTERM forwarded to the child and ops exits 128+signo after it. `ops lock break` clears a dead holder record; it has no --force: a live holder owns a kernel lock that cannot be revoked from outside, so the refusal names the holder to stop instead. Tests: lock_cmd unit tests (contention, stale record, release on failure) + crates/cli/tests/lock.rs (shared across worktrees, SIGTERM release, failing command, SIGKILL -> stale).
+<!-- SECTION:NOTES:END -->
