@@ -1,20 +1,23 @@
 use std::collections::HashMap;
 
+use ops_core::output::display_width;
 use ops_core::table::{Cell, OpsTable};
 
 use crate::model::{Action, ClassifiedChange};
 
-/// Minimum width for the wrapping `Module` column. Below this the table looks
-/// broken, so module paths are wrapped instead.
-const MODULE_COL_MIN_WIDTH: usize = 20;
+/// Minimum width for the wrapping `Changes` column. Below this the table
+/// looks broken, so the list is wrapped instead.
+const CHANGES_COL_MIN_WIDTH: usize = 20;
 
-/// Columns the change table reserves for the three
-/// non-wrapping cells (`Action`, `Type`, `Name`) plus the four `│ … │`
-/// separators of `OpsTable`'s frame. The remaining terminal columns
-/// after subtracting this budget are handed to the `Module` column. If a
-/// future column is added or removed, update this constant alongside
-/// `set_header(...)` so the budget reflects the new shape.
-const NON_MODULE_COLS_RESERVED: usize = 40;
+/// Columns the change table's frame takes: the five `│` separators plus one
+/// space of padding on each side of the four cells. Together with the
+/// widest `Action`, `Target` and `Resource` cells, this is subtracted from
+/// the terminal width to size the `Changes` column. Update it alongside
+/// `set_header(...)` if a column is added or removed.
+const FRAME_COLS: usize = 13;
+
+/// Changed attributes listed per row before the rest collapse into `+N`.
+const MAX_LISTED_CHANGES: usize = 3;
 
 const ACTION_DISPLAY_ORDER: [Action; 7] = [
     Action::Unknown,
@@ -96,7 +99,7 @@ pub fn render_summary_table(changes: &[ClassifiedChange], use_color: bool) -> St
 /// Renders the per-resource change table.
 ///
 /// `is_tty` and `use_color` are deliberately separate knobs: `is_tty` drives
-/// terminal-width probing (right-sizing the `Module` column) while `use_color`
+/// terminal-width probing (right-sizing the `Changes` column) while `use_color`
 /// drives whether `Action::color()` is applied to cells. Conflating them would
 /// make piped-but-coloured output environment-sensitive and would disable
 /// width probing on a real TTY under `--no-color`. Callers derive `is_tty`
@@ -129,15 +132,16 @@ pub fn render_resource_table(
         a.action
             .sort_priority()
             .cmp(&b.action.sort_priority())
-            .then_with(|| a.resource_type.cmp(&b.resource_type))
-            .then_with(|| a.name.cmp(&b.name))
+            .then_with(|| a.target.cmp(&b.target))
+            .then_with(|| a.kind.cmp(&b.kind))
+            .then_with(|| a.address.cmp(&b.address))
     });
 
     // `OpsTable::with_tty` gates colour in
     // `cell()`, so the colour preference is what belongs here. The
     // `is_tty` flag controls width probing below.
     let mut table = OpsTable::with_tty(use_color);
-    table.set_header(vec!["Action", "Type", "Name", "Module"]);
+    table.set_header(vec!["Action", "Target", "Resource", "Changes"]);
 
     // Only consult the real terminal size when the caller actually has a
     // TTY. Probing it under is_tty=false (piped, tests, CI snapshots) would
@@ -151,24 +155,40 @@ pub fn render_resource_table(
 
     for c in &filtered {
         let action_cell = table.cell(c.action.label(), c.action.color());
-        let module_display = c.module.as_deref().unwrap_or("");
         table.add_row(vec![
             action_cell,
-            OpsTable::text_cell(&c.resource_type),
-            OpsTable::text_cell(&c.name),
-            OpsTable::text_cell(module_display),
+            OpsTable::text_cell(&c.target),
+            OpsTable::text_cell(&c.kind),
+            OpsTable::text_cell(&summarize_changed(&c.changed)),
         ]);
     }
 
     if let Some(width) = term_width {
-        let capped = std::cmp::max(
-            MODULE_COL_MIN_WIDTH,
-            width.saturating_sub(NON_MODULE_COLS_RESERVED),
-        );
+        let widest =
+            |f: fn(&ClassifiedChange) -> usize| filtered.iter().map(|c| f(c)).max().unwrap_or(0);
+        let reserved = FRAME_COLS
+            .saturating_add(widest(|c| c.action.label().len()))
+            .saturating_add(widest(|c| display_width(&c.target)))
+            .saturating_add(widest(|c| display_width(&c.kind)));
+        let capped = std::cmp::max(CHANGES_COL_MIN_WIDTH, width.saturating_sub(reserved));
         table.set_max_width(3, u16::try_from(capped).unwrap_or(u16::MAX));
     }
 
     format!("{banner}{table}\n")
+}
+
+/// `["a", "b", "c", "d", "e"]` → `a, b, c +2`.
+fn summarize_changed(changed: &[String]) -> String {
+    let listed = changed
+        .iter()
+        .take(MAX_LISTED_CHANGES)
+        .map(String::as_str)
+        .collect::<Vec<_>>()
+        .join(", ");
+    match changed.len().saturating_sub(MAX_LISTED_CHANGES) {
+        0 => listed,
+        rest => format!("{listed} +{rest}"),
+    }
 }
 
 #[must_use]
@@ -255,6 +275,9 @@ mod tests {
             resource_type: rtype.to_string(),
             name: name.to_string(),
             module: None,
+            target: String::new(),
+            kind: rtype.to_string(),
+            changed: Vec::new(),
             mode: "managed".to_string(),
         }
     }
@@ -266,6 +289,8 @@ mod tests {
         module: &str,
     ) -> ClassifiedChange {
         ClassifiedChange {
+            address: format!("{module}.{rtype}.{name}"),
+            target: module.to_string(),
             module: Some(module.to_string()),
             ..make_change(action, rtype, name)
         }
@@ -394,28 +419,38 @@ mod tests {
         );
     }
 
-    /// Covers the `Some` side of `c.module.as_deref().unwrap_or("")`: a
-    /// change carrying a module path renders it in the `Module` column, while
-    /// one without renders an empty cell.
+    /// Rows read as "target / resource / what changes", so two instances
+    /// of the same resource (one per VM) stay distinguishable.
     #[test]
-    fn resource_table_renders_the_module_column() {
+    fn resource_table_renders_target_kind_and_changes() {
         let changes = vec![
-            make_change_in_module(
-                Action::Create,
-                "aws_instance",
-                "web",
-                "module.networking.module.vpc",
-            ),
-            make_change(Action::Delete, "null_resource", "old"),
+            ClassifiedChange {
+                target: "vm1".into(),
+                kind: "core public ip".into(),
+                changed: vec!["private_ip_id".into()],
+                ..make_change(Action::Update, "oci_core_public_ip", "public_ip")
+            },
+            ClassifiedChange {
+                target: "vm2".into(),
+                kind: "core instance".into(),
+                changed: ["a", "b", "c", "d", "e"].map(String::from).to_vec(),
+                ..make_change(Action::Replace, "oci_core_instance", "instance")
+            },
         ];
         let output = render_resource_table(&changes, false, false);
+        for needle in [
+            "Target",
+            "vm1",
+            "core public ip",
+            "private_ip_id",
+            "vm2",
+            "a, b, c +2",
+        ] {
+            assert!(output.contains(needle), "{needle} must render: {output}");
+        }
         assert!(
-            output.contains("module.networking.module.vpc"),
-            "Some(module) must render: {output}"
-        );
-        assert!(
-            output.contains("null_resource"),
-            "None module must still render its row: {output}"
+            !output.contains(", d"),
+            "overflow collapses into +N: {output}"
         );
     }
 
@@ -488,9 +523,8 @@ mod tests {
         let a = render_resource_table(&changes, false, false);
         let b = render_resource_table(&changes, false, false);
         assert_eq!(a, b, "non-TTY output must be deterministic");
-        // Sanity: width-dependent module-column truncation should not
-        // appear when no TTY is available — the final column carries the
-        // full module name (here, an empty string is fine).
+        // Sanity: width-dependent Changes-column truncation should not
+        // appear when no TTY is available.
         assert!(a.contains("aws_instance"), "full type must be present: {a}");
     }
 

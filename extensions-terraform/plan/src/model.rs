@@ -30,7 +30,8 @@ pub struct ResourceChange {
     /// Terraform address of the resource (e.g. `aws_instance.web[0]`).
     pub address: String,
     /// Module path prefix terraform reports the resource under; `None` for
-    /// root-module resources.
+    /// root-module resources. Terraform names the key `module_address`.
+    #[serde(rename = "module_address", alias = "module")]
     pub module: Option<String>,
     /// Management mode, `"managed"` or `"data"`; `None` when omitted.
     pub mode: Option<String>,
@@ -40,6 +41,9 @@ pub struct ResourceChange {
     pub name: Option<String>,
     /// The change itself: its action sequence.
     pub change: Change,
+    /// Why terraform chose this action (e.g. `"replace_because_tainted"`);
+    /// `None` when terraform gives no reason.
+    pub action_reason: Option<String>,
 }
 
 /// The action sequence terraform plans for one resource.
@@ -49,6 +53,20 @@ pub struct Change {
     /// Raw action verbs in order (e.g. `["delete", "create"]` for a
     /// replace).
     pub actions: Vec<String>,
+    /// Resource state before the change; `None` for creates and data reads.
+    pub before: Option<serde_json::Value>,
+    /// Resource state after the change, known values only.
+    pub after: Option<serde_json::Value>,
+    /// Sensitivity mask for `before`; `true` or an object of per-key flags.
+    pub before_sensitive: Option<serde_json::Value>,
+    /// Sensitivity mask for `after`; `true` or an object of per-key flags.
+    pub after_sensitive: Option<serde_json::Value>,
+    /// Attributes terraform will only know after apply, as `true` flags
+    /// mirroring `after`'s shape.
+    pub after_unknown: Option<serde_json::Value>,
+    /// Attribute paths that force a replace (e.g. `[["source_details",
+    /// "image_id"]]`); steps are strings or list indexes.
+    pub replace_paths: Option<Vec<Vec<serde_json::Value>>>,
 }
 
 /// The action classification this crate renders and sorts by.
@@ -167,6 +185,17 @@ pub struct ClassifiedChange {
     pub name: String,
     /// Sanitized module path; `None` for root-module resources.
     pub module: Option<String>,
+    /// Sanitized human name of what the change is about: the resource's
+    /// `display_name` or `name` attribute, else its module/`for_each`/`count`
+    /// keys; empty when none exists.
+    pub target: String,
+    /// Sanitized resource kind: the type without its provider prefix, spaced
+    /// (`oci_core_public_ip` → `core public ip`), plus the resource name
+    /// when it adds information.
+    pub kind: String,
+    /// Sanitized attribute paths the change touches, or why a replace
+    /// happens; empty for creates, deletes and reads.
+    pub changed: Vec<String>,
     /// Management mode, defaulted to `"managed"` when terraform omitted it.
     /// Populated and sanitized but not rendered by this crate.
     pub mode: String,
