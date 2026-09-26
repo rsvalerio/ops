@@ -291,16 +291,9 @@ fn dispatch(
         Some(CoreSubcommand::RunBeforeCommit {
             changed_only,
             action,
-        }) => {
-            return run_before_commit(
-                std::sync::Arc::clone(early_config),
-                action,
-                changed_only,
-                cli.dry_run,
-            )
-        }
+        }) => return run_before_commit(early_config, action, changed_only, cli.dry_run),
         Some(CoreSubcommand::RunBeforePush { action }) => {
-            return run_before_push(std::sync::Arc::clone(early_config), action, cli.dry_run);
+            return run_before_push(early_config, action, cli.dry_run);
         }
         Some(CoreSubcommand::About { refresh, action }) => {
             run_about(early_config, refresh, action)?;

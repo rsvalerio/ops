@@ -340,7 +340,7 @@ fn preview_hook_action(
 }
 
 pub fn run_before_commit(
-    config: std::sync::Arc<Config>,
+    config: &std::sync::Arc<Config>,
     action: Option<RunBeforeCommitAction>,
     changed_only: bool,
     dry_run: bool,
@@ -350,7 +350,12 @@ pub fn run_before_commit(
     } else {
         HookAction::Run { changed_only }
     };
-    run_hook_action(config, &pre_hook_cmd::COMMIT_OPS, hook_action, dry_run)
+    run_hook_action(
+        std::sync::Arc::clone(config),
+        &pre_hook_cmd::COMMIT_OPS,
+        hook_action,
+        dry_run,
+    )
 }
 
 /// `run-before-push` carries no `changed_only` because
@@ -358,7 +363,7 @@ pub fn run_before_commit(
 /// `args::CoreSubcommand::RunBeforePush` to stop it from parsing as a
 /// silent no-op.
 pub fn run_before_push(
-    config: std::sync::Arc<Config>,
+    config: &std::sync::Arc<Config>,
     action: Option<RunBeforePushAction>,
     dry_run: bool,
 ) -> anyhow::Result<ExitCode> {
@@ -369,7 +374,12 @@ pub fn run_before_push(
             changed_only: false,
         }
     };
-    run_hook_action(config, &pre_hook_cmd::PUSH_OPS, hook_action, dry_run)
+    run_hook_action(
+        std::sync::Arc::clone(config),
+        &pre_hook_cmd::PUSH_OPS,
+        hook_action,
+        dry_run,
+    )
 }
 
 /// Run a text-fixer and translate its [`ops_text_fixers::FixerReport`] into a process exit
@@ -764,12 +774,12 @@ commands = ["touch-marker"]
         let success = format!("{:?}", ExitCode::SUCCESS);
 
         let config = std::sync::Arc::new(ops_core::config::load_config_or_default("test-dry"));
-        let code = run_before_commit(std::sync::Arc::clone(&config), None, false, true)
+        let code = run_before_commit(&config, None, false, true)
             .expect("dry-run commit hook must not error");
         assert_eq!(format!("{code:?}"), success);
         assert!(!marker.exists(), "run-before-commit --dry-run ran a step");
 
-        let code = run_before_push(config, None, true).expect("dry-run push hook must not error");
+        let code = run_before_push(&config, None, true).expect("dry-run push hook must not error");
         assert_eq!(format!("{code:?}"), success);
         assert!(!marker.exists(), "run-before-push --dry-run ran a step");
     }
@@ -784,14 +794,9 @@ commands = ["touch-marker"]
         std::fs::write(dir.path().join(".git/HEAD"), "ref: refs/heads/main\n").expect("HEAD");
         let config = std::sync::Arc::new(Config::default());
 
-        run_before_commit(
-            std::sync::Arc::clone(&config),
-            Some(RunBeforeCommitAction::Install),
-            false,
-            true,
-        )
-        .expect("dry-run install must not error");
-        run_before_push(config, Some(RunBeforePushAction::Install), true)
+        run_before_commit(&config, Some(RunBeforeCommitAction::Install), false, true)
+            .expect("dry-run install must not error");
+        run_before_push(&config, Some(RunBeforePushAction::Install), true)
             .expect("dry-run install must not error");
 
         assert!(
