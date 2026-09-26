@@ -2,6 +2,21 @@
 All notable changes to this project will be documented in this file. See [conventional commits](https://www.conventionalcommits.org/) for commit guidelines.
 
 - - -
+## [v0.63.0](https://github.com/rsvalerio/ops/compare/4ae506b2594f0dbf08b5bd8828e07b435073df20..v0.63.0) - 2026-09-26
+#### 🚀 Features
+- (**tfplan**) describe plan changes by target, resource and changed attributes - ([c265403](https://github.com/rsvalerio/ops/commit/c265403305a06d50b43d7764aecc8a13f8317d9b)) - [@rsvalerio](https://github.com/rsvalerio), Claude Opus 5.5 (1M context)
+#### 📚 Documentation
+- update README for the backlog create-review-tasks path - ([87ffb27](https://github.com/rsvalerio/ops/commit/87ffb270d6aa633ae21bcd2eaf8e2ee9140bd769)) - [@rsvalerio](https://github.com/rsvalerio), Claude Code
+#### 🧪 Testing
+- (**cli**) canonicalize backlog test tempdir roots - ([3415d51](https://github.com/rsvalerio/ops/commit/3415d51bce884e3ae19a97af8d8d029ce7d69619)) - [@rsvalerio](https://github.com/rsvalerio), Claude Opus 5.5 (1M context)
+- (**cli**) pin global --dry-run propagation into backlog local flags - ([96d9445](https://github.com/rsvalerio/ops/commit/96d9445eb4a2ca2f8e922a44c346e82634e12c58)) - [@rsvalerio](https://github.com/rsvalerio), Claude Code
+#### 🚜 Refactoring
+- (**cli**) move create-review-tasks under ops backlog - ([4ae506b](https://github.com/rsvalerio/ops/commit/4ae506b2594f0dbf08b5bd8828e07b435073df20)) - [@rsvalerio](https://github.com/rsvalerio), Claude Code
+#### ⚙️ Miscellaneous
+- update backlog tasks - ([62db80f](https://github.com/rsvalerio/ops/commit/62db80f534d994c0dd2a8777f1ddf68e55889596)) - [@rsvalerio](https://github.com/rsvalerio)
+
+- - -
+
 ## [v0.62.0](https://github.com/rsvalerio/ops/compare/7b0689fa3aeb0bd9074f854bc3bab9bc7bc43791..v0.62.0) - 2026-09-20
 #### 🚀 Features
 - (**core**) let [extend.<name>] override help and auto-extend it for appended commands - ([ba0e39c](https://github.com/rsvalerio/ops/commit/ba0e39cf8c40f08b4fdceb1b92db11ecb97df0be)) - [@rsvalerio](https://github.com/rsvalerio), Claude Code
