@@ -1315,3 +1315,33 @@ mod properties {
         }
     }
 }
+
+/// TASK-2298: modern cargo appends `(available: vX)` to an `Updating` line
+/// when a newer semver-incompatible release exists. That is healthy output,
+/// not format drift: the entry parses and no trailing-tokens warn fires.
+#[test]
+fn available_annotation_parses_without_warn() {
+    let logged = capture_warn(|| {
+        let result =
+            parse_update_output(b"    Updating comfy-table v7.1.4 -> v7.2.2 (available: v8.0.1)\n");
+        assert_eq!(result.update_count, 1);
+        let entry = &result.entries[0];
+        assert_eq!(entry.name(), "comfy-table");
+        assert_eq!(entry.from(), Some("7.1.4"));
+        assert_eq!(entry.to(), Some("7.2.2"));
+    });
+    assert!(
+        !logged.contains("unexpected trailing tokens"),
+        "the standard (available: vX) annotation must not warn; got {logged:?}"
+    );
+
+    // Any other annotation is still drift and still warns.
+    let logged = capture_warn(|| {
+        let result = parse_update_output(b"    Updating serde v1.0.0 -> v1.0.1 (yanked)\n");
+        assert_eq!(result.update_count, 1);
+    });
+    assert!(
+        logged.contains("unexpected trailing tokens"),
+        "an unknown annotation must still warn; got {logged:?}"
+    );
+}

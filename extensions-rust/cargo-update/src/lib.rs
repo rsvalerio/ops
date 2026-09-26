@@ -477,6 +477,20 @@ enum ActionLineOutcome {
     NoMatch,
 }
 
+/// True when the remaining tokens are empty or exactly cargo's standard
+/// `(available: vX)` annotation, which `cargo update` appends to an
+/// `Updating`/`Downgrading` line whenever a newer semver-incompatible release
+/// exists. Consumes the iterator.
+fn is_available_annotation<'a>(it: &mut impl Iterator<Item = &'a str>) -> bool {
+    match (it.next(), it.next(), it.next()) {
+        (None, _, _) => true,
+        (Some("(available:"), Some(version), None) => {
+            version.strip_suffix(')').is_some_and(is_version_shaped)
+        }
+        _ => false,
+    }
+}
+
 /// Parse one of:
 /// - `Updating serde v1.0.0 -> v1.0.1`
 /// - `Downgrading serde v1.0.220 -> v1.0.219`
@@ -501,12 +515,13 @@ fn parse_action_line(line: &str) -> ActionLineOutcome {
         if arrow != "->" {
             return ActionLineOutcome::NoMatch;
         }
-        // A future cargo could append annotations such as
-        // `Updating serde v1 -> v2 (yanked)`. Splitting on whitespace keeps the
-        // extra tokens out of `to` rather than gluing them onto the version;
-        // warn so the format drift is visible instead of producing
-        // wrong-but-plausible output.
-        if it.next().is_some() {
+        // Modern cargo appends `(available: vX)` when a newer
+        // semver-incompatible release exists; that annotation is expected on
+        // healthy runs and is accepted silently. Any *other* trailing tokens
+        // (e.g. a future `(yanked)`) are kept out of `to` rather than glued
+        // onto the version, and warn so the format drift is visible instead of
+        // producing wrong-but-plausible output.
+        if !is_available_annotation(&mut it) {
             tracing::warn!(line = ?line, "cargo-update `Updating`/`Downgrading` line has unexpected trailing tokens; annotation discarded");
         }
         if !is_control_free(name) {
