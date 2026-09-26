@@ -450,9 +450,10 @@ fn is_sccache(wrapper: &str) -> bool {
         .is_some_and(|s| s == "sccache")
 }
 
-fn sccache_stats(wrapper: &str) -> Option<serde_json::Value> {
+/// Stats of the `sccache` on PATH.
+fn sccache_stats() -> Option<serde_json::Value> {
     let text = probe(
-        Command::new(wrapper).args(["--show-stats", "--stats-format=json"]),
+        Command::new("sccache").args(["--show-stats", "--stats-format=json"]),
         "sccache --show-stats",
     )?;
     serde_json::from_str(&text)
@@ -488,7 +489,10 @@ pub fn collect_machine_report(cwd: &Path) -> MachineReport {
         .rustc_wrapper
         .as_ref()
         .filter(|w| is_sccache(&w.value))
-        .and_then(|w| sccache_stats(&w.value));
+        // Probe the `sccache` on PATH, never the configured path: a repo's
+        // `.cargo/config.toml` controls `build.rustc-wrapper`, and this
+        // read-only page must not run a repo-supplied binary.
+        .and_then(|_| sccache_stats());
 
     MachineReport {
         schema_version: MACHINE_JSON_SCHEMA_VERSION,
