@@ -35,6 +35,9 @@ pub fn run_about(
             let cwd = crate::cwd()?;
             return backlog_cmd::run_about_backlog(&cwd, &config.backlog);
         }
+        // Machine state reads the OS and cargo config directly — no data
+        // providers, so no registry build.
+        Some(AboutAction::Machine { json }) => return ops_about::machine::run_about_machine(json),
         other => other,
     };
     let (cwd, registry) = cli_data_context(config)?;
@@ -43,10 +46,33 @@ pub fn run_about(
         #[cfg(feature = "sqlite")]
         Some(AboutAction::Code) => ops_about::code::run_about_code(&registry),
         #[cfg(feature = "sqlite")]
-        Some(AboutAction::Loc) => ops_about::loc::run_about_loc(&registry),
-        Some(AboutAction::Crates) => ops_about::units::run_about_units(&registry),
+        Some(AboutAction::Loc { json: false }) => ops_about::loc::run_about_loc(&registry),
+        #[cfg(feature = "sqlite")]
+        Some(AboutAction::Loc { json: true }) => ops_about::loc::run_about_loc_json(&registry),
+        Some(AboutAction::Crates { json: false }) => ops_about::units::run_about_units(&registry),
+        Some(AboutAction::Crates { json: true }) => {
+            ops_about::units::run_about_units_json(&registry)
+        }
         Some(AboutAction::Coverage) => ops_about::coverage::run_about_coverage(&registry),
-        Some(AboutAction::Dependencies) => ops_about::deps::run_about_deps(&registry),
+        Some(AboutAction::Dependencies {
+            json,
+            duplicates: true,
+        }) => ops_about::deps::run_about_duplicates(&registry, json),
+        Some(AboutAction::Dependencies {
+            json: false,
+            duplicates: false,
+        }) => ops_about::deps::run_about_deps(&registry),
+        Some(AboutAction::Dependencies {
+            json: true,
+            duplicates: false,
+        }) => ops_about::deps::run_about_deps_json(&registry),
+        // Intercepted above with `Backlog`: machine state needs no data
+        // providers. Allowed at the call site per docs/clippy.md for the
+        // same reason as the `Backlog` arm below.
+        #[allow(clippy::unreachable)]
+        Some(AboutAction::Machine { .. }) => {
+            unreachable!("`about machine` dispatches before the registry is built")
+        }
         // Intercepted above, before `cli_data_context` ran; the arm exists
         // only to keep this match exhaustive. Allowed at the call site per
         // docs/clippy.md: the interception is the real dispatch, so this

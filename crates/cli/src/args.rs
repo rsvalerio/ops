@@ -369,6 +369,9 @@ pub enum BacklogAction {
         /// Plain text output.
         #[arg(long)]
         plain: bool,
+        /// Versioned machine-readable JSON.
+        #[arg(long, conflicts_with = "plain")]
+        json: bool,
     },
     /// Code-review wave grouping: list, members, overlap, claim, park,
     /// migrate.
@@ -691,9 +694,23 @@ pub enum AboutAction {
     // `///` line on a variant into the user-facing help text.
     #[cfg(feature = "sqlite")]
     /// Display Rust line counts split into production, test and example.
-    Loc,
+    Loc {
+        /// Versioned machine-readable JSON, including the per-crate split.
+        #[arg(long)]
+        json: bool,
+    },
     /// Display dependency tree.
-    Dependencies,
+    Dependencies {
+        /// Versioned machine-readable JSON.
+        #[arg(long)]
+        json: bool,
+        /// List crates locked at two or more distinct versions (dev-only
+        /// ones excluded), what pulls each older version in, and whether a
+        /// semver-compatible update of it removes the duplicate (checked
+        /// with `cargo update --dry-run`; Cargo.lock is never written).
+        #[arg(long)]
+        duplicates: bool,
+    },
     // `crates` and `modules` render the same stack-aware project-units view
     // via `ops_about::units::run_about_units`; the alias keeps the
     // Go-idiomatic name working without duplicating dispatch. Plain comment so
@@ -701,7 +718,20 @@ pub enum AboutAction {
     // on a variant into the help text).
     #[command(visible_alias = "modules")]
     /// Display project units — crates (Rust) or modules (Go).
-    Crates,
+    Crates {
+        /// Versioned machine-readable JSON: name, version, repo-relative
+        /// manifest dir and in-tree flag per unit.
+        #[arg(long)]
+        json: bool,
+    },
+    /// Display build-relevant machine state: cores, load, competing build
+    /// processes, effective cargo jobs/wrapper/target dir/linker/rustflags
+    /// with their source, and tmpfs status of TMPDIR and the target dir.
+    Machine {
+        /// Versioned machine-readable JSON.
+        #[arg(long)]
+        json: bool,
+    },
     /// Display backlog task overview: per-status totals (including
     /// completed and archived) plus health metrics.
     Backlog,
@@ -1140,7 +1170,7 @@ mod tests {
         let cli = Cli::parse_from(["ops", "about", "modules"]);
         match cli.subcommand {
             Some(CoreSubcommand::About { action, .. }) => {
-                assert!(matches!(action, Some(AboutAction::Crates)));
+                assert!(matches!(action, Some(AboutAction::Crates { .. })));
             }
             other => panic!("expected About::Crates via modules alias, got {other:?}"),
         }
@@ -1256,7 +1286,51 @@ mod tests {
         let cli = Cli::parse_from(["ops", "about", "loc"]);
         match cli.subcommand {
             Some(CoreSubcommand::About { action, .. }) => {
-                assert!(matches!(action, Some(AboutAction::Loc)));
+                assert!(matches!(action, Some(AboutAction::Loc { .. })));
+            }
+            other => panic!("expected About::Loc, got {other:?}"),
+        }
+    }
+
+    /// TASK-2282 / TASK-2287 / TASK-2288: the machine-readable flags parse
+    /// onto their subcommands.
+    #[test]
+    fn parse_about_json_flags() {
+        let action_of = |args: &[&str]| match Cli::parse_from(args).subcommand {
+            Some(CoreSubcommand::About { action, .. }) => action,
+            other => panic!("expected About, got {other:?}"),
+        };
+        assert!(matches!(
+            action_of(&["ops", "about", "crates", "--json"]),
+            Some(AboutAction::Crates { json: true })
+        ));
+        assert!(matches!(
+            action_of(&["ops", "about", "dependencies", "--json"]),
+            Some(AboutAction::Dependencies {
+                json: true,
+                duplicates: false
+            })
+        ));
+        assert!(matches!(
+            action_of(&["ops", "about", "dependencies", "--duplicates"]),
+            Some(AboutAction::Dependencies {
+                json: false,
+                duplicates: true
+            })
+        ));
+        assert!(matches!(
+            action_of(&["ops", "about", "machine", "--json"]),
+            Some(AboutAction::Machine { json: true })
+        ));
+    }
+
+    #[cfg(feature = "sqlite")]
+    #[test]
+    fn parse_about_loc_json() {
+        let cli = Cli::parse_from(["ops", "about", "loc", "--json"]);
+        match cli.subcommand {
+            Some(CoreSubcommand::About { action, .. }) => {
+                assert!(matches!(action, Some(AboutAction::Loc { json: true })));
             }
             other => panic!("expected About::Loc, got {other:?}"),
         }

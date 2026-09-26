@@ -12,6 +12,7 @@ ops-about = { workspace = true, features = ["sqlite"] }
 linkme = { workspace = true }
 ops-sqlite = { workspace = true }
 ops-cargo-toml = { workspace = true }
+ops-cargo-update = { workspace = true }
 ops-git = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }

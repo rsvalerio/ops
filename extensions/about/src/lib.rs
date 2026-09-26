@@ -19,6 +19,7 @@ pub mod coverage;
 pub mod deps;
 pub mod identity;
 pub mod lru;
+pub mod machine;
 pub mod manifest_cache;
 pub mod manifest_io;
 pub mod providers;
@@ -40,6 +41,23 @@ use std::path::Path;
 use ops_core::project_identity::{AboutCard, ProjectIdentity};
 use ops_core::text::{capitalize, dir_name};
 use ops_extension::{DataProviderError, ExtensionType};
+
+/// Write one machine-readable `--json` document: pretty-printed, newline
+/// terminated. Every `ops about … --json` subpage funnels through here so
+/// they share one formatting contract.
+///
+/// # Errors
+///
+/// If serialization or the write fails.
+pub fn write_json_document<T: serde::Serialize + ?Sized>(
+    writer: &mut dyn Write,
+    doc: &T,
+) -> anyhow::Result<()> {
+    use anyhow::Context as _;
+    serde_json::to_writer_pretty(&mut *writer, doc).context("writing JSON document")?;
+    writeln!(writer)?;
+    Ok(())
+}
 
 const NAME: &str = "about";
 const DESCRIPTION: &str = "Project identity card";

@@ -1390,6 +1390,7 @@ dependencies = [
  "serde_json",
  "serde_path_to_error",
  "tempfile",
+ "toml 1.1.4+spec-1.1.0",
  "tracing",
  "unicode-segmentation",
 ]
@@ -1457,6 +1458,7 @@ dependencies = [
  "linkme",
  "ops-about",
  "ops-cargo-toml",
+ "ops-cargo-update",
  "ops-core",
  "ops-extension",
  "ops-git",

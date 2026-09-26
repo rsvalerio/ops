@@ -352,13 +352,14 @@ pub fn run_backlog(
             modified_file,
             exclude_status,
             plain,
+            json,
         } => {
-            let _ = plain; // plain is the only renderer in scope
             let opts = cmd::SearchOptions {
                 query,
                 modified_file,
                 exclude_status,
-                plain: true,
+                plain: plain || !json,
+                json,
             };
             cmd::run_search(&store, &opts, &mut std::io::stdout())
         }

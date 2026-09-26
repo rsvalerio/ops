@@ -209,9 +209,290 @@ pub fn run_about_loc_with(
     Ok(())
 }
 
+/// Version of the `ops about loc --json` document shape.
+pub const LOC_JSON_SCHEMA_VERSION: u32 = 1;
+
+/// One region's counts in the `ops about loc --json` document. `region` is
+/// the display name (`production`, `test`, `example`, or an unknown raw
+/// key), matching the table.
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct LocRegionRecord {
+    pub region: String,
+    pub files: i64,
+    pub code: i64,
+    pub docs: i64,
+    pub comments: i64,
+    pub blanks: i64,
+    pub lines: i64,
+}
+
+/// One crate's split in the `ops about loc --json` document.
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct LocCrateRecord {
+    pub name: String,
+    /// Repo-relative manifest dir, as `ops about crates --json` reports it.
+    pub manifest_dir: String,
+    /// Distinct `.rs` files owned by the crate.
+    pub files: i64,
+    pub regions: Vec<LocRegionRecord>,
+}
+
+/// The `ops about loc --json` document: workspace totals plus the
+/// per-crate split, both computed from one read of `rust_loc_files`.
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct LocDocument {
+    pub schema_version: u32,
+    pub kind: &'static str,
+    /// Distinct `.rs` files counted across the workspace.
+    pub files: i64,
+    pub regions: Vec<LocRegionRecord>,
+    pub crates: Vec<LocCrateRecord>,
+}
+
+/// Accumulates region stats and the distinct files behind them.
+#[derive(Default)]
+struct RegionTally {
+    regions: std::collections::BTreeMap<String, RustLocStat>,
+    files: std::collections::BTreeSet<String>,
+}
+
+impl RegionTally {
+    fn add(&mut self, file: &str, stat: &RustLocStat) {
+        self.files.insert(file.to_string());
+        let entry = self
+            .regions
+            .entry(stat.region.clone())
+            .or_insert_with(|| RustLocStat {
+                region: stat.region.clone(),
+                files: 0,
+                code: 0,
+                docs: 0,
+                comments: 0,
+                blanks: 0,
+                lines: 0,
+            });
+        entry.files = entry.files.saturating_add(stat.files);
+        entry.code = entry.code.saturating_add(stat.code);
+        entry.docs = entry.docs.saturating_add(stat.docs);
+        entry.comments = entry.comments.saturating_add(stat.comments);
+        entry.blanks = entry.blanks.saturating_add(stat.blanks);
+        entry.lines = entry.lines.saturating_add(stat.lines);
+    }
+
+    fn file_count(&self) -> i64 {
+        i64::try_from(self.files.len()).unwrap_or(i64::MAX)
+    }
+
+    /// Region records in display order (production, test, example, then
+    /// unknown regions by raw key).
+    fn records(&self) -> Vec<LocRegionRecord> {
+        let mut stats: Vec<&RustLocStat> = self.regions.values().collect();
+        stats.sort_by(|a, b| {
+            region_display(&a.region)
+                .0
+                .cmp(&region_display(&b.region).0)
+                .then_with(|| a.region.cmp(&b.region))
+        });
+        stats
+            .into_iter()
+            .map(|s| LocRegionRecord {
+                region: region_display(&s.region).1.to_string(),
+                files: s.files,
+                code: s.code,
+                docs: s.docs,
+                comments: s.comments,
+                blanks: s.blanks,
+                lines: s.lines,
+            })
+            .collect()
+    }
+}
+
+/// Assign each `(file, stat)` row to the in-tree crate whose manifest dir
+/// is the longest prefix of the file (a `"."` root crate owns whatever no
+/// nested member claims) and total the workspace alongside.
+#[must_use]
+pub fn build_loc_document(
+    rows: &[(String, RustLocStat)],
+    crates: &[crate::units::UnitRecord],
+) -> LocDocument {
+    let members: Vec<&crate::units::UnitRecord> = crates.iter().filter(|c| c.in_tree).collect();
+    let mut total = RegionTally::default();
+    let mut per_crate: Vec<RegionTally> = members.iter().map(|_| RegionTally::default()).collect();
+    for (file, stat) in rows {
+        total.add(file, stat);
+        let owner = members
+            .iter()
+            .enumerate()
+            .filter(|(_, c)| {
+                c.manifest_dir == "."
+                    || file
+                        .strip_prefix(c.manifest_dir.as_str())
+                        .is_some_and(|rest| rest.starts_with('/'))
+            })
+            .max_by_key(|(_, c)| {
+                if c.manifest_dir == "." {
+                    0
+                } else {
+                    c.manifest_dir.len()
+                }
+            })
+            .map(|(i, _)| i);
+        if let Some(tally) = owner.and_then(|i| per_crate.get_mut(i)) {
+            tally.add(file, stat);
+        }
+    }
+    let mut crate_records: Vec<LocCrateRecord> = members
+        .iter()
+        .zip(&per_crate)
+        .map(|(c, tally)| LocCrateRecord {
+            name: c.name.clone(),
+            manifest_dir: c.manifest_dir.clone(),
+            files: tally.file_count(),
+            regions: tally.records(),
+        })
+        .collect();
+    crate_records.sort_by(|a, b| a.manifest_dir.cmp(&b.manifest_dir));
+    LocDocument {
+        schema_version: LOC_JSON_SCHEMA_VERSION,
+        kind: "about-loc",
+        files: total.file_count(),
+        regions: total.records(),
+        crates: crate_records,
+    }
+}
+
+/// `ops about loc --json`.
+///
+/// # Errors
+///
+/// If the current directory cannot be determined, a provider fails, or
+/// writing fails.
+pub fn run_about_loc_json(data_registry: &DataRegistry) -> anyhow::Result<()> {
+    run_about_loc_json_with(data_registry, &mut std::io::stdout())
+}
+
+/// [`run_about_loc_json`] against an explicit writer. A workspace with no
+/// Rust LOC data yields the document with empty lists, not an error, so a
+/// consumer can parse every answer the same way.
+///
+/// # Errors
+///
+/// If the current directory cannot be determined, a provider fails, or
+/// writing fails.
+pub fn run_about_loc_json_with(
+    data_registry: &DataRegistry,
+    writer: &mut dyn Write,
+) -> anyhow::Result<()> {
+    let mut ctx = crate::providers::subpage_context("loc")?;
+    warm_providers(&mut ctx, data_registry, &["sqlite", "rust-loc"], "loc");
+    let rows = ops_sqlite::get_db(&ctx).map_or_else(Vec::new, |db| {
+        ops_sqlite::sql::query_rust_loc_files(db).unwrap_or_else(|e| {
+            tracing::warn!(error = ?e, "about/loc: query_rust_loc_files failed");
+            Vec::new()
+        })
+    });
+    let units: Vec<ops_core::project_identity::ProjectUnit> = crate::providers::load_or_default(
+        &mut ctx,
+        data_registry,
+        crate::units::PROJECT_UNITS_PROVIDER,
+    )?;
+    let records: Vec<crate::units::UnitRecord> = units
+        .iter()
+        .map(crate::units::UnitRecord::from_unit)
+        .collect();
+    crate::write_json_document(writer, &build_loc_document(&rows, &records))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    fn record(name: &str, dir: &str) -> crate::units::UnitRecord {
+        crate::units::UnitRecord {
+            name: name.to_string(),
+            version: None,
+            manifest_dir: dir.to_string(),
+            in_tree: true,
+        }
+    }
+
+    fn row(file: &str, region: &str, code: i64) -> (String, RustLocStat) {
+        (
+            file.to_string(),
+            RustLocStat {
+                region: region.to_string(),
+                files: 1,
+                code,
+                docs: 1,
+                comments: 1,
+                blanks: 1,
+                lines: code.saturating_add(3),
+            },
+        )
+    }
+
+    /// TASK-2282: pins the `ops about loc --json` shape and the
+    /// longest-prefix crate assignment (a nested member wins over the root
+    /// crate; the root owns the rest).
+    #[test]
+    fn build_loc_document_pins_shape_and_assignment() {
+        let rows = vec![
+            row("src/main.rs", "main", 10),
+            row("crates/a/src/lib.rs", "main", 20),
+            row("crates/a/src/lib.rs", "test", 5),
+            row("crates/ab/src/lib.rs", "main", 7),
+        ];
+        let crates = vec![
+            record("root", "."),
+            record("a", "crates/a"),
+            record("ab", "crates/ab"),
+        ];
+        let doc = build_loc_document(&rows, &crates);
+        let value = serde_json::to_value(&doc).expect("serialize");
+        assert_eq!(value["schemaVersion"], 1);
+        assert_eq!(value["kind"], "about-loc");
+        assert_eq!(value["files"], 3);
+        assert_eq!(
+            value["regions"],
+            serde_json::json!([
+                {"region": "production", "files": 3, "code": 37, "docs": 3, "comments": 3, "blanks": 3, "lines": 46},
+                {"region": "test", "files": 1, "code": 5, "docs": 1, "comments": 1, "blanks": 1, "lines": 8},
+            ])
+        );
+        let crates = value["crates"].as_array().expect("crates");
+        let dirs: Vec<&str> = crates
+            .iter()
+            .map(|c| c["manifestDir"].as_str().unwrap())
+            .collect();
+        assert_eq!(dirs, [".", "crates/a", "crates/ab"]);
+        assert_eq!(crates[0]["files"], 1);
+        assert_eq!(crates[0]["regions"][0]["code"], 10);
+        assert_eq!(crates[1]["files"], 1);
+        assert_eq!(crates[1]["regions"].as_array().unwrap().len(), 2);
+        assert_eq!(crates[2]["regions"][0]["code"], 7);
+        let text = serde_json::to_string(&doc).expect("serialize");
+        assert!(
+            text.starts_with(
+                "{\"schemaVersion\":1,\"kind\":\"about-loc\",\"files\":3,\"regions\":"
+            ),
+            "field order is part of the contract: {text}"
+        );
+    }
+
+    #[test]
+    fn run_about_loc_json_with_empty_registry_emits_empty_lists() {
+        let registry = DataRegistry::new();
+        let mut out: Vec<u8> = Vec::new();
+        run_about_loc_json_with(&registry, &mut out).expect("runner must succeed");
+        let value: serde_json::Value = serde_json::from_slice(&out).expect("valid json");
+        assert_eq!(value["schemaVersion"], 1);
+        assert_eq!(value["regions"], serde_json::json!([]));
+        assert_eq!(value["crates"], serde_json::json!([]));
+    }
 
     /// TEST-5 / TASK-1739: with no `SQLite` handle on the context,
     /// `query_rust_loc_stats` yields `None` and the runner takes its

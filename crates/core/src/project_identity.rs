@@ -160,6 +160,12 @@ pub struct ProjectUnit {
     /// Semver/version string, if applicable.
     #[serde(default)]
     pub version: Option<String>,
+    /// The unit's own package name (e.g. `[package].name` for a Rust
+    /// crate), when the stack knows it. `name` is a display label and may
+    /// differ; machine-readable output (`ops about crates --json`) reports
+    /// this one so consumers can match it against the build tool's view.
+    #[serde(default)]
+    pub package_name: Option<String>,
     /// Short description.
     #[serde(default)]
     pub description: Option<String>,
