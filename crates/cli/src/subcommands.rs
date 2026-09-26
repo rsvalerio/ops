@@ -57,14 +57,17 @@ pub fn run_about(
         Some(AboutAction::Dependencies {
             json,
             duplicates: true,
-        }) => ops_about::deps::run_about_duplicates(&registry, json),
+            include_dev,
+        }) => ops_about::deps::run_about_duplicates(&registry, json, include_dev),
         Some(AboutAction::Dependencies {
             json: false,
             duplicates: false,
+            ..
         }) => ops_about::deps::run_about_deps(&registry),
         Some(AboutAction::Dependencies {
             json: true,
             duplicates: false,
+            ..
         }) => ops_about::deps::run_about_deps_json(&registry),
         // Intercepted above with `Backlog`: machine state needs no data
         // providers. Allowed at the call site per docs/clippy.md for the

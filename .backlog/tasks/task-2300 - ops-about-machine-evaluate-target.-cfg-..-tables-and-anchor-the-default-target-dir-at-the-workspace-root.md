@@ -1,13 +1,15 @@
 ---
 id: TASK-2300
 title: 'ops about machine: evaluate target.''cfg(..)'' tables and anchor the default target dir at the workspace root'
-status: Triage
+status: Done
 assignee: []
 created_date: '2026-09-26 19:08'
+updated_date: '2026-09-26 20:21'
 labels:
   - code-review-rust
   - feature
 dependencies: []
+parent_task_id: 'TASK-2304'
 modified_files:
   - extensions/about/src/machine.rs
 priority: low
@@ -28,6 +30,7 @@ ordinal: 1000
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 cfg(...) target tables matching the host are evaluated for linker and rustflags, with their source
-- [ ] #2 The default target dir resolves against the cargo workspace root, not the cwd
+- [x] #1 cfg(...) target tables matching the host are evaluated for linker and rustflags, with their source
+- [x] #2 The default target dir resolves against the cargo workspace root, not the cwd
+
 <!-- AC:END -->

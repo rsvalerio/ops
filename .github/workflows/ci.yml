@@ -188,6 +188,31 @@ jobs:
       - name: cargo test --all --all-features --doc
         run: cargo test --all --all-features --doc
 
+  # TASK-2294: `Store::lock_allocation` has a `#[cfg(not(unix))]` branch (a
+  # persistent `.allocation.lock` file instead of a lock on the `tasks/`
+  # directory fd) that no Linux job ever compiles. Release targets are all
+  # Unix today (dist-workspace.toml), but the branch exists, so it must at
+  # least build — and its one behavioural promise, that concurrent keyed
+  # creates file exactly one task, must hold where it runs. Scoped to
+  # ops-backlog: its only dependencies are portable (anyhow, serde_json,
+  # chrono), whereas the rest of the workspace is Unix-only by design.
+  windows-backlog:
+    name: Windows (ops-backlog)
+    runs-on: windows-latest
+    env:
+      RUSTC_WRAPPER: ""
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
+        with:
+          persist-credentials: false
+      - uses: actions-rust-lang/setup-rust-toolchain@166cdcfd11aee3cb47222f9ddb555ce30ddb9659 # v1.17.0
+        with:
+          rustflags: ""
+      - name: cargo check -p ops-backlog --all-targets
+        run: cargo check -p ops-backlog --all-targets
+      - name: cargo test -p ops-backlog concurrent keyed create (non-Unix allocation lock)
+        run: cargo test -p ops-backlog --lib cmd::create::tests::concurrent_keyed_creates_file_exactly_one_task -- --exact
+
   # UNSAFE-10 / TASK-2087 + TASK-2094: Miri over the workspace's production
   # `unsafe`, scoped to what Miri can actually execute. Miri has no shims
   # for direct foreign-function calls into libc, which rules out most of the

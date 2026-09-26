@@ -5,7 +5,7 @@
 
 use std::io::{IsTerminal, Write};
 
-use ops_core::project_identity::ProjectUnit;
+use ops_core::project_identity::{ProjectUnit, UnitTarget};
 use ops_extension::{Context, DataRegistry};
 
 use crate::cards::{layout_cards_in_grid_with_width, render_card};
@@ -116,6 +116,9 @@ pub struct UnitRecord {
     /// `false` when the unit lives outside the project root (a `..` or
     /// absolute member path).
     pub in_tree: bool,
+    /// Build targets (kind + name, no paths), when the stack reports them;
+    /// empty otherwise.
+    pub targets: Vec<UnitTarget>,
 }
 
 impl UnitRecord {
@@ -131,6 +134,7 @@ impl UnitRecord {
             version: unit.version.clone(),
             manifest_dir,
             in_tree,
+            targets: unit.targets.clone(),
         }
     }
 }
@@ -208,8 +212,10 @@ pub fn run_about_units_json(data_registry: &DataRegistry) -> anyhow::Result<()> 
 /// [`run_about_units_json`] against an explicit writer.
 ///
 /// Unlike the card view it warms no `SQLite`/tokei providers: the document
-/// carries identity and location only, which the manifest-backed provider
-/// answers on its own.
+/// carries identity, location and build targets. The manifest-backed
+/// provider answers the first two on its own; targets need the stack's
+/// `metadata` document (auto-discovered targets are not in the manifest), so
+/// that provider is warmed first — a stack without it leaves `targets` empty.
 ///
 /// # Errors
 ///
@@ -220,6 +226,7 @@ pub fn run_about_units_json_with(
     writer: &mut dyn Write,
 ) -> anyhow::Result<()> {
     let mut ctx = crate::providers::subpage_context("units")?;
+    warm_providers(&mut ctx, data_registry, &["metadata"], "units");
     let units: Vec<ProjectUnit> = load_or_default(&mut ctx, data_registry, PROJECT_UNITS_PROVIDER)?;
     crate::write_json_document(writer, &units_json(&units))
 }
@@ -442,6 +449,7 @@ mod tests {
         let mut member = ProjectUnit::new("Cli", "crates/cli");
         member.package_name = Some("ops-cli".to_string());
         member.version = Some("0.65.0".to_string());
+        member.targets = vec![UnitTarget::new(vec!["bin".to_string()], "ops")];
         let root = ProjectUnit::new("Root", "");
         let mut outside = ProjectUnit::new("Shared", "../shared/lib");
         outside.package_name = Some("shared".to_string());
@@ -451,9 +459,10 @@ mod tests {
         assert_eq!(
             text,
             "{\"schemaVersion\":1,\"kind\":\"about-crates\",\"crates\":[\
-             {\"name\":\"Root\",\"version\":null,\"manifestDir\":\".\",\"inTree\":true},\
-             {\"name\":\"ops-cli\",\"version\":\"0.65.0\",\"manifestDir\":\"crates/cli\",\"inTree\":true},\
-             {\"name\":\"shared\",\"version\":null,\"manifestDir\":\"lib\",\"inTree\":false}]}"
+             {\"name\":\"Root\",\"version\":null,\"manifestDir\":\".\",\"inTree\":true,\"targets\":[]},\
+             {\"name\":\"ops-cli\",\"version\":\"0.65.0\",\"manifestDir\":\"crates/cli\",\"inTree\":true,\
+             \"targets\":[{\"kind\":[\"bin\"],\"name\":\"ops\"}]},\
+             {\"name\":\"shared\",\"version\":null,\"manifestDir\":\"lib\",\"inTree\":false,\"targets\":[]}]}"
         );
     }
 

@@ -308,7 +308,10 @@ over a composite is not supported.
 
 Global flags: `--dry-run` (preview the resolved plan — never executes: `run-before-commit` /
 `run-before-push` print their plan, and backlog actions that cannot preview — `backlog init`,
-`task create`/`edit`, `commit` and `wave claim`/`park` — refuse it with an error), `--verbose` (full stderr on
+`task create`/`edit`, `commit` and `wave create`/`claim`/`park` — refuse it with an error, as do the
+builtins that write or run tools without a preview mode: `init`, `new-command`,
+`import-makefile`, `trailing-whitespace`, `end-of-file-fixer`, `theme select`, `lock` /
+`lock break`, `about` (except `about backlog`), `deps` and `plans`), `--verbose` (full stderr on
 failure), `--tap <file>` (capture raw output), `--raw` (inherit child stdio, no ops output).
 
 Hook escape hatches: set `SKIP_OPS_RUN_BEFORE_PUSH` (or `SKIP_OPS_RUN_BEFORE_COMMIT`)
@@ -329,7 +332,8 @@ to let a push or commit through without running the configured hook commands.
 `ops about crates`, `loc` and `dependencies` take `--json` for a versioned
 (`schemaVersion`) machine-readable document; `ops about machine --json`
 likewise. `ops about dependencies --duplicates [--json]` lists crates locked
-at two or more distinct versions (dev-only ones excluded), the direct
+at two or more distinct versions (dev-only ones excluded unless
+`--include-dev` is given), the direct
 dependency pulling each older version, and whether a semver-compatible
 update of it removes the duplicate (`cargo update --dry-run`; `Cargo.lock`
 is never written). `ops deps` (cargo-deny `bans`) flags multiple versions

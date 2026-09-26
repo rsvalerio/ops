@@ -40,3 +40,9 @@ Thumbs.db
 
 # Staging files left by interrupted ops text-fixer runs
 .ops-text-fixers.*
+
+# TASK-2294: non-Unix allocation lock written by `ops backlog task create
+# --unless-exists` into the backlog root. Persistent by design (unlinking it
+# would let two holders lock different inodes), so it must not show up as
+# untracked noise. Unix builds lock the tasks/ directory and never create it.
+.allocation.lock

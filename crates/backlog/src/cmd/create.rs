@@ -53,6 +53,34 @@ pub fn run_create<W: Write>(
     opts: &CreateOptions,
     out: &mut W,
 ) -> anyhow::Result<()> {
+    match create_task(store, cfg, opts)? {
+        Created::New(id) => writeln!(out, "Created {id}").context("printing the created task id"),
+        Created::Exists(id) => {
+            writeln!(out, "Exists {id}").context("printing the existing task id")
+        }
+    }
+}
+
+/// What [`create_task`] did.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) enum Created {
+    /// A new task file was written under this id.
+    New(String),
+    /// `unless_exists` matched this open task; nothing was written.
+    Exists(String),
+}
+
+/// The core of [`run_create`], returning the id instead of printing it so
+/// composite commands (`wave create`) can act on the new task.
+///
+/// # Errors
+///
+/// As [`run_create`].
+pub(crate) fn create_task(
+    store: &Store,
+    cfg: &BacklogConfig,
+    opts: &CreateOptions,
+) -> anyhow::Result<Created> {
     let stamp = UtcStamp::now()?;
     // Held until this function returns: the key check and the file write
     // must be one critical section, or two runs both see "no task" and both
@@ -65,8 +93,7 @@ pub fn run_create<W: Write>(
             );
             let lock = store.lock_allocation()?;
             if let Some(id) = open_task_with_key(store, cfg, key)? {
-                writeln!(out, "Exists {id}").context("printing the existing task id")?;
-                return Ok(());
+                return Ok(Created::Exists(id));
             }
             Some(lock)
         }
@@ -136,8 +163,7 @@ pub fn run_create<W: Write>(
         handle
             .write_all(rendered.as_bytes())
             .with_context(|| format!("writing {}", path.display()))?;
-        writeln!(out, "Created {id}").context("printing the created task id")?;
-        return Ok(());
+        return Ok(Created::New(id));
     }
 }
 

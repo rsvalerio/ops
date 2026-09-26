@@ -1,13 +1,15 @@
 ---
 id: TASK-2297
 title: 'Terraform stack default init is unreachable: builtin ops init shadows it'
-status: Triage
+status: Done
 assignee: []
 created_date: '2026-09-26 19:06'
+updated_date: '2026-09-26 20:21'
 labels:
   - code-review-rust
   - API
 dependencies: []
+parent_task_id: 'TASK-2303'
 modified_files:
   - crates/core/src/.default.terraform.ops.toml
   - crates/cli/src/args.rs
@@ -29,6 +31,13 @@ ordinal: 1000
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 No stack default command name collides with a clap builtin subcommand (renamed, or the collision reported)
-- [ ] #2 A test pins that every stack default name is reachable as ops <name>
+- [x] #1 No stack default command name collides with a clap builtin subcommand (renamed, or the collision reported)
+- [x] #2 A test pins that every stack default name is reachable as ops <name>
+
 <!-- AC:END -->
+
+## Implementation Notes
+
+<!-- SECTION:NOTES:BEGIN -->
+Renamed the terraform default init -> tf-init. builtin_subcommand_names() moved to args.rs (shared with new-command validation) and now includes aliases (tw, eof) and clap help. every_stack_default_command_is_reachable pins that no stack default is shadowed.
+<!-- SECTION:NOTES:END -->

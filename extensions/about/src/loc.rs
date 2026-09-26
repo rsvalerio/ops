@@ -417,6 +417,7 @@ mod tests {
             version: None,
             manifest_dir: dir.to_string(),
             in_tree: true,
+            targets: Vec::new(),
         }
     }
 

@@ -83,6 +83,8 @@ tempfile = { workspace = true }
 assert_cmd = { workspace = true }
 predicates = { workspace = true }
 serial_test = { workspace = true }
+# TASK-2297: `Stack::iter()` enumerates every stack's defaults in tests.
+strum = { workspace = true }
 
 [[bin]]
 name = "ops"

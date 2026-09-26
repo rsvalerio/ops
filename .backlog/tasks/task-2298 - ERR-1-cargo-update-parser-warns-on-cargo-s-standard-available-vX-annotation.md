@@ -1,13 +1,15 @@
 ---
 id: TASK-2298
 title: 'ERR-1: cargo-update parser warns on cargo''s standard ''(available: vX)'' annotation'
-status: Triage
+status: Done
 assignee: []
 created_date: '2026-09-26 19:08'
+updated_date: '2026-09-26 20:07'
 labels:
   - code-review-rust
   - ERR
 dependencies: []
+parent_task_id: 'TASK-2304'
 modified_files:
   - extensions-rust/cargo-update/src/lib.rs
 priority: low
@@ -28,6 +30,7 @@ ordinal: 1000
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 The '(available: vX)' annotation is recognised and parsed (or silently accepted) without a warn
-- [ ] #2 A test pins that a line carrying it produces the entry and no warn
+- [x] #1 The '(available: vX)' annotation is recognised and parsed (or silently accepted) without a warn
+- [x] #2 A test pins that a line carrying it produces the entry and no warn
+
 <!-- AC:END -->

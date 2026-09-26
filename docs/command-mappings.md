@@ -126,7 +126,7 @@ A suggested `build` (`uv build`) is commented in the default TOML.
 
 | Command | Maps to |
 | --- | --- |
-| `init` | `terraform init` |
+| `tf-init` | `terraform init` (not `init`: `ops init` is the builtin that scaffolds `.ops.toml`) |
 | `fmt` | `terraform fmt -recursive` |
 | `validate` | `terraform validate` |
 | `plan` | `terraform plan` |

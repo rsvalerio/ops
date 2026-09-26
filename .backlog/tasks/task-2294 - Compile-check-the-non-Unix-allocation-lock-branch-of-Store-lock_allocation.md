@@ -1,13 +1,15 @@
 ---
 id: TASK-2294
 title: 'Compile-check the non-Unix allocation-lock branch of Store::lock_allocation'
-status: Triage
+status: Done
 assignee: []
 created_date: '2026-09-26 19:03'
+updated_date: '2026-09-26 20:07'
 labels:
   - code-review-rust
   - portability
 dependencies: []
+parent_task_id: 'TASK-2305'
 modified_files:
   - crates/backlog/src/store.rs
 priority: low
@@ -28,6 +30,13 @@ ordinal: 1000
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 The non-Unix branch is compiled by a gate (e.g. cargo check --target x86_64-pc-windows-gnu or a Windows CI job)
-- [ ] #2 The concurrent keyed-create test passes on that platform, or the gap is documented
+- [x] #1 The non-Unix branch is compiled by a gate (e.g. cargo check --target x86_64-pc-windows-gnu or a Windows CI job)
+- [x] #2 The concurrent keyed-create test passes on that platform, or the gap is documented
+
 <!-- AC:END -->
+
+## Implementation Notes
+
+<!-- SECTION:NOTES:BEGIN -->
+Added CI job windows-backlog (windows-latest): cargo check -p ops-backlog --all-targets, plus the concurrent_keyed_creates_file_exactly_one_task test run there. Verified locally that ops-backlog --all-targets checks clean for x86_64-pc-windows-gnu. Scoped to ops-backlog because the rest of the workspace is Unix-only by design and release targets (dist-workspace.toml) are all Unix. Also gitignored .allocation.lock so the persistent non-Unix lock file is never untracked noise.
+<!-- SECTION:NOTES:END -->

@@ -1,6 +1,9 @@
 # Default commands for Terraform stack.
 
-[commands.init]
+# Not `init`: `ops init` is the builtin that scaffolds `.ops.toml`, and clap
+# matches builtins before config commands, so a default named `init` could
+# never run as `ops init` (TASK-2297).
+[commands.tf-init]
 program = "terraform"
 args = ["init"]
 help = "Initialize Terraform"

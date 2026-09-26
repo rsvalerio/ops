@@ -1,7 +1,9 @@
 //! CLI argument definitions, subcommand enums, and arg preprocessing.
 
+use std::collections::HashSet;
 use std::ffi::OsString;
 use std::path::PathBuf;
+use std::sync::OnceLock;
 
 pub use clap::{CommandFactory, Parser};
 use ops_core::stack::Stack;
@@ -373,8 +375,8 @@ pub enum BacklogAction {
         #[arg(long, conflicts_with = "plain")]
         json: bool,
     },
-    /// Code-review wave grouping: list, members, overlap, claim, park,
-    /// migrate.
+    /// Code-review wave grouping: list, members, overlap, create, claim,
+    /// park, migrate.
     Wave {
         #[command(subcommand)]
         action: BacklogWaveAction,
@@ -454,6 +456,41 @@ pub enum BacklogWaveAction {
         /// Versioned machine-readable JSON.
         #[arg(long, conflicts_with = "plain")]
         json: bool,
+    },
+    /// Create a wave parent and link its members in one step: marker label
+    /// and dependencies on the parent, `parent_task_id` and status on each
+    /// member. Refused, with nothing written, when any member is missing,
+    /// already in a wave, or itself a wave.
+    Create {
+        /// Wave title (e.g. code-review-plan-wave29).
+        title: String,
+        /// Member task ids (comma-separated or repeatable).
+        #[arg(long, required = true, value_delimiter = ',', value_name = "TASK_ID")]
+        members: Vec<String>,
+        /// Description body.
+        #[arg(short, long)]
+        description: Option<String>,
+        /// The wave's own status.
+        #[arg(short, long, default_value = ops_backlog::cmd::DEFAULT_WAVE_STATUS)]
+        status: String,
+        /// Status every member is flipped to.
+        #[arg(long = "member-status", default_value = "To Do")]
+        member_status: String,
+        /// Priority: critical, high, medium, or low.
+        #[arg(long)]
+        priority: Option<String>,
+        /// Implementation plan.
+        #[arg(long)]
+        plan: Option<String>,
+        /// Implementation notes (e.g. the wave's overlaps).
+        #[arg(long)]
+        notes: Option<String>,
+        /// The wave's file scope (repeatable).
+        #[arg(long = "modified-file", value_name = "PATH")]
+        modified_file: Vec<String>,
+        /// The label marking a wave parent.
+        #[arg(long, default_value = ops_backlog::cmd::DEFAULT_WAVE_MARKER)]
+        marker: String,
     },
     /// Claim a wave: create its branch and worktree, then flip it to In
     /// Progress. Refused, with nothing changed, when the branch exists.
@@ -705,11 +742,15 @@ pub enum AboutAction {
         #[arg(long)]
         json: bool,
         /// List crates locked at two or more distinct versions (dev-only
-        /// ones excluded), what pulls each older version in, and whether a
+        /// ones excluded unless --include-dev), what pulls each older version in, and whether a
         /// semver-compatible update of it removes the duplicate (checked
         /// with `cargo update --dry-run`; Cargo.lock is never written).
         #[arg(long)]
         duplicates: bool,
+        /// With --duplicates: also follow dev-dependency edges, so
+        /// duplicates reachable only through dev-dependencies are listed.
+        #[arg(long, requires = "duplicates")]
+        include_dev: bool,
     },
     // `crates` and `modules` render the same stack-aware project-units view
     // via `ops_about::units::run_about_units`; the alias keeps the
@@ -720,7 +761,8 @@ pub enum AboutAction {
     /// Display project units — crates (Rust) or modules (Go).
     Crates {
         /// Versioned machine-readable JSON: name, version, repo-relative
-        /// manifest dir and in-tree flag per unit.
+        /// manifest dir, in-tree flag and build targets (kind + name) per
+        /// unit.
         #[arg(long)]
         json: bool,
     },
@@ -783,6 +825,28 @@ pub fn hide_irrelevant_commands(mut cmd: clap::Command, stack: Option<Stack>) ->
     cmd
 }
 
+/// Every token clap resolves to a builtin before the `External` catch-all:
+/// each registered subcommand's name, every alias (`tw`, `eof`, …) and the
+/// auto-generated `help`. A `[commands.<name>]` entry — user-defined or a
+/// stack default — named any of these parses as the builtin and is never
+/// reachable as `ops <name>`.
+///
+/// Derived from clap's own built command tree (so a new `CoreSubcommand`
+/// is covered without editing a list) and cached for the process lifetime:
+/// `new-command` validates on every keystroke.
+pub fn builtin_subcommand_names() -> &'static HashSet<String> {
+    static NAMES: OnceLock<HashSet<String>> = OnceLock::new();
+    NAMES.get_or_init(|| {
+        let mut cmd = Cli::command();
+        // `build` materialises the implicit `help` subcommand.
+        cmd.build();
+        cmd.get_subcommands()
+            .flat_map(|c| std::iter::once(c.get_name()).chain(c.get_all_aliases()))
+            .map(str::to_owned)
+            .collect()
+    })
+}
+
 pub fn preprocess_args(args: Vec<OsString>) -> Vec<OsString> {
     if args.get(1).is_some_and(|arg| arg == "ops") {
         // Drop the redundant `ops` token in `ops ops <cmd>` (cargo-style
@@ -798,6 +862,38 @@ pub fn preprocess_args(args: Vec<OsString>) -> Vec<OsString> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// TASK-2297: a stack default named like a builtin (or a builtin's
+    /// alias) parses as the builtin and never runs as `ops <name>`. Pin
+    /// that every stack's default command is reachable.
+    #[test]
+    fn every_stack_default_command_is_reachable() {
+        use strum::IntoEnumIterator as _;
+        let builtins = builtin_subcommand_names();
+        for stack in Stack::iter() {
+            for name in stack.default_commands_ref().keys() {
+                assert!(
+                    !builtins.contains(name),
+                    "{} default `{name}` is shadowed by the builtin `ops {name}`",
+                    stack.as_str()
+                );
+                let cli = Cli::parse_from(["ops", name.as_str()]);
+                assert!(
+                    matches!(cli.subcommand, Some(CoreSubcommand::External(_))),
+                    "{} default `{name}` must parse as a config command",
+                    stack.as_str()
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn builtin_names_cover_aliases_and_help() {
+        let builtins = builtin_subcommand_names();
+        for name in ["init", "trailing-whitespace", "tw", "eof", "help"] {
+            assert!(builtins.contains(name), "missing {name} in {builtins:?}");
+        }
+    }
 
     // -- Subcommand parsing --
 
@@ -1308,16 +1404,36 @@ mod tests {
             action_of(&["ops", "about", "dependencies", "--json"]),
             Some(AboutAction::Dependencies {
                 json: true,
-                duplicates: false
+                duplicates: false,
+                include_dev: false
             })
         ));
         assert!(matches!(
             action_of(&["ops", "about", "dependencies", "--duplicates"]),
             Some(AboutAction::Dependencies {
                 json: false,
-                duplicates: true
+                duplicates: true,
+                include_dev: false
             })
         ));
+        assert!(matches!(
+            action_of(&[
+                "ops",
+                "about",
+                "dependencies",
+                "--duplicates",
+                "--include-dev"
+            ]),
+            Some(AboutAction::Dependencies {
+                json: false,
+                duplicates: true,
+                include_dev: true
+            })
+        ));
+        assert!(
+            Cli::try_parse_from(["ops", "about", "dependencies", "--include-dev"]).is_err(),
+            "--include-dev requires --duplicates"
+        );
         assert!(matches!(
             action_of(&["ops", "about", "machine", "--json"]),
             Some(AboutAction::Machine { json: true })
