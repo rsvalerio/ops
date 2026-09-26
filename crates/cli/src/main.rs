@@ -223,7 +223,6 @@ fn run() -> anyhow::Result<ExitCode> {
     };
     let early_config: std::sync::Arc<ops_core::config::Config> =
         std::sync::Arc::new(ops_core::config::load_config_or_default_at(&cwd, "early"));
-    args::warn_shadowed_config_commands(&early_config);
     let detected_stack = ops_core::stack::Stack::resolve(early_config.stack.as_deref(), &cwd);
 
     // PERF-1 (TASK-1368): `Cli::command()` walks the full derive metadata
@@ -247,6 +246,11 @@ fn run() -> anyhow::Result<ExitCode> {
     let parse_cmd = built_cmd.clone();
     let mut matches = parse_cmd.get_matches_from(effective_args);
     let cli = Cli::from_arg_matches_mut(&mut matches).unwrap_or_else(|e: clap::Error| e.exit());
+    // `--raw` promises no ops output of its own, so the shadowing warning
+    // waits for the parsed flag.
+    if !cli.raw {
+        args::warn_shadowed_config_commands(&early_config);
+    }
 
     dispatch(cli, &early_config, detected_stack, built_cmd)
 }
