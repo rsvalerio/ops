@@ -2,6 +2,26 @@
 All notable changes to this project will be documented in this file. See [conventional commits](https://www.conventionalcommits.org/) for commit guidelines.
 
 - - -
+## [v0.67.0](https://github.com/rsvalerio/ops/compare/433f3ba5af21bb3c067969bcaa302d7c4e1dfb0a..v0.67.0) - 2026-09-26
+#### 🚀 Features
+- (**about**) evaluate cfg target tables and anchor target dir at workspace root - ([82e4880](https://github.com/rsvalerio/ops/commit/82e4880475a6162f600f7f2911da36a5944caf53)) - [@rsvalerio](https://github.com/rsvalerio), Claude Opus 5.5 (1M context)
+- (**about**) add --include-dev to ops about dependencies --duplicates - ([5d0ec0c](https://github.com/rsvalerio/ops/commit/5d0ec0c80193b01c515e5890d6eb68d0ca6b8b98)) - [@rsvalerio](https://github.com/rsvalerio), Claude Opus 5.5 (1M context)
+- (**about**) list build targets in ops about crates --json - ([1996df1](https://github.com/rsvalerio/ops/commit/1996df197aa2e3c8b24278c211944e23c176dc38)) - [@rsvalerio](https://github.com/rsvalerio), Claude Opus 5.5 (1M context)
+- (**backlog**) add wave create --members to create and link a wave in one step - ([d3028c9](https://github.com/rsvalerio/ops/commit/d3028c918cd5a47a03f1267337c4548b6da74271)) - [@rsvalerio](https://github.com/rsvalerio), Claude Opus 5.5 (1M context)
+#### 🐛 Bug Fixes
+- (**cargo-update**) accept cargo's (available: vX) annotation without warning - ([e8d7eaa](https://github.com/rsvalerio/ops/commit/e8d7eaaafeb3cdd5660723a3719567209b8a384e)) - [@rsvalerio](https://github.com/rsvalerio), Claude Opus 5.5 (1M context)
+- (**cli**) refuse global --dry-run for builtins that cannot preview - ([8145377](https://github.com/rsvalerio/ops/commit/814537713c5182e93c23fa0991a97504a06a895d)) - [@rsvalerio](https://github.com/rsvalerio), Claude Opus 5.5 (1M context)
+- (**terraform**) rename the init default to tf-init so ops init cannot shadow it - ([d852714](https://github.com/rsvalerio/ops/commit/d852714c63d3514f0f86946542387032ed56b166)) - [@rsvalerio](https://github.com/rsvalerio), Claude Opus 5.5 (1M context)
+#### 🔄 CI/CD
+- (**backlog**) compile and test the non-Unix allocation lock on Windows - ([b40cce3](https://github.com/rsvalerio/ops/commit/b40cce3011a8de76ac195dba032272b0a330ed88)) - [@rsvalerio](https://github.com/rsvalerio), Claude Opus 5.5 (1M context)
+#### ⚙️ Miscellaneous
+- (**backlog**) close code-review wave 27 - ([b2a8e99](https://github.com/rsvalerio/ops/commit/b2a8e99246bd80b74ccd39872e80731ae0eb36b5)) - [@rsvalerio](https://github.com/rsvalerio), Claude Opus 5.5 (1M context)
+- (**backlog**) close code-review wave 28 - ([4da9521](https://github.com/rsvalerio/ops/commit/4da95216dbc4dc4bb443aae045c017f03a128145)) - [@rsvalerio](https://github.com/rsvalerio), Claude Opus 5.5 (1M context)
+- (**backlog**) close code-review wave 26 - ([d5f717c](https://github.com/rsvalerio/ops/commit/d5f717c0c9c7b227a1327f2a12784baebfe0c435)) - [@rsvalerio](https://github.com/rsvalerio), Claude Opus 5.5 (1M context)
+- (**backlog**) triage waves 26-28 and move TASK-2295 to rsvalerio/ai - ([433f3ba](https://github.com/rsvalerio/ops/commit/433f3ba5af21bb3c067969bcaa302d7c4e1dfb0a)) - [@rsvalerio](https://github.com/rsvalerio), Claude Opus 5.5 (1M context)
+
+- - -
+
 ## [v0.66.0](https://github.com/rsvalerio/ops/compare/706b9f6e3e7b93795984d4e83ea893c14cf80c8d..v0.66.0) - 2026-09-26
 #### 🚀 Features
 - (**about**) add --json to about crates/loc/dependencies and backlog search, about machine, dependencies --duplicates - ([fd07f2e](https://github.com/rsvalerio/ops/commit/fd07f2e161b39ee44f988ed884b7d661476a041f)) - [@rsvalerio](https://github.com/rsvalerio), Claude Opus 5.5 (1M context)
