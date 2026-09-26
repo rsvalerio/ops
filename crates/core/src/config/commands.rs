@@ -11,6 +11,7 @@ use std::time::Duration;
 
 use serde::{Deserialize, Serialize};
 
+use super::strategy::{substitute, MatrixCell, MatrixRefError, Strategy};
 use crate::serde_defaults;
 
 /// Command definition: either a single exec or a composite of multiple commands.
@@ -211,6 +212,22 @@ pub struct ExecCommandSpec {
     /// is exactly the misleading-render hazard SEC-21 guards against.
     #[serde(skip)]
     pub display_program: Option<String>,
+    /// Run the command once per matrix cell (TASK-2277); see
+    /// [`crate::config::Strategy`]. The matrix is still one step to the
+    /// enclosing plan — [`Self::exclusive`] covers every cell.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub strategy: Option<Strategy>,
+}
+
+/// One cell of a matrix command: the cell's values and the command with
+/// every `${matrix.<key>}` substituted (and no strategy of its own).
+#[derive(Debug, Clone)]
+#[non_exhaustive]
+pub struct MatrixCellSpec {
+    /// The cell's step id and progress label, `name [key=value, ...]`.
+    pub id: String,
+    pub cell: MatrixCell,
+    pub spec: ExecCommandSpec,
 }
 
 impl CommandMeta for ExecCommandSpec {
@@ -311,7 +328,129 @@ impl ExecCommandSpec {
             }
         }
         self.validate_env(name)?;
+        self.validate_matrix(name)
+    }
+
+    /// TASK-2277: `${matrix.<key>}` references must resolve in every cell,
+    /// and a command without a strategy must not use them — neither falls
+    /// back to the environment, so both fail the load naming the command.
+    /// `program` and `env` keys are never substituted, so a reference there
+    /// is an error either way.
+    fn validate_matrix(&self, name: &str) -> anyhow::Result<()> {
+        let no_match = |_: &str| None::<&str>;
+        if let Err(e) = substitute(&self.program, no_match) {
+            anyhow::bail!(
+                "command '{name}': program contains {e}; ${{matrix.<key>}} is substituted \
+                 only in args, env values and cwd"
+            );
+        }
+        for key in self.env.keys() {
+            if let Err(e) = substitute(key, no_match) {
+                anyhow::bail!(
+                    "command '{name}': env key {key:?} contains {e}; ${{matrix.<key>}} is \
+                     substituted only in args, env values and cwd"
+                );
+            }
+        }
+        if self.strategy.is_none() {
+            for (field, value) in self.matrix_fields() {
+                if let Err(e) = substitute(&value, no_match) {
+                    anyhow::bail!(
+                        "command '{name}': {field} references {e}, but the command has no \
+                         [commands.{name}.strategy] matrix"
+                    );
+                }
+            }
+            return Ok(());
+        }
+        for cell in self.matrix_cells(name)? {
+            cell.spec.validate(&cell.id)?;
+        }
         Ok(())
+    }
+
+    /// The fields `${matrix.<key>}` is substituted into, as `(name, value)`,
+    /// `env` in sorted key order so the first reported error is stable.
+    fn matrix_fields(&self) -> Vec<(String, Cow<'_, str>)> {
+        let mut fields: Vec<(String, Cow<'_, str>)> = self
+            .args
+            .iter()
+            .enumerate()
+            .map(|(i, a)| (format!("args[{i}]"), Cow::Borrowed(a.as_str())))
+            .collect();
+        let mut env: Vec<(&String, &String)> = self.env.iter().collect();
+        env.sort_unstable();
+        for (key, value) in env {
+            fields.push((format!("env[{key}]"), Cow::Borrowed(value.as_str())));
+        }
+        if let Some(cwd) = &self.cwd {
+            fields.push(("cwd".to_string(), cwd.to_string_lossy()));
+        }
+        fields
+    }
+
+    /// Expand a matrix command into one spec per cell (TASK-2277), in cell
+    /// order. Each cell spec has every `${matrix.<key>}` substituted in
+    /// `args`, `env` values and `cwd`, and no strategy. Empty for a command
+    /// without a strategy.
+    ///
+    /// # Errors
+    ///
+    /// If the matrix is malformed (see [`crate::config::Matrix::cells`]),
+    /// `max_parallel` is zero, or a reference names a key some cell does not
+    /// define — each naming the command.
+    pub fn matrix_cells(&self, name: &str) -> anyhow::Result<Vec<MatrixCellSpec>> {
+        let Some(strategy) = &self.strategy else {
+            return Ok(Vec::new());
+        };
+        if strategy.max_parallel == Some(0) {
+            anyhow::bail!(
+                "command '{name}': strategy.max_parallel must be at least 1 (1 runs the \
+                 cells one at a time)"
+            );
+        }
+        let cells = strategy
+            .matrix
+            .cells()
+            .map_err(|e| anyhow::anyhow!("command '{name}': strategy.matrix: {e}"))?;
+        let mut out = Vec::with_capacity(cells.len());
+        for cell in cells {
+            let fill = |field: &str, value: &str| -> anyhow::Result<String> {
+                substitute(value, |k| cell.get(k))
+                    .map(Cow::into_owned)
+                    .map_err(|e| match e {
+                        MatrixRefError::Unknown(_) => anyhow::anyhow!(
+                            "command '{name}': {field} references {e}, which cell [{}] \
+                             does not define",
+                            cell.describe()
+                        ),
+                        MatrixRefError::Unterminated => {
+                            anyhow::anyhow!("command '{name}': {field} contains {e}")
+                        }
+                    })
+            };
+            let mut spec = self.clone();
+            spec.strategy = None;
+            for (i, arg) in spec.args.iter_mut().enumerate() {
+                *arg = fill(&format!("args[{i}]"), arg)?;
+            }
+            let mut env: Vec<(&String, &mut String)> = spec.env.iter_mut().collect();
+            env.sort_unstable_by(|a, b| a.0.cmp(b.0));
+            for (key, value) in env {
+                *value = fill(&format!("env[{key}]"), value)?;
+            }
+            if let Some(cwd) = &mut spec.cwd {
+                if let Some(raw) = cwd.to_str() {
+                    *cwd = PathBuf::from(fill("cwd", raw)?);
+                }
+            }
+            out.push(MatrixCellSpec {
+                id: cell.label(name),
+                cell,
+                spec,
+            });
+        }
+        Ok(out)
     }
 
     /// SEC-11 / TASK-1826: screen the `env` map with the same
@@ -566,7 +705,7 @@ impl CompositeCommandSpec {
 /// `[extend.<name>] args = [...]`, so the two features compose and there is
 /// one rule for where appended args land (before `--`).
 ///
-/// Exec-only overrides (`env`, `cwd`, `timeout_secs`, `exclusive`) set beside
+/// Exec-only overrides (`env`, `cwd`, `timeout_secs`, `exclusive`, `strategy`) set beside
 /// a composite source are load errors; a composite clone can only override
 /// `help`, `category` and `aliases`.
 #[derive(Debug, Clone, PartialEq, Eq, Deserialize, Serialize)]
@@ -603,6 +742,10 @@ pub struct CloneCommandSpec {
     /// (exec sources only).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub exclusive: Option<bool>,
+    /// Matrix strategy; replaces the source's `strategy` wholesale when set
+    /// (exec sources only). Without it the clone copies the source's.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub strategy: Option<Strategy>,
 }
 
 impl CommandMeta for CloneCommandSpec {
@@ -622,7 +765,7 @@ impl CloneCommandSpec {
     ///
     /// Preferred over struct-literal syntax because [`CloneCommandSpec`] is
     /// `#[non_exhaustive]`. Adjust the override fields (`help`, `aliases`,
-    /// `category`, `env`, `cwd`, `timeout_secs`, `exclusive`) via direct
+    /// `category`, `env`, `cwd`, `timeout_secs`, `exclusive`, `strategy`) via direct
     /// field access.
     #[must_use]
     pub fn new(clone: impl Into<String>) -> Self {
@@ -635,6 +778,7 @@ impl CloneCommandSpec {
             cwd: None,
             timeout_secs: None,
             exclusive: None,
+            strategy: None,
         }
     }
 

@@ -53,7 +53,7 @@ use std::path::Path;
 
 use serde::{Deserialize, Serialize};
 
-use super::{CommandSpec, Config};
+use super::{CommandSpec, Config, ExecCommandSpec, Matrix};
 
 /// One `[extend.<target>]` entry: what to append to (or override on)
 /// `target`.
@@ -82,6 +82,11 @@ pub struct ExtendEntry {
     /// Replaces the target's `category` (either kind).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub category: Option<String>,
+    /// Appended to the target exec command's `strategy.matrix` (TASK-2277):
+    /// `matrix.<key> = [...]` extends an existing axis, `include` /
+    /// `exclude` entries extend those lists (see [`append_matrix`]).
+    #[serde(default, skip_serializing_if = "Matrix::is_empty")]
+    pub matrix: Matrix,
 }
 
 /// Splice `extra` into `args` before the first `--` separator, or append at
@@ -104,6 +109,35 @@ fn append_exec_args(args: &mut Vec<String>, extra: &[String]) {
         }
         None => args.extend(extra.iter().cloned()),
     }
+}
+
+/// Append an `[extend.<target>] matrix` entry to the target's strategy
+/// (TASK-2277).
+///
+/// Only existing axes can grow: a key the target's matrix does not declare
+/// would silently multiply every cell by a new dimension and is far more
+/// likely a typo (`matrix.crat`), so it is an error naming the key — as is
+/// extending a command that has no strategy.
+fn append_matrix(target: &str, spec: &mut ExecCommandSpec, extra: &Matrix) -> anyhow::Result<()> {
+    let Some(strategy) = &mut spec.strategy else {
+        anyhow::bail!(
+            "[extend.{target}]: `matrix` extends a command's strategy, but '{target}' has \
+             no [commands.{target}.strategy]"
+        );
+    };
+    if let Some(key) = extra
+        .axes
+        .keys()
+        .find(|key| !strategy.matrix.axes.contains_key(*key))
+    {
+        let axes: Vec<&str> = strategy.matrix.axes.keys().map(String::as_str).collect();
+        anyhow::bail!(
+            "[extend.{target}]: matrix.{key} names no axis of '{target}' (axes: {})",
+            axes.join(", ")
+        );
+    }
+    strategy.matrix.append(extra);
+    Ok(())
 }
 
 /// Apply one entry to a target spec of matching kind.
@@ -130,6 +164,12 @@ fn apply_to_spec(target: &str, spec: &mut CommandSpec, entry: &ExtendEntry) -> a
                      `args` extends exec commands — use `commands`"
                 );
             }
+            if !entry.matrix.is_empty() {
+                anyhow::bail!(
+                    "[extend.{target}]: target is a composite; `matrix` extends an exec \
+                     command's [commands.{target}.strategy]"
+                );
+            }
             c.commands.extend(entry.commands.iter().cloned());
             if entry.help.is_none() && !entry.commands.is_empty() {
                 if let Some(help) = &mut c.help {
@@ -146,6 +186,9 @@ fn apply_to_spec(target: &str, spec: &mut CommandSpec, entry: &ExtendEntry) -> a
                 );
             }
             append_exec_args(&mut e.args, &entry.args);
+            if !entry.matrix.is_empty() {
+                append_matrix(target, e, &entry.matrix)?;
+            }
         }
         // The load path materializes clones (`clone::apply`) before this
         // runs; a Clone here means apply was called on a config that
@@ -209,10 +252,11 @@ pub(super) fn apply(config: &mut Config, workspace_root: &Path) -> anyhow::Resul
             && entry.args.is_empty()
             && entry.help.is_none()
             && entry.category.is_none()
+            && entry.matrix.is_empty()
         {
             anyhow::bail!(
                 "[extend.{target}]: entry sets none of `commands`, `args`, `help`, \
-                 `category` (a typo'd key would otherwise extend nothing)"
+                 `category`, `matrix` (a typo'd key would otherwise extend nothing)"
             );
         }
         if let Some(spec) = config.commands.get_mut(target) {
