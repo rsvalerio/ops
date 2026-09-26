@@ -221,6 +221,11 @@ pub enum CoreSubcommand {
     /// `dist`) are skipped only where a stack manifest beside them marks
     /// them as generated output, so checked-in directories with those
     /// names stay scanned. Pass `--no-default-skips` to scan them anyway.
+    ///
+    /// A `.trivyignore.yaml` or `.trivyignore` at the scan root or the git
+    /// toplevel is passed to every scan. Run inside a subproject, the plan
+    /// names infrastructure-as-code files elsewhere in the repo it leaves out; `--repo` scans
+    /// the whole repository instead.
     Sec {
         /// Skip a scan even if it would otherwise run (repeatable).
         #[arg(long = "skip", value_enum, value_name = "SCAN")]
@@ -233,6 +238,15 @@ pub enum CoreSubcommand {
         /// detection.
         #[arg(long = "no-default-skips")]
         no_default_skips: bool,
+        /// Exclude dev dependencies from the vulnerability scan (included by
+        /// default; Trivy supports them for npm, yarn and gradle).
+        #[arg(long = "no-dev-deps")]
+        no_dev_deps: bool,
+        /// Scan the whole git repository (its toplevel) instead of the
+        /// current directory — covers files outside a subproject, such as a
+        /// root Dockerfile.
+        #[arg(long = "repo")]
+        repo: bool,
     },
     /// Manage `.backlog` task files (backlog.md-compatible subset).
     Backlog {

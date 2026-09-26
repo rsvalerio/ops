@@ -1,9 +1,10 @@
 ---
 id: TASK-2276
 title: 'ops sec: close default coverage gaps (repo-root files, .trivyignore.yaml, dev deps)'
-status: Triage
+status: Done
 assignee: []
 created_date: '2026-09-25 20:53'
+updated_date: '2026-09-26 12:35'
 labels:
   - feature
   - sec
@@ -33,10 +34,17 @@ Out of scope, possible follow-up: a license scan (`--scanners license`), which i
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 Running `ops sec` inside a subproject of a git repo also covers IaC/misconfig markers outside that subproject (e.g. a root `Dockerfile`), or the dry-run plan explicitly says they are out of scope and how to include them
-- [ ] #2 A monorepo whose `qa` runs `sec` in several subprojects does not scan the same files twice
-- [ ] #3 `ops sec` discovers `.trivyignore.yaml` and `.trivyignore` at the scan root and the git toplevel and passes it via `--ignorefile`; the dry-run plan names the ignore file used (or says none)
-- [ ] #4 Vulnerability scans include dev dependencies by default for stacks Trivy supports, with a documented way to opt out (or the reverse, with the decision recorded in the README)
-- [ ] #5 Tests cover subproject-vs-toplevel root selection, ignore-file discovery (both formats, both locations), and the dev-deps argv
-- [ ] #6 README `ops sec` section documents the new defaults
+- [x] #1 Running `ops sec` inside a subproject of a git repo also covers IaC/misconfig markers outside that subproject (e.g. a root `Dockerfile`), or the dry-run plan explicitly says they are out of scope and how to include them
+- [x] #2 A monorepo whose `qa` runs `sec` in several subprojects does not scan the same files twice
+- [x] #3 `ops sec` discovers `.trivyignore.yaml` and `.trivyignore` at the scan root and the git toplevel and passes it via `--ignorefile`; the dry-run plan names the ignore file used (or says none)
+- [x] #4 Vulnerability scans include dev dependencies by default for stacks Trivy supports, with a documented way to opt out (or the reverse, with the decision recorded in the README)
+- [x] #5 Tests cover subproject-vs-toplevel root selection, ignore-file discovery (both formats, both locations), and the dev-deps argv
+- [x] #6 README `ops sec` section documents the new defaults
+
 <!-- AC:END -->
+
+## Implementation Notes
+
+<!-- SECTION:NOTES:BEGIN -->
+Decisions (confirmed with user): (1) stay scoped to the invoking dir; the plan and a one-line note on live runs name IaC files elsewhere in the git toplevel (excluding the scan-root subtree, skip dirs, and sibling dirs with their own .ops.toml) and suggest the new `ops sec --repo` flag, which scans the git toplevel. That keeps per-subproject qa from scanning shared files twice. (2) --include-dev-deps is on by default for the vuln scan; `--no-dev-deps` opts out. Ignore file: first of .trivyignore.yaml/.trivyignore at the scan root, then the toplevel, passed as --ignorefile to every scan (fs and config). Toplevel is found by walking up to a .git entry (dir or file), with no git subprocess. Verified end to end against Trivy 0.74: a root .trivyignore.yaml suppresses a github-pat finding when scanning from a subproject.
+<!-- SECTION:NOTES:END -->
