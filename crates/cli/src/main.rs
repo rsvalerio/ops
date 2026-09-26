@@ -318,9 +318,18 @@ fn dispatch(
             skip,
             force,
             no_default_skips,
+            no_dev_deps,
+            repo,
         }) => {
             let cwd = cwd()?;
-            return sec_cmd::run_sec(&cwd, cli.dry_run, &skip, &force, no_default_skips);
+            let overrides = sec_cmd::SecOverrides {
+                skip: skip.iter().map(|s| s.to_scan()).collect(),
+                force: force.iter().map(|s| s.to_scan()).collect(),
+                no_default_skips,
+                no_dev_deps,
+                repo,
+            };
+            return sec_cmd::run_sec(&cwd, cli.dry_run, &overrides);
         }
         Some(CoreSubcommand::External(args)) => {
             return run_cmd::run_external_command(

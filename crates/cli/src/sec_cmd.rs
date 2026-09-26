@@ -27,6 +27,23 @@
 //! stack manifest beside them says they are generated output (see
 //! [`WalkOutcome::generated`]). `--no-default-skips` opts out.
 //!
+//! # Scan root, ignore file, dev dependencies (TASK-2276)
+//!
+//! - **Scan root** is the invoking directory. Inside a subproject of a git
+//!   repo, files elsewhere in the repo (a root `Dockerfile`, `packaging/`)
+//!   are *not* scanned — a monorepo whose `qa` runs `sec` in every
+//!   subproject would otherwise scan them once per subproject. Instead the
+//!   plan names the `IaC` files left out (see [`outside_iac_markers`]) and
+//!   how to include them: `--repo` scans the git toplevel.
+//! - **Ignore file**: the first of `.trivyignore.yaml` / `.trivyignore` found
+//!   at the scan root, then at the git toplevel, is passed via
+//!   `--ignorefile` to every scan (see [`find_ignore_file`]). Trivy's own
+//!   default only looks for a plain `.trivyignore` in its cwd.
+//! - **Dev dependencies** are included in the vulnerability scan
+//!   (`--include-dev-deps`; Trivy supports it for npm, yarn and gradle), so
+//!   the gate covers build tooling and test runners too. `--no-dev-deps`
+//!   opts out.
+//!
 //! # Exit code
 //!
 //! `ops sec` is the terminal step of `ops qa`, so its exit code is what a CI
@@ -102,7 +119,9 @@ pub enum ScanArg {
 }
 
 impl ScanArg {
-    const fn to_scan(self) -> Scan {
+    /// The internal [`Scan`] this selector names.
+    #[must_use]
+    pub const fn to_scan(self) -> Scan {
         match self {
             Self::Secret => Scan::Secret,
             Self::Vuln => Scan::Vuln,
@@ -263,6 +282,101 @@ struct WalkOutcome {
     generated: Vec<PathBuf>,
 }
 
+/// How a detection walk treats a directory it meets.
+enum DirVerdict {
+    /// Descend into it.
+    Walk,
+    /// Unambiguous skip dir (`target`, `node_modules`, `.git`, …).
+    Skip,
+    /// Generic-named dir (`build`, `dist`) a stack manifest beside it marks
+    /// as generated output — skipped, and recorded for Trivy.
+    Generated,
+}
+
+fn classify_dir(skip: &[&str], generic: &[&str], parent: &Path, name: &str) -> DirVerdict {
+    if skip.contains(&name) {
+        DirVerdict::Skip
+    } else if generic.contains(&name) && ops_core::stack::is_generated_build_dir(parent, name) {
+        DirVerdict::Generated
+    } else {
+        DirVerdict::Walk
+    }
+}
+
+/// Whether `name` (inside `dir`) is a file that switches the misconfig scan
+/// on: a named `IaC` marker, or a YAML file sniffed as a Kubernetes manifest.
+fn is_iac_file(dir: &Path, name: &str) -> bool {
+    is_misconfig_marker(name) || (is_yaml_file(name) && is_k8s_manifest(&dir.join(name)))
+}
+
+/// The git toplevel containing `start`: the nearest ancestor (inclusive)
+/// holding a `.git` entry — a directory, or a file for worktrees and
+/// submodules. Found by walking up rather than spawning `git`, so detection
+/// works without git installed and stays deterministic in tests.
+fn git_toplevel(start: &Path) -> Option<PathBuf> {
+    start
+        .ancestors()
+        .find(|dir| dir.join(".git").exists())
+        .map(Path::to_path_buf)
+}
+
+/// Trivy ignore-file names, in preference order: the YAML format first, since
+/// it is the only one supporting path-scoped rules.
+const IGNORE_FILE_NAMES: &[&str] = &[".trivyignore.yaml", ".trivyignore"];
+
+/// The ignore file every scan receives via `--ignorefile`: the first of
+/// [`IGNORE_FILE_NAMES`] at the scan root, then at the git toplevel. The
+/// scan root wins so a subproject can carry its own suppressions; the
+/// toplevel fallback covers a monorepo keeping one file at the repo root.
+fn find_ignore_file(scan_root: &Path, toplevel: Option<&Path>) -> Option<PathBuf> {
+    std::iter::once(scan_root)
+        .chain(toplevel.filter(|t| *t != scan_root))
+        .flat_map(|dir| IGNORE_FILE_NAMES.iter().map(move |n| dir.join(n)))
+        .find(|p| p.is_file())
+}
+
+/// `IaC` files in the git `toplevel` that a scan of `scan_root` leaves out,
+/// as toplevel-relative paths (sorted).
+///
+/// Excluded from the walk: the `scan_root` subtree itself, the default skip
+/// dirs, and every *other* directory holding its own `.ops.toml` — that is a
+/// sibling ops project whose own `ops sec` covers it, so listing its files
+/// here would be noise. What remains is exactly what no per-project scan
+/// reaches (a root `Dockerfile`, `packaging/docker/Dockerfile.build`).
+fn outside_iac_markers(toplevel: &Path, scan_root: &Path) -> Vec<PathBuf> {
+    let skip = shared_skip_dirs();
+    let generic = ops_core::stack::generic_build_dirs();
+    let mut found: Vec<PathBuf> = Vec::new();
+    let mut stack: Vec<PathBuf> = vec![toplevel.to_path_buf()];
+    while let Some(dir) = stack.pop() {
+        let Ok(entries) = std::fs::read_dir(&dir) else {
+            continue;
+        };
+        for entry in entries.flatten() {
+            let Ok(file_type) = entry.file_type() else {
+                continue;
+            };
+            let name = entry.file_name();
+            let name = name.to_string_lossy();
+            let path = entry.path();
+            if file_type.is_dir() {
+                let walk = matches!(classify_dir(&skip, &generic, &dir, &name), DirVerdict::Walk)
+                    && path != scan_root
+                    && !path.join(".ops.toml").is_file();
+                if walk {
+                    stack.push(path);
+                }
+            } else if file_type.is_file() && is_iac_file(&dir, &name) {
+                if let Ok(rel) = path.strip_prefix(toplevel) {
+                    found.push(rel.to_path_buf());
+                }
+            }
+        }
+    }
+    found.sort();
+    found
+}
+
 /// Walk `root` (skipping VCS/build/vendor directories via
 /// [`shared_skip_dirs`]; generic names via
 /// [`ops_core::stack::is_generated_build_dir`]) and report which scan
@@ -296,31 +410,22 @@ fn detect(root: &Path) -> WalkOutcome {
             let name = entry.file_name();
             let name = name.to_string_lossy();
             if file_type.is_dir() {
-                let skip_dir = if skip.iter().any(|d| *d == name) {
-                    true
-                } else if generic.iter().any(|d| *d == name)
-                    && ops_core::stack::is_generated_build_dir(&dir, &name)
-                {
-                    // Record the path relative to the scan root: that is
-                    // the exact `--skip-dirs` entry Trivy gets.
-                    if let Ok(rel) = entry.path().strip_prefix(root) {
-                        generated.push(rel.to_path_buf());
+                match classify_dir(&skip, &generic, &dir, &name) {
+                    DirVerdict::Walk => stack.push(entry.path()),
+                    DirVerdict::Skip => {}
+                    DirVerdict::Generated => {
+                        // Record the path relative to the scan root: that is
+                        // the exact `--skip-dirs` entry Trivy gets.
+                        if let Ok(rel) = entry.path().strip_prefix(root) {
+                            generated.push(rel.to_path_buf());
+                        }
                     }
-                    true
-                } else {
-                    false
-                };
-                if !skip_dir {
-                    stack.push(entry.path());
                 }
             } else if file_type.is_file() {
                 if !found.vuln && is_vuln_marker(&name) {
                     found.vuln = true;
                 }
-                if !found.misconfig
-                    && (is_misconfig_marker(&name)
-                        || (is_yaml_file(&name) && is_k8s_manifest(&entry.path())))
-                {
+                if !found.misconfig && is_iac_file(&dir, &name) {
                     found.misconfig = true;
                 }
             }
@@ -478,14 +583,36 @@ fn scan_timeout() -> Duration {
 /// while generated output is skipped.
 /// An empty pattern list passes no `--skip-dirs` at all, leaving Trivy's
 /// own built-in defaults in charge (`--no-default-skips`).
-fn trivy_argv(scan: Scan, root: &Path, skip_patterns: &[String]) -> Vec<String> {
+///
+/// TASK-2276: every scan also gets `--ignorefile` when one was discovered,
+/// and the vulnerability scan gets `--include-dev-deps` unless opted out.
+fn trivy_argv(scan: Scan, root: &Path, opts: &TrivyOpts) -> Vec<String> {
     let mut args: Vec<String> = scan.trivy_args().iter().map(|s| (*s).to_string()).collect();
-    for pattern in skip_patterns {
+    if scan == Scan::Vuln && opts.include_dev_deps {
+        args.push("--include-dev-deps".to_string());
+    }
+    if let Some(ignore) = &opts.ignore_file {
+        args.push("--ignorefile".to_string());
+        args.push(ignore.to_string_lossy().into_owned());
+    }
+    for pattern in &opts.skip_patterns {
         args.push("--skip-dirs".to_string());
         args.push(pattern.clone());
     }
     args.push(root.to_string_lossy().into_owned());
     args
+}
+
+/// Everything besides the scan and target that shapes a Trivy invocation,
+/// resolved once per `ops sec` run and shared by every scan.
+#[derive(Debug, Default)]
+struct TrivyOpts {
+    /// `--skip-dirs` patterns; empty under `--no-default-skips`.
+    skip_patterns: Vec<String>,
+    /// `--ignorefile` value, from [`find_ignore_file`].
+    ignore_file: Option<PathBuf>,
+    /// Pass `--include-dev-deps` to the vulnerability scan.
+    include_dev_deps: bool,
 }
 
 /// The `--skip-dirs` patterns for every scan: `**/<name>` for each
@@ -511,16 +638,10 @@ fn run_trivy(
     root: &Path,
     scan: Scan,
     timeout: Duration,
-    no_default_skips: bool,
-    generated: &[PathBuf],
+    opts: &TrivyOpts,
 ) -> Result<Output, RunError> {
-    let patterns: Vec<String> = if no_default_skips {
-        Vec::new()
-    } else {
-        trivy_skip_patterns(generated)
-    };
     let mut cmd = Command::new("trivy");
-    cmd.args(trivy_argv(scan, root, &patterns));
+    cmd.args(trivy_argv(scan, root, opts));
     run_with_timeout(&mut cmd, timeout, &format!("trivy {} scan", scan.label()))
 }
 
@@ -533,13 +654,10 @@ fn run_scan(
     root: &Path,
     scan: Scan,
     w: &mut dyn std::io::Write,
-    no_default_skips: bool,
-    generated: &[PathBuf],
+    opts: &TrivyOpts,
 ) -> anyhow::Result<bool> {
     let timeout = scan_timeout();
-    report_scan(scan, timeout, w, || {
-        run_trivy(root, scan, timeout, no_default_skips, generated)
-    })
+    report_scan(scan, timeout, w, || run_trivy(root, scan, timeout, opts))
 }
 
 /// Render one scan's outcome. Split from [`run_scan`] so tests can drive the
@@ -591,8 +709,8 @@ fn report_scan(
 }
 
 /// The `ops sec` CLI overrides in one group, mirroring `run_cmd`'s
-/// `RunOptions`: `--skip` / `--force` scan selection plus
-/// `--no-default-skips`. Grouping them keeps [`run_sec_to`] under the
+/// `RunOptions`: `--skip` / `--force` scan selection plus the
+/// `--no-default-skips` / `--no-dev-deps` / `--repo` switches. Grouping them keeps [`run_sec_to`] under the
 /// argument count the workspace clippy gate enforces, and removes the
 /// adjacent-bool swap risk a bare `no_default_skips: bool` parameter adds.
 #[derive(Debug, Default, Clone)]
@@ -604,26 +722,18 @@ pub struct SecOverrides {
     /// Do not pass the default build/dependency skip dirs to Trivy
     /// (`--no-default-skips`).
     pub no_default_skips: bool,
+    /// Exclude dev dependencies from the vulnerability scan (`--no-dev-deps`).
+    pub no_dev_deps: bool,
+    /// Scan the git toplevel instead of the invoking directory (`--repo`).
+    pub repo: bool,
 }
 
 /// Entry point: build the plan, preview-or-run it, and return an aggregated
-/// exit code. `skip`/`force` come straight from the `--skip`/`--force` CLI
-/// flags, `no_default_skips` from `--no-default-skips`. Splitting the
-/// testable core into [`run_sec_to`] keeps the plan output assertable
-/// without spawning Trivy.
-pub fn run_sec(
-    root: &Path,
-    dry_run: bool,
-    skip: &[ScanArg],
-    force: &[ScanArg],
-    no_default_skips: bool,
-) -> anyhow::Result<ExitCode> {
-    let overrides = SecOverrides {
-        skip: skip.iter().map(|s| s.to_scan()).collect(),
-        force: force.iter().map(|s| s.to_scan()).collect(),
-        no_default_skips,
-    };
-    run_sec_to(root, dry_run, &overrides, &mut std::io::stdout())
+/// exit code. `overrides` carries the CLI flags. Splitting the testable core
+/// into [`run_sec_to`] keeps the plan output assertable without spawning
+/// Trivy.
+pub fn run_sec(root: &Path, dry_run: bool, overrides: &SecOverrides) -> anyhow::Result<ExitCode> {
+    run_sec_to(root, dry_run, overrides, &mut std::io::stdout())
 }
 
 fn run_sec_to(
@@ -636,6 +746,8 @@ fn run_sec_to(
         skip,
         force,
         no_default_skips,
+        no_dev_deps,
+        repo,
     } = overrides;
     // A scan named in both lists is contradictory intent — reject it loudly
     // rather than silently letting one side win.
@@ -646,19 +758,49 @@ fn run_sec_to(
         );
     }
 
+    let toplevel = git_toplevel(root);
+    let scan_root: &Path = if *repo {
+        toplevel
+            .as_deref()
+            .with_context(|| format!("--repo: {} is not inside a git repository", root.display()))?
+    } else {
+        root
+    };
+    // TASK-2276: stay scoped to the scan root, but say what that leaves out.
+    let outside: Vec<PathBuf> = match toplevel.as_deref() {
+        Some(top) if top != scan_root => outside_iac_markers(top, scan_root),
+        _ => Vec::new(),
+    };
+
     // One walk feeds everything: the scan plan and the generated-build-dir
     // inventory the Trivy invocations skip per-path.
-    let walk = detect(root);
+    let walk = detect(scan_root);
     let plan = build_plan_from(walk.found, skip, force);
     let selected: Vec<Scan> = plan.iter().filter(|e| e.selected).map(|e| e.scan).collect();
+    let opts = TrivyOpts {
+        skip_patterns: if *no_default_skips {
+            Vec::new()
+        } else {
+            trivy_skip_patterns(&walk.generated)
+        },
+        ignore_file: find_ignore_file(scan_root, toplevel.as_deref()),
+        include_dev_deps: !*no_dev_deps,
+    };
 
     if dry_run {
         // Preview only — print the full plan (run + skip, with reasons) and
         // never execute Trivy, so do not require it installed. A heads-up keeps
         // the preview honest when it would have failed live.
         write_plan(w, &plan).context("failed to write scan plan")?;
+        writeln!(w, "  scan root: {}", scan_root.display()).context("failed to write scan root")?;
         write_skip_dirs(w, *no_default_skips, &walk.generated)
             .context("failed to write skip-dir plan")?;
+        write_ignore_file(w, &opts, scan_root, toplevel.as_deref())
+            .context("failed to write ignore-file plan")?;
+        write_dev_deps(w, opts.include_dev_deps).context("failed to write dev-deps plan")?;
+        if let Some(top) = toplevel.as_deref() {
+            write_outside(w, top, &outside).context("failed to write out-of-scope files")?;
+        }
         if !trivy_on_path() {
             ops_core::ui::warn(TRIVY_MISSING_HELP);
         }
@@ -681,12 +823,18 @@ fn run_sec_to(
         anyhow::bail!(TRIVY_MISSING_HELP);
     }
 
+    // A live run is quiet, but files silently left out of a security gate
+    // deserve their one line (TASK-2276 AC #1).
+    if let Some(top) = toplevel.as_deref() {
+        write_outside(w, top, &outside).context("failed to write out-of-scope files")?;
+    }
+
     // Stay quiet by default: one `scanning <scan> ✓` line per scan. Run every
     // applicable scan even after one reports findings, then aggregate: success
     // only when every scan was clean.
     let mut all_ok = true;
     for scan in selected {
-        if !run_scan(root, scan, w, *no_default_skips, &walk.generated)? {
+        if !run_scan(scan_root, scan, w, &opts)? {
             all_ok = false;
         }
     }
@@ -717,6 +865,81 @@ fn write_skip_dirs(
     }
     let patterns = trivy_skip_patterns(generated);
     writeln!(w, "  skipping dirs: {}", patterns.join(", "))
+}
+
+/// TASK-2276 AC #3: name the ignore file every scan receives, or say none
+/// was found and where it was looked for.
+fn write_ignore_file(
+    w: &mut dyn std::io::Write,
+    opts: &TrivyOpts,
+    scan_root: &Path,
+    toplevel: Option<&Path>,
+) -> std::io::Result<()> {
+    if let Some(file) = &opts.ignore_file {
+        return writeln!(w, "  ignore file: {}", file.display());
+    }
+    let searched: Vec<String> = std::iter::once(scan_root)
+        .chain(toplevel.filter(|t| *t != scan_root))
+        .map(|d| d.display().to_string())
+        .collect();
+    writeln!(
+        w,
+        "  ignore file: none ({} not found in {})",
+        IGNORE_FILE_NAMES.join(" or "),
+        searched.join(", ")
+    )
+}
+
+/// TASK-2276 AC #4: say whether the vulnerability scan covers dev
+/// dependencies and how to flip it.
+fn write_dev_deps(w: &mut dyn std::io::Write, include: bool) -> std::io::Result<()> {
+    if include {
+        writeln!(
+            w,
+            "  dev dependencies: included in the vulnerability scan \
+             (npm, yarn, gradle; --no-dev-deps to exclude)"
+        )
+    } else {
+        writeln!(w, "  dev dependencies: excluded (--no-dev-deps)")
+    }
+}
+
+/// How many out-of-scope paths [`write_outside`] names before summarising.
+const OUTSIDE_LISTED: usize = 5;
+
+/// TASK-2276 AC #1: name the `IaC` files elsewhere in the repo that this scan
+/// leaves out, and how to include them. Silent when there are none.
+fn write_outside(
+    w: &mut dyn std::io::Write,
+    toplevel: &Path,
+    outside: &[PathBuf],
+) -> std::io::Result<()> {
+    if outside.is_empty() {
+        return Ok(());
+    }
+    let mut listed: Vec<String> = outside
+        .iter()
+        .take(OUTSIDE_LISTED)
+        .map(|p| p.display().to_string())
+        .collect();
+    if outside.len() > OUTSIDE_LISTED {
+        listed.push(format!(
+            "… ({} more)",
+            outside.len().saturating_sub(OUTSIDE_LISTED)
+        ));
+    }
+    writeln!(
+        w,
+        "  not scanned: {} IaC file(s) in {} outside this scan root: {}",
+        outside.len(),
+        toplevel.display(),
+        listed.join(", ")
+    )?;
+    writeln!(
+        w,
+        "    run `ops sec --repo` (or `ops sec` from {}) to include them",
+        toplevel.display()
+    )
 }
 
 /// Report an all-skipped run on the same writer the scan lines use, naming
@@ -1099,9 +1322,12 @@ mod tests {
     /// `target/` skip too (AC #3, verified against Trivy 0.74).
     #[test]
     fn trivy_argv_passes_shared_skip_dirs_to_every_scan() {
-        let patterns = trivy_skip_patterns(&[]);
+        let opts = TrivyOpts {
+            skip_patterns: trivy_skip_patterns(&[]),
+            ..Default::default()
+        };
         for scan in Scan::ALL {
-            let argv = trivy_argv(*scan, Path::new("/proj"), &patterns);
+            let argv = trivy_argv(*scan, Path::new("/proj"), &opts);
             for dir in shared_skip_dirs() {
                 let pattern = format!("**/{dir}");
                 assert!(
@@ -1148,8 +1374,12 @@ mod tests {
             !patterns.iter().any(|p| p == "**/build" || p == "**/dist"),
             "blanket generic patterns must never be passed: {patterns:?}"
         );
+        let opts = TrivyOpts {
+            skip_patterns: patterns,
+            ..Default::default()
+        };
         for scan in Scan::ALL {
-            let argv = trivy_argv(*scan, Path::new("/proj"), &patterns);
+            let argv = trivy_argv(*scan, Path::new("/proj"), &opts);
             assert!(
                 argv.iter().any(|a| a == "app/dist"),
                 "{scan:?} argv must carry the nested generated path: {argv:?}"
@@ -1162,7 +1392,7 @@ mod tests {
     #[test]
     fn trivy_argv_with_no_default_skips_passes_no_skip_dirs() {
         for scan in Scan::ALL {
-            let argv = trivy_argv(*scan, Path::new("/proj"), &[]);
+            let argv = trivy_argv(*scan, Path::new("/proj"), &TrivyOpts::default());
             assert!(
                 !argv.iter().any(|a| a == "--skip-dirs"),
                 "{scan:?} argv must not carry --skip-dirs: {argv:?}"
@@ -1288,6 +1518,230 @@ mod tests {
         assert!(
             !patterns.contains(&"**/build".to_string()),
             "no blanket generic pattern: {patterns:?}"
+        );
+    }
+    /// A monorepo shaped like the one TASK-2276 was found in: a git root
+    /// with a root `Dockerfile`, `packaging/docker/Dockerfile.build`, and two
+    /// ops subprojects (`backend/` scanned here, `frontend/` a sibling with
+    /// its own `.ops.toml` and `Dockerfile`).
+    fn monorepo() -> tempfile::TempDir {
+        let dir = tempfile::tempdir().unwrap();
+        let top = dir.path();
+        std::fs::create_dir(top.join(".git")).unwrap();
+        touch(top, "Dockerfile");
+        std::fs::create_dir_all(top.join("packaging/docker")).unwrap();
+        touch(&top.join("packaging/docker"), "Dockerfile.build");
+        for sub in ["backend", "frontend"] {
+            std::fs::create_dir(top.join(sub)).unwrap();
+            touch(&top.join(sub), ".ops.toml");
+        }
+        touch(&top.join("backend"), "Cargo.lock");
+        touch(&top.join("frontend"), "Dockerfile");
+        dir
+    }
+
+    fn dry_run_output(root: &Path, overrides: &SecOverrides) -> String {
+        let mut buf: Vec<u8> = Vec::new();
+        run_sec_to(root, true, overrides, &mut buf).expect("dry-run must not error");
+        String::from_utf8(buf).unwrap()
+    }
+
+    #[test]
+    fn git_toplevel_walks_up_to_the_dot_git_entry() {
+        let repo = monorepo();
+        let backend = repo.path().join("backend");
+        assert_eq!(git_toplevel(&backend).as_deref(), Some(repo.path()));
+        assert_eq!(git_toplevel(repo.path()).as_deref(), Some(repo.path()));
+
+        // A worktree/submodule `.git` *file* counts too.
+        let wt = tempfile::tempdir().unwrap();
+        touch(wt.path(), ".git");
+        assert_eq!(git_toplevel(wt.path()).as_deref(), Some(wt.path()));
+    }
+
+    /// TASK-2276 AC #1/#2: a subproject run stays scoped — no sibling or
+    /// root files in its own plan — and names the root-level `IaC` files it
+    /// leaves out, excluding the sibling ops project (its own `sec` covers
+    /// it, so reporting it would mean two owners for the same files).
+    #[test]
+    fn subproject_run_reports_outside_iac_files_without_scanning_them() {
+        let repo = monorepo();
+        let backend = repo.path().join("backend");
+
+        assert_eq!(
+            outside_iac_markers(repo.path(), &backend),
+            vec![
+                PathBuf::from("Dockerfile"),
+                PathBuf::from("packaging/docker/Dockerfile.build"),
+            ]
+        );
+
+        let out = dry_run_output(&backend, &SecOverrides::default());
+        assert!(
+            out.contains(&format!("scan root: {}", backend.display())),
+            "{out}"
+        );
+        assert!(
+            out.contains("[skip] misconfiguration"),
+            "backend itself has no IaC files: {out}"
+        );
+        assert!(
+            out.contains("not scanned: 2 IaC file(s)")
+                && out.contains("packaging/docker/Dockerfile.build")
+                && out.contains("ops sec --repo"),
+            "must name the left-out files and how to include them: {out}"
+        );
+        assert!(
+            !out.contains("frontend"),
+            "sibling project is not ours: {out}"
+        );
+    }
+
+    /// TASK-2276 AC #1: `--repo` scans the git toplevel, so the root
+    /// Dockerfile switches the misconfig scan on and nothing is left out.
+    #[test]
+    fn repo_flag_scans_the_git_toplevel() {
+        let repo = monorepo();
+        let out = dry_run_output(
+            &repo.path().join("backend"),
+            &SecOverrides {
+                repo: true,
+                ..Default::default()
+            },
+        );
+        assert!(
+            out.contains(&format!("scan root: {}", repo.path().display())),
+            "{out}"
+        );
+        assert!(out.contains("[run ] misconfiguration"), "{out}");
+        assert!(!out.contains("not scanned:"), "{out}");
+    }
+
+    #[test]
+    fn repo_flag_outside_a_git_repo_errors() {
+        let dir = tempfile::tempdir().unwrap();
+        let mut buf: Vec<u8> = Vec::new();
+        let err = run_sec_to(
+            dir.path(),
+            true,
+            &SecOverrides {
+                repo: true,
+                ..Default::default()
+            },
+            &mut buf,
+        )
+        .expect_err("--repo needs a git repository");
+        assert!(format!("{err:#}").contains("not inside a git repository"));
+    }
+
+    /// Run from the toplevel itself there is nothing outside the scan root.
+    #[test]
+    fn toplevel_run_reports_nothing_outside() {
+        let repo = monorepo();
+        let out = dry_run_output(repo.path(), &SecOverrides::default());
+        assert!(!out.contains("not scanned:"), "{out}");
+    }
+
+    /// TASK-2276 AC #3: both formats, both locations, YAML preferred, the
+    /// scan root winning over the toplevel.
+    #[test]
+    fn ignore_file_discovery_covers_both_formats_and_locations() {
+        let repo = monorepo();
+        let top = repo.path();
+        let backend = top.join("backend");
+
+        assert_eq!(find_ignore_file(&backend, Some(top)), None);
+
+        touch(top, ".trivyignore");
+        assert_eq!(
+            find_ignore_file(&backend, Some(top)),
+            Some(top.join(".trivyignore"))
+        );
+        touch(top, ".trivyignore.yaml");
+        assert_eq!(
+            find_ignore_file(&backend, Some(top)),
+            Some(top.join(".trivyignore.yaml")),
+            "YAML format is preferred"
+        );
+        touch(&backend, ".trivyignore");
+        assert_eq!(
+            find_ignore_file(&backend, Some(top)),
+            Some(backend.join(".trivyignore")),
+            "the scan root wins over the toplevel"
+        );
+        touch(&backend, ".trivyignore.yaml");
+        assert_eq!(
+            find_ignore_file(&backend, Some(top)),
+            Some(backend.join(".trivyignore.yaml"))
+        );
+    }
+
+    /// TASK-2276 AC #3: the ignore file reaches every scan as
+    /// `--ignorefile <path>`, and the dry-run names it — or says none.
+    #[test]
+    fn ignore_file_is_passed_to_every_scan_and_previewed() {
+        let repo = monorepo();
+        let backend = repo.path().join("backend");
+
+        let out = dry_run_output(&backend, &SecOverrides::default());
+        assert!(out.contains("ignore file: none"), "{out}");
+
+        let yaml = repo.path().join(".trivyignore.yaml");
+        touch(repo.path(), ".trivyignore.yaml");
+        let out = dry_run_output(&backend, &SecOverrides::default());
+        assert!(
+            out.contains(&format!("ignore file: {}", yaml.display())),
+            "{out}"
+        );
+
+        let opts = TrivyOpts {
+            ignore_file: Some(yaml.clone()),
+            ..Default::default()
+        };
+        for scan in Scan::ALL {
+            let argv = trivy_argv(*scan, &backend, &opts);
+            let at = argv
+                .iter()
+                .position(|a| a == "--ignorefile")
+                .unwrap_or_else(|| panic!("{scan:?} argv lacks --ignorefile: {argv:?}"));
+            assert_eq!(argv[at + 1], yaml.to_string_lossy());
+        }
+        let argv = trivy_argv(Scan::Secret, &backend, &TrivyOpts::default());
+        assert!(!argv.iter().any(|a| a == "--ignorefile"), "{argv:?}");
+    }
+
+    /// TASK-2276 AC #4: dev deps are on by default for the vuln scan only;
+    /// `--no-dev-deps` drops the flag.
+    #[test]
+    fn dev_deps_are_included_in_the_vuln_scan_by_default() {
+        let on = TrivyOpts {
+            include_dev_deps: true,
+            ..Default::default()
+        };
+        for scan in Scan::ALL {
+            let argv = trivy_argv(*scan, Path::new("/proj"), &on);
+            assert_eq!(
+                argv.iter().any(|a| a == "--include-dev-deps"),
+                *scan == Scan::Vuln,
+                "{scan:?}: {argv:?}"
+            );
+        }
+        let argv = trivy_argv(Scan::Vuln, Path::new("/proj"), &TrivyOpts::default());
+        assert!(!argv.iter().any(|a| a == "--include-dev-deps"), "{argv:?}");
+
+        let dir = tempfile::tempdir().unwrap();
+        let out = dry_run_output(dir.path(), &SecOverrides::default());
+        assert!(out.contains("dev dependencies: included"), "{out}");
+        let out = dry_run_output(
+            dir.path(),
+            &SecOverrides {
+                no_dev_deps: true,
+                ..Default::default()
+            },
+        );
+        assert!(
+            out.contains("dev dependencies: excluded (--no-dev-deps)"),
+            "{out}"
         );
     }
 }

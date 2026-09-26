@@ -230,7 +230,7 @@ under `--raw`, which always runs sequentially.
 | `ops about [setup\|code\|loc\|coverage\|dependencies\|crates\|modules\|backlog]` | Project identity card and subpages (`--refresh` re-collects) |
 | `ops run-before-commit [install]` | Pre-commit hook runner (`--changed-only` skips when nothing is staged) |
 | `ops run-before-push [install]` | Pre-push hook runner (skips a delete-only or empty push) |
-| `ops sec` | Security scans via Trivy — secrets always, vulnerability/misconfig auto-selected by file types (`--skip`/`--force` to override). Fails closed: non-zero on findings, on a scan timeout, and when `--skip` leaves no scan to run. Each scan is bounded by a 10-minute timeout, overridable with `OPS_SEC_TIMEOUT_SECS=<seconds>`. Build/dependency directories are skipped at any depth by default (see the [skip list](#ops-sec-default-skip-list) below); `--no-default-skips` opts out |
+| `ops sec` | Security scans via Trivy — secrets always, vulnerability/misconfig auto-selected by file types (`--skip`/`--force` to override). Fails closed: non-zero on findings, on a scan timeout, and when `--skip` leaves no scan to run. Each scan is bounded by a 10-minute timeout, overridable with `OPS_SEC_TIMEOUT_SECS=<seconds>`. Build/dependency directories are skipped at any depth by default (see the [skip list](#ops-sec-default-skip-list) below); `--no-default-skips` opts out. See [scan root, ignore file, dev deps](#ops-sec-scan-root-ignore-file-and-dev-dependencies) for `--repo`, `.trivyignore.yaml` and `--no-dev-deps` |
 | `ops trailing-whitespace` (`tw`) | Strip trailing whitespace in place; non-zero when files changed (pre-commit contract) |
 | `ops end-of-file-fixer` (`eof`) | Ensure files end with exactly one newline; non-zero when files changed |
 | `ops check-json` / `check-yaml` | Verify every JSON/YAML file parses (`--tracked` limits to git files; `--allow-json5` for JSON5) |
@@ -315,6 +315,27 @@ The list is shared with `ops sec`'s own detection walk, so detection and
 scanning always agree on what counts as build output, and nested workspaces
 are covered the same as the top level — a `fuzz/target` Cargo workspace skips
 exactly like `target/`.
+
+##### `ops sec` scan root, ignore file and dev dependencies
+
+- **Scan root.** `ops sec` scans the directory it runs in. Inside a
+  subproject of a git repo (a monorepo whose `qa` runs `sec` in `backend/`
+  and `frontend/`), files elsewhere in the repo are left out, so no file is
+  scanned twice. The plan instead names every Dockerfile / Kubernetes /
+  IaC file it leaves out — anywhere in the git toplevel outside the scan
+  root and outside sibling directories with their own `.ops.toml` — and
+  says how to include them: `ops sec --repo` scans the git toplevel (or run
+  `ops sec` from the repo root, e.g. as a separate CI step).
+- **Ignore file.** The first of `.trivyignore.yaml` and `.trivyignore`
+  found at the scan root, then at the git toplevel, is passed to every scan
+  via `--ignorefile`. The YAML format wins because it is the one that
+  supports path-scoped rules. `--dry-run` names the file used, or says none
+  was found.
+- **Dev dependencies.** The vulnerability scan includes dev dependencies
+  (`--include-dev-deps`) by default: build tooling and test runners run on
+  developer and CI machines, which is what a security gate is for. Trivy
+  supports this for npm, yarn and gradle only, so other ecosystems are
+  unaffected. `--no-dev-deps` opts out.
 
 Commented suggestions show up verbatim when you run `ops init --commands`, so you can
 opt in by uncommenting, or remap to the tool your project actually uses.
