@@ -4,7 +4,7 @@ title: 'Config commands named like a builtin are silently shadowed: .ops.toml lo
 status: Done
 assignee: []
 created_date: '2026-09-26 20:22'
-updated_date: '2026-09-26 22:16'
+updated_date: '2026-09-26 22:30'
 labels:
   - code-review-rust
   - API
@@ -38,4 +38,7 @@ ordinal: 1000
 
 <!-- SECTION:NOTES:BEGIN -->
 args::warn_shadowed_config_commands runs right after the early config load in main::run and emits one ui::warn per [commands.<name>] that clap resolves to a builtin, naming the builtin (and the alias when the name is one). run-before-commit/run-before-push are exempt: those builtins execute the config command of their own name. Test: shadowed_config_commands_names_the_builtin.
+
+PR #71 review: the warning is emitted after arg parsing and skipped under --raw, which promises no ops output.
+
 <!-- SECTION:NOTES:END -->

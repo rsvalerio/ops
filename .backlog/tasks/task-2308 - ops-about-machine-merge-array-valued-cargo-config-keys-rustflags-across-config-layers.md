@@ -4,7 +4,7 @@ title: 'ops about machine: merge array-valued cargo config keys (rustflags) acro
 status: Done
 assignee: []
 created_date: '2026-09-26 20:36'
-updated_date: '2026-09-26 22:16'
+updated_date: '2026-09-26 22:30'
 labels:
   - code-review-rust
   - feature
@@ -38,4 +38,7 @@ ordinal: 1000
 
 <!-- SECTION:NOTES:BEGIN -->
 build.rustflags and target.<triple>.rustflags now merge across config layers via merge_list (arrays concatenate lower precedence first; a string replaces lower layers' values, as cargo's ConfigValue::merge does). target.'cfg(..)' rustflags merge per key across layers, then join in sorted key order after the triple's. Sources list every contributing file in value order. Test: rustflags_arrays_merge_across_config_layers.
+
+PR #71 review: a string in one layer and an array in another for the same rustflags key is rejected by cargo's merge; merge_list now returns Err and rustflags is reported null with a warning (the module's malformed-config convention), regardless of env overrides.
+
 <!-- SECTION:NOTES:END -->
