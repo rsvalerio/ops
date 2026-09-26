@@ -308,7 +308,16 @@ impl TaskDoc {
     }
 }
 
+/// Frontmatter key holding a task's `task create --unless-exists` identity.
+pub const DEDUP_KEY: &str = "dedup_key";
+
 impl Frontmatter {
+    /// The `--unless-exists` identity this task was filed under, if any.
+    #[must_use = "querying extras is pure; discarding the value wastes the scan"]
+    pub fn dedup_key(&self) -> Option<&str> {
+        self.extra_scalar(DEDUP_KEY)
+    }
+
     /// The scalar value of an extras key (`parent_task_id`, `type`, …),
     /// when that key carries one.
     #[must_use = "querying extras is pure; discarding the value wastes the scan"]

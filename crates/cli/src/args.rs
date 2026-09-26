@@ -248,14 +248,93 @@ pub enum CoreSubcommand {
         #[arg(long = "repo")]
         repo: bool,
     },
+    /// Survey Clippy: one normalized JSON row per Clippy diagnostic.
+    ///
+    /// Not a gate — `ops clippy` stays the gate. Runs `cargo clippy
+    /// --workspace --all-features --all-targets --message-format=json` with
+    /// the lint flags given after `--` (e.g. `-- -W clippy::pedantic`) and
+    /// never adds `-D warnings`. Prints a versioned JSON report: per
+    /// diagnostic the lint (without `clippy::`), `name@version`, the
+    /// repo-relative manifest dir, target name and kind, repo-relative file,
+    /// line, column and the verbatim message. A spanless diagnostic is
+    /// attributed to its crate's `Cargo.toml` at line 0. Spans outside the
+    /// repository (registry, toolchain, `OUT_DIR`) are dropped and counted;
+    /// plain rustc warnings are counted separately. Rows are sorted and
+    /// de-duplicated, so one commit yields the same report from any checkout
+    /// path.
+    #[command(name = "clippy-findings")]
+    ClippyFindings {
+        /// Lint flags passed to clippy after `--`.
+        #[arg(last = true, value_name = "LINT_FLAGS")]
+        lint_flags: Vec<String>,
+    },
+    /// Show a command's resolved execution plan without running anything.
+    ///
+    /// Resolves each command exactly as `ops <cmd>...` would and prints the
+    /// plan: every composite's `parallel` / `fail_fast`, the stages a
+    /// parallel group splits into at its `exclusive` steps, and each step's
+    /// program, args, env, cwd and origin (stack default, config, `clone`,
+    /// `[extend]`, extension or builtin). Never executes a step — not even
+    /// for `run-before-commit` / `run-before-push`.
+    Explain {
+        /// Command names, as `ops <cmd>...` would run them.
+        #[arg(required = true, value_name = "COMMAND")]
+        commands: Vec<String>,
+        /// Versioned machine-readable JSON (`schemaVersion`).
+        #[arg(long)]
+        json: bool,
+    },
     /// Manage `.backlog` task files (backlog.md-compatible subset).
     Backlog {
         #[command(subcommand)]
         action: BacklogAction,
     },
+    /// Run a command while holding a named repository lock.
+    ///
+    /// `ops lock <name> -- <cmd…>` waits for the lock, runs the command, and
+    /// releases the lock when it exits — on failure and on SIGINT/SIGTERM
+    /// too (both are forwarded to the command). Locks live under the common
+    /// git dir, so every worktree of one repository shares them, and the OS
+    /// drops a lock whose holder died. `ops lock status [<name>]` shows the
+    /// holders; `ops lock break <name>` clears a dead holder's record.
+    Lock(LockArgs),
     /// Catch-all for dynamic config-defined commands (e.g. `ops verify`).
     #[command(external_subcommand)]
     External(Vec<OsString>),
+}
+
+/// Arguments of `ops lock`: either a subcommand (`status`, `break`) or a
+/// lock name and the command to run under it.
+#[derive(clap::Args, Debug, Clone)]
+#[command(args_conflicts_with_subcommands = true, subcommand_negates_reqs = true)]
+pub struct LockArgs {
+    #[command(subcommand)]
+    pub action: Option<LockAction>,
+    /// Lock name (letters, digits, `.`, `_`, `-`).
+    #[arg(required = true)]
+    pub name: Option<String>,
+    /// Give up after this many seconds of waiting (default: wait forever).
+    #[arg(long, value_name = "SECS")]
+    pub timeout: Option<u64>,
+    /// The command to run while holding the lock, after `--`.
+    #[arg(last = true, required = true, value_name = "COMMAND")]
+    pub command: Vec<OsString>,
+}
+
+/// `ops lock …` subcommands.
+#[derive(clap::Subcommand, Debug, Clone)]
+pub enum LockAction {
+    /// Show each lock's holder: pid, host, worktree, command, age, and
+    /// whether the holder is alive (a dead holder is reported stale).
+    Status {
+        /// One lock; omit for every lock of this repository.
+        name: Option<String>,
+    },
+    /// Clear a dead holder's record. Refused while the holder is alive.
+    Break {
+        /// The lock to break.
+        name: String,
+    },
 }
 
 /// `ops backlog …` subcommands.
@@ -290,11 +369,25 @@ pub enum BacklogAction {
         /// Plain text output.
         #[arg(long)]
         plain: bool,
+        /// Versioned machine-readable JSON.
+        #[arg(long, conflicts_with = "plain")]
+        json: bool,
     },
-    /// Code-review wave grouping: list, members, migrate.
+    /// Code-review wave grouping: list, members, overlap, claim, park,
+    /// migrate.
     Wave {
         #[command(subcommand)]
         action: BacklogWaveAction,
+    },
+    /// Commit exactly the given tasks' changed files, refusing when
+    /// anything else is staged and when none of them changed.
+    Commit {
+        /// Task ids whose files to commit.
+        #[arg(required = true, value_name = "TASK_ID")]
+        task_ids: Vec<String>,
+        /// The commit message.
+        #[arg(short, long)]
+        message: String,
     },
     /// Move terminal-status tasks older than a cutoff to `completed/`.
     Cleanup {
@@ -345,6 +438,52 @@ pub enum BacklogWaveAction {
         /// Versioned machine-readable JSON.
         #[arg(long, conflicts_with = "plain")]
         json: bool,
+    },
+    /// Each wave's file scope, its shared paths with every other open
+    /// wave, and a suggested merge order (least-overlapping first).
+    Overlap {
+        /// Waves to report on; omit for every open wave.
+        #[arg(value_name = "WAVE_ID")]
+        wave_ids: Vec<String>,
+        /// The label marking a wave parent.
+        #[arg(long, default_value = ops_backlog::cmd::DEFAULT_WAVE_MARKER)]
+        marker: String,
+        /// Plain text output.
+        #[arg(long)]
+        plain: bool,
+        /// Versioned machine-readable JSON.
+        #[arg(long, conflicts_with = "plain")]
+        json: bool,
+    },
+    /// Claim a wave: create its branch and worktree, then flip it to In
+    /// Progress. Refused, with nothing changed, when the branch exists.
+    Claim {
+        /// Wave task id (e.g. TASK-0119).
+        wave_id: String,
+        /// Branch to create (default `code-review/<wave-id>`).
+        #[arg(long)]
+        branch: Option<String>,
+        /// Worktree path (default `../.wave-<wave-id>` beside the repo).
+        #[arg(long, value_name = "PATH")]
+        worktree: Option<PathBuf>,
+        /// The label marking a wave parent.
+        #[arg(long, default_value = ops_backlog::cmd::DEFAULT_WAVE_MARKER)]
+        marker: String,
+    },
+    /// Park a wave whose merge did not land: keep its branch and worktree,
+    /// set its status and record why.
+    Park {
+        /// Wave task id (e.g. TASK-0119).
+        wave_id: String,
+        /// Why the wave was parked.
+        #[arg(long)]
+        reason: String,
+        /// Status to leave the wave in.
+        #[arg(short, long, default_value = "In Progress")]
+        status: String,
+        /// The wave's branch (default `code-review/<wave-id>`).
+        #[arg(long)]
+        branch: Option<String>,
     },
     /// Retire the assignee overload: marker to label, membership to
     /// `parent_task_id`.
@@ -398,6 +537,11 @@ pub struct BacklogCreateArgs {
     /// Dependency task ids (comma-separated or repeatable).
     #[arg(long = "depends-on", visible_alias = "dep", value_delimiter = ',')]
     pub depends_on: Vec<String>,
+    /// Idempotent filing: store KEY as the task's `dedup_key`; when an open
+    /// (not Done) task already carries it, create nothing and print
+    /// `Exists <id>`. Checked and written under the allocation lock.
+    #[arg(long = "unless-exists", value_name = "KEY")]
+    pub unless_exists: Option<String>,
     /// Plain text output.
     #[arg(long)]
     pub plain: bool,
@@ -550,9 +694,23 @@ pub enum AboutAction {
     // `///` line on a variant into the user-facing help text.
     #[cfg(feature = "sqlite")]
     /// Display Rust line counts split into production, test and example.
-    Loc,
+    Loc {
+        /// Versioned machine-readable JSON, including the per-crate split.
+        #[arg(long)]
+        json: bool,
+    },
     /// Display dependency tree.
-    Dependencies,
+    Dependencies {
+        /// Versioned machine-readable JSON.
+        #[arg(long)]
+        json: bool,
+        /// List crates locked at two or more distinct versions (dev-only
+        /// ones excluded), what pulls each older version in, and whether a
+        /// semver-compatible update of it removes the duplicate (checked
+        /// with `cargo update --dry-run`; Cargo.lock is never written).
+        #[arg(long)]
+        duplicates: bool,
+    },
     // `crates` and `modules` render the same stack-aware project-units view
     // via `ops_about::units::run_about_units`; the alias keeps the
     // Go-idiomatic name working without duplicating dispatch. Plain comment so
@@ -560,7 +718,20 @@ pub enum AboutAction {
     // on a variant into the help text).
     #[command(visible_alias = "modules")]
     /// Display project units — crates (Rust) or modules (Go).
-    Crates,
+    Crates {
+        /// Versioned machine-readable JSON: name, version, repo-relative
+        /// manifest dir and in-tree flag per unit.
+        #[arg(long)]
+        json: bool,
+    },
+    /// Display build-relevant machine state: cores, load, competing build
+    /// processes, effective cargo jobs/wrapper/target dir/linker/rustflags
+    /// with their source, and tmpfs status of TMPDIR and the target dir.
+    Machine {
+        /// Versioned machine-readable JSON.
+        #[arg(long)]
+        json: bool,
+    },
     /// Display backlog task overview: per-status totals (including
     /// completed and archived) plus health metrics.
     Backlog,
@@ -597,6 +768,7 @@ const fn stack_specific_commands() -> &'static [(&'static str, Stack)] {
         ("deps", Stack::Rust),
         #[cfg(feature = "stack-terraform")]
         ("plans", Stack::Terraform),
+        ("clippy-findings", Stack::Rust),
     ]
 }
 
@@ -842,6 +1014,25 @@ mod tests {
 
     // -- parse subcommand edge cases --
 
+    // `clippy-findings` is a survey beside the gate: `ops clippy` must still
+    // resolve to the config-defined gate command, not the built-in.
+    #[test]
+    fn parse_clippy_stays_the_external_gate() {
+        let cli = Cli::parse_from(["ops", "clippy"]);
+        assert!(matches!(cli.subcommand, Some(CoreSubcommand::External(_))));
+    }
+
+    #[test]
+    fn parse_clippy_findings_takes_lint_flags_after_double_dash() {
+        let cli = Cli::parse_from(["ops", "clippy-findings", "--", "-W", "clippy::pedantic"]);
+        match cli.subcommand {
+            Some(CoreSubcommand::ClippyFindings { lint_flags }) => {
+                assert_eq!(lint_flags, ["-W", "clippy::pedantic"]);
+            }
+            other => panic!("expected ClippyFindings, got {other:?}"),
+        }
+    }
+
     #[test]
     fn parse_dry_run_flag() {
         let cli = Cli::parse_from(["ops", "--dry-run", "build"]);
@@ -957,6 +1148,20 @@ mod tests {
         assert!(dry_run, "cleanup shares the same propagation contract");
     }
 
+    #[test]
+    fn parse_explain_names_and_json() {
+        let cli = Cli::parse_from(["ops", "explain", "verify", "qa", "--json"]);
+        let Some(CoreSubcommand::Explain { commands, json }) = cli.subcommand else {
+            panic!("must parse as explain");
+        };
+        assert_eq!(commands, ["verify", "qa"]);
+        assert!(json);
+        assert!(
+            Cli::try_parse_from(["ops", "explain"]).is_err(),
+            "explain without a command must be rejected"
+        );
+    }
+
     /// `ops about modules` must continue to parse — it is
     /// the Go-idiomatic alias for the stack-aware project-units view
     /// (`AboutAction::Crates`).
@@ -965,7 +1170,7 @@ mod tests {
         let cli = Cli::parse_from(["ops", "about", "modules"]);
         match cli.subcommand {
             Some(CoreSubcommand::About { action, .. }) => {
-                assert!(matches!(action, Some(AboutAction::Crates)));
+                assert!(matches!(action, Some(AboutAction::Crates { .. })));
             }
             other => panic!("expected About::Crates via modules alias, got {other:?}"),
         }
@@ -1081,7 +1286,51 @@ mod tests {
         let cli = Cli::parse_from(["ops", "about", "loc"]);
         match cli.subcommand {
             Some(CoreSubcommand::About { action, .. }) => {
-                assert!(matches!(action, Some(AboutAction::Loc)));
+                assert!(matches!(action, Some(AboutAction::Loc { .. })));
+            }
+            other => panic!("expected About::Loc, got {other:?}"),
+        }
+    }
+
+    /// TASK-2282 / TASK-2287 / TASK-2288: the machine-readable flags parse
+    /// onto their subcommands.
+    #[test]
+    fn parse_about_json_flags() {
+        let action_of = |args: &[&str]| match Cli::parse_from(args).subcommand {
+            Some(CoreSubcommand::About { action, .. }) => action,
+            other => panic!("expected About, got {other:?}"),
+        };
+        assert!(matches!(
+            action_of(&["ops", "about", "crates", "--json"]),
+            Some(AboutAction::Crates { json: true })
+        ));
+        assert!(matches!(
+            action_of(&["ops", "about", "dependencies", "--json"]),
+            Some(AboutAction::Dependencies {
+                json: true,
+                duplicates: false
+            })
+        ));
+        assert!(matches!(
+            action_of(&["ops", "about", "dependencies", "--duplicates"]),
+            Some(AboutAction::Dependencies {
+                json: false,
+                duplicates: true
+            })
+        ));
+        assert!(matches!(
+            action_of(&["ops", "about", "machine", "--json"]),
+            Some(AboutAction::Machine { json: true })
+        ));
+    }
+
+    #[cfg(feature = "sqlite")]
+    #[test]
+    fn parse_about_loc_json() {
+        let cli = Cli::parse_from(["ops", "about", "loc", "--json"]);
+        match cli.subcommand {
+            Some(CoreSubcommand::About { action, .. }) => {
+                assert!(matches!(action, Some(AboutAction::Loc { json: true })));
             }
             other => panic!("expected About::Loc, got {other:?}"),
         }

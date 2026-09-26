@@ -8,8 +8,8 @@ use ops_core::project_identity::LanguageStat;
 
 use super::super::ingest::table_exists;
 use super::helpers::{
-    query_per_crate_i64, query_project_scalar, ColumnAlias, ColumnName, PerCrateI64Query,
-    QueryTableName,
+    query_per_crate_i64, query_project_scalar, query_rows_fold, ColumnAlias, ColumnName,
+    PerCrateI64Query, QuerySpec, QueryTableName,
 };
 
 /// Query total file count across the whole project from `tokei_files`.
@@ -248,6 +248,45 @@ pub fn query_rust_loc_file_count(db: &Sqlite) -> anyhow::Result<i64> {
         "rust_loc_files",
         "SELECT COUNT(DISTINCT file) FROM rust_loc_files",
         "query_rust_loc_file_count",
+    )
+}
+
+/// Every `rust_loc_files` row as `(workspace-relative file, region stat)`,
+/// each stat's `files` set to `1`.
+///
+/// Callers that need a per-crate split assign each file to its owning
+/// crate themselves (longest member-path prefix): doing it in Rust rather
+/// than SQL lets a root crate and nested members share one pass without
+/// double counting. Returns an empty vec when the table is absent.
+///
+/// # Errors
+///
+/// If the database lock is poisoned, or the query or row decode fails.
+pub fn query_rust_loc_files(db: &Sqlite) -> anyhow::Result<Vec<(String, RustLocStat)>> {
+    query_rows_fold(
+        db,
+        &QuerySpec {
+            table: "rust_loc_files",
+            sql: "SELECT file, region, code, docs, comments, blanks, lines \
+                  FROM rust_loc_files ORDER BY file, region",
+            label: "query_rust_loc_files",
+        },
+        |row| {
+            Ok((
+                row.get::<_, String>(0)?,
+                RustLocStat {
+                    region: row.get(1)?,
+                    files: 1,
+                    code: row.get(2)?,
+                    docs: row.get(3)?,
+                    comments: row.get(4)?,
+                    blanks: row.get(5)?,
+                    lines: row.get(6)?,
+                },
+            ))
+        },
+        Vec::new(),
+        Vec::push,
     )
 }
 

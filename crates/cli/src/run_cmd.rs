@@ -3,8 +3,10 @@
 //! Split for cohesion:
 //! - [`dry_run`] — resolve and print commands without executing
 //! - [`plan`]    — leaf-id expansion, display-map, step logging
+//! - [`explain`] — `ops explain`: the resolved plan, never executed
 
 mod dry_run;
+mod explain;
 mod plan;
 #[cfg(test)]
 mod tests;
@@ -71,6 +73,42 @@ pub fn run_external_command(
     // one-element slice. Earlier the two had independent
     // destructure/build_runner/dry-run/raw branches that drifted.
     run_commands(config, &names, opts)
+}
+
+/// `ops explain <cmd>... [--json]` (TASK-2280): resolve each name exactly as
+/// `ops <cmd>...` would — the same runner, extensions and
+/// [`plans_for_names`] expansion — and print the plan. No step is ever
+/// executed, whatever the command: this path has no call into the
+/// executor, so `run-before-commit` / `run-before-push` are explained like
+/// any other composite.
+///
+/// # Errors
+///
+/// An unknown, cyclic or conflicting command, a step whose fields do not
+/// expand, or a failed write to stdout.
+pub fn run_explain(
+    config: std::sync::Arc<ops_core::config::Config>,
+    names: &[String],
+    json: bool,
+) -> anyhow::Result<ExitCode> {
+    run_explain_to(config, names, json, &mut std::io::stdout())
+}
+
+fn run_explain_to(
+    config: std::sync::Arc<ops_core::config::Config>,
+    names: &[String],
+    json: bool,
+    w: &mut dyn std::io::Write,
+) -> anyhow::Result<ExitCode> {
+    let runner = build_runner(config, ops_runner::command::CwdEscapePolicy::WarnAndAllow)?;
+    let names: Vec<&str> = names.iter().map(String::as_str).collect();
+    let plans = plans_for_names(&runner, &names)?;
+    if json {
+        explain::write_json(&runner, &plans, w)?;
+    } else {
+        explain::write_text(&runner, &plans, w)?;
+    }
+    Ok(ExitCode::SUCCESS)
 }
 
 /// Take an `Arc<Config>` shared with `main`/`dispatch` rather than

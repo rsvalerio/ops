@@ -67,9 +67,10 @@ queries work with the stock `sqlite3` CLI. Migration notes:
 - `crates/runner/src/command/`: command execution engine and event stream.
 - `crates/runner/src/display.rs`: progress rendering with `indicatif`.
 - `crates/extension/src/lib.rs`: extension, command registry, data registry, context APIs.
-- `crates/backlog/`: `.backlog` markdown task management (`ops backlog init`, `ops backlog task create/edit/list/view`, `ops backlog search`, `ops backlog wave list/members/migrate`) — a Backlog.md-compatible subset; `model.rs` parses/writes the task files, `store.rs` scans and allocates ids, `render.rs` owns the output contracts. Backlog config resolves from `.ops.toml`'s `[backlog]` section (wins) or `backlog.config.yml` — see `docs/backlog.md`.
+- `crates/backlog/`: `.backlog` markdown task management (`ops backlog init`, `ops backlog task create/edit/list/view`, `ops backlog search`, `ops backlog wave list/members/overlap/claim/park/migrate`, `ops backlog commit`) — a Backlog.md-compatible subset; `model.rs` parses/writes the task files, `store.rs` scans and allocates ids, `render.rs` owns the output contracts. Backlog config resolves from `.ops.toml`'s `[backlog]` section (wins) or `backlog.config.yml` — see `docs/backlog.md`.
 - `crates/cli/src/theme_cmd.rs`: theme management CLI.
 - `crates/cli/src/sec_cmd.rs`: Trivy-based security scans (`ops sec`).
+- `crates/cli/src/lock_cmd.rs`: `ops lock` — named `flock` locks under the common git dir, shared by all worktrees.
 - `extensions/`: generic extensions.
 - `extensions-<stack>/`: Each stack have its own code folder, e.g. extensions-java.
 

@@ -115,7 +115,6 @@ pub fn run_wave_members<W: Write>(
     let wave = store
         .find(&opts.wave_id)?
         .ok_or_else(|| anyhow::anyhow!("task {} not found", opts.wave_id))?;
-    let wave_id = wave.doc.frontmatter.id.clone();
 
     let entries = store.scan_tasks()?;
     let deps = &wave.doc.frontmatter.dependencies;
@@ -130,16 +129,7 @@ pub fn run_wave_members<W: Write>(
         .collect();
     let members: Vec<TaskEntry> = entries
         .into_iter()
-        .filter(|entry| {
-            let fm = &entry.doc.frontmatter;
-            let is_dependency = deps.iter().any(|dep| dep.eq_ignore_ascii_case(&fm.id));
-            let links_here = fm
-                .extra_scalar("parent_task_id")
-                .is_some_and(|parent| parent.eq_ignore_ascii_case(&wave_id));
-            // The pre-migration link: the member's assignee was its wave id.
-            let assigned_here = has_assignee(&entry.doc, &wave_id);
-            is_dependency || links_here || assigned_here
-        })
+        .filter(|entry| is_member(entry, &wave.doc))
         .collect();
 
     if opts.json {
@@ -154,6 +144,160 @@ pub fn run_wave_members<W: Write>(
         }
     }
     Ok(())
+}
+
+/// Is `entry` a member of the wave `wave`? Any of the three links counts:
+/// listed in the wave's `dependencies:`, a `parent_task_id` naming the wave,
+/// or — the pre-migration link — the wave's id as an assignee.
+fn is_member(entry: &TaskEntry, wave: &TaskDoc) -> bool {
+    let fm = &entry.doc.frontmatter;
+    let wave_id = &wave.frontmatter.id;
+    let is_dependency = wave
+        .frontmatter
+        .dependencies
+        .iter()
+        .any(|dep| dep.eq_ignore_ascii_case(&fm.id));
+    let links_here = fm
+        .extra_scalar("parent_task_id")
+        .is_some_and(|parent| parent.eq_ignore_ascii_case(wave_id));
+    let assigned_here = has_assignee(&entry.doc, wave_id);
+    is_dependency || links_here || assigned_here
+}
+
+/// Arguments of `wave overlap`.
+#[derive(Debug, Clone)]
+pub struct WaveOverlapOptions {
+    /// Waves to report on; empty = every open wave.
+    pub wave_ids: Vec<String>,
+    /// The marker label identifying a wave.
+    pub marker: String,
+    pub json: bool,
+}
+
+/// Report each wave's file scope (the union of its members'
+/// `modified_files`), the paths it shares with every other open wave, and a
+/// suggested merge order.
+///
+/// "Open" is any status but the terminal one (the last configured column).
+/// A wave named explicitly is reported whatever its status, and is compared
+/// against every open wave plus the other named ones.
+///
+/// The merge order puts the least-overlapping wave first — fewest shared
+/// paths summed over every other wave — so the waves most likely to
+/// conflict land last, onto a base that already carries their neighbours.
+/// Ties break on the task id's numeric order, so the order is deterministic.
+///
+/// # Errors
+///
+/// A named wave id resolves to no task in `tasks/`, a task file does not
+/// parse, or writing `out` failed.
+pub fn run_wave_overlap<W: Write>(
+    store: &Store,
+    cfg: &BacklogConfig,
+    opts: &WaveOverlapOptions,
+    out: &mut W,
+) -> anyhow::Result<()> {
+    let entries = store.scan_tasks()?;
+    let terminal = super::cleanup::terminal_status(&cfg.statuses);
+    let is_open = |entry: &TaskEntry| {
+        terminal.is_none_or(|t| !entry.doc.frontmatter.status.eq_ignore_ascii_case(t))
+    };
+
+    let mut selected: Vec<&TaskEntry> = Vec::new();
+    for id in &opts.wave_ids {
+        let wave = entries
+            .iter()
+            .find(|e| e.doc.frontmatter.id.eq_ignore_ascii_case(id))
+            .ok_or_else(|| anyhow::anyhow!("task {id} not found"))?;
+        if !selected.iter().any(|w| std::ptr::eq(*w, wave)) {
+            selected.push(wave);
+        }
+    }
+    let open_waves = entries
+        .iter()
+        .filter(|entry| is_wave(entry, &opts.marker) && is_open(entry));
+    let mut compared: Vec<&TaskEntry> = selected.clone();
+    for wave in open_waves {
+        if !compared.iter().any(|w| std::ptr::eq(*w, wave)) {
+            compared.push(wave);
+        }
+    }
+    if opts.wave_ids.is_empty() {
+        selected.clone_from(&compared);
+    }
+
+    let scopes: Vec<(&TaskEntry, std::collections::BTreeSet<&str>)> = compared
+        .iter()
+        .map(|wave| (*wave, file_scope(&entries, &wave.doc)))
+        .collect();
+    let mut rows: Vec<(usize, render::WaveOverlapRow)> = selected
+        .iter()
+        .map(|wave| {
+            let own = scopes
+                .iter()
+                .find(|(w, _)| std::ptr::eq(*w, *wave))
+                .map(|(_, scope)| scope.clone())
+                .unwrap_or_default();
+            let mut overlaps: Vec<(String, Vec<String>)> = scopes
+                .iter()
+                .filter(|(other, _)| !std::ptr::eq(*other, *wave))
+                .filter_map(|(other, scope)| {
+                    let shared: Vec<String> =
+                        own.intersection(scope).map(|p| (*p).to_string()).collect();
+                    (!shared.is_empty()).then(|| (other.doc.frontmatter.id.clone(), shared))
+                })
+                .collect();
+            overlaps.sort_by(|a, b| id_order(&a.0, &b.0));
+            let weight = overlaps.iter().map(|(_, shared)| shared.len()).sum();
+            let fm = &wave.doc.frontmatter;
+            (
+                weight,
+                render::WaveOverlapRow {
+                    id: fm.id.clone(),
+                    title: fm.title.clone(),
+                    status: fm.status.clone(),
+                    files: own.iter().map(|p| (*p).to_string()).collect(),
+                    overlaps,
+                },
+            )
+        })
+        .collect();
+    rows.sort_by(|(wa, a), (wb, b)| wa.cmp(wb).then_with(|| id_order(&a.id, &b.id)));
+    let rows: Vec<render::WaveOverlapRow> = rows.into_iter().map(|(_, row)| row).collect();
+
+    if opts.json {
+        render::wave_overlap_json(out, &rows).context("writing wave overlap JSON")
+    } else {
+        render::wave_overlap_plain(out, &rows).context("writing wave overlap")
+    }
+}
+
+/// The union of the wave's members' `modified_files`, trimmed, blanks
+/// dropped.
+fn file_scope<'a>(entries: &'a [TaskEntry], wave: &TaskDoc) -> std::collections::BTreeSet<&'a str> {
+    entries
+        .iter()
+        .filter(|entry| is_member(entry, wave))
+        .flat_map(|entry| entry.doc.frontmatter.modified_files.iter())
+        .map(|path| path.trim())
+        .filter(|path| !path.is_empty())
+        .collect()
+}
+
+/// Task ids in numeric order (`TASK-999` before `TASK-1000`), falling back
+/// to a case-insensitive string order for ids without a numeric suffix.
+fn id_order(a: &str, b: &str) -> std::cmp::Ordering {
+    fn key(id: &str) -> (String, Option<u64>, String) {
+        match id.rsplit_once('-') {
+            Some((prefix, number)) => (
+                prefix.to_ascii_lowercase(),
+                number.parse::<u64>().ok(),
+                id.to_ascii_lowercase(),
+            ),
+            None => (id.to_ascii_lowercase(), None, id.to_ascii_lowercase()),
+        }
+    }
+    key(a).cmp(&key(b))
 }
 
 /// One task the migration rewrites.
@@ -451,7 +595,7 @@ fn looks_like_task_id(value: &str) -> bool {
 
 /// A wave carries the marker as a label (migrated) or as an assignee (the
 /// pre-migration overload).
-fn is_wave(entry: &TaskEntry, marker: &str) -> bool {
+pub(crate) fn is_wave(entry: &TaskEntry, marker: &str) -> bool {
     has_label(&entry.doc, marker) || has_assignee(&entry.doc, marker)
 }
 
@@ -834,5 +978,130 @@ mod tests {
         assert!(looks_like_task_id("TASK-0119"));
         assert!(!looks_like_task_id("code-review-wave"));
         assert!(!looks_like_task_id("rodrigo"));
+    }
+
+    /// A wave (marker label, members as dependencies) with a status.
+    fn wave(id: &str, status: &str, members: &[&str]) -> String {
+        task(id, &[], &["code-review-wave"], members)
+            .replace("status: To Do", &format!("status: {status}"))
+    }
+
+    /// A member task touching `files`.
+    fn member(id: &str, files: &[&str]) -> String {
+        let mut src = task(id, &[], &[], &[]);
+        src.truncate(src.len().saturating_sub("---\n".len()));
+        src.push_str("modified_files:\n");
+        for file in files {
+            let _ = writeln!(src, "  - {file}");
+        }
+        src.push_str("---\n");
+        src
+    }
+
+    fn overlap_tree() -> (tempfile::TempDir, Store) {
+        scratch(&[
+            (
+                "task-10 - w.md",
+                wave("TASK-10", "To Do", &["TASK-1", "TASK-2"]),
+            ),
+            ("task-11 - w.md", wave("TASK-11", "To Do", &["TASK-3"])),
+            ("task-12 - w.md", wave("TASK-12", "To Do", &["TASK-4"])),
+            ("task-13 - w.md", wave("TASK-13", "Done", &["TASK-5"])),
+            ("task-1 - m.md", member("TASK-1", &["a.rs", "b.rs"])),
+            ("task-2 - m.md", member("TASK-2", &["b.rs", "c.rs"])),
+            ("task-3 - m.md", member("TASK-3", &["c.rs", "d.rs"])),
+            ("task-4 - m.md", member("TASK-4", &["z.rs"])),
+            // A closed wave's scope is never compared against.
+            ("task-5 - m.md", member("TASK-5", &["a.rs"])),
+        ])
+    }
+
+    fn overlap(store: &Store, ids: &[&str], json: bool) -> String {
+        let mut out = Vec::new();
+        run_wave_overlap(
+            store,
+            &cfg(),
+            &WaveOverlapOptions {
+                wave_ids: ids.iter().map(ToString::to_string).collect(),
+                marker: DEFAULT_WAVE_MARKER.to_string(),
+                json,
+            },
+            &mut out,
+        )
+        .expect("overlap");
+        String::from_utf8(out).expect("utf8")
+    }
+
+    /// AC #1 and #2: every open wave's scope, the shared paths with each
+    /// other open wave (closed waves ignored), and a least-overlapping-first
+    /// merge order with ties broken by numeric id.
+    #[test]
+    fn overlap_reports_scope_shared_paths_and_merge_order() {
+        let (_dir, store) = overlap_tree();
+        let text = overlap(&store, &[], false);
+        assert!(text.contains("  files: a.rs, b.rs, c.rs\n"), "got: {text}");
+        assert!(text.contains("  overlaps TASK-11: c.rs\n"), "got: {text}");
+        assert!(text.contains("  overlaps TASK-10: c.rs\n"), "got: {text}");
+        assert!(!text.contains("TASK-13"), "closed wave compared: {text}");
+        assert!(
+            text.ends_with("Suggested merge order: TASK-12, TASK-10, TASK-11\n"),
+            "got: {text}"
+        );
+    }
+
+    /// An explicitly named wave is reported alone but still compared with
+    /// every open wave.
+    #[test]
+    fn overlap_of_a_named_wave_compares_against_all_open_waves() {
+        let (_dir, store) = overlap_tree();
+        let text = overlap(&store, &["task-11"], false);
+        assert!(text.starts_with("TASK-11 - "), "got: {text}");
+        assert!(text.contains("  overlaps TASK-10: c.rs\n"), "got: {text}");
+        assert!(
+            text.ends_with("Suggested merge order: TASK-11\n"),
+            "got: {text}"
+        );
+    }
+
+    /// AC #3: the JSON envelope is versioned and parses.
+    #[test]
+    fn overlap_json_carries_a_schema_version() {
+        let (_dir, store) = overlap_tree();
+        let text = overlap(&store, &[], true);
+        let value: serde_json::Value = serde_json::from_str(&text).expect("valid JSON");
+        assert_eq!(value["schemaVersion"], 1);
+        assert_eq!(value["kind"], "wave-overlap");
+        assert_eq!(
+            value["mergeOrder"],
+            serde_json::json!(["TASK-12", "TASK-10", "TASK-11"])
+        );
+        assert_eq!(value["waves"][0]["overlaps"], serde_json::json!([]));
+        assert_eq!(
+            value["waves"][1]["overlaps"][0],
+            serde_json::json!({"id": "TASK-11", "files": ["c.rs"]})
+        );
+    }
+
+    #[test]
+    fn overlap_of_an_unknown_wave_names_the_id() {
+        let (_dir, store) = overlap_tree();
+        let err = run_wave_overlap(
+            &store,
+            &cfg(),
+            &WaveOverlapOptions {
+                wave_ids: vec!["TASK-404".to_string()],
+                marker: DEFAULT_WAVE_MARKER.to_string(),
+                json: false,
+            },
+            &mut Vec::new(),
+        )
+        .expect_err("unknown");
+        assert!(err.to_string().contains("TASK-404"));
+    }
+
+    #[test]
+    fn id_order_is_numeric() {
+        assert_eq!(id_order("TASK-999", "TASK-1000"), std::cmp::Ordering::Less);
+        assert_eq!(id_order("task-2", "TASK-2"), std::cmp::Ordering::Equal);
     }
 }

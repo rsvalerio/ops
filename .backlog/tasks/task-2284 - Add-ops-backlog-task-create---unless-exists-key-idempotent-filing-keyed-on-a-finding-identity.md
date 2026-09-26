@@ -1,10 +1,10 @@
 ---
 id: TASK-2284
 title: 'Add ops backlog task create --unless-exists <key>: idempotent filing keyed on a finding identity'
-status: To Do
+status: Done
 assignee: []
 created_date: '2026-09-26 17:47'
-updated_date: '2026-09-26 18:27'
+updated_date: '2026-09-26 19:02'
 labels:
   - feature
   - backlog
@@ -32,7 +32,14 @@ Source: skills-vs-ops audit of rsvalerio/ai dev-skills, 2026-09-26 (https://clau
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 A second create with the same --unless-exists key while the first task is open creates nothing and reports the existing id
-- [ ] #2 A key whose only task is Done files a new task
-- [ ] #3 Two concurrent creates with the same key produce exactly one task
+- [x] #1 A second create with the same --unless-exists key while the first task is open creates nothing and reports the existing id
+- [x] #2 A key whose only task is Done files a new task
+- [x] #3 Two concurrent creates with the same key produce exactly one task
+
 <!-- AC:END -->
+
+## Implementation Notes
+
+<!-- SECTION:NOTES:BEGIN -->
+Key stored as `dedup_key` frontmatter (model::DEDUP_KEY); existing open task prints `Exists TASK-NNNN`. 'Open' = any status but the configured terminal column, in tasks/ only. The store had no allocation lock (it relied on create_new retry), so Store::lock_allocation was added: std File::lock on the tasks/ directory on Unix (no stray lock file), a persistent .allocation.lock file elsewhere; taken only for keyed creates. AC#3 pinned by an 8-thread barrier test.
+<!-- SECTION:NOTES:END -->

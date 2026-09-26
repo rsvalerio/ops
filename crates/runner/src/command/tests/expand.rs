@@ -232,6 +232,36 @@ fn builtin_commands_resolve_by_name_and_alias() {
     assert!(runner.resolve("tw").is_some(), "alias must resolve");
 }
 
+/// TASK-2280: `locate` resolves names and aliases to the canonical name and
+/// the store expansion would take the spec from.
+#[test]
+fn locate_names_canonical_and_store() {
+    let mut commands = HashMap::new();
+    let mut spec = exec_spec("cargo", &["build"]);
+    spec.aliases = vec!["b".to_string()];
+    commands.insert("build".to_string(), CommandSpec::Exec(spec));
+    let mut runner = test_runner(commands);
+    runner.register_commands(vec![(
+        "ext-cmd".into(),
+        CommandSpec::Exec(exec_spec("echo", &["x"])),
+    )]);
+
+    assert_eq!(
+        runner.locate("build"),
+        Some(("build", CommandSource::Config))
+    );
+    assert_eq!(runner.locate("b"), Some(("build", CommandSource::Config)));
+    assert_eq!(
+        runner.locate("ext-cmd"),
+        Some(("ext-cmd", CommandSource::Extension))
+    );
+    assert_eq!(
+        runner.locate("eof"),
+        Some(("end-of-file-fixer", CommandSource::Builtin))
+    );
+    assert_eq!(runner.locate("unknown"), None);
+}
+
 #[test]
 fn composite_can_reference_builtin_aliases() {
     let mut commands = HashMap::new();

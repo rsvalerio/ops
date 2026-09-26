@@ -45,11 +45,13 @@ extern crate ops_tokei;
 mod about_cmd;
 mod args;
 mod backlog_cmd;
+mod clippy_findings_cmd;
 mod extension_cmd;
 mod help;
 mod hook_shared;
 mod import_makefile_cmd;
 mod init_cmd;
+mod lock_cmd;
 mod new_command_cmd;
 mod pre_hook_cmd;
 mod prompt;
@@ -272,8 +274,9 @@ fn dispatch(
         Some(CoreSubcommand::Theme { action }) => run_theme(early_config, action)?,
         Some(CoreSubcommand::Backlog { action }) => {
             let cwd = cwd()?;
-            backlog_cmd::run_backlog(&cwd, early_config, action)?;
+            backlog_cmd::run_backlog(&cwd, early_config, action, cli.dry_run)?;
         }
+        Some(CoreSubcommand::Lock(args)) => return run_lock(args),
         Some(CoreSubcommand::Extension { action }) => run_extension(early_config, action)?,
         Some(CoreSubcommand::NewCommand) => {
             let cwd = cwd()?;
@@ -288,9 +291,9 @@ fn dispatch(
         Some(CoreSubcommand::RunBeforeCommit {
             changed_only,
             action,
-        }) => return run_before_commit(std::sync::Arc::clone(early_config), action, changed_only),
+        }) => return run_before_commit(early_config, action, changed_only, cli.dry_run),
         Some(CoreSubcommand::RunBeforePush { action }) => {
-            return run_before_push(std::sync::Arc::clone(early_config), action);
+            return run_before_push(early_config, action, cli.dry_run);
         }
         Some(CoreSubcommand::About { refresh, action }) => {
             run_about(early_config, refresh, action)?;
@@ -331,6 +334,13 @@ fn dispatch(
             };
             return sec_cmd::run_sec(&cwd, cli.dry_run, &overrides);
         }
+        Some(CoreSubcommand::ClippyFindings { lint_flags }) => {
+            let cwd = cwd()?;
+            return clippy_findings_cmd::run_clippy_findings(&cwd, &lint_flags, cli.dry_run);
+        }
+        Some(CoreSubcommand::Explain { commands, json }) => {
+            return run_cmd::run_explain(std::sync::Arc::clone(early_config), &commands, json);
+        }
         Some(CoreSubcommand::External(args)) => {
             return run_cmd::run_external_command(
                 std::sync::Arc::clone(early_config),
@@ -352,6 +362,34 @@ fn dispatch(
     }
 
     Ok(ExitCode::SUCCESS)
+}
+
+/// `ops lock`: dispatch to status / break, or run the command under the
+/// named lock and forward its exit code.
+fn run_lock(args: args::LockArgs) -> anyhow::Result<ExitCode> {
+    let cwd = cwd()?;
+    match args.action {
+        Some(args::LockAction::Status { name }) => {
+            let dir = lock_cmd::locks_dir(&cwd)?;
+            lock_cmd::status_to(&dir, name.as_deref(), &mut io::stdout())?;
+            Ok(ExitCode::SUCCESS)
+        }
+        Some(args::LockAction::Break { name }) => {
+            let dir = lock_cmd::locks_dir(&cwd)?;
+            lock_cmd::break_to(&dir, &name, &mut io::stdout())?;
+            Ok(ExitCode::SUCCESS)
+        }
+        None => {
+            // clap enforces `name` when no subcommand is given.
+            let name = args.name.unwrap_or_default();
+            lock_cmd::run_locked(
+                &cwd,
+                &name,
+                &args.command,
+                args.timeout.map(std::time::Duration::from_secs),
+            )
+        }
+    }
 }
 
 /// CLI-level cwd lookup. The pre-resolved `Config` is threaded by the

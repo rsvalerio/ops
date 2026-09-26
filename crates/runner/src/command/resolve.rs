@@ -101,6 +101,22 @@ impl CommandPlan {
     }
 }
 
+/// Which command store a resolved command lives in (TASK-2280), in
+/// resolution priority order: config shadows stack defaults, which shadow
+/// extensions, which shadow builtins.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum CommandSource {
+    /// `Config::commands`: `.ops.toml` and its layers, plus entries the
+    /// loader's `clone` / `[extend]` passes materialized there.
+    Config,
+    /// The detected stack's default commands.
+    Stack,
+    /// Registered by a compiled-in extension.
+    Extension,
+    /// An always-available builtin mirroring a clap subcommand.
+    Builtin,
+}
+
 /// Walk state for `expand_node` / `expand_flat_node`. Shared across the
 /// whole expansion so cycle detection and the depth budget span sequential
 /// and flat recursion alike.
@@ -315,6 +331,24 @@ impl CommandRunner {
             }
         }
         None
+    }
+
+    /// Resolve `id` (or an alias) to its canonical name and the store it
+    /// resolves from — the same lookup expansion uses, so a plan's origin
+    /// always names the spec that would run.
+    #[must_use]
+    pub fn locate(&self, id: &str) -> Option<(&str, CommandSource)> {
+        let (canonical, _) = self.canonical_with_spec(id)?;
+        let source = if self.config.commands.contains_key(canonical) {
+            CommandSource::Config
+        } else if self.stack_commands.contains_key(canonical) {
+            CommandSource::Stack
+        } else if self.extension_commands.contains_key(canonical) {
+            CommandSource::Extension
+        } else {
+            CommandSource::Builtin
+        };
+        Some((canonical, source))
     }
 
     /// Look up a command by alias across all command sources.

@@ -1,10 +1,10 @@
 ---
 id: TASK-2290
 title: 'code-review-plan-wave22'
-status: To Do
+status: Done
 assignee: []
 created_date: '2026-09-26 18:27'
-updated_date: '2026-09-26 18:27'
+updated_date: '2026-09-26 19:13'
 labels:
   - code-review-wave
 dependencies:
@@ -42,4 +42,7 @@ Dry-run honesty: --dry-run must never execute (hook gates, backlog mutations), p
 
 <!-- SECTION:NOTES:BEGIN -->
 Overlaps: TASK-2291 wave23 (crates/cli/src/main.rs, crates/cli/src/backlog_cmd.rs, crates/cli/src/args.rs); TASK-2293 wave25 (crates/cli/src/args.rs)
+
+Branch: code-review/TASK-2290
+
 <!-- SECTION:NOTES:END -->

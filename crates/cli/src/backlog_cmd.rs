@@ -16,7 +16,7 @@ use ops_backlog::config::BacklogConfig;
 use ops_backlog::store::Store;
 use ops_core::config::{BacklogSection, Config};
 
-use crate::args::{BacklogAction, BacklogTaskAction};
+use crate::args::{BacklogAction, BacklogTaskAction, BacklogWaveAction};
 
 /// Resolve the effective backlog config: `.ops.toml`'s `[backlog]` section
 /// when it sets any key, else `backlog.config.yml` (absent = defaults).
@@ -264,7 +264,62 @@ fn insert_backlog_section(
 /// The cwd is unreadable, a config file is present but unparseable, the
 /// `.backlog/tasks` tree is missing (the error names it), or a handler
 /// failed — all bubble as anyhow context for `ops: error: …`.
-pub fn run_backlog(cwd: &Path, config: &Config, action: BacklogAction) -> anyhow::Result<()> {
+/// TASK-2279: the backlog actions that write the tree but have no preview
+/// mode, named as the user typed them. Under the global `--dry-run` these
+/// are refused rather than run: the flag promises "preview without
+/// executing", and silently writing a task file (and allocating its id)
+/// under it breaks that promise. Actions with their own preview
+/// (`cleanup`, `create-review-tasks`, `wave migrate` — the global flag
+/// reaches their local field) and read-only actions return `None`.
+///
+/// Every variant is matched explicitly, so a new mutating action fails to
+/// compile here until it is classified.
+const fn unpreviewable_mutation(action: &BacklogAction) -> Option<&'static str> {
+    match action {
+        BacklogAction::Init { .. } => Some("init"),
+        BacklogAction::Task { action } => match action {
+            BacklogTaskAction::Create(_) => Some("task create"),
+            BacklogTaskAction::Edit(_) => Some("task edit"),
+            BacklogTaskAction::List { .. } | BacklogTaskAction::View { .. } => None,
+        },
+        BacklogAction::Wave { action } => match action {
+            BacklogWaveAction::Claim { .. } => Some("wave claim"),
+            BacklogWaveAction::Park { .. } => Some("wave park"),
+            BacklogWaveAction::List { .. }
+            | BacklogWaveAction::Members { .. }
+            | BacklogWaveAction::Overlap { .. }
+            | BacklogWaveAction::Migrate { .. } => None,
+        },
+        BacklogAction::Commit { .. } => Some("commit"),
+        BacklogAction::Search { .. }
+        | BacklogAction::Cleanup { .. }
+        | BacklogAction::CreateReviewTasks { .. } => None,
+    }
+}
+
+/// Dispatch one `ops backlog` action. `dry_run` is the global `--dry-run`;
+/// a mutating action without a preview mode fails under it (see
+/// [`unpreviewable_mutation`]) before anything is read or written.
+///
+/// # Errors
+///
+/// `--dry-run` on an action that cannot preview, or any error of the
+/// dispatched handler.
+pub fn run_backlog(
+    cwd: &Path,
+    config: &Config,
+    action: BacklogAction,
+    dry_run: bool,
+) -> anyhow::Result<()> {
+    if dry_run {
+        if let Some(name) = unpreviewable_mutation(&action) {
+            anyhow::bail!(
+                "--dry-run is not supported for `ops backlog {name}`: it has no preview \
+                 mode and would write the backlog; nothing was written — rerun without \
+                 --dry-run"
+            );
+        }
+    }
     // init is the one action that runs without a store — creating the tree
     // (which Store::open requires) is its job.
     if let BacklogAction::Init { backlog_md } = action {
@@ -297,17 +352,22 @@ pub fn run_backlog(cwd: &Path, config: &Config, action: BacklogAction) -> anyhow
             modified_file,
             exclude_status,
             plain,
+            json,
         } => {
-            let _ = plain; // plain is the only renderer in scope
             let opts = cmd::SearchOptions {
                 query,
                 modified_file,
                 exclude_status,
-                plain: true,
+                plain: plain || !json,
+                json,
             };
             cmd::run_search(&store, &opts, &mut std::io::stdout())
         }
-        BacklogAction::Wave { action } => run_wave_action(&store, &cfg, action),
+        BacklogAction::Wave { action } => run_wave_action(&store, &cfg, cwd, action),
+        BacklogAction::Commit { task_ids, message } => {
+            let opts = cmd::CommitOptions { task_ids, message };
+            cmd::run_commit(&store, cwd, &opts, &mut std::io::stdout())
+        }
         BacklogAction::Cleanup {
             older_than,
             dry_run,
@@ -386,6 +446,7 @@ fn edit_options_from(edit: Box<crate::args::BacklogEditArgs>) -> cmd::EditOption
 fn run_wave_action(
     store: &Store,
     cfg: &BacklogConfig,
+    cwd: &Path,
     action: crate::args::BacklogWaveAction,
 ) -> anyhow::Result<()> {
     use crate::args::BacklogWaveAction;
@@ -411,6 +472,47 @@ fn run_wave_action(
         } => {
             let opts = cmd::WaveMembersOptions { wave_id, json };
             cmd::run_wave_members(store, cfg, &opts, &mut std::io::stdout())
+        }
+        BacklogWaveAction::Overlap {
+            wave_ids,
+            marker,
+            plain: _,
+            json,
+        } => {
+            let opts = cmd::WaveOverlapOptions {
+                wave_ids,
+                marker,
+                json,
+            };
+            cmd::run_wave_overlap(store, cfg, &opts, &mut std::io::stdout())
+        }
+        BacklogWaveAction::Claim {
+            wave_id,
+            branch,
+            worktree,
+            marker,
+        } => {
+            let opts = cmd::WaveClaimOptions {
+                wave_id,
+                marker,
+                branch,
+                worktree,
+            };
+            cmd::run_wave_claim(store, cwd, &opts, &mut std::io::stdout())
+        }
+        BacklogWaveAction::Park {
+            wave_id,
+            reason,
+            status,
+            branch,
+        } => {
+            let opts = cmd::WaveParkOptions {
+                wave_id,
+                reason,
+                status,
+                branch,
+            };
+            cmd::run_wave_park(store, cwd, &opts, &mut std::io::stdout())
         }
         BacklogWaveAction::Migrate { marker, dry_run } => {
             let opts = cmd::WaveMigrateOptions { marker, dry_run };
@@ -440,6 +542,7 @@ fn run_task_action(
                 plan,
                 notes,
                 depends_on,
+                unless_exists,
                 plain: _,
             } = *create;
             let opts = cmd::CreateOptions {
@@ -455,6 +558,7 @@ fn run_task_action(
                 plan,
                 notes,
                 dependencies: depends_on,
+                unless_exists,
             };
             cmd::run_create(store, cfg, &opts, &mut std::io::stdout())
         }
@@ -743,5 +847,117 @@ mod tests {
             rendered.contains("refusing to overwrite"),
             "error must state the refusal, got: {rendered}"
         );
+    }
+
+    fn parse_backlog(argv: &[&str]) -> BacklogAction {
+        use clap::Parser as _;
+        let cli = crate::args::Cli::parse_from(argv);
+        let Some(crate::args::CoreSubcommand::Backlog { action }) = cli.subcommand else {
+            panic!("{argv:?} must parse as a backlog action");
+        };
+        action
+    }
+
+    fn task_files(root: &Path) -> Vec<std::path::PathBuf> {
+        std::fs::read_dir(root.join(".backlog/tasks"))
+            .expect("read tasks dir")
+            .map(|e| e.expect("dir entry").path())
+            .collect()
+    }
+
+    /// TASK-2279: under the global `--dry-run`, every mutating backlog
+    /// action without a preview mode fails with an explicit error and writes
+    /// nothing — no task file, no allocated id, no edit, no init.
+    #[test]
+    fn dry_run_refuses_every_unpreviewable_mutation_and_writes_nothing() {
+        let dir = tempfile::tempdir().expect("tempdir");
+        let root = crate::test_utils::canonical_root(&dir);
+        run_init(root.as_path(), false);
+        let config = ops_core::config::load_config_or_default_at(root.as_path(), "test");
+        run_backlog(
+            root.as_path(),
+            &config,
+            parse_backlog(&["ops", "backlog", "task", "create", "seed"]),
+            false,
+        )
+        .expect("seed task");
+        let before: Vec<_> = task_files(root.as_path())
+            .into_iter()
+            .map(|p| (p.clone(), std::fs::read(&p).expect("read task")))
+            .collect();
+        assert_eq!(before.len(), 1, "the seed task must exist");
+        let ops_toml_before = std::fs::read(root.join(".ops.toml")).expect("read .ops.toml");
+
+        for argv in [
+            ["ops", "--dry-run", "backlog", "task", "create", "x"].as_slice(),
+            ["ops", "backlog", "task", "create", "x", "--dry-run"].as_slice(),
+            [
+                "ops",
+                "--dry-run",
+                "backlog",
+                "task",
+                "edit",
+                "TASK-1",
+                "-s",
+                "Done",
+            ]
+            .as_slice(),
+            ["ops", "--dry-run", "backlog", "init"].as_slice(),
+            ["ops", "--dry-run", "backlog", "commit", "TASK-1", "-m", "x"].as_slice(),
+            ["ops", "--dry-run", "backlog", "wave", "claim", "TASK-1"].as_slice(),
+            [
+                "ops",
+                "--dry-run",
+                "backlog",
+                "wave",
+                "park",
+                "TASK-1",
+                "--reason",
+                "x",
+            ]
+            .as_slice(),
+        ] {
+            let err = run_backlog(root.as_path(), &config, parse_backlog(argv), true)
+                .expect_err("dry-run of an unpreviewable mutation must fail");
+            let msg = format!("{err:#}");
+            assert!(
+                msg.contains("--dry-run is not supported for `ops backlog"),
+                "{argv:?}: error must name the refusal, got: {msg}"
+            );
+        }
+
+        let after: Vec<_> = task_files(root.as_path())
+            .into_iter()
+            .map(|p| (p.clone(), std::fs::read(&p).expect("read task")))
+            .collect();
+        assert_eq!(before, after, "no task file may be created or edited");
+        assert_eq!(
+            std::fs::read(root.join(".ops.toml")).expect("read .ops.toml"),
+            ops_toml_before,
+            "init must not touch .ops.toml under --dry-run"
+        );
+    }
+
+    /// Read-only actions and actions with their own preview stay allowed
+    /// under the global `--dry-run`.
+    #[test]
+    fn dry_run_allows_read_only_and_previewing_actions() {
+        for argv in [
+            ["ops", "backlog", "task", "list"].as_slice(),
+            ["ops", "backlog", "task", "view", "TASK-1"].as_slice(),
+            ["ops", "backlog", "search", "x"].as_slice(),
+            ["ops", "backlog", "wave", "list"].as_slice(),
+            ["ops", "backlog", "wave", "members", "TASK-1"].as_slice(),
+            ["ops", "backlog", "wave", "overlap"].as_slice(),
+            ["ops", "backlog", "wave", "migrate"].as_slice(),
+            ["ops", "backlog", "cleanup"].as_slice(),
+            ["ops", "backlog", "create-review-tasks"].as_slice(),
+        ] {
+            assert_eq!(
+                unpreviewable_mutation(&parse_backlog(argv)),
+                None,
+                "{argv:?} must stay runnable under --dry-run"
+            );
+        }
     }
 }

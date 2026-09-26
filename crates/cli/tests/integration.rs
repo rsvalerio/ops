@@ -2282,3 +2282,75 @@ fn cli_backlog_wave_list_members_and_dry_run_migrate() {
     .success()
     .stdout(predicate::str::contains("TASK-0001"));
 }
+
+// -- TASK-2278 / TASK-2280: previews never execute --
+
+/// Every exec in this config touches `ran-marker`, so any spawn under a
+/// preview leaves evidence behind.
+const MARKER_HOOKS_CONFIG: &str = r#"
+[commands.touch-marker]
+program = "touch"
+args = ["ran-marker"]
+
+[commands.run-before-commit]
+commands = ["touch-marker"]
+
+[commands.run-before-push]
+commands = ["touch-marker"]
+"#;
+
+#[test]
+fn cli_dry_run_hooks_print_the_plan_and_run_nothing() {
+    with_ops_toml(MARKER_HOOKS_CONFIG, |path| {
+        for hook in ["run-before-commit", "run-before-push"] {
+            ops()
+                .args(["--dry-run", hook])
+                .current_dir(path)
+                .assert()
+                .success()
+                .stdout(predicate::str::contains(format!("Command: {hook}")))
+                .stdout(predicate::str::contains("touch-marker"));
+        }
+        assert!(
+            !path.join("ran-marker").exists(),
+            "a hook step ran under --dry-run"
+        );
+    });
+}
+
+#[test]
+fn cli_explain_json_runs_nothing_and_is_versioned() {
+    with_ops_toml(MARKER_HOOKS_CONFIG, |path| {
+        let out = ops()
+            .args(["explain", "run-before-commit", "run-before-push", "--json"])
+            .current_dir(path)
+            .output()
+            .expect("run ops explain");
+        assert!(out.status.success(), "{out:?}");
+        let doc: serde_json::Value = serde_json::from_slice(&out.stdout).expect("valid JSON");
+        assert_eq!(doc["schemaVersion"], 1);
+        assert_eq!(doc["commands"][0]["name"], "run-before-commit");
+        assert_eq!(doc["steps"][0]["program"], "touch");
+        assert!(!path.join("ran-marker").exists(), "ops explain ran a step");
+    });
+}
+
+#[test]
+fn cli_backlog_task_create_dry_run_is_refused_and_writes_nothing() {
+    let dir = temp_dir();
+    ops()
+        .args(["backlog", "init"])
+        .current_dir(dir.path())
+        .assert()
+        .success();
+    ops()
+        .args(["backlog", "task", "create", "x", "--dry-run", "--plain"])
+        .current_dir(dir.path())
+        .assert()
+        .failure()
+        .stderr(predicate::str::contains("--dry-run is not supported"));
+    let tasks = std::fs::read_dir(dir.path().join(".backlog/tasks"))
+        .expect("tasks dir")
+        .count();
+    assert_eq!(tasks, 0, "no task file may be written under --dry-run");
+}

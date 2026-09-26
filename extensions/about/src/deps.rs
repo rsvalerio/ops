@@ -55,6 +55,232 @@ pub fn run_about_deps_with(
     Ok(())
 }
 
+/// Version of the `ops about dependencies --json` document shape.
+pub const DEPS_JSON_SCHEMA_VERSION: u32 = 1;
+
+/// One direct dependency in the `ops about dependencies --json` document.
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize)]
+pub struct DependencyRecord {
+    pub name: String,
+    /// The version requirement as declared (e.g. `^1.0`).
+    pub requirement: String,
+}
+
+/// One unit's direct dependencies.
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize)]
+pub struct UnitDepsRecord {
+    pub name: String,
+    pub dependencies: Vec<DependencyRecord>,
+}
+
+/// The `ops about dependencies --json` document.
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct DepsDocument {
+    pub schema_version: u32,
+    pub kind: &'static str,
+    pub units: Vec<UnitDepsRecord>,
+}
+
+/// Build the dependency document: every unit (including ones with no
+/// dependencies, so absence is explicit), sorted by name, each unit's
+/// dependencies sorted by name.
+#[must_use]
+pub fn deps_json(deps: &ProjectDependencies) -> DepsDocument {
+    let mut units: Vec<UnitDepsRecord> = deps
+        .units
+        .iter()
+        .map(|u| {
+            let mut dependencies: Vec<DependencyRecord> = u
+                .deps
+                .iter()
+                .map(|(name, requirement)| DependencyRecord {
+                    name: name.clone(),
+                    requirement: requirement.clone(),
+                })
+                .collect();
+            dependencies.sort_by(|a, b| a.name.cmp(&b.name));
+            UnitDepsRecord {
+                name: u.unit_name.clone(),
+                dependencies,
+            }
+        })
+        .collect();
+    units.sort_by(|a, b| a.name.cmp(&b.name));
+    DepsDocument {
+        schema_version: DEPS_JSON_SCHEMA_VERSION,
+        kind: "about-dependencies",
+        units,
+    }
+}
+
+/// `ops about dependencies --json`.
+///
+/// # Errors
+///
+/// If the current directory cannot be determined, the provider fails, or
+/// writing fails.
+pub fn run_about_deps_json(data_registry: &DataRegistry) -> anyhow::Result<()> {
+    run_about_deps_json_with(data_registry, &mut std::io::stdout())
+}
+
+/// [`run_about_deps_json`] against an explicit writer.
+///
+/// # Errors
+///
+/// If the current directory cannot be determined, the provider fails, or
+/// writing fails.
+pub fn run_about_deps_json_with(
+    data_registry: &DataRegistry,
+    writer: &mut dyn Write,
+) -> anyhow::Result<()> {
+    let mut ctx = crate::providers::subpage_context("deps")?;
+    warm_providers(&mut ctx, data_registry, &["sqlite", "metadata"], "deps");
+    let deps: ProjectDependencies =
+        load_or_default(&mut ctx, data_registry, PROJECT_DEPENDENCIES_PROVIDER)?;
+    crate::write_json_document(writer, &deps_json(&deps))
+}
+
+/// Registry key of the provider answering `ops about dependencies
+/// --duplicates`: crates locked at two or more distinct versions.
+pub const PROJECT_DUPLICATES_PROVIDER: &str = "project_duplicate_dependencies";
+
+/// Version of the `ops about dependencies --duplicates --json` document.
+pub const DUPLICATES_JSON_SCHEMA_VERSION: u32 = 1;
+
+/// Crates the build links at more than one distinct version.
+#[derive(Debug, Clone, Default, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+pub struct DuplicateReport {
+    pub crates: Vec<DuplicateCrate>,
+}
+
+/// One duplicated crate.
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+pub struct DuplicateCrate {
+    pub name: String,
+    /// Every distinct locked version, ascending.
+    pub versions: Vec<String>,
+    /// Each version below the newest, with what pulls it in.
+    pub older: Vec<OlderVersion>,
+}
+
+/// A non-newest version of a duplicated crate.
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct OlderVersion {
+    pub version: String,
+    /// The workspace's direct dependencies whose (non-dev) dependency tree
+    /// contains this version.
+    pub pulled_by: Vec<PullingDependency>,
+}
+
+/// A direct workspace dependency that pulls an older version in.
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct PullingDependency {
+    pub name: String,
+    pub version: String,
+    /// Whether a semver-compatible update of this dependency (`cargo update
+    /// --dry-run -p`, which never writes `Cargo.lock`) drops the older
+    /// version. `None` when the dry run could not be performed.
+    pub update_removes_duplicate: Option<bool>,
+}
+
+/// The `--duplicates --json` document.
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct DuplicatesDocument<'a> {
+    pub schema_version: u32,
+    pub kind: &'static str,
+    pub crates: &'a [DuplicateCrate],
+}
+
+/// Wrap `report` in the versioned `--duplicates --json` envelope.
+#[must_use]
+pub const fn duplicates_json(report: &DuplicateReport) -> DuplicatesDocument<'_> {
+    DuplicatesDocument {
+        schema_version: DUPLICATES_JSON_SCHEMA_VERSION,
+        kind: "about-dependency-duplicates",
+        crates: report.crates.as_slice(),
+    }
+}
+
+/// Render the duplicates as plain text lines; empty report → one line
+/// saying so.
+#[must_use]
+pub fn format_duplicates_section(report: &DuplicateReport, is_tty: bool) -> Vec<String> {
+    if report.crates.is_empty() {
+        return vec!["No duplicate dependency versions.".to_string()];
+    }
+    let mut lines = vec![String::new(), "  DUPLICATE DEPENDENCIES".to_string()];
+    for dup in &report.crates {
+        lines.push(String::new());
+        lines.push(format!(
+            "  {}  {}",
+            tty_style(&dup.name, cyan, is_tty),
+            dup.versions.join(", ")
+        ));
+        for older in &dup.older {
+            if older.pulled_by.is_empty() {
+                lines.push(format!("    {} pulled by: unknown", older.version));
+            }
+            for puller in &older.pulled_by {
+                let verdict = match puller.update_removes_duplicate {
+                    Some(true) => "update removes it",
+                    Some(false) => "update does not remove it",
+                    None => "update check failed",
+                };
+                lines.push(format!(
+                    "    {} pulled by {} {} \u{2014} {}",
+                    older.version,
+                    puller.name,
+                    puller.version,
+                    tty_style(verdict, dim, is_tty)
+                ));
+            }
+        }
+    }
+    lines
+}
+
+/// `ops about dependencies --duplicates [--json]`.
+///
+/// # Errors
+///
+/// If the current directory cannot be determined, the provider fails, or
+/// writing fails.
+pub fn run_about_duplicates(data_registry: &DataRegistry, json: bool) -> anyhow::Result<()> {
+    let is_tty = std::io::stdout().is_terminal();
+    run_about_duplicates_with(data_registry, &mut std::io::stdout(), is_tty, json)
+}
+
+/// [`run_about_duplicates`] against an explicit writer.
+///
+/// # Errors
+///
+/// If the current directory cannot be determined, the provider fails, or
+/// writing fails.
+pub fn run_about_duplicates_with(
+    data_registry: &DataRegistry,
+    writer: &mut dyn Write,
+    is_tty: bool,
+    json: bool,
+) -> anyhow::Result<()> {
+    let mut ctx = crate::providers::subpage_context("deps")?;
+    warm_providers(&mut ctx, data_registry, &["metadata"], "deps");
+    let report: DuplicateReport =
+        load_or_default(&mut ctx, data_registry, PROJECT_DUPLICATES_PROVIDER)?;
+    if json {
+        return crate::write_json_document(writer, &duplicates_json(&report));
+    }
+    writeln!(
+        writer,
+        "{}",
+        format_duplicates_section(&report, is_tty).join("\n")
+    )?;
+    Ok(())
+}
+
 /// Formats the `DEPENDENCIES` section lines for the given dependency report.
 ///
 /// Units with no dependencies are skipped; returns an empty vector when no
@@ -121,6 +347,94 @@ mod tests {
             String::from_utf8(out).unwrap(),
             "No dependency data available.\n"
         );
+    }
+
+    /// TASK-2282: pins the `ops about dependencies --json` shape.
+    #[test]
+    fn deps_json_pins_the_document_shape() {
+        let deps = ProjectDependencies::new(vec![
+            UnitDeps::new(
+                "ops-core",
+                vec![
+                    ("serde".to_string(), "^1.0".to_string()),
+                    ("anyhow".to_string(), "^1.0".to_string()),
+                ],
+            ),
+            UnitDeps::new("ops-cli", vec![]),
+        ]);
+        let text = serde_json::to_string(&deps_json(&deps)).expect("serialize");
+        assert_eq!(
+            text,
+            "{\"schemaVersion\":1,\"kind\":\"about-dependencies\",\"units\":[\
+             {\"name\":\"ops-cli\",\"dependencies\":[]},\
+             {\"name\":\"ops-core\",\"dependencies\":[\
+             {\"name\":\"anyhow\",\"requirement\":\"^1.0\"},\
+             {\"name\":\"serde\",\"requirement\":\"^1.0\"}]}]}"
+        );
+    }
+
+    #[test]
+    fn run_about_deps_json_with_empty_registry_emits_empty_units() {
+        let registry = DataRegistry::new();
+        let mut out: Vec<u8> = Vec::new();
+        run_about_deps_json_with(&registry, &mut out).expect("runner must succeed");
+        let value: serde_json::Value = serde_json::from_slice(&out).expect("valid json");
+        assert_eq!(value["schemaVersion"], 1);
+        assert_eq!(value["units"], serde_json::json!([]));
+    }
+
+    fn sample_duplicates() -> DuplicateReport {
+        DuplicateReport {
+            crates: vec![DuplicateCrate {
+                name: "crossterm".to_string(),
+                versions: vec!["0.28.1".to_string(), "0.29.0".to_string()],
+                older: vec![OlderVersion {
+                    version: "0.28.1".to_string(),
+                    pulled_by: vec![PullingDependency {
+                        name: "comfy-table".to_string(),
+                        version: "7.1.4".to_string(),
+                        update_removes_duplicate: Some(true),
+                    }],
+                }],
+            }],
+        }
+    }
+
+    /// TASK-2288: pins the `--duplicates --json` shape.
+    #[test]
+    fn duplicates_json_pins_the_document_shape() {
+        let report = sample_duplicates();
+        let text = serde_json::to_string(&duplicates_json(&report)).expect("serialize");
+        assert_eq!(
+            text,
+            "{\"schemaVersion\":1,\"kind\":\"about-dependency-duplicates\",\"crates\":[\
+             {\"name\":\"crossterm\",\"versions\":[\"0.28.1\",\"0.29.0\"],\"older\":[\
+             {\"version\":\"0.28.1\",\"pulledBy\":[{\"name\":\"comfy-table\",\
+             \"version\":\"7.1.4\",\"updateRemovesDuplicate\":true}]}]}]}"
+        );
+    }
+
+    #[test]
+    fn format_duplicates_section_names_puller_and_verdict() {
+        let text = format_duplicates_section(&sample_duplicates(), false).join("\n");
+        assert!(text.contains("crossterm  0.28.1, 0.29.0"), "{text}");
+        assert!(
+            text.contains("0.28.1 pulled by comfy-table 7.1.4 \u{2014} update removes it"),
+            "{text}"
+        );
+        assert_eq!(
+            format_duplicates_section(&DuplicateReport::default(), false),
+            ["No duplicate dependency versions."]
+        );
+    }
+
+    #[test]
+    fn run_about_duplicates_with_empty_registry_reports_none() {
+        let registry = DataRegistry::new();
+        let mut out: Vec<u8> = Vec::new();
+        run_about_duplicates_with(&registry, &mut out, false, true).expect("runner");
+        let value: serde_json::Value = serde_json::from_slice(&out).expect("json");
+        assert_eq!(value["crates"], serde_json::json!([]));
     }
 
     #[test]

@@ -287,6 +287,7 @@ over a composite is not supported.
 |---------|-------------|
 | `ops <name>` | Run a configured command or command group |
 | `ops init` | Create `.ops.toml` (minimal by default; `--force` to overwrite; `--output`/`--themes`/`--commands` add those sections, with stack-detected commands under `--commands`) |
+| `ops explain <cmd>... [--json]` | Show the resolved plan without running anything: each composite's `parallel`/`fail_fast`, the stages a parallel group splits into at its `exclusive` steps, and each step's program, args, env, cwd and origin (stack default, config, `clone`, `[extend]`, extension, builtin). `--json` emits a versioned (`schemaVersion`) document. Named `explain` because the terraform stack ships a `plan` command |
 | `ops new-command` | Add a new command from a command line string |
 | `ops import-makefile` | Import Makefile targets as `.ops.toml` commands (interactive picker) |
 | `ops theme list\|select` | List or select output themes |
@@ -305,7 +306,9 @@ over a composite is not supported.
 | `ops backlog cleanup` | Move terminal-status tasks older than a cutoff to `completed/` (`--older-than <days>`, `--dry-run` to preview) |
 | `ops backlog create-review-tasks` | Create `review-request-<date>-<n>` backlog tasks with one review subtask per workspace target (`--dry-run` to preview) |
 
-Global flags: `--dry-run` (preview the resolved plan), `--verbose` (full stderr on
+Global flags: `--dry-run` (preview the resolved plan — never executes: `run-before-commit` /
+`run-before-push` print their plan, and backlog actions that cannot preview — `backlog init`,
+`task create`/`edit`, `commit` and `wave claim`/`park` — refuse it with an error), `--verbose` (full stderr on
 failure), `--tap <file>` (capture raw output), `--raw` (inherit child stdio, no ops output).
 
 Hook escape hatches: set `SKIP_OPS_RUN_BEFORE_PUSH` (or `SKIP_OPS_RUN_BEFORE_COMMIT`)
@@ -321,6 +324,16 @@ to let a push or commit through without running the configured hook commands.
 | `ops about coverage` / `dependencies` | Rust |
 | `ops about loc` | Rust |
 | `ops about crates` / `modules` | Rust, Go, Node, Python (uv), Java-M, Java-G |
+| `ops about machine` | any (build-relevant machine state; Linux and macOS) |
+
+`ops about crates`, `loc` and `dependencies` take `--json` for a versioned
+(`schemaVersion`) machine-readable document; `ops about machine --json`
+likewise. `ops about dependencies --duplicates [--json]` lists crates locked
+at two or more distinct versions (dev-only ones excluded), the direct
+dependency pulling each older version, and whether a semver-compatible
+update of it removes the duplicate (`cargo update --dry-run`; `Cargo.lock`
+is never written). `ops deps` (cargo-deny `bans`) flags multiple versions
+too, but not what pulls them in or whether an update fixes them.
 
 #### Stack command baseline
 

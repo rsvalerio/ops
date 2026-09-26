@@ -82,6 +82,18 @@ pub struct LocatedTask {
     pub doc: TaskDoc,
 }
 
+/// An exclusive advisory lock over task allocation, held until dropped.
+///
+/// Serializes a check-then-create (`task create --unless-exists`) across
+/// processes: whoever holds it sees every task written by an earlier holder.
+/// The OS releases it when the handle closes, so a crashed holder never
+/// leaves the backlog wedged.
+#[derive(Debug)]
+#[must_use = "the lock is released as soon as the guard is dropped"]
+pub struct AllocationLock {
+    _handle: std::fs::File,
+}
+
 /// The backlog tree rooted at one backlog directory (`.backlog` by default).
 #[derive(Debug, Clone)]
 pub struct Store {
@@ -264,11 +276,53 @@ impl Store {
         max_number.saturating_add(1)
     }
 
+    /// Take the exclusive allocation lock, blocking until it is free.
+    ///
+    /// On Unix the lock is taken on the `tasks/` directory itself, so no
+    /// lock file ever lands in the working tree. Elsewhere, where a
+    /// directory cannot be opened as a file, it is a persistent
+    /// `.allocation.lock` file in the backlog root — never deleted, because
+    /// unlinking a lock file lets two holders lock two different inodes.
+    ///
+    /// # Errors
+    ///
+    /// The lock target cannot be opened, or the platform refuses the lock;
+    /// the error names the path.
+    pub fn lock_allocation(&self) -> anyhow::Result<AllocationLock> {
+        #[cfg(unix)]
+        let (path, opened) = {
+            let path = self.backlog_root.join("tasks");
+            let opened = std::fs::File::open(&path);
+            (path, opened)
+        };
+        #[cfg(not(unix))]
+        let (path, opened) = {
+            let path = self.backlog_root.join(".allocation.lock");
+            let opened = std::fs::OpenOptions::new()
+                .create(true)
+                .truncate(false)
+                .write(true)
+                .open(&path);
+            (path, opened)
+        };
+        let handle = opened.map_err(|e| anyhow::anyhow!("opening {}: {e}", path.display()))?;
+        handle
+            .lock()
+            .map_err(|e| anyhow::anyhow!("locking {}: {e}", path.display()))?;
+        Ok(AllocationLock { _handle: handle })
+    }
+
     /// Absolute path a new `task-<n> - <slug>.md` file would take in
     /// `tasks/`.
     #[must_use = "the path is derived; discarding it re-derives nothing"]
     pub fn task_path(&self, file_name: &str) -> PathBuf {
         self.backlog_root.join("tasks").join(file_name)
+    }
+
+    /// The backlog directory this store is rooted at (`.backlog` by default).
+    #[must_use]
+    pub fn root(&self) -> &Path {
+        &self.backlog_root
     }
 
     /// Absolute path of the `completed/` directory, where `cleanup` moves

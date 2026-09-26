@@ -21,6 +21,8 @@ pub struct SearchOptions {
     /// Drop tasks whose status matches (case-insensitive).
     pub exclude_status: Vec<String>,
     pub plain: bool,
+    /// Render the versioned `kind: search` JSON document instead of rows.
+    pub json: bool,
 }
 
 /// Search and render `Tasks:` rows.
@@ -47,7 +49,11 @@ pub fn run_search<W: Write>(
         })
         .collect();
     render::sort_hits(&mut hits);
-    render::search_plain(out, &hits, !query.is_empty()).context("writing search results")?;
+    if opts.json {
+        render::search_json(out, &hits, !query.is_empty()).context("writing search results")?;
+    } else {
+        render::search_plain(out, &hits, !query.is_empty()).context("writing search results")?;
+    }
     Ok(())
 }
 
@@ -144,6 +150,67 @@ mod tests {
             !text.contains("[score"),
             "no query means no score suffix, got: {text}"
         );
+    }
+
+    /// TASK-2282: pins the `search --json` document shape.
+    #[test]
+    fn json_output_pins_the_document_shape() {
+        let (_dir, store) = scratch_with_tasks();
+        let mut out = Vec::new();
+        run_search(
+            &store,
+            &SearchOptions {
+                query: Some("DUP-3".to_string()),
+                json: true,
+                ..SearchOptions::default()
+            },
+            &mut out,
+        )
+        .expect("search");
+        let text = String::from_utf8(out).expect("utf8");
+        assert_eq!(
+            text,
+            "{\n  \"schemaVersion\": 1,\n  \"kind\": \"search\",\n  \"tasks\": [\n    {\n      \
+             \"id\": \"TASK-0001\",\n      \"title\": \"DUP-3: duplicated scaffold\",\n      \
+             \"status\": \"Done\",\n      \"priority\": null,\n      \"labels\": [],\n      \
+             \"modifiedFiles\": [\n        \"crates/foo/src/lib.rs\"\n      ],\n      \
+             \"score\": 0.300\n    }\n  ]\n}\n"
+        );
+        let value: serde_json::Value = serde_json::from_str(&text).expect("valid json");
+        assert_eq!(value["schemaVersion"], 1);
+    }
+
+    #[test]
+    fn json_output_without_query_has_null_scores_and_empty_list_is_valid() {
+        let (_dir, store) = scratch_with_tasks();
+        let mut out = Vec::new();
+        run_search(
+            &store,
+            &SearchOptions {
+                modified_file: vec!["crates/bar".to_string()],
+                json: true,
+                ..SearchOptions::default()
+            },
+            &mut out,
+        )
+        .expect("search");
+        let value: serde_json::Value = serde_json::from_slice(&out).expect("valid json");
+        assert_eq!(value["tasks"][0]["id"], "TASK-0002");
+        assert!(value["tasks"][0]["score"].is_null());
+
+        let mut out = Vec::new();
+        run_search(
+            &store,
+            &SearchOptions {
+                query: Some("no-such-token".to_string()),
+                json: true,
+                ..SearchOptions::default()
+            },
+            &mut out,
+        )
+        .expect("search");
+        let value: serde_json::Value = serde_json::from_slice(&out).expect("valid json");
+        assert_eq!(value["tasks"], serde_json::json!([]));
     }
 
     #[test]

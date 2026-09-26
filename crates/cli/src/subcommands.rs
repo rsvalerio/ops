@@ -35,6 +35,9 @@ pub fn run_about(
             let cwd = crate::cwd()?;
             return backlog_cmd::run_about_backlog(&cwd, &config.backlog);
         }
+        // Machine state reads the OS and cargo config directly — no data
+        // providers, so no registry build.
+        Some(AboutAction::Machine { json }) => return ops_about::machine::run_about_machine(json),
         other => other,
     };
     let (cwd, registry) = cli_data_context(config)?;
@@ -43,10 +46,33 @@ pub fn run_about(
         #[cfg(feature = "sqlite")]
         Some(AboutAction::Code) => ops_about::code::run_about_code(&registry),
         #[cfg(feature = "sqlite")]
-        Some(AboutAction::Loc) => ops_about::loc::run_about_loc(&registry),
-        Some(AboutAction::Crates) => ops_about::units::run_about_units(&registry),
+        Some(AboutAction::Loc { json: false }) => ops_about::loc::run_about_loc(&registry),
+        #[cfg(feature = "sqlite")]
+        Some(AboutAction::Loc { json: true }) => ops_about::loc::run_about_loc_json(&registry),
+        Some(AboutAction::Crates { json: false }) => ops_about::units::run_about_units(&registry),
+        Some(AboutAction::Crates { json: true }) => {
+            ops_about::units::run_about_units_json(&registry)
+        }
         Some(AboutAction::Coverage) => ops_about::coverage::run_about_coverage(&registry),
-        Some(AboutAction::Dependencies) => ops_about::deps::run_about_deps(&registry),
+        Some(AboutAction::Dependencies {
+            json,
+            duplicates: true,
+        }) => ops_about::deps::run_about_duplicates(&registry, json),
+        Some(AboutAction::Dependencies {
+            json: false,
+            duplicates: false,
+        }) => ops_about::deps::run_about_deps(&registry),
+        Some(AboutAction::Dependencies {
+            json: true,
+            duplicates: false,
+        }) => ops_about::deps::run_about_deps_json(&registry),
+        // Intercepted above with `Backlog`: machine state needs no data
+        // providers. Allowed at the call site per docs/clippy.md for the
+        // same reason as the `Backlog` arm below.
+        #[allow(clippy::unreachable)]
+        Some(AboutAction::Machine { .. }) => {
+            unreachable!("`about machine` dispatches before the registry is built")
+        }
         // Intercepted above, before `cli_data_context` ran; the arm exists
         // only to keep this match exhaustive. Allowed at the call site per
         // docs/clippy.md: the interception is the real dispatch, so this
@@ -277,7 +303,11 @@ fn run_hook_action(
     config: std::sync::Arc<Config>,
     hook: &HookOps,
     action: HookAction,
+    dry_run: bool,
 ) -> anyhow::Result<ExitCode> {
+    if dry_run {
+        return preview_hook_action(config, hook, action);
+    }
     match action {
         HookAction::Install => {
             (hook.install_fn)(&config)?;
@@ -287,17 +317,71 @@ fn run_hook_action(
     }
 }
 
-pub fn run_before_commit(
+/// TASK-2278: preview a hook action under the global `--dry-run` without
+/// running any step, installing a hook, or editing `.ops.toml`.
+///
+/// The run path prints the configured command's resolved plan through the
+/// same dry-run renderer `ops --dry-run <cmd>` uses. The skip env var, the
+/// pre-push ref gate and the `--changed-only` preflight are *not*
+/// evaluated: the gate reads git's ref stream from stdin, which a preview
+/// run from a terminal does not have, and the preview's job is to show what
+/// the hook would run, not whether this particular invocation would skip.
+fn preview_hook_action(
     config: std::sync::Arc<Config>,
+    hook: &HookOps,
+    action: HookAction,
+) -> anyhow::Result<ExitCode> {
+    let hook_name = hook.hook_name;
+    match action {
+        HookAction::Install => {
+            ops_core::ui::note(format!(
+                "dry-run: `ops {hook_name} install` would install the git hook and add a \
+                 `{hook_name}` command to .ops.toml; nothing was written"
+            ));
+            Ok(ExitCode::SUCCESS)
+        }
+        HookAction::Run { .. } if !config.commands.contains_key(hook_name) => {
+            ops_core::ui::note(format!(
+                "dry-run: no '{hook_name}' command configured in .ops.toml; the hook would \
+                 prompt to run `ops {hook_name} install`"
+            ));
+            Ok(ExitCode::SUCCESS)
+        }
+        HookAction::Run { .. } => {
+            ops_core::ui::note(format!(
+                "dry-run: {} / push gate / --changed-only preflight not evaluated",
+                hook.skip_env_var
+            ));
+            run_cmd::run_external_command(
+                config,
+                &[std::ffi::OsString::from(hook_name)],
+                run_cmd::RunOptions {
+                    dry_run: true,
+                    cwd_escape_policy: ops_runner::command::CwdEscapePolicy::Deny,
+                    ..Default::default()
+                },
+            )
+        }
+    }
+}
+
+pub fn run_before_commit(
+    config: &std::sync::Arc<Config>,
     action: Option<RunBeforeCommitAction>,
     changed_only: bool,
+    dry_run: bool,
 ) -> anyhow::Result<ExitCode> {
     let hook_action = if matches!(action, Some(RunBeforeCommitAction::Install)) {
         HookAction::Install
     } else {
         HookAction::Run { changed_only }
     };
-    run_hook_action(config, &pre_hook_cmd::COMMIT_OPS, hook_action)
+    run_hook_action(
+        std::sync::Arc::clone(config),
+        &pre_hook_cmd::COMMIT_OPS,
+        hook_action,
+        dry_run,
+    )
 }
 
 /// `run-before-push` carries no `changed_only` because
@@ -305,8 +389,9 @@ pub fn run_before_commit(
 /// `args::CoreSubcommand::RunBeforePush` to stop it from parsing as a
 /// silent no-op.
 pub fn run_before_push(
-    config: std::sync::Arc<Config>,
+    config: &std::sync::Arc<Config>,
     action: Option<RunBeforePushAction>,
+    dry_run: bool,
 ) -> anyhow::Result<ExitCode> {
     let hook_action = if matches!(action, Some(RunBeforePushAction::Install)) {
         HookAction::Install
@@ -315,7 +400,12 @@ pub fn run_before_push(
             changed_only: false,
         }
     };
-    run_hook_action(config, &pre_hook_cmd::PUSH_OPS, hook_action)
+    run_hook_action(
+        std::sync::Arc::clone(config),
+        &pre_hook_cmd::PUSH_OPS,
+        hook_action,
+        dry_run,
+    )
 }
 
 /// Run a text-fixer and translate its [`ops_text_fixers::FixerReport`] into a process exit
@@ -681,6 +771,68 @@ program = "true"
             format!("{code:?}"),
             format!("{:?}", ExitCode::FAILURE),
             "a real push must run the configured command"
+        );
+    }
+
+    /// TASK-2278: `ops --dry-run run-before-commit` / `run-before-push` must
+    /// print the plan and run no step. The configured hook command touches a
+    /// marker file, so any execution — of the hook command itself or of a
+    /// step it expands to — leaves evidence behind.
+    #[test]
+    #[serial_test::serial]
+    fn dry_run_hooks_execute_no_step() {
+        let (dir, _guard) = crate::test_utils::with_temp_config(
+            r#"
+[commands.touch-marker]
+program = "touch"
+args = ["ran-marker"]
+
+[commands.run-before-commit]
+commands = ["touch-marker"]
+
+[commands.run-before-push]
+commands = ["touch-marker"]
+"#,
+        );
+        let _commit_skip = EnvVarGuard::unset("SKIP_OPS_RUN_BEFORE_COMMIT");
+        let _push_skip = EnvVarGuard::unset("SKIP_OPS_RUN_BEFORE_PUSH");
+        let marker = dir.path().join("ran-marker");
+        let success = format!("{:?}", ExitCode::SUCCESS);
+
+        let config = std::sync::Arc::new(ops_core::config::load_config_or_default("test-dry"));
+        let code = run_before_commit(&config, None, false, true)
+            .expect("dry-run commit hook must not error");
+        assert_eq!(format!("{code:?}"), success);
+        assert!(!marker.exists(), "run-before-commit --dry-run ran a step");
+
+        let code = run_before_push(&config, None, true).expect("dry-run push hook must not error");
+        assert_eq!(format!("{code:?}"), success);
+        assert!(!marker.exists(), "run-before-push --dry-run ran a step");
+    }
+
+    /// TASK-2278: `ops --dry-run run-before-* install` must not write the git
+    /// hook or touch `.ops.toml`.
+    #[test]
+    #[serial_test::serial]
+    fn dry_run_hook_install_writes_nothing() {
+        let (dir, _guard) = crate::test_utils::with_temp_config("");
+        std::fs::create_dir(dir.path().join(".git")).expect("mkdir .git");
+        std::fs::write(dir.path().join(".git/HEAD"), "ref: refs/heads/main\n").expect("HEAD");
+        let config = std::sync::Arc::new(Config::default());
+
+        run_before_commit(&config, Some(RunBeforeCommitAction::Install), false, true)
+            .expect("dry-run install must not error");
+        run_before_push(&config, Some(RunBeforePushAction::Install), true)
+            .expect("dry-run install must not error");
+
+        assert!(
+            !dir.path().join(".git/hooks").exists(),
+            "no hook may be written"
+        );
+        assert_eq!(
+            std::fs::read_to_string(dir.path().join(".ops.toml")).expect("read .ops.toml"),
+            "",
+            ".ops.toml must be left untouched"
         );
     }
 

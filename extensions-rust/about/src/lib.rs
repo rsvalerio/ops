@@ -99,6 +99,10 @@ ops_extension::impl_extension! {
             deps_provider::PROVIDER_NAME,
             Box::new(deps_provider::RustDepsProvider),
         );
+        let _ = registry.register(
+            deps_provider::DUPLICATES_PROVIDER_NAME,
+            Box::new(deps_provider::RustDuplicatesProvider),
+        );
     },
     factory: ABOUT_RUST_FACTORY = |_, _| {
         Some((NAME, Box::new(AboutRustExtension)))

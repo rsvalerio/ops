@@ -30,6 +30,9 @@ pub struct CrateMetadata {
     /// Crate description from `[package].description`; `None` on read or
     /// parse failure.
     pub description: Option<String>,
+    /// `true` when the manifest says `version.workspace = true`, so the
+    /// caller resolves the version from `[workspace.package]`.
+    pub version_inherited: bool,
 }
 
 /// Registry key of the `project_units` provider declared in this module.
@@ -62,6 +65,9 @@ impl DataProvider for RustUnitsProvider {
         // workspace (`LoadedManifest` is itself cached per workspace root), so
         // sibling providers and later `provide()` calls reuse it.
         let canonical_manifests = manifest.canonical_member_manifests();
+        let workspace_version = manifest
+            .workspace_package()
+            .and_then(|p| p.version.as_deref());
         // PERF-3 / TASK-1251: `resolved_members` already returns a sorted +
         // deduplicated list (TASK-0794 + TASK-1042); consumers must not re-sort.
         let units: Vec<ProjectUnit> = manifest
@@ -73,6 +79,7 @@ impl DataProvider for RustUnitsProvider {
                 build_unit(
                     member,
                     manifest.workspace_root(),
+                    workspace_version,
                     canonical_manifests,
                     &dep_counts,
                 )
@@ -120,6 +127,7 @@ fn member_is_unit_safe(member: &str) -> bool {
 fn build_unit(
     member: &str,
     workspace_root: &Path,
+    workspace_version: Option<&str>,
     canonical_manifests: &HashMap<String, std::path::PathBuf>,
     dep_counts: &HashMap<String, i64>,
 ) -> ProjectUnit {
@@ -128,6 +136,7 @@ fn build_unit(
         name: pkg_name,
         version,
         description,
+        version_inherited,
     } = read_crate_metadata(&crate_toml);
     // PERF-3 / TASK-1569: canonical `Cargo.toml` paths are cached on
     // `LoadedManifest` so the N-syscall fan-out happens at most once per
@@ -139,7 +148,11 @@ fn build_unit(
     });
 
     let mut unit = ProjectUnit::new(format_unit_name(member), member.to_string());
-    unit.version = version;
+    unit.version = version.or_else(|| {
+        workspace_version
+            .filter(|_| version_inherited)
+            .map(str::to_string)
+    });
     unit.description = description;
     unit.dep_count = resolve_dep_count(
         member,
@@ -147,6 +160,7 @@ fn build_unit(
         &canonical_manifest_path,
         dep_counts,
     );
+    unit.package_name = pkg_name;
     unit
 }
 
@@ -250,10 +264,18 @@ pub fn read_crate_metadata(crate_toml_path: &Path) -> CrateMetadata {
         .and_then(|p| p.description.as_str())
         .map(str::to_string);
 
+    let version_inherited = parsed.package.as_ref().is_some_and(|p| {
+        matches!(
+            p.version,
+            ops_cargo_toml::InheritableField::Inherited { workspace: true }
+        )
+    });
+
     CrateMetadata {
         name,
         version,
         description,
+        version_inherited,
     }
 }
 
@@ -403,6 +425,34 @@ mod tests {
         assert_eq!(meta.name.as_deref(), Some("foo"));
         assert_eq!(meta.version.as_deref(), Some("1.0.0"));
         assert_eq!(meta.description.as_deref(), Some("a foo"));
+    }
+
+    /// TASK-2282: `version.workspace = true` is flagged so `build_unit`
+    /// can resolve it from `[workspace.package]`, and the unit carries its
+    /// package name for `ops about crates --json`.
+    #[test]
+    fn build_unit_resolves_inherited_version_and_package_name() {
+        let dir = tempfile::tempdir().unwrap();
+        let root = dir.path().canonicalize().unwrap();
+        std::fs::create_dir_all(root.join("crates/foo")).unwrap();
+        std::fs::write(
+            root.join("crates/foo/Cargo.toml"),
+            "[package]\nname = \"foo-pkg\"\nversion.workspace = true\n",
+        )
+        .unwrap();
+        let meta = read_crate_metadata(&root.join("crates/foo/Cargo.toml"));
+        assert!(meta.version_inherited);
+        assert!(meta.version.is_none());
+
+        let unit = build_unit(
+            "crates/foo",
+            &root,
+            Some("0.65.0"),
+            &HashMap::new(),
+            &HashMap::new(),
+        );
+        assert_eq!(unit.version.as_deref(), Some("0.65.0"));
+        assert_eq!(unit.package_name.as_deref(), Some("foo-pkg"));
     }
 
     #[test]

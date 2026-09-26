@@ -1,10 +1,10 @@
 ---
 id: TASK-2282
 title: 'Add --json to ops about crates, loc and dependencies, and to ops backlog search'
-status: To Do
+status: Done
 assignee: []
 created_date: '2026-09-26 17:47'
-updated_date: '2026-09-26 18:27'
+updated_date: '2026-09-26 19:08'
 labels:
   - feature
   - cli
@@ -41,7 +41,14 @@ Source: skills-vs-ops audit of rsvalerio/ai dev-skills, 2026-09-26 (https://clau
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 `ops about crates --json` lists members with name, version, repo-relative manifest dir and an in-tree flag; paths never depend on the checkout location
-- [ ] #2 `ops about loc --json`, `ops about dependencies --json` and `ops backlog search --json` exist, each with a schemaVersion
-- [ ] #3 Tests pin the JSON shape of each
+- [x] #1 `ops about crates --json` lists members with name, version, repo-relative manifest dir and an in-tree flag; paths never depend on the checkout location
+- [x] #2 `ops about loc --json`, `ops about dependencies --json` and `ops backlog search --json` exist, each with a schemaVersion
+- [x] #3 Tests pin the JSON shape of each
+
 <!-- AC:END -->
+
+## Implementation Notes
+
+<!-- SECTION:NOTES:BEGIN -->
+Shipped: about crates/loc/dependencies --json (schemaVersion 1, kinds about-crates/about-loc/about-dependencies) and backlog search --json (kind search). crates: name (package name, falls back to display), version (workspace-inherited versions now resolved), repo-relative manifestDir, inTree. loc: workspace regions + per-crate split by longest member prefix. Targets (description only, not an AC) filed as TASK-2299.
+<!-- SECTION:NOTES:END -->

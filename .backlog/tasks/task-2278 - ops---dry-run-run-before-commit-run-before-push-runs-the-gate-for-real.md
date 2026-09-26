@@ -1,10 +1,10 @@
 ---
 id: TASK-2278
 title: 'ops --dry-run run-before-commit / run-before-push runs the gate for real'
-status: To Do
+status: Done
 assignee: []
 created_date: '2026-09-26 15:25'
-updated_date: '2026-09-26 18:27'
+updated_date: '2026-09-26 18:39'
 labels:
   - bug
   - cli
@@ -33,6 +33,7 @@ ordinal: 1000
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 `ops --dry-run run-before-commit` and `ops --dry-run run-before-push` print the resolved plan and execute no step
-- [ ] #2 A test pins that no step runs under --dry-run for both hook subcommands
+- [x] #1 `ops --dry-run run-before-commit` and `ops --dry-run run-before-push` print the resolved plan and execute no step
+- [x] #2 A test pins that no step runs under --dry-run for both hook subcommands
+
 <!-- AC:END -->

@@ -627,3 +627,36 @@ fn query_rust_loc_file_count_no_table() {
     let files = query_rust_loc_file_count(&db).expect("missing table must not error");
     assert_eq!(files, 0);
 }
+
+/// TASK-2282: `query_rust_loc_files` returns one row per (file, region),
+/// ordered, with `files` fixed at 1 so a caller's sum is a file count.
+#[test]
+fn query_rust_loc_files_returns_every_row() {
+    let db = Sqlite::open_in_memory().expect("open in-memory db");
+    init_schema(&db).expect("init_schema");
+    rust_loc_files_fixture(&db);
+
+    let rows = query_rust_loc_files(&db).expect("query should work");
+    let keys: Vec<(&str, &str)> = rows
+        .iter()
+        .map(|(file, stat)| (file.as_str(), stat.region.as_str()))
+        .collect();
+    assert_eq!(
+        keys,
+        [
+            ("examples/demo.rs", "example"),
+            ("src/lib.rs", "main"),
+            ("src/lib.rs", "test"),
+            ("src/util.rs", "main"),
+        ]
+    );
+    assert!(rows.iter().all(|(_, stat)| stat.files == 1));
+    assert_eq!(rows[1].1.code, 300);
+}
+
+#[test]
+fn query_rust_loc_files_no_table() {
+    let db = Sqlite::open_in_memory().expect("open in-memory db");
+    init_schema(&db).expect("init_schema");
+    assert!(query_rust_loc_files(&db).expect("missing table").is_empty());
+}

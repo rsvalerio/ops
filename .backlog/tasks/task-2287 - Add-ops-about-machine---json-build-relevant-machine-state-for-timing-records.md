@@ -1,10 +1,10 @@
 ---
 id: TASK-2287
 title: 'Add ops about machine --json: build-relevant machine state for timing records'
-status: To Do
+status: Done
 assignee: []
 created_date: '2026-09-26 17:47'
-updated_date: '2026-09-26 18:27'
+updated_date: '2026-09-26 19:08'
 labels:
   - feature
   - about
@@ -39,7 +39,14 @@ Source: skills-vs-ops audit of rsvalerio/ai dev-skills, 2026-09-26 (https://clau
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 Reports cores, load, other build processes, effective jobs/wrapper/target-dir/linker with their source layer, and tmpfs status of TMPDIR and target dir
-- [ ] #2 Works on Linux and macOS
-- [ ] #3 JSON output (`--json`) carries a schemaVersion
+- [x] #1 Reports cores, load, other build processes, effective jobs/wrapper/target-dir/linker with their source layer, and tmpfs status of TMPDIR and target dir
+- [x] #2 Works on Linux and macOS
+- [x] #3 JSON output (`--json`) carries a schemaVersion
+
 <!-- AC:END -->
+
+## Implementation Notes
+
+<!-- SECTION:NOTES:BEGIN -->
+Shipped extensions/about/src/machine.rs: ops about machine [--json] (kind about-machine). Linux via /proc/loadavg + /proc/self/mounts, macOS via sysctl vm.loadavg + mount; ps/df/rustc -vV probes with timeouts; cargo config layers (ancestors + CARGO_HOME) + env with source; sccache stats when wrapper is sccache. cfg() target tables and workspace-root default target dir filed as TASK-2300.
+<!-- SECTION:NOTES:END -->

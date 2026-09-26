@@ -98,6 +98,13 @@ pub(super) fn apply(config: &mut Config, workspace_root: &Path) -> anyhow::Resul
                         );
                     }
                     config.commands.insert(name.clone(), materialized);
+                    config.provenance.clones.insert(
+                        name.clone(),
+                        super::CloneOrigin {
+                            source: decl.clone_source().to_string(),
+                            exclusive_overridden: decl.exclusive.is_some(),
+                        },
+                    );
                     progressed = true;
                 }
                 Resolved::PendingClone => {
@@ -298,6 +305,36 @@ mod tests {
         assert_eq!(
             fuzz_clippy.args, default.args,
             "clone copies the source args"
+        );
+    }
+
+    /// TASK-2280: a materialized clone records its source and whether it
+    /// overrode `exclusive`, so a plan can report the clone's origin.
+    #[test]
+    fn clone_records_provenance() {
+        let dir = rust_workspace();
+        let mut decl = CloneCommandSpec::new("clippy");
+        decl.exclusive = Some(true);
+        let mut config = config_with_clone("fuzz-clippy", decl);
+        config.commands.insert(
+            "fuzz-build".to_string(),
+            CommandSpec::Clone(CloneCommandSpec::new("build")),
+        );
+        apply(&mut config, dir.path()).expect("clone must apply");
+
+        assert_eq!(
+            config.provenance.clones.get("fuzz-clippy"),
+            Some(&super::super::CloneOrigin {
+                source: "clippy".to_string(),
+                exclusive_overridden: true,
+            })
+        );
+        assert_eq!(
+            config.provenance.clones.get("fuzz-build"),
+            Some(&super::super::CloneOrigin {
+                source: "build".to_string(),
+                exclusive_overridden: false,
+            })
         );
     }
 

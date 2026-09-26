@@ -1,10 +1,10 @@
 ---
 id: TASK-2280
 title: 'Add ops plan <cmd> --json: a resolved gate plan with stages, exclusive, parallel and env that never executes'
-status: To Do
+status: Done
 assignee: []
 created_date: '2026-09-26 17:47'
-updated_date: '2026-09-26 18:27'
+updated_date: '2026-09-26 19:06'
 labels:
   - feature
   - cli
@@ -37,7 +37,14 @@ Source: skills-vs-ops audit of rsvalerio/ai dev-skills, 2026-09-26 (https://clau
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 `ops plan <cmd> --json` emits steps, stages, parallel/fail_fast, exclusive, env and origin for any composite or exec command
-- [ ] #2 A test pins that `ops plan` executes no step for any command, including run-before-commit and run-before-push
-- [ ] #3 The JSON carries a schemaVersion, like the backlog JSON output
+- [x] #1 `ops plan <cmd> --json` emits steps, stages, parallel/fail_fast, exclusive, env and origin for any composite or exec command
+- [x] #2 A test pins that `ops plan` executes no step for any command, including run-before-commit and run-before-push
+- [x] #3 The JSON carries a schemaVersion, like the backlog JSON output
+
 <!-- AC:END -->
+
+## Implementation Notes
+
+<!-- SECTION:NOTES:BEGIN -->
+AC substitution: shipped as `ops explain <cmd>... [--json]` instead of `ops plan` — the terraform stack ships a `plan` stack-default command that a builtin `plan` subcommand would shadow (clap matches builtins before the External catch-all). Same contract: resolves via the run path's plans_for_names, emits schemaVersion 1 / kind command-plan with commands (plan tree: stage/sequence, parallel, failFast, exclusive-split stages), composites (parallel/failFast/commands/origin) and steps (program, args, display, env with dry-run redaction, cwd, timeoutSecs, exclusive, matrix, origin: config|stack|clone(cloneOf, exclusiveOverridden)|extension|builtin + extended). Provenance recorded at load via Config::provenance (clone + extended stack defaults); runner gained CommandRunner::locate / CommandSource. Tests: explain_executes_no_step_for_any_command (incl. run-before-commit/push), cli_explain_json_runs_nothing_and_is_versioned.
+<!-- SECTION:NOTES:END -->

@@ -93,6 +93,137 @@ pub fn run_about_units_with(
     Ok(())
 }
 
+/// Version of the `ops about crates --json` document shape. Bump it when a
+/// field is renamed or removed; adding a field is compatible.
+pub const UNITS_JSON_SCHEMA_VERSION: u32 = 1;
+
+/// One member of the `ops about crates --json` document.
+///
+/// Field order is the serialized order (`serde` writes struct fields in
+/// declaration order), so the document is stable byte for byte.
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct UnitRecord {
+    /// The unit's package name when the stack knows it, else its display
+    /// name.
+    pub name: String,
+    /// Version string, when the unit declares one.
+    pub version: Option<String>,
+    /// Manifest directory relative to the project root, `/`-separated;
+    /// `"."` for a root unit. Never absolute, so it does not depend on
+    /// where the checkout lives.
+    pub manifest_dir: String,
+    /// `false` when the unit lives outside the project root (a `..` or
+    /// absolute member path).
+    pub in_tree: bool,
+}
+
+impl UnitRecord {
+    /// Map a provider-supplied unit to its machine-readable record.
+    #[must_use]
+    pub fn from_unit(unit: &ProjectUnit) -> Self {
+        let (manifest_dir, in_tree) = normalize_unit_path(&unit.path);
+        Self {
+            name: unit
+                .package_name
+                .clone()
+                .unwrap_or_else(|| unit.name.clone()),
+            version: unit.version.clone(),
+            manifest_dir,
+            in_tree,
+        }
+    }
+}
+
+/// Normalise a unit path to a `/`-separated, root-relative form and say
+/// whether it stays inside the project root.
+///
+/// An out-of-tree path (absolute, or escaping through `..`) is reported
+/// as its final component only: echoing it verbatim would leak a
+/// checkout-specific absolute path into the document.
+fn normalize_unit_path(path: &str) -> (String, bool) {
+    use std::path::Component;
+
+    let mut parts: Vec<String> = Vec::new();
+    let mut in_tree = true;
+    for component in std::path::Path::new(path).components() {
+        match component {
+            Component::Normal(part) => parts.push(part.to_string_lossy().into_owned()),
+            Component::CurDir => {}
+            Component::ParentDir => {
+                if parts.pop().is_none() {
+                    in_tree = false;
+                }
+            }
+            Component::RootDir | Component::Prefix(_) => in_tree = false,
+        }
+    }
+    if !in_tree {
+        let last = parts.last().cloned().unwrap_or_default();
+        return (last, false);
+    }
+    if parts.is_empty() {
+        return (".".to_string(), true);
+    }
+    (parts.join("/"), true)
+}
+
+/// The `ops about crates --json` document.
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct UnitsDocument {
+    pub schema_version: u32,
+    pub kind: &'static str,
+    pub crates: Vec<UnitRecord>,
+}
+
+/// Build the `ops about crates --json` document for `units`, ordered by
+/// manifest dir then name so the output is deterministic.
+#[must_use]
+pub fn units_json(units: &[ProjectUnit]) -> UnitsDocument {
+    let mut crates: Vec<UnitRecord> = units.iter().map(UnitRecord::from_unit).collect();
+    crates.sort_by(|a, b| {
+        a.manifest_dir
+            .cmp(&b.manifest_dir)
+            .then_with(|| a.name.cmp(&b.name))
+    });
+    UnitsDocument {
+        schema_version: UNITS_JSON_SCHEMA_VERSION,
+        kind: "about-crates",
+        crates,
+    }
+}
+
+/// `ops about crates --json`: the project units as a versioned JSON
+/// document on stdout.
+///
+/// # Errors
+///
+/// If the current directory cannot be determined, the provider fails, or
+/// writing fails.
+pub fn run_about_units_json(data_registry: &DataRegistry) -> anyhow::Result<()> {
+    run_about_units_json_with(data_registry, &mut std::io::stdout())
+}
+
+/// [`run_about_units_json`] against an explicit writer.
+///
+/// Unlike the card view it warms no `SQLite`/tokei providers: the document
+/// carries identity and location only, which the manifest-backed provider
+/// answers on its own.
+///
+/// # Errors
+///
+/// If the current directory cannot be determined, the provider fails, or
+/// writing fails.
+pub fn run_about_units_json_with(
+    data_registry: &DataRegistry,
+    writer: &mut dyn Write,
+) -> anyhow::Result<()> {
+    let mut ctx = crate::providers::subpage_context("units")?;
+    let units: Vec<ProjectUnit> = load_or_default(&mut ctx, data_registry, PROJECT_UNITS_PROVIDER)?;
+    crate::write_json_document(writer, &units_json(&units))
+}
+
 /// Enrich `units` with LOC and file-count data sampled from the sqlite
 /// `tokei_files` table.
 ///
@@ -301,6 +432,53 @@ mod tests {
             String::from_utf8_lossy(&out).contains("unit-0"),
             "the render must not be trivially empty"
         );
+    }
+
+    /// TASK-2282: pins the `ops about crates --json` shape — envelope,
+    /// field names and order, the package-name preference, root and
+    /// out-of-tree path handling.
+    #[test]
+    fn units_json_pins_the_document_shape() {
+        let mut member = ProjectUnit::new("Cli", "crates/cli");
+        member.package_name = Some("ops-cli".to_string());
+        member.version = Some("0.65.0".to_string());
+        let root = ProjectUnit::new("Root", "");
+        let mut outside = ProjectUnit::new("Shared", "../shared/lib");
+        outside.package_name = Some("shared".to_string());
+
+        let doc = units_json(&[member, root, outside]);
+        let text = serde_json::to_string(&doc).expect("serialize");
+        assert_eq!(
+            text,
+            "{\"schemaVersion\":1,\"kind\":\"about-crates\",\"crates\":[\
+             {\"name\":\"Root\",\"version\":null,\"manifestDir\":\".\",\"inTree\":true},\
+             {\"name\":\"ops-cli\",\"version\":\"0.65.0\",\"manifestDir\":\"crates/cli\",\"inTree\":true},\
+             {\"name\":\"shared\",\"version\":null,\"manifestDir\":\"lib\",\"inTree\":false}]}"
+        );
+    }
+
+    #[test]
+    fn normalize_unit_path_never_emits_an_absolute_path() {
+        assert_eq!(
+            normalize_unit_path("./crates/a/"),
+            ("crates/a".to_string(), true)
+        );
+        assert_eq!(
+            normalize_unit_path("crates/a/../b"),
+            ("crates/b".to_string(), true)
+        );
+        assert_eq!(normalize_unit_path("/home/u/x"), ("x".to_string(), false));
+        assert_eq!(normalize_unit_path("."), (".".to_string(), true));
+    }
+
+    #[test]
+    fn run_about_units_json_with_empty_registry_emits_an_empty_list() {
+        let registry = DataRegistry::new();
+        let mut out: Vec<u8> = Vec::new();
+        run_about_units_json_with(&registry, &mut out).expect("runner must succeed");
+        let value: serde_json::Value = serde_json::from_slice(&out).expect("valid json");
+        assert_eq!(value["schemaVersion"], 1);
+        assert_eq!(value["crates"], serde_json::json!([]));
     }
 
     /// When no `SQLite` is wired up, `enrich_from_db` is a no-op and

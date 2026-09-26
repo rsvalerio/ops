@@ -107,9 +107,11 @@ fn collect_value_taking_globals(cmd: &clap::Command) -> Vec<Box<str>> {
 /// is simply a name this function does not yet know about.
 pub fn builtin_category(name: &str) -> &'static str {
     match name {
-        "about" => "Insights",
-        "backlog" => "Tasks",
-        "deps" | "trailing-whitespace" | "end-of-file-fixer" | "sec" => "Code Quality",
+        "about" | "explain" => "Insights",
+        "backlog" | "lock" => "Tasks",
+        "deps" | "trailing-whitespace" | "end-of-file-fixer" | "sec" | "clippy-findings" => {
+            "Code Quality"
+        }
         "init" | "theme" | "extension" | "run-before-commit" | "run-before-push" => "Setup",
         _ => "Commands",
     }
