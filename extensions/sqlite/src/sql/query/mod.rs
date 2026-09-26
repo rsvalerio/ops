@@ -19,5 +19,6 @@ pub use deps::{query_crate_dep_counts, query_crate_deps, query_dependency_count}
 pub use helpers::CrateCoverage;
 pub use loc::{
     query_crate_file_count, query_crate_loc, query_project_file_count, query_project_languages,
-    query_project_loc, query_rust_loc_file_count, query_rust_loc_summary, RustLocStat,
+    query_project_loc, query_rust_loc_file_count, query_rust_loc_files, query_rust_loc_summary,
+    RustLocStat,
 };
