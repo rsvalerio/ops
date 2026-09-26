@@ -1,10 +1,10 @@
 ---
 id: TASK-2283
 title: 'Add ops clippy --findings-json: one normalized row per Clippy diagnostic for surveys'
-status: To Do
+status: Done
 assignee: []
 created_date: '2026-09-26 17:47'
-updated_date: '2026-09-26 18:27'
+updated_date: '2026-09-26 19:02'
 labels:
   - feature
   - cli
@@ -40,8 +40,15 @@ Source: skills-vs-ops audit of rsvalerio/ai dev-skills, 2026-09-26 (https://clau
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 Rows carry lint, name@version, repo-relative manifest dir, target, file, line, column and verbatim message
-- [ ] #2 Spanless diagnostics are attributed to the crate manifest; out-of-tree spans are dropped and counted
-- [ ] #3 Output is identical from two checkouts of the same commit at different paths
-- [ ] #4 The existing `ops clippy` gate is unchanged
+- [x] #1 Rows carry lint, name@version, repo-relative manifest dir, target, file, line, column and verbatim message
+- [x] #2 Spanless diagnostics are attributed to the crate manifest; out-of-tree spans are dropped and counted
+- [x] #3 Output is identical from two checkouts of the same commit at different paths
+- [x] #4 The existing `ops clippy` gate is unchanged
+
 <!-- AC:END -->
+
+## Implementation Notes
+
+<!-- SECTION:NOTES:BEGIN -->
+Implemented as built-in `ops clippy-findings [-- <lint flags>]` (crates/cli/src/clippy_findings_cmd.rs) rather than a `--findings-json` flag on `ops clippy`: `clippy` is a config-defined command (External catch-all), and a built-in named `clippy` would shadow it and break AC#4 (and make `clippy` a reserved name for new-command). Paths are relative to the git toplevel (workspace root offset prefixed). AC#3 is covered by a unit test comparing reports built from two different workspace roots; .default.rust.ops.toml deliberately unchanged (AC#4), with a parse test pinning `ops clippy` to the External gate.
+<!-- SECTION:NOTES:END -->

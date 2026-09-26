@@ -1,10 +1,10 @@
 ---
 id: TASK-2293
 title: 'code-review-plan-wave25'
-status: To Do
+status: Done
 assignee: []
 created_date: '2026-09-26 18:27'
-updated_date: '2026-09-26 18:27'
+updated_date: '2026-09-26 19:03'
 labels:
   - code-review-wave
 dependencies:
@@ -41,4 +41,7 @@ Finding-filing support: normalized clippy findings rows and idempotent task crea
 
 <!-- SECTION:NOTES:BEGIN -->
 Overlaps: TASK-2290 wave22 (crates/cli/src/args.rs); TASK-2291 wave23 (crates/cli/src/args.rs)
+
+Branch: code-review/TASK-2293
+
 <!-- SECTION:NOTES:END -->
