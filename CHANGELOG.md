@@ -2,6 +2,16 @@
 All notable changes to this project will be documented in this file. See [conventional commits](https://www.conventionalcommits.org/) for commit guidelines.
 
 - - -
+## [v0.64.0](https://github.com/rsvalerio/ops/compare/0a165623c590c88f196209d068ca83fb8ce48e13..v0.64.0) - 2026-09-26
+#### 🚀 Features
+- (**sec**) honour .trivyignore.yaml, include dev deps, report out-of-scope IaC files - ([0a16562](https://github.com/rsvalerio/ops/commit/0a165623c590c88f196209d068ca83fb8ce48e13)) - [@rsvalerio](https://github.com/rsvalerio), Claude Opus 5.5 (1M context)
+#### 🐛 Bug Fixes
+- (**sec**) walk ancestor ops projects when listing out-of-scope IaC files - ([87acd10](https://github.com/rsvalerio/ops/commit/87acd1053b8cb4d1849980cdfd86828a5d631959)) - [@rsvalerio](https://github.com/rsvalerio), Claude Opus 5.5 (1M context)
+#### ⚙️ Miscellaneous
+- (**backlog**) complete TASK-2276 - ([45ac909](https://github.com/rsvalerio/ops/commit/45ac9093a1c9d893c27fba5982865aad9fba545e)) - [@rsvalerio](https://github.com/rsvalerio), Claude Opus 5.5 (1M context)
+
+- - -
+
 ## [v0.63.0](https://github.com/rsvalerio/ops/compare/4ae506b2594f0dbf08b5bd8828e07b435073df20..v0.63.0) - 2026-09-26
 #### 🚀 Features
 - (**tfplan**) describe plan changes by target, resource and changed attributes - ([c265403](https://github.com/rsvalerio/ops/commit/c265403305a06d50b43d7764aecc8a13f8317d9b)) - [@rsvalerio](https://github.com/rsvalerio), Claude Opus 5.5 (1M context)
