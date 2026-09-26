@@ -1,10 +1,10 @@
 ---
 id: TASK-2304
 title: 'code-review-plan-wave27'
-status: To Do
+status: Done
 assignee: []
 created_date: '2026-09-26 19:55'
-updated_date: '2026-09-26 19:55'
+updated_date: '2026-09-26 20:39'
 labels:
   - code-review-wave
 dependencies:
@@ -43,4 +43,7 @@ ops about follow-ups from wave24: crates --json targets + dev-dep duplicates tog
 
 <!-- SECTION:NOTES:BEGIN -->
 Overlaps: TASK-2303 (crates/cli/src/args.rs), TASK-2305 (crates/cli/src/args.rs)
+
+Branch: code-review/TASK-2304
+
 <!-- SECTION:NOTES:END -->

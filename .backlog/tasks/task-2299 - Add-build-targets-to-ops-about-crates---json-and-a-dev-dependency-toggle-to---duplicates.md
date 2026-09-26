@@ -1,10 +1,10 @@
 ---
 id: TASK-2299
 title: 'Add build targets to ops about crates --json and a dev-dependency toggle to --duplicates'
-status: To Do
+status: Done
 assignee: []
 created_date: '2026-09-26 19:08'
-updated_date: '2026-09-26 19:55'
+updated_date: '2026-09-26 20:17'
 labels:
   - code-review-rust
   - feature
@@ -33,6 +33,7 @@ ordinal: 1000
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 ops about crates --json lists each crate's targets (kind + name) without checkout-dependent paths
-- [ ] #2 ops about dependencies --duplicates accepts a flag that includes dev-only duplicates
+- [x] #1 ops about crates --json lists each crate's targets (kind + name) without checkout-dependent paths
+- [x] #2 ops about dependencies --duplicates accepts a flag that includes dev-only duplicates
+
 <!-- AC:END -->
