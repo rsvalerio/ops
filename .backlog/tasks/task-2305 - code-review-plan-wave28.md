@@ -1,10 +1,10 @@
 ---
 id: TASK-2305
 title: 'code-review-plan-wave28'
-status: To Do
+status: Done
 assignee: []
 created_date: '2026-09-26 19:55'
-updated_date: '2026-09-26 19:55'
+updated_date: '2026-09-26 20:32'
 labels:
   - code-review-wave
 dependencies:
@@ -40,4 +40,7 @@ backlog crate follow-ups: wave create --members one-step wave creation, and a co
 
 <!-- SECTION:NOTES:BEGIN -->
 Overlaps: TASK-2303 (crates/cli/src/args.rs), TASK-2304 (crates/cli/src/args.rs)
+
+Branch: code-review/TASK-2305
+
 <!-- SECTION:NOTES:END -->
