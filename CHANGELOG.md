@@ -2,6 +2,21 @@
 All notable changes to this project will be documented in this file. See [conventional commits](https://www.conventionalcommits.org/) for commit guidelines.
 
 - - -
+## [v0.65.0](https://github.com/rsvalerio/ops/compare/5c91614593903b0031582bfce9da20ed80be8dfd..v0.65.0) - 2026-09-26
+#### 🚀 Features
+- (**cli**) render one row per matrix cell and list cells in --dry-run - ([81e67ba](https://github.com/rsvalerio/ops/commit/81e67ba29d01bf7f0d35d75a3f8fec6f6c8b0e7c)) - [@rsvalerio](https://github.com/rsvalerio), Claude Opus 5.5 (1M context)
+- (**config**) add strategy.matrix to exec commands - ([5c91614](https://github.com/rsvalerio/ops/commit/5c91614593903b0031582bfce9da20ed80be8dfd)) - [@rsvalerio](https://github.com/rsvalerio), Claude Opus 5.5 (1M context)
+- (**runner**) run a matrix command's cells as a single plan step - ([5698fe3](https://github.com/rsvalerio/ops/commit/5698fe3eed07bc10e14f4f2f7f4dbde6593379fb)) - [@rsvalerio](https://github.com/rsvalerio), Claude Opus 5.5 (1M context)
+#### 🐛 Bug Fixes
+- (**config**) expand matrix axes in name order regardless of map order - ([f824dd4](https://github.com/rsvalerio/ops/commit/f824dd4bb96118d66319e0c3907d45bda49d7c80)) - [@rsvalerio](https://github.com/rsvalerio), Claude Opus 5.5 (1M context)
+- (**runner**) count matrix cells against the batch's OPS_MAX_PARALLEL cap - ([a57c277](https://github.com/rsvalerio/ops/commit/a57c277d4bd5b5bd2d0baf3c9e79f1a837a12b41)) - [@rsvalerio](https://github.com/rsvalerio), Claude Opus 5.5 (1M context)
+#### 📚 Documentation
+- (**readme**) document strategy.matrix with the doc-default example - ([d770e6e](https://github.com/rsvalerio/ops/commit/d770e6ef16e0b8c2e4e3ca49c531b17b2319da66)) - [@rsvalerio](https://github.com/rsvalerio), Claude Opus 5.5 (1M context)
+#### ⚙️ Miscellaneous
+- (**backlog**) add TASK-2277 strategy.matrix - ([4d7c624](https://github.com/rsvalerio/ops/commit/4d7c624512fcd1b848e13592e99a3a9f5a616255)) - [@rsvalerio](https://github.com/rsvalerio), Claude Opus 5.5 (1M context)
+
+- - -
+
 ## [v0.64.0](https://github.com/rsvalerio/ops/compare/0a165623c590c88f196209d068ca83fb8ce48e13..v0.64.0) - 2026-09-26
 #### 🚀 Features
 - (**sec**) honour .trivyignore.yaml, include dev deps, report out-of-scope IaC files - ([0a16562](https://github.com/rsvalerio/ops/commit/0a165623c590c88f196209d068ca83fb8ce48e13)) - [@rsvalerio](https://github.com/rsvalerio), Claude Opus 5.5 (1M context)
