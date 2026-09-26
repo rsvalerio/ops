@@ -1,10 +1,10 @@
 ---
 id: TASK-2301
 title: 'Global --dry-run is still ignored by builtin subcommands that write or spawn (tw, eof, init, lock, import-makefile, new-command, theme select, about setup)'
-status: To Do
+status: Done
 assignee: []
 created_date: '2026-09-26 19:13'
-updated_date: '2026-09-26 19:55'
+updated_date: '2026-09-26 20:21'
 labels:
   - code-review-rust
   - API
@@ -32,6 +32,13 @@ ordinal: 1000
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 Every builtin subcommand either honours the global --dry-run (no write, no spawn) or rejects it with an explicit error
-- [ ] #2 A test enumerates the builtin subcommands so a new one must be classified
+- [x] #1 Every builtin subcommand either honours the global --dry-run (no write, no spawn) or rejects it with an explicit error
+- [x] #2 A test enumerates the builtin subcommands so a new one must be classified
+
 <!-- AC:END -->
+
+## Implementation Notes
+
+<!-- SECTION:NOTES:BEGIN -->
+New crates/cli/src/dry_run.rs: unpreviewable_builtin() exhaustively classifies every CoreSubcommand (and nested theme/lock/about actions); dispatch refuses --dry-run for init, new-command, import-makefile, tw, eof, theme select, lock/lock break, about (except about backlog), deps, plans. every_builtin_is_classified enumerates clap builtins against a sample table; integration test proves a refused dry run writes nothing.
+<!-- SECTION:NOTES:END -->

@@ -1,10 +1,10 @@
 ---
 id: TASK-2303
 title: 'code-review-plan-wave26'
-status: To Do
+status: Done
 assignee: []
 created_date: '2026-09-26 19:55'
-updated_date: '2026-09-26 19:55'
+updated_date: '2026-09-26 20:22'
 labels:
   - code-review-wave
 dependencies:
@@ -41,4 +41,7 @@ CLI builtin subcommand semantics: every builtin must honour or refuse global --d
 
 <!-- SECTION:NOTES:BEGIN -->
 Overlaps: TASK-2304 (crates/cli/src/args.rs), TASK-2305 (crates/cli/src/args.rs)
+
+Branch: code-review/TASK-2303
+
 <!-- SECTION:NOTES:END -->
