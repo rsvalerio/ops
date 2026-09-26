@@ -92,8 +92,8 @@ pub struct Matrix {
     /// Entries whose pairs, all matching, drop a product cell.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub exclude: Vec<MatrixEntry>,
-    /// The axes. Commands deserialize through `toml::Value`, whose tables are
-    /// sorted, so the order is by axis name, not declaration order.
+    /// The axes. Cells expand them in axis-name order whatever this map's
+    /// order (see `product`).
     #[serde(flatten)]
     pub axes: IndexMap<String, Vec<String>>,
 }
@@ -214,8 +214,14 @@ impl Matrix {
                 }
             }
         }
+        // Sorted here rather than trusting the map's order: TOML tables
+        // happen to arrive sorted, but a matrix built in code, or a build
+        // with `toml/preserve_order` unified in, keeps insertion order — and
+        // the order is observable in every cell id and row label.
+        let mut axes: Vec<(&String, &Vec<String>)> = self.axes.iter().collect();
+        axes.sort_unstable_by(|a, b| a.0.cmp(b.0));
         let mut cells = vec![MatrixCell::default()];
-        for (key, values) in &self.axes {
+        for (key, values) in axes {
             let mut next = Vec::with_capacity(cells.len().saturating_mul(values.len()));
             for cell in &cells {
                 for value in values {
@@ -542,6 +548,16 @@ exclude = [{ crate = "a" }]"#
             substitute("${matrix.crate", |_| Some("x")),
             Err(MatrixRefError::Unterminated)
         );
+    }
+
+    /// Axis-name order holds for a matrix built in code too, where the map
+    /// keeps insertion order.
+    #[test]
+    fn cells_are_ordered_by_axis_name_whatever_the_insertion_order() {
+        let mut m = Matrix::default();
+        m.axes.insert("os".into(), vec!["linux".into()]);
+        m.axes.insert("crate".into(), vec!["a".into()]);
+        assert_eq!(described(&m), ["crate=a, os=linux"]);
     }
 
     #[test]
