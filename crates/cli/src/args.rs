@@ -1,6 +1,6 @@
 //! CLI argument definitions, subcommand enums, and arg preprocessing.
 
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet};
 use std::ffi::OsString;
 use std::path::PathBuf;
 use std::sync::OnceLock;
@@ -836,15 +836,57 @@ pub fn hide_irrelevant_commands(mut cmd: clap::Command, stack: Option<Stack>) ->
 /// `new-command` validates on every keystroke.
 pub fn builtin_subcommand_names() -> &'static HashSet<String> {
     static NAMES: OnceLock<HashSet<String>> = OnceLock::new();
-    NAMES.get_or_init(|| {
+    NAMES.get_or_init(|| builtin_tokens().keys().cloned().collect())
+}
+
+/// Every builtin token (see [`builtin_subcommand_names`]) mapped to the
+/// name of the subcommand that owns it: `tw` → `trailing-whitespace`.
+fn builtin_tokens() -> &'static HashMap<String, String> {
+    static TOKENS: OnceLock<HashMap<String, String>> = OnceLock::new();
+    TOKENS.get_or_init(|| {
         let mut cmd = Cli::command();
         // `build` materialises the implicit `help` subcommand.
         cmd.build();
         cmd.get_subcommands()
-            .flat_map(|c| std::iter::once(c.get_name()).chain(c.get_all_aliases()))
-            .map(str::to_owned)
+            .flat_map(|c| {
+                std::iter::once(c.get_name())
+                    .chain(c.get_all_aliases())
+                    .map(|token| (token.to_owned(), c.get_name().to_owned()))
+            })
             .collect()
     })
+}
+
+/// Builtins that run the config command of their own name: a
+/// `[commands.<name>]` entry for these is their input, not shadowed.
+const BUILTINS_RUNNING_OWN_CONFIG_COMMAND: &[&str] =
+    &[ops_run_before_commit::NAME, ops_run_before_push::NAME];
+
+/// TASK-2306: `[commands.<name>]` entries clap resolves to a builtin, as
+/// `(command, builtin)`. Such a command loads fine but never runs as
+/// `ops <name>`; the caller warns so the shadowing is not silent.
+pub fn shadowed_config_commands(config: &ops_core::config::Config) -> Vec<(&str, &'static str)> {
+    let tokens = builtin_tokens();
+    config
+        .commands
+        .keys()
+        .filter(|name| !BUILTINS_RUNNING_OWN_CONFIG_COMMAND.contains(&name.as_str()))
+        .filter_map(|name| Some((name.as_str(), tokens.get(name)?.as_str())))
+        .collect()
+}
+
+/// Warn once per config command shadowed by a builtin (TASK-2306).
+pub fn warn_shadowed_config_commands(config: &ops_core::config::Config) {
+    for (name, builtin) in shadowed_config_commands(config) {
+        let owner = if name == builtin {
+            format!("the builtin `ops {builtin}`")
+        } else {
+            format!("the builtin `ops {builtin}` (alias `{name}`)")
+        };
+        ops_core::ui::warn(format!(
+            "config command `{name}` is shadowed by {owner} and never runs; rename it"
+        ));
+    }
 }
 
 pub fn preprocess_args(args: Vec<OsString>) -> Vec<OsString> {
@@ -885,6 +927,24 @@ mod tests {
                 );
             }
         }
+    }
+
+    /// TASK-2306: a config command named like a builtin or a builtin's
+    /// alias is reported with the builtin that shadows it; a hook builtin's
+    /// own config command is its input, not shadowed.
+    #[test]
+    fn shadowed_config_commands_names_the_builtin() {
+        let config: ops_core::config::Config = toml::from_str(
+            "[commands.init]\nprogram = \"echo\"\n\
+             [commands.tw]\nprogram = \"echo\"\n\
+             [commands.verify]\nprogram = \"echo\"\n\
+             [commands.run-before-commit]\ncommands = [\"verify\"]\n",
+        )
+        .expect("config");
+        assert_eq!(
+            shadowed_config_commands(&config),
+            vec![("init", "init"), ("tw", "trailing-whitespace")]
+        );
     }
 
     #[test]

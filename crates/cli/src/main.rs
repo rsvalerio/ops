@@ -223,6 +223,7 @@ fn run() -> anyhow::Result<ExitCode> {
     };
     let early_config: std::sync::Arc<ops_core::config::Config> =
         std::sync::Arc::new(ops_core::config::load_config_or_default_at(&cwd, "early"));
+    args::warn_shadowed_config_commands(&early_config);
     let detected_stack = ops_core::stack::Stack::resolve(early_config.stack.as_deref(), &cwd);
 
     // PERF-1 (TASK-1368): `Cli::command()` walks the full derive metadata
