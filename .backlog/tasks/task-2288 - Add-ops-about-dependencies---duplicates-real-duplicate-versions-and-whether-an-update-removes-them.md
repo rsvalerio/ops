@@ -1,10 +1,10 @@
 ---
 id: TASK-2288
 title: 'Add ops about dependencies --duplicates: real duplicate versions and whether an update removes them'
-status: To Do
+status: Done
 assignee: []
 created_date: '2026-09-26 17:47'
-updated_date: '2026-09-26 18:27'
+updated_date: '2026-09-26 19:08'
 labels:
   - feature
   - about
@@ -34,7 +34,14 @@ Source: skills-vs-ops audit of rsvalerio/ai dev-skills, 2026-09-26 (https://clau
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 Only crates with two or more distinct versions are listed
-- [ ] #2 Each duplicate names its pulling workspace dependency and whether a semver-compatible update removes it
-- [ ] #3 Cargo.lock is never written
+- [x] #1 Only crates with two or more distinct versions are listed
+- [x] #2 Each duplicate names its pulling workspace dependency and whether a semver-compatible update removes it
+- [x] #3 Cargo.lock is never written
+
 <!-- AC:END -->
+
+## Implementation Notes
+
+<!-- SECTION:NOTES:BEGIN -->
+Shipped ops about dependencies --duplicates [--json] (kind about-dependency-duplicates): non-dev reachable crates with >=2 distinct versions from cargo metadata resolve; older versions name pulling direct deps; cargo update --dry-run -p name@version per puller (Cargo.lock verified unchanged). ops deps (cargo-deny bans) covers multiple-versions detection only, not pullers/fixability. Verified: comfy-table 7.1.4 update removes crossterm 0.28 / rustix 0.38 / linux-raw-sys 0.4. Dev-duplicate toggle filed as TASK-2299.
+<!-- SECTION:NOTES:END -->
