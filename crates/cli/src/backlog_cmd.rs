@@ -307,7 +307,11 @@ pub fn run_backlog(cwd: &Path, config: &Config, action: BacklogAction) -> anyhow
             };
             cmd::run_search(&store, &opts, &mut std::io::stdout())
         }
-        BacklogAction::Wave { action } => run_wave_action(&store, &cfg, action),
+        BacklogAction::Wave { action } => run_wave_action(&store, &cfg, cwd, action),
+        BacklogAction::Commit { task_ids, message } => {
+            let opts = cmd::CommitOptions { task_ids, message };
+            cmd::run_commit(&store, cwd, &opts, &mut std::io::stdout())
+        }
         BacklogAction::Cleanup {
             older_than,
             dry_run,
@@ -386,6 +390,7 @@ fn edit_options_from(edit: Box<crate::args::BacklogEditArgs>) -> cmd::EditOption
 fn run_wave_action(
     store: &Store,
     cfg: &BacklogConfig,
+    cwd: &Path,
     action: crate::args::BacklogWaveAction,
 ) -> anyhow::Result<()> {
     use crate::args::BacklogWaveAction;
@@ -411,6 +416,47 @@ fn run_wave_action(
         } => {
             let opts = cmd::WaveMembersOptions { wave_id, json };
             cmd::run_wave_members(store, cfg, &opts, &mut std::io::stdout())
+        }
+        BacklogWaveAction::Overlap {
+            wave_ids,
+            marker,
+            plain: _,
+            json,
+        } => {
+            let opts = cmd::WaveOverlapOptions {
+                wave_ids,
+                marker,
+                json,
+            };
+            cmd::run_wave_overlap(store, cfg, &opts, &mut std::io::stdout())
+        }
+        BacklogWaveAction::Claim {
+            wave_id,
+            branch,
+            worktree,
+            marker,
+        } => {
+            let opts = cmd::WaveClaimOptions {
+                wave_id,
+                marker,
+                branch,
+                worktree,
+            };
+            cmd::run_wave_claim(store, cwd, &opts, &mut std::io::stdout())
+        }
+        BacklogWaveAction::Park {
+            wave_id,
+            reason,
+            status,
+            branch,
+        } => {
+            let opts = cmd::WaveParkOptions {
+                wave_id,
+                reason,
+                status,
+                branch,
+            };
+            cmd::run_wave_park(store, cwd, &opts, &mut std::io::stdout())
         }
         BacklogWaveAction::Migrate { marker, dry_run } => {
             let opts = cmd::WaveMigrateOptions { marker, dry_run };

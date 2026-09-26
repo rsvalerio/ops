@@ -273,9 +273,52 @@ pub enum CoreSubcommand {
         #[command(subcommand)]
         action: BacklogAction,
     },
+    /// Run a command while holding a named repository lock.
+    ///
+    /// `ops lock <name> -- <cmd…>` waits for the lock, runs the command, and
+    /// releases the lock when it exits — on failure and on SIGINT/SIGTERM
+    /// too (both are forwarded to the command). Locks live under the common
+    /// git dir, so every worktree of one repository shares them, and the OS
+    /// drops a lock whose holder died. `ops lock status [<name>]` shows the
+    /// holders; `ops lock break <name>` clears a dead holder's record.
+    Lock(LockArgs),
     /// Catch-all for dynamic config-defined commands (e.g. `ops verify`).
     #[command(external_subcommand)]
     External(Vec<OsString>),
+}
+
+/// Arguments of `ops lock`: either a subcommand (`status`, `break`) or a
+/// lock name and the command to run under it.
+#[derive(clap::Args, Debug, Clone)]
+#[command(args_conflicts_with_subcommands = true, subcommand_negates_reqs = true)]
+pub struct LockArgs {
+    #[command(subcommand)]
+    pub action: Option<LockAction>,
+    /// Lock name (letters, digits, `.`, `_`, `-`).
+    #[arg(required = true)]
+    pub name: Option<String>,
+    /// Give up after this many seconds of waiting (default: wait forever).
+    #[arg(long, value_name = "SECS")]
+    pub timeout: Option<u64>,
+    /// The command to run while holding the lock, after `--`.
+    #[arg(last = true, required = true, value_name = "COMMAND")]
+    pub command: Vec<OsString>,
+}
+
+/// `ops lock …` subcommands.
+#[derive(clap::Subcommand, Debug, Clone)]
+pub enum LockAction {
+    /// Show each lock's holder: pid, host, worktree, command, age, and
+    /// whether the holder is alive (a dead holder is reported stale).
+    Status {
+        /// One lock; omit for every lock of this repository.
+        name: Option<String>,
+    },
+    /// Clear a dead holder's record. Refused while the holder is alive.
+    Break {
+        /// The lock to break.
+        name: String,
+    },
 }
 
 /// `ops backlog …` subcommands.
@@ -311,10 +354,21 @@ pub enum BacklogAction {
         #[arg(long)]
         plain: bool,
     },
-    /// Code-review wave grouping: list, members, migrate.
+    /// Code-review wave grouping: list, members, overlap, claim, park,
+    /// migrate.
     Wave {
         #[command(subcommand)]
         action: BacklogWaveAction,
+    },
+    /// Commit exactly the given tasks' changed files, refusing when
+    /// anything else is staged and when none of them changed.
+    Commit {
+        /// Task ids whose files to commit.
+        #[arg(required = true, value_name = "TASK_ID")]
+        task_ids: Vec<String>,
+        /// The commit message.
+        #[arg(short, long)]
+        message: String,
     },
     /// Move terminal-status tasks older than a cutoff to `completed/`.
     Cleanup {
@@ -365,6 +419,52 @@ pub enum BacklogWaveAction {
         /// Versioned machine-readable JSON.
         #[arg(long, conflicts_with = "plain")]
         json: bool,
+    },
+    /// Each wave's file scope, its shared paths with every other open
+    /// wave, and a suggested merge order (least-overlapping first).
+    Overlap {
+        /// Waves to report on; omit for every open wave.
+        #[arg(value_name = "WAVE_ID")]
+        wave_ids: Vec<String>,
+        /// The label marking a wave parent.
+        #[arg(long, default_value = ops_backlog::cmd::DEFAULT_WAVE_MARKER)]
+        marker: String,
+        /// Plain text output.
+        #[arg(long)]
+        plain: bool,
+        /// Versioned machine-readable JSON.
+        #[arg(long, conflicts_with = "plain")]
+        json: bool,
+    },
+    /// Claim a wave: create its branch and worktree, then flip it to In
+    /// Progress. Refused, with nothing changed, when the branch exists.
+    Claim {
+        /// Wave task id (e.g. TASK-0119).
+        wave_id: String,
+        /// Branch to create (default `code-review/<wave-id>`).
+        #[arg(long)]
+        branch: Option<String>,
+        /// Worktree path (default `../.wave-<wave-id>` beside the repo).
+        #[arg(long, value_name = "PATH")]
+        worktree: Option<PathBuf>,
+        /// The label marking a wave parent.
+        #[arg(long, default_value = ops_backlog::cmd::DEFAULT_WAVE_MARKER)]
+        marker: String,
+    },
+    /// Park a wave whose merge did not land: keep its branch and worktree,
+    /// set its status and record why.
+    Park {
+        /// Wave task id (e.g. TASK-0119).
+        wave_id: String,
+        /// Why the wave was parked.
+        #[arg(long)]
+        reason: String,
+        /// Status to leave the wave in.
+        #[arg(short, long, default_value = "In Progress")]
+        status: String,
+        /// The wave's branch (default `code-review/<wave-id>`).
+        #[arg(long)]
+        branch: Option<String>,
     },
     /// Retire the assignee overload: marker to label, membership to
     /// `parent_task_id`.

@@ -108,7 +108,7 @@ fn collect_value_taking_globals(cmd: &clap::Command) -> Vec<Box<str>> {
 pub fn builtin_category(name: &str) -> &'static str {
     match name {
         "about" => "Insights",
-        "backlog" => "Tasks",
+        "backlog" | "lock" => "Tasks",
         "deps" | "trailing-whitespace" | "end-of-file-fixer" | "sec" | "clippy-findings" => {
             "Code Quality"
         }

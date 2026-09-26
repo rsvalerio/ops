@@ -51,6 +51,7 @@ mod help;
 mod hook_shared;
 mod import_makefile_cmd;
 mod init_cmd;
+mod lock_cmd;
 mod new_command_cmd;
 mod pre_hook_cmd;
 mod prompt;
@@ -275,6 +276,7 @@ fn dispatch(
             let cwd = cwd()?;
             backlog_cmd::run_backlog(&cwd, early_config, action)?;
         }
+        Some(CoreSubcommand::Lock(args)) => return run_lock(args),
         Some(CoreSubcommand::Extension { action }) => run_extension(early_config, action)?,
         Some(CoreSubcommand::NewCommand) => {
             let cwd = cwd()?;
@@ -357,6 +359,34 @@ fn dispatch(
     }
 
     Ok(ExitCode::SUCCESS)
+}
+
+/// `ops lock`: dispatch to status / break, or run the command under the
+/// named lock and forward its exit code.
+fn run_lock(args: args::LockArgs) -> anyhow::Result<ExitCode> {
+    let cwd = cwd()?;
+    match args.action {
+        Some(args::LockAction::Status { name }) => {
+            let dir = lock_cmd::locks_dir(&cwd)?;
+            lock_cmd::status_to(&dir, name.as_deref(), &mut io::stdout())?;
+            Ok(ExitCode::SUCCESS)
+        }
+        Some(args::LockAction::Break { name }) => {
+            let dir = lock_cmd::locks_dir(&cwd)?;
+            lock_cmd::break_to(&dir, &name, &mut io::stdout())?;
+            Ok(ExitCode::SUCCESS)
+        }
+        None => {
+            // clap enforces `name` when no subcommand is given.
+            let name = args.name.unwrap_or_default();
+            lock_cmd::run_locked(
+                &cwd,
+                &name,
+                &args.command,
+                args.timeout.map(std::time::Duration::from_secs),
+            )
+        }
+    }
 }
 
 /// CLI-level cwd lookup. The pre-resolved `Config` is threaded by the
