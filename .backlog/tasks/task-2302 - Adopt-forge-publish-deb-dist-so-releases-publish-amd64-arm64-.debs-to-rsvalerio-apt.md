@@ -1,9 +1,10 @@
 ---
 id: TASK-2302
 title: 'Adopt forge publish-deb-dist so releases publish amd64/arm64 .debs to rsvalerio/apt'
-status: Triage
+status: In Progress
 assignee: []
 created_date: '2026-09-26 19:32'
+updated_date: '2026-09-26 22:30'
 labels:
   - deb
   - apt
@@ -43,6 +44,16 @@ Moved from forge TASK-0007.
 <!-- AC:BEGIN -->
 - [ ] #1 An ops release adds ops_<v>_amd64.deb and ops_<v>_arm64.deb to rsvalerio/apt pool in one commit
 - [ ] #2 sudo apt install ops works on an amd64 host and an arm64 Raspberry Pi after adding the repo
-- [ ] #3 ops workflow-guard still passes (SHA pins, explicit secrets)
+- [x] #3 ops workflow-guard still passes (SHA pins, explicit secrets)
 - [ ] #4 ops README documents apt installation
+
 <!-- AC:END -->
+
+## Implementation Notes
+
+<!-- SECTION:NOTES:BEGIN -->
+Wired with dry-run: true ahead of forge TASK-0006 (user decision 2026-09-27): .github/workflows/publish-deb.yml wrapper -> forge publish-deb-dist@v1, publish-jobs += ./publish-deb, release.yml custom-publish-deb (explicit secrets, contents: read added since forge declares it) gated into announce, README apt section. workflow-guard pins/inherit checks pass locally; actionlint clean. Remaining: confirm the my-cloud-ci App installation covers rsvalerio/apt, cut a release and inspect the deb-ops-<v> artifact, then drop dry-run and verify AC #1/#2.
+
+PR #71 review: README apt section removed until dry-run is off (nothing is in the pool yet) — re-add it with the dry-run flip. custom-publish-deb now grants only contents: read (the apt push uses forge's minted App token); wrapper has a top-level contents: read. Forge stays @v1 per the workflow-guard exemption (first-party, version-pinned by decision, as bump.yml).
+
+<!-- SECTION:NOTES:END -->

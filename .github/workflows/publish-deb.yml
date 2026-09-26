@@ -1,0 +1,43 @@
+# User-owned custom publish job, invoked by the cargo-dist-generated
+# release.yml (`publish-jobs = [..., "./publish-deb"]` in dist-workspace.toml).
+# The body lives in forge: it repackages the linux-gnu tarballs dist already
+# built into amd64/arm64 .debs and commits both to the rsvalerio/apt pool in
+# one commit. See
+# https://github.com/rsvalerio/forge/blob/v1/docs/consuming.md
+#
+# Call chain: release.yml -> this -> forge, 3 of the 4 permitted
+# reusable-workflow nesting levels; do not add another.
+name: Publish .deb
+
+on:
+  workflow_call:
+    inputs:
+      plan:
+        required: true
+        type: string
+    # SEC-36 (TASK-1662): declare the one secret forge needs, so the caller
+    # passes it explicitly instead of `secrets: inherit`. GH_APP_CLIENT_ID is a
+    # *variable*, available to called workflows without being passed.
+    secrets:
+      GH_APP_PRIVATE_KEY:
+        required: true
+
+# Least privilege by default: forge's job needs only `contents: read`; the
+# apt push uses a GitHub App token it mints itself.
+permissions:
+  contents: read
+
+jobs:
+  deb:
+    uses: rsvalerio/forge/.github/workflows/publish-deb-dist.yml@v1
+    with:
+      plan: ${{ inputs.plan }}
+      description: Batteries-included task runner for any stack
+      maintainer: Rodrigo Valeri <rsvalerio@users.noreply.github.com>
+      homepage: https://github.com/rsvalerio/ops
+      # TASK-2302 rollout: the first release builds and stages the .debs
+      # (inspect the `deb-ops-<version>` workflow artifact) without pushing to
+      # rsvalerio/apt. Drop this once that run is green.
+      dry-run: true
+    secrets:
+      GH_APP_PRIVATE_KEY: ${{ secrets.GH_APP_PRIVATE_KEY }}

@@ -246,6 +246,11 @@ fn run() -> anyhow::Result<ExitCode> {
     let parse_cmd = built_cmd.clone();
     let mut matches = parse_cmd.get_matches_from(effective_args);
     let cli = Cli::from_arg_matches_mut(&mut matches).unwrap_or_else(|e: clap::Error| e.exit());
+    // `--raw` promises no ops output of its own, so the shadowing warning
+    // waits for the parsed flag.
+    if !cli.raw {
+        args::warn_shadowed_config_commands(&early_config);
+    }
 
     dispatch(cli, &early_config, detected_stack, built_cmd)
 }

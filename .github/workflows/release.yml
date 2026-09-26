@@ -333,15 +333,33 @@ jobs:
       "id-token": "write"
       "packages": "write"
 
+  custom-publish-deb:
+    needs:
+      - plan
+      - host
+    if: ${{ !fromJson(needs.plan.outputs.val).announcement_is_prerelease || fromJson(needs.plan.outputs.val).publish_prereleases }}
+    uses: ./.github/workflows/publish-deb.yml
+    with:
+      plan: ${{ needs.plan.outputs.val }}
+    # SEC-36 (TASK-1662): explicit rather than `secrets: inherit`; see
+    # custom-publish-homebrew above.
+    secrets:
+      GH_APP_PRIVATE_KEY: ${{ secrets.GH_APP_PRIVATE_KEY }}
+    # Only what forge's publish-deb-dist declares: the apt push uses a GitHub
+    # App token it mints itself, so no write scope is granted here.
+    permissions:
+      "contents": "read"
+
   announce:
     needs:
       - plan
       - host
       - custom-publish-homebrew
+      - custom-publish-deb
     # use "always() && ..." to allow us to wait for all publish jobs while
     # still allowing individual publish jobs to skip themselves (for prereleases).
     # "host" however must run to completion, no skipping allowed!
-    if: ${{ always() && needs.host.result == 'success' && (needs.custom-publish-homebrew.result == 'skipped' || needs.custom-publish-homebrew.result == 'success') }}
+    if: ${{ always() && needs.host.result == 'success' && (needs.custom-publish-homebrew.result == 'skipped' || needs.custom-publish-homebrew.result == 'success') && (needs.custom-publish-deb.result == 'skipped' || needs.custom-publish-deb.result == 'success') }}
     runs-on: "ubuntu-22.04"
     env:
       GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
