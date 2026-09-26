@@ -70,10 +70,21 @@ yml-or-defaults config, keeping its work-over-a-broken-manifest contract.
 | `--plan <text>` | Implementation plan section |
 | `--notes <text>` | Implementation notes section |
 | `--depends-on <ids>` (`--dep`) | Dependency task ids, comma-separated or repeatable |
+| `--unless-exists <key>` | Idempotent filing keyed on a finding identity (see below) |
 | `--plain` | Plain output (the only renderer) |
 
 A fresh task gets `ordinal: 1000` (the value the backlog CLI assigns new
 parent tasks) and no `updated_date`.
+
+`--unless-exists <key>` stores the key as the task's `dedup_key`
+frontmatter. When an open task in `tasks/` — any status but the terminal
+one, the last configured column — already carries the exact same key,
+nothing is created and the command prints `Exists TASK-NNNN` instead of
+`Created …`. A key whose only task is terminal (or moved to `completed/`)
+files a new task. The check and the write run under an exclusive allocation
+lock (taken on the `tasks/` directory on Unix), so concurrent runs filing
+the same key produce exactly one task. Use it instead of search-then-create:
+search is scored and fuzzy, the key match is exact.
 
 ### `task edit`
 
