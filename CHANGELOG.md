@@ -2,6 +2,37 @@
 All notable changes to this project will be documented in this file. See [conventional commits](https://www.conventionalcommits.org/) for commit guidelines.
 
 - - -
+## [v0.66.0](https://github.com/rsvalerio/ops/compare/706b9f6e3e7b93795984d4e83ea893c14cf80c8d..v0.66.0) - 2026-09-26
+#### 🚀 Features
+- (**about**) add --json to about crates/loc/dependencies and backlog search, about machine, dependencies --duplicates - ([fd07f2e](https://github.com/rsvalerio/ops/commit/fd07f2e161b39ee44f988ed884b7d661476a041f)) - [@rsvalerio](https://github.com/rsvalerio), Claude Opus 5.5 (1M context)
+- (**backlog**) add commit, wave overlap and wave claim/park handlers - ([8c6f5d6](https://github.com/rsvalerio/ops/commit/8c6f5d68327ee1dc151b56ed1bc0cae6789e8e4c)) - [@rsvalerio](https://github.com/rsvalerio), Claude Opus 5.5 (1M context)
+- (**backlog**) idempotent task create keyed on --unless-exists under an allocation lock - ([b1590f1](https://github.com/rsvalerio/ops/commit/b1590f1c62f939cbe660d3b99e2348b99eb02cd3)) - [@rsvalerio](https://github.com/rsvalerio), Claude Opus 5.5 (1M context)
+- (**cli**) add ops explain, a read-only resolved plan with --json - ([c67ce90](https://github.com/rsvalerio/ops/commit/c67ce909f8b7c3395f92d69631db2456a0352fb6)) - [@rsvalerio](https://github.com/rsvalerio), Claude Opus 5.5 (1M context)
+- (**cli**) add ops lock and wire backlog commit, wave overlap/claim/park - ([696fd61](https://github.com/rsvalerio/ops/commit/696fd6174e6d8cb62c7e97901cb26499e1592cc3)) - [@rsvalerio](https://github.com/rsvalerio), Claude Opus 5.5 (1M context)
+- (**cli**) add ops clippy-findings survey and expose backlog create --unless-exists - ([ba4bc42](https://github.com/rsvalerio/ops/commit/ba4bc42bf43675dadb9449437f6aad038b0313c9)) - [@rsvalerio](https://github.com/rsvalerio), Claude Opus 5.5 (1M context)
+- (**core,runner**) record clone/extend provenance and expose command store lookup - ([d9dce8e](https://github.com/rsvalerio/ops/commit/d9dce8eee82c426d6ed25a2a04da3ed072fb943e)) - [@rsvalerio](https://github.com/rsvalerio), Claude Opus 5.5 (1M context)
+- (**sqlite**) add query_rust_loc_files for per-crate Rust LOC splits - ([0c8ff54](https://github.com/rsvalerio/ops/commit/0c8ff54c6d58ad53a36971cb91bd36f8663915db)) - [@rsvalerio](https://github.com/rsvalerio), Claude Opus 5.5 (1M context)
+#### 🐛 Bug Fixes
+- (**about**) probe the sccache on PATH, not the configured wrapper - ([2b8469d](https://github.com/rsvalerio/ops/commit/2b8469d9a854bb222463378754b4c8f97839a2e2)) - [@rsvalerio](https://github.com/rsvalerio), Claude Opus 5.5 (1M context)
+- (**backlog**) commit a renamed or moved task's old-path deletion - ([7a8551d](https://github.com/rsvalerio/ops/commit/7a8551dda88c25c5f013e2021ccca0c48f13c1b4)) - [@rsvalerio](https://github.com/rsvalerio), Claude Opus 5.5 (1M context)
+- (**cli**) never execute under --dry-run for hook runners and backlog writes - ([f568e11](https://github.com/rsvalerio/ops/commit/f568e119f6bce81150c7fbd24b5d8ecb44d861fd)) - [@rsvalerio](https://github.com/rsvalerio), Claude Opus 5.5 (1M context)
+#### 📚 Documentation
+- list every backlog action that refuses --dry-run - ([7aa40fb](https://github.com/rsvalerio/ops/commit/7aa40fb85f2fd61bd02bcfdacffb6e8c24cb1866)) - [@rsvalerio](https://github.com/rsvalerio), Claude Opus 5.5 (1M context)
+- document about --json, about machine and dependencies --duplicates - ([04ab0e6](https://github.com/rsvalerio/ops/commit/04ab0e68d684434235e982612e85edb7dd6af9f0)) - [@rsvalerio](https://github.com/rsvalerio), Claude Opus 5.5 (1M context)
+- document ops lock, backlog commit and wave overlap/claim/park - ([0d67c1f](https://github.com/rsvalerio/ops/commit/0d67c1f587823e18063b8e07ad4eb02ebcc01668)) - [@rsvalerio](https://github.com/rsvalerio), Claude Opus 5.5 (1M context)
+#### 🚜 Refactoring
+- (**cli**) pass the hook runners the shared config by reference - ([47e9d84](https://github.com/rsvalerio/ops/commit/47e9d84b5f715e1f6622c5d78a3ab1e6bee151b8)) - [@rsvalerio](https://github.com/rsvalerio), Claude Opus 5.5 (1M context)
+#### ⚙️ Miscellaneous
+- (**backlog**) close code-review wave 24 - ([95169b7](https://github.com/rsvalerio/ops/commit/95169b7b14336f38818933473584ffcc8a3bcff1)) - [@rsvalerio](https://github.com/rsvalerio), Claude Opus 5.5 (1M context)
+- (**backlog**) close code-review wave 22 - ([8f954d3](https://github.com/rsvalerio/ops/commit/8f954d3c31eb8d22e12cf06b6d8e247599f6510b)) - [@rsvalerio](https://github.com/rsvalerio), Claude Opus 5.5 (1M context)
+- (**backlog**) close code-review wave 23 - ([0b3cae2](https://github.com/rsvalerio/ops/commit/0b3cae26da8a9cfb8edf91be12d805eeac3a28e7)) - [@rsvalerio](https://github.com/rsvalerio), Claude Opus 5.5 (1M context)
+- (**backlog**) close code-review wave 25 - ([3a7e42a](https://github.com/rsvalerio/ops/commit/3a7e42abbc133b0df71ac1c5af4d6eb7000c4e06)) - [@rsvalerio](https://github.com/rsvalerio), Claude Opus 5.5 (1M context)
+- update backlogs tasks - ([5545cf3](https://github.com/rsvalerio/ops/commit/5545cf3f9de3bab3983d4915adb20a25ffd9b052)) - [@rsvalerio](https://github.com/rsvalerio)
+- update backlogs tasks - ([a6b1e99](https://github.com/rsvalerio/ops/commit/a6b1e99b4e8a2ada2d0df143abb0b71169e00d60)) - [@rsvalerio](https://github.com/rsvalerio)
+- update backlogs tasks - ([706b9f6](https://github.com/rsvalerio/ops/commit/706b9f6e3e7b93795984d4e83ea893c14cf80c8d)) - [@rsvalerio](https://github.com/rsvalerio)
+
+- - -
+
 ## [v0.65.0](https://github.com/rsvalerio/ops/compare/5c91614593903b0031582bfce9da20ed80be8dfd..v0.65.0) - 2026-09-26
 #### 🚀 Features
 - (**cli**) render one row per matrix cell and list cells in --dry-run - ([81e67ba](https://github.com/rsvalerio/ops/commit/81e67ba29d01bf7f0d35d75a3f8fec6f6c8b0e7c)) - [@rsvalerio](https://github.com/rsvalerio), Claude Opus 5.5 (1M context)
