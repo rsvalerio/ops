@@ -339,8 +339,8 @@ fn find_ignore_file(scan_root: &Path, toplevel: Option<&Path>) -> Option<PathBuf
 /// as toplevel-relative paths (sorted).
 ///
 /// Excluded from the walk: the `scan_root` subtree itself, the default skip
-/// dirs, and every *other* directory holding its own `.ops.toml` — that is a
-/// sibling ops project whose own `ops sec` covers it, so listing its files
+/// dirs, and every *other* directory holding its own `.ops.toml` (one that
+/// is not an ancestor of `scan_root`) — that is a sibling ops project whose own `ops sec` covers it, so listing its files
 /// here would be noise. What remains is exactly what no per-project scan
 /// reaches (a root `Dockerfile`, `packaging/docker/Dockerfile.build`).
 fn outside_iac_markers(toplevel: &Path, scan_root: &Path) -> Vec<PathBuf> {
@@ -362,7 +362,10 @@ fn outside_iac_markers(toplevel: &Path, scan_root: &Path) -> Vec<PathBuf> {
             if file_type.is_dir() {
                 let walk = matches!(classify_dir(&skip, &generic, &dir, &name), DirVerdict::Walk)
                     && path != scan_root
-                    && !path.join(".ops.toml").is_file();
+                    // An ancestor of the scan root is walked even with its
+                    // own `.ops.toml`: its files outside the scan root are
+                    // left out all the same (`ops sec` from `backend/src`).
+                    && (!path.join(".ops.toml").is_file() || scan_root.starts_with(&path));
                 if walk {
                     stack.push(path);
                 }
@@ -1594,6 +1597,26 @@ mod tests {
         assert!(
             !out.contains("frontend"),
             "sibling project is not ours: {out}"
+        );
+    }
+
+    /// An ops project that *contains* the scan root is not a sibling: run
+    /// from `backend/src`, the `backend/Dockerfile` beside it is left out
+    /// too and must be named, while `frontend/` stays excluded.
+    #[test]
+    fn ancestor_ops_project_is_walked_for_outside_files() {
+        let repo = monorepo();
+        let backend = repo.path().join("backend");
+        touch(&backend, "Dockerfile");
+        std::fs::create_dir(backend.join("src")).unwrap();
+
+        assert_eq!(
+            outside_iac_markers(repo.path(), &backend.join("src")),
+            vec![
+                PathBuf::from("Dockerfile"),
+                PathBuf::from("backend/Dockerfile"),
+                PathBuf::from("packaging/docker/Dockerfile.build"),
+            ]
         );
     }
 
