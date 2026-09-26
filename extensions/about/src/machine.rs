@@ -203,19 +203,171 @@ fn triple_env_key(triple: &str) -> String {
         .collect()
 }
 
+/// Parse `rustc --print cfg` output into its atoms (`unix`,
+/// `target_os="linux"`, ...), one per line, whitespace-trimmed.
+#[must_use]
+pub fn parse_rustc_cfg(stdout: &str) -> Vec<String> {
+    stdout
+        .lines()
+        .map(str::trim)
+        .filter(|l| !l.is_empty())
+        .map(str::to_string)
+        .collect()
+}
+
+/// Whether a `target` table key like `cfg(all(unix, target_arch = "x86_64"))`
+/// holds for a host whose `rustc --print cfg` atoms are `host_cfg`.
+///
+/// Supports cargo's grammar: bare names, `name = "value"`, `all(..)`,
+/// `any(..)` and `not(..)`. A key that is not a `cfg(..)` expression, or that
+/// does not parse, does not match.
+#[must_use]
+pub fn cfg_matches(key: &str, host_cfg: &[String]) -> bool {
+    let Some(inner) = key
+        .trim()
+        .strip_prefix("cfg(")
+        .and_then(|rest| rest.strip_suffix(')'))
+    else {
+        return false;
+    };
+    let mut parser = CfgParser { rest: inner };
+    let Some(value) = parser.predicate(host_cfg) else {
+        tracing::debug!(key, "about/machine: unparseable cfg target table");
+        return false;
+    };
+    parser.rest.trim().is_empty() && value
+}
+
+/// Recursive-descent evaluator over a `cfg(..)` body.
+struct CfgParser<'a> {
+    rest: &'a str,
+}
+
+impl CfgParser<'_> {
+    fn eat(&mut self, token: &str) -> bool {
+        let trimmed = self.rest.trim_start();
+        trimmed.strip_prefix(token).is_some_and(|after| {
+            self.rest = after;
+            true
+        })
+    }
+
+    fn ident(&mut self) -> Option<&str> {
+        let trimmed = self.rest.trim_start();
+        let end = trimmed
+            .find(|c: char| !(c.is_ascii_alphanumeric() || c == '_'))
+            .unwrap_or(trimmed.len());
+        if end == 0 {
+            return None;
+        }
+        let (ident, after) = trimmed.split_at(end);
+        self.rest = after;
+        Some(ident)
+    }
+
+    fn string(&mut self) -> Option<&str> {
+        let trimmed = self.rest.trim_start().strip_prefix('"')?;
+        let end = trimmed.find('"')?;
+        let (value, after) = trimmed.split_at(end);
+        self.rest = after.strip_prefix('"')?;
+        Some(value)
+    }
+
+    fn list(&mut self, host_cfg: &[String]) -> Option<Vec<bool>> {
+        if !self.eat("(") {
+            return None;
+        }
+        let mut values = Vec::new();
+        loop {
+            if self.eat(")") {
+                return Some(values);
+            }
+            values.push(self.predicate(host_cfg)?);
+            if !self.eat(",") && !self.rest.trim_start().starts_with(')') {
+                return None;
+            }
+        }
+    }
+
+    fn predicate(&mut self, host_cfg: &[String]) -> Option<bool> {
+        let name = self.ident()?.to_string();
+        match name.as_str() {
+            "all" => Some(self.list(host_cfg)?.into_iter().all(|v| v)),
+            "any" => Some(self.list(host_cfg)?.into_iter().any(|v| v)),
+            "not" => {
+                let values = self.list(host_cfg)?;
+                match values.as_slice() {
+                    [value] => Some(!value),
+                    _ => None,
+                }
+            }
+            _ if self.eat("=") => {
+                let atom = format!("{name}=\"{}\"", self.string()?);
+                Some(host_cfg.contains(&atom))
+            }
+            _ => Some(host_cfg.contains(&name)),
+        }
+    }
+}
+
+/// `target.'cfg(..)'` tables matching the host, across every layer in
+/// precedence order, as `(table, layer, key)`.
+fn matching_cfg_tables<'a>(
+    layers: &'a [ConfigLayer],
+    host_cfg: &[String],
+) -> Vec<(&'a toml::Table, &'a ConfigLayer, &'a str)> {
+    layers
+        .iter()
+        .flat_map(|layer| {
+            layer
+                .table
+                .get("target")
+                .and_then(toml::Value::as_table)
+                .into_iter()
+                .flatten()
+                .filter(|(key, _)| cfg_matches(key, host_cfg))
+                .filter_map(move |(key, value)| Some((value.as_table()?, layer, key.as_str())))
+        })
+        .collect()
+}
+
+fn cfg_source(layer: &ConfigLayer, key: &str) -> String {
+    format!("{} [target.'{key}']", layer.path.display())
+}
+
+/// The host this report resolves `target.*` tables for.
+#[derive(Debug, Clone, Default)]
+pub struct HostTarget {
+    /// Host triple from `rustc -vV`; the key for `target.<triple>.*`.
+    pub triple: Option<String>,
+    /// `rustc --print cfg` atoms, for `target.'cfg(..)'` tables.
+    pub cfg: Vec<String>,
+}
+
 /// Resolve the effective cargo settings from env and config layers.
 ///
 /// Follows cargo's precedence (env over config for the same key;
-/// `CARGO_ENCODED_RUSTFLAGS` > `RUSTFLAGS` > `target.<host>.rustflags` >
-/// `build.rustflags` for rustflags). `target.'cfg(..)'` tables are not
-/// evaluated.
+/// `CARGO_ENCODED_RUSTFLAGS` > `RUSTFLAGS` > target-table rustflags >
+/// `build.rustflags` for rustflags). Target tables are `target.<host>` and
+/// every `target.'cfg(..)'` table matching `host.cfg`: the triple's linker
+/// wins over a cfg table's, and target rustflags from all matching tables
+/// are joined, as cargo does.
+///
+/// The default target dir is `<workspace_root>/target` — cargo anchors it
+/// at the workspace root, not the cwd — falling back to `cwd` when the root
+/// is unknown.
 #[must_use]
 pub fn resolve_cargo_settings(
     layers: &[ConfigLayer],
     env: &dyn Fn(&str) -> Option<String>,
     cwd: &Path,
-    host: Option<String>,
+    workspace_root: Option<&Path>,
+    host: HostTarget,
 ) -> CargoSettings {
+    let HostTarget {
+        triple: host,
+        cfg: host_cfg,
+    } = host;
     let jobs =
         from_env(env, &["CARGO_BUILD_JOBS"]).or_else(|| from_config(layers, &["build", "jobs"]));
     let rustc_wrapper = from_env(env, &["RUSTC_WRAPPER", "CARGO_BUILD_RUSTC_WRAPPER"])
@@ -232,17 +384,14 @@ pub fn resolve_cargo_settings(
             })
         })
         .unwrap_or_else(|| Setting {
-            value: cwd.join("target").display().to_string(),
+            value: workspace_root
+                .unwrap_or(cwd)
+                .join("target")
+                .display()
+                .to_string(),
             source: "default".to_string(),
         });
-    let (linker, target_rustflags) = host.as_deref().map_or((None, None), |triple| {
-        let key = triple_env_key(triple);
-        let linker = from_env(env, &[&format!("CARGO_TARGET_{key}_LINKER")])
-            .or_else(|| from_config(layers, &["target", triple, "linker"]));
-        let flags = from_env(env, &[&format!("CARGO_TARGET_{key}_RUSTFLAGS")])
-            .or_else(|| from_config(layers, &["target", triple, "rustflags"]));
-        (linker, flags)
-    });
+    let (linker, target_rustflags) = resolve_target_tables(layers, env, host.as_deref(), &host_cfg);
     let rustflags = env("CARGO_ENCODED_RUSTFLAGS")
         .filter(|v| !v.is_empty())
         .map(|v| Setting {
@@ -267,6 +416,60 @@ pub fn resolve_cargo_settings(
     }
 }
 
+/// Linker and rustflags from the host's target tables: env
+/// `CARGO_TARGET_<TRIPLE>_*` first, then `target.<triple>`, then matching
+/// `target.'cfg(..)'` tables. Rustflags from the triple table and every
+/// matching cfg table are joined in precedence order.
+fn resolve_target_tables(
+    layers: &[ConfigLayer],
+    env: &dyn Fn(&str) -> Option<String>,
+    triple: Option<&str>,
+    host_cfg: &[String],
+) -> (Option<Setting>, Option<Setting>) {
+    let env_key = triple.map(triple_env_key);
+    let env_setting = |suffix: &str| {
+        env_key
+            .as_deref()
+            .and_then(|key| from_env(env, &[&format!("CARGO_TARGET_{key}_{suffix}")]))
+    };
+    let cfg_tables = matching_cfg_tables(layers, host_cfg);
+
+    let linker = env_setting("LINKER")
+        .or_else(|| triple.and_then(|t| from_config(layers, &["target", t, "linker"])))
+        .or_else(|| {
+            cfg_tables.iter().find_map(|(table, layer, key)| {
+                table.get("linker").map(|value| Setting {
+                    value: render_value(value),
+                    source: cfg_source(layer, key),
+                })
+            })
+        });
+
+    let rustflags = env_setting("RUSTFLAGS").or_else(|| {
+        let triple_flags = triple.and_then(|t| from_config(layers, &["target", t, "rustflags"]));
+        let cfg_flags = cfg_tables.iter().filter_map(|(table, layer, key)| {
+            table.get("rustflags").map(|value| Setting {
+                value: render_value(value),
+                source: cfg_source(layer, key),
+            })
+        });
+        let parts: Vec<Setting> = triple_flags.into_iter().chain(cfg_flags).collect();
+        (!parts.is_empty()).then(|| Setting {
+            value: parts
+                .iter()
+                .map(|p| p.value.as_str())
+                .collect::<Vec<_>>()
+                .join(" "),
+            source: parts
+                .iter()
+                .map(|p| p.source.as_str())
+                .collect::<Vec<_>>()
+                .join(", "),
+        })
+    });
+    (linker, rustflags)
+}
+
 /// Parse `rustc -vV` output for the `host:` line.
 #[must_use]
 pub fn parse_rustc_host(stdout: &str) -> Option<String> {
@@ -275,6 +478,17 @@ pub fn parse_rustc_host(stdout: &str) -> Option<String> {
         .find_map(|l| l.strip_prefix("host:"))
         .map(|h| h.trim().to_string())
         .filter(|h| !h.is_empty())
+}
+
+/// Parse `cargo locate-project --workspace --message-format plain` output
+/// (the workspace root's `Cargo.toml` path) into the workspace root dir.
+#[must_use]
+pub fn parse_locate_project(stdout: &str) -> Option<PathBuf> {
+    let manifest = stdout.lines().next()?.trim();
+    if manifest.is_empty() {
+        return None;
+    }
+    Path::new(manifest).parent().map(Path::to_path_buf)
 }
 
 /// Parse Linux `/proc/loadavg` (`0.52 0.58 0.59 1/1234 5678`).
@@ -470,9 +684,25 @@ pub fn collect_machine_report(cwd: &Path) -> MachineReport {
         .or_else(|| std::env::var_os("HOME").map(|h| PathBuf::from(h).join(".cargo")));
     let layers = config_layers(cwd, cargo_home.as_deref());
     let rustc = std::env::var_os("RUSTC").unwrap_or_else(|| "rustc".into());
-    let host =
-        probe(Command::new(rustc).arg("-vV"), "rustc -vV").and_then(|t| parse_rustc_host(&t));
-    let cargo = resolve_cargo_settings(&layers, &env, cwd, host);
+    let host = HostTarget {
+        triple: probe(Command::new(&rustc).arg("-vV"), "rustc -vV")
+            .and_then(|t| parse_rustc_host(&t)),
+        cfg: probe(
+            Command::new(&rustc).args(["--print", "cfg"]),
+            "rustc --print cfg",
+        )
+        .map(|t| parse_rustc_cfg(&t))
+        .unwrap_or_default(),
+    };
+    let cargo_bin = std::env::var_os("CARGO").unwrap_or_else(|| "cargo".into());
+    let workspace_root = probe(
+        Command::new(cargo_bin)
+            .args(["locate-project", "--workspace", "--message-format", "plain"])
+            .current_dir(cwd),
+        "cargo locate-project --workspace",
+    )
+    .and_then(|t| parse_locate_project(&t));
+    let cargo = resolve_cargo_settings(&layers, &env, cwd, workspace_root.as_deref(), host);
 
     // The invoking `cargo run` (if any) is our parent, not competing work.
     let mut exclude = vec![std::process::id()];
@@ -646,7 +876,13 @@ mod tests {
                 "[build]\njobs = 2\ntarget-dir = \"/elsewhere\"\nrustflags = [\"-C\", \"target-cpu=native\"]\n",
             ),
         ];
-        let s = resolve_cargo_settings(&layers, &no_env, Path::new("/w"), None);
+        let s = resolve_cargo_settings(
+            &layers,
+            &no_env,
+            Path::new("/w"),
+            None,
+            HostTarget::default(),
+        );
         assert_eq!(
             s.jobs,
             Some(Setting {
@@ -679,7 +915,11 @@ mod tests {
             &layers,
             &env,
             Path::new("/w"),
-            Some("x86_64-unknown-linux-gnu".to_string()),
+            None,
+            HostTarget {
+                triple: Some("x86_64-unknown-linux-gnu".to_string()),
+                cfg: Vec::new(),
+            },
         );
         assert_eq!(
             s.rustc_wrapper.map(|w| w.source),
@@ -697,6 +937,115 @@ mod tests {
         assert_eq!(s.target_dir.value, "/w/target");
     }
 
+    fn linux_cfg() -> Vec<String> {
+        parse_rustc_cfg(
+            "debug_assertions\npanic=\"unwind\"\ntarget_arch=\"x86_64\"\ntarget_os=\"linux\"\nunix\n",
+        )
+    }
+
+    #[test]
+    fn cfg_matches_evaluates_cargo_cfg_grammar() {
+        let cfg = linux_cfg();
+        assert!(cfg_matches("cfg(unix)", &cfg));
+        assert!(!cfg_matches("cfg(windows)", &cfg));
+        assert!(cfg_matches("cfg(target_os = \"linux\")", &cfg));
+        assert!(!cfg_matches("cfg(target_os = \"macos\")", &cfg));
+        assert!(cfg_matches(
+            "cfg(all(unix, target_arch = \"x86_64\"))",
+            &cfg
+        ));
+        assert!(cfg_matches("cfg(any(windows, unix))", &cfg));
+        assert!(cfg_matches("cfg(not(windows))", &cfg));
+        assert!(!cfg_matches(
+            "cfg(all(unix, not(target_os = \"linux\")))",
+            &cfg
+        ));
+        assert!(
+            !cfg_matches("x86_64-unknown-linux-gnu", &cfg),
+            "a triple is not a cfg"
+        );
+        assert!(
+            !cfg_matches("cfg(all(unix", &cfg),
+            "malformed never matches"
+        );
+        assert!(!cfg_matches("cfg(not(unix, windows))", &cfg));
+    }
+
+    /// TASK-2300 AC #1: a matching `target.'cfg(..)'` table supplies the
+    /// linker (the triple table still wins) and its rustflags join the
+    /// triple's, each naming its table as the source.
+    #[test]
+    fn cfg_target_tables_supply_linker_and_rustflags_with_source() {
+        let layers = [layer(
+            "/w/.cargo/config.toml",
+            "/w",
+            "[target.'cfg(target_os = \"linux\")']\nlinker = \"clang\"\nrustflags = [\"-Clink-arg=-fuse-ld=mold\"]\n\
+             [target.'cfg(windows)']\nlinker = \"lld-link\"\n",
+        )];
+        let host = HostTarget {
+            triple: Some("x86_64-unknown-linux-gnu".to_string()),
+            cfg: linux_cfg(),
+        };
+        let s = resolve_cargo_settings(&layers, &no_env, Path::new("/w"), None, host.clone());
+        assert_eq!(
+            s.linker,
+            Some(Setting {
+                value: "clang".to_string(),
+                source: "/w/.cargo/config.toml [target.'cfg(target_os = \"linux\")']".to_string(),
+            })
+        );
+        assert_eq!(
+            s.rustflags.map(|r| r.value),
+            Some("-Clink-arg=-fuse-ld=mold".to_string())
+        );
+
+        let layers = [layer(
+            "/w/.cargo/config.toml",
+            "/w",
+            "[target.x86_64-unknown-linux-gnu]\nlinker = \"gcc\"\nrustflags = [\"-Ctarget-cpu=native\"]\n\
+             [target.'cfg(unix)']\nlinker = \"clang\"\nrustflags = [\"-Cforce-frame-pointers\"]\n",
+        )];
+        let s = resolve_cargo_settings(&layers, &no_env, Path::new("/w"), None, host);
+        assert_eq!(s.linker.map(|l| l.value), Some("gcc".to_string()));
+        let flags = s.rustflags.expect("joined rustflags");
+        assert_eq!(flags.value, "-Ctarget-cpu=native -Cforce-frame-pointers");
+        assert_eq!(
+            flags.source,
+            "/w/.cargo/config.toml, /w/.cargo/config.toml [target.'cfg(unix)']"
+        );
+    }
+
+    /// TASK-2300 AC #2: the default target dir is anchored at the workspace
+    /// root, not the cwd of a member subdirectory.
+    #[test]
+    fn default_target_dir_resolves_against_the_workspace_root() {
+        let s = resolve_cargo_settings(
+            &[],
+            &no_env,
+            Path::new("/w/crates/member"),
+            Some(Path::new("/w")),
+            HostTarget::default(),
+        );
+        assert_eq!(s.target_dir.value, "/w/target");
+        assert_eq!(s.target_dir.source, "default");
+        let s = resolve_cargo_settings(
+            &[],
+            &no_env,
+            Path::new("/w/crates/member"),
+            None,
+            HostTarget::default(),
+        );
+        assert_eq!(
+            s.target_dir.value, "/w/crates/member/target",
+            "cwd fallback"
+        );
+        assert_eq!(
+            parse_locate_project("/w/Cargo.toml\n"),
+            Some(PathBuf::from("/w"))
+        );
+        assert_eq!(parse_locate_project(""), None);
+    }
+
     #[test]
     fn encoded_rustflags_beat_every_other_source() {
         let env = |name: &str| match name {
@@ -704,7 +1053,7 @@ mod tests {
             "RUSTFLAGS" => Some("-O".to_string()),
             _ => None,
         };
-        let s = resolve_cargo_settings(&[], &env, Path::new("/w"), None);
+        let s = resolve_cargo_settings(&[], &env, Path::new("/w"), None, HostTarget::default());
         assert_eq!(
             s.rustflags.map(|r| r.value),
             Some("-C opt-level=3".to_string())
