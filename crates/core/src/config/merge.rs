@@ -89,6 +89,9 @@ fn merge_extend(
             }
             base_entry.commands.extend(entry.commands);
             base_entry.args.extend(entry.args);
+            // TASK-2277: matrix axes/include/exclude concatenate like the
+            // other lists, so an `.ops.d` layer adds to `.ops.toml`'s values.
+            base_entry.matrix.append(&entry.matrix);
             if entry.help.is_some() {
                 base_entry.help = entry.help;
             }

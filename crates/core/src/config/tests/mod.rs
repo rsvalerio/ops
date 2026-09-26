@@ -17,6 +17,7 @@ use crate::test_utils::{exec_spec, TestConfigBuilder};
 use indexmap::IndexMap;
 use std::path::PathBuf;
 
+mod matrix_tests;
 mod merge_tests;
 mod serde_tests;
 mod template_tests;

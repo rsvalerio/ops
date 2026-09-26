@@ -51,6 +51,9 @@ pub fn run_command_dry_run_to(
     for (i, id) in leaf_ids.iter().enumerate() {
         writeln!(w, "\n  [{}] {}", i.saturating_add(1), audit_safe(id))?;
         match runner.resolve(id) {
+            Some(CommandSpec::Exec(e)) if e.strategy.is_some() => {
+                print_matrix_spec(w, id, e, runner.variables())?;
+            }
             Some(CommandSpec::Exec(e)) => print_exec_spec(w, e, runner.variables())?,
             Some(CommandSpec::Composite(_)) => {
                 writeln!(w, "      (composite - should have been expanded)")?;
@@ -70,6 +73,33 @@ pub fn run_command_dry_run_to(
     }
 
     Ok(ExitCode::SUCCESS)
+}
+
+/// TASK-2277: a matrix step previews its schedule and then every cell with
+/// its fully expanded program and args — what each spawn will actually run.
+fn print_matrix_spec(
+    w: &mut dyn Write,
+    name: &str,
+    e: &ops_core::config::ExecCommandSpec,
+    vars: &ops_core::expand::Variables,
+) -> anyhow::Result<()> {
+    let cells = e.matrix_cells(name)?;
+    if let Some(strategy) = &e.strategy {
+        let max_parallel = strategy
+            .max_parallel
+            .map_or_else(|| "unbounded".to_string(), |n| n.to_string());
+        writeln!(
+            w,
+            "      matrix:  {} cell(s), max_parallel = {max_parallel}, fail_fast = {}",
+            cells.len(),
+            strategy.fail_fast
+        )?;
+    }
+    for cell in &cells {
+        writeln!(w, "\n    - {}", audit_safe(&cell.id))?;
+        print_exec_spec(w, &cell.spec, vars)?;
+    }
+    Ok(())
 }
 
 pub fn print_exec_spec(

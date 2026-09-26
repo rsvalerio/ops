@@ -50,7 +50,7 @@ use super::Config;
 ///
 /// If a clone source is defined nowhere, a clone cycle exists, the clone
 /// target names an existing stack-default command, or an exec-only override
-/// (`env`, `cwd`, `timeout_secs`, `exclusive`) is set beside a composite
+/// (`env`, `cwd`, `timeout_secs`, `exclusive`, `strategy`) is set beside a composite
 /// source — each naming the clone and the source.
 pub(super) fn apply(config: &mut Config, workspace_root: &Path) -> anyhow::Result<()> {
     let mut pending: Vec<String> = config
@@ -176,7 +176,7 @@ fn resolve_source(
 ///
 /// # Errors
 ///
-/// If an exec-only override (`env`, `cwd`, `timeout_secs`, `exclusive`) is
+/// If an exec-only override (`env`, `cwd`, `timeout_secs`, `exclusive`, `strategy`) is
 /// set beside a composite source — silently dropping it would hide a
 /// copy-paste mistake behind a clone that quietly ignores it.
 fn materialize(
@@ -207,6 +207,11 @@ fn materialize(
             if let Some(exclusive) = decl.exclusive {
                 copy.exclusive = exclusive;
             }
+            // TASK-2277: a strategy beside `clone` replaces the copied one
+            // wholesale, like `env`; without one the source's is copied.
+            if decl.strategy.is_some() {
+                copy.strategy.clone_from(&decl.strategy);
+            }
             CommandSpec::Exec(copy)
         }
         CommandSpec::Composite(c) => {
@@ -215,6 +220,7 @@ fn materialize(
                 ("cwd", decl.cwd.is_some()),
                 ("timeout_secs", decl.timeout_secs.is_some()),
                 ("exclusive", decl.exclusive.is_some()),
+                ("strategy", decl.strategy.is_some()),
             ] {
                 if is_set {
                     anyhow::bail!(

@@ -35,6 +35,7 @@ mod build;
 mod builtins;
 mod events;
 mod exec;
+mod matrix;
 mod parallel;
 mod process_group;
 mod resolve;
@@ -487,7 +488,57 @@ impl CommandRunner {
         // build_command_async dispatch, no spec deep clone per spawn. The
         // `ExecEnv` handles Arc::clone once each if the build needs to
         // spawn_blocking, no deep clone.
+        // TASK-2277: a matrix command runs its cells as this one step.
+        if let Some(prepared) = matrix::MatrixRun::prepare(id, spec) {
+            return match prepared {
+                Ok(run) => self.run_matrix_step(run, on_event).await,
+                Err(msg) => exec::resolution_failure(id, msg, on_event),
+            };
+        }
         exec_command(id, spec, &self.exec_env(), on_event).await
+    }
+
+    /// Run a matrix step outside a parallel batch: the cell driver sends its
+    /// events down a channel that this task drains into `on_event`
+    /// concurrently, so the non-`Send` display sink never crosses a spawn.
+    async fn run_matrix_step(
+        &self,
+        run: matrix::MatrixRun,
+        on_event: &mut impl FnMut(RunnerEvent),
+    ) -> StepResult {
+        let (tx, mut rx) = tokio::sync::mpsc::channel(parallel::compute_channel_capacity(
+            1,
+            1,
+            parallel::resolve_event_budget(),
+        ));
+        let driver = matrix::run_matrix(run, self.exec_env(), tx, None);
+        let pump = async {
+            while let Some(ev) = rx.recv().await {
+                on_event(ev);
+            }
+        };
+        let (result, ()) = tokio::join!(driver, pump);
+        result
+    }
+
+    /// The progress rows `leaf_ids` render as: each matrix command becomes
+    /// one row per cell (`name [key=value]`, TASK-2277), every other leaf
+    /// stays one row. `PlanStarted` carries these, so the display has a row
+    /// for every cell event.
+    #[must_use]
+    pub fn row_ids(&self, leaf_ids: &[CommandId]) -> Vec<CommandId> {
+        let mut rows = Vec::with_capacity(leaf_ids.len());
+        for id in leaf_ids {
+            match self.resolve(id) {
+                Some(CommandSpec::Exec(spec)) => match matrix::MatrixRun::prepare(id, spec) {
+                    Some(Ok(run)) => rows.extend(run.cell_ids().cloned()),
+                    // A malformed matrix fails as the step itself.
+                    Some(Err(_)) | None => rows.push(id.clone()),
+                },
+                _ => rows.push(id.clone()),
+            }
+        }
+        rows
     }
 
     /// Run a named command (single or composite); returns step results.

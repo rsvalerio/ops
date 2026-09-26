@@ -5,6 +5,7 @@
 
 use super::events::PlanLifecycle;
 use super::exec::{exec_command_raw, resolution_failure};
+use super::matrix::{run_matrix_raw, MatrixRun};
 use super::{CommandRunner, RunnerEvent, StepResult};
 use ops_core::config::CommandId;
 use std::time::Duration;
@@ -39,7 +40,7 @@ impl CommandRunner {
         fail_fast: bool,
         on_event: &mut impl FnMut(RunnerEvent),
     ) -> Vec<StepResult> {
-        let lifecycle = PlanLifecycle::begin(command_ids, on_event);
+        let lifecycle = PlanLifecycle::begin(&self.row_ids(command_ids), on_event);
         let mut results = Vec::new();
 
         for id in command_ids {
@@ -84,8 +85,15 @@ impl CommandRunner {
             };
             // PERF-3 / TASK-1125: wrap once at the boundary; build_command_async
             // dispatch is then Arc::clone, not deep clone of args/env.
-            let spec = std::sync::Arc::new(spec);
-            let result = exec_command_raw(id.as_str(), &spec, &self.exec_env()).await;
+            let result = match MatrixRun::prepare(id.as_str(), &spec) {
+                // TASK-2277: a matrix step runs its cells one after another.
+                Some(Ok(run)) => run_matrix_raw(run, &self.exec_env()).await,
+                Some(Err(msg)) => StepResult::failure(id.as_str(), Duration::ZERO, msg),
+                None => {
+                    let spec = std::sync::Arc::new(spec);
+                    exec_command_raw(id.as_str(), &spec, &self.exec_env()).await
+                }
+            };
             let should_stop = !result.success;
             results.push(result);
             if fail_fast && should_stop {

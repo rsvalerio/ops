@@ -43,6 +43,8 @@
 //! - [`init`] — `ops init` template rendering.
 //! - [`edit`] — in-place `.ops.toml` editing.
 //! - [`theme_types`] — the `[themes]` payload types.
+//! - `strategy` — `[commands.<name>.strategy]` matrices: one exec command
+//!   run once per cell as a single plan step (TASK-2277).
 
 mod clone;
 pub(crate) mod command_id;
@@ -55,11 +57,13 @@ pub(crate) mod merge;
 pub(crate) mod overlay;
 pub(crate) mod root;
 pub(crate) mod sections;
+pub(crate) mod strategy;
 pub mod theme_types;
 
 pub use command_id::CommandId;
 pub use commands::{
     current_ops_program, CloneCommandSpec, CommandSpec, CompositeCommandSpec, ExecCommandSpec,
+    MatrixCellSpec,
 };
 pub use edit::{
     atomic_write, command_names, edit_ops_toml, ensure_table, insert_command, read_ops_toml,
@@ -73,6 +77,10 @@ pub use overlay::{
 };
 pub use root::{Config, MAX_COMPOSITE_DEPTH};
 pub use sections::{AboutConfig, BacklogSection, DataConfig, ExtensionConfig, OutputConfig};
+pub use strategy::{
+    substitute as substitute_matrix_refs, Matrix, MatrixCell, MatrixEntry, MatrixRefError,
+    Strategy, MAX_MATRIX_CELLS,
+};
 
 #[cfg(test)]
 pub(crate) use loader::resolve_global_config_path;
