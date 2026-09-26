@@ -440,6 +440,7 @@ fn run_task_action(
                 plan,
                 notes,
                 depends_on,
+                unless_exists,
                 plain: _,
             } = *create;
             let opts = cmd::CreateOptions {
@@ -455,6 +456,7 @@ fn run_task_action(
                 plan,
                 notes,
                 dependencies: depends_on,
+                unless_exists,
             };
             cmd::run_create(store, cfg, &opts, &mut std::io::stdout())
         }

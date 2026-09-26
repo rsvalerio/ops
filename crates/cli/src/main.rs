@@ -45,6 +45,7 @@ extern crate ops_tokei;
 mod about_cmd;
 mod args;
 mod backlog_cmd;
+mod clippy_findings_cmd;
 mod extension_cmd;
 mod help;
 mod hook_shared;
@@ -330,6 +331,10 @@ fn dispatch(
                 repo,
             };
             return sec_cmd::run_sec(&cwd, cli.dry_run, &overrides);
+        }
+        Some(CoreSubcommand::ClippyFindings { lint_flags }) => {
+            let cwd = cwd()?;
+            return clippy_findings_cmd::run_clippy_findings(&cwd, &lint_flags, cli.dry_run);
         }
         Some(CoreSubcommand::External(args)) => {
             return run_cmd::run_external_command(

@@ -14,6 +14,13 @@ That covers the `--all-features` build only. The default-feature build is the
 gate's blind spot and has its own companion command, `ops clippy-default` —
 see [Two feature sets, two blind spots](#two-feature-sets-two-blind-spots).
 
+To survey lints the gate does not enforce, `ops clippy-findings -- -W
+clippy::pedantic` runs the same build without `-D warnings` and prints a
+versioned JSON report, one normalized row per Clippy diagnostic (lint,
+`name@version`, repo-relative manifest dir, target, file, line, column,
+verbatim message), sorted and identical from any checkout path. It is not a
+gate: it exits 0 whatever it finds.
+
 Warnings are errors. Either the code changes or the exception is written down.
 The one bounded exception is the temporary-allow block described below, which
 only ever shrinks.

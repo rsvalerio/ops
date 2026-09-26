@@ -248,6 +248,26 @@ pub enum CoreSubcommand {
         #[arg(long = "repo")]
         repo: bool,
     },
+    /// Survey Clippy: one normalized JSON row per Clippy diagnostic.
+    ///
+    /// Not a gate — `ops clippy` stays the gate. Runs `cargo clippy
+    /// --workspace --all-features --all-targets --message-format=json` with
+    /// the lint flags given after `--` (e.g. `-- -W clippy::pedantic`) and
+    /// never adds `-D warnings`. Prints a versioned JSON report: per
+    /// diagnostic the lint (without `clippy::`), `name@version`, the
+    /// repo-relative manifest dir, target name and kind, repo-relative file,
+    /// line, column and the verbatim message. A spanless diagnostic is
+    /// attributed to its crate's `Cargo.toml` at line 0. Spans outside the
+    /// repository (registry, toolchain, `OUT_DIR`) are dropped and counted;
+    /// plain rustc warnings are counted separately. Rows are sorted and
+    /// de-duplicated, so one commit yields the same report from any checkout
+    /// path.
+    #[command(name = "clippy-findings")]
+    ClippyFindings {
+        /// Lint flags passed to clippy after `--`.
+        #[arg(last = true, value_name = "LINT_FLAGS")]
+        lint_flags: Vec<String>,
+    },
     /// Manage `.backlog` task files (backlog.md-compatible subset).
     Backlog {
         #[command(subcommand)]
@@ -398,6 +418,11 @@ pub struct BacklogCreateArgs {
     /// Dependency task ids (comma-separated or repeatable).
     #[arg(long = "depends-on", visible_alias = "dep", value_delimiter = ',')]
     pub depends_on: Vec<String>,
+    /// Idempotent filing: store KEY as the task's `dedup_key`; when an open
+    /// (not Done) task already carries it, create nothing and print
+    /// `Exists <id>`. Checked and written under the allocation lock.
+    #[arg(long = "unless-exists", value_name = "KEY")]
+    pub unless_exists: Option<String>,
     /// Plain text output.
     #[arg(long)]
     pub plain: bool,
@@ -597,6 +622,7 @@ const fn stack_specific_commands() -> &'static [(&'static str, Stack)] {
         ("deps", Stack::Rust),
         #[cfg(feature = "stack-terraform")]
         ("plans", Stack::Terraform),
+        ("clippy-findings", Stack::Rust),
     ]
 }
 
@@ -841,6 +867,25 @@ mod tests {
     }
 
     // -- parse subcommand edge cases --
+
+    // `clippy-findings` is a survey beside the gate: `ops clippy` must still
+    // resolve to the config-defined gate command, not the built-in.
+    #[test]
+    fn parse_clippy_stays_the_external_gate() {
+        let cli = Cli::parse_from(["ops", "clippy"]);
+        assert!(matches!(cli.subcommand, Some(CoreSubcommand::External(_))));
+    }
+
+    #[test]
+    fn parse_clippy_findings_takes_lint_flags_after_double_dash() {
+        let cli = Cli::parse_from(["ops", "clippy-findings", "--", "-W", "clippy::pedantic"]);
+        match cli.subcommand {
+            Some(CoreSubcommand::ClippyFindings { lint_flags }) => {
+                assert_eq!(lint_flags, ["-W", "clippy::pedantic"]);
+            }
+            other => panic!("expected ClippyFindings, got {other:?}"),
+        }
+    }
 
     #[test]
     fn parse_dry_run_flag() {
