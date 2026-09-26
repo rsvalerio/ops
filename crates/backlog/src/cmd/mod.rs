@@ -15,6 +15,7 @@ pub mod search;
 pub mod view;
 pub mod wave;
 pub mod wave_claim;
+pub mod wave_create;
 
 pub use about::run_about_backlog;
 pub use cleanup::{run_cleanup, CleanupOptions};
@@ -29,6 +30,7 @@ pub use wave::{
     WaveMembersOptions, WaveMigrateOptions, WaveOverlapOptions, DEFAULT_WAVE_MARKER,
 };
 pub use wave_claim::{run_wave_claim, run_wave_park, WaveClaimOptions, WaveParkOptions};
+pub use wave_create::{run_wave_create, WaveCreateOptions, DEFAULT_WAVE_STATUS};
 
 use std::io::Write;
 

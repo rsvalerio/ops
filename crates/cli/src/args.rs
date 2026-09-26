@@ -375,8 +375,8 @@ pub enum BacklogAction {
         #[arg(long, conflicts_with = "plain")]
         json: bool,
     },
-    /// Code-review wave grouping: list, members, overlap, claim, park,
-    /// migrate.
+    /// Code-review wave grouping: list, members, overlap, create, claim,
+    /// park, migrate.
     Wave {
         #[command(subcommand)]
         action: BacklogWaveAction,
@@ -456,6 +456,41 @@ pub enum BacklogWaveAction {
         /// Versioned machine-readable JSON.
         #[arg(long, conflicts_with = "plain")]
         json: bool,
+    },
+    /// Create a wave parent and link its members in one step: marker label
+    /// and dependencies on the parent, `parent_task_id` and status on each
+    /// member. Refused, with nothing written, when any member is missing,
+    /// already in a wave, or itself a wave.
+    Create {
+        /// Wave title (e.g. code-review-plan-wave29).
+        title: String,
+        /// Member task ids (comma-separated or repeatable).
+        #[arg(long, required = true, value_delimiter = ',', value_name = "TASK_ID")]
+        members: Vec<String>,
+        /// Description body.
+        #[arg(short, long)]
+        description: Option<String>,
+        /// The wave's own status.
+        #[arg(short, long, default_value = ops_backlog::cmd::DEFAULT_WAVE_STATUS)]
+        status: String,
+        /// Status every member is flipped to.
+        #[arg(long = "member-status", default_value = "To Do")]
+        member_status: String,
+        /// Priority: critical, high, medium, or low.
+        #[arg(long)]
+        priority: Option<String>,
+        /// Implementation plan.
+        #[arg(long)]
+        plan: Option<String>,
+        /// Implementation notes (e.g. the wave's overlaps).
+        #[arg(long)]
+        notes: Option<String>,
+        /// The wave's file scope (repeatable).
+        #[arg(long = "modified-file", value_name = "PATH")]
+        modified_file: Vec<String>,
+        /// The label marking a wave parent.
+        #[arg(long, default_value = ops_backlog::cmd::DEFAULT_WAVE_MARKER)]
+        marker: String,
     },
     /// Claim a wave: create its branch and worktree, then flip it to In
     /// Progress. Refused, with nothing changed, when the branch exists.

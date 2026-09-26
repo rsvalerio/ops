@@ -20,7 +20,7 @@ ops backlog task edit <taskId> [flags]        # prints `Updated TASK-NNNN`
 ops backlog task list [flags]
 ops backlog task view <taskId> [--plain|--json]
 ops backlog search [query] [flags]
-ops backlog wave list|members|overlap|claim|park|migrate [flags]
+ops backlog wave list|members|overlap|create|claim|park|migrate [flags]
 ops backlog commit <taskId>... -m <msg>        # commit exactly these tasks' files
 ops backlog cleanup [flags]
 ```
@@ -165,6 +165,7 @@ structural:
 ops backlog wave list [-s <status>] [--marker <label>] [--plain|--json]
 ops backlog wave members <waveId> [--plain|--json]
 ops backlog wave overlap [<waveId>...] [--marker <label>] [--plain|--json]
+ops backlog wave create <title> --members <ids> [-s <status>] [--member-status <status>] [flags]
 ops backlog wave claim <waveId> [--branch <name>] [--worktree <path>]
 ops backlog wave park <waveId> --reason <text> [-s <status>] [--branch <name>]
 ops backlog wave migrate [--marker <name>] [--dry-run]
@@ -190,6 +191,16 @@ ops backlog wave migrate [--marker <name>] [--dry-run]
   `--json` emits `{"schemaVersion": 1, "kind": "wave-overlap", "waves":
   [{"id", "title", "status", "files", "overlaps": [{"id", "files"}]}],
   "mergeOrder": [...]}`, waves in merge order.
+- `create` writes a whole wave in one step, replacing triage's `task create`
+  plus one `task edit` per member: a parent task carrying the marker label
+  and `dependencies:` on every member (status `To Do` unless `-s` says
+  otherwise), then each member's `parent_task_id` and status
+  (`--member-status`, default `To Do`). `-d`, `--priority`, `--plan`,
+  `--notes` and repeatable `--modified-file` fill the parent as in
+  `task create`. Every member is checked before the first write — it must
+  be in `tasks/`, not already in a wave, and not itself a wave — and one
+  refusal names every offending id, with nothing written. Prints
+  `Created TASK-NNNN` then one `Linked TASK-MMMM` per member.
 - `claim` creates the wave's branch (`code-review/<waveId>`) and worktree
   (`../.wave-<waveId>`, a sibling of the repository) with `git worktree add
   -b`, then flips the wave to `In Progress` and appends

@@ -283,6 +283,7 @@ const fn unpreviewable_mutation(action: &BacklogAction) -> Option<&'static str> 
             BacklogTaskAction::List { .. } | BacklogTaskAction::View { .. } => None,
         },
         BacklogAction::Wave { action } => match action {
+            BacklogWaveAction::Create { .. } => Some("wave create"),
             BacklogWaveAction::Claim { .. } => Some("wave claim"),
             BacklogWaveAction::Park { .. } => Some("wave park"),
             BacklogWaveAction::List { .. }
@@ -485,6 +486,32 @@ fn run_wave_action(
                 json,
             };
             cmd::run_wave_overlap(store, cfg, &opts, &mut std::io::stdout())
+        }
+        BacklogWaveAction::Create {
+            title,
+            members,
+            description,
+            status,
+            member_status,
+            priority,
+            plan,
+            notes,
+            modified_file,
+            marker,
+        } => {
+            let opts = cmd::WaveCreateOptions {
+                title,
+                members,
+                marker,
+                status: Some(status),
+                member_status,
+                description,
+                priority,
+                plan,
+                notes,
+                modified_files: modified_file,
+            };
+            cmd::run_wave_create(store, cfg, &opts, &mut std::io::stdout())
         }
         BacklogWaveAction::Claim {
             wave_id,
@@ -904,6 +931,17 @@ mod tests {
             .as_slice(),
             ["ops", "--dry-run", "backlog", "init"].as_slice(),
             ["ops", "--dry-run", "backlog", "commit", "TASK-1", "-m", "x"].as_slice(),
+            [
+                "ops",
+                "--dry-run",
+                "backlog",
+                "wave",
+                "create",
+                "w",
+                "--members",
+                "TASK-1",
+            ]
+            .as_slice(),
             ["ops", "--dry-run", "backlog", "wave", "claim", "TASK-1"].as_slice(),
             [
                 "ops",
