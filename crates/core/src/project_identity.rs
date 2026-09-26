@@ -178,6 +178,35 @@ pub struct ProjectUnit {
     /// Dependency count.
     #[serde(default)]
     pub dep_count: Option<i64>,
+    /// Build targets (lib, bins, tests, examples, benches, ...) when the
+    /// stack knows them; empty otherwise.
+    #[serde(default)]
+    pub targets: Vec<UnitTarget>,
+}
+
+/// One build target of a [`ProjectUnit`], as the build tool reports it.
+///
+/// Carries identity only — never a source path — so it does not depend on
+/// where the checkout lives.
+#[derive(Debug, Clone, Default, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]
+#[non_exhaustive]
+pub struct UnitTarget {
+    /// Target kinds, as the build tool lists them (for cargo: `lib`, `bin`,
+    /// `test`, `example`, `bench`, `proc-macro`, `custom-build`, ...). A list
+    /// because one target can have several (e.g. `["cdylib", "rlib"]`).
+    pub kind: Vec<String>,
+    /// Target name.
+    pub name: String,
+}
+
+impl UnitTarget {
+    #[must_use]
+    pub fn new(kind: Vec<String>, name: impl Into<String>) -> Self {
+        Self {
+            kind,
+            name: name.into(),
+        }
+    }
 }
 
 impl ProjectUnit {

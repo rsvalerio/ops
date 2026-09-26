@@ -5,11 +5,11 @@
 //! `run_about_units` runner when `SQLite` is available.
 
 use std::collections::HashMap;
-use std::path::Path;
+use std::path::{Path, PathBuf};
 
 use ops_about::cards::format_unit_name;
 use ops_cargo_toml::CargoToml;
-use ops_core::project_identity::ProjectUnit;
+use ops_core::project_identity::{ProjectUnit, UnitTarget};
 use ops_extension::{Context, DataProvider, DataProviderError};
 
 use crate::manifest::{load_workspace_manifest, log_manifest_load_failure};
@@ -60,6 +60,10 @@ impl DataProvider for RustUnitsProvider {
             }
         };
         let dep_counts = crate_dep_counts(ctx);
+        let targets = ctx
+            .cached("metadata")
+            .map(|metadata| crate_targets(metadata))
+            .unwrap_or_default();
 
         // PERF-3 / TASK-1569: the canonical-manifest-path map is built once per
         // workspace (`LoadedManifest` is itself cached per workspace root), so
@@ -80,8 +84,11 @@ impl DataProvider for RustUnitsProvider {
                     member,
                     manifest.workspace_root(),
                     workspace_version,
-                    canonical_manifests,
-                    &dep_counts,
+                    &MemberLookups {
+                        canonical_manifests,
+                        dep_counts: &dep_counts,
+                        targets: &targets,
+                    },
                 )
             })
             .collect();
@@ -107,6 +114,42 @@ fn crate_dep_counts(ctx: &Context) -> HashMap<String, i64> {
     })
 }
 
+/// Build targets per package, keyed by the canonical `manifest_path` cargo
+/// metadata reports (the same key [`build_unit`] resolves for dep counts).
+///
+/// Read from the `metadata` document the runner warmed, when it did; the
+/// manifest-backed provider cannot see auto-discovered targets on its own.
+/// Only kind and name are kept — `src_path` is checkout-dependent.
+fn crate_targets(metadata: &serde_json::Value) -> HashMap<PathBuf, Vec<UnitTarget>> {
+    metadata
+        .get("packages")
+        .and_then(serde_json::Value::as_array)
+        .into_iter()
+        .flatten()
+        .filter_map(|package| {
+            let manifest = package.get("manifest_path")?.as_str()?;
+            let mut targets: Vec<UnitTarget> = package
+                .get("targets")
+                .and_then(serde_json::Value::as_array)
+                .into_iter()
+                .flatten()
+                .filter_map(|target| {
+                    let name = target.get("name")?.as_str()?;
+                    let kind = target
+                        .get("kind")?
+                        .as_array()?
+                        .iter()
+                        .filter_map(|k| k.as_str().map(str::to_string))
+                        .collect();
+                    Some(UnitTarget::new(kind, name))
+                })
+                .collect();
+            targets.sort();
+            Some((PathBuf::from(manifest), targets))
+        })
+        .collect()
+}
+
 /// SEC-14 / TASK-1246 AC #1: defence-in-depth — even though
 /// `resolved_workspace_members` already filters absolute / `..`-segment
 /// entries, re-validate here so a future caller bypassing that helper (custom
@@ -119,6 +162,16 @@ fn member_is_unit_safe(member: &str) -> bool {
     member_path_is_workspace_safe_or_warn(member, "units provider")
 }
 
+/// Per-workspace lookup tables [`build_unit`] consults for every member.
+struct MemberLookups<'a> {
+    /// Member path → canonical `Cargo.toml` path.
+    canonical_manifests: &'a HashMap<String, PathBuf>,
+    /// Canonical manifest path → dependency count.
+    dep_counts: &'a HashMap<String, i64>,
+    /// Canonical manifest path → build targets.
+    targets: &'a HashMap<PathBuf, Vec<UnitTarget>>,
+}
+
 /// Assemble one [`ProjectUnit`] from a workspace member.
 ///
 /// CL-3 / TASK-1762: `workspace_root` is the *resolved* root, not the process
@@ -128,9 +181,13 @@ fn build_unit(
     member: &str,
     workspace_root: &Path,
     workspace_version: Option<&str>,
-    canonical_manifests: &HashMap<String, std::path::PathBuf>,
-    dep_counts: &HashMap<String, i64>,
+    lookups: &MemberLookups<'_>,
 ) -> ProjectUnit {
+    let MemberLookups {
+        canonical_manifests,
+        dep_counts,
+        targets,
+    } = lookups;
     let crate_toml = workspace_root.join(member).join("Cargo.toml");
     let CrateMetadata {
         name: pkg_name,
@@ -161,6 +218,10 @@ fn build_unit(
         dep_counts,
     );
     unit.package_name = pkg_name;
+    unit.targets = targets
+        .get(&canonical_manifest_path)
+        .cloned()
+        .unwrap_or_default();
     unit
 }
 
@@ -448,11 +509,67 @@ mod tests {
             "crates/foo",
             &root,
             Some("0.65.0"),
-            &HashMap::new(),
-            &HashMap::new(),
+            &MemberLookups {
+                canonical_manifests: &HashMap::new(),
+                dep_counts: &HashMap::new(),
+                targets: &HashMap::new(),
+            },
         );
         assert_eq!(unit.version.as_deref(), Some("0.65.0"));
         assert_eq!(unit.package_name.as_deref(), Some("foo-pkg"));
+        assert!(unit.targets.is_empty(), "no metadata → no targets");
+    }
+
+    /// TASK-2299: targets come from the cargo metadata document, keyed by
+    /// the member's canonical manifest path, sorted, with kind + name only
+    /// (no checkout-dependent `src_path`).
+    #[test]
+    fn build_unit_attaches_targets_from_cargo_metadata() {
+        let dir = tempfile::tempdir().unwrap();
+        let root = dir.path().canonicalize().unwrap();
+        std::fs::create_dir_all(root.join("crates/foo")).unwrap();
+        let manifest = root.join("crates/foo/Cargo.toml");
+        std::fs::write(
+            &manifest,
+            "[package]\nname = \"foo\"\nversion = \"1.0.0\"\n",
+        )
+        .unwrap();
+        let metadata = serde_json::json!({
+            "packages": [{
+                "name": "foo",
+                "manifest_path": manifest.to_str().unwrap(),
+                "targets": [
+                    {"kind": ["bin"], "name": "foo", "src_path": "/abs/src/main.rs"},
+                    {"kind": ["lib"], "name": "foo", "src_path": "/abs/src/lib.rs"},
+                    {"kind": ["test"], "name": "it", "src_path": "/abs/tests/it.rs"}
+                ]
+            }]
+        });
+        let targets = crate_targets(&metadata);
+
+        let unit = build_unit(
+            "crates/foo",
+            &root,
+            None,
+            &MemberLookups {
+                canonical_manifests: &HashMap::new(),
+                dep_counts: &HashMap::new(),
+                targets: &targets,
+            },
+        );
+        assert_eq!(
+            unit.targets,
+            vec![
+                UnitTarget::new(vec!["bin".to_string()], "foo"),
+                UnitTarget::new(vec!["lib".to_string()], "foo"),
+                UnitTarget::new(vec!["test".to_string()], "it"),
+            ]
+        );
+        let text = serde_json::to_string(&unit.targets).unwrap();
+        assert!(
+            !text.contains("src_path") && !text.contains("/abs"),
+            "{text}"
+        );
     }
 
     #[test]
