@@ -56,6 +56,7 @@ mod data;
 mod events;
 mod exec;
 mod expand;
+mod matrix;
 mod parallel;
 mod parallel_infra;
 mod raw_mode;

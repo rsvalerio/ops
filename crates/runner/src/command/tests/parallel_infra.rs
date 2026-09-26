@@ -129,6 +129,7 @@ async fn fail_fast_aborts_siblings_when_a_task_panics() {
         &mut join_set,
         &mut |_| {},
         &mut harvested,
+        &std::collections::HashSet::new(),
     )
     .await;
 
@@ -217,6 +218,7 @@ async fn fail_fast_trips_on_panic_while_a_sibling_floods_output() {
                 std::thread::sleep(Duration::from_millis(1));
             },
             &mut harvested,
+            &std::collections::HashSet::new(),
         ),
     )
     .await

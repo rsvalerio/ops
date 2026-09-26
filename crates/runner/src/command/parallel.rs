@@ -7,9 +7,10 @@
 use super::abort::AbortSignal;
 use super::events::PlanLifecycle;
 use super::exec::{exec_standalone, resolution_failure, ExecTaskCtx};
+use super::matrix::{run_matrix, MatrixRun};
 use super::{CommandRunner, RunnerEvent, StepResult};
 use ops_core::config::{CommandId, ExecCommandSpec};
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
 use std::sync::OnceLock;
 use std::time::Duration;
@@ -99,7 +100,7 @@ pub fn compute_channel_capacity(
 /// return the cached value without re-reading `std::env`, so env mutations
 /// after the first call are ignored. Tests exercising the parse/clamp
 /// matrix must call [`resolve_env_usize`] directly to bypass the cache.
-fn resolve_event_budget() -> usize {
+pub(super) fn resolve_event_budget() -> usize {
     *EVENT_BUDGET_CACHED.get_or_init(|| {
         resolve_env_usize(
             "OPS_PARALLEL_EVENT_BUDGET",
@@ -324,6 +325,8 @@ impl CommandRunner {
         let mut join_set = tokio::task::JoinSet::new();
         let mut id_map: HashMap<TaskId, CommandId> = HashMap::new();
         for (id, spec) in steps {
+            // TASK-2277: a matrix step is one task that runs its own cells.
+            let matrix = MatrixRun::prepare(id.as_str(), &spec);
             // Wrap once per task; subsequent forwards
             // through exec_standalone → exec_command → build_command_async
             // are Arc::clone (refcount bump) instead of deep clones of
@@ -354,7 +357,21 @@ impl CommandRunner {
                     );
                 };
                 let _permit = permit;
-                exec_standalone(id, spec, ExecTaskCtx { env, tx, abort }).await
+                match matrix {
+                    None => exec_standalone(id, spec, ExecTaskCtx { env, tx, abort }).await,
+                    Some(Ok(run)) => run_matrix(run, env, tx, Some(abort)).await,
+                    Some(Err(message)) => {
+                        let _ = tx
+                            .send(RunnerEvent::StepFailed {
+                                id: id.clone(),
+                                duration_secs: 0.0,
+                                message: message.clone(),
+                                display_cmd: None,
+                            })
+                            .await;
+                        StepResult::failure(id, Duration::ZERO, message)
+                    }
+                }
             });
             // Remember which tokio task carries which
             // CommandId so `collect_join_results` can preserve the id even
@@ -398,7 +415,7 @@ impl CommandRunner {
         if command_ids.len() <= 1 {
             return self.run_plan(command_ids, fail_fast, on_event).await;
         }
-        let lifecycle = PlanLifecycle::begin(command_ids, on_event);
+        let lifecycle = PlanLifecycle::begin(&self.row_ids(command_ids), on_event);
 
         let steps = match self.resolve_exec_specs(command_ids) {
             Ok(s) => s,
@@ -474,6 +491,16 @@ impl CommandRunner {
         fail_fast: bool,
         on_event: &mut impl FnMut(RunnerEvent),
     ) -> Vec<StepResult> {
+        // TASK-2277: a matrix step renders as one row per cell, so the
+        // orphan sweep below walks rows, and cell failures are kept from
+        // tripping the plan's fail_fast.
+        let rows = self.row_ids(command_ids);
+        let step_ids: HashSet<&CommandId> = command_ids.iter().collect();
+        let matrix_cells: HashSet<CommandId> = rows
+            .iter()
+            .filter(|row| !step_ids.contains(row))
+            .cloned()
+            .collect();
         let (rx, abort, mut join_set, id_map) = Self::spawn_parallel_tasks(steps, &self.exec_env());
         // When fail_fast sees the first failure, set the abort flag
         // **and** actively `abort_all()` the JoinSet so siblings stop
@@ -524,15 +551,16 @@ impl CommandRunner {
                 &mut join_set,
                 &mut wrapped,
                 &mut harvested,
+                &matrix_cells,
             )
             .await;
         }
         // Walk the plan once, decrementing the per-id seen count: each
         // visited slot either consumes one observed terminal event or
         // emits a synthetic `StepSkipped` for that occurrence. This keeps
-        // total terminal-event count equal to `command_ids.len()` even
-        // when ids repeat.
-        for id in command_ids {
+        // total terminal-event count equal to the row count even when ids
+        // repeat.
+        for id in &rows {
             let entry = terminal_counts.entry(id.clone()).or_insert(0);
             if *entry > 0 {
                 // Guarded by `*entry > 0`, so this is exactly `-= 1`.
@@ -584,7 +612,13 @@ impl CommandRunner {
         let mut empty: Vec<(tokio::task::Id, Result<StepResult, tokio::task::JoinError>)> =
             Vec::new();
         Self::handle_parallel_events_with_cancel_inner(
-            rx, fail_fast, abort, join_set, on_event, &mut empty,
+            rx,
+            fail_fast,
+            abort,
+            join_set,
+            on_event,
+            &mut empty,
+            &HashSet::new(),
         )
         .await;
         // The default test-facing wrapper does not surface harvested
@@ -601,6 +635,11 @@ impl CommandRunner {
     /// `harvested_results` so callers can merge them into the
     /// `collect_join_results` output without losing the panic-aware
     /// step ids `id_map` records.
+    ///
+    /// `matrix_cells` names the rows of matrix steps (TASK-2277). A failing
+    /// cell's `StepFailed` does not trip `fail_fast`: the cells answer to
+    /// their own `strategy.fail_fast`, and the matrix step trips the plan
+    /// when its aggregate result comes back failed (see `harvest_joined`).
     #[allow(clippy::too_many_arguments)]
     pub(crate) async fn handle_parallel_events_with_cancel_inner(
         mut rx: mpsc::Receiver<RunnerEvent>,
@@ -609,6 +648,7 @@ impl CommandRunner {
         join_set: &mut tokio::task::JoinSet<StepResult>,
         on_event: &mut impl FnMut(RunnerEvent),
         harvested_results: &mut Vec<(tokio::task::Id, Result<StepResult, tokio::task::JoinError>)>,
+        matrix_cells: &HashSet<CommandId>,
     ) {
         let mut cancelled = false;
         let mut rx_open = true;
@@ -657,8 +697,8 @@ impl CommandRunner {
                 ev = rx.recv(), if rx_open => {
                     match ev {
                         Some(ev) => {
-                            if let RunnerEvent::StepFailed { .. } = &ev {
-                                if fail_fast && !cancelled {
+                            if let RunnerEvent::StepFailed { id, .. } = &ev {
+                                if fail_fast && !cancelled && !matrix_cells.contains(id) {
                                     abort.set();
                                     join_set.abort_all();
                                     cancelled = true;
@@ -705,6 +745,14 @@ impl CommandRunner {
     ) {
         match joined {
             Some(Ok((task_id, result))) => {
+                // A failed result trips fail_fast too. For a plain step its
+                // `StepFailed` event already did; a matrix step emits no
+                // event of its own, so its aggregate result is the trigger.
+                if !result.success && fail_fast && !*cancelled {
+                    abort.set();
+                    join_set.abort_all();
+                    *cancelled = true;
+                }
                 harvested_results.push((task_id, Ok(result)));
             }
             Some(Err(join_err)) => {
