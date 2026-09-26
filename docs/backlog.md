@@ -20,7 +20,8 @@ ops backlog task edit <taskId> [flags]        # prints `Updated TASK-NNNN`
 ops backlog task list [flags]
 ops backlog task view <taskId> [--plain|--json]
 ops backlog search [query] [flags]
-ops backlog wave list|members|migrate [flags]
+ops backlog wave list|members|overlap|claim|park|migrate [flags]
+ops backlog commit <taskId>... -m <msg>        # commit exactly these tasks' files
 ops backlog cleanup [flags]
 ```
 
@@ -162,6 +163,9 @@ structural:
 ```
 ops backlog wave list [-s <status>] [--marker <label>] [--plain|--json]
 ops backlog wave members <waveId> [--plain|--json]
+ops backlog wave overlap [<waveId>...] [--marker <label>] [--plain|--json]
+ops backlog wave claim <waveId> [--branch <name>] [--worktree <path>]
+ops backlog wave park <waveId> --reason <text> [-s <status>] [--branch <name>]
 ops backlog wave migrate [--marker <name>] [--dry-run]
 ```
 
@@ -176,6 +180,27 @@ ops backlog wave migrate [--marker <name>] [--dry-run]
   resolves is reported as `Missing dependencies: <ids>` rather than dropped.
   This replaces parsing member ids out of `task view` output:
   `ops backlog task view --plain` renders no dependency block.
+- `overlap` reports each wave's file scope — the union of its members'
+  `modified_files` — and, for every other **open** wave (any status but the
+  terminal one), the paths the two share. With ids it reports just those
+  waves, still compared against every open wave. It ends with a suggested
+  merge order: fewest shared paths (summed over all other waves) first,
+  ties by numeric task id, so the most entangled wave lands last.
+  `--json` emits `{"schemaVersion": 1, "kind": "wave-overlap", "waves":
+  [{"id", "title", "status", "files", "overlaps": [{"id", "files"}]}],
+  "mergeOrder": [...]}`, waves in merge order.
+- `claim` creates the wave's branch (`code-review/<waveId>`) and worktree
+  (`../.wave-<waveId>`, a sibling of the repository) with `git worktree add
+  -b`, then flips the wave to `In Progress` and appends
+  `Branch: …` / `Worktree: …` to its notes. An existing branch means the
+  wave is already claimed: the command refuses before creating anything
+  and the task is untouched. If the status edit fails after the worktree was
+  created, the worktree and branch are removed again (never forced).
+- `park` records a wave whose merge did not land: it sets the status
+  (default `In Progress`; `-s 'To Do'` for re-triage) and appends
+  `Parked: <reason>` plus where to resume — the branch and the worktree
+  that has it checked out. Nothing in git is touched: the branch and
+  worktree stay for resumption.
 - `migrate` is the one-shot backfill off the assignee overload: it adds the
   marker label to each wave, drops the marker from its assignees, sets each
   member's `parent_task_id`, drops the wave id from the member's assignees,
@@ -190,6 +215,26 @@ ops backlog wave migrate [--marker <name>] [--dry-run]
   `Migrate N waves / M members? [y/N]` (default No, like `cleanup`), and
   writes. `--dry-run` prints the plan and skips the prompt. Running it twice
   is a no-op: the second run reports nothing to migrate.
+
+### `commit`
+
+```
+ops backlog commit <taskId>... -m <message>
+```
+
+Commits exactly the listed tasks' files, and only those that changed
+(tracked edits, deletions, or a new untracked task file). Built for several
+concurrent writers sharing one checkout — the code-review waves all edit
+task files in the main checkout at once:
+
+- If the index already holds **any other path**, it refuses and touches
+  nothing: the index is left exactly as it was.
+- If none of the listed tasks' files changed, it makes no commit and exits
+  non-zero saying so.
+- Otherwise it stages the changed files and runs `git commit --only --
+  <files>`, which commits exactly those paths even if another writer stages
+  something in between — that writer's entries stay staged for its own
+  commit. The output names the new commit and every committed file.
 
 ### `cleanup`
 
@@ -325,15 +370,18 @@ against backlog.md v1.51.0 and byte-verified against the live tree:
   `  TASK-1766 - title (Done) [LOW] [score 0.671]`.
 - `wave list --plain` / `wave members --plain`: the `task list` row shape
   above — the skills parse them with the same rules.
+- `wave overlap --json`: the `kind: wave-overlap` envelope described under
+  [`wave`](#wave).
 
 ## Scope — deliberately not implemented
 
-Git integration (auto-commit, branch checks), the terminal board, the web
+Automatic git integration (commits on edit, branch checks), the terminal board, the web
 browser UI, the MCP server, milestones, docs/decisions, project-level DoD
 defaults from config (per-task DoD items are supported), the interactive
 init wizard (the non-interactive `init` above is implemented), the backlog
-CLI's many unused config keys, and interactive TUIs. Commits and locking stay with the caller
-(the code-review skills own their merge lock and `chore(backlog)` commits).
+CLI's many unused config keys, and interactive TUIs. Git steps happen only
+when asked for explicitly — `commit`, `wave claim` — and cross-worktree
+locking is `ops lock` (see `ops lock --help`), not part of the backlog.
 
 ## Compatibility testing
 
