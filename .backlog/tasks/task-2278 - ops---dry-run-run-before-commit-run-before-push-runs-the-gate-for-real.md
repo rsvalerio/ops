@@ -1,14 +1,16 @@
 ---
 id: TASK-2278
 title: 'ops --dry-run run-before-commit / run-before-push runs the gate for real'
-status: Triage
+status: To Do
 assignee: []
 created_date: '2026-09-26 15:25'
+updated_date: '2026-09-26 18:27'
 labels:
   - bug
   - cli
   - dry-run
 dependencies: []
+parent_task_id: 'TASK-2290'
 modified_files:
   - crates/cli/src/main.rs
 priority: high
