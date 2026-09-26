@@ -1,9 +1,10 @@
 ---
 id: TASK-2308
 title: 'ops about machine: merge array-valued cargo config keys (rustflags) across config layers'
-status: Triage
+status: Done
 assignee: []
 created_date: '2026-09-26 20:36'
+updated_date: '2026-09-26 22:16'
 labels:
   - code-review-rust
   - feature
@@ -28,6 +29,13 @@ ordinal: 1000
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 Array-valued rustflags keys are concatenated across config layers in cargo's order, with every contributing source named
-- [ ] #2 A test pins a two-layer rustflags merge
+- [x] #1 Array-valued rustflags keys are concatenated across config layers in cargo's order, with every contributing source named
+- [x] #2 A test pins a two-layer rustflags merge
+
 <!-- AC:END -->
+
+## Implementation Notes
+
+<!-- SECTION:NOTES:BEGIN -->
+build.rustflags and target.<triple>.rustflags now merge across config layers via merge_list (arrays concatenate lower precedence first; a string replaces lower layers' values, as cargo's ConfigValue::merge does). target.'cfg(..)' rustflags merge per key across layers, then join in sorted key order after the triple's. Sources list every contributing file in value order. Test: rustflags_arrays_merge_across_config_layers.
+<!-- SECTION:NOTES:END -->
