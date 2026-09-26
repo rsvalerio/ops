@@ -110,9 +110,11 @@ pub(super) fn resolve_event_budget() -> usize {
     })
 }
 
-/// Split a parallel plan into ordered stage lengths, given each step's
-/// `exclusive` flag in plan order: every exclusive step is a stage of its
-/// own, and each run of consecutive non-exclusive steps shares one stage.
+/// Split a parallel plan into ordered stage lengths.
+///
+/// Takes each step's `exclusive` flag in plan order: every exclusive step is
+/// a stage of its own, and each run of consecutive non-exclusive steps
+/// shares one stage.
 ///
 /// `[x, -, x, -, -]` → `[1, 1, 1, 2]`. The lengths sum to the plan length.
 pub fn stage_lengths(exclusive: impl IntoIterator<Item = bool>) -> Vec<usize> {

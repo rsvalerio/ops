@@ -317,6 +317,7 @@ impl TestConfigBuilder {
             about: crate::config::AboutConfig::default(),
             backlog: crate::config::BacklogSection::default(),
             stack: None,
+            provenance: crate::config::CommandProvenance::default(),
         }
     }
 }

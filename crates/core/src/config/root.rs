@@ -53,6 +53,34 @@ pub struct Config {
     pub backlog: BacklogSection,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub stack: Option<String>,
+    /// Load-time provenance of `commands` entries that `clone` / `[extend]`
+    /// materialized (TASK-2280), so a plan can say where a step came from
+    /// after the load has flattened every entry into a plain spec.
+    /// Runtime-only: recorded by the loader, never read from or written to
+    /// a config file.
+    #[serde(skip)]
+    pub provenance: CommandProvenance,
+}
+
+/// Where the loader's `clone` / `[extend]` passes put a `commands` entry
+/// (see [`Config::provenance`]). Entries neither pass touched are absent.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct CommandProvenance {
+    /// Clone name → what it was cloned from.
+    pub clones: IndexMap<String, CloneOrigin>,
+    /// `[extend.<name>]` targets that were stack defaults: the loader copied
+    /// the default into `commands` and extended the copy.
+    pub extended_stack_defaults: Vec<String>,
+}
+
+/// One materialized `clone = "<source>"` declaration.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct CloneOrigin {
+    /// The cloned command's name.
+    pub source: String,
+    /// Whether the declaration set its own `exclusive` rather than
+    /// inheriting the source's.
+    pub exclusive_overridden: bool,
 }
 
 /// Mutable state threaded through [`Config::walk_composite`].
@@ -98,6 +126,7 @@ impl Config {
             about: AboutConfig::default(),
             backlog: BacklogSection::default(),
             stack: None,
+            provenance: CommandProvenance::default(),
         }
     }
 

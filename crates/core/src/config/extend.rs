@@ -265,6 +265,10 @@ pub(super) fn apply(config: &mut Config, workspace_root: &Path) -> anyhow::Resul
             let mut extended = default_spec.clone();
             apply_to_spec(target, &mut extended, entry)?;
             config.commands.insert(target.clone(), extended);
+            config
+                .provenance
+                .extended_stack_defaults
+                .push(target.clone());
         } else {
             anyhow::bail!(
                 "[extend.{target}]: no command named '{target}' to extend \
@@ -335,6 +339,31 @@ mod tests {
             "appended command must land at the end of the default list"
         );
         assert_eq!(verify.commands.last().map(String::as_str), Some("extra"));
+    }
+
+    /// TASK-2280: extending a stack default records it in the provenance, so
+    /// a plan can name the default the materialized entry came from; a
+    /// config-defined target is not recorded (it was never a default).
+    #[test]
+    fn extending_a_stack_default_records_provenance() {
+        let dir = rust_workspace();
+        let mut config = config_with_extend("verify", &["extra"]);
+        config.commands.insert(
+            "own".to_string(),
+            CommandSpec::Composite(super::super::CompositeCommandSpec::new(["build"])),
+        );
+        config.extend.insert(
+            "own".to_string(),
+            ExtendEntry {
+                commands: vec!["extra".to_string()],
+                ..ExtendEntry::default()
+            },
+        );
+        apply(&mut config, dir.path()).expect("extend must apply");
+        assert_eq!(
+            config.provenance.extended_stack_defaults,
+            vec!["verify".to_string()]
+        );
     }
 
     /// The stack defaults live in a process-wide memoized cache; extending
