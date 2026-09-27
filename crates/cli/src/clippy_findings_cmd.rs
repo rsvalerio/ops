@@ -29,11 +29,40 @@ use std::time::Duration;
 use anyhow::{bail, Context, Result};
 use serde::{Deserialize, Serialize};
 
-/// Version of the JSON report; bump on any incompatible row change.
-///
-/// v2 renamed every key to camelCase (`schemaVersion`, `manifestDir`, …),
-/// matching the other versioned ops JSON reports.
-pub const SCHEMA_VERSION: u32 = 2;
+/// Wire format of the JSON report; add a version on any incompatible row
+/// change.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize)]
+#[serde(into = "u32")]
+pub enum SchemaVersion {
+    /// `snake_case` keys (`schema_version`, `manifest_dir`, …). The default,
+    /// so existing consumers keep reading the report unchanged.
+    #[default]
+    V1,
+    /// v1 with every key renamed to camelCase (`schemaVersion`,
+    /// `manifestDir`, …), matching the other versioned ops JSON reports.
+    V2,
+}
+
+impl SchemaVersion {
+    /// The version numbered `n`, if this build can emit it.
+    #[must_use]
+    pub const fn from_number(n: u32) -> Option<Self> {
+        match n {
+            1 => Some(Self::V1),
+            2 => Some(Self::V2),
+            _ => None,
+        }
+    }
+}
+
+impl From<SchemaVersion> for u32 {
+    fn from(version: SchemaVersion) -> Self {
+        match version {
+            SchemaVersion::V1 => 1,
+            SchemaVersion::V2 => 2,
+        }
+    }
+}
 
 /// The `kind` discriminator of the JSON report.
 const REPORT_KIND: &str = "clippy-findings";
@@ -70,9 +99,9 @@ impl Default for SurveyOptions {
 /// Default wait for `cargo metadata --no-deps` (no network, no build).
 const METADATA_TIMEOUT: Duration = Duration::from_secs(60);
 
-/// One Clippy diagnostic. Field order is the report's sort order.
+/// One Clippy diagnostic. Field order is the report's sort order; the field
+/// names are the v1 keys.
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Serialize)]
-#[serde(rename_all = "camelCase")]
 pub struct Finding {
     /// Repo-relative file of the primary span, `/`-separated; the crate's
     /// `Cargo.toml` for a spanless diagnostic.
@@ -95,11 +124,11 @@ pub struct Finding {
     pub message: String,
 }
 
-/// The versioned JSON report printed on stdout.
+/// The versioned JSON report printed on stdout. Serializing it directly
+/// writes v1; [`Report::write_json`] honours `schema_version`.
 #[derive(Debug, Serialize)]
-#[serde(rename_all = "camelCase")]
 pub struct Report {
-    pub schema_version: u32,
+    pub schema_version: SchemaVersion,
     pub kind: &'static str,
     pub findings: Vec<Finding>,
     /// Distinct Clippy diagnostics dropped because their span (or package)
@@ -107,6 +136,71 @@ pub struct Report {
     pub dropped_out_of_tree: usize,
     /// Distinct plain rustc lint warnings (not Clippy findings).
     pub rustc_warnings: usize,
+}
+
+/// v2 view of a [`Finding`]: the same fields, camelCase keys.
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+struct FindingV2<'a> {
+    file: &'a str,
+    line: u64,
+    column: u64,
+    lint: &'a str,
+    package: &'a str,
+    manifest_dir: &'a str,
+    target: &'a str,
+    target_kind: &'a str,
+    message: &'a str,
+}
+
+impl<'a> From<&'a Finding> for FindingV2<'a> {
+    fn from(f: &'a Finding) -> Self {
+        Self {
+            file: &f.file,
+            line: f.line,
+            column: f.column,
+            lint: &f.lint,
+            package: &f.package,
+            manifest_dir: &f.manifest_dir,
+            target: &f.target,
+            target_kind: &f.target_kind,
+            message: &f.message,
+        }
+    }
+}
+
+/// v2 view of a [`Report`]: the same fields, camelCase keys.
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+struct ReportV2<'a> {
+    schema_version: SchemaVersion,
+    kind: &'static str,
+    findings: Vec<FindingV2<'a>>,
+    dropped_out_of_tree: usize,
+    rustc_warnings: usize,
+}
+
+impl Report {
+    /// Pretty-print the report in its `schema_version`'s wire format.
+    ///
+    /// # Errors
+    ///
+    /// Fails when writing to `out` fails.
+    pub fn write_json(&self, out: impl Write) -> serde_json::Result<()> {
+        match self.schema_version {
+            SchemaVersion::V1 => serde_json::to_writer_pretty(out, self),
+            SchemaVersion::V2 => serde_json::to_writer_pretty(
+                out,
+                &ReportV2 {
+                    schema_version: self.schema_version,
+                    kind: self.kind,
+                    findings: self.findings.iter().map(FindingV2::from).collect(),
+                    dropped_out_of_tree: self.dropped_out_of_tree,
+                    rustc_warnings: self.rustc_warnings,
+                },
+            ),
+        }
+    }
 }
 
 /// A workspace member as the report names it.
@@ -355,11 +449,11 @@ impl Collector {
         });
     }
 
-    /// The sorted, de-duplicated report.
+    /// The sorted, de-duplicated report, in wire format `schema`.
     #[must_use]
-    pub fn into_report(self) -> Report {
+    pub fn into_report(self, schema: SchemaVersion) -> Report {
         Report {
-            schema_version: SCHEMA_VERSION,
+            schema_version: schema,
             kind: REPORT_KIND,
             findings: self.findings.into_iter().collect(),
             dropped_out_of_tree: self.dropped.len(),
@@ -467,6 +561,7 @@ fn load_workspace(cwd: &Path) -> Result<Workspace> {
 pub fn run_clippy_findings(
     cwd: &Path,
     opts: &SurveyOptions,
+    schema: SchemaVersion,
     lint_flags: &[String],
     dry_run: bool,
 ) -> Result<ExitCode> {
@@ -513,9 +608,11 @@ pub fn run_clippy_findings(
         bail!("cargo clippy failed ({status}); no findings report emitted");
     }
 
-    let report = collector.into_report();
+    let report = collector.into_report(schema);
     let mut out = std::io::stdout().lock();
-    serde_json::to_writer_pretty(&mut out, &report).context("writing findings report")?;
+    report
+        .write_json(&mut out)
+        .context("writing findings report")?;
     writeln!(out).context("writing findings report")?;
     Ok(ExitCode::SUCCESS)
 }
@@ -671,23 +768,38 @@ mod tests {
         ]
     }
 
-    fn report_json(root: &str) -> String {
+    fn report_json_as(root: &str, schema: SchemaVersion) -> String {
         let ws = workspace(root);
         let mut collector = Collector::default();
         for line in stream(root) {
             collector.push_line(&ws, &line).unwrap();
         }
-        serde_json::to_string_pretty(&collector.into_report()).unwrap()
+        let mut out = Vec::new();
+        collector.into_report(schema).write_json(&mut out).unwrap();
+        String::from_utf8(out).unwrap()
+    }
+
+    fn report_json(root: &str) -> String {
+        report_json_as(root, SchemaVersion::V2)
+    }
+
+    fn report_as(root: &str, schema: SchemaVersion) -> serde_json::Value {
+        serde_json::from_str(&report_json_as(root, schema)).unwrap()
     }
 
     fn report(root: &str) -> serde_json::Value {
-        serde_json::from_str(&report_json(root)).unwrap()
+        report_as(root, SchemaVersion::V2)
+    }
+
+    fn keys(v: &serde_json::Value) -> Vec<&str> {
+        let mut keys: Vec<_> = v.as_object().unwrap().keys().map(String::as_str).collect();
+        keys.sort_unstable();
+        keys
     }
 
     #[test]
     fn rows_carry_the_normalized_identity() {
         let report = report("/home/a/ops");
-        assert_eq!(report["schemaVersion"], SCHEMA_VERSION);
         assert_eq!(report["schemaVersion"], 2);
         assert_eq!(report["kind"], "clippy-findings");
         let first = report["findings"]
@@ -741,16 +853,75 @@ mod tests {
         );
     }
 
-    /// Pins the v2 wire format: camelCase keys, like every other ops JSON
-    /// report. A rename here is an incompatible change — bump
-    /// `SCHEMA_VERSION` and update this list.
+    /// Pins the v1 wire format, still the default: `snake_case` keys. A
+    /// rename here breaks existing consumers — add a `SchemaVersion`
+    /// instead.
     #[test]
-    fn report_keys_are_camel_case() {
-        fn keys(v: &serde_json::Value) -> Vec<&str> {
-            let mut keys: Vec<_> = v.as_object().unwrap().keys().map(String::as_str).collect();
-            keys.sort_unstable();
-            keys
+    fn v1_report_keys_are_snake_case() {
+        let report = report_as("/home/a/ops", SchemaVersion::default());
+        assert_eq!(report["schema_version"], 1);
+        assert_eq!(
+            keys(&report),
+            [
+                "dropped_out_of_tree",
+                "findings",
+                "kind",
+                "rustc_warnings",
+                "schema_version"
+            ]
+        );
+        assert_eq!(
+            keys(&report["findings"][0]),
+            [
+                "column",
+                "file",
+                "line",
+                "lint",
+                "manifest_dir",
+                "message",
+                "package",
+                "target",
+                "target_kind"
+            ]
+        );
+    }
+
+    /// v1 and v2 carry the same rows, in the same order, under renamed keys.
+    #[test]
+    fn v1_and_v2_carry_the_same_values() {
+        let v1 = report_as("/home/a/ops", SchemaVersion::V1);
+        let v2 = report_as("/home/a/ops", SchemaVersion::V2);
+        assert_eq!(v1["kind"], v2["kind"]);
+        assert_eq!(v1["dropped_out_of_tree"], v2["droppedOutOfTree"]);
+        assert_eq!(v1["rustc_warnings"], v2["rustcWarnings"]);
+        let (f1, f2) = (
+            v1["findings"].as_array().unwrap(),
+            v2["findings"].as_array().unwrap(),
+        );
+        assert_eq!(f1.len(), f2.len());
+        for (a, b) in f1.iter().zip(f2) {
+            assert_eq!(a["file"], b["file"]);
+            assert_eq!(a["column"], b["column"]);
+            assert_eq!(a["manifest_dir"], b["manifestDir"]);
+            assert_eq!(a["target_kind"], b["targetKind"]);
+            assert_eq!(a["message"], b["message"]);
         }
+    }
+
+    #[test]
+    fn schema_version_numbers_round_trip() {
+        for v in [SchemaVersion::V1, SchemaVersion::V2] {
+            assert_eq!(SchemaVersion::from_number(u32::from(v)), Some(v));
+        }
+        assert_eq!(SchemaVersion::from_number(0), None);
+        assert_eq!(SchemaVersion::from_number(3), None);
+    }
+
+    /// Pins the v2 wire format: camelCase keys, like every other ops JSON
+    /// report. A rename here is an incompatible change — add a
+    /// `SchemaVersion` and update this list.
+    #[test]
+    fn v2_report_keys_are_camel_case() {
         let report = report("/home/a/ops");
         assert_eq!(
             keys(&report),
@@ -806,7 +977,7 @@ mod tests {
         for line in stream(root) {
             collector.push_line(&ws, &line).unwrap();
         }
-        let report = collector.into_report();
+        let report = collector.into_report(SchemaVersion::default());
         assert!(report.findings.iter().all(|f| f.file.starts_with("rust/")));
         assert!(report.findings.iter().any(|f| f.manifest_dir == "rust"));
     }

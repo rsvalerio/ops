@@ -320,6 +320,14 @@ pub struct ClippyFindingsArgs {
     /// `--no-all-features`).
     #[arg(long = "features", value_name = "FEATURES", value_delimiter = ',')]
     pub features: Vec<String>,
+    /// Report wire format: 1 (`snake_case` keys) or 2 (camelCase keys).
+    #[arg(
+        long = "schema-version",
+        value_name = "N",
+        default_value_t = 1,
+        value_parser = clap::value_parser!(u32).range(1..=2)
+    )]
+    pub schema_version: u32,
     /// Lint flags passed to clippy after `--`.
     #[arg(last = true, value_name = "LINT_FLAGS")]
     pub lint_flags: Vec<String>,
@@ -1213,10 +1221,12 @@ mod tests {
                 no_all_features,
                 no_default_features,
                 features,
+                schema_version,
             })) => {
                 assert_eq!(lint_flags, ["-W", "clippy::pedantic"]);
                 assert!(!no_locked && !no_all_features && !no_default_features);
                 assert!(features.is_empty());
+                assert_eq!(schema_version, 1);
             }
             other => panic!("expected ClippyFindings, got {other:?}"),
         }
@@ -1234,6 +1244,8 @@ mod tests {
             "a,b",
             "--features",
             "c",
+            "--schema-version",
+            "2",
         ]);
         match cli.subcommand {
             Some(CoreSubcommand::ClippyFindings(ClippyFindingsArgs {
@@ -1242,12 +1254,23 @@ mod tests {
                 no_all_features,
                 no_default_features,
                 features,
+                schema_version,
             })) => {
                 assert!(lint_flags.is_empty());
                 assert!(no_locked && no_all_features && no_default_features);
                 assert_eq!(features, ["a", "b", "c"]);
+                assert_eq!(schema_version, 2);
             }
             other => panic!("expected ClippyFindings, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn parse_clippy_findings_rejects_unknown_schema_version() {
+        for n in ["0", "3"] {
+            assert!(
+                Cli::try_parse_from(["ops", "clippy-findings", "--schema-version", n]).is_err()
+            );
         }
     }
 
