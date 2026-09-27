@@ -53,7 +53,7 @@ pub const fn unpreviewable_builtin(sub: &CoreSubcommand) -> Option<&'static str>
         | CoreSubcommand::RunBeforeCommit { .. }
         | CoreSubcommand::RunBeforePush { .. }
         | CoreSubcommand::Sec { .. }
-        | CoreSubcommand::ClippyFindings { .. }
+        | CoreSubcommand::ClippyFindings(_)
         | CoreSubcommand::External(_) => None,
     }
 }

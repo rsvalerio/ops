@@ -35,14 +35,34 @@ pub const SCHEMA_VERSION: u32 = 1;
 /// The `kind` discriminator of the JSON report.
 const REPORT_KIND: &str = "clippy-findings";
 
-/// Cargo arguments of the survey: the same build the `clippy` gate lints.
-const CARGO_ARGS: &[&str] = &[
-    "clippy",
-    "--workspace",
-    "--all-features",
-    "--all-targets",
-    "--message-format=json",
-];
+/// How the survey selects the build: lockfile policy and feature set.
+///
+/// The default is the `clippy` gate's build (`--all-features`) under
+/// `--locked`, so a survey never rewrites `Cargo.lock`: a stale or missing
+/// lock makes Cargo refuse and the survey fail instead.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct SurveyOptions {
+    /// Pass `--locked`.
+    pub locked: bool,
+    /// Pass `--all-features`. Off, Cargo builds the default features plus
+    /// `features`, minus the defaults when `no_default_features` is set.
+    pub all_features: bool,
+    /// Pass `--no-default-features`.
+    pub no_default_features: bool,
+    /// Passed as `--features <list>` when non-empty.
+    pub features: Vec<String>,
+}
+
+impl Default for SurveyOptions {
+    fn default() -> Self {
+        Self {
+            locked: true,
+            all_features: true,
+            no_default_features: false,
+            features: Vec::new(),
+        }
+    }
+}
 
 /// Default wait for `cargo metadata --no-deps` (no network, no build).
 const METADATA_TIMEOUT: Duration = Duration::from_secs(60);
@@ -343,9 +363,44 @@ impl Collector {
     }
 }
 
+impl SurveyOptions {
+    /// Build from the CLI's opt-out flags. Selecting features explicitly
+    /// (`--features`, `--no-default-features`) drops `--all-features`, which
+    /// would otherwise override them.
+    #[must_use]
+    pub const fn from_flags(
+        no_locked: bool,
+        no_all_features: bool,
+        no_default_features: bool,
+        features: Vec<String>,
+    ) -> Self {
+        Self {
+            locked: !no_locked,
+            all_features: !(no_all_features || no_default_features || !features.is_empty()),
+            no_default_features,
+            features,
+        }
+    }
+}
+
 /// The full `cargo` argument list for the survey.
-fn clippy_args(lint_flags: &[String]) -> Vec<String> {
-    let mut args: Vec<String> = CARGO_ARGS.iter().map(|s| (*s).to_string()).collect();
+fn clippy_args(opts: &SurveyOptions, lint_flags: &[String]) -> Vec<String> {
+    let mut args: Vec<String> = vec!["clippy".into(), "--workspace".into()];
+    if opts.locked {
+        args.push("--locked".into());
+    }
+    if opts.all_features {
+        args.push("--all-features".into());
+    }
+    if opts.no_default_features {
+        args.push("--no-default-features".into());
+    }
+    if !opts.features.is_empty() {
+        args.push("--features".into());
+        args.push(opts.features.join(","));
+    }
+    args.push("--all-targets".into());
+    args.push("--message-format=json".into());
     if !lint_flags.is_empty() {
         args.push("--".to_string());
         args.extend(lint_flags.iter().cloned());
@@ -401,10 +456,16 @@ fn load_workspace(cwd: &Path) -> Result<Workspace> {
 ///
 /// Fails when `cargo metadata` or `cargo clippy` cannot run, when clippy
 /// exits non-zero (a compile error, or a `-D` lint flag the caller passed —
-/// the finding set would be incomplete, so no report is printed), or when
-/// the JSON stream does not parse.
-pub fn run_clippy_findings(cwd: &Path, lint_flags: &[String], dry_run: bool) -> Result<ExitCode> {
-    let args = clippy_args(lint_flags);
+/// the finding set would be incomplete, so no report is printed; under
+/// `--locked` this includes a stale or missing `Cargo.lock`), or when the
+/// JSON stream does not parse.
+pub fn run_clippy_findings(
+    cwd: &Path,
+    opts: &SurveyOptions,
+    lint_flags: &[String],
+    dry_run: bool,
+) -> Result<ExitCode> {
+    let args = clippy_args(opts, lint_flags);
     let cargo = ops_core::subprocess::resolve_cargo_bin();
     if dry_run {
         println!(
@@ -717,11 +778,84 @@ mod tests {
 
     #[test]
     fn args_never_deny_warnings_and_append_lint_flags() {
-        let args = clippy_args(&[]);
+        let opts = SurveyOptions::default();
+        let args = clippy_args(&opts, &[]);
         assert!(!args.iter().any(|a| a == "-D" || a == "--"));
         assert!(args.contains(&"--message-format=json".to_string()));
-        let args = clippy_args(&["-W".into(), "clippy::pedantic".into()]);
+        let args = clippy_args(&opts, &["-W".into(), "clippy::pedantic".into()]);
         assert_eq!(&args[args.len() - 3..], ["--", "-W", "clippy::pedantic"]);
+    }
+
+    #[test]
+    fn default_args_are_the_gate_build_under_locked() {
+        assert_eq!(
+            clippy_args(&SurveyOptions::default(), &[]),
+            [
+                "clippy",
+                "--workspace",
+                "--locked",
+                "--all-features",
+                "--all-targets",
+                "--message-format=json",
+            ]
+        );
+    }
+
+    #[test]
+    fn explicit_feature_selection_drops_all_features() {
+        assert!(SurveyOptions::from_flags(false, false, false, vec![]).all_features);
+        assert!(!SurveyOptions::from_flags(false, true, false, vec![]).all_features);
+        assert!(!SurveyOptions::from_flags(false, false, true, vec![]).all_features);
+        assert!(!SurveyOptions::from_flags(false, false, false, vec!["a".into()]).all_features);
+        assert!(!SurveyOptions::from_flags(true, false, false, vec![]).locked);
+        assert_eq!(
+            SurveyOptions::from_flags(false, false, false, vec![]),
+            SurveyOptions::default()
+        );
+    }
+
+    #[test]
+    fn unlocked_default_features_survey() {
+        let opts = SurveyOptions {
+            locked: false,
+            all_features: false,
+            ..SurveyOptions::default()
+        };
+        assert_eq!(
+            clippy_args(&opts, &[]),
+            [
+                "clippy",
+                "--workspace",
+                "--all-targets",
+                "--message-format=json",
+            ]
+        );
+    }
+
+    #[test]
+    fn explicit_feature_list_without_defaults() {
+        let opts = SurveyOptions {
+            all_features: false,
+            no_default_features: true,
+            features: vec!["a".into(), "b/c".into()],
+            ..SurveyOptions::default()
+        };
+        assert_eq!(
+            clippy_args(&opts, &["-W".into(), "clippy::pedantic".into()]),
+            [
+                "clippy",
+                "--workspace",
+                "--locked",
+                "--no-default-features",
+                "--features",
+                "a,b/c",
+                "--all-targets",
+                "--message-format=json",
+                "--",
+                "-W",
+                "clippy::pedantic",
+            ]
+        );
     }
 
     #[test]

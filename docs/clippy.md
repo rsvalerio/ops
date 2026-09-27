@@ -19,7 +19,11 @@ clippy::pedantic` runs the same build without `-D warnings` and prints a
 versioned JSON report, one normalized row per Clippy diagnostic (lint,
 `name@version`, repo-relative manifest dir, target, file, line, column,
 verbatim message), sorted and identical from any checkout path. It is not a
-gate: it exits 0 whatever it finds.
+gate: it exits 0 whatever it finds. It runs under `--locked`, so a stale or
+missing `Cargo.lock` fails the survey rather than being rewritten
+(`--no-locked` opts out). `--no-all-features` surveys the default-feature
+build; `--features <list>` and `--no-default-features` select features
+explicitly and also drop `--all-features`.
 
 Warnings are errors. Either the code changes or the exception is written down.
 The one bounded exception is the temporary-allow block described below, which
