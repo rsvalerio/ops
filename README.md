@@ -31,6 +31,18 @@ Homebrew (macOS and Linux):
 brew install rsvalerio/tap/ops
 ```
 
+apt (Debian and Ubuntu, amd64 and arm64):
+
+```bash
+sudo apt update && sudo apt install -y curl gpg
+sudo install -d -m 0755 /etc/apt/keyrings
+curl -fsSL https://rsvalerio.github.io/apt/public.key \
+  | sudo gpg --dearmor -o /etc/apt/keyrings/rsvalerio.gpg
+echo "deb [arch=$(dpkg --print-architecture) signed-by=/etc/apt/keyrings/rsvalerio.gpg] https://rsvalerio.github.io/apt stable main" \
+  | sudo tee /etc/apt/sources.list.d/rsvalerio.list
+sudo apt update && sudo apt install ops
+```
+
 From a checkout of this repository:
 
 ```bash

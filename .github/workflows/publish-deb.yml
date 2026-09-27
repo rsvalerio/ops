@@ -35,9 +35,5 @@ jobs:
       description: Batteries-included task runner for any stack
       maintainer: Rodrigo Valeri <rsvalerio@users.noreply.github.com>
       homepage: https://github.com/rsvalerio/ops
-      # TASK-2302 rollout: the first release builds and stages the .debs
-      # (inspect the `deb-ops-<version>` workflow artifact) without pushing to
-      # rsvalerio/apt. Drop this once that run is green.
-      dry-run: true
     secrets:
       GH_APP_PRIVATE_KEY: ${{ secrets.GH_APP_PRIVATE_KEY }}
