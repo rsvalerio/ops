@@ -34,12 +34,13 @@ use serde::{Deserialize, Serialize};
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize)]
 #[serde(into = "u32")]
 pub enum SchemaVersion {
-    /// `snake_case` keys (`schema_version`, `manifest_dir`, …). The default,
-    /// so existing consumers keep reading the report unchanged.
-    #[default]
+    /// `snake_case` keys (`schema_version`, `manifest_dir`, …), for readers
+    /// that predate v2 (`--schema-version 1`).
     V1,
     /// v1 with every key renamed to camelCase (`schemaVersion`,
     /// `manifestDir`, …), matching the other versioned ops JSON reports.
+    /// The default.
+    #[default]
     V2,
 }
 
@@ -853,12 +854,12 @@ mod tests {
         );
     }
 
-    /// Pins the v1 wire format, still the default: `snake_case` keys. A
+    /// Pins the v1 wire format (`--schema-version 1`): `snake_case` keys. A
     /// rename here breaks existing consumers — add a `SchemaVersion`
     /// instead.
     #[test]
     fn v1_report_keys_are_snake_case() {
-        let report = report_as("/home/a/ops", SchemaVersion::default());
+        let report = report_as("/home/a/ops", SchemaVersion::V1);
         assert_eq!(report["schema_version"], 1);
         assert_eq!(
             keys(&report),
@@ -906,6 +907,11 @@ mod tests {
             assert_eq!(a["target_kind"], b["targetKind"]);
             assert_eq!(a["message"], b["message"]);
         }
+    }
+
+    #[test]
+    fn schema_version_defaults_to_v2() {
+        assert_eq!(SchemaVersion::default(), SchemaVersion::V2);
     }
 
     #[test]
