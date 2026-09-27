@@ -1,10 +1,10 @@
 ---
 id: TASK-2317
 title: 'clippy-findings: move the pedantic skill to schema v2, then make v2 the default'
-status: Triage
+status: Done
 assignee: []
 created_date: '2026-09-27 15:30'
-updated_date: '2026-09-27 16:52'
+updated_date: '2026-09-27 17:24'
 labels:
   - code-review-rust
   - consistency
@@ -31,7 +31,13 @@ ordinal: 1000
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 rust-make-clippy-pedantic runs `ops clippy-findings --schema-version 2`, reads the camelCase keys and checks schemaVersion == 2
-- [ ] #2 After that ships, the ops default flips to 2 in a breaking-change commit; docs/clippy.md is updated
+- [x] #1 rust-make-clippy-pedantic runs `ops clippy-findings --schema-version 2`, reads the camelCase keys and checks schemaVersion == 2
+- [x] #2 After that ships, the ops default flips to 2 in a breaking-change commit; docs/clippy.md is updated
 
 <!-- AC:END -->
+
+## Implementation Notes
+
+<!-- SECTION:NOTES:BEGIN -->
+rsvalerio/ai: rust-make-clippy-pedantic now runs every pass with `ops clippy-findings --schema-version 2`, reads manifestDir/targetKind/droppedOutOfTree/rustcWarnings, and references/extraction.md requires schemaVersion 2. The repo-wide ops floor went to 0.71.0 (README, AGENTS.md, every skill preflight). `make validate` passes. These edits are left UNCOMMITTED in ~/Projects/ai next to in-progress work there, for the owner to commit. ops: the default went to schema v2 (`--schema-version 1` keeps the snake_case report). The skill still installed from the plugin cache reads v1 keys and breaks once this ops ships, until the ai change is released.
+<!-- SECTION:NOTES:END -->
