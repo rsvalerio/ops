@@ -3,12 +3,19 @@
 //! Queries `SQLite` for per-crate direct dependencies via cargo metadata.
 
 use std::collections::{BTreeMap, BTreeSet, HashMap};
+use std::ffi::OsStr;
 use std::path::Path;
+use std::process::Command;
+use std::time::Duration;
 
-use ops_about::deps::{DuplicateCrate, DuplicateReport, OlderVersion, PullingDependency};
+use ops_about::deps::{
+    DuplicateCrate, DuplicateReport, OlderVersion, PullingDependency, DUPLICATES_ALL_TARGETS,
+    DUPLICATES_TARGET_ARG,
+};
+use ops_about::machine::{cfg_matches, parse_rustc_cfg, parse_rustc_host};
 use ops_cargo_update::{parse_update_output, UpdateEntry, CARGO_UPDATE_TIMEOUT};
 use ops_core::project_identity::{ProjectDependencies, UnitDeps};
-use ops_core::subprocess::run_cargo;
+use ops_core::subprocess::{run_cargo, run_with_timeout};
 use ops_extension::{Context, DataProvider, DataProviderError};
 use ops_sqlite::sql::{query_crate_deps, query_or_warn};
 
@@ -81,10 +88,128 @@ impl DataProvider for RustDuplicatesProvider {
             return Ok(serde_json::to_value(DuplicateReport::default())?);
         };
         let working_dir = ctx.working_directory().to_path_buf();
-        let report = find_duplicates(&metadata, self.include_dev, &|name: &str, version: &str| {
-            dry_run_update(&working_dir, name, version)
-        });
+        let platforms = platform_filter(ctx.arg(DUPLICATES_TARGET_ARG), &working_dir)?;
+        let report = find_duplicates(
+            &metadata,
+            self.include_dev,
+            &platforms,
+            &|name: &str, version: &str| dry_run_update(&working_dir, name, version),
+        );
         serde_json::to_value(&report).map_err(DataProviderError::from)
+    }
+}
+
+/// Deadline for each `rustc -vV` / `rustc --print cfg` probe.
+const RUSTC_PROBE_TIMEOUT: Duration = Duration::from_secs(30);
+
+/// A target the platform filter admits dependency edges for.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct TargetPlatform {
+    /// The triple, matched against edges gated on a bare triple.
+    pub triple: String,
+    /// `rustc --print cfg --target <triple>` atoms, for `cfg(..)` edges.
+    pub cfg: Vec<String>,
+}
+
+/// Which dependency edges count, by the platform they are gated on — the
+/// `cargo tree --target` rule.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum PlatformFilter {
+    /// Every edge, whatever platform it is gated on (`--target all`).
+    All,
+    /// Ungated edges, plus gated edges active on any of these targets.
+    Targets(Vec<TargetPlatform>),
+}
+
+impl PlatformFilter {
+    /// Whether an edge gated on `target` (a `dep_kinds[].target` from
+    /// `cargo metadata`: a triple, a `cfg(..)` expression, or absent)
+    /// is active under this filter.
+    fn admits(&self, target: Option<&str>) -> bool {
+        match (self, target) {
+            (Self::All, _) | (Self::Targets(_), None) => true,
+            (Self::Targets(platforms), Some(target)) => platforms.iter().any(|p| {
+                if target.trim_start().starts_with("cfg(") {
+                    cfg_matches(target, &p.cfg)
+                } else {
+                    target.trim() == p.triple
+                }
+            }),
+        }
+    }
+}
+
+/// Resolve the `--target` context argument: absent → the host triple
+/// (`rustc -vV`), any `all` → [`PlatformFilter::All`], otherwise each
+/// comma-separated triple with its `rustc --print cfg --target` atoms.
+///
+/// `rustc` is `$RUSTC` or `rustc` on PATH, run in `working_dir` so a
+/// `rust-toolchain.toml` there picks the project's toolchain.
+///
+/// # Errors
+///
+/// [`DataProviderError::ComputationMessage`] when a rustc probe fails —
+/// including an unknown triple — rather than silently widening the report
+/// to every platform.
+fn platform_filter(
+    arg: Option<&str>,
+    working_dir: &Path,
+) -> Result<PlatformFilter, DataProviderError> {
+    let requested: Vec<&str> = arg
+        .into_iter()
+        .flat_map(|a| a.split(','))
+        .map(str::trim)
+        .filter(|t| !t.is_empty())
+        .collect();
+    if requested.contains(&DUPLICATES_ALL_TARGETS) {
+        return Ok(PlatformFilter::All);
+    }
+    let rustc = std::env::var_os("RUSTC").unwrap_or_else(|| "rustc".into());
+    let triples = if requested.is_empty() {
+        let host =
+            parse_rustc_host(&rustc_stdout(&rustc, &["-vV"], working_dir)?).ok_or_else(|| {
+                DataProviderError::computation_failed("`rustc -vV` printed no host triple")
+            })?;
+        vec![host]
+    } else {
+        requested.into_iter().map(str::to_string).collect()
+    };
+    triples
+        .into_iter()
+        .map(|triple| {
+            let cfg = rustc_stdout(
+                &rustc,
+                &["--print", "cfg", "--target", &triple],
+                working_dir,
+            )?;
+            Ok(TargetPlatform {
+                cfg: parse_rustc_cfg(&cfg),
+                triple,
+            })
+        })
+        .collect::<Result<_, _>>()
+        .map(PlatformFilter::Targets)
+}
+
+/// Stdout of `rustc <args>`, or an error naming the command and its stderr.
+fn rustc_stdout(
+    rustc: &OsStr,
+    args: &[&str],
+    working_dir: &Path,
+) -> Result<String, DataProviderError> {
+    let label = format!("rustc {}", args.join(" "));
+    let mut cmd = Command::new(rustc);
+    cmd.args(args).current_dir(working_dir);
+    match run_with_timeout(&mut cmd, RUSTC_PROBE_TIMEOUT, &label) {
+        Ok(out) if out.status.success() => Ok(String::from_utf8_lossy(&out.stdout).into_owned()),
+        Ok(out) => Err(DataProviderError::computation_failed(format!(
+            "`{label}` failed ({}): {}",
+            out.status,
+            String::from_utf8_lossy(&out.stderr).trim()
+        ))),
+        Err(e) => Err(DataProviderError::computation_failed(format!(
+            "`{label}` failed: {e}"
+        ))),
     }
 }
 
@@ -127,10 +252,32 @@ fn package_index(metadata: &serde_json::Value) -> HashMap<&str, (&str, &str)> {
         .collect()
 }
 
-/// Edges of the resolve graph. With `include_dev` every edge counts;
-/// otherwise an edge counts when any of its `dep_kinds` is normal (`null`)
-/// or `build`, or when kinds are absent.
-fn resolve_edges(metadata: &serde_json::Value, include_dev: bool) -> HashMap<&str, Vec<&str>> {
+/// Whether one `resolve.nodes[].deps[]` entry counts: when kinds are
+/// absent, or when any of its `dep_kinds` is both of a counted kind (every
+/// kind with `include_dev`, otherwise normal (`null`) or `build`) and gated
+/// on a platform `platforms` admits.
+fn edge_counts(dep: &serde_json::Value, include_dev: bool, platforms: &PlatformFilter) -> bool {
+    let Some(kinds) = dep
+        .get("dep_kinds")
+        .and_then(serde_json::Value::as_array)
+        .filter(|kinds| !kinds.is_empty())
+    else {
+        return true;
+    };
+    kinds.iter().any(|k| {
+        let kind_counts = include_dev
+            || k.get("kind")
+                .is_none_or(|kind| kind.is_null() || kind.as_str() == Some("build"));
+        kind_counts && platforms.admits(k.get("target").and_then(serde_json::Value::as_str))
+    })
+}
+
+/// Edges of the resolve graph that count under [`edge_counts`].
+fn resolve_edges<'a>(
+    metadata: &'a serde_json::Value,
+    include_dev: bool,
+    platforms: &PlatformFilter,
+) -> HashMap<&'a str, Vec<&'a str>> {
     let nodes = metadata
         .pointer("/resolve/nodes")
         .and_then(serde_json::Value::as_array);
@@ -144,19 +291,7 @@ fn resolve_edges(metadata: &serde_json::Value, include_dev: bool) -> HashMap<&st
                 .and_then(serde_json::Value::as_array)
                 .into_iter()
                 .flatten()
-                .filter(|d| {
-                    include_dev
-                        || d.get("dep_kinds")
-                            .and_then(serde_json::Value::as_array)
-                            .is_none_or(|kinds| {
-                                kinds.is_empty()
-                                    || kinds.iter().any(|k| {
-                                        k.get("kind").is_none_or(|kind| {
-                                            kind.is_null() || kind.as_str() == Some("build")
-                                        })
-                                    })
-                            })
-                })
+                .filter(|d| edge_counts(d, include_dev, platforms))
                 .filter_map(|d| d.get("pkg")?.as_str())
                 .collect();
             Some((id, deps))
@@ -185,9 +320,13 @@ fn version_key(version: &str) -> (Vec<u64>, bool, String) {
 }
 
 /// Find crates reachable at two or more distinct versions through
-/// non-dev edges (every edge when `include_dev`) from the workspace members, name the direct dependencies
-/// pulling each older version, and ask `updater` whether updating each
-/// puller drops it.
+/// non-dev edges (every edge when `include_dev`) active under `platforms`
+/// from the workspace members, name the direct dependencies pulling each
+/// older version, and ask `updater` whether updating each puller drops it.
+///
+/// Reachability and pullers are computed over the same edge set, so every
+/// listed older version has at least one puller — including one reached
+/// only through a target-gated edge.
 ///
 /// `updater(name, version)` returns the dry-run's lockfile changes, or
 /// `None` when the check could not run; it is called once per distinct
@@ -195,10 +334,11 @@ fn version_key(version: &str) -> (Vec<u64>, bool, String) {
 pub fn find_duplicates(
     metadata: &serde_json::Value,
     include_dev: bool,
+    platforms: &PlatformFilter,
     updater: &dyn Fn(&str, &str) -> Option<Vec<UpdateEntry>>,
 ) -> DuplicateReport {
     let packages = package_index(metadata);
-    let edges = resolve_edges(metadata, include_dev);
+    let edges = resolve_edges(metadata, include_dev, platforms);
     let members: BTreeSet<&str> = metadata
         .get("workspace_members")
         .and_then(serde_json::Value::as_array)
@@ -471,7 +611,12 @@ mod tests {
                 .entries,
             )
         };
-        let report = super::find_duplicates(&sample_metadata(), false, &updater);
+        let report = super::find_duplicates(
+            &sample_metadata(),
+            false,
+            &super::PlatformFilter::All,
+            &updater,
+        );
         let value = serde_json::to_value(&report).expect("serialize");
         assert_eq!(
             value,
@@ -489,13 +634,23 @@ mod tests {
     #[test]
     fn find_duplicates_reports_unfixable_and_failed_checks() {
         let no_change = |_: &str, _: &str| Some(Vec::new());
-        let report = super::find_duplicates(&sample_metadata(), false, &no_change);
+        let report = super::find_duplicates(
+            &sample_metadata(),
+            false,
+            &super::PlatformFilter::All,
+            &no_change,
+        );
         assert_eq!(
             report.crates[0].older[0].pulled_by[0].update_removes_duplicate,
             Some(false)
         );
         let failed = |_: &str, _: &str| None;
-        let report = super::find_duplicates(&sample_metadata(), false, &failed);
+        let report = super::find_duplicates(
+            &sample_metadata(),
+            false,
+            &super::PlatformFilter::All,
+            &failed,
+        );
         assert_eq!(
             report.crates[0].older[0].pulled_by[0].update_removes_duplicate,
             None
@@ -507,12 +662,133 @@ mod tests {
     #[test]
     fn find_duplicates_include_dev_lists_dev_only_duplicates() {
         let no_change = |_: &str, _: &str| Some(Vec::new());
-        let report = super::find_duplicates(&sample_metadata(), true, &no_change);
+        let report = super::find_duplicates(
+            &sample_metadata(),
+            true,
+            &super::PlatformFilter::All,
+            &no_change,
+        );
         let names: Vec<&str> = report.crates.iter().map(|c| c.name.as_str()).collect();
         assert_eq!(names, ["old", "term"]);
         let old = &report.crates[0];
         assert_eq!(old.older[0].version, "1.0.0");
         assert_eq!(old.older[0].pulled_by[0].name, "mock");
+    }
+
+    /// A workspace `app` with `term` duplicated on every platform, plus a
+    /// `sys` crate duplicated only on Windows: `sys 1.0.0` through a
+    /// `cfg(windows)`-gated `gate`, `sys 2.0.0` through an edge gated on the
+    /// bare `x86_64-pc-windows-msvc` triple.
+    fn gated_metadata() -> serde_json::Value {
+        let mut metadata = sample_metadata();
+        let packages = metadata["packages"].as_array_mut().expect("packages");
+        packages.extend([
+            serde_json::json!({"id": "gate", "name": "gate", "version": "0.3.0"}),
+            serde_json::json!({"id": "sys1", "name": "sys", "version": "1.0.0"}),
+            serde_json::json!({"id": "sys2", "name": "sys", "version": "2.0.0"}),
+        ]);
+        let nodes = metadata["resolve"]["nodes"].as_array_mut().expect("nodes");
+        nodes[0]["deps"].as_array_mut().expect("app deps").extend([
+            serde_json::json!({"pkg": "gate", "dep_kinds": [{"kind": null, "target": "cfg(windows)"}]}),
+            serde_json::json!({"pkg": "sys2", "dep_kinds": [{"kind": null, "target": "x86_64-pc-windows-msvc"}]}),
+        ]);
+        nodes.extend([
+            serde_json::json!({"id": "gate", "deps": [{"pkg": "sys1", "dep_kinds": [{"kind": null}]}]}),
+            serde_json::json!({"id": "sys1", "deps": []}),
+            serde_json::json!({"id": "sys2", "deps": []}),
+        ]);
+        metadata
+    }
+
+    fn platform(triple: &str, cfg: &[&str]) -> super::TargetPlatform {
+        super::TargetPlatform {
+            triple: triple.to_string(),
+            cfg: cfg.iter().map(ToString::to_string).collect(),
+        }
+    }
+
+    fn duplicate_names(platforms: &super::PlatformFilter) -> Vec<String> {
+        let no_change = |_: &str, _: &str| Some(Vec::new());
+        super::find_duplicates(&gated_metadata(), false, platforms, &no_change)
+            .crates
+            .into_iter()
+            .map(|c| c.name)
+            .collect()
+    }
+
+    /// TASK-2310 AC #1: a Linux target leaves out crates reachable only
+    /// through other targets' `cfg(..)` / triple edges.
+    #[test]
+    fn find_duplicates_drops_crates_gated_on_other_targets() {
+        let linux = super::PlatformFilter::Targets(vec![platform(
+            "x86_64-unknown-linux-gnu",
+            &["unix", "target_os=\"linux\""],
+        )]);
+        assert_eq!(duplicate_names(&linux), ["term"]);
+    }
+
+    /// TASK-2310 AC #2/#3: a Windows target and `all` both keep the
+    /// target-gated duplicate, and its older version names the gated puller.
+    #[test]
+    fn find_duplicates_keeps_gated_crates_for_their_target_and_for_all() {
+        let windows = super::PlatformFilter::Targets(vec![platform(
+            "x86_64-pc-windows-msvc",
+            &["windows", "target_os=\"windows\""],
+        )]);
+        assert_eq!(duplicate_names(&windows), ["sys", "term"]);
+        assert_eq!(
+            duplicate_names(&super::PlatformFilter::All),
+            ["sys", "term"]
+        );
+
+        let no_change = |_: &str, _: &str| Some(Vec::new());
+        for platforms in [windows, super::PlatformFilter::All] {
+            let report = super::find_duplicates(&gated_metadata(), false, &platforms, &no_change);
+            for dup in &report.crates {
+                for older in &dup.older {
+                    assert!(
+                        !older.pulled_by.is_empty(),
+                        "{} {} has no puller under {platforms:?}",
+                        dup.name,
+                        older.version
+                    );
+                }
+            }
+            let sys = report.crates.iter().find(|c| c.name == "sys").expect("sys");
+            assert_eq!(sys.older[0].pulled_by[0].name, "gate");
+        }
+    }
+
+    /// TASK-2310: an edge counts when any listed target admits it, and a
+    /// cfg the target does not set never matches.
+    #[test]
+    fn platform_filter_admits_ungated_matching_cfg_and_matching_triple() {
+        let filter = super::PlatformFilter::Targets(vec![
+            platform("x86_64-unknown-linux-gnu", &["unix"]),
+            platform("wasm32-wasip1", &["target_os=\"wasi\""]),
+        ]);
+        assert!(filter.admits(None));
+        assert!(filter.admits(Some("cfg(unix)")));
+        assert!(filter.admits(Some("cfg(target_os = \"wasi\")")));
+        assert!(filter.admits(Some("wasm32-wasip1")));
+        assert!(!filter.admits(Some("cfg(windows)")));
+        assert!(!filter.admits(Some("x86_64-pc-windows-msvc")));
+        assert!(!filter.admits(Some("cfg(windows_raw_dylib)")));
+    }
+
+    /// TASK-2310 AC #2: `all` (alone or among triples) disables the filter
+    /// without probing rustc.
+    #[test]
+    fn platform_filter_all_needs_no_rustc() {
+        let dir = std::path::Path::new("/nonexistent-ops-dir");
+        assert_eq!(
+            super::platform_filter(Some("all"), dir).expect("all"),
+            super::PlatformFilter::All
+        );
+        assert_eq!(
+            super::platform_filter(Some("x86_64-pc-windows-msvc,all"), dir).expect("all"),
+            super::PlatformFilter::All
+        );
     }
 
     #[test]

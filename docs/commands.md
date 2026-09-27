@@ -58,8 +58,12 @@ at two or more distinct versions (dev-only ones excluded unless
 `--include-dev` is given), the direct
 dependency pulling each older version, and whether a semver-compatible
 update of it removes the duplicate (`cargo update --dry-run`; `Cargo.lock`
-is never written). `ops deps` (cargo-deny `bans`) flags multiple versions
-too, but not what pulls them in or whether an update fixes them.
+is never written). Like `cargo tree`, it counts only dependency edges
+active on the host target; `--target <triple>` (repeatable) selects other
+targets and `--target all` counts every edge. `ops deps` (cargo-deny `bans`)
+flags multiple versions too, but not what pulls them in or whether an update
+fixes them. `ops about machine` reports the effective `jobs`, rustc wrapper,
+target dir, linker, rustflags and incremental setting, each with its source.
 
 ## Stack command baseline
 

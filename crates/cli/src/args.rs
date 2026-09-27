@@ -725,7 +725,7 @@ pub enum ThemeAction {
 }
 
 /// About subcommands.
-#[derive(clap::Subcommand, Debug, Clone, Copy)]
+#[derive(clap::Subcommand, Debug, Clone)]
 pub enum AboutAction {
     /// Interactively choose which fields to show on the about card.
     Setup,
@@ -771,6 +771,11 @@ pub enum AboutAction {
         /// duplicates reachable only through dev-dependencies are listed.
         #[arg(long, requires = "duplicates")]
         include_dev: bool,
+        /// With --duplicates: count only dependency edges active on this
+        /// target triple (repeatable; default: the host). `all` counts
+        /// every edge, whatever platform it is gated on.
+        #[arg(long, value_name = "TRIPLE", requires = "duplicates")]
+        target: Vec<String>,
     },
     // `crates` and `modules` render the same stack-aware project-units view
     // via `ops_about::units::run_about_units`; the alias keeps the
@@ -787,7 +792,7 @@ pub enum AboutAction {
         json: bool,
     },
     /// Display build-relevant machine state: cores, load, competing build
-    /// processes, effective cargo jobs/wrapper/target dir/linker/rustflags
+    /// processes, effective cargo jobs/wrapper/target dir/linker/rustflags/incremental
     /// with their source, and tmpfs status of TMPDIR and the target dir.
     Machine {
         /// Versioned machine-readable JSON.
@@ -1522,7 +1527,8 @@ mod tests {
             Some(AboutAction::Dependencies {
                 json: true,
                 duplicates: false,
-                include_dev: false
+                include_dev: false,
+                ..
             })
         ));
         assert!(matches!(
@@ -1530,7 +1536,8 @@ mod tests {
             Some(AboutAction::Dependencies {
                 json: false,
                 duplicates: true,
-                include_dev: false
+                include_dev: false,
+                ..
             })
         ));
         assert!(matches!(
@@ -1544,12 +1551,32 @@ mod tests {
             Some(AboutAction::Dependencies {
                 json: false,
                 duplicates: true,
-                include_dev: true
+                include_dev: true,
+                ..
             })
         ));
         assert!(
             Cli::try_parse_from(["ops", "about", "dependencies", "--include-dev"]).is_err(),
             "--include-dev requires --duplicates"
+        );
+        match action_of(&[
+            "ops",
+            "about",
+            "dependencies",
+            "--duplicates",
+            "--target",
+            "x86_64-pc-windows-msvc",
+            "--target",
+            "wasm32-wasip1",
+        ]) {
+            Some(AboutAction::Dependencies { target, .. }) => {
+                assert_eq!(target, ["x86_64-pc-windows-msvc", "wasm32-wasip1"]);
+            }
+            other => panic!("expected Dependencies, got {other:?}"),
+        }
+        assert!(
+            Cli::try_parse_from(["ops", "about", "dependencies", "--target", "all"]).is_err(),
+            "--target requires --duplicates"
         );
         assert!(matches!(
             action_of(&["ops", "about", "machine", "--json"]),
