@@ -1324,6 +1324,54 @@ mod tests {
         );
     }
 
+    /// Write an executable stub without this process ever holding it open
+    /// for writing.
+    ///
+    /// `std::fs::write` + exec is racy under the parallel test harness: a
+    /// sibling test that forks while the write fd is open hands its child a
+    /// copy of it until that child execs, and `execve` on a file open for
+    /// writing fails with `ETXTBSY`. A short-lived `sh` does the write
+    /// instead, so the only writable descriptor lives in a process that has
+    /// exited before the stub is run.
+    #[cfg(unix)]
+    fn write_stub(path: &std::path::Path, script: &str) {
+        use std::io::Write as _;
+
+        let mut child = std::process::Command::new("/bin/sh")
+            .args(["-c", "cat > \"$1\" && chmod 755 \"$1\"", "sh"])
+            .arg(path)
+            .stdin(std::process::Stdio::piped())
+            .spawn()
+            .unwrap();
+        // Dropping stdin closes the pipe so `cat` sees EOF.
+        child
+            .stdin
+            .take()
+            .unwrap()
+            .write_all(script.as_bytes())
+            .unwrap();
+        assert!(child.wait().unwrap().success(), "writing stub {path:?}");
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn write_stub_writes_an_executable_script() {
+        use std::os::unix::fs::PermissionsExt as _;
+
+        let dir = tempfile::tempdir().unwrap();
+        let stub = dir.path().join("stub");
+        write_stub(&stub, "#!/bin/sh\necho \"$1\"\n");
+        assert_eq!(
+            std::fs::metadata(&stub).unwrap().permissions().mode() & 0o777,
+            0o755
+        );
+        let out = std::process::Command::new(&stub)
+            .arg("hi")
+            .output()
+            .unwrap();
+        assert_eq!(out.stdout, b"hi\n");
+    }
+
     /// A `terraform plan` that never exits is killed at
     /// the wall-clock bound. The error names the invocation and the limit,
     /// and artifact cleanup still runs — the partial artifact the hang
@@ -1332,8 +1380,6 @@ mod tests {
     #[cfg(unix)]
     #[test]
     fn a_hung_terraform_plan_is_killed_cleaned_up_and_reported() {
-        use std::os::unix::fs::PermissionsExt as _;
-
         let dir = tempfile::tempdir().unwrap();
         // The artifact sits directly in the tempdir, and a shared-writable
         // artifact parent is refused (some hosts create tempdirs 775), so
@@ -1344,12 +1390,10 @@ mod tests {
         }
         // Stub: write the (partial) artifact, then never exit.
         let stub = dir.path().join("terraform");
-        std::fs::write(
+        write_stub(
             &stub,
             "#!/bin/sh\nout=${2#-out=}\nprintf partial > \"$out\"\nexec sleep 600\n",
-        )
-        .unwrap();
-        std::fs::set_permissions(&stub, std::fs::Permissions::from_mode(0o755)).unwrap();
+        );
 
         let binary = dir.path().join("tfplan.binary");
         let opts = PlanOptions {
@@ -1396,20 +1440,16 @@ mod tests {
     #[cfg(unix)]
     #[test]
     fn a_hung_terraform_show_is_killed_cleaned_up_and_reported() {
-        use std::os::unix::fs::PermissionsExt as _;
-
         let dir = tempfile::tempdir().unwrap();
         {
             use std::os::unix::fs::PermissionsExt as _;
             std::fs::set_permissions(dir.path(), std::fs::Permissions::from_mode(0o700)).unwrap();
         }
         let stub = dir.path().join("terraform");
-        std::fs::write(
+        write_stub(
             &stub,
             "#!/bin/sh\nif [ \"$1\" = \"show\" ]; then exec sleep 600; fi\nout=${2#-out=}\nprintf partial > \"$out\"\nexit 0\n",
-        )
-        .unwrap();
-        std::fs::set_permissions(&stub, std::fs::Permissions::from_mode(0o755)).unwrap();
+        );
 
         let binary = dir.path().join("tfplan.binary");
         let opts = PlanOptions {

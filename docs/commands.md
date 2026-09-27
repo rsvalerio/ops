@@ -63,7 +63,10 @@ active on the host target; `--target <triple>` (repeatable) selects other
 targets and `--target all` counts every edge. `ops deps` (cargo-deny `bans`)
 flags multiple versions too, but not what pulls them in or whether an update
 fixes them. `ops about machine` reports the effective `jobs`, rustc wrapper,
-target dir, linker, rustflags and incremental setting, each with its source.
+target dir, linker, rustflags and incremental setting, each with its source;
+when no global incremental override is set it also reports the `dev` and
+`release` profiles' own `incremental` (`CARGO_PROFILE_<NAME>_INCREMENTAL`,
+a config file, the workspace `Cargo.toml`, or cargo's default).
 
 ## Stack command baseline
 

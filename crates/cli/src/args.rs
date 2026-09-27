@@ -320,11 +320,12 @@ pub struct ClippyFindingsArgs {
     /// `--no-all-features`).
     #[arg(long = "features", value_name = "FEATURES", value_delimiter = ',')]
     pub features: Vec<String>,
-    /// Report wire format: 1 (`snake_case` keys) or 2 (camelCase keys).
+    /// Report wire format: 2 (camelCase keys) or 1 (`snake_case` keys, for
+    /// readers that predate v2).
     #[arg(
         long = "schema-version",
         value_name = "N",
-        default_value_t = 1,
+        default_value_t = 2,
         value_parser = clap::value_parser!(u32).range(1..=2)
     )]
     pub schema_version: u32,
@@ -1226,7 +1227,7 @@ mod tests {
                 assert_eq!(lint_flags, ["-W", "clippy::pedantic"]);
                 assert!(!no_locked && !no_all_features && !no_default_features);
                 assert!(features.is_empty());
-                assert_eq!(schema_version, 1);
+                assert_eq!(schema_version, 2);
             }
             other => panic!("expected ClippyFindings, got {other:?}"),
         }
@@ -1245,7 +1246,7 @@ mod tests {
             "--features",
             "c",
             "--schema-version",
-            "2",
+            "1",
         ]);
         match cli.subcommand {
             Some(CoreSubcommand::ClippyFindings(ClippyFindingsArgs {
@@ -1259,7 +1260,7 @@ mod tests {
                 assert!(lint_flags.is_empty());
                 assert!(no_locked && no_all_features && no_default_features);
                 assert_eq!(features, ["a", "b", "c"]);
-                assert_eq!(schema_version, 2);
+                assert_eq!(schema_version, 1);
             }
             other => panic!("expected ClippyFindings, got {other:?}"),
         }
