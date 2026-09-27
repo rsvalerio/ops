@@ -65,7 +65,7 @@ ops_extension::impl_extension! {
 ///    preflight (`crates/cli/src/subcommands.rs`), so an empty index skips the
 ///    configured command chain instead of paying for a full check suite.
 ///    Without it the bounded-wait probe this crate parameterises below is
-///    unreachable from the installed hook, and the README's "skips when
+///    unreachable from the installed hook, and docs/commands.md's "skips when
 ///    nothing is staged" would be a promise the hook does not keep.
 const HOOK_SCRIPT: &str = ops_hook_common::hook_script! {
     name: "run-before-commit",
@@ -201,7 +201,7 @@ mod tests {
         assert!(HOOK_SCRIPT.contains("case \"${SKIP_OPS_RUN_BEFORE_COMMIT:-}\""));
     }
 
-    /// The installed hook arms the preflight, so the README's "skips when
+    /// The installed hook arms the preflight, so docs/commands.md's "skips when
     /// nothing is staged" describes the shipped hook.
     #[test]
     fn hook_script_passes_changed_only() {
