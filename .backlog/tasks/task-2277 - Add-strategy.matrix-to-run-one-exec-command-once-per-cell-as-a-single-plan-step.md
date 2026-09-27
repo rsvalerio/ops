@@ -1,10 +1,10 @@
 ---
 id: TASK-2277
 title: 'Add strategy.matrix to run one exec command once per cell as a single plan step'
-status: In Progress
+status: Done
 assignee: []
 created_date: '2026-09-26 12:27'
-updated_date: '2026-09-26 13:42'
+updated_date: '2026-09-27 09:00'
 labels:
   - feature
   - config
@@ -65,7 +65,7 @@ First adopter: dbsec replaces `scripts/doc-default-check.sh` with the `[commands
 - [x] #6 `ops --dry-run <name>` lists every cell with its expanded program and args; progress shows one sub-row per cell
 - [x] #7 clone copies the strategy, `[extend.<name>] matrix.<key>` appends values, and a strategy beside clone replaces the copy; each rule is tested
 - [x] #8 README documents strategy.matrix with the dbsec doc-default example as the worked case
-- [ ] #9 dbsec `ops doc-default` expressed as the matrix command above reproduces scripts/doc-default-check.sh: one cargo doc per crate, own target dir, all crates reported on failure, and runs inside dbsec `ops verify`
+- [x] #9 dbsec `ops doc-default` expressed as the matrix command above reproduces scripts/doc-default-check.sh: one cargo doc per crate, own target dir, all crates reported on failure, and runs inside dbsec `ops verify`
 
 <!-- AC:END -->
 
@@ -73,4 +73,7 @@ First adopter: dbsec replaces `scripts/doc-default-check.sh` with the `[commands
 
 <!-- SECTION:NOTES:BEGIN -->
 Implemented on branch feat/strategy-matrix (worktree ../ops-strategy-matrix). Core: config/strategy.rs (Strategy/Matrix, GHA cells, ${matrix.<key>} substitution, 256-cell cap, duplicate-value guard); ExecCommandSpec.strategy + matrix_cells + load-time validation; clone strategy override; [extend] matrix append (+ layer concat). Runner: command/matrix.rs driver (cells launched in order under their own semaphore/fail_fast, rows relabelled to cell ids, skipped/panicked synthesis, one aggregate StepResult); outer parallel fail_fast ignores cell StepFailed and trips on the aggregate result; row_ids() feeds PlanStarted; raw runs cells sequentially. CLI: display rows + dry-run cell listing. Axis order is by key name: CommandSpec deserializes through toml::Value (sorted tables), so declaration order is not recoverable without toml preserve_order. AC #9 verified on a scratch copy of dbsec with the matrix [commands.doc-default]: one cargo doc per crate in target/doc-default, in ops verify's plan; with broken links injected in dbsec-core (keyfile link) and dbsec-vault both were reported in one run, exit 1. Left unchecked until dbsec itself adopts the config.
+
+AC #9 closed 2026-09-27: dbsec adopted the matrix [commands.doc-default] in bdd1afc (build(ops): run doc-default as an ops matrix command, in CI too), removed scripts/doc-default-check.sh, and runs it from [extend.verify]. ops side merged in PR #68.
+
 <!-- SECTION:NOTES:END -->
