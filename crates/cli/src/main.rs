@@ -346,9 +346,8 @@ fn dispatch(
             };
             return sec_cmd::run_sec(&cwd, cli.dry_run, &overrides);
         }
-        Some(CoreSubcommand::ClippyFindings { lint_flags }) => {
-            let cwd = cwd()?;
-            return clippy_findings_cmd::run_clippy_findings(&cwd, &lint_flags, cli.dry_run);
+        Some(CoreSubcommand::ClippyFindings(args)) => {
+            return run_clippy_findings(args, cli.dry_run);
         }
         Some(CoreSubcommand::Explain { commands, json }) => {
             return run_cmd::run_explain(std::sync::Arc::clone(early_config), &commands, json);
@@ -378,6 +377,16 @@ fn dispatch(
 
 /// `ops lock`: dispatch to status / break, or run the command under the
 /// named lock and forward its exit code.
+fn run_clippy_findings(args: args::ClippyFindingsArgs, dry_run: bool) -> anyhow::Result<ExitCode> {
+    let opts = clippy_findings_cmd::SurveyOptions::from_flags(
+        args.no_locked,
+        args.no_all_features,
+        args.no_default_features,
+        args.features,
+    );
+    clippy_findings_cmd::run_clippy_findings(&cwd()?, &opts, &args.lint_flags, dry_run)
+}
+
 fn run_lock(args: args::LockArgs) -> anyhow::Result<ExitCode> {
     let cwd = cwd()?;
     match args.action {

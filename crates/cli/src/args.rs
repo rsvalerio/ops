@@ -253,9 +253,11 @@ pub enum CoreSubcommand {
     /// Survey Clippy: one normalized JSON row per Clippy diagnostic.
     ///
     /// Not a gate — `ops clippy` stays the gate. Runs `cargo clippy
-    /// --workspace --all-features --all-targets --message-format=json` with
-    /// the lint flags given after `--` (e.g. `-- -W clippy::pedantic`) and
-    /// never adds `-D warnings`. Prints a versioned JSON report: per
+    /// --workspace --locked --all-features --all-targets
+    /// --message-format=json` with the lint flags given after `--` (e.g. `--
+    /// -W clippy::pedantic`) and never adds `-D warnings`. Under `--locked` a
+    /// stale or missing `Cargo.lock` fails the survey instead of being
+    /// written. Prints a versioned JSON report: per
     /// diagnostic the lint (without `clippy::`), `name@version`, the
     /// repo-relative manifest dir, target name and kind, repo-relative file,
     /// line, column and the verbatim message. A spanless diagnostic is
@@ -265,11 +267,7 @@ pub enum CoreSubcommand {
     /// de-duplicated, so one commit yields the same report from any checkout
     /// path.
     #[command(name = "clippy-findings")]
-    ClippyFindings {
-        /// Lint flags passed to clippy after `--`.
-        #[arg(last = true, value_name = "LINT_FLAGS")]
-        lint_flags: Vec<String>,
-    },
+    ClippyFindings(ClippyFindingsArgs),
     /// Show a command's resolved execution plan without running anything.
     ///
     /// Resolves each command exactly as `ops <cmd>...` would and prints the
@@ -303,6 +301,28 @@ pub enum CoreSubcommand {
     /// Catch-all for dynamic config-defined commands (e.g. `ops verify`).
     #[command(external_subcommand)]
     External(Vec<OsString>),
+}
+
+/// Arguments of `ops clippy-findings`: the build selection and the lint
+/// flags after `--`.
+#[derive(clap::Args, Debug, Clone)]
+pub struct ClippyFindingsArgs {
+    /// Do not pass `--locked` (Cargo may then write `Cargo.lock`).
+    #[arg(long = "no-locked")]
+    pub no_locked: bool,
+    /// Do not pass `--all-features`: survey the default features.
+    #[arg(long = "no-all-features")]
+    pub no_all_features: bool,
+    /// Pass `--no-default-features` (implies `--no-all-features`).
+    #[arg(long = "no-default-features")]
+    pub no_default_features: bool,
+    /// Features to activate, comma-separated or repeated (implies
+    /// `--no-all-features`).
+    #[arg(long = "features", value_name = "FEATURES", value_delimiter = ',')]
+    pub features: Vec<String>,
+    /// Lint flags passed to clippy after `--`.
+    #[arg(last = true, value_name = "LINT_FLAGS")]
+    pub lint_flags: Vec<String>,
 }
 
 /// Arguments of `ops lock`: either a subcommand (`status`, `break`) or a
@@ -1182,8 +1202,45 @@ mod tests {
     fn parse_clippy_findings_takes_lint_flags_after_double_dash() {
         let cli = Cli::parse_from(["ops", "clippy-findings", "--", "-W", "clippy::pedantic"]);
         match cli.subcommand {
-            Some(CoreSubcommand::ClippyFindings { lint_flags }) => {
+            Some(CoreSubcommand::ClippyFindings(ClippyFindingsArgs {
+                lint_flags,
+                no_locked,
+                no_all_features,
+                no_default_features,
+                features,
+            })) => {
                 assert_eq!(lint_flags, ["-W", "clippy::pedantic"]);
+                assert!(!no_locked && !no_all_features && !no_default_features);
+                assert!(features.is_empty());
+            }
+            other => panic!("expected ClippyFindings, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn parse_clippy_findings_build_selection_flags() {
+        let cli = Cli::parse_from([
+            "ops",
+            "clippy-findings",
+            "--no-locked",
+            "--no-all-features",
+            "--no-default-features",
+            "--features",
+            "a,b",
+            "--features",
+            "c",
+        ]);
+        match cli.subcommand {
+            Some(CoreSubcommand::ClippyFindings(ClippyFindingsArgs {
+                lint_flags,
+                no_locked,
+                no_all_features,
+                no_default_features,
+                features,
+            })) => {
+                assert!(lint_flags.is_empty());
+                assert!(no_locked && no_all_features && no_default_features);
+                assert_eq!(features, ["a", "b", "c"]);
             }
             other => panic!("expected ClippyFindings, got {other:?}"),
         }
