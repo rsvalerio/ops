@@ -89,8 +89,22 @@ pub struct CargoSettings {
     /// `default`: each profile's own `incremental` applies (cargo's
     /// defaults: on for `dev`, off for `release`).
     pub incremental: Setting,
+    /// The `dev` and `release` profiles' own `incremental`, when no global
+    /// override applies (`None` otherwise): see [`IncrementalProfiles`].
+    pub incremental_profiles: Option<IncrementalProfiles>,
     /// Every config file consulted, highest precedence first.
     pub config_files: Vec<String>,
+}
+
+/// Each built-in profile's effective `incremental`.
+///
+/// Cargo resolves it from `CARGO_PROFILE_<NAME>_INCREMENTAL`, then `[profile.<name>] incremental`
+/// in the nearest config file, then in the workspace `Cargo.toml`, else
+/// cargo's default (`true` for `dev`, `false` for `release`).
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize)]
+pub struct IncrementalProfiles {
+    pub dev: Setting,
+    pub release: Setting,
 }
 
 /// Filesystem facts for one path.
@@ -134,24 +148,48 @@ pub fn config_layers(cwd: &Path, cargo_home: Option<&Path>) -> Vec<ConfigLayer> 
                 .iter()
                 .map(|name| dir.join(name))
                 .find(|p| p.is_file())?;
-            let text = match std::fs::read_to_string(&path) {
-                Ok(text) => text,
-                Err(e) => {
-                    tracing::warn!(path = %path.display(), error = %e, "about/machine: reading cargo config failed");
-                    return None;
-                }
-            };
-            let table = match text.parse::<toml::Table>() {
-                Ok(table) => table,
-                Err(e) => {
-                    tracing::warn!(path = %path.display(), error = %e, "about/machine: parsing cargo config failed");
-                    return None;
-                }
-            };
             let base = dir.parent().map_or_else(|| dir.clone(), Path::to_path_buf);
-            Some(ConfigLayer { path, base, table })
+            read_layer(path, base)
         })
         .collect()
+}
+
+/// The workspace root from `cargo locate-project`, and its parsed
+/// `Cargo.toml` when readable.
+#[derive(Debug, Clone, Copy)]
+pub struct WorkspaceRoot<'a> {
+    pub path: &'a Path,
+    pub manifest: Option<&'a ConfigLayer>,
+}
+
+/// The workspace `Cargo.toml`, as a layer: its `[profile.*]` tables sit
+/// below every config file's. `None` (with a warning) when unreadable.
+#[must_use]
+pub fn workspace_manifest(workspace_root: &Path) -> Option<ConfigLayer> {
+    read_layer(
+        workspace_root.join("Cargo.toml"),
+        workspace_root.to_path_buf(),
+    )
+}
+
+/// Read and parse one TOML file; unreadable or malformed files are skipped
+/// with a warning.
+fn read_layer(path: PathBuf, base: PathBuf) -> Option<ConfigLayer> {
+    let text = match std::fs::read_to_string(&path) {
+        Ok(text) => text,
+        Err(e) => {
+            tracing::warn!(path = %path.display(), error = %e, "about/machine: reading cargo config failed");
+            return None;
+        }
+    };
+    let table = match text.parse::<toml::Table>() {
+        Ok(table) => table,
+        Err(e) => {
+            tracing::warn!(path = %path.display(), error = %e, "about/machine: parsing cargo config failed");
+            return None;
+        }
+    };
+    Some(ConfigLayer { path, base, table })
 }
 
 /// The value at the dotted `keys` in one table.
@@ -433,14 +471,18 @@ pub struct HostTarget {
 /// The default target dir is `<workspace_root>/target` — cargo anchors it
 /// at the workspace root, not the cwd — falling back to `cwd` when the root
 /// is unknown.
+///
+/// The workspace `Cargo.toml` is consulted only for profile settings.
 #[must_use]
 pub fn resolve_cargo_settings(
     layers: &[ConfigLayer],
     env: &dyn Fn(&str) -> Option<String>,
     cwd: &Path,
-    workspace_root: Option<&Path>,
+    workspace: Option<WorkspaceRoot<'_>>,
     host: HostTarget,
 ) -> CargoSettings {
+    let workspace_root = workspace.map(|w| w.path);
+    let manifest = workspace.and_then(|w| w.manifest);
     let HostTarget {
         triple: host,
         cfg: host_cfg,
@@ -470,12 +512,16 @@ pub fn resolve_cargo_settings(
         });
     // Cargo: `CARGO_INCREMENTAL` overrides `build.incremental`, which
     // overrides every profile's `incremental`.
-    let incremental = from_env(env, &["CARGO_INCREMENTAL", "CARGO_BUILD_INCREMENTAL"])
-        .or_else(|| from_config(layers, &["build", "incremental"]))
-        .unwrap_or_else(|| Setting {
-            value: "profile".to_string(),
-            source: "default".to_string(),
-        });
+    let global_incremental = from_env(env, &["CARGO_INCREMENTAL", "CARGO_BUILD_INCREMENTAL"])
+        .or_else(|| from_config(layers, &["build", "incremental"]));
+    let incremental_profiles = global_incremental.is_none().then(|| IncrementalProfiles {
+        dev: profile_incremental(layers, env, manifest, "dev", true),
+        release: profile_incremental(layers, env, manifest, "release", false),
+    });
+    let incremental = global_incremental.unwrap_or_else(|| Setting {
+        value: "profile".to_string(),
+        source: "default".to_string(),
+    });
     let (linker, target_rustflags) = resolve_target_tables(layers, env, host.as_deref(), &host_cfg);
     // Cargo merges config files at load, so a rejected merge fails every
     // build whatever env overrides are set: report no rustflags at all.
@@ -506,11 +552,37 @@ pub fn resolve_cargo_settings(
         linker,
         rustflags,
         incremental,
+        incremental_profiles,
         config_files: layers
             .iter()
             .map(|l| l.path.display().to_string())
             .collect(),
     }
+}
+
+/// One profile's `incremental`: env, then config files, then the workspace
+/// `Cargo.toml`, then cargo's `default`.
+fn profile_incremental(
+    layers: &[ConfigLayer],
+    env: &dyn Fn(&str) -> Option<String>,
+    manifest: Option<&ConfigLayer>,
+    profile: &str,
+    default: bool,
+) -> Setting {
+    let keys = ["profile", profile, "incremental"];
+    from_env(
+        env,
+        &[&format!(
+            "CARGO_PROFILE_{}_INCREMENTAL",
+            profile.to_ascii_uppercase()
+        )],
+    )
+    .or_else(|| from_config(layers, &keys))
+    .or_else(|| from_config(std::slice::from_ref(manifest?), &keys))
+    .unwrap_or_else(|| Setting {
+        value: default.to_string(),
+        source: "default".to_string(),
+    })
 }
 
 /// Linker and rustflags from the host's target tables: env
@@ -801,7 +873,12 @@ pub fn collect_machine_report(cwd: &Path) -> MachineReport {
         "cargo locate-project --workspace",
     )
     .and_then(|t| parse_locate_project(&t));
-    let cargo = resolve_cargo_settings(&layers, &env, cwd, workspace_root.as_deref(), host);
+    let manifest = workspace_root.as_deref().and_then(workspace_manifest);
+    let workspace = workspace_root.as_deref().map(|path| WorkspaceRoot {
+        path,
+        manifest: manifest.as_ref(),
+    });
+    let cargo = resolve_cargo_settings(&layers, &env, cwd, workspace, host);
 
     // The invoking `cargo run` (if any) is our parent, not competing work.
     let mut exclude = vec![std::process::id()];
@@ -909,9 +986,15 @@ pub fn format_machine_report(report: &MachineReport) -> Vec<String> {
         setting_line("linker", report.cargo.linker.as_ref()),
         setting_line("rustflags", report.cargo.rustflags.as_ref()),
         setting_line("incremental", Some(&report.cargo.incremental)),
+    ];
+    if let Some(profiles) = &report.cargo.incremental_profiles {
+        lines.push(setting_line("  dev", Some(&profiles.dev)));
+        lines.push(setting_line("  release", Some(&profiles.release)));
+    }
+    lines.extend([
         fs_line("TMPDIR", report.tmpdir.as_ref()),
         fs_line("target fs", report.target_dir.as_ref()),
-    ];
+    ]);
     if report.sccache.is_some() {
         lines.push(format!("  {:<15}stats available via --json", "sccache"));
     }
@@ -1011,6 +1094,107 @@ mod tests {
             setting("false", "/w/.cargo/config.toml")
         );
         assert_eq!(resolve(&[], &no_env), setting("profile", "default"));
+    }
+
+    /// TASK-2320 AC #1: with no global override each profile resolves
+    /// `CARGO_PROFILE_<NAME>_INCREMENTAL`, then the nearest config file,
+    /// then the workspace `Cargo.toml`, then cargo's default; any global
+    /// override leaves the profiles unreported.
+    #[test]
+    fn incremental_profiles_resolve_env_then_config_then_manifest_then_default() {
+        let setting = |value: &str, source: &str| Setting {
+            value: value.to_string(),
+            source: source.to_string(),
+        };
+        let resolve = |layers: &[ConfigLayer],
+                       manifest: Option<&ConfigLayer>,
+                       env: &dyn Fn(&str) -> Option<String>| {
+            resolve_cargo_settings(
+                layers,
+                env,
+                Path::new("/w"),
+                Some(WorkspaceRoot {
+                    path: Path::new("/w"),
+                    manifest,
+                }),
+                HostTarget::default(),
+            )
+            .incremental_profiles
+        };
+        let defaults = IncrementalProfiles {
+            dev: setting("true", "default"),
+            release: setting("false", "default"),
+        };
+        assert_eq!(resolve(&[], None, &no_env), Some(defaults));
+
+        let manifest = layer(
+            "/w/Cargo.toml",
+            "/w",
+            "[profile.dev]\nincremental = false\n[profile.release]\nincremental = true\n",
+        );
+        let config = [layer(
+            "/w/.cargo/config.toml",
+            "/w",
+            "[profile.release]\nincremental = false\n",
+        )];
+        assert_eq!(
+            resolve(&config, Some(&manifest), &no_env),
+            Some(IncrementalProfiles {
+                dev: setting("false", "/w/Cargo.toml"),
+                release: setting("false", "/w/.cargo/config.toml"),
+            })
+        );
+        let env =
+            |name: &str| (name == "CARGO_PROFILE_DEV_INCREMENTAL").then(|| "true".to_string());
+        assert_eq!(
+            resolve(&config, Some(&manifest), &env)
+                .expect("no global override")
+                .dev,
+            setting("true", "env:CARGO_PROFILE_DEV_INCREMENTAL")
+        );
+
+        let global = |name: &str| (name == "CARGO_INCREMENTAL").then(|| "1".to_string());
+        assert_eq!(resolve(&config, Some(&manifest), &global), None);
+        let build = [layer(
+            "/w/.cargo/config.toml",
+            "/w",
+            "[build]\nincremental = true\n",
+        )];
+        assert_eq!(resolve(&build, Some(&manifest), &no_env), None);
+    }
+
+    /// TASK-2320: the text report lists each profile under `incremental`
+    /// when the profiles decide, and the JSON carries them.
+    #[test]
+    fn profile_incremental_is_rendered_when_no_override_applies() {
+        let mut report = sample_report();
+        report.cargo.incremental = Setting {
+            value: "profile".to_string(),
+            source: "default".to_string(),
+        };
+        report.cargo.incremental_profiles = Some(IncrementalProfiles {
+            dev: Setting {
+                value: "true".to_string(),
+                source: "default".to_string(),
+            },
+            release: Setting {
+                value: "true".to_string(),
+                source: "/w/Cargo.toml".to_string(),
+            },
+        });
+        let text = format_machine_report(&report).join("\n");
+        assert!(text.contains("    dev          true  [default]"), "{text}");
+        assert!(
+            text.contains("    release      true  [/w/Cargo.toml]"),
+            "{text}"
+        );
+        let mut out = Vec::new();
+        write_machine_report(&mut out, &report, true).expect("write");
+        let value: serde_json::Value = serde_json::from_slice(&out).expect("json");
+        assert_eq!(
+            value["cargo"]["incrementalProfiles"]["release"],
+            serde_json::json!({"value": "true", "source": "/w/Cargo.toml"})
+        );
     }
 
     #[test]
@@ -1278,7 +1462,10 @@ mod tests {
             &[],
             &no_env,
             Path::new("/w/crates/member"),
-            Some(Path::new("/w")),
+            Some(WorkspaceRoot {
+                path: Path::new("/w"),
+                manifest: None,
+            }),
             HostTarget::default(),
         );
         assert_eq!(s.target_dir.value, "/w/target");
@@ -1438,6 +1625,7 @@ mod tests {
                     value: "0".to_string(),
                     source: "env:CARGO_INCREMENTAL".to_string(),
                 },
+                incremental_profiles: None,
                 config_files: vec!["/home/u/.cargo/config.toml".to_string()],
             },
             tmpdir: Some(FsReport {
@@ -1492,6 +1680,7 @@ mod tests {
             value["cargo"]["incremental"],
             serde_json::json!({"value": "0", "source": "env:CARGO_INCREMENTAL"})
         );
+        assert!(value["cargo"]["incrementalProfiles"].is_null());
         assert_eq!(value["tmpdir"]["tmpfs"], true);
         assert_eq!(value["tmpdir"]["fsType"], "tmpfs");
         assert_eq!(value["buildProcesses"][0]["name"], "rustc");
@@ -1513,6 +1702,7 @@ mod tests {
             text.contains("incremental    0  [env:CARGO_INCREMENTAL]"),
             "{text}"
         );
+        assert!(!text.contains("    dev "), "{text}");
         assert!(text.contains("rustc (7)"), "{text}");
         assert!(text.contains("1024 MiB (512 MiB free)"), "{text}");
     }
