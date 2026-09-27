@@ -2,6 +2,26 @@
 All notable changes to this project will be documented in this file. See [conventional commits](https://www.conventionalcommits.org/) for commit guidelines.
 
 - - -
+## [v0.71.0](https://github.com/rsvalerio/ops/compare/3fe9ed7157ea8a61af6299495e21e91378c40416..v0.71.0) - 2026-09-27
+#### 🚀 Features
+- (**about**) report cargo incremental setting in about machine - ([54e41ba](https://github.com/rsvalerio/ops/commit/54e41ba21a23cb968c3547213b18bd38342173f3)) - [@rsvalerio](https://github.com/rsvalerio), Claude Opus 5.5 (1M context)
+- (**about**) filter --duplicates by target platform - ([39d4f2a](https://github.com/rsvalerio/ops/commit/39d4f2aa8eb702a2ccc32efa939c083082fbc54b)) - [@rsvalerio](https://github.com/rsvalerio), Claude Opus 5.5 (1M context)
+- (**extension**) let callers hand providers request arguments - ([14c2473](https://github.com/rsvalerio/ops/commit/14c2473c156978afbe645faed1f041f6bdb3e26b)) - [@rsvalerio](https://github.com/rsvalerio), Claude Opus 5.5 (1M context)
+#### 🐛 Bug Fixes
+- (**cli**) keep clippy-findings schema v1 as the default wire format - ([d738a0a](https://github.com/rsvalerio/ops/commit/d738a0a49fb139aca012259a3e4cd74cb9b813f3)) - [@rsvalerio](https://github.com/rsvalerio), Claude Opus 5.5 (1M context)
+- (**cli**) emit camelCase keys in the clippy-findings report - ([b0e7536](https://github.com/rsvalerio/ops/commit/b0e7536fc34bdde20dafd8b365960503724b980f)) - [@rsvalerio](https://github.com/rsvalerio), Claude Opus 5.5 (1M context)
+#### 🔧 Build System
+- (**deps**) update comfy-table to 7.2.2 to drop duplicate crates - ([bccd672](https://github.com/rsvalerio/ops/commit/bccd672506b463ebc53d2fbf4ee6d25c2504373d)) - [@rsvalerio](https://github.com/rsvalerio), Claude Opus 5.5 (1M context)
+#### ⚙️ Miscellaneous
+- (**backlog**) retarget TASK-2317 to the v2 default flip - ([c564d7d](https://github.com/rsvalerio/ops/commit/c564d7d8798dff3e817bf13c52f6e7f4f9bd884e)) - [@rsvalerio](https://github.com/rsvalerio), Claude Opus 5.5 (1M context)
+- (**backlog**) close code-review wave 29 - ([49ef3d7](https://github.com/rsvalerio/ops/commit/49ef3d7899a67303fa5d69dd7c58b7f53da459e1)) - [@rsvalerio](https://github.com/rsvalerio), Claude Opus 5.5 (1M context)
+- (**backlog**) close code-review wave 30 - ([58db4af](https://github.com/rsvalerio/ops/commit/58db4aff887ffaff23357c704a3f5dae980534b3)) - [@rsvalerio](https://github.com/rsvalerio), Claude Opus 5.5 (1M context)
+- (**backlog**) close code-review wave 31 - ([8a278c0](https://github.com/rsvalerio/ops/commit/8a278c0da54f249f22ab74fc44c814c2f8717ea0)) - [@rsvalerio](https://github.com/rsvalerio), Claude Opus 5.5 (1M context)
+- (**backlog**) triage waves 29-31 - ([5fa0e50](https://github.com/rsvalerio/ops/commit/5fa0e503345c8c3b1d377f8f9c9e897de3028c22)) - [@rsvalerio](https://github.com/rsvalerio), Claude Opus 5.5 (1M context)
+- update backlogs tasks - ([3fe9ed7](https://github.com/rsvalerio/ops/commit/3fe9ed7157ea8a61af6299495e21e91378c40416)) - [@rsvalerio](https://github.com/rsvalerio)
+
+- - -
+
 ## [v0.70.0](https://github.com/rsvalerio/ops/compare/30bc1ada1d3866aeb869916ecd24b9d5644fbe0a..v0.70.0) - 2026-09-27
 #### 🚀 Features
 - (**cli**) run clippy-findings under --locked and allow feature selection - ([a91b69b](https://github.com/rsvalerio/ops/commit/a91b69b5adc4de3334552a40e206fb526af20f76)) - [@rsvalerio](https://github.com/rsvalerio), Claude Opus 5.5 (1M context)
