@@ -34,6 +34,7 @@ brew install rsvalerio/tap/ops
 apt (Debian and Ubuntu, amd64 and arm64):
 
 ```bash
+sudo apt update && sudo apt install -y curl gpg
 sudo install -d -m 0755 /etc/apt/keyrings
 curl -fsSL https://rsvalerio.github.io/apt/public.key \
   | sudo gpg --dearmor -o /etc/apt/keyrings/rsvalerio.gpg
