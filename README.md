@@ -106,7 +106,6 @@ Release notes are in [CHANGELOG.md](CHANGELOG.md).
 ### CLI
 
 ```bash
-```bash
 # Initialize config for your project (auto-detects stack)
 ops init
 
@@ -121,7 +120,6 @@ ops qa
 
 # Add a new command interactively
 ops new-command "cargo fmt --check"
-```
 ```
 
 Run `ops --help` for the commands available in the current project, grouped by

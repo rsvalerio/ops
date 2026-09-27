@@ -96,7 +96,7 @@ ops verify   # fmt, check, clippy, build
 ops qa       # deps, test, test-doc, sec
 ```
 
-Without `ops`, the equivalent cargo commands are:
+Without `ops`, these cargo commands cover the format, lint and test legs only:
 
 ```bash
 cargo fmt
@@ -104,6 +104,9 @@ cargo clippy --all-targets --workspace -- -D warnings
 cargo nextest run --workspace --all-features
 cargo test --workspace --doc
 ```
+
+The dependency and security checks have no single cargo equivalent, so run
+`ops deps` and `ops sec` for those.
 
 ## Commit messages
 

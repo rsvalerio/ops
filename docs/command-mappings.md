@@ -26,8 +26,8 @@ Below, **exec** lines are `program` plus `args` from config. **Composite** comma
 | `next-ignored` | `cargo nextest run --workspace --all-features --run-ignored ignored-only` |
 | `clean` | `cargo clean` |
 | `verify` | composite: `fmt`, `trailing-whitespace`, `end-of-file-fixer`, `clippy`, `build`, `check-json`, `check-yaml`, `doc` (staged parallel, fail-fast) |
-| `qa` | composite: `deps`, `test`, `test-ignored`, `test-doc`, `sec` (sequential, fail-fast) |
-| `qa-next` (`qax`) | composite: `deps`, `next`, `next-ignored`, `test-doc`, `sec` (sequential, fail-fast) |
+| `qa` | composite: `deps`, `test`, `test-doc`, `sec` (sequential, fail-fast) |
+| `qa-next` (`qax`) | composite: `deps`, `next`, `test-doc`, `sec` (sequential, fail-fast) |
 
 **`--all-targets` on `test`:** deliberately absent. For `cargo test` the flag
 *disables* doctests ("Test all targets (does not include doctests)"), so adding
