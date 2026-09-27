@@ -2,6 +2,15 @@
 All notable changes to this project will be documented in this file. See [conventional commits](https://www.conventionalcommits.org/) for commit guidelines.
 
 - - -
+## [v0.70.0](https://github.com/rsvalerio/ops/compare/30bc1ada1d3866aeb869916ecd24b9d5644fbe0a..v0.70.0) - 2026-09-27
+#### 🚀 Features
+- (**cli**) run clippy-findings under --locked and allow feature selection - ([a91b69b](https://github.com/rsvalerio/ops/commit/a91b69b5adc4de3334552a40e206fb526af20f76)) - [@rsvalerio](https://github.com/rsvalerio), Claude Opus 5.5 (1M context)
+#### ⚙️ Miscellaneous
+- (**backlog**) close TASK-2309 - ([27059ac](https://github.com/rsvalerio/ops/commit/27059acd5a3f294188eec15829c5372376d44f84)) - [@rsvalerio](https://github.com/rsvalerio), Claude Opus 5.5 (1M context)
+- (**backlog**) close TASK-2302 after the first live apt publish - ([30bc1ad](https://github.com/rsvalerio/ops/commit/30bc1ada1d3866aeb869916ecd24b9d5644fbe0a)) - [@rsvalerio](https://github.com/rsvalerio), Claude Opus 5.5 (1M context)
+
+- - -
+
 ## [v0.69.0](https://github.com/rsvalerio/ops/compare/4c6798f8e3d31d64068a2e84e1398cd99317b522..v0.69.0) - 2026-09-27
 #### 🚀 Features
 - add contributing guide, security policy and code of conduct - ([0b0d652](https://github.com/rsvalerio/ops/commit/0b0d652feb16c6a1580657832e6cecaafa0f5964)) - [@rsvalerio](https://github.com/rsvalerio), Claude Opus 5.5 (1M context)
