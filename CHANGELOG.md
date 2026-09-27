@@ -2,6 +2,25 @@
 All notable changes to this project will be documented in this file. See [conventional commits](https://www.conventionalcommits.org/) for commit guidelines.
 
 - - -
+## [v0.69.0](https://github.com/rsvalerio/ops/compare/4c6798f8e3d31d64068a2e84e1398cd99317b522..v0.69.0) - 2026-09-27
+#### 🚀 Features
+- add contributing guide, security policy and code of conduct - ([0b0d652](https://github.com/rsvalerio/ops/commit/0b0d652feb16c6a1580657832e6cecaafa0f5964)) - [@rsvalerio](https://github.com/rsvalerio), Claude Opus 5.5 (1M context)
+#### 📚 Documentation
+- (**agents**) adopt the agents.md section layout - ([d53948f](https://github.com/rsvalerio/ops/commit/d53948fbd068335cbb6b1fb6c8d655b37e874d83)) - [@rsvalerio](https://github.com/rsvalerio), Claude Opus 5.5 (1M context)
+- (**readme**) follow the standard-readme spec and move reference material to docs/ - ([39615ec](https://github.com/rsvalerio/ops/commit/39615ec364245e1dcf6cbebde712e002f7af4d2c)) - [@rsvalerio](https://github.com/rsvalerio), Claude Opus 5.5 (1M context)
+- (**readme**) install curl and gpg before adding the apt key - ([fed4e96](https://github.com/rsvalerio/ops/commit/fed4e96ec1a9a9dbbd7670d08c4f759d218a80da)) - [@rsvalerio](https://github.com/rsvalerio), Claude Opus 5.5 (1M context)
+- (**readme**) document apt installation - ([fbc609b](https://github.com/rsvalerio/ops/commit/fbc609b41f133ffa8720f42afa553f19b079089e)) - [@rsvalerio](https://github.com/rsvalerio), Claude Opus 5.5 (1M context)
+- fix the README usage fences and the Rust qa composites in command-mappings - ([cc9a9ab](https://github.com/rsvalerio/ops/commit/cc9a9ab9486a842fcc33cc69a822357af4662a81)) - [@rsvalerio](https://github.com/rsvalerio), Claude Opus 5.5 (1M context)
+- point code comments at the docs pages that now hold the README reference - ([aba31b6](https://github.com/rsvalerio/ops/commit/aba31b6a8477258bc20425e785ebb90201d01027)) - [@rsvalerio](https://github.com/rsvalerio), Claude Opus 5.5 (1M context)
+#### 🔄 CI/CD
+- (**release**) publish .debs to rsvalerio/apt for real (drop dry-run) - ([4c6798f](https://github.com/rsvalerio/ops/commit/4c6798f8e3d31d64068a2e84e1398cd99317b522)) - [@rsvalerio](https://github.com/rsvalerio), Claude Opus 5.5 (1M context)
+#### ⚙️ Miscellaneous
+- (**backlog**) record TASK-2302 release gap and container install check - ([31eda76](https://github.com/rsvalerio/ops/commit/31eda7608d2a7ca304d653377e0ea16f84fdcffa)) - [@rsvalerio](https://github.com/rsvalerio), Claude Opus 5.5 (1M context)
+- (**backlog**) close TASK-2277 after dbsec adopted the matrix doc-default - ([968b501](https://github.com/rsvalerio/ops/commit/968b501a576628cd3c68821653d5eef8716a8c08)) - [@rsvalerio](https://github.com/rsvalerio), Claude Opus 5.5 (1M context)
+- (**backlog**) record TASK-2302 dry-run results - ([a9be77e](https://github.com/rsvalerio/ops/commit/a9be77e0d281e51836df8f2de8850bd4f787433a)) - [@rsvalerio](https://github.com/rsvalerio), Claude Opus 5.5 (1M context)
+
+- - -
+
 ## [v0.68.0](https://github.com/rsvalerio/ops/compare/09d646c34dd14c923122239394e3b422dbaa0d9a..v0.68.0) - 2026-09-26
 #### 🚀 Features
 - (**about**) merge rustflags arrays across cargo config layers - ([746c084](https://github.com/rsvalerio/ops/commit/746c0848862a868cdbbe41e1722f1331b9501c08)) - [@rsvalerio](https://github.com/rsvalerio), Claude Opus 5.5 (1M context)
