@@ -1,10 +1,10 @@
 ---
 id: TASK-2310
 title: 'ops about dependencies --duplicates: filter by target platform'
-status: To Do
+status: Done
 assignee: []
 created_date: '2026-09-27 15:20'
-updated_date: '2026-09-27 15:25'
+updated_date: '2026-09-27 15:56'
 labels:
   - feature
   - about
@@ -35,7 +35,14 @@ Source: re-eval of `rust-make-build-fast` on ops @ d3a50ef7 and dbsec, 2026-09-2
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 By default --duplicates uses the host target and leaves out crates only reachable through other targets' cfg edges
-- [ ] #2 A --target <triple> option selects other targets, and --target all keeps today's behaviour
-- [ ] #3 Every listed older version has a non-empty pulledBy, including ones reached through cfg(target) edges
+- [x] #1 By default --duplicates uses the host target and leaves out crates only reachable through other targets' cfg edges
+- [x] #2 A --target <triple> option selects other targets, and --target all keeps today's behaviour
+- [x] #3 Every listed older version has a non-empty pulledBy, including ones reached through cfg(target) edges
+
 <!-- AC:END -->
+
+## Implementation Notes
+
+<!-- SECTION:NOTES:BEGIN -->
+Implemented in wave TASK-2314: `--target <triple>` (repeatable, `all` = no filter; default host from `rustc -vV`) on `ops about dependencies --duplicates`. Edges gated on `cfg(..)` are evaluated against `rustc --print cfg --target <triple>` (reusing ops_about::machine::cfg_matches); bare-triple edges match by name; an edge counts if any selected target admits it (cargo tree union rule). The target reaches the provider through a new builder-only `Context::with_arg` / `Context::arg` in ops-extension (clears the cache). On ops: host 18 duplicates, `--target all` 27 (the 9 dropped are windows-*). AC #3: the empty-pulledBy symptom did not reproduce on the current lockfile of ops or dbsec; reachability and pullers are computed over the same filtered edge set, and a test pins a non-empty puller through cfg(windows) and triple-gated edges.
+<!-- SECTION:NOTES:END -->

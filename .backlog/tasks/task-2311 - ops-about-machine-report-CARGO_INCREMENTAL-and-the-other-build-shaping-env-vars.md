@@ -1,10 +1,10 @@
 ---
 id: TASK-2311
 title: 'ops about machine: report CARGO_INCREMENTAL and the other build-shaping env vars'
-status: To Do
+status: Done
 assignee: []
 created_date: '2026-09-27 15:20'
-updated_date: '2026-09-27 15:25'
+updated_date: '2026-09-27 15:56'
 labels:
   - feature
   - about
@@ -31,6 +31,13 @@ Source: re-eval of `rust-make-build-fast` on ops and dbsec, 2026-09-27.
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 `ops about machine --json` reports cargo.incremental with its value and source (env, config file, or default)
-- [ ] #2 A test pins the env and config precedence
+- [x] #1 `ops about machine --json` reports cargo.incremental with its value and source (env, config file, or default)
+- [x] #2 A test pins the env and config precedence
+
 <!-- AC:END -->
+
+## Implementation Notes
+
+<!-- SECTION:NOTES:BEGIN -->
+Implemented in wave TASK-2314: cargo.incremental {value, source} in `ops about machine` (JSON + text): CARGO_INCREMENTAL > CARGO_BUILD_INCREMENTAL > build.incremental (nearest config layer) > {value: profile, source: default}. Test incremental_precedence_is_env_then_config_then_default pins the order. CARGO_BUILD_JOBS was already folded into jobs; CARGO_PROFILE_* overrides not added (not in AC).
+<!-- SECTION:NOTES:END -->
