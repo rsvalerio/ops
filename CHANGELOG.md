@@ -2,6 +2,24 @@
 All notable changes to this project will be documented in this file. See [conventional commits](https://www.conventionalcommits.org/) for commit guidelines.
 
 - - -
+## [v0.72.0](https://github.com/rsvalerio/ops/compare/f24747592b33a708a999fa2d5be97204322b0a14..v0.72.0) - 2026-09-27
+#### 🚀 Features
+- (**about**) report per-profile incremental in about machine - ([b48dd38](https://github.com/rsvalerio/ops/commit/b48dd3838052a52a1439605215ac5e3e6aa482b5)) - [@rsvalerio](https://github.com/rsvalerio), Claude Opus 5.5 (1M context)
+- ![BREAKING](https://img.shields.io/badge/BREAKING-red) (**cli**) make clippy-findings schema v2 the default - ([f405569](https://github.com/rsvalerio/ops/commit/f40556971e300da51ba0d1907e0379abf78621ba)) - [@rsvalerio](https://github.com/rsvalerio), Claude Opus 5.5 (1M context)
+#### 🐛 Bug Fixes
+- (**about**) follow cargo config includes in about machine - ([5a566b0](https://github.com/rsvalerio/ops/commit/5a566b04a97088d6d04ae6c313e7338ded15ffa9)) - [@rsvalerio](https://github.com/rsvalerio), Claude Opus 5.5 (1M context)
+- (**about**) prefer .cargo/config over config.toml like cargo does - ([525f7e8](https://github.com/rsvalerio/ops/commit/525f7e838c4e0278d5eb1ce8e33e831d9e383699)) - [@rsvalerio](https://github.com/rsvalerio), Claude Opus 5.5 (1M context)
+- (**about**) gate build-dependency and proc-macro edges on the host - ([02fd21c](https://github.com/rsvalerio/ops/commit/02fd21ced9bccb112f9d8ff3009a4ef0f1be12e5)) - [@rsvalerio](https://github.com/rsvalerio), Claude Opus 5.5 (1M context)
+#### 🧪 Testing
+- (**tfplan**) write terraform stubs out of process to avoid ETXTBSY - ([f247475](https://github.com/rsvalerio/ops/commit/f24747592b33a708a999fa2d5be97204322b0a14)) - [@rsvalerio](https://github.com/rsvalerio), Claude Opus 5.5 (1M context)
+#### ⚙️ Miscellaneous
+- (**backlog**) close TASK-2317 - ([818bf82](https://github.com/rsvalerio/ops/commit/818bf82d1231ac608de6e209f68ff18b2a2ce3ba)) - [@rsvalerio](https://github.com/rsvalerio), Claude Opus 5.5 (1M context)
+- (**backlog**) close TASK-2320 - ([38a7080](https://github.com/rsvalerio/ops/commit/38a7080b67e424dbb8efc6a316ace2833fcf98ef)) - [@rsvalerio](https://github.com/rsvalerio), Claude Opus 5.5 (1M context)
+- (**backlog**) close TASK-2319 - ([9ada8d8](https://github.com/rsvalerio/ops/commit/9ada8d8033e36020878aec37c9982c065ad85742)) - [@rsvalerio](https://github.com/rsvalerio), Claude Opus 5.5 (1M context)
+- (**backlog**) close TASK-2318 - ([2fb8bf4](https://github.com/rsvalerio/ops/commit/2fb8bf41629d7d370dac15bbce7e685b5df7b0e3)) - [@rsvalerio](https://github.com/rsvalerio), Claude Opus 5.5 (1M context)
+
+- - -
+
 ## [v0.71.0](https://github.com/rsvalerio/ops/compare/3fe9ed7157ea8a61af6299495e21e91378c40416..v0.71.0) - 2026-09-27
 #### 🚀 Features
 - (**about**) report cargo incremental setting in about machine - ([54e41ba](https://github.com/rsvalerio/ops/commit/54e41ba21a23cb968c3547213b18bd38342173f3)) - [@rsvalerio](https://github.com/rsvalerio), Claude Opus 5.5 (1M context)
