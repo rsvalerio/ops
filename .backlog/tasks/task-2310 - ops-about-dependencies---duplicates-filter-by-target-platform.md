@@ -1,15 +1,17 @@
 ---
 id: TASK-2310
 title: 'ops about dependencies --duplicates: filter by target platform'
-status: Triage
+status: To Do
 assignee: []
 created_date: '2026-09-27 15:20'
+updated_date: '2026-09-27 15:25'
 labels:
   - feature
   - about
   - deps
   - skills-integration
 dependencies: []
+parent_task_id: 'TASK-2314'
 modified_files:
   - extensions/about/src/deps.rs
   - extensions-rust/about/src/deps_provider.rs

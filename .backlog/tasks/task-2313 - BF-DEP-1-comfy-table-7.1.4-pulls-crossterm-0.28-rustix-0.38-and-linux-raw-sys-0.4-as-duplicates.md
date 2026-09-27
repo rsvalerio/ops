@@ -1,15 +1,17 @@
 ---
 id: TASK-2313
 title: 'BF-DEP-1: comfy-table 7.1.4 pulls crossterm 0.28, rustix 0.38 and linux-raw-sys 0.4 as duplicates'
-status: Triage
+status: To Do
 assignee: []
 created_date: '2026-09-27 15:20'
+updated_date: '2026-09-27 15:25'
 labels:
   - rust-make-build-fast
   - build-fast
   - safe
   - dep
 dependencies: []
+parent_task_id: 'TASK-2315'
 modified_files:
   - Cargo.lock
 priority: low

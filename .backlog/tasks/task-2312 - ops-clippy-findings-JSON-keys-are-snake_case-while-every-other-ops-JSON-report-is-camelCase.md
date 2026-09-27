@@ -1,15 +1,17 @@
 ---
 id: TASK-2312
 title: 'ops clippy-findings: JSON keys are snake_case while every other ops JSON report is camelCase'
-status: Triage
+status: To Do
 assignee: []
 created_date: '2026-09-27 15:20'
+updated_date: '2026-09-27 15:25'
 labels:
   - cli
   - clippy
   - json
   - consistency
 dependencies: []
+parent_task_id: 'TASK-2316'
 modified_files:
   - crates/cli/src/clippy_findings_cmd.rs
 priority: low

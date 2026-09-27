@@ -1,14 +1,16 @@
 ---
 id: TASK-2311
 title: 'ops about machine: report CARGO_INCREMENTAL and the other build-shaping env vars'
-status: Triage
+status: To Do
 assignee: []
 created_date: '2026-09-27 15:20'
+updated_date: '2026-09-27 15:25'
 labels:
   - feature
   - about
   - skills-integration
 dependencies: []
+parent_task_id: 'TASK-2314'
 modified_files:
   - extensions/about/src/machine.rs
 priority: low
