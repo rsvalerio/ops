@@ -133,8 +133,9 @@ pub struct ConfigLayer {
 ///
 /// `cwd` and each ancestor's `.cargo/config` or `.cargo/config.toml` (the
 /// legacy `config` when both exist, as cargo picks), then `$CARGO_HOME`'s
-/// when no ancestor already covered it. Unreadable or malformed files are
-/// skipped with a warning.
+/// when no ancestor already covered it. Each file's `include`s follow it as
+/// layers of their own (see [`push_with_includes`]). Unreadable or malformed
+/// files are skipped with a warning.
 #[must_use]
 pub fn config_layers(cwd: &Path, cargo_home: Option<&Path>) -> Vec<ConfigLayer> {
     let mut dirs: Vec<PathBuf> = cwd.ancestors().map(|a| a.join(".cargo")).collect();
@@ -143,16 +144,127 @@ pub fn config_layers(cwd: &Path, cargo_home: Option<&Path>) -> Vec<ConfigLayer> 
             dirs.push(home.to_path_buf());
         }
     }
-    dirs.iter()
-        .filter_map(|dir| {
-            // Cargo reads the legacy extensionless `config` when both exist
-            // (and warns), so it is looked up first.
-            let path = ["config", "config.toml"]
-                .iter()
-                .map(|name| dir.join(name))
-                .find(|p| p.is_file())?;
-            let base = dir.parent().map_or_else(|| dir.clone(), Path::to_path_buf);
-            read_layer(path, base)
+    let mut layers = Vec::new();
+    for dir in &dirs {
+        // Cargo reads the legacy extensionless `config` when both exist
+        // (and warns), so it is looked up first.
+        let Some(path) = ["config", "config.toml"]
+            .iter()
+            .map(|name| dir.join(name))
+            .find(|p| p.is_file())
+        else {
+            continue;
+        };
+        let base = dir.parent().map_or_else(|| dir.clone(), Path::to_path_buf);
+        if let Some(layer) = read_layer(path, base) {
+            push_with_includes(layer, &mut layers, &mut Vec::new());
+        }
+    }
+    layers
+}
+
+/// Push `layer`, then the files its `include` array names, highest
+/// precedence first — cargo merges includes in listed order and the
+/// including file on top, so the last include ranks right below `layer`.
+/// Each include is expanded the same way, its path resolved against the
+/// including file's directory.
+///
+/// Where cargo refuses to load the configuration — a missing non-optional
+/// include, a malformed `include` entry, a path not ending in `.toml`, an
+/// include cycle — the offending include is skipped with a warning.
+fn push_with_includes(layer: ConfigLayer, out: &mut Vec<ConfigLayer>, chain: &mut Vec<PathBuf>) {
+    let includes = include_paths(&layer);
+    chain.push(identity(&layer.path));
+    out.push(layer);
+    for (path, optional) in includes.into_iter().rev() {
+        if chain.contains(&identity(&path)) {
+            tracing::warn!(path = %path.display(), "about/machine: cargo config include cycle");
+            continue;
+        }
+        if optional && !path.is_file() {
+            continue;
+        }
+        // Cargo resolves an included file's relative paths like any other
+        // config file's: against the parent of the directory holding it.
+        let base = path
+            .parent()
+            .and_then(Path::parent)
+            .map_or_else(PathBuf::new, Path::to_path_buf);
+        if let Some(included) = read_layer(path, base) {
+            push_with_includes(included, out, chain);
+        }
+    }
+    chain.pop();
+}
+
+/// A file's identity for cycle detection: its canonical path (so `..` and
+/// symlinks cannot disguise a revisit), or the path itself when it cannot
+/// be resolved.
+fn identity(path: &Path) -> PathBuf {
+    path.canonicalize().unwrap_or_else(|_| path.to_path_buf())
+}
+
+/// Drop `.` and fold `dir/..` lexically, so a reported source reads
+/// `.cargo/config.toml` rather than `.cargo/sub/../config.toml`.
+fn fold_dots(path: &Path) -> PathBuf {
+    use std::path::Component;
+    let mut out = PathBuf::new();
+    for component in path.components() {
+        match component {
+            Component::CurDir => {}
+            Component::ParentDir
+                if matches!(out.components().next_back(), Some(Component::Normal(_))) =>
+            {
+                out.pop();
+            }
+            other => out.push(other),
+        }
+    }
+    out
+}
+
+/// The `include` entries of `layer`, in listed order, as `(path, optional)`
+/// with each path resolved against the including file's directory. Cargo
+/// accepts an array of strings or of `{ path, optional }` tables, each
+/// path ending in `.toml`; anything else is skipped with a warning.
+fn include_paths(layer: &ConfigLayer) -> Vec<(PathBuf, bool)> {
+    let Some(value) = layer.table.get("include") else {
+        return Vec::new();
+    };
+    let warn = |what: &str| {
+        tracing::warn!(path = %layer.path.display(), "about/machine: ignoring cargo config include: {what}");
+    };
+    let Some(entries) = value.as_array() else {
+        warn("not an array");
+        return Vec::new();
+    };
+    let dir = layer.path.parent().unwrap_or_else(|| Path::new(""));
+    entries
+        .iter()
+        .filter_map(|entry| {
+            let (path, optional) = match entry {
+                toml::Value::String(path) => (path.as_str(), false),
+                toml::Value::Table(t) => {
+                    let Some(path) = t.get("path").and_then(toml::Value::as_str) else {
+                        warn("table entry without a `path` string");
+                        return None;
+                    };
+                    let optional = t
+                        .get("optional")
+                        .and_then(toml::Value::as_bool)
+                        .unwrap_or(false);
+                    (path, optional)
+                }
+                _ => {
+                    warn("entry is neither a string nor a table");
+                    return None;
+                }
+            };
+            if Path::new(path).extension().is_none_or(|ext| ext != "toml") {
+                warn("path does not end in `.toml`");
+                return None;
+            }
+            Some((fold_dots(&dir.join(path)), optional))
         })
         .collect()
 }
@@ -1561,6 +1673,88 @@ mod tests {
                 value: "false".to_string(),
                 source: root.join(".cargo/config").display().to_string(),
             }
+        );
+    }
+
+    /// Cargo merges `include = ["a.toml", "b.toml"]` in listed order with
+    /// the including file on top, so layers rank: including file, `b`,
+    /// `b`'s own includes (relative to `b`), then `a`. Optional missing
+    /// files, non-`.toml` paths and cycles are skipped.
+    #[test]
+    fn config_includes_follow_their_file_in_cargo_precedence() {
+        let dir = tempfile::tempdir().expect("tempdir");
+        let root = dir.path();
+        let cargo = root.join(".cargo");
+        std::fs::create_dir_all(cargo.join("sub")).expect("mkdir");
+        let write = |rel: &str, text: &str| std::fs::write(cargo.join(rel), text).expect("write");
+        write(
+            "config.toml",
+            "include = [\"a.toml\", { path = \"missing.toml\", optional = true }, \"x.json\", \"sub/b.toml\"]\n",
+        );
+        write("a.toml", "[profile.dev]\nincremental = true\n");
+        write(
+            "sub/b.toml",
+            "include = [\"c.toml\", \"../config.toml\"]\n[profile.release]\nincremental = true\n",
+        );
+        write("sub/c.toml", "[profile.dev]\nincremental = false\n");
+
+        let layers = config_layers(root, None);
+        let paths: Vec<PathBuf> = layers.iter().map(|l| l.path.clone()).collect();
+        assert_eq!(
+            paths,
+            [
+                cargo.join("config.toml"),
+                cargo.join("sub/b.toml"),
+                cargo.join("sub/c.toml"),
+                cargo.join("a.toml"),
+            ]
+        );
+        assert_eq!(
+            layers[1].base, cargo,
+            "base is the included file's grandparent"
+        );
+
+        let profiles = resolve_cargo_settings(&layers, &no_env, root, None, HostTarget::default())
+            .incremental_profiles
+            .expect("no global override");
+        assert_eq!(
+            profiles.dev,
+            Setting {
+                value: "false".to_string(),
+                source: cargo.join("sub/c.toml").display().to_string(),
+            },
+            "the later include (b, via c) overrides the earlier one (a)"
+        );
+        assert_eq!(profiles.release.value, "true");
+
+        // The including file's own value beats every include.
+        write(
+            "config.toml",
+            "include = [\"a.toml\"]\n[profile.dev]\nincremental = false\n",
+        );
+        let layers = config_layers(root, None);
+        let profiles = resolve_cargo_settings(&layers, &no_env, root, None, HostTarget::default())
+            .incremental_profiles
+            .expect("no global override");
+        assert_eq!(
+            profiles.dev.source,
+            cargo.join("config.toml").display().to_string()
+        );
+    }
+
+    #[test]
+    fn fold_dots_folds_parent_and_current_components() {
+        assert_eq!(
+            fold_dots(Path::new("/w/.cargo/sub/../config.toml")),
+            PathBuf::from("/w/.cargo/config.toml")
+        );
+        assert_eq!(
+            fold_dots(Path::new("/w/./.cargo/a.toml")),
+            PathBuf::from("/w/.cargo/a.toml")
+        );
+        assert_eq!(
+            fold_dots(Path::new("../x.toml")),
+            PathBuf::from("../x.toml")
         );
     }
 
