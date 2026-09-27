@@ -30,7 +30,10 @@ use anyhow::{bail, Context, Result};
 use serde::{Deserialize, Serialize};
 
 /// Version of the JSON report; bump on any incompatible row change.
-pub const SCHEMA_VERSION: u32 = 1;
+///
+/// v2 renamed every key to camelCase (`schemaVersion`, `manifestDir`, …),
+/// matching the other versioned ops JSON reports.
+pub const SCHEMA_VERSION: u32 = 2;
 
 /// The `kind` discriminator of the JSON report.
 const REPORT_KIND: &str = "clippy-findings";
@@ -69,6 +72,7 @@ const METADATA_TIMEOUT: Duration = Duration::from_secs(60);
 
 /// One Clippy diagnostic. Field order is the report's sort order.
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Serialize)]
+#[serde(rename_all = "camelCase")]
 pub struct Finding {
     /// Repo-relative file of the primary span, `/`-separated; the crate's
     /// `Cargo.toml` for a spanless diagnostic.
@@ -93,6 +97,7 @@ pub struct Finding {
 
 /// The versioned JSON report printed on stdout.
 #[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
 pub struct Report {
     pub schema_version: u32,
     pub kind: &'static str,
@@ -682,7 +687,8 @@ mod tests {
     #[test]
     fn rows_carry_the_normalized_identity() {
         let report = report("/home/a/ops");
-        assert_eq!(report["schema_version"], 1);
+        assert_eq!(report["schemaVersion"], SCHEMA_VERSION);
+        assert_eq!(report["schemaVersion"], 2);
         assert_eq!(report["kind"], "clippy-findings");
         let first = report["findings"]
             .as_array()
@@ -692,9 +698,9 @@ mod tests {
             .unwrap();
         assert_eq!(first["lint"], "single_match_else");
         assert_eq!(first["package"], "ops@0.65.0");
-        assert_eq!(first["manifest_dir"], "crates/cli");
+        assert_eq!(first["manifestDir"], "crates/cli");
         assert_eq!(first["target"], "ops");
-        assert_eq!(first["target_kind"], "bin");
+        assert_eq!(first["targetKind"], "bin");
         assert_eq!(first["file"], "crates/cli/src/main.rs");
         assert_eq!(first["line"], 10);
         assert_eq!(first["column"], 5);
@@ -725,7 +731,7 @@ mod tests {
             .map(|f| {
                 (
                     f["file"].as_str().unwrap(),
-                    f["manifest_dir"].as_str().unwrap(),
+                    f["manifestDir"].as_str().unwrap(),
                 )
             })
             .collect();
@@ -735,12 +741,49 @@ mod tests {
         );
     }
 
+    /// Pins the v2 wire format: camelCase keys, like every other ops JSON
+    /// report. A rename here is an incompatible change — bump
+    /// `SCHEMA_VERSION` and update this list.
+    #[test]
+    fn report_keys_are_camel_case() {
+        fn keys(v: &serde_json::Value) -> Vec<&str> {
+            let mut keys: Vec<_> = v.as_object().unwrap().keys().map(String::as_str).collect();
+            keys.sort_unstable();
+            keys
+        }
+        let report = report("/home/a/ops");
+        assert_eq!(
+            keys(&report),
+            [
+                "droppedOutOfTree",
+                "findings",
+                "kind",
+                "rustcWarnings",
+                "schemaVersion"
+            ]
+        );
+        assert_eq!(
+            keys(&report["findings"][0]),
+            [
+                "column",
+                "file",
+                "line",
+                "lint",
+                "manifestDir",
+                "message",
+                "package",
+                "target",
+                "targetKind"
+            ]
+        );
+    }
+
     #[test]
     fn out_of_tree_and_rustc_warnings_are_counted_not_reported() {
         let report = report("/home/a/ops");
         assert_eq!(report["findings"].as_array().unwrap().len(), 4);
-        assert_eq!(report["dropped_out_of_tree"], 4);
-        assert_eq!(report["rustc_warnings"], 1);
+        assert_eq!(report["droppedOutOfTree"], 4);
+        assert_eq!(report["rustcWarnings"], 1);
     }
 
     #[test]
