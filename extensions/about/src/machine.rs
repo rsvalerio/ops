@@ -131,9 +131,10 @@ pub struct ConfigLayer {
 
 /// Find and parse every cargo config layer for `cwd`, highest precedence first.
 ///
-/// `cwd` and each ancestor's `.cargo/config.toml` (or legacy
-/// `.cargo/config`), then `$CARGO_HOME`'s when no ancestor already
-/// covered it. Unreadable or malformed files are skipped with a warning.
+/// `cwd` and each ancestor's `.cargo/config` or `.cargo/config.toml` (the
+/// legacy `config` when both exist, as cargo picks), then `$CARGO_HOME`'s
+/// when no ancestor already covered it. Unreadable or malformed files are
+/// skipped with a warning.
 #[must_use]
 pub fn config_layers(cwd: &Path, cargo_home: Option<&Path>) -> Vec<ConfigLayer> {
     let mut dirs: Vec<PathBuf> = cwd.ancestors().map(|a| a.join(".cargo")).collect();
@@ -144,7 +145,9 @@ pub fn config_layers(cwd: &Path, cargo_home: Option<&Path>) -> Vec<ConfigLayer> 
     }
     dirs.iter()
         .filter_map(|dir| {
-            let path = ["config.toml", "config"]
+            // Cargo reads the legacy extensionless `config` when both exist
+            // (and warns), so it is looked up first.
+            let path = ["config", "config.toml"]
                 .iter()
                 .map(|name| dir.join(name))
                 .find(|p| p.is_file())?;
@@ -1526,6 +1529,39 @@ mod tests {
             "malformed home config is skipped"
         );
         assert_eq!(layers[1].base, root);
+    }
+
+    /// With both `.cargo/config` and `.cargo/config.toml` in one directory,
+    /// cargo uses `config` (and warns); so does the report, value and source.
+    #[test]
+    fn legacy_config_wins_over_config_toml_in_one_directory() {
+        let dir = tempfile::tempdir().expect("tempdir");
+        let root = dir.path();
+        std::fs::create_dir_all(root.join(".cargo")).expect("mkdir");
+        std::fs::write(
+            root.join(".cargo/config"),
+            "[profile.dev]\nincremental = false\n",
+        )
+        .expect("write");
+        std::fs::write(
+            root.join(".cargo/config.toml"),
+            "[profile.dev]\nincremental = true\n",
+        )
+        .expect("write");
+
+        let layers = config_layers(root, None);
+        let paths: Vec<PathBuf> = layers.iter().map(|l| l.path.clone()).collect();
+        assert_eq!(paths, [root.join(".cargo/config")]);
+        let profiles = resolve_cargo_settings(&layers, &no_env, root, None, HostTarget::default())
+            .incremental_profiles
+            .expect("no global override");
+        assert_eq!(
+            profiles.dev,
+            Setting {
+                value: "false".to_string(),
+                source: root.join(".cargo/config").display().to_string(),
+            }
+        );
     }
 
     #[test]
