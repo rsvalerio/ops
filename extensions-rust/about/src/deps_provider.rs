@@ -2,7 +2,7 @@
 //!
 //! Queries `SQLite` for per-crate direct dependencies via cargo metadata.
 
-use std::collections::{BTreeMap, BTreeSet, HashMap};
+use std::collections::{BTreeMap, BTreeSet, HashMap, HashSet};
 use std::ffi::OsStr;
 use std::path::Path;
 use std::process::Command;
@@ -111,37 +111,61 @@ pub struct TargetPlatform {
     pub cfg: Vec<String>,
 }
 
+impl TargetPlatform {
+    /// Whether an edge gated on `gate` (a triple or a `cfg(..)`
+    /// expression) is active on this platform.
+    fn admits(&self, gate: &str) -> bool {
+        if gate.trim_start().starts_with("cfg(") {
+            cfg_matches(gate, &self.cfg)
+        } else {
+            gate.trim() == self.triple
+        }
+    }
+}
+
+/// Which platform a crate is compiled for. Build scripts' dependencies,
+/// proc-macros and everything beneath either run on the host, whatever
+/// `--target` says.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
+enum Side {
+    Target,
+    Host,
+}
+
 /// Which dependency edges count, by the platform they are gated on — the
 /// `cargo tree --target` rule.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum PlatformFilter {
     /// Every edge, whatever platform it is gated on (`--target all`).
     All,
-    /// Ungated edges, plus gated edges active on any of these targets.
-    Targets(Vec<TargetPlatform>),
+    /// Ungated edges, plus gated edges active on any of `targets` — or, for
+    /// an edge compiled for the host (beneath a build-dependency or a
+    /// proc-macro), active on `host`.
+    Targets {
+        targets: Vec<TargetPlatform>,
+        host: TargetPlatform,
+    },
 }
 
 impl PlatformFilter {
     /// Whether an edge gated on `target` (a `dep_kinds[].target` from
     /// `cargo metadata`: a triple, a `cfg(..)` expression, or absent)
-    /// is active under this filter.
-    fn admits(&self, target: Option<&str>) -> bool {
+    /// is active under this filter for a crate compiled on `side`.
+    fn admits(&self, target: Option<&str>, side: Side) -> bool {
         match (self, target) {
-            (Self::All, _) | (Self::Targets(_), None) => true,
-            (Self::Targets(platforms), Some(target)) => platforms.iter().any(|p| {
-                if target.trim_start().starts_with("cfg(") {
-                    cfg_matches(target, &p.cfg)
-                } else {
-                    target.trim() == p.triple
-                }
-            }),
+            (Self::All, _) | (Self::Targets { .. }, None) => true,
+            (Self::Targets { targets, host }, Some(gate)) => match side {
+                Side::Target => targets.iter().any(|p| p.admits(gate)),
+                Side::Host => host.admits(gate),
+            },
         }
     }
 }
 
 /// Resolve the `--target` context argument: absent → the host triple
 /// (`rustc -vV`), any `all` → [`PlatformFilter::All`], otherwise each
-/// comma-separated triple with its `rustc --print cfg --target` atoms.
+/// comma-separated triple with its `rustc --print cfg --target` atoms. The
+/// host is always probed too: host-compiled edges are matched against it.
 ///
 /// `rustc` is `$RUSTC` or `rustc` on PATH, run in `working_dir` so a
 /// `rust-toolchain.toml` there picks the project's toolchain.
@@ -165,30 +189,37 @@ fn platform_filter(
         return Ok(PlatformFilter::All);
     }
     let rustc = std::env::var_os("RUSTC").unwrap_or_else(|| "rustc".into());
-    let triples = if requested.is_empty() {
-        let host =
-            parse_rustc_host(&rustc_stdout(&rustc, &["-vV"], working_dir)?).ok_or_else(|| {
-                DataProviderError::computation_failed("`rustc -vV` printed no host triple")
-            })?;
-        vec![host]
-    } else {
-        requested.into_iter().map(str::to_string).collect()
-    };
-    triples
-        .into_iter()
-        .map(|triple| {
-            let cfg = rustc_stdout(
-                &rustc,
-                &["--print", "cfg", "--target", &triple],
-                working_dir,
-            )?;
-            Ok(TargetPlatform {
-                cfg: parse_rustc_cfg(&cfg),
-                triple,
-            })
+    let probe = |triple: String| -> Result<TargetPlatform, DataProviderError> {
+        let cfg = rustc_stdout(
+            &rustc,
+            &["--print", "cfg", "--target", &triple],
+            working_dir,
+        )?;
+        Ok(TargetPlatform {
+            cfg: parse_rustc_cfg(&cfg),
+            triple,
         })
-        .collect::<Result<_, _>>()
-        .map(PlatformFilter::Targets)
+    };
+    let host_triple =
+        parse_rustc_host(&rustc_stdout(&rustc, &["-vV"], working_dir)?).ok_or_else(|| {
+            DataProviderError::computation_failed("`rustc -vV` printed no host triple")
+        })?;
+    let host = probe(host_triple)?;
+    let targets = if requested.is_empty() {
+        vec![host.clone()]
+    } else {
+        requested
+            .into_iter()
+            .map(|triple| {
+                if triple == host.triple {
+                    Ok(host.clone())
+                } else {
+                    probe(triple.to_string())
+                }
+            })
+            .collect::<Result<_, _>>()?
+    };
+    Ok(PlatformFilter::Targets { targets, host })
 }
 
 /// Stdout of `rustc <args>`, or an error naming the command and its stderr.
@@ -252,62 +283,111 @@ fn package_index(metadata: &serde_json::Value) -> HashMap<&str, (&str, &str)> {
         .collect()
 }
 
-/// Whether one `resolve.nodes[].deps[]` entry counts: when kinds are
-/// absent, or when any of its `dep_kinds` is both of a counted kind (every
-/// kind with `include_dev`, otherwise normal (`null`) or `build`) and gated
-/// on a platform `platforms` admits.
-fn edge_counts(dep: &serde_json::Value, include_dev: bool, platforms: &PlatformFilter) -> bool {
-    let Some(kinds) = dep
-        .get("dep_kinds")
+/// Package ids with a `proc-macro` target: compiled for the host.
+fn proc_macros(metadata: &serde_json::Value) -> HashSet<&str> {
+    metadata
+        .get("packages")
         .and_then(serde_json::Value::as_array)
-        .filter(|kinds| !kinds.is_empty())
-    else {
-        return true;
-    };
-    kinds.iter().any(|k| {
-        let kind_counts = include_dev
-            || k.get("kind")
-                .is_none_or(|kind| kind.is_null() || kind.as_str() == Some("build"));
-        kind_counts && platforms.admits(k.get("target").and_then(serde_json::Value::as_str))
-    })
-}
-
-/// Edges of the resolve graph that count under [`edge_counts`].
-fn resolve_edges<'a>(
-    metadata: &'a serde_json::Value,
-    include_dev: bool,
-    platforms: &PlatformFilter,
-) -> HashMap<&'a str, Vec<&'a str>> {
-    let nodes = metadata
-        .pointer("/resolve/nodes")
-        .and_then(serde_json::Value::as_array);
-    nodes
         .into_iter()
         .flatten()
-        .filter_map(|node| {
-            let id = node.get("id")?.as_str()?;
-            let deps = node
-                .get("deps")
+        .filter(|p| {
+            p.get("targets")
                 .and_then(serde_json::Value::as_array)
                 .into_iter()
                 .flatten()
-                .filter(|d| edge_counts(d, include_dev, platforms))
-                .filter_map(|d| d.get("pkg")?.as_str())
-                .collect();
-            Some((id, deps))
+                .filter_map(|t| t.get("kind")?.as_array())
+                .flatten()
+                .any(|k| k.as_str() == Some("proc-macro"))
+        })
+        .filter_map(|p| p.get("id")?.as_str())
+        .collect()
+}
+
+/// A package in the resolve graph, on the side it is compiled for.
+type Unit<'a> = (&'a str, Side);
+
+/// Where one `resolve.nodes[].deps[]` entry leads from a crate compiled on
+/// `side`: nowhere when none of its `dep_kinds` is both of a counted kind
+/// (every kind with `include_dev`, otherwise normal (`null`) or `build`)
+/// and gated on a platform `platforms` admits for `side`; absent kinds
+/// count as one ungated normal edge. A `build` edge, a proc-macro and
+/// anything already on the host lead to the host side.
+fn edge_sides(
+    dep: &serde_json::Value,
+    side: Side,
+    include_dev: bool,
+    platforms: &PlatformFilter,
+    host_compiled: bool,
+) -> BTreeSet<Side> {
+    let ungated = [serde_json::Value::Null];
+    let kinds = dep
+        .get("dep_kinds")
+        .and_then(serde_json::Value::as_array)
+        .filter(|kinds| !kinds.is_empty())
+        .map_or(&ungated[..], Vec::as_slice);
+    kinds
+        .iter()
+        .filter_map(|k| {
+            let kind = k.get("kind").and_then(serde_json::Value::as_str);
+            let is_build = kind == Some("build");
+            let kind_counts = include_dev || kind.is_none() || is_build;
+            let admitted =
+                platforms.admits(k.get("target").and_then(serde_json::Value::as_str), side);
+            (kind_counts && admitted).then_some(
+                if side == Side::Host || is_build || host_compiled {
+                    Side::Host
+                } else {
+                    Side::Target
+                },
+            )
         })
         .collect()
 }
 
-fn closure<'a>(start: &[&'a str], edges: &HashMap<&'a str, Vec<&'a str>>) -> BTreeSet<&'a str> {
-    let mut seen: BTreeSet<&str> = BTreeSet::new();
-    let mut stack: Vec<&str> = start.to_vec();
-    while let Some(id) = stack.pop() {
-        if seen.insert(id) {
-            stack.extend(edges.get(id).into_iter().flatten().copied());
+/// Edges of the resolve graph that count under [`edge_sides`], from each
+/// package on each side.
+fn resolve_edges<'a>(
+    metadata: &'a serde_json::Value,
+    include_dev: bool,
+    platforms: &PlatformFilter,
+) -> HashMap<Unit<'a>, Vec<Unit<'a>>> {
+    let host_compiled = proc_macros(metadata);
+    let nodes = metadata
+        .pointer("/resolve/nodes")
+        .and_then(serde_json::Value::as_array);
+    let mut edges = HashMap::new();
+    for node in nodes.into_iter().flatten() {
+        let Some(id) = node.get("id").and_then(serde_json::Value::as_str) else {
+            continue;
+        };
+        let deps = node.get("deps").and_then(serde_json::Value::as_array);
+        for side in [Side::Target, Side::Host] {
+            let next: Vec<Unit<'a>> = deps
+                .into_iter()
+                .flatten()
+                .filter_map(|d| Some((d, d.get("pkg")?.as_str()?)))
+                .flat_map(|(d, pkg)| {
+                    edge_sides(d, side, include_dev, platforms, host_compiled.contains(pkg))
+                        .into_iter()
+                        .map(move |next| (pkg, next))
+                })
+                .collect();
+            edges.insert((id, side), next);
         }
     }
-    seen
+    edges
+}
+
+/// Package ids reachable from `start`, on whichever side.
+fn closure<'a>(start: &[Unit<'a>], edges: &HashMap<Unit<'a>, Vec<Unit<'a>>>) -> BTreeSet<&'a str> {
+    let mut seen: BTreeSet<Unit<'a>> = BTreeSet::new();
+    let mut stack: Vec<Unit<'a>> = start.to_vec();
+    while let Some(unit) = stack.pop() {
+        if seen.insert(unit) {
+            stack.extend(edges.get(&unit).into_iter().flatten().copied());
+        }
+    }
+    seen.into_iter().map(|(id, _)| id).collect()
 }
 
 /// Semver-ish sort key: numeric `major.minor.patch`, then release before
@@ -326,7 +406,8 @@ fn version_key(version: &str) -> (Vec<u64>, bool, String) {
 ///
 /// Reachability and pullers are computed over the same edge set, so every
 /// listed older version has at least one puller — including one reached
-/// only through a target-gated edge.
+/// only through a target-gated edge. Edges beneath a build-dependency or a
+/// proc-macro are gated against the host, as `cargo tree --target` does.
 ///
 /// `updater(name, version)` returns the dry-run's lockfile changes, or
 /// `None` when the check could not run; it is called once per distinct
@@ -346,8 +427,8 @@ pub fn find_duplicates(
         .flatten()
         .filter_map(serde_json::Value::as_str)
         .collect();
-    let member_list: Vec<&str> = members.iter().copied().collect();
-    let reachable = closure(&member_list, &edges);
+    let member_units: Vec<Unit<'_>> = members.iter().map(|m| (*m, Side::Target)).collect();
+    let reachable = closure(&member_units, &edges);
 
     let mut versions_by_name: BTreeMap<&str, BTreeSet<&str>> = BTreeMap::new();
     for id in reachable.iter().filter(|id| !members.contains(*id)) {
@@ -356,15 +437,18 @@ pub fn find_duplicates(
         }
     }
 
-    let direct: BTreeSet<&str> = member_list
+    let mut direct: BTreeMap<&str, Vec<Unit<'_>>> = BTreeMap::new();
+    for unit in member_units
         .iter()
         .flat_map(|m| edges.get(m).into_iter().flatten().copied())
-        .filter(|id| !members.contains(id))
-        .collect();
+        .filter(|(id, _)| !members.contains(id))
+    {
+        direct.entry(unit.0).or_default().push(unit);
+    }
     let direct_closures: Vec<(&str, BTreeSet<(&str, &str)>)> = direct
         .iter()
-        .map(|d| {
-            let reached = closure(&[d], &edges)
+        .map(|(d, units)| {
+            let reached = closure(units, &edges)
                 .into_iter()
                 .filter_map(|id| packages.get(id).copied())
                 .collect();
@@ -707,23 +791,120 @@ mod tests {
         }
     }
 
+    /// A filter for one target that is also the host.
+    fn only(p: super::TargetPlatform) -> super::PlatformFilter {
+        super::PlatformFilter::Targets {
+            targets: vec![p.clone()],
+            host: p,
+        }
+    }
+
     fn duplicate_names(platforms: &super::PlatformFilter) -> Vec<String> {
+        names_in(&gated_metadata(), platforms)
+    }
+
+    fn names_in(metadata: &serde_json::Value, platforms: &super::PlatformFilter) -> Vec<String> {
         let no_change = |_: &str, _: &str| Some(Vec::new());
-        super::find_duplicates(&gated_metadata(), false, platforms, &no_change)
+        super::find_duplicates(metadata, false, platforms, &no_change)
             .crates
             .into_iter()
             .map(|c| c.name)
             .collect()
     }
 
+    /// `sample_metadata` plus host-compiled paths to a `unix`-only crate:
+    /// `app` build-depends on `cc`, and depends on the proc-macro `derive`;
+    /// each reaches `jobs 1.0.0` through a `cfg(unix)` edge, next to an
+    /// ungated `jobs 2.0.0`. Beneath `cc` a `cfg(windows)` edge reaches
+    /// `winjobs 1.0.0`, next to an ungated `winjobs 2.0.0`.
+    fn host_metadata(via: &str) -> serde_json::Value {
+        let mut metadata = sample_metadata();
+        let packages = metadata["packages"].as_array_mut().expect("packages");
+        packages.extend([
+            serde_json::json!({"id": "cc", "name": "cc", "version": "1.2.0"}),
+            serde_json::json!({"id": "derive", "name": "derive", "version": "1.0.0",
+                "targets": [{"kind": ["proc-macro"]}]}),
+            serde_json::json!({"id": "jobs1", "name": "jobs", "version": "1.0.0"}),
+            serde_json::json!({"id": "jobs2", "name": "jobs", "version": "2.0.0"}),
+            serde_json::json!({"id": "winjobs1", "name": "winjobs", "version": "1.0.0"}),
+            serde_json::json!({"id": "winjobs2", "name": "winjobs", "version": "2.0.0"}),
+        ]);
+        let nodes = metadata["resolve"]["nodes"].as_array_mut().expect("nodes");
+        let app = nodes[0]["deps"].as_array_mut().expect("app deps");
+        app.extend([
+            serde_json::json!({"pkg": "jobs2", "dep_kinds": [{"kind": null}]}),
+            serde_json::json!({"pkg": "winjobs2", "dep_kinds": [{"kind": null}]}),
+        ]);
+        app.push(match via {
+            "build" => serde_json::json!({"pkg": "cc", "dep_kinds": [{"kind": "build"}]}),
+            _ => serde_json::json!({"pkg": "derive", "dep_kinds": [{"kind": null}]}),
+        });
+        nodes.extend([
+            serde_json::json!({"id": "cc", "deps": [
+                {"pkg": "jobs1", "dep_kinds": [{"kind": null, "target": "cfg(unix)"}]},
+                {"pkg": "winjobs1", "dep_kinds": [{"kind": null, "target": "cfg(windows)"}]}
+            ]}),
+            serde_json::json!({"id": "derive", "deps": [
+                {"pkg": "jobs1", "dep_kinds": [{"kind": null, "target": "cfg(unix)"}]}
+            ]}),
+            serde_json::json!({"id": "jobs1", "deps": []}),
+            serde_json::json!({"id": "jobs2", "deps": []}),
+            serde_json::json!({"id": "winjobs1", "deps": []}),
+            serde_json::json!({"id": "winjobs2", "deps": []}),
+        ]);
+        metadata
+    }
+
+    /// `--target` Windows on a Linux host.
+    fn windows_on_linux() -> super::PlatformFilter {
+        super::PlatformFilter::Targets {
+            targets: vec![platform(
+                "x86_64-pc-windows-msvc",
+                &["windows", "target_os=\"windows\""],
+            )],
+            host: platform("x86_64-unknown-linux-gnu", &["unix", "target_os=\"linux\""]),
+        }
+    }
+
+    /// TASK-2319 AC #1: beneath a build-dependency, a non-host `--target`
+    /// gates edges against the host — the `unix`-only `jobs 1.0.0` is a
+    /// duplicate and the `windows`-only `winjobs 1.0.0` is not.
+    #[test]
+    fn edges_below_a_build_dependency_are_gated_on_the_host() {
+        let metadata = host_metadata("build");
+        let no_change = |_: &str, _: &str| Some(Vec::new());
+        let report = super::find_duplicates(&metadata, false, &windows_on_linux(), &no_change);
+        let names: Vec<&str> = report.crates.iter().map(|c| c.name.as_str()).collect();
+        assert_eq!(names, ["jobs", "term"]);
+        assert_eq!(report.crates[0].older[0].pulled_by[0].name, "cc");
+    }
+
+    /// TASK-2319 AC #1: a proc-macro is compiled for the host, so its own
+    /// dependencies are gated against the host too.
+    #[test]
+    fn edges_below_a_proc_macro_are_gated_on_the_host() {
+        let metadata = host_metadata("proc-macro");
+        assert_eq!(names_in(&metadata, &windows_on_linux()), ["jobs", "term"]);
+    }
+
+    /// With the host as the only target the host-side walk changes nothing.
+    #[test]
+    fn host_target_filter_matches_the_host_side() {
+        let linux = only(platform(
+            "x86_64-unknown-linux-gnu",
+            &["unix", "target_os=\"linux\""],
+        ));
+        assert_eq!(names_in(&host_metadata("build"), &linux), ["jobs", "term"]);
+    }
+
     /// TASK-2310 AC #1: a Linux target leaves out crates reachable only
     /// through other targets' `cfg(..)` / triple edges.
     #[test]
     fn find_duplicates_drops_crates_gated_on_other_targets() {
-        let linux = super::PlatformFilter::Targets(vec![platform(
+        let linux = only(platform(
             "x86_64-unknown-linux-gnu",
             &["unix", "target_os=\"linux\""],
-        )]);
+        ));
         assert_eq!(duplicate_names(&linux), ["term"]);
     }
 
@@ -731,10 +912,10 @@ mod tests {
     /// target-gated duplicate, and its older version names the gated puller.
     #[test]
     fn find_duplicates_keeps_gated_crates_for_their_target_and_for_all() {
-        let windows = super::PlatformFilter::Targets(vec![platform(
+        let windows = only(platform(
             "x86_64-pc-windows-msvc",
             &["windows", "target_os=\"windows\""],
-        )]);
+        ));
         assert_eq!(duplicate_names(&windows), ["sys", "term"]);
         assert_eq!(
             duplicate_names(&super::PlatformFilter::All),
@@ -763,17 +944,25 @@ mod tests {
     /// cfg the target does not set never matches.
     #[test]
     fn platform_filter_admits_ungated_matching_cfg_and_matching_triple() {
-        let filter = super::PlatformFilter::Targets(vec![
-            platform("x86_64-unknown-linux-gnu", &["unix"]),
-            platform("wasm32-wasip1", &["target_os=\"wasi\""]),
-        ]);
-        assert!(filter.admits(None));
-        assert!(filter.admits(Some("cfg(unix)")));
-        assert!(filter.admits(Some("cfg(target_os = \"wasi\")")));
-        assert!(filter.admits(Some("wasm32-wasip1")));
-        assert!(!filter.admits(Some("cfg(windows)")));
-        assert!(!filter.admits(Some("x86_64-pc-windows-msvc")));
-        assert!(!filter.admits(Some("cfg(windows_raw_dylib)")));
+        let linux = platform("x86_64-unknown-linux-gnu", &["unix"]);
+        let filter = super::PlatformFilter::Targets {
+            targets: vec![
+                linux.clone(),
+                platform("wasm32-wasip1", &["target_os=\"wasi\""]),
+            ],
+            host: linux,
+        };
+        let admits = |gate| filter.admits(gate, super::Side::Target);
+        assert!(admits(None));
+        assert!(admits(Some("cfg(unix)")));
+        assert!(admits(Some("cfg(target_os = \"wasi\")")));
+        assert!(admits(Some("wasm32-wasip1")));
+        assert!(!admits(Some("cfg(windows)")));
+        assert!(!admits(Some("x86_64-pc-windows-msvc")));
+        assert!(!admits(Some("cfg(windows_raw_dylib)")));
+        // Host-compiled edges see only the host.
+        assert!(filter.admits(Some("cfg(unix)"), super::Side::Host));
+        assert!(!filter.admits(Some("wasm32-wasip1"), super::Side::Host));
     }
 
     /// TASK-2310 AC #2: `all` (alone or among triples) disables the filter
