@@ -1,9 +1,10 @@
 ---
 id: TASK-2320
 title: 'ops about machine: report per-profile incremental when no global override is set'
-status: Triage
+status: Done
 assignee: []
 created_date: '2026-09-27 15:56'
+updated_date: '2026-09-27 17:17'
 labels:
   - code-review-rust
   - feature
@@ -29,5 +30,12 @@ ordinal: 1000
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 When no global override is set, cargo.incremental reports the dev and release profile values with their source (Cargo.toml, config file, CARGO_PROFILE_* env, or cargo default)
+- [x] #1 When no global override is set, cargo.incremental reports the dev and release profile values with their source (Cargo.toml, config file, CARGO_PROFILE_* env, or cargo default)
+
 <!-- AC:END -->
+
+## Implementation Notes
+
+<!-- SECTION:NOTES:BEGIN -->
+Added `cargo.incrementalProfiles: {dev, release}` (null when CARGO_INCREMENTAL / CARGO_BUILD_INCREMENTAL / build.incremental applies). Each profile resolves CARGO_PROFILE_<NAME>_INCREMENTAL, then [profile.<name>] incremental in the nearest config file, then the workspace Cargo.toml (new `workspace_manifest`), then the cargo default (dev=true, release=false). The text report lists `dev` / `release` under `incremental`. `resolve_cargo_settings` now takes `Option<WorkspaceRoot>` (root + manifest) instead of `Option<&Path>`. Adding the field keeps the JSON schema backward-compatible (schema stays 1).
+<!-- SECTION:NOTES:END -->
