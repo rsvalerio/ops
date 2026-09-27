@@ -1,10 +1,10 @@
 ---
 id: TASK-2302
 title: 'Adopt forge publish-deb-dist so releases publish amd64/arm64 .debs to rsvalerio/apt'
-status: In Progress
+status: Done
 assignee: []
 created_date: '2026-09-26 19:32'
-updated_date: '2026-09-27 09:25'
+updated_date: '2026-09-27 12:00'
 labels:
   - deb
   - apt
@@ -42,8 +42,8 @@ Moved from forge TASK-0007.
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 An ops release adds ops_<v>_amd64.deb and ops_<v>_arm64.deb to rsvalerio/apt pool in one commit
-- [ ] #2 sudo apt install ops works on an amd64 host and an arm64 Raspberry Pi after adding the repo
+- [x] #1 An ops release adds ops_<v>_amd64.deb and ops_<v>_arm64.deb to rsvalerio/apt pool in one commit
+- [x] #2 sudo apt install ops works on an amd64 host and an arm64 Raspberry Pi after adding the repo
 - [x] #3 ops workflow-guard still passes (SHA pins, explicit secrets)
 - [x] #4 ops README documents apt installation
 
@@ -61,5 +61,9 @@ Dry-run verified on release v0.68.0 (run 36277531411): custom-publish-deb green,
 Dry-run dropped and README apt section re-added in PR #72 (merged 2026-09-27). #72 held only ci/docs/chore commits, so Bump produced no release; the next feat/fix release is the first live publish. Remaining: AC #1 (check the rsvalerio/apt pool commit from that release) and AC #2 (apt install on amd64 and the Pi).
 
 Pre-check for AC #2 (2026-09-27): the v0.68.0 dry-run .debs install with apt-get install ./file.deb on debian:bookworm-slim, amd64 native and arm64 under qemu, and ops --version prints 0.68.0. AC #2 itself (install from the apt repo on a real amd64 host and the Pi) waits for the first live publish. Forge follow-up: rsvalerio/forge PR #14 fixes the consuming.md permissions example and records this evidence on forge TASK-0006.
+
+First live publish, 2026-09-27: release v0.69.0 (run 36314137767) passed all jobs. rsvalerio/apt commit 1b6f2b3d 'ops: add 0.69.0' added pool/ops_0.69.0_amd64.deb and pool/ops_0.69.0_arm64.deb in one commit (AC #1), and the published binary-amd64 and binary-arm64 indexes list ops 0.69.0. The README apt steps, run verbatim, install ops 0.69.0 with signature verification and no apt warnings on debian:bookworm amd64, ubuntu:24.04 amd64 and debian:bookworm arm64 (qemu). AC #2 remains for a real Raspberry Pi.
+
+AC #2 verified 2026-09-27 on rpi3 (Raspberry Pi 3, aarch64, Ubuntu 24.04.5): with the README's rsvalerio apt source, sudo apt update && sudo apt install ops installed ops 0.69.0 (arm64) from the signed repo with no warnings. /usr/bin/ops runs a configured command and ops about machine. amd64 is covered by the debian:bookworm and ubuntu:24.04 install runs above.
 
 <!-- SECTION:NOTES:END -->
