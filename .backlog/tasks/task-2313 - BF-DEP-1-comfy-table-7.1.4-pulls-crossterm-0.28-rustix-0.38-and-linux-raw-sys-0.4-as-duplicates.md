@@ -1,15 +1,17 @@
 ---
 id: TASK-2313
 title: 'BF-DEP-1: comfy-table 7.1.4 pulls crossterm 0.28, rustix 0.38 and linux-raw-sys 0.4 as duplicates'
-status: Triage
+status: Done
 assignee: []
 created_date: '2026-09-27 15:20'
+updated_date: '2026-09-27 15:45'
 labels:
   - rust-make-build-fast
   - build-fast
   - safe
   - dep
 dependencies: []
+parent_task_id: 'TASK-2315'
 modified_files:
   - Cargo.lock
 priority: low
@@ -43,6 +45,13 @@ It also pulls windows-sys 0.59.0, which stays anyway through other pullers and i
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 `ops about dependencies --duplicates` no longer lists crossterm, rustix or linux-raw-sys with comfy-table as a puller
-- [ ] #2 Behaviour is unchanged: the gates that passed before still pass
+- [x] #1 `ops about dependencies --duplicates` no longer lists crossterm, rustix or linux-raw-sys with comfy-table as a puller
+- [x] #2 Behaviour is unchanged: the gates that passed before still pass
+
 <!-- AC:END -->
+
+## Implementation Notes
+
+<!-- SECTION:NOTES:BEGIN -->
+cargo update -p comfy-table: 7.1.4 -> 7.2.2 (commit 52e580ac on code-review/TASK-2315). Removes crossterm 0.28.1, rustix 0.38.44, linux-raw-sys 0.4.15, windows-sys 0.59.0 and windows-targets 0.52 family. comfy-table 7.2.2 adds only an edge to the already-present syn 2.0.119. ops verify pass; cargo test -p ops-core -p ops-tfplan pass.
+<!-- SECTION:NOTES:END -->

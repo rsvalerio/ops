@@ -23,7 +23,10 @@ gate: it exits 0 whatever it finds. It runs under `--locked`, so a stale or
 missing `Cargo.lock` fails the survey rather than being rewritten
 (`--no-locked` opts out). `--no-all-features` surveys the default-feature
 build; `--features <list>` and `--no-default-features` select features
-explicitly and also drop `--all-features`.
+explicitly and also drop `--all-features`. The report defaults to schema v1
+(snake_case keys, `schema_version: 1`); `--schema-version 2` emits the same
+rows with camelCase keys (`schemaVersion`, `manifestDir`, …), matching the
+other ops JSON reports.
 
 Warnings are errors. Either the code changes or the exception is written down.
 The one bounded exception is the temporary-allow block described below, which

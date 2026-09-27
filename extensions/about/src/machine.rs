@@ -3,7 +3,7 @@
 //! Reports what a build timing depends on besides the code: core count and
 //! load, other cargo/rustc/nextest processes competing for the CPU, the
 //! effective cargo settings (`build.jobs`, rustc wrapper, target dir,
-//! linker, rustflags) with the layer each came from, the filesystem behind
+//! linker, rustflags, incremental) with the layer each came from, the filesystem behind
 //! `TMPDIR` and the target dir (a tmpfs `/tmp` fails cold builds with exit
 //! 101 and no compile error), and sccache counters when sccache wraps rustc.
 //!
@@ -83,6 +83,12 @@ pub struct CargoSettings {
     pub target_dir: Setting,
     pub linker: Option<Setting>,
     pub rustflags: Option<Setting>,
+    /// Incremental compilation: `CARGO_INCREMENTAL`, then
+    /// `CARGO_BUILD_INCREMENTAL` / `build.incremental`, each overriding every
+    /// profile. When none is set the value is `profile` with source
+    /// `default`: each profile's own `incremental` applies (cargo's
+    /// defaults: on for `dev`, off for `release`).
+    pub incremental: Setting,
     /// Every config file consulted, highest precedence first.
     pub config_files: Vec<String>,
 }
@@ -462,6 +468,14 @@ pub fn resolve_cargo_settings(
                 .to_string(),
             source: "default".to_string(),
         });
+    // Cargo: `CARGO_INCREMENTAL` overrides `build.incremental`, which
+    // overrides every profile's `incremental`.
+    let incremental = from_env(env, &["CARGO_INCREMENTAL", "CARGO_BUILD_INCREMENTAL"])
+        .or_else(|| from_config(layers, &["build", "incremental"]))
+        .unwrap_or_else(|| Setting {
+            value: "profile".to_string(),
+            source: "default".to_string(),
+        });
     let (linker, target_rustflags) = resolve_target_tables(layers, env, host.as_deref(), &host_cfg);
     // Cargo merges config files at load, so a rejected merge fails every
     // build whatever env overrides are set: report no rustflags at all.
@@ -491,6 +505,7 @@ pub fn resolve_cargo_settings(
         target_dir,
         linker,
         rustflags,
+        incremental,
         config_files: layers
             .iter()
             .map(|l| l.path.display().to_string())
@@ -893,6 +908,7 @@ pub fn format_machine_report(report: &MachineReport) -> Vec<String> {
         setting_line("target dir", Some(&report.cargo.target_dir)),
         setting_line("linker", report.cargo.linker.as_ref()),
         setting_line("rustflags", report.cargo.rustflags.as_ref()),
+        setting_line("incremental", Some(&report.cargo.incremental)),
         fs_line("TMPDIR", report.tmpdir.as_ref()),
         fs_line("target fs", report.target_dir.as_ref()),
     ];
@@ -948,6 +964,53 @@ mod tests {
 
     fn no_env(_: &str) -> Option<String> {
         None
+    }
+
+    /// TASK-2311 AC #2: `CARGO_INCREMENTAL` beats `CARGO_BUILD_INCREMENTAL`,
+    /// which beats `build.incremental` in the nearest config layer; with
+    /// none set the profile decides (`profile` / `default`).
+    #[test]
+    fn incremental_precedence_is_env_then_config_then_default() {
+        let layers = [
+            layer(
+                "/w/.cargo/config.toml",
+                "/w",
+                "[build]\nincremental = false\n",
+            ),
+            layer(
+                "/home/u/.cargo/config.toml",
+                "/home/u",
+                "[build]\nincremental = true\n",
+            ),
+        ];
+        let resolve = |layers: &[ConfigLayer], env: &dyn Fn(&str) -> Option<String>| {
+            resolve_cargo_settings(layers, env, Path::new("/w"), None, HostTarget::default())
+                .incremental
+        };
+        let setting = |value: &str, source: &str| Setting {
+            value: value.to_string(),
+            source: source.to_string(),
+        };
+        let both_env = |name: &str| match name {
+            "CARGO_INCREMENTAL" => Some("0".to_string()),
+            "CARGO_BUILD_INCREMENTAL" => Some("true".to_string()),
+            _ => None,
+        };
+        assert_eq!(
+            resolve(&layers, &both_env),
+            setting("0", "env:CARGO_INCREMENTAL")
+        );
+        let build_env =
+            |name: &str| (name == "CARGO_BUILD_INCREMENTAL").then(|| "true".to_string());
+        assert_eq!(
+            resolve(&layers, &build_env),
+            setting("true", "env:CARGO_BUILD_INCREMENTAL")
+        );
+        assert_eq!(
+            resolve(&layers, &no_env),
+            setting("false", "/w/.cargo/config.toml")
+        );
+        assert_eq!(resolve(&[], &no_env), setting("profile", "default"));
     }
 
     #[test]
@@ -1371,6 +1434,10 @@ mod tests {
                 },
                 linker: None,
                 rustflags: None,
+                incremental: Setting {
+                    value: "0".to_string(),
+                    source: "env:CARGO_INCREMENTAL".to_string(),
+                },
                 config_files: vec!["/home/u/.cargo/config.toml".to_string()],
             },
             tmpdir: Some(FsReport {
@@ -1421,6 +1488,10 @@ mod tests {
             "/home/u/.cargo/config.toml"
         );
         assert_eq!(value["cargo"]["targetDir"]["value"], "/w/target");
+        assert_eq!(
+            value["cargo"]["incremental"],
+            serde_json::json!({"value": "0", "source": "env:CARGO_INCREMENTAL"})
+        );
         assert_eq!(value["tmpdir"]["tmpfs"], true);
         assert_eq!(value["tmpdir"]["fsType"], "tmpfs");
         assert_eq!(value["buildProcesses"][0]["name"], "rustc");
@@ -1438,6 +1509,10 @@ mod tests {
             "{text}"
         );
         assert!(text.contains("WARNING: tmpfs"), "{text}");
+        assert!(
+            text.contains("incremental    0  [env:CARGO_INCREMENTAL]"),
+            "{text}"
+        );
         assert!(text.contains("rustc (7)"), "{text}");
         assert!(text.contains("1024 MiB (512 MiB free)"), "{text}");
     }

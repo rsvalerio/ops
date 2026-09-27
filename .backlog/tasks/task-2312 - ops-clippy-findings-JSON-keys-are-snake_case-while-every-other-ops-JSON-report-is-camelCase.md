@@ -1,15 +1,17 @@
 ---
 id: TASK-2312
 title: 'ops clippy-findings: JSON keys are snake_case while every other ops JSON report is camelCase'
-status: Triage
+status: Done
 assignee: []
 created_date: '2026-09-27 15:20'
+updated_date: '2026-09-27 15:42'
 labels:
   - cli
   - clippy
   - json
   - consistency
 dependencies: []
+parent_task_id: 'TASK-2316'
 modified_files:
   - crates/cli/src/clippy_findings_cmd.rs
 priority: low
@@ -28,6 +30,13 @@ ordinal: 1000
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 clippy-findings JSON uses camelCase keys, consistent with the other ops JSON reports
-- [ ] #2 schemaVersion is bumped, and a test pins the new key names
+- [x] #1 clippy-findings JSON uses camelCase keys, consistent with the other ops JSON reports
+- [x] #2 schemaVersion is bumped, and a test pins the new key names
+
 <!-- AC:END -->
+
+## Implementation Notes
+
+<!-- SECTION:NOTES:BEGIN -->
+Fixed in b0e7536f: #[serde(rename_all = "camelCase")] on Report and Finding, SCHEMA_VERSION 1 -> 2, test report_keys_are_camel_case pins both key sets. External consumer update filed as TASK-2317.
+<!-- SECTION:NOTES:END -->

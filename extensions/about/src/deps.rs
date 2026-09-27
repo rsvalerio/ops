@@ -248,10 +248,34 @@ pub fn format_duplicates_section(report: &DuplicateReport, is_tty: bool) -> Vec<
     lines
 }
 
-/// `ops about dependencies --duplicates [--json] [--include-dev]`.
+/// Context argument carrying `--duplicates --target` to the provider.
+///
+/// Read through [`ops_extension::Context::arg`]: the requested triples
+/// joined with `,`, or [`DUPLICATES_ALL_TARGETS`]. Absent means the host
+/// target.
+pub const DUPLICATES_TARGET_ARG: &str = "target";
+
+/// `--target` value that disables the platform filter: every edge counts,
+/// whatever target it is gated on.
+pub const DUPLICATES_ALL_TARGETS: &str = "all";
+
+/// What `--duplicates` was asked for.
+#[derive(Debug, Clone, Copy, Default)]
+pub struct DuplicatesOptions<'a> {
+    /// Emit the versioned JSON document instead of text.
+    pub json: bool,
+    /// Follow dev-dependency edges too.
+    pub include_dev: bool,
+    /// `--target` values; empty means the host target.
+    pub targets: &'a [String],
+}
+
+/// `ops about dependencies --duplicates [--json] [--include-dev] [--target <triple>...]`.
 ///
 /// `include_dev` also follows dev-dependency edges, so duplicates reachable
-/// only through dev-dependencies are listed too.
+/// only through dev-dependencies are listed too. `targets` restricts the
+/// graph to edges active on any of those triples (`all` for no filter);
+/// empty means the host target.
 ///
 /// # Errors
 ///
@@ -259,17 +283,10 @@ pub fn format_duplicates_section(report: &DuplicateReport, is_tty: bool) -> Vec<
 /// writing fails.
 pub fn run_about_duplicates(
     data_registry: &DataRegistry,
-    json: bool,
-    include_dev: bool,
+    options: DuplicatesOptions<'_>,
 ) -> anyhow::Result<()> {
     let is_tty = std::io::stdout().is_terminal();
-    run_about_duplicates_with(
-        data_registry,
-        &mut std::io::stdout(),
-        is_tty,
-        json,
-        include_dev,
-    )
+    run_about_duplicates_with(data_registry, &mut std::io::stdout(), is_tty, options)
 }
 
 /// [`run_about_duplicates`] against an explicit writer.
@@ -282,10 +299,17 @@ pub fn run_about_duplicates_with(
     data_registry: &DataRegistry,
     writer: &mut dyn Write,
     is_tty: bool,
-    json: bool,
-    include_dev: bool,
+    options: DuplicatesOptions<'_>,
 ) -> anyhow::Result<()> {
+    let DuplicatesOptions {
+        json,
+        include_dev,
+        targets,
+    } = options;
     let mut ctx = crate::providers::subpage_context("deps")?;
+    if !targets.is_empty() {
+        ctx = ctx.with_arg(DUPLICATES_TARGET_ARG, targets.join(","));
+    }
     warm_providers(&mut ctx, data_registry, &["metadata"], "deps");
     let provider = if include_dev {
         PROJECT_DUPLICATES_WITH_DEV_PROVIDER
@@ -455,7 +479,16 @@ mod tests {
     fn run_about_duplicates_with_empty_registry_reports_none() {
         let registry = DataRegistry::new();
         let mut out: Vec<u8> = Vec::new();
-        run_about_duplicates_with(&registry, &mut out, false, true, false).expect("runner");
+        run_about_duplicates_with(
+            &registry,
+            &mut out,
+            false,
+            DuplicatesOptions {
+                json: true,
+                ..DuplicatesOptions::default()
+            },
+        )
+        .expect("runner");
         let value: serde_json::Value = serde_json::from_slice(&out).expect("json");
         assert_eq!(value["crates"], serde_json::json!([]));
     }

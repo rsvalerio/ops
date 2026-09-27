@@ -384,7 +384,9 @@ fn run_clippy_findings(args: args::ClippyFindingsArgs, dry_run: bool) -> anyhow:
         args.no_default_features,
         args.features,
     );
-    clippy_findings_cmd::run_clippy_findings(&cwd()?, &opts, &args.lint_flags, dry_run)
+    let schema = clippy_findings_cmd::SchemaVersion::from_number(args.schema_version)
+        .ok_or_else(|| anyhow::anyhow!("unsupported --schema-version {}", args.schema_version))?;
+    clippy_findings_cmd::run_clippy_findings(&cwd()?, &opts, schema, &args.lint_flags, dry_run)
 }
 
 fn run_lock(args: args::LockArgs) -> anyhow::Result<ExitCode> {

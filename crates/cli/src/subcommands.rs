@@ -58,7 +58,15 @@ pub fn run_about(
             json,
             duplicates: true,
             include_dev,
-        }) => ops_about::deps::run_about_duplicates(&registry, json, include_dev),
+            target,
+        }) => ops_about::deps::run_about_duplicates(
+            &registry,
+            ops_about::deps::DuplicatesOptions {
+                json,
+                include_dev,
+                targets: &target,
+            },
+        ),
         Some(AboutAction::Dependencies {
             json: false,
             duplicates: false,
