@@ -1,9 +1,10 @@
 ---
 id: TASK-2319
 title: 'ops about dependencies --duplicates --target: evaluate build-dependency and proc-macro edges against the host'
-status: Triage
+status: Done
 assignee: []
 created_date: '2026-09-27 15:56'
+updated_date: '2026-09-27 17:13'
 labels:
   - code-review-rust
   - feature
@@ -30,5 +31,12 @@ ordinal: 1000
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 With --target <non-host>, edges below a build-dependency or proc-macro are evaluated against the host triple, pinned by a test
+- [x] #1 With --target <non-host>, edges below a build-dependency or proc-macro are evaluated against the host triple, pinned by a test
+
 <!-- AC:END -->
+
+## Implementation Notes
+
+<!-- SECTION:NOTES:BEGIN -->
+The resolve walk now tracks each package with the side it is compiled for (target or host). A `build` edge, a proc-macro package (`targets[].kind` contains `proc-macro`) and everything beneath them are host-side, and their gated edges are matched against the host platform. `PlatformFilter::Targets` now carries `{targets, host}`, and the host is always probed. Tests: `edges_below_a_build_dependency_are_gated_on_the_host`, `edges_below_a_proc_macro_are_gated_on_the_host`, `host_target_filter_matches_the_host_side`. The ops lockfile reports the same list before and after (15 host / 16 windows-msvc).
+<!-- SECTION:NOTES:END -->
