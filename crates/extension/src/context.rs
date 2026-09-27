@@ -12,7 +12,7 @@ use crate::db_handle::SqliteHandle;
 use crate::deadline::{configured_provider_budget, Deadline};
 use crate::error::DataProviderError;
 use ops_core::config::Config;
-use std::collections::{HashMap, HashSet};
+use std::collections::{BTreeMap, HashMap, HashSet};
 use std::path::PathBuf;
 use std::sync::Arc;
 use std::time::{Duration, Instant};
@@ -35,8 +35,9 @@ use std::time::{Duration, Instant};
 /// [`Context::config`], [`Context::working_directory`] and
 /// [`Context::is_refreshing`] (plus the `db` accessor under the `sqlite`
 /// feature); the only mutators are the constructors,
-/// [`Context::with_refresh`], [`Context::clear_provider_results`] and
-/// `attach_db` under the `sqlite` feature.
+/// [`Context::with_refresh`], [`Context::with_arg`],
+/// [`Context::clear_provider_results`] and `attach_db` under the `sqlite`
+/// feature.
 #[non_exhaustive]
 pub struct Context {
     config: Arc<Config>,
@@ -63,6 +64,10 @@ pub struct Context {
     /// cleared by the same call. `None` outside a dispatch, or when the
     /// budget is `None`.
     deadline: Option<Deadline>,
+    /// Request arguments for this invocation (e.g. a subcommand flag a
+    /// provider must honour), set by [`Context::with_arg`], read by
+    /// [`Context::arg`].
+    args: BTreeMap<String, String>,
     #[cfg(feature = "sqlite")]
     db: Option<Arc<dyn SqliteHandle>>,
 }
@@ -93,6 +98,7 @@ impl Context {
             refresh: false,
             provider_budget,
             deadline: None,
+            args: BTreeMap::new(),
             #[cfg(feature = "sqlite")]
             db: None,
         }
@@ -211,6 +217,27 @@ impl Context {
     pub const fn with_refresh(mut self) -> Self {
         self.refresh = true;
         self
+    }
+
+    /// Attach a request argument providers read through [`Context::arg`] —
+    /// how a caller hands a provider an option such as a target filter.
+    ///
+    /// Builder-only, like `refresh`: a provider receives `&mut Context` and
+    /// must not be able to re-parameterise its siblings. Cached results are
+    /// keyed by provider name alone, so this also drops every cached result:
+    /// a value computed before the argument was set must not answer a
+    /// request made with it.
+    #[must_use]
+    pub fn with_arg(mut self, key: impl Into<String>, value: impl Into<String>) -> Self {
+        self.data_cache.clear();
+        self.args.insert(key.into(), value.into());
+        self
+    }
+
+    /// A request argument set by [`Context::with_arg`], if any.
+    #[must_use]
+    pub fn arg(&self, key: &str) -> Option<&str> {
+        self.args.get(key).map(String::as_str)
     }
 
     /// Override the wall-clock budget a provider dispatch
@@ -409,6 +436,7 @@ impl std::fmt::Debug for Context {
         let mut s = f.debug_struct("Context");
         s.field("working_directory", &self.working_directory)
             .field("refresh", &self.refresh)
+            .field("arg_keys", &self.args.keys().collect::<Vec<_>>())
             .field("cached_keys", &cached)
             .field("in_flight", &in_flight);
         #[cfg(feature = "sqlite")]

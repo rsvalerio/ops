@@ -1180,6 +1180,23 @@ fn context_debug_lists_keys_but_never_cached_values() {
     );
 }
 
+/// TASK-2310: `with_arg` hands a provider a request argument, and drops
+/// cached results computed before the argument existed.
+#[test]
+fn context_with_arg_is_readable_and_invalidates_the_cache() {
+    let mut registry = DataRegistry::new();
+    let _ = registry.register("stub", Box::new(StubProvider));
+    let mut ctx = Context::new(Arc::new(Config::empty()), PathBuf::from("/tmp/arg-ctx"));
+    assert_eq!(ctx.arg("target"), None);
+    ctx.get_or_provide("stub", &registry).expect("provide");
+    let ctx = ctx.with_arg("target", "x86_64-pc-windows-msvc");
+    assert_eq!(ctx.arg("target"), Some("x86_64-pc-windows-msvc"));
+    assert!(
+        ctx.cached("stub").is_none(),
+        "a result cached before the argument must not answer a request made with it"
+    );
+}
+
 // ---------------------------------------------------------------------------
 // ARCH-9 / TASK-1868 — deterministic config_name collision resolution
 // ---------------------------------------------------------------------------
