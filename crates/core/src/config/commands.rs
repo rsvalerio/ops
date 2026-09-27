@@ -639,7 +639,7 @@ pub struct CompositeCommandSpec {
     /// containing a `parallel = false` group is rejected at expansion time
     /// with `ExpandError::ConflictingSchedule`. Inside a parallel plan, keep
     /// a step from overlapping the others with [`ExecCommandSpec::exclusive`].
-    /// See the "Command groups and scheduling" section of `README.md`.
+    /// See the "Command groups and scheduling" section of `docs/configuration.md`.
     #[serde(default)]
     pub parallel: bool,
     /// When true (default), stop remaining steps on first failure. When false, run all steps.

@@ -756,7 +756,7 @@ edition = "2021"
         .stdout(predicate::str::contains("demo"));
 }
 
-/// TEST-31: `ops about loc` is documented in the README, so it is covered
+/// TEST-31: `ops about loc` is documented in docs/commands.md, so it is covered
 /// as a spawned command — the subpage only works if arg parsing, the
 /// `rust-loc` provider, the `DuckDB` ingest and the renderer all line up,
 /// and none of the unit tests exercise that chain end to end.
@@ -859,7 +859,7 @@ theme = "classic"
 
 // -- Pre-commit contract: fixers and checkers (TEST-31 / TASK-1737) --
 //
-// The README states the contract explicitly: these commands exit non-zero when
+// docs/commands.md states the contract explicitly: these commands exit non-zero when
 // they change (or reject) a file, so a git pre-commit hook fails the commit.
 // That mapping lives in `subcommands.rs::run_text_fixer` /
 // `run_config_checker` and had no test at any level: a regression that
@@ -1123,7 +1123,7 @@ fn cli_import_makefile_without_a_terminal_refuses() {
 
 // -- `ops backlog create-review-tasks` and `ops run-before-push` (TEST-31 / TASK-2021) --
 //
-// TASK-1737 covered the rest of the README command table as spawned processes
+// TASK-1737 covered the rest of the docs/commands.md command table as spawned processes
 // but left these two out of its acceptance criteria. `run-before-push` is the
 // gate-shaped one: a git pre-push hook execs it and its exit code decides
 // whether the push proceeds, so a regression collapsing a failing command to

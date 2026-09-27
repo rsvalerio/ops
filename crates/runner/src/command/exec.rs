@@ -24,7 +24,7 @@
 //!
 //! - Local `.ops.toml` files are implicitly trusted
 //! - Users should only run `cargo ops` in directories they trust
-//! - This is documented in `config::load_config` and the README
+//! - This is documented in `config::load_config` and the README's Security section
 //!
 //! ## Environment Variables (SEC-002, SEC-003)
 //!

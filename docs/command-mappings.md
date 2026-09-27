@@ -2,7 +2,7 @@
 
 When no local `[commands]` override exists, `ops` merges **embedded stack defaults** from `crates/core/src/.default.<stack>.ops.toml` (wired in `crates/core/src/stack/`). Detection uses manifest files in the workspace (for example `Cargo.toml` for **rust**, `package.json` for **node**).
 
-To append steps to a default without shadowing the whole list, use an `[extend.<name>]` section in `.ops.toml` — `commands = ["coverage"]` for composites, `args = ["--locked"]` for exec commands (inserted before any `--` separator) — see "Extending existing commands" in `README.md`.
+To append steps to a default without shadowing the whole list, use an `[extend.<name>]` section in `.ops.toml` — `commands = ["coverage"]` for composites, `args = ["--locked"]` for exec commands (inserted before any `--` separator) — see [Extending existing commands](configuration.md#extending-existing-commands).
 
 The **generic** stack has **no** embedded commands; define everything in `.ops.toml` or `.ops.d/*.toml`.
 
@@ -26,8 +26,8 @@ Below, **exec** lines are `program` plus `args` from config. **Composite** comma
 | `next-ignored` | `cargo nextest run --workspace --all-features --run-ignored ignored-only` |
 | `clean` | `cargo clean` |
 | `verify` | composite: `fmt`, `trailing-whitespace`, `end-of-file-fixer`, `clippy`, `build`, `check-json`, `check-yaml`, `doc` (staged parallel, fail-fast) |
-| `qa` | composite: `deps`, `test`, `test-ignored`, `test-doc`, `sec` (sequential, fail-fast) |
-| `qa-next` (`qax`) | composite: `deps`, `next`, `next-ignored`, `test-doc`, `sec` (sequential, fail-fast) |
+| `qa` | composite: `deps`, `test`, `test-doc`, `sec` (sequential, fail-fast) |
+| `qa-next` (`qax`) | composite: `deps`, `next`, `test-doc`, `sec` (sequential, fail-fast) |
 
 **`--all-targets` on `test`:** deliberately absent. For `cargo test` the flag
 *disables* doctests ("Test all targets (does not include doctests)"), so adding
@@ -37,7 +37,7 @@ it for symmetry would silently drop doctest coverage.
 rewrite files the checks read, so each is exclusive and runs alone, in that
 order (`fmt` is marked in the stack TOML, the fixers in their definitions).
 `clippy`, `build`, `check-json`, `check-yaml` and `doc` then run concurrently.
-See "Exclusive steps in a parallel group" in the README.
+See [Exclusive steps in a parallel group](configuration.md#exclusive-steps-in-a-parallel-group).
 
 **`check` is not in `verify`:** `build --all-targets` subsumes it and `clippy`
 type-checks independently, so including it compiled the workspace a third time

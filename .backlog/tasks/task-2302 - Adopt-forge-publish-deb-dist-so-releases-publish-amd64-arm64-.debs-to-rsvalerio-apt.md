@@ -4,7 +4,7 @@ title: 'Adopt forge publish-deb-dist so releases publish amd64/arm64 .debs to rs
 status: In Progress
 assignee: []
 created_date: '2026-09-26 19:32'
-updated_date: '2026-09-27 08:45'
+updated_date: '2026-09-27 09:25'
 labels:
   - deb
   - apt
@@ -57,5 +57,9 @@ Wired with dry-run: true ahead of forge TASK-0006 (user decision 2026-09-27): .g
 PR #71 review: README apt section removed until dry-run is off (nothing is in the pool yet) — re-add it with the dry-run flip. custom-publish-deb now grants only contents: read (the apt push uses forge's minted App token); wrapper has a top-level contents: read. Forge stays @v1 per the workflow-guard exemption (first-party, version-pinned by decision, as bump.yml).
 
 Dry-run verified on release v0.68.0 (run 36277531411): custom-publish-deb green, announce green. Artifact deb-ops-0.68.0 holds ops_0.68.0_amd64.deb and ops_0.68.0_arm64.deb (Package ops, Section utils, /usr/bin/ops + /usr/share/doc/ops/{LICENSE,README.md}); the amd64 binary runs (ops 0.68.0), the arm64 one is aarch64 ELF. The my-cloud-ci App minted a token for rsvalerio/apt and checked it out, so the installation covers it. pool-update.sh staged both .debs in one diff. Next: drop dry-run, re-add the README apt section, then verify AC #1/#2 on the following release.
+
+Dry-run dropped and README apt section re-added in PR #72 (merged 2026-09-27). #72 held only ci/docs/chore commits, so Bump produced no release; the next feat/fix release is the first live publish. Remaining: AC #1 (check the rsvalerio/apt pool commit from that release) and AC #2 (apt install on amd64 and the Pi).
+
+Pre-check for AC #2 (2026-09-27): the v0.68.0 dry-run .debs install with apt-get install ./file.deb on debian:bookworm-slim, amd64 native and arm64 under qemu, and ops --version prints 0.68.0. AC #2 itself (install from the apt repo on a real amd64 host and the Pi) waits for the first live publish. Forge follow-up: rsvalerio/forge PR #14 fixes the consuming.md permissions example and records this evidence on forge TASK-0006.
 
 <!-- SECTION:NOTES:END -->
