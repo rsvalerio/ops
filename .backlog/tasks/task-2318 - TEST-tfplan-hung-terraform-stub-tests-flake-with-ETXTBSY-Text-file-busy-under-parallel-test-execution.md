@@ -1,9 +1,10 @@
 ---
 id: TASK-2318
 title: 'TEST: tfplan hung-terraform stub tests flake with ETXTBSY (Text file busy) under parallel test execution'
-status: Triage
+status: Done
 assignee: []
 created_date: '2026-09-27 15:46'
+updated_date: '2026-09-27 17:03'
 labels:
   - code-review-rust
   - test
@@ -28,5 +29,12 @@ ordinal: 1000
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 Stub-exec tests in ops-tfplan no longer fail with ETXTBSY (e.g. retry exec on ETXTBSY, write stubs before any test forks, or serialise stub write+exec)
+- [x] #1 Stub-exec tests in ops-tfplan no longer fail with ETXTBSY (e.g. retry exec on ETXTBSY, write stubs before any test forks, or serialise stub write+exec)
+
 <!-- AC:END -->
+
+## Implementation Notes
+
+<!-- SECTION:NOTES:BEGIN -->
+The two hung-terraform tests now write their stub through `write_stub`: a short-lived `sh` does the write + chmod, so the test process never holds a writable fd that a sibling fork could inherit. This is deterministic, unlike the ETXTBSY retry in run-before-commit. `write_stub_writes_an_executable_script` pins the helper.
+<!-- SECTION:NOTES:END -->
