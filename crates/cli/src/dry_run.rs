@@ -7,7 +7,7 @@
 
 #[cfg(feature = "stack-rust")]
 use crate::args::InitArgs;
-use crate::args::{AboutAction, CoreSubcommand, LockAction, LockArgs, ThemeAction};
+use crate::args::{AboutAction, CoreSubcommand, ExplainArgs, LockAction, LockArgs, ThemeAction};
 
 /// The builtin `sub` as the user typed it, when it cannot preview and must
 /// refuse `--dry-run`: it writes files or config, or runs external tools
@@ -47,13 +47,18 @@ pub const fn unpreviewable_builtin(sub: &CoreSubcommand) -> Option<&'static str>
         },
         #[cfg(feature = "stack-rust")]
         CoreSubcommand::Deps { .. } => Some("deps"),
+        // `--tool-versions` runs every listed tool's `--version` (TASK-2335).
+        CoreSubcommand::Explain(ExplainArgs {
+            tool_versions: true,
+            ..
+        }) => Some("explain --tool-versions"),
         // Without `--file`/stdin the plan JSON comes from running terraform.
         #[cfg(feature = "stack-terraform")]
         CoreSubcommand::Plans(_) => Some("plans"),
         CoreSubcommand::Extension { .. }
         | CoreSubcommand::CheckJson { .. }
         | CoreSubcommand::CheckYaml { .. }
-        | CoreSubcommand::Explain { .. }
+        | CoreSubcommand::Explain(_)
         | CoreSubcommand::Backlog { .. }
         | CoreSubcommand::RunBeforeCommit { .. }
         | CoreSubcommand::RunBeforePush { .. }

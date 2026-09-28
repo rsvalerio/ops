@@ -17,6 +17,14 @@
 //!   global flag before the subcommand (`cargo -q nextest`) hides it.
 //!
 //! What a shell script runs (`sh -c "…"`) is opaque: only `sh` is reported.
+//!
+//! Versions (TASK-2335): ops pins no minimum version for any of these tools,
+//! so none is declared. `ops explain --json --tool-versions` opts in to
+//! [`installed_version`], which runs each tool's `--version` — the only path
+//! here that spawns anything, and never taken by plain `ops explain`.
+
+use std::process::Command;
+use std::time::Duration;
 
 use ops_core::config::ExecCommandSpec;
 
@@ -149,6 +157,62 @@ fn ops_subcommand_tools(sub: &str) -> Vec<Tool> {
     }
 }
 
+/// Budget for one `--version` probe. A version flag answers instantly; the
+/// bound only stops a wedged tool (or a cargo waiting on a lock) from
+/// hanging `explain`. `OPS_SUBPROCESS_TIMEOUT_SECS` overrides it.
+const VERSION_PROBE_TIMEOUT: Duration = Duration::from_secs(10);
+
+/// Longest version string reported: the first output line of a tool is its
+/// version banner, and a tool that prints something else is not echoed
+/// wholesale into the JSON (SEC-33).
+const MAX_VERSION_LEN: usize = 200;
+
+/// The installed version of `tool`, from the first line its `--version`
+/// prints, or `None` when it is not on `PATH`, exits non-zero, times out,
+/// or prints nothing.
+///
+/// A `cargo-<sub>` plugin is probed as `cargo <sub> --version`, the way the
+/// plan invokes it (and the way `cargo-machete` needs to be called; see
+/// `ops_deps`'s probe, whose `CARGO_PKG_NAME` stripping this mirrors). The
+/// program is resolved through `PATH` on purpose: the question is which
+/// binary the plan's steps would find there.
+pub fn installed_version(tool: &Tool) -> Option<String> {
+    let mut cmd = tool.name.strip_prefix("cargo-").map_or_else(
+        || {
+            let mut cmd = Command::new(&tool.name);
+            cmd.arg("--version");
+            cmd
+        },
+        |sub| {
+            let mut cmd = Command::new("cargo");
+            cmd.args([sub, "--version"]).env_remove("CARGO_PKG_NAME");
+            cmd
+        },
+    );
+    let label = format!("{} --version", tool.name);
+    let output = ops_core::subprocess::run_with_timeout(
+        &mut cmd,
+        ops_core::subprocess::default_timeout(VERSION_PROBE_TIMEOUT),
+        &label,
+    )
+    .map_err(|e| tracing::debug!(tool = %tool.name, error = %e, "version probe failed"))
+    .ok()?;
+    if !output.status.success() {
+        return None;
+    }
+    first_line(&output.stdout).or_else(|| first_line(&output.stderr))
+}
+
+/// The first non-blank line of `bytes`, trimmed and capped at
+/// [`MAX_VERSION_LEN`] characters.
+fn first_line(bytes: &[u8]) -> Option<String> {
+    String::from_utf8_lossy(bytes)
+        .lines()
+        .map(str::trim)
+        .find(|l| !l.is_empty())
+        .map(|l| l.chars().take(MAX_VERSION_LEN).collect())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -198,14 +262,47 @@ mod tests {
         assert!(tools("ops", &[]).is_empty());
     }
 
+    /// TASK-2335: the opt-in probe reports the first line `--version`
+    /// prints, and `None` for a tool that is not installed. Serial: other
+    /// tests in this binary swap the process cwd into temp dirs they then
+    /// delete, and cargo fails to start from a vanished cwd.
+    #[test]
+    #[serial_test::serial]
+    fn installed_version_reads_the_version_banner() {
+        let cargo = installed_version(&Tool::required("cargo", None))
+            .expect("cargo runs the test suite, so it is installed");
+        assert!(cargo.starts_with("cargo "), "{cargo}");
+        assert_eq!(
+            installed_version(&Tool::required("ops-no-such-tool-2335", None)),
+            None
+        );
+        assert_eq!(
+            installed_version(&Tool::required("cargo-ops-no-such-plugin-2335", None)),
+            None
+        );
+    }
+
+    #[test]
+    fn first_line_skips_blanks_and_caps_length() {
+        assert_eq!(
+            first_line(b"\n  trivy 0.58.1 \nextra").as_deref(),
+            Some("trivy 0.58.1")
+        );
+        assert_eq!(first_line(b" \n"), None);
+        let long = "v".repeat(MAX_VERSION_LEN * 2);
+        assert_eq!(
+            first_line(long.as_bytes()).map(|l| l.len()),
+            Some(MAX_VERSION_LEN)
+        );
+    }
+
     #[cfg(feature = "stack-rust")]
     #[test]
     fn deps_reports_its_cargo_plugins_with_machete_optional() {
-        let got = exec_tools(
-            &ExecCommandSpec::new("ops", ["deps"]),
-            "ops",
-            &["deps".to_string()],
-        );
+        // The spec the deps extension registers (TASK-2336): an absolute
+        // program recognised through its `ops` display name.
+        let spec = ExecCommandSpec::ops_subcommand("deps");
+        let got = exec_tools(&spec, &spec.program, &spec.args);
         let machete = got
             .iter()
             .find(|t| t.name == "cargo-machete")

@@ -354,8 +354,8 @@ fn dispatch(
             allow.extend(early_config.lint_actions.allow.iter().cloned());
             return lint_actions_cmd::run_lint_actions(&cwd()?, &allow);
         }
-        Some(CoreSubcommand::Explain { commands, json }) => {
-            return run_cmd::run_explain(std::sync::Arc::clone(early_config), &commands, json);
+        Some(CoreSubcommand::Explain(args)) => {
+            return run_cmd::run_explain(std::sync::Arc::clone(early_config), &args);
         }
         Some(CoreSubcommand::External(args)) => {
             return run_cmd::run_external_command(

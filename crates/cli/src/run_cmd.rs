@@ -92,25 +92,51 @@ pub fn run_external_command(
 /// expand, or a failed write to stdout.
 pub fn run_explain(
     config: std::sync::Arc<ops_core::config::Config>,
-    names: &[String],
-    json: bool,
+    args: &crate::args::ExplainArgs,
 ) -> anyhow::Result<ExitCode> {
-    run_explain_to(config, names, json, &mut std::io::stdout())
+    let output = ExplainOutput::from_flags(args.json, args.tool_versions);
+    run_explain_to(config, &args.commands, output, &mut std::io::stdout())
+}
+
+/// What `ops explain` prints.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum ExplainOutput {
+    /// The human-readable plan.
+    Text,
+    /// The versioned JSON document. Spawns nothing.
+    Json,
+    /// The JSON document with each tool's `installedVersion`, probed by
+    /// running its `--version` (`--tool-versions`, TASK-2335).
+    JsonWithToolVersions,
+}
+
+impl ExplainOutput {
+    /// From the `--json` / `--tool-versions` flags; clap rejects
+    /// `--tool-versions` without `--json`.
+    const fn from_flags(json: bool, tool_versions: bool) -> Self {
+        match (json, tool_versions) {
+            (false, _) => Self::Text,
+            (true, false) => Self::Json,
+            (true, true) => Self::JsonWithToolVersions,
+        }
+    }
 }
 
 fn run_explain_to(
     config: std::sync::Arc<ops_core::config::Config>,
     names: &[String],
-    json: bool,
+    output: ExplainOutput,
     w: &mut dyn std::io::Write,
 ) -> anyhow::Result<ExitCode> {
     let runner = build_runner(config, ops_runner::command::CwdEscapePolicy::WarnAndAllow)?;
     let names: Vec<&str> = names.iter().map(String::as_str).collect();
     let plans = plans_for_names(&runner, &names)?;
-    if json {
-        explain::write_json(&runner, &plans, w)?;
-    } else {
-        explain::write_text(&runner, &plans, w)?;
+    match output {
+        ExplainOutput::Text => explain::write_text(&runner, &plans, w)?,
+        ExplainOutput::Json => explain::write_json(&runner, &plans, None, w)?,
+        ExplainOutput::JsonWithToolVersions => {
+            explain::write_json(&runner, &plans, Some(&tools::installed_version), w)?;
+        }
     }
     Ok(ExitCode::SUCCESS)
 }
