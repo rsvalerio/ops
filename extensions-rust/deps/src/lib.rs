@@ -521,12 +521,16 @@ ops_extension::impl_extension! {
     command_names: &["deps"],
     data_provider_name: Some(DATA_PROVIDER_NAME),
     register_commands: |_self, registry| {
-        registry.insert(
-            "deps".to_string().into(),
-            ops_core::config::CommandSpec::Exec(
-                ops_core::config::ExecCommandSpec::new("ops", ["deps"]),
-            ),
-        );
+        // SEC-13 / TASK-2336: a bare "ops" resolves through the invoking
+        // environment's PATH, so a shim or stale `ops` earlier on PATH would
+        // run in place of this binary. `ops_subcommand` spawns the absolute
+        // current_exe()-resolved binary and renders as `ops deps`. The
+        // command only reads (cargo upgrade --dry-run, cargo deny, cargo
+        // machete), so it deliberately opts out of the exclusivity
+        // `ops_subcommand` defaults to.
+        let mut spec = ops_core::config::ExecCommandSpec::ops_subcommand("deps");
+        spec.exclusive = false;
+        registry.insert("deps".into(), ops_core::config::CommandSpec::Exec(spec));
     },
     register_data_providers: |_self, registry| {
         let _ = registry.register(DATA_PROVIDER_NAME, Box::new(DepsProvider));
