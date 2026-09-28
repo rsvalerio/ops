@@ -1,12 +1,14 @@
-//! Parsing logic for `cargo upgrade` and `cargo deny` output.
+//! Parsing logic for `cargo upgrade`, `cargo deny` and `cargo machete` output.
 //!
 //! One submodule per tool. Each owns its own constants, types, and helpers,
 //! so a format change in one tool does not churn the other's state machine.
 
 mod deny;
+mod machete;
 mod upgrade;
 
 pub use deny::{interpret_deny_result, parse_deny_output, run_cargo_deny};
+pub use machete::{interpret_machete_output, run_cargo_machete};
 pub use upgrade::{categorize_upgrades, interpret_upgrade_output, run_cargo_upgrade_dry_run};
 
 // `parse_upgrade_table` is deliberately absent from this list. It discards the

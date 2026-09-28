@@ -114,6 +114,46 @@ pub struct DenyResult {
     pub sources: Vec<SourceEntry>,
 }
 
+/// A single unused dependency reported by `cargo machete`.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[non_exhaustive]
+pub struct UnusedDepEntry {
+    /// Package whose manifest declares the dependency.
+    pub package: String,
+    /// Manifest path as cargo-machete printed it (relative to the directory
+    /// `ops deps` ran in, e.g. `./crates/cli/Cargo.toml`).
+    pub manifest_path: String,
+    /// Dependency name as declared in the manifest.
+    pub dependency: String,
+}
+
+/// Outcome of the unused-dependencies check.
+///
+/// `cargo-machete` is an *optional* tool: when it is not installed the check
+/// is skipped rather than failing `ops deps`, so the variant records which of
+/// the two happened instead of rendering a skipped check as "None".
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(tag = "status", rename_all = "snake_case")]
+#[non_exhaustive]
+pub enum UnusedDepsResult {
+    /// cargo-machete ran; `entries` is empty on a clean run.
+    Checked {
+        /// Unused dependencies, in cargo-machete's order.
+        entries: Vec<UnusedDepEntry>,
+    },
+    /// cargo-machete is not installed, so the check did not run.
+    NotInstalled,
+}
+
+impl Default for UnusedDepsResult {
+    /// A clean run, matching the other sections' empty defaults.
+    fn default() -> Self {
+        Self::Checked {
+            entries: Vec::new(),
+        }
+    }
+}
+
 /// Full dependency health report.
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 #[non_exhaustive]
@@ -122,6 +162,8 @@ pub struct DepsReport {
     pub upgrades: UpgradeResult,
     /// cargo-deny findings across advisories, licenses, bans and sources.
     pub deny: DenyResult,
+    /// cargo-machete's unused dependencies, or why the check was skipped.
+    pub unused: UnusedDepsResult,
 }
 
 #[cfg(test)]

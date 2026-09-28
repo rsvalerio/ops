@@ -1,9 +1,22 @@
 //! Deps extension: comprehensive dependency health report.
 //!
-//! Combines `cargo upgrade --dry-run` (available upgrades) and `cargo deny check`
-//! (advisories, licenses, bans, sources) into a single `ops deps` command.
+//! Combines `cargo upgrade --dry-run` (available upgrades), `cargo deny check`
+//! (advisories, licenses, bans, sources) and `cargo machete` (unused
+//! dependencies) into a single `ops deps` command.
 //!
-//! Both `cargo-edit` and `cargo-deny` must be installed.
+//! `cargo-edit` and `cargo-deny` must be installed; `ops deps` fails without
+//! them.
+//!
+//! `cargo-machete` is optional. Every downstream `ops qa` runs `deps` first
+//! under `fail_fast`, so requiring it would break every consumer's gate until
+//! they install it. When it is missing, the Unused Dependencies row renders
+//! as skipped with the install hint and the rest of the report runs as usual.
+//!
+//! Unused dependencies are a warning, never a gate failure: cargo-machete
+//! greps sources rather than compiling them, so macro-only, build-script and
+//! feature-gated uses produce false positives. Suppress one with
+//! `[package.metadata.cargo-machete] ignored = ["name"]` in the declaring
+//! manifest; cargo-machete applies that list itself.
 
 #![cfg_attr(
     test,
@@ -24,7 +37,7 @@ mod tests;
 mod types;
 
 use anyhow::Context as _;
-use ops_core::subprocess::{run_cargo, RunError};
+use ops_core::subprocess::RunError;
 use ops_extension::{
     Context, DataField, DataProvider, DataProviderError, DataProviderSchema, ExtensionType,
 };
@@ -41,22 +54,23 @@ pub use format::build_report;
 // available", and publishing it would make opting out of the crate's
 // fail-closed posture the path of least resistance.
 pub use parse::{
-    categorize_upgrades, interpret_deny_result, interpret_upgrade_output, parse_deny_output,
-    run_cargo_deny, run_cargo_upgrade_dry_run,
+    categorize_upgrades, interpret_deny_result, interpret_machete_output, interpret_upgrade_output,
+    parse_deny_output, run_cargo_deny, run_cargo_machete, run_cargo_upgrade_dry_run,
 };
 
 // An explicit re-export list rather than `pub use types::*`, so adding a type
 // to `types.rs` is not a public API change by default.
 pub use types::{
     AdvisoryEntry, BanEntry, DenyEntry, DenyResult, DepsReport, LicenseEntry, SourceEntry,
-    UpgradeEntry, UpgradeResult,
+    UnusedDepEntry, UnusedDepsResult, UpgradeEntry, UpgradeResult,
 };
 
 /// Extension identifier used to register this crate in the engine's
 /// extension registry.
 pub const NAME: &str = "deps";
 /// One-line description shown by `ops about` for this extension.
-pub const DESCRIPTION: &str = "Dependency health: upgrades, advisories, licenses, bans, sources";
+pub const DESCRIPTION: &str =
+    "Dependency health: upgrades, advisories, licenses, bans, sources, unused deps";
 /// CLI-facing short name (`deps`) used in commands and user-facing output.
 pub const SHORTNAME: &str = "deps";
 /// Registry key of the `deps` data provider this crate registers — the key
@@ -74,6 +88,31 @@ pub(crate) struct CargoTool {
     pub(crate) install_crate: &'static str,
     /// Args to spawn for the probe. First element is typically `subcommand`.
     pub(crate) probe_args: &'static [&'static str],
+    /// Environment variables removed from the tool's environment, for both
+    /// the probe and the real run.
+    pub(crate) strip_env: &'static [&'static str],
+}
+
+/// Run `cargo <args...>` like [`ops_core::subprocess::run_cargo`], minus
+/// `strip_env` in the child's environment. With an empty `strip_env` this is
+/// exactly `run_cargo`.
+pub(crate) fn run_cargo_tool(
+    args: &[&str],
+    strip_env: &[&str],
+    working_dir: &std::path::Path,
+    op_default: Duration,
+    label: &str,
+) -> Result<std::process::Output, RunError> {
+    let mut cmd = std::process::Command::new(ops_core::subprocess::resolve_cargo_bin());
+    cmd.args(args).current_dir(working_dir);
+    for var in strip_env {
+        cmd.env_remove(var);
+    }
+    ops_core::subprocess::run_with_timeout(
+        &mut cmd,
+        ops_core::subprocess::default_timeout(op_default),
+        label,
+    )
 }
 
 const REQUIRED_CARGO_TOOLS: &[CargoTool] = &[
@@ -81,13 +120,31 @@ const REQUIRED_CARGO_TOOLS: &[CargoTool] = &[
         subcommand: "upgrade",
         install_crate: "cargo-edit",
         probe_args: &["upgrade", "--version"],
+        strip_env: &[],
     },
     CargoTool {
         subcommand: "deny",
         install_crate: "cargo-deny",
         probe_args: &["deny", "--version"],
+        strip_env: &[],
     },
 ];
+
+/// Optional tool behind the Unused Dependencies check. Not in
+/// [`REQUIRED_CARGO_TOOLS`]: a missing cargo-machete skips that one check
+/// instead of failing `ops deps` (see the crate docs).
+pub(crate) const CARGO_MACHETE: CargoTool = CargoTool {
+    subcommand: "machete",
+    install_crate: "cargo-machete",
+    probe_args: &["machete", "--version"],
+    // cargo-machete decides whether it was invoked as `cargo machete` from
+    // `CARGO` being set *and `CARGO_PKG_NAME` being unset*. `CARGO_PKG_NAME`
+    // leaks into `ops` whenever cargo launched it (`cargo run`, a test, a
+    // build script), and machete then parses `machete` and `--version` as
+    // paths to scan and exits 2 — which the probe would read as "not
+    // installed" and the run as an error.
+    strip_env: &["CARGO_PKG_NAME"],
+};
 
 /// Default timeout for the `cargo <sub> --version` probe spawned by
 /// `check_tool_in`. Bounded because a wedged registry probe, a broken sccache
@@ -103,18 +160,34 @@ const CARGO_TOOL_PROBE_TIMEOUT: Duration = Duration::from_secs(30);
 /// resolved against the process CWD agrees with the directory the command
 /// actually operates on only by coincidence — see [`ensure_tools`].
 pub(crate) fn check_tool_in(tool: &CargoTool, working_dir: &std::path::Path) -> anyhow::Result<()> {
-    match run_cargo(
+    if !probe_tool_in(tool, working_dir)? {
+        anyhow::bail!(
+            "cargo {} is not installed. Install with: cargo install {}",
+            tool.subcommand,
+            tool.install_crate
+        );
+    }
+    Ok(())
+}
+
+/// Probe for one tool, answering `Ok(false)` when `cargo <sub> --version`
+/// exits non-zero (cargo's "no such command").
+///
+/// A probe that times out or cannot spawn is an error, not "not installed":
+/// for an optional tool, reading a wedged probe as absent would silently skip
+/// its check.
+pub(crate) fn probe_tool_in(
+    tool: &CargoTool,
+    working_dir: &std::path::Path,
+) -> anyhow::Result<bool> {
+    match run_cargo_tool(
         tool.probe_args,
+        tool.strip_env,
         working_dir,
         CARGO_TOOL_PROBE_TIMEOUT,
         &format!("cargo {} --version", tool.subcommand),
     ) {
-        Ok(output) if output.status.success() => Ok(()),
-        Ok(_) => anyhow::bail!(
-            "cargo {} is not installed. Install with: cargo install {}",
-            tool.subcommand,
-            tool.install_crate
-        ),
+        Ok(output) => Ok(output.status.success()),
         Err(RunError::Timeout(t)) => anyhow::bail!(
             "cargo {} probe timed out after {}s; the cargo registry, an sccache wrapper, \
              or a sibling cargo build holding the target lock may be wedged",
@@ -306,6 +379,8 @@ fn severity_is_actionable(severity: &str, relax_warning: bool, warned_unknown: &
 /// Returns true if the report contains any actionable issues.
 ///
 /// Duplicate crate bans (warnings) are excluded — they are informational.
+/// Unused dependencies never fail the gate either: cargo-machete is heuristic,
+/// so they render as a warning row only.
 ///
 /// Any severity outside the explicitly-known-benign set fails the gate, so a
 /// cargo-deny release that adds a severity (`critical`, a renamed `note`, the
@@ -374,9 +449,22 @@ ops_extension::impl_extension! {
     },
 }
 
-/// Data provider assembling the dependency health report by shelling out to
-/// `cargo upgrade --dry-run` and `cargo deny check`, served under the
+/// Run the optional unused-dependencies check, or record that it was skipped
+/// because cargo-machete is not installed.
+fn collect_unused(working_dir: &std::path::Path) -> anyhow::Result<UnusedDepsResult> {
+    if !probe_tool_in(&CARGO_MACHETE, working_dir)? {
+        return Ok(UnusedDepsResult::NotInstalled);
+    }
+    Ok(UnusedDepsResult::Checked {
+        entries: run_cargo_machete(working_dir)?,
+    })
+}
+
+/// Data provider for the dependency health report, served under the
 /// [`DATA_PROVIDER_NAME`] key.
+///
+/// Shells out to `cargo upgrade --dry-run`, `cargo deny check` and, when
+/// installed, `cargo machete`.
 pub struct DepsProvider;
 
 impl DataProvider for DepsProvider {
@@ -395,13 +483,21 @@ impl DataProvider for DepsProvider {
             .context("cargo deny failed")
             .map_err(DataProviderError::from)?;
 
-        let report = DepsReport { upgrades, deny };
+        let unused = collect_unused(ctx.working_directory())
+            .context("cargo machete failed")
+            .map_err(DataProviderError::from)?;
+
+        let report = DepsReport {
+            upgrades,
+            deny,
+            unused,
+        };
         serde_json::to_value(&report).map_err(DataProviderError::from)
     }
 
     fn schema(&self) -> DataProviderSchema {
         DataProviderSchema::new(
-            "Dependency health: upgrades, advisories, licenses, bans, sources",
+            DESCRIPTION,
             vec![
                 DataField::new(
                     "upgrades.compatible",
@@ -429,6 +525,11 @@ impl DataProvider for DepsProvider {
                     "Banned or duplicate crate issues",
                 ),
                 DataField::new("deny.sources", "Vec<SourceEntry>", "Source trust issues"),
+                DataField::new(
+                    "unused",
+                    "UnusedDepsResult",
+                    "Unused dependencies from cargo-machete, or `not_installed` when skipped",
+                ),
             ],
         )
     }

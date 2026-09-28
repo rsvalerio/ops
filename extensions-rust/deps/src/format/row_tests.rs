@@ -174,3 +174,30 @@ fn bans_row_warns_once_on_unknown_severity() {
     );
     assert_eq!(row.status, ReportStatus::Error);
 }
+
+/// Unused dependencies cap at warning: cargo-machete is heuristic.
+#[test]
+fn unused_row_statuses() {
+    let checked = |entries| UnusedDepsResult::Checked { entries };
+    let row = unused_row(&checked(vec![]));
+    assert_eq!(
+        (row.status, row.result.as_str()),
+        (ReportStatus::Ok, "None")
+    );
+
+    let row = unused_row(&checked(vec![crate::UnusedDepEntry {
+        package: "app".into(),
+        manifest_path: "./Cargo.toml".into(),
+        dependency: "serde".into(),
+    }]));
+    assert_eq!(
+        (row.status, row.result.as_str()),
+        (ReportStatus::Warning, "1 dependency")
+    );
+
+    let row = unused_row(&UnusedDepsResult::NotInstalled);
+    assert_eq!(
+        (row.status, row.result.as_str()),
+        (ReportStatus::Info, "Skipped")
+    );
+}
