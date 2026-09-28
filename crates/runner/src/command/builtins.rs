@@ -23,11 +23,13 @@ use ops_core::config::{CommandId, CommandSpec, ExecCommandSpec};
 ///
 /// Currently registers the text fixers (`end-of-file-fixer` / `eof`,
 /// `trailing-whitespace` / `tw`), the config checkers (`check-json`,
-/// `check-yaml`) and `sec`. Add new entries here whenever a clap-level
+/// `check-yaml`), `sec`, `lint-actions` and `msrv`. Add new entries here whenever a clap-level
 /// subcommand should also be referenceable from composite `commands = [...]`.
 ///
 /// The fixers rewrite files, so they keep `ops_subcommand`'s exclusive
-/// default; the checkers only read and are marked [`read_only`]. `sec` also
+/// default; the checkers (`lint-actions` included) only read and are marked
+/// [`read_only`]. `msrv` compiles into `target/`, so it keeps the exclusive
+/// default like any build step. `sec` also
 /// never writes the worktree, but it stays exclusive (TASK-2263): Trivy
 /// reads the *whole* tree, build outputs included, and aborts the scan when
 /// a file vanishes mid-walk — which is exactly what a concurrent build or
@@ -54,6 +56,14 @@ pub(super) fn builtin_commands() -> IndexMap<CommandId, CommandSpec> {
     map.insert(
         CommandId::from("sec"),
         CommandSpec::Exec(builtin_exec("sec", &[])),
+    );
+    map.insert(
+        CommandId::from("lint-actions"),
+        CommandSpec::Exec(read_only(builtin_exec("lint-actions", &[]))),
+    );
+    map.insert(
+        CommandId::from("msrv"),
+        CommandSpec::Exec(builtin_exec("msrv", &[])),
     );
     map
 }
@@ -152,6 +162,8 @@ mod tests {
             ("check-json", false),
             ("check-yaml", false),
             ("sec", true),
+            ("lint-actions", false),
+            ("msrv", true),
         ] {
             let Some(CommandSpec::Exec(exec)) = map.get(name) else {
                 panic!("{name} must be an exec builtin");

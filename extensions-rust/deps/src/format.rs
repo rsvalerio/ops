@@ -175,7 +175,22 @@ pub fn build_report(report: &DepsReport) -> Report {
         &report.upgrades.incompatible,
         UpgradeKind::Breaking,
     ));
+    push_check_rows(&mut out, report);
+    out
+}
 
+/// The `ops deps --check` report: every gate row, and no upgrade rows —
+/// check mode never runs the upgrade scan, so rendering "no upgrades" there
+/// would claim a result nobody collected.
+pub fn build_check_report(report: &DepsReport) -> Report {
+    let mut out = Report::new("Dependency Check");
+    push_check_rows(&mut out, report);
+    out
+}
+
+/// The rows both reports share: cargo-deny's four sections and the unused
+/// dependencies row.
+fn push_check_rows(out: &mut Report, report: &DepsReport) {
     // Advisories — id column in front of the package column.
     out.push(severity_row(
         "Advisories",
@@ -216,8 +231,6 @@ pub fn build_report(report: &DepsReport) -> Report {
     ));
 
     out.push(unused_row(&report.unused));
-
-    out
 }
 
 #[derive(Clone, Copy)]

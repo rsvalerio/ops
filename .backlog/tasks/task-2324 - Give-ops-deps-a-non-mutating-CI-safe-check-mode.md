@@ -1,13 +1,15 @@
 ---
 id: TASK-2324
 title: 'Give ops deps a non-mutating, CI-safe check mode'
-status: Triage
+status: Done
 assignee: []
 created_date: '2026-09-28 10:59'
+updated_date: '2026-09-28 15:22'
 labels:
   - ci
   - ops-alignment
 dependencies: []
+parent_task_id: 'TASK-2331'
 modified_files: []
 priority: medium
 ordinal: 1000
@@ -26,5 +28,12 @@ dedup_key: 'ops-align:ops-deps-check'
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 A check mode that reports (advisories, licenses, bans, unused) and fails without editing files or requiring cargo-edit
+- [x] #1 A check mode that reports (advisories, licenses, bans, unused) and fails without editing files or requiring cargo-edit
+
 <!-- AC:END -->
+
+## Implementation Notes
+
+<!-- SECTION:NOTES:BEGIN -->
+Implemented in wave TASK-2331 (branch code-review/TASK-2331): `ops deps --check` runs only `cargo deny check` and (optional) `cargo machete`, probes only cargo-deny (cargo-edit not required), collects fresh straight from the tools (bypasses and never writes the data cache), renders a "Dependency Check" report without upgrade rows, and fails on the same actionable findings as `ops deps`. Note: plain `ops deps` never edited Cargo.toml either (it runs `cargo upgrade --dry-run`); the check mode removes the cargo-edit requirement and the cache.
+<!-- SECTION:NOTES:END -->

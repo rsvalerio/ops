@@ -98,7 +98,10 @@ fn run_fixer(
         )
         .with_context(|| format!("{label}: writing the discovery fallback notice failed"))?;
     }
-    let mut report = FixerReport::default();
+    let mut report = FixerReport {
+        check_only: opts.check,
+        ..FixerReport::default()
+    };
     // The walk-error accounting loop is shared with the
     // config checkers; see `ops_core::bounded_read::report_walk_errors` for
     // why an untraversable directory must fail the run, not just print.
@@ -158,6 +161,17 @@ fn run_fixer(
         };
         if fixed == bytes {
             report.files_scanned = report.files_scanned.saturating_add(1);
+            continue;
+        }
+
+        if opts.check {
+            // Check mode: the file needs fixing, which is the finding. It is
+            // recorded exactly like a rewrite so the exit code is the same,
+            // but the tree is never touched.
+            report.files_scanned = report.files_scanned.saturating_add(1);
+            writeln!(writer, "{label}: would fix {}", display.display())
+                .with_context(|| format!("{label}: writing the would-fix line failed"))?;
+            report.files_changed.push(display);
             continue;
         }
 

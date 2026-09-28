@@ -5,9 +5,11 @@
 //! - [`render_config`] — render config + constructor options
 //! - [`style`] — progress-bar style construction
 //! - [`progress_state`] — per-plan step bookkeeping (bars, steps, captured stderr)
+//! - [`github`] — GitHub Actions groups, annotations and step summary
 
 mod error_detail;
 mod finalize;
+mod github;
 mod progress_state;
 mod render_config;
 mod style;
@@ -23,6 +25,7 @@ use ops_core::config::CommandId;
 use ops_core::output::{StepLine, StepStatus};
 use ops_theme::{self as theme, BoxSnapshot};
 
+use github::{GithubActions, StepOutcome};
 use indicatif::{MultiProgress, ProgressBar, ProgressDrawTarget, ProgressStyle};
 use progress_state::ProgressState;
 use std::io::{self, IsTerminal, Write};
@@ -84,6 +87,9 @@ pub struct ProgressDisplay {
     /// for re-opening on failure, captured truncation kind) extracted into
     /// `tap::TapWriter`. `None` here means no tap was requested at all.
     pub(super) tap: Option<TapWriter>,
+    /// TASK-2325: GitHub Actions reporter, present only when running under
+    /// `GITHUB_ACTIONS=true` without a TTY (the runner's log is plain text).
+    github: Option<GithubActions>,
     /// CL-3 / TASK-0656 + TRAIT-9 / TASK-0907: structurally enforce the
     /// sync-IO invariant on [`Self::handle_event`].
     ///
@@ -172,6 +178,11 @@ impl ProgressDisplay {
         let resolved_theme = theme::resolve_theme(&output.theme, custom_themes)?;
         let running_style = build_running_style(&resolved_theme, &output.theme)?;
         let tap = tap.map(TapWriter::new);
+        let github = if is_tty {
+            None
+        } else {
+            GithubActions::from_env()
+        };
         // TASK-0762: verbose → unbounded; otherwise use the user's config value.
         let stderr_tail = if verbose {
             StderrTail::Unbounded
@@ -199,6 +210,7 @@ impl ProgressDisplay {
             total_steps: 0,
             run_started_at: None,
             tap,
+            github,
             _not_send: PhantomData,
         })
     }
@@ -307,6 +319,9 @@ impl ProgressDisplay {
 
     fn on_plan_started(&mut self, command_ids: &[CommandId]) {
         self.state.reset_for_plan(command_ids);
+        if let Some(ref mut github) = self.github {
+            github.reset();
+        }
 
         self.total_steps = command_ids.len();
         self.completed_steps = 0;
@@ -560,6 +575,9 @@ impl ProgressDisplay {
             self.state
                 .record_stderr(id, line.as_str(), self.render.stderr_tail.cap());
         }
+        if let Some(ref mut github) = self.github {
+            github.record_output(id, line.as_str());
+        }
         self.tap_line_for(line.as_str(), Some(id));
     }
 
@@ -610,7 +628,33 @@ impl ProgressDisplay {
     }
 
     fn on_step_finished(&mut self, id: &str, duration_secs: f64, display_cmd: Option<&str>) {
-        self.finish_step(id, StepStatus::Succeeded, duration_secs, display_cmd);
+        if let Some(i) = self.finish_step(id, StepStatus::Succeeded, duration_secs, display_cmd) {
+            let outcome = StepOutcome {
+                id,
+                status: StepStatus::Succeeded,
+                duration_secs,
+                failure: None,
+            };
+            self.emit_github_step(i, display_cmd, &outcome);
+        }
+    }
+
+    /// TASK-2325: emit the GitHub Actions group (and, for a failure, the
+    /// `::error` annotation) for the step `finish_step` just finalized at
+    /// row `i`. No-op outside GitHub Actions.
+    fn emit_github_step(&mut self, i: usize, display_cmd: Option<&str>, outcome: &StepOutcome<'_>) {
+        let Some(ref mut github) = self.github else {
+            return;
+        };
+        let fallback = self
+            .state
+            .steps
+            .get(i)
+            .map_or(outcome.id, |step| step.1.as_str());
+        let display = display_cmd.unwrap_or(fallback);
+        for line in github.step_finished(display, outcome) {
+            write_stderr(Some(&line));
+        }
     }
 
     fn on_step_skipped(&mut self, id: &str, display_cmd: Option<&str>) {
@@ -621,7 +665,15 @@ impl ProgressDisplay {
             .step_index(id)
             .and_then(|i| self.state.bars.get(i))
             .map_or(0.0, |bar| bar.elapsed().as_secs_f64());
-        self.finish_step(id, StepStatus::Skipped, elapsed, display_cmd);
+        if let Some(i) = self.finish_step(id, StepStatus::Skipped, elapsed, display_cmd) {
+            let outcome = StepOutcome {
+                id,
+                status: StepStatus::Skipped,
+                duration_secs: elapsed,
+                failure: None,
+            };
+            self.emit_github_step(i, display_cmd, &outcome);
+        }
     }
 
     fn render_error_details_tty(&self, bar_index: usize, detail_lines: &[String]) {
@@ -655,6 +707,13 @@ impl ProgressDisplay {
         let Some(i) = self.finish_step(id, StepStatus::Failed, duration_secs, display_cmd) else {
             return;
         };
+        let outcome = StepOutcome {
+            id,
+            status: StepStatus::Failed,
+            duration_secs,
+            failure: Some(message),
+        };
+        self.emit_github_step(i, display_cmd, &outcome);
 
         if !self.render.show_error_detail {
             return;
@@ -687,6 +746,9 @@ impl ProgressDisplay {
         // dispatcher.
         self.finalize_orphan_bars();
         self.report_tap_truncation();
+        if let Some(ref github) = self.github {
+            github.write_summary(success, duration_secs);
+        }
         if self.finalize_boxed_layout(duration_secs, success) {
             return;
         }

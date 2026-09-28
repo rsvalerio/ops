@@ -324,6 +324,58 @@ fn progress_display_handles_step_skipped() {
     assert_eq!(display.state.bars.len(), 1);
 }
 
+/// TASK-2325: under GitHub Actions the display consumes step output and
+/// finished/failed/orphaned steps, and `RunFinished` appends the run summary
+/// to `$GITHUB_STEP_SUMMARY`.
+#[test]
+fn github_actions_summary_covers_every_step() {
+    let dir = tempfile::tempdir().expect("tempdir");
+    let summary = dir.path().join("summary.md");
+    let mut display = test_display(&[("build", "cargo build"), ("test", "cargo test")]);
+    display.github = Some(github::GithubActions::new(Some(summary.clone())));
+
+    display.handle_event(RunnerEvent::PlanStarted {
+        command_ids: vec!["build".into(), "test".into(), "doc".into()],
+    });
+    display.handle_event(RunnerEvent::StepStarted {
+        id: "build".into(),
+        display_cmd: None,
+    });
+    display.handle_event(RunnerEvent::StepOutput {
+        id: "build".into(),
+        line: "error[E0425]".into(),
+        stderr: true,
+    });
+    display.handle_event(RunnerEvent::StepFailed {
+        id: "build".into(),
+        duration_secs: 1.0,
+        message: "exit status: 1".to_string(),
+        display_cmd: None,
+    });
+    display.handle_event(RunnerEvent::StepFinished {
+        id: "test".into(),
+        duration_secs: 2.0,
+        display_cmd: None,
+    });
+    // `doc` never finishes: it is finalized as an orphan on RunFinished.
+    display.handle_event(RunnerEvent::RunFinished {
+        duration_secs: 3.0,
+        success: false,
+    });
+
+    let written = std::fs::read_to_string(&summary).expect("summary written");
+    assert!(
+        written.contains("| cargo build | failed | 1.00s |"),
+        "{written}"
+    );
+    assert!(
+        written.contains("| cargo test | succeeded | 2.00s |"),
+        "{written}"
+    );
+    assert!(written.contains("| doc | skipped |"), "{written}");
+    assert!(written.contains("1 failed, 1 succeeded of 3"), "{written}");
+}
+
 mod edge_case_tests {
     use super::*;
     use crate::command::RunnerEvent;

@@ -7,6 +7,11 @@
 //! `cargo-edit` and `cargo-deny` must be installed; `ops deps` fails without
 //! them.
 //!
+//! `ops deps --check` is the CI-safe gate (TASK-2324): it runs only
+//! `cargo deny check` and, when installed, `cargo machete` — no upgrade scan,
+//! so cargo-edit is not required — always collects fresh, and never writes
+//! the data cache. It fails on the same actionable findings as `ops deps`.
+//!
 //! `cargo-machete` is optional. Every downstream `ops qa` runs `deps` first
 //! under `fail_fast`, so requiring it would break every consumer's gate until
 //! they install it. When it is missing, the Unused Dependencies row renders
@@ -115,6 +120,13 @@ pub(crate) fn run_cargo_tool(
     )
 }
 
+const CARGO_DENY: CargoTool = CargoTool {
+    subcommand: "deny",
+    install_crate: "cargo-deny",
+    probe_args: &["deny", "--version"],
+    strip_env: &[],
+};
+
 const REQUIRED_CARGO_TOOLS: &[CargoTool] = &[
     CargoTool {
         subcommand: "upgrade",
@@ -122,12 +134,7 @@ const REQUIRED_CARGO_TOOLS: &[CargoTool] = &[
         probe_args: &["upgrade", "--version"],
         strip_env: &[],
     },
-    CargoTool {
-        subcommand: "deny",
-        install_crate: "cargo-deny",
-        probe_args: &["deny", "--version"],
-        strip_env: &[],
-    },
+    CARGO_DENY,
 ];
 
 /// Optional tool behind the Unused Dependencies check. Not in
@@ -224,6 +231,39 @@ pub fn ensure_tools(working_dir: &std::path::Path) -> anyhow::Result<()> {
     Ok(())
 }
 
+/// An external binary `ops deps` spawns, as `ops explain --json` reports it
+/// (TASK-2326).
+#[derive(Debug, Clone, PartialEq, Eq)]
+#[non_exhaustive]
+pub struct ExternalTool {
+    /// The executable looked up on `PATH`. Cargo resolves `cargo <sub>` to a
+    /// `cargo-<sub>` binary, so that is the name reported for a subcommand.
+    pub binary: String,
+    /// How to install it.
+    pub install: String,
+    /// `ops deps` still runs without it, skipping only the check it backs.
+    pub optional: bool,
+}
+
+/// Every external binary `ops deps` spawns, derived from the same tool table
+/// [`ensure_tools`] probes, so the report cannot drift from the check.
+#[must_use]
+pub fn external_tools() -> Vec<ExternalTool> {
+    let cargo_tool = |tool: &CargoTool, optional| ExternalTool {
+        binary: format!("cargo-{}", tool.subcommand),
+        install: format!("cargo install {}", tool.install_crate),
+        optional,
+    };
+    std::iter::once(ExternalTool {
+        binary: "cargo".to_string(),
+        install: "rustup (https://rustup.rs)".to_string(),
+        optional: false,
+    })
+    .chain(REQUIRED_CARGO_TOOLS.iter().map(|t| cargo_tool(t, false)))
+    .chain(std::iter::once(cargo_tool(&CARGO_MACHETE, true)))
+    .collect()
+}
+
 // ── Public entry point ──────────────────────────────────────────────────────
 
 /// Build a [`Context`] from the user's loaded `.ops.toml`.
@@ -259,13 +299,27 @@ pub struct DepsOptions {
     /// Re-collect dependency data instead of serving the payload persisted
     /// in the data cache. Wired to `ops deps --refresh`.
     pub refresh: bool,
+    /// CI-safe check mode: cargo-deny and cargo-machete only, collected
+    /// fresh, the data cache left untouched, and cargo-edit not required.
+    /// Wired to `ops deps --check`.
+    pub check: bool,
 }
 
 impl DepsOptions {
     /// Options with `refresh` set as given and every other field defaulted.
     #[must_use]
     pub const fn new(refresh: bool) -> Self {
-        Self { refresh }
+        Self {
+            refresh,
+            check: false,
+        }
+    }
+
+    /// Switch to the CI-safe check mode; see [`DepsOptions::check`].
+    #[must_use]
+    pub const fn with_check(mut self, check: bool) -> Self {
+        self.check = check;
+        self
     }
 }
 
@@ -287,6 +341,9 @@ pub fn run_deps(
     // assignment: it changes cache semantics for every provider that runs on
     // this context afterwards.
     let mut ctx = build_user_context()?;
+    if opts.check {
+        return run_deps_check(&ctx);
+    }
     if opts.refresh {
         ctx = ctx.with_refresh();
     }
@@ -332,6 +389,36 @@ pub fn run_deps(
         anyhow::bail!("dependency issues found");
     }
 
+    Ok(())
+}
+
+/// `ops deps --check`: the non-mutating CI gate (see the crate docs).
+///
+/// Collects straight from the tools rather than through the data provider,
+/// so a cached payload can neither stand in for a fresh check nor be
+/// written by one, and skips the upgrade scan — the only step that needs
+/// cargo-edit, and not a gate: available upgrades never fail `ops deps`.
+fn run_deps_check(ctx: &Context) -> anyhow::Result<()> {
+    let working_dir = ctx.working_directory();
+    check_tool_in(&CARGO_DENY, working_dir)?;
+
+    let columns = ctx.config().output.resolve_columns();
+    let theme = ops_theme::resolve_theme(&ctx.config().output.theme, &ctx.config().themes)
+        .map_err(|e| anyhow::anyhow!("deps: {e}"))?;
+
+    let report = DepsReport {
+        upgrades: UpgradeResult::default(),
+        deny: run_cargo_deny(working_dir).context("cargo deny failed")?,
+        unused: collect_unused(working_dir).context("cargo machete failed")?,
+    };
+
+    for line in theme.render_report(&format::build_check_report(&report), columns) {
+        println!("{line}");
+    }
+
+    if has_issues(&report) {
+        anyhow::bail!("dependency issues found");
+    }
     Ok(())
 }
 

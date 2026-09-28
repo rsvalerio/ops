@@ -97,7 +97,7 @@ pub struct ExtendEntry {
 /// silently reinterpret a cargo flag as a tool flag. Inserting before the
 /// separator keeps the extension a cargo flag; targets without a separator
 /// (build, fmt, plain programs) get a plain append.
-fn append_exec_args(args: &mut Vec<String>, extra: &[String]) {
+pub(super) fn append_exec_args(args: &mut Vec<String>, extra: &[String]) {
     match args.iter().position(|a| a == "--") {
         // Reverse insertion at a fixed index: each insert pushes the
         // previously-spliced elements up, leaving `extra` in order at `pos`

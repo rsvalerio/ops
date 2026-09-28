@@ -54,7 +54,9 @@ mod import_makefile_cmd;
 mod init_cmd;
 #[cfg(feature = "stack-rust")]
 mod init_rust_cmd;
+mod lint_actions_cmd;
 mod lock_cmd;
+mod msrv_cmd;
 mod new_command_cmd;
 mod pre_hook_cmd;
 mod prompt;
@@ -305,14 +307,16 @@ fn dispatch(
             run_about(early_config, refresh, action)?;
         }
         #[cfg(feature = "stack-rust")]
-        Some(CoreSubcommand::Deps { refresh }) => run_deps(early_config, refresh)?,
+        Some(CoreSubcommand::Deps { refresh, check }) => {
+            run_deps(early_config, refresh, check)?;
+        }
         #[cfg(feature = "stack-terraform")]
         Some(CoreSubcommand::Plans(opts)) => return ops_tfplan::run_plan_pipeline(&opts),
-        Some(CoreSubcommand::TrailingWhitespace { tracked }) => {
-            return run_trailing_whitespace(tracked);
+        Some(CoreSubcommand::TrailingWhitespace { tracked, check }) => {
+            return run_trailing_whitespace(tracked, check);
         }
-        Some(CoreSubcommand::EndOfFileFixer { tracked }) => {
-            return run_end_of_file_fixer(tracked);
+        Some(CoreSubcommand::EndOfFileFixer { tracked, check }) => {
+            return run_end_of_file_fixer(tracked, check);
         }
         Some(CoreSubcommand::CheckJson {
             tracked,
@@ -342,6 +346,13 @@ fn dispatch(
         }
         Some(CoreSubcommand::ClippyFindings(args)) => {
             return run_clippy_findings(args, cli.dry_run);
+        }
+        Some(CoreSubcommand::Msrv { install }) => {
+            return msrv_cmd::run_msrv(&cwd()?, install, cli.dry_run);
+        }
+        Some(CoreSubcommand::LintActions { mut allow }) => {
+            allow.extend(early_config.lint_actions.allow.iter().cloned());
+            return lint_actions_cmd::run_lint_actions(&cwd()?, &allow);
         }
         Some(CoreSubcommand::Explain { commands, json }) => {
             return run_cmd::run_explain(std::sync::Arc::clone(early_config), &commands, json);

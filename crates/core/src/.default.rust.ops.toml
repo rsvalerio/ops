@@ -7,6 +7,14 @@ exclusive = true
 help = "Format all code"
 category = "Code Quality"
 
+# The non-mutating twin of `fmt` for CI: fails on unformatted code, writes
+# nothing, and so needs no `exclusive`.
+[commands.fmt-check]
+program = "cargo"
+args = ["fmt", "--all", "--", "--check"]
+help = "Fail on unformatted code without rewriting it"
+category = "Code Quality"
+
 [commands.check]
 program = "cargo"
 args = ["check", "--workspace", "--all-features", "--all-targets"]
@@ -89,6 +97,16 @@ commands = ["fmt", "trailing-whitespace", "end-of-file-fixer", "clippy", "build"
 parallel = true
 fail_fast = true
 help = "Run fmt, trailing-whitespace, end-of-file-fixer, then clippy, build, check-json, check-yaml, doc in parallel"
+category = "Code Quality"
+
+# The CI form of `verify` (TASK-2322): every step is a check, so nothing is
+# rewritten and a dirty tree fails instead of being repaired. With no
+# exclusive step the whole plan runs as one parallel stage.
+[commands.verify-check]
+commands = ["fmt-check", "trailing-whitespace-check", "end-of-file-fixer-check", "clippy", "build", "check-json", "check-yaml", "doc"]
+parallel = true
+fail_fast = true
+help = "CI-safe verify: fmt-check, trailing-whitespace-check, end-of-file-fixer-check, clippy, build, check-json, check-yaml, doc in parallel; writes nothing"
 category = "Code Quality"
 
 [commands.qa]

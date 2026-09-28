@@ -33,6 +33,10 @@ pub struct FixerReport {
     /// not see the whole tree and must not report "clean" — see
     /// [`FixerReport::failed`].
     pub walk_errors: Vec<String>,
+    /// The run was check-only ([`crate::FixerOptions::check`]):
+    /// `files_changed` lists files that *need* fixing, none of which was
+    /// written. Only the summary wording depends on it.
+    pub check_only: bool,
 }
 
 impl ops_core::bounded_read::FileRunReport for FixerReport {
@@ -78,9 +82,14 @@ impl FixerReport {
 /// Propagates writer I/O errors so a broken pipe in CI is not silently hidden
 /// from the caller.
 pub fn write_summary(report: &FixerReport, label: &str, writer: &mut dyn Write) -> io::Result<()> {
+    let changed = if report.check_only {
+        "would change"
+    } else {
+        "changed"
+    };
     writeln!(
         writer,
-        "{label}: scanned {} file(s), {} changed, {} skipped, {} failed, {} walk error(s)",
+        "{label}: scanned {} file(s), {} {changed}, {} skipped, {} failed, {} walk error(s)",
         report.files_scanned,
         report.files_changed.len(),
         report.files_skipped,
@@ -105,12 +114,32 @@ mod tests {
                 message: "read: permission denied".to_owned(),
             }],
             walk_errors: Vec::new(),
+            check_only: false,
         };
         let mut buf = Vec::new();
         write_summary(&report, "trailing-whitespace", &mut buf).unwrap();
         assert_eq!(
             String::from_utf8(buf).unwrap(),
             "trailing-whitespace: scanned 7 file(s), 2 changed, 3 skipped, 1 failed, 0 walk \
+             error(s)\n"
+        );
+    }
+
+    /// A check-only run wrote nothing, so the summary must not claim it
+    /// "changed" anything.
+    #[test]
+    fn write_summary_of_a_check_run_says_would_change() {
+        let report = FixerReport {
+            files_scanned: 1,
+            files_changed: vec![PathBuf::from("a.txt")],
+            check_only: true,
+            ..FixerReport::default()
+        };
+        let mut buf = Vec::new();
+        write_summary(&report, "end-of-file-fixer", &mut buf).unwrap();
+        assert_eq!(
+            String::from_utf8(buf).unwrap(),
+            "end-of-file-fixer: scanned 1 file(s), 1 would change, 0 skipped, 0 failed, 0 walk \
              error(s)\n"
         );
     }

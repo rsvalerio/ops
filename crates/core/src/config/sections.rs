@@ -71,6 +71,28 @@ impl DataConfig {
     }
 }
 
+/// `[cargo]` — switches applied to the cargo invocations ops runs
+/// (TASK-2323).
+///
+/// `Option` leaves so a layer that does not mention a key leaves the lower
+/// layer's value alone; `OPS__CARGO__LOCKED=true` sets it from the
+/// environment like any other key.
+#[derive(Debug, Clone, Default, PartialEq, Eq, Deserialize, Serialize)]
+#[serde(deny_unknown_fields)]
+pub struct CargoSection {
+    /// Pass `--locked` to every cargo command that resolves the lockfile
+    /// (build, check, clippy, doc, test, nextest, run, bench), stack
+    /// defaults and config commands alike; see `config::locked`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub locked: Option<bool>,
+}
+
+impl CargoSection {
+    pub(crate) const fn is_default(&self) -> bool {
+        self.locked.is_none()
+    }
+}
+
 /// `[foundation]` — settings for the Rust foundation check
 /// (`ops init --rust --check`, TASK-2330).
 #[derive(Debug, Clone, Default, PartialEq, Eq, Deserialize, Serialize)]
@@ -86,6 +108,23 @@ pub struct FoundationSection {
 impl FoundationSection {
     pub(crate) fn is_default(&self) -> bool {
         self.waivers.is_empty()
+    }
+}
+
+/// `[lint_actions]` — settings for `ops lint-actions` (TASK-2328).
+#[derive(Debug, Clone, Default, PartialEq, Eq, Deserialize, Serialize)]
+#[serde(deny_unknown_fields)]
+pub struct LintActionsSection {
+    /// `uses:` reference prefixes exempt from the full-SHA pin rule — a
+    /// first-party reusable workflow version-pinned by decision, say
+    /// (`owner/repo/`). Local references (`./…`) are always exempt.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub allow: Vec<String>,
+}
+
+impl LintActionsSection {
+    pub(crate) const fn is_default(&self) -> bool {
+        self.allow.is_empty()
     }
 }
 

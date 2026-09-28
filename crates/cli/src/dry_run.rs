@@ -59,6 +59,8 @@ pub const fn unpreviewable_builtin(sub: &CoreSubcommand) -> Option<&'static str>
         | CoreSubcommand::RunBeforePush { .. }
         | CoreSubcommand::Sec { .. }
         | CoreSubcommand::ClippyFindings(_)
+        | CoreSubcommand::Msrv { .. }
+        | CoreSubcommand::LintActions { .. }
         | CoreSubcommand::External(_) => None,
     }
 }
@@ -121,6 +123,8 @@ mod tests {
             (&["run-before-push"], false),
             (&["sec"], false),
             (&["clippy-findings"], false),
+            (&["msrv"], false),
+            (&["lint-actions"], false),
             (&["build"], false),
         ]
     }

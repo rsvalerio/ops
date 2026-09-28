@@ -120,6 +120,11 @@ pub enum CoreSubcommand {
         /// Force re-collection of data (ignores cached results).
         #[arg(long)]
         refresh: bool,
+        /// CI-safe check: run only cargo-deny and cargo-machete (no
+        /// cargo-edit, no upgrade scan), always fresh, never writing the
+        /// data cache.
+        #[arg(long)]
+        check: bool,
     },
     /// Interactively add a new command to `.ops.toml`.
     NewCommand,
@@ -171,25 +176,33 @@ pub enum CoreSubcommand {
     Plans(ops_tfplan::PlanOptions),
     /// Strip trailing spaces and tabs from every text file under cwd.
     ///
-    /// Fixes files in place. Exits non-zero when at least one file was
-    /// modified, matching the `pre-commit-hooks` contract so a commit hook
-    /// fails on change.
+    /// Fixes files in place (or, with `--check`, only reports them). Exits
+    /// non-zero when at least one file was modified, matching the
+    /// `pre-commit-hooks` contract so a commit hook fails on change.
     #[command(name = "trailing-whitespace", visible_alias = "tw")]
     TrailingWhitespace {
         /// Limit to git-tracked files (uses `git ls-files`).
         #[arg(long)]
         tracked: bool,
+        /// Report files that need fixing without writing them (CI mode);
+        /// the exit code is the same as if they had been fixed.
+        #[arg(long)]
+        check: bool,
     },
     /// Ensure every text file ends with exactly one newline.
     ///
-    /// Fixes files in place. Exits non-zero when at least one file was
-    /// modified, matching the `pre-commit-hooks` contract so a commit hook
-    /// fails on change.
+    /// Fixes files in place (or, with `--check`, only reports them). Exits
+    /// non-zero when at least one file was modified, matching the
+    /// `pre-commit-hooks` contract so a commit hook fails on change.
     #[command(name = "end-of-file-fixer", visible_alias = "eof")]
     EndOfFileFixer {
         /// Limit to git-tracked files (uses `git ls-files`).
         #[arg(long)]
         tracked: bool,
+        /// Report files that need fixing without writing them (CI mode);
+        /// the exit code is the same as if they had been fixed.
+        #[arg(long)]
+        check: bool,
     },
     /// Verify every `*.json` file under cwd parses as JSON.
     ///
@@ -288,6 +301,35 @@ pub enum CoreSubcommand {
     /// path.
     #[command(name = "clippy-findings")]
     ClippyFindings(ClippyFindingsArgs),
+    /// Build the workspace on its declared minimum supported Rust version.
+    ///
+    /// Reads `rust-version` from `Cargo.toml` (`[workspace.package]`, else
+    /// `[package]`), fails unless `clippy.toml`'s `msrv` names the same
+    /// version, then runs `rustup run <version> cargo check --workspace
+    /// --all-features --all-targets`. `clippy::incompatible_msrv` only sees
+    /// library calls; compiling on the floor also catches language features.
+    /// The global `--dry-run` checks the agreement and prints the commands.
+    Msrv {
+        /// Install the toolchain first (`rustup toolchain install <version>
+        /// --profile minimal`), as a fresh CI runner needs.
+        #[arg(long)]
+        install: bool,
+    },
+    /// Lint GitHub workflows: full-SHA action pins, no `secrets: inherit`.
+    ///
+    /// Every `uses:` under `.github/workflows/` must be pinned to a 40-hex
+    /// commit SHA with a trailing `# vX.Y.Z` comment (`docker://` images to
+    /// an `@sha256:` digest), and no job may forward every secret with
+    /// `secrets: inherit`. Local references (`./…`), the prefixes listed
+    /// under `[lint_actions] allow` in `.ops.toml` and those passed with
+    /// `--allow` are exempt. Exits non-zero on any violation.
+    #[command(name = "lint-actions")]
+    LintActions {
+        /// Exempt `uses:` references starting with this prefix, e.g.
+        /// `owner/repo/` (repeatable; adds to `[lint_actions] allow`).
+        #[arg(long = "allow", value_name = "PREFIX")]
+        allow: Vec<String>,
+    },
     /// Show a command's resolved execution plan without running anything.
     ///
     /// Resolves each command exactly as `ops <cmd>...` would and prints the
@@ -865,6 +907,7 @@ const fn stack_specific_commands() -> &'static [(&'static str, Stack)] {
         #[cfg(feature = "stack-terraform")]
         ("plans", Stack::Terraform),
         ("clippy-findings", Stack::Rust),
+        ("msrv", Stack::Rust),
     ]
 }
 
