@@ -1,13 +1,15 @@
 ---
 id: TASK-2336
 title: 'SEC-13: deps extension registers a bare ''ops'' program resolved through PATH instead of current_ops_program'
-status: Triage
+status: To Do
 assignee: []
 created_date: '2026-09-28 15:19'
+updated_date: '2026-09-28 16:38'
 labels:
   - code-review-rust
   - security
 dependencies: []
+parent_task_id: 'TASK-2340'
 modified_files:
   - extensions-rust/deps/src/lib.rs
 priority: medium

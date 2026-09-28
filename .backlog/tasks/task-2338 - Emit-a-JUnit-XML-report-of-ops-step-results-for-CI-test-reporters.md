@@ -1,13 +1,15 @@
 ---
 id: TASK-2338
 title: 'Emit a JUnit XML report of ops step results for CI test reporters'
-status: Triage
+status: To Do
 assignee: []
 created_date: '2026-09-28 15:25'
+updated_date: '2026-09-28 16:38'
 labels:
   - ci
   - ops-alignment
 dependencies: []
+parent_task_id: 'TASK-2342'
 modified_files:
   - crates/runner/src/display.rs
 priority: low

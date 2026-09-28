@@ -1,13 +1,15 @@
 ---
 id: TASK-2337
 title: 'Move ops''s lint-actions allow-list from ci.yml --allow into .ops.toml [lint_actions]'
-status: Triage
+status: To Do
 assignee: []
 created_date: '2026-09-28 15:24'
+updated_date: '2026-09-28 16:38'
 labels:
   - code-review-rust
   - ci
 dependencies: []
+parent_task_id: 'TASK-2341'
 modified_files:
   - .github/workflows/ci.yml
   - .ops.toml

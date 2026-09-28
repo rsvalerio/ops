@@ -1,14 +1,16 @@
 ---
 id: TASK-2335
 title: 'Report tool versions (installed or minimum) alongside ops explain --json tools'
-status: Triage
+status: To Do
 assignee: []
 created_date: '2026-09-28 15:19'
+updated_date: '2026-09-28 16:38'
 labels:
   - code-review-rust
   - ci
   - ops-alignment
 dependencies: []
+parent_task_id: 'TASK-2340'
 modified_files:
   - crates/cli/src/run_cmd/tools.rs
   - extensions-rust/deps/src/lib.rs
