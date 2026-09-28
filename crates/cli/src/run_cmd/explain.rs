@@ -21,6 +21,7 @@ use serde_json::{json, Map, Value};
 
 use super::dry_run::{audit_safe, env_display_value};
 use super::plan::NamePlan;
+use super::tools::{exec_tools, Tool};
 
 /// Version of the `--json` document; bump on any breaking shape change.
 pub const SCHEMA_VERSION: u32 = 1;
@@ -48,6 +49,10 @@ pub fn write_json(
 /// in first-use order, so a step shared by two named commands is described
 /// once and referenced by id from each plan.
 ///
+/// `tools` (TASK-2326) lists every external binary the plan needs on `PATH`,
+/// once each in first-use order, with the steps that need it (see
+/// [`super::tools`] for how they are derived).
+///
 /// # Errors
 ///
 /// As [`write_json`], minus the write.
@@ -59,6 +64,7 @@ pub fn plan_document(runner: &CommandRunner, plans: &[NamePlan]) -> anyhow::Resu
     let mut steps = Vec::new();
     let mut seen_steps = HashSet::new();
     let mut commands = Vec::with_capacity(plans.len());
+    let mut tools: Vec<(Tool, Vec<String>)> = Vec::new();
 
     for plan in plans {
         collect_composites(
@@ -70,7 +76,11 @@ pub fn plan_document(runner: &CommandRunner, plans: &[NamePlan]) -> anyhow::Resu
         );
         for id in plan.plan.leaf_ids() {
             if seen_steps.insert(id.to_string()) {
-                steps.push(step_json(runner, config, vars, &id)?);
+                let (step, step_tools) = step_json(runner, config, vars, &id)?;
+                steps.push(step);
+                for tool in step_tools {
+                    record_tool(&mut tools, tool, &id);
+                }
             }
         }
         commands.push(json!({
@@ -85,7 +95,33 @@ pub fn plan_document(runner: &CommandRunner, plans: &[NamePlan]) -> anyhow::Resu
         "commands": commands,
         "composites": composites,
         "steps": steps,
+        "tools": tools
+            .into_iter()
+            .map(|(tool, required_by)| json!({
+                "name": tool.name,
+                "optional": tool.optional,
+                "install": tool.install,
+                "requiredBy": required_by,
+            }))
+            .collect::<Vec<_>>(),
     }))
+}
+
+/// Add `tool` as needed by step `id`. A tool is optional for the plan only
+/// when every step that needs it can run without it.
+fn record_tool(tools: &mut Vec<(Tool, Vec<String>)>, tool: Tool, id: &str) {
+    match tools.iter_mut().find(|(t, _)| t.name == tool.name) {
+        Some((known, required_by)) => {
+            known.optional &= tool.optional;
+            if known.install.is_none() {
+                known.install = tool.install;
+            }
+            if !required_by.iter().any(|r| r == id) {
+                required_by.push(id.to_string());
+            }
+        }
+        None => tools.push((tool, vec![id.to_string()])),
+    }
 }
 
 /// One plan-tree node. A stage lists its steps and the concurrent stages the
@@ -180,14 +216,15 @@ fn step_json(
     config: &Config,
     vars: &Variables,
     id: &str,
-) -> anyhow::Result<Value> {
+) -> anyhow::Result<(Value, Vec<Tool>)> {
     let mut step = Map::new();
+    let mut tools = Vec::new();
     step.insert("id".into(), json!(id));
     step.insert("origin".into(), origin_json(runner, config, id));
     match runner.resolve(id) {
         Some(CommandSpec::Exec(e)) => {
             step.insert("exclusive".into(), json!(e.exclusive));
-            exec_fields(&mut step, e, vars)?;
+            merge_tools(&mut tools, exec_fields(&mut step, e, vars)?);
             if let Some(strategy) = &e.strategy {
                 let cells = e
                     .matrix_cells(id)?
@@ -195,10 +232,15 @@ fn step_json(
                     .map(|cell| {
                         let mut obj = Map::new();
                         obj.insert("id".into(), json!(cell.id));
-                        exec_fields(&mut obj, &cell.spec, vars)?;
+                        merge_tools(&mut tools, exec_fields(&mut obj, &cell.spec, vars)?);
                         Ok(Value::Object(obj))
                     })
                     .collect::<anyhow::Result<Vec<_>>>()?;
+                // A matrix step needs what any of its cells needs.
+                step.insert(
+                    "tools".into(),
+                    json!(tools.iter().map(|t| &t.name).collect::<Vec<_>>()),
+                );
                 step.insert(
                     "matrix".into(),
                     json!({
@@ -220,25 +262,38 @@ fn step_json(
             }
         ),
     }
-    Ok(Value::Object(step))
+    Ok((Value::Object(step), tools))
 }
 
-/// Program, args, env, cwd and timeout, expanded exactly as the dry-run
-/// preview expands them, with the dry-run's env-secret redaction.
+/// Union `more` into `tools`, keeping first-seen order.
+fn merge_tools(tools: &mut Vec<Tool>, more: Vec<Tool>) {
+    for tool in more {
+        if !tools.iter().any(|t| t.name == tool.name) {
+            tools.push(tool);
+        }
+    }
+}
+
+/// Program, args, env, cwd, timeout and the tools they need, expanded
+/// exactly as the dry-run preview expands them, with the dry-run's
+/// env-secret redaction. Returns the tools too, for the plan-level list.
 fn exec_fields(
     obj: &mut Map<String, Value>,
     e: &ExecCommandSpec,
     vars: &Variables,
-) -> anyhow::Result<()> {
-    obj.insert(
-        "program".into(),
-        json!(vars.try_expand(&e.program)?.into_owned()),
-    );
+) -> anyhow::Result<Vec<Tool>> {
+    let program = vars.try_expand(&e.program)?.into_owned();
     let args = e
         .args
         .iter()
         .map(|a| Ok(vars.try_expand(a)?.into_owned()))
         .collect::<anyhow::Result<Vec<_>>>()?;
+    let tools = exec_tools(e, &program, &args);
+    obj.insert(
+        "tools".into(),
+        json!(tools.iter().map(|t| &t.name).collect::<Vec<_>>()),
+    );
+    obj.insert("program".into(), json!(program));
     obj.insert("args".into(), json!(args));
     obj.insert("display".into(), json!(e.display_cmd()));
     let mut env = Map::new();
@@ -252,7 +307,7 @@ fn exec_fields(
     };
     obj.insert("cwd".into(), json!(cwd));
     obj.insert("timeoutSecs".into(), json!(e.timeout_secs));
-    Ok(())
+    Ok(tools)
 }
 
 /// Where a command's spec came from: the store it resolves from, refined by
@@ -499,6 +554,66 @@ args = ["--locked"]
                 .is_some_and(|a| a.iter().any(|v| v == "--locked")),
             "the extended args must show up: {build}"
         );
+    }
+
+    /// TASK-2326: `tools` lists each binary the plan needs once, in
+    /// first-use order, with the steps that need it — cargo plugins and the
+    /// tools `ops` builtins spawn included, `ops` itself and path programs
+    /// excluded.
+    #[test]
+    #[serial_test::serial]
+    fn explain_json_lists_required_tools() {
+        let (_dir, _guard) = crate::test_utils::with_temp_config(
+            r#"
+[commands.nt]
+program = "cargo"
+args = ["nextest", "run"]
+
+[commands.lint]
+program = "cargo"
+args = ["clippy"]
+
+[commands.bld]
+program = "cargo"
+args = ["build"]
+
+[commands.script]
+program = "./scripts/check.sh"
+
+[commands.gate]
+commands = ["nt", "lint", "bld", "script", "sec", "end-of-file-fixer"]
+"#,
+        );
+        let doc: serde_json::Value =
+            serde_json::from_str(&explain(&["gate"], true)).expect("valid JSON");
+        let names: Vec<&str> = doc["tools"]
+            .as_array()
+            .expect("tools array")
+            .iter()
+            .filter_map(|t| t["name"].as_str())
+            .collect();
+        assert_eq!(
+            names,
+            ["cargo", "cargo-nextest", "cargo-clippy", "trivy"],
+            "{doc}"
+        );
+        assert_eq!(
+            doc["tools"][0]["requiredBy"],
+            serde_json::json!(["nt", "lint", "bld"])
+        );
+        assert_eq!(doc["tools"][3]["requiredBy"], serde_json::json!(["sec"]));
+        assert_eq!(doc["tools"][3]["optional"], false);
+        assert_eq!(doc["tools"][2]["install"], "rustup component add clippy");
+        let step = |id: &str| {
+            doc["steps"]
+                .as_array()
+                .and_then(|s| s.iter().find(|s| s["id"] == id))
+                .unwrap_or_else(|| panic!("step {id} missing from {doc}"))["tools"]
+                .clone()
+        };
+        assert_eq!(step("nt"), serde_json::json!(["cargo", "cargo-nextest"]));
+        assert_eq!(step("script"), serde_json::json!([]));
+        assert_eq!(step("end-of-file-fixer"), serde_json::json!([]));
     }
 
     /// A sequential composite is a sequence node whose entries keep their

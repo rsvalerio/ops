@@ -372,6 +372,27 @@ esac"#,
     }
 }
 
+/// TASK-2326: the reported tools are the probed ones — edit and deny
+/// required, machete optional — plus cargo itself.
+#[test]
+fn external_tools_mirror_the_probed_tool_table() {
+    let tools: Vec<(String, bool)> = external_tools()
+        .into_iter()
+        .map(|t| (t.binary, t.optional))
+        .collect();
+    assert_eq!(
+        tools,
+        [
+            ("cargo".to_string(), false),
+            ("cargo-upgrade".to_string(), false),
+            ("cargo-deny".to_string(), false),
+            ("cargo-machete".to_string(), true),
+        ]
+    );
+    let upgrade = &external_tools()[1];
+    assert_eq!(upgrade.install, "cargo install cargo-edit");
+}
+
 // -- Extension trait tests --
 
 mod extension_tests {

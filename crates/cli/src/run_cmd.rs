@@ -4,12 +4,14 @@
 //! - [`dry_run`] — resolve and print commands without executing
 //! - [`plan`]    — leaf-id expansion, display-map, step logging
 //! - [`explain`] — `ops explain`: the resolved plan, never executed
+//! - [`tools`]   — the external binaries a plan step needs (`explain --json`)
 
 mod dry_run;
 mod explain;
 mod plan;
 #[cfg(test)]
 mod tests;
+mod tools;
 
 use std::ffi::OsString;
 use std::path::{Path, PathBuf};

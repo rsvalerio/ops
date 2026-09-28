@@ -224,6 +224,39 @@ pub fn ensure_tools(working_dir: &std::path::Path) -> anyhow::Result<()> {
     Ok(())
 }
 
+/// An external binary `ops deps` spawns, as `ops explain --json` reports it
+/// (TASK-2326).
+#[derive(Debug, Clone, PartialEq, Eq)]
+#[non_exhaustive]
+pub struct ExternalTool {
+    /// The executable looked up on `PATH`. Cargo resolves `cargo <sub>` to a
+    /// `cargo-<sub>` binary, so that is the name reported for a subcommand.
+    pub binary: String,
+    /// How to install it.
+    pub install: String,
+    /// `ops deps` still runs without it, skipping only the check it backs.
+    pub optional: bool,
+}
+
+/// Every external binary `ops deps` spawns, derived from the same tool table
+/// [`ensure_tools`] probes, so the report cannot drift from the check.
+#[must_use]
+pub fn external_tools() -> Vec<ExternalTool> {
+    let cargo_tool = |tool: &CargoTool, optional| ExternalTool {
+        binary: format!("cargo-{}", tool.subcommand),
+        install: format!("cargo install {}", tool.install_crate),
+        optional,
+    };
+    std::iter::once(ExternalTool {
+        binary: "cargo".to_string(),
+        install: "rustup (https://rustup.rs)".to_string(),
+        optional: false,
+    })
+    .chain(REQUIRED_CARGO_TOOLS.iter().map(|t| cargo_tool(t, false)))
+    .chain(std::iter::once(cargo_tool(&CARGO_MACHETE, true)))
+    .collect()
+}
+
 // ── Public entry point ──────────────────────────────────────────────────────
 
 /// Build a [`Context`] from the user's loaded `.ops.toml`.

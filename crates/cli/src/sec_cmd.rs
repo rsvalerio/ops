@@ -526,9 +526,22 @@ fn trivy_on_path() -> bool {
     false
 }
 
-const TRIVY_MISSING_HELP: &str = "trivy not found on PATH. `ops sec` requires Trivy.\n\
-     Install it: https://trivy.dev/latest/getting-started/installation/ \
-     (e.g. `brew install trivy`).";
+/// One literal behind both the missing-Trivy error and the install hint
+/// `ops explain --json` reports, so the two cannot drift.
+macro_rules! trivy_install {
+    () => {
+        "https://trivy.dev/latest/getting-started/installation/ (e.g. `brew install trivy`)"
+    };
+}
+
+/// How to install Trivy, as `ops explain --json` reports it (TASK-2326).
+pub const TRIVY_INSTALL: &str = trivy_install!();
+
+const TRIVY_MISSING_HELP: &str = concat!(
+    "trivy not found on PATH. `ops sec` requires Trivy.\nInstall it: ",
+    trivy_install!(),
+    "."
+);
 
 /// Wall-clock budget for a single `trivy` invocation.
 ///
