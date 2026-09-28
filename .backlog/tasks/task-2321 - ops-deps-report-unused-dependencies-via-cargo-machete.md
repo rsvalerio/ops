@@ -1,10 +1,10 @@
 ---
 id: TASK-2321
 title: 'ops deps: report unused dependencies via cargo-machete'
-status: To Do
+status: Done
 assignee: []
 created_date: '2026-09-27 20:57'
-updated_date: '2026-09-28 08:57'
+updated_date: '2026-09-28 14:26'
 labels:
   - feature
   - deps
