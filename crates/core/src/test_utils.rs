@@ -316,6 +316,7 @@ impl TestConfigBuilder {
             extensions: crate::config::ExtensionConfig::default(),
             about: crate::config::AboutConfig::default(),
             backlog: crate::config::BacklogSection::default(),
+            foundation: crate::config::FoundationSection::default(),
             stack: None,
             provenance: crate::config::CommandProvenance::default(),
         }
@@ -455,6 +456,7 @@ impl ConfigOverlayBuilder {
             extensions: self.extensions,
             about: None,
             backlog: None,
+            foundation: None,
             stack: None,
         }
     }

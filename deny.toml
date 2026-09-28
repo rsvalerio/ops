@@ -4,6 +4,7 @@ targets = []
 [advisories]
 db-path = "~/.cargo/advisory-db"
 db-urls = ["https://github.com/rustsec/advisory-db"]
+yanked = "warn"
 # RUSTSEC-2020-0163: term_size is unmaintained (INFO, not a vulnerability).
 # Pulled in by tokei 14.0.0 (latest) — no fix available upstream.
 ignore = ["RUSTSEC-2020-0163"]

@@ -76,7 +76,9 @@ pub use overlay::{
     OutputConfigOverlay,
 };
 pub use root::{CloneOrigin, CommandProvenance, Config, MAX_COMPOSITE_DEPTH};
-pub use sections::{AboutConfig, BacklogSection, DataConfig, ExtensionConfig, OutputConfig};
+pub use sections::{
+    AboutConfig, BacklogSection, DataConfig, ExtensionConfig, FoundationSection, OutputConfig,
+};
 pub use strategy::{
     substitute as substitute_matrix_refs, Matrix, MatrixCell, MatrixEntry, MatrixRefError,
     Strategy, MAX_MATRIX_CELLS,

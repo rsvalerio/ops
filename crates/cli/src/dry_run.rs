@@ -5,6 +5,8 @@
 //! with an explicit error before anything runs — it is never silently
 //! ignored.
 
+#[cfg(feature = "stack-rust")]
+use crate::args::InitArgs;
 use crate::args::{AboutAction, CoreSubcommand, LockAction, LockArgs, ThemeAction};
 
 /// The builtin `sub` as the user typed it, when it cannot preview and must
@@ -19,7 +21,10 @@ use crate::args::{AboutAction, CoreSubcommand, LockAction, LockArgs, ThemeAction
 /// here until it is classified.
 pub const fn unpreviewable_builtin(sub: &CoreSubcommand) -> Option<&'static str> {
     match sub {
-        CoreSubcommand::Init { .. } => Some("init"),
+        // `--rust --check` only reads and compares.
+        #[cfg(feature = "stack-rust")]
+        CoreSubcommand::Init(InitArgs { check: true, .. }) => None,
+        CoreSubcommand::Init(_) => Some("init"),
         CoreSubcommand::NewCommand => Some("new-command"),
         CoreSubcommand::ImportMakefile { .. } => Some("import-makefile"),
         CoreSubcommand::TrailingWhitespace { .. } => Some("trailing-whitespace"),
@@ -84,6 +89,10 @@ mod tests {
     fn samples() -> Vec<(&'static [&'static str], bool)> {
         vec![
             (&["init"], true),
+            #[cfg(feature = "stack-rust")]
+            (&["init", "--rust"], true),
+            #[cfg(feature = "stack-rust")]
+            (&["init", "--rust", "--check"], false),
             (&["new-command"], true),
             (&["import-makefile"], true),
             (&["trailing-whitespace"], true),

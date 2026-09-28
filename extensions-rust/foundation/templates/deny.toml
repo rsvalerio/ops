@@ -1,0 +1,47 @@
+# Rust foundation cargo-deny baseline, written by `ops init --rust`.
+#
+# `ops init --rust --check` compares this file with the copy built into the
+# running ops: every key below must keep its value, and keys you add are yours.
+# Record a deliberate divergence under `[foundation.waivers]` in `.ops.toml`.
+#
+# Deliberately carries NO `advisories.ignore` entries and no
+# `[[licenses.clarify]]` tables. Each is a judgement about one crate in one
+# dependency tree: it belongs in the consuming repo, where it can be checked
+# against a real Cargo.lock. A shared ignore list silently widens every other
+# repo's exposure. Add them below; the check accepts additions.
+
+[graph]
+targets = []
+
+[advisories]
+db-urls = ["https://github.com/rustsec/advisory-db"]
+yanked = "warn"
+
+[licenses]
+# Permissive and weak-copyleft only. Anything reciprocal (GPL, AGPL) must be an
+# explicit per-crate `[[licenses.exceptions]]` entry with a written reason, not
+# an addition to this list.
+allow = [
+    "0BSD",
+    "Apache-2.0",
+    "Apache-2.0 WITH LLVM-exception",
+    "BSD-2-Clause",
+    "BSD-3-Clause",
+    "BSL-1.0",
+    "CC0-1.0",
+    "CDLA-Permissive-2.0",
+    "ISC",
+    "MIT",
+    "MPL-2.0",
+    "Unicode-3.0",
+    "Unlicense",
+    "Zlib",
+]
+
+[bans]
+multiple-versions = "warn"
+wildcards = "allow"
+
+[sources]
+unknown-registry = "deny"
+unknown-git = "deny"

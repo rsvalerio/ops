@@ -149,6 +149,7 @@ pub fn merge_config(base: &mut Config, overlay: ConfigOverlay) {
         extensions,
         about,
         backlog,
+        foundation,
         stack,
     } = overlay;
 
@@ -182,6 +183,7 @@ pub fn merge_config(base: &mut Config, overlay: ConfigOverlay) {
             Some(&backlog.backlog_directory),
         );
     }
+    merge_indexmap(&mut base.foundation.waivers, foundation.map(|f| f.waivers));
     if let Some(s) = stack {
         base.stack = Some(s);
     }
@@ -403,6 +405,32 @@ mod tests {
         assert_eq!(
             base.about.fields,
             Some(vec!["project".to_string(), "codebase".to_string()])
+        );
+    }
+
+    /// `[foundation.waivers]` merges per key: a later layer adds or replaces
+    /// a reason and never drops an earlier layer's waivers.
+    #[test]
+    fn merge_config_foundation_waivers_merge_per_key() {
+        let mut base = Config::default();
+        let layer: ConfigOverlay = toml::from_str(
+            "[foundation.waivers]\n\"rustfmt.toml\" = \"a\"\n\"deny.toml\" = \"b\"\n",
+        )
+        .expect("parse layer");
+        merge_config(&mut base, layer);
+        let layer: ConfigOverlay =
+            toml::from_str("[foundation.waivers]\n\"deny.toml\" = \"c\"\n").expect("parse layer");
+        merge_config(&mut base, layer);
+        assert_eq!(
+            base.foundation
+                .waivers
+                .get("rustfmt.toml")
+                .map(String::as_str),
+            Some("a")
+        );
+        assert_eq!(
+            base.foundation.waivers.get("deny.toml").map(String::as_str),
+            Some("c")
         );
     }
 

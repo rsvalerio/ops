@@ -54,6 +54,36 @@ pub struct Cli {
     pub subcommand: Option<CoreSubcommand>,
 }
 
+/// `ops init` flags.
+#[derive(clap::Args, Debug, Clone)]
+pub struct InitArgs {
+    /// Overwrite existing `.ops.toml` if present (with `--rust`: the
+    /// foundation files and the lint table instead).
+    #[arg(short, long)]
+    pub force: bool,
+    /// Include output settings (theme, columns, error detail).
+    #[arg(long)]
+    pub output: bool,
+    /// Include built-in theme definitions (classic, compact).
+    #[arg(long)]
+    pub themes: bool,
+    /// Include stack-detected commands (e.g. build, test, verify).
+    #[arg(long)]
+    pub commands: bool,
+    /// Write the Rust foundation config instead of `.ops.toml`: clippy.toml,
+    /// deny.toml, rustfmt.toml, .config/nextest.toml and the lint policy in
+    /// Cargo.toml. Existing files are kept unless `--force`.
+    #[cfg(feature = "stack-rust")]
+    #[arg(long, conflicts_with_all = ["output", "themes", "commands"])]
+    pub rust: bool,
+    /// With `--rust`: write nothing, report drift from this ops version's
+    /// templates, and exit 1 on drift not waived under
+    /// `[foundation.waivers]` in `.ops.toml`.
+    #[cfg(feature = "stack-rust")]
+    #[arg(long, requires = "rust", conflicts_with = "force")]
+    pub check: bool,
+}
+
 /// Core subcommands shared between direct invocation and `cargo ops` wrapper.
 #[derive(clap::Subcommand, Debug, Clone)]
 pub enum CoreSubcommand {
@@ -62,20 +92,10 @@ pub enum CoreSubcommand {
     /// Without section flags, generates a minimal config with output settings only.
     /// Use `--themes`, `--commands`, or `--output` to include specific sections.
     /// When any section flag is given, only the requested sections are included.
-    Init {
-        /// Overwrite existing `.ops.toml` if present.
-        #[arg(short, long)]
-        force: bool,
-        /// Include output settings (theme, columns, error detail).
-        #[arg(long)]
-        output: bool,
-        /// Include built-in theme definitions (classic, compact).
-        #[arg(long)]
-        themes: bool,
-        /// Include stack-detected commands (e.g. build, test, verify).
-        #[arg(long)]
-        commands: bool,
-    },
+    ///
+    /// `--rust` writes the Rust foundation config instead, and `--rust --check`
+    /// reports where the project has drifted from this ops version's copy.
+    Init(InitArgs),
     /// Manage output themes.
     Theme {
         #[command(subcommand)]
@@ -1002,7 +1022,7 @@ mod tests {
         let cli = Cli::parse_from(["ops", "init"]);
         assert!(matches!(
             cli.subcommand,
-            Some(CoreSubcommand::Init { force: false, .. })
+            Some(CoreSubcommand::Init(InitArgs { force: false, .. }))
         ));
     }
 

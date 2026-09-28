@@ -52,6 +52,8 @@ mod help;
 mod hook_shared;
 mod import_makefile_cmd;
 mod init_cmd;
+#[cfg(feature = "stack-rust")]
+mod init_rust_cmd;
 mod lock_cmd;
 mod new_command_cmd;
 mod pre_hook_cmd;
@@ -274,15 +276,7 @@ fn dispatch(
         dry_run::refuse_unpreviewable(sub, cli.dry_run)?;
     }
     match cli.subcommand {
-        Some(CoreSubcommand::Init {
-            force,
-            output,
-            themes,
-            commands,
-        }) => {
-            let sections = ops_core::config::InitSections::from_flags(output, themes, commands);
-            init_cmd::run_init(force, &sections)?;
-        }
+        Some(CoreSubcommand::Init(args)) => return run_init(&args, early_config),
         Some(CoreSubcommand::Theme { action }) => run_theme(early_config, action)?,
         Some(CoreSubcommand::Backlog { action }) => {
             let cwd = cwd()?;
@@ -377,6 +371,20 @@ fn dispatch(
 
 /// `ops lock`: dispatch to status / break, or run the command under the
 /// named lock and forward its exit code.
+/// `ops init`: `.ops.toml` by default, the Rust foundation under `--rust`.
+fn run_init(args: &args::InitArgs, config: &ops_core::config::Config) -> anyhow::Result<ExitCode> {
+    #[cfg(feature = "stack-rust")]
+    if args.rust {
+        return init_rust_cmd::run_init_rust(args.force, args.check, config);
+    }
+    #[cfg(not(feature = "stack-rust"))]
+    let _ = config;
+    let sections =
+        ops_core::config::InitSections::from_flags(args.output, args.themes, args.commands);
+    init_cmd::run_init(args.force, &sections)?;
+    Ok(ExitCode::SUCCESS)
+}
+
 fn run_clippy_findings(args: args::ClippyFindingsArgs, dry_run: bool) -> anyhow::Result<ExitCode> {
     let opts = clippy_findings_cmd::SurveyOptions::from_flags(
         args.no_locked,
