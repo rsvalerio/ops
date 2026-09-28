@@ -164,6 +164,10 @@ ops verify   # fmt, check, clippy, build
 ops qa       # deps, test, test-doc, sec (qa needs the Trivy CLI on PATH)
 ```
 
+`ops deps` checks upgrades, advisories, licenses, duplicate crates, sources and
+unused dependencies. It needs `cargo-edit` and `cargo-deny`; the unused-dependencies
+check also uses `cargo-machete` when it is installed, and is skipped otherwise.
+
 The raw cargo invocations for the format, lint, and test legs (the `check`,
 `build`, `deps`, and `sec` gates have no direct cargo equivalent here):
 
