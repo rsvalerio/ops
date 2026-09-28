@@ -2,6 +2,17 @@
 All notable changes to this project will be documented in this file. See [conventional commits](https://www.conventionalcommits.org/) for commit guidelines.
 
 - - -
+## [v0.74.0](https://github.com/rsvalerio/ops/compare/6c2ffbe81c276993cabd9c5f0864a9e74ea2a61f..v0.74.0) - 2026-09-28
+#### 🚀 Features
+- (**init**) scaffold and drift-check the Rust foundation with ops init --rust - ([ac1a8e4](https://github.com/rsvalerio/ops/commit/ac1a8e4dc21c18b653172110dee51d59082025ef)) - [@rsvalerio](https://github.com/rsvalerio), Claude Opus 5.5 (1M context)
+#### ⚙️ Miscellaneous
+- (**backlog**) record TASK-2330 progress - ([3454dbf](https://github.com/rsvalerio/ops/commit/3454dbf68e71a20d81c3f113815eee09b6476c60)) - [@rsvalerio](https://github.com/rsvalerio), Claude Opus 5.5 (1M context)
+- (**backlog**) file ops-alignment tasks TASK-2322..2330 - ([f58dc8b](https://github.com/rsvalerio/ops/commit/f58dc8bbca81c4a72d415a77adfb8b69827fc0e2)) - [@rsvalerio](https://github.com/rsvalerio), Claude Opus 5.5 (1M context)
+- align ops's clippy, deny and nextest config with the Rust foundation - ([5795a7c](https://github.com/rsvalerio/ops/commit/5795a7cfebd3149041e62d50759c01d8b009c7dd)) - [@rsvalerio](https://github.com/rsvalerio), Claude Opus 5.5 (1M context)
+- update backlogs tasks - ([6c2ffbe](https://github.com/rsvalerio/ops/commit/6c2ffbe81c276993cabd9c5f0864a9e74ea2a61f)) - [@rsvalerio](https://github.com/rsvalerio)
+
+- - -
+
 ## [v0.73.0](https://github.com/rsvalerio/ops/compare/90ffd4cdbbaf08b9f995ad65b28b85d78eedda4d..v0.73.0) - 2026-09-28
 #### 🚀 Features
 - (**deps**) report unused dependencies via cargo-machete - ([90ffd4c](https://github.com/rsvalerio/ops/commit/90ffd4cdbbaf08b9f995ad65b28b85d78eedda4d)) - [@rsvalerio](https://github.com/rsvalerio), Claude Opus 5.5 (1M context)
