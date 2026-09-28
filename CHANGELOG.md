@@ -2,6 +2,16 @@
 All notable changes to this project will be documented in this file. See [conventional commits](https://www.conventionalcommits.org/) for commit guidelines.
 
 - - -
+## [v0.73.0](https://github.com/rsvalerio/ops/compare/90ffd4cdbbaf08b9f995ad65b28b85d78eedda4d..v0.73.0) - 2026-09-28
+#### 🚀 Features
+- (**deps**) report unused dependencies via cargo-machete - ([90ffd4c](https://github.com/rsvalerio/ops/commit/90ffd4cdbbaf08b9f995ad65b28b85d78eedda4d)) - [@rsvalerio](https://github.com/rsvalerio), Claude Opus 5.5 (1M context)
+#### 📚 Documentation
+- (**deps**) describe the unused-dependencies check - ([c43c965](https://github.com/rsvalerio/ops/commit/c43c965ac1169775ae49e5de0dfcbc79e4000dcd)) - [@rsvalerio](https://github.com/rsvalerio), Claude Opus 5.5 (1M context)
+#### ⚙️ Miscellaneous
+- (**backlog**) add TASK-2321 - ([21c1190](https://github.com/rsvalerio/ops/commit/21c1190920c4c74a565ef4bf90b8600eaaf1fc47)) - [@rsvalerio](https://github.com/rsvalerio), Claude Opus 5.5 (1M context)
+
+- - -
+
 ## [v0.72.0](https://github.com/rsvalerio/ops/compare/f24747592b33a708a999fa2d5be97204322b0a14..v0.72.0) - 2026-09-27
 #### 🚀 Features
 - (**about**) report per-profile incremental in about machine - ([b48dd38](https://github.com/rsvalerio/ops/commit/b48dd3838052a52a1439605215ac5e3e6aa482b5)) - [@rsvalerio](https://github.com/rsvalerio), Claude Opus 5.5 (1M context)
