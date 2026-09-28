@@ -2,6 +2,32 @@
 All notable changes to this project will be documented in this file. See [conventional commits](https://www.conventionalcommits.org/) for commit guidelines.
 
 - - -
+## [v0.75.0](https://github.com/rsvalerio/ops/compare/35b939c635e4c2cf02a9d1145dde47d88a2ab27f..v0.75.0) - 2026-09-28
+#### 🚀 Features
+- (**cli**) add msrv and lint-actions built-ins - ([fceb23f](https://github.com/rsvalerio/ops/commit/fceb23f232d44ed44e75c455edd77a9ddd3f53b7)) - [@rsvalerio](https://github.com/rsvalerio), Claude Opus 5.5 (1M context)
+- (**config**) add [cargo] locked switch to run cargo commands with --locked - ([f0151bc](https://github.com/rsvalerio/ops/commit/f0151bc6daf523ef3e4e1d7b80d52fb74f311803)) - [@rsvalerio](https://github.com/rsvalerio)
+- (**explain**) report rustup as the tool ops msrv needs - ([c886bf1](https://github.com/rsvalerio/ops/commit/c886bf1db87774187467ac66a5260bbc0fc9e110)) - [@rsvalerio](https://github.com/rsvalerio), Claude Opus 5.5 (1M context)
+- (**explain**) list the external tools a plan needs in ops explain --json - ([c717a6c](https://github.com/rsvalerio/ops/commit/c717a6cbc83d76acba51c53b3506095915fa2d9e)) - [@rsvalerio](https://github.com/rsvalerio), Claude Opus 5.5 (1M context)
+- (**runner**) emit GitHub Actions groups, annotations and a step summary in CI - ([2924842](https://github.com/rsvalerio/ops/commit/2924842c54d1cf4d315213d28e3bafb2b5aeb30b)) - [@rsvalerio](https://github.com/rsvalerio), Claude Opus 5.5 (1M context)
+- add CI-safe check modes (verify-check, fmt-check, tw/eof --check, deps --check) - ([8cf3ad2](https://github.com/rsvalerio/ops/commit/8cf3ad2dddbce3107b49b43913ce737f4e7fb4ae)) - [@rsvalerio](https://github.com/rsvalerio)
+#### 🐛 Bug Fixes
+- (**config**) apply [cargo] locked to cargo +toolchain commands - ([78680b8](https://github.com/rsvalerio/ops/commit/78680b8866fc059df692a5c5868d44d687ec177d)) - [@rsvalerio](https://github.com/rsvalerio), Claude Opus 5.5 (1M context)
+#### 📚 Documentation
+- separate the lint-actions exemptions in the commands table - ([18c8e40](https://github.com/rsvalerio/ops/commit/18c8e404f42ee0fb2b63c9464193ee44428e2fe5)) - [@rsvalerio](https://github.com/rsvalerio), Claude Opus 5.5 (1M context)
+- document verify-check, check flags and [cargo] locked - ([615fbb0](https://github.com/rsvalerio/ops/commit/615fbb018297ed3cd1068d220d14701947880c1e)) - [@rsvalerio](https://github.com/rsvalerio)
+#### 🔄 CI/CD
+- fail the fmt job on unformatted code - ([d0b79ab](https://github.com/rsvalerio/ops/commit/d0b79abe3ed57c82f505633a51d63b1360a99555)) - [@rsvalerio](https://github.com/rsvalerio)
+- run the MSRV and workflow guards through ops built-ins - ([01237b7](https://github.com/rsvalerio/ops/commit/01237b740154fac4343223221b754524dc8fe771)) - [@rsvalerio](https://github.com/rsvalerio), Claude Opus 5.5 (1M context)
+#### ⚙️ Miscellaneous
+- (**backlog**) file event0 --locked follow-up from wave 32 - ([ecd6f7e](https://github.com/rsvalerio/ops/commit/ecd6f7ee3cfc926f5791566f2ae3a739b2e9f65c)) - [@rsvalerio](https://github.com/rsvalerio), Claude Opus 5.5 (1M context)
+- (**backlog**) close code-review wave 32 - ([2e3657d](https://github.com/rsvalerio/ops/commit/2e3657dcc89eaef5833b465ec9fd530f6c12241e)) - [@rsvalerio](https://github.com/rsvalerio), Claude Opus 5.5 (1M context)
+- (**backlog**) close code-review wave 33 - ([ebf6b8f](https://github.com/rsvalerio/ops/commit/ebf6b8f280101af07ca77776da4db032cca966e7)) - [@rsvalerio](https://github.com/rsvalerio), Claude Opus 5.5 (1M context)
+- (**backlog**) record code-review wave 35 progress - ([70cf40a](https://github.com/rsvalerio/ops/commit/70cf40a63ee049f853c7a2faf23d7a6d22b3e397)) - [@rsvalerio](https://github.com/rsvalerio), Claude Opus 5.5 (1M context)
+- (**backlog**) close code-review wave 34 - ([7745872](https://github.com/rsvalerio/ops/commit/7745872b78a70bd4be3ffe4c3ac6a83800291cff)) - [@rsvalerio](https://github.com/rsvalerio), Claude Opus 5.5 (1M context)
+- (**backlog**) triage ops-alignment tasks into waves 32-35 - ([35b939c](https://github.com/rsvalerio/ops/commit/35b939c635e4c2cf02a9d1145dde47d88a2ab27f)) - [@rsvalerio](https://github.com/rsvalerio), Claude Opus 5.5 (1M context)
+
+- - -
+
 ## [v0.74.0](https://github.com/rsvalerio/ops/compare/6c2ffbe81c276993cabd9c5f0864a9e74ea2a61f..v0.74.0) - 2026-09-28
 #### 🚀 Features
 - (**init**) scaffold and drift-check the Rust foundation with ops init --rust - ([ac1a8e4](https://github.com/rsvalerio/ops/commit/ac1a8e4dc21c18b653172110dee51d59082025ef)) - [@rsvalerio](https://github.com/rsvalerio), Claude Opus 5.5 (1M context)
