@@ -292,9 +292,9 @@ jobs:
   #
   # TASK-2328: the policy is the `ops lint-actions` built-in. Local `./` calls
   # and the first-party forge reusable workflows (version-pinned by deliberate
-  # decision, see bump.yml) are exempt. The allow-list is passed with --allow
-  # rather than set under `[lint_actions]` in .ops.toml so that ops binaries
-  # predating the section can still parse this repository's config.
+  # decision, see bump.yml) are exempt. The allow-list lives under
+  # `[lint_actions]` in .ops.toml (TASK-2337), so a local `ops lint-actions`
+  # applies the same exemptions as this job.
   workflow-guard:
     name: Workflow Guard
     runs-on: ubuntu-latest
@@ -305,4 +305,4 @@ jobs:
           rustflags: ""
       - uses: mozilla-actions/sccache-action@7d986dd989559c6ecdb630a3fd2557667be217ad # v0.0.9
       - name: ops lint-actions
-        run: cargo run --locked -p ops -- lint-actions --allow rsvalerio/forge/
+        run: cargo run --locked -p ops -- lint-actions

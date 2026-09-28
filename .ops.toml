@@ -2,6 +2,12 @@
 theme = "compact"
 #theme = "classic"
 
+# TASK-2328 / TASK-2337: `ops lint-actions` exemptions. The first-party forge
+# reusable workflows are version-pinned by deliberate decision (see bump.yml),
+# not SHA-pinned. CI's Workflow Guard job reads this same list.
+[lint_actions]
+allow = ["rsvalerio/forge/"]
+
 [commands.install]
 program = "cargo"
 args = ["install", "--path", "crates/cli", "--force", "--all-features"]
