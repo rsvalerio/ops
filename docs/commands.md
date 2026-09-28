@@ -38,6 +38,12 @@ builtins that write or run tools without a preview mode: `init`, `new-command`,
 `lock break`, `about` (except `about backlog`), `deps` and `plans`), `--verbose` (full stderr on
 failure), `--tap <file>` (capture raw output), `--raw` (inherit child stdio, no ops output).
 
+GitHub Actions: when `GITHUB_ACTIONS=true` and stderr is not a terminal, each finished
+step's captured output is printed as a collapsible `::group::` (fenced with
+`::stop-commands::` so step output cannot issue workflow commands), a failed step also gets
+an `::error` annotation with its command, message and output tail, and a Markdown run
+summary is appended to `$GITHUB_STEP_SUMMARY`.
+
 Hook escape hatches: set `SKIP_OPS_RUN_BEFORE_PUSH` (or `SKIP_OPS_RUN_BEFORE_COMMIT`)
 to `1`, `true`, `yes` or `on` — case-insensitive; anything else means "do not skip" —
 to let a push or commit through without running the configured hook commands.

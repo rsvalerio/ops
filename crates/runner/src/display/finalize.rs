@@ -41,6 +41,9 @@ impl ProgressDisplay {
             // equal to `+= 1`.
             self.completed_steps = self.completed_steps.saturating_add(1);
             self.skipped_steps = self.skipped_steps.saturating_add(1);
+            if let Some(ref mut github) = self.github {
+                github.record_skipped(display, elapsed);
+            }
             let line = self.render_and_wrap_step(&step);
             self.finish_bar(bar, line);
         }
