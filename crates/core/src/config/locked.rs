@@ -41,9 +41,17 @@ fn needs_locked(spec: &ExecCommandSpec) -> bool {
     if spec.program != "cargo" {
         return false;
     }
-    let Some(subcommand) = spec.args.first() else {
+    // Skip a leading `+toolchain` (`cargo +nightly build`), as rustup does.
+    let mut args = spec.args.iter();
+    let Some(mut subcommand) = args.next() else {
         return false;
     };
+    if subcommand.starts_with('+') {
+        let Some(next) = args.next() else {
+            return false;
+        };
+        subcommand = next;
+    }
     if !LOCKFILE_SUBCOMMANDS.contains(&subcommand.as_str()) {
         return false;
     }
@@ -212,5 +220,27 @@ mod tests {
             .extended_stack_defaults
             .iter()
             .any(|n| n == "build"));
+    }
+
+    /// A `+toolchain` override does not hide the subcommand from the switch.
+    #[test]
+    fn toolchain_override_is_locked() {
+        let dir = rust_workspace();
+        let mut config = Config::empty();
+        config.cargo.locked = Some(true);
+        config.commands.insert(
+            "nightly".into(),
+            CommandSpec::Exec(ExecCommandSpec::new("cargo", ["+nightly", "build"])),
+        );
+        config.commands.insert(
+            "bare".into(),
+            CommandSpec::Exec(ExecCommandSpec::new("cargo", ["+nightly"])),
+        );
+        apply(&mut config, dir.path());
+        assert_eq!(
+            exec_args(&config, "nightly"),
+            ["+nightly", "build", "--locked"]
+        );
+        assert_eq!(exec_args(&config, "bare"), ["+nightly"]);
     }
 }
