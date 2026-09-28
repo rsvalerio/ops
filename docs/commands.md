@@ -22,6 +22,7 @@ stack ships. How to define your own is in [Configuration](configuration.md).
 | `ops trailing-whitespace` (`tw`) | Strip trailing whitespace in place; non-zero when files changed (pre-commit contract) |
 | `ops end-of-file-fixer` (`eof`) | Ensure files end with exactly one newline; non-zero when files changed |
 | `ops check-json` / `check-yaml` | Verify every JSON/YAML file parses (`--tracked` limits to git files; `--allow-json5` for JSON5) |
+| `ops lint-actions` | Lint `.github/workflows/*.yml`: every `uses:` pinned to a full 40-hex commit SHA with a trailing `# vX.Y.Z` comment (`docker://` images to an `@sha256:` digest), and no `secrets: inherit`. Local `./` references the prefixes under `[lint_actions] allow = ["owner/repo/"]` in `.ops.toml` (layers add to the list) and those passed with `--allow <prefix>` are exempt. Symlinked workflow files are skipped. Non-zero on any violation; composites can list it (it only reads) |
 | `ops backlog init` | Bootstrap the backlog: a `[backlog]` section in `.ops.toml` (or `backlog.config.yml` with `--backlog.md`) plus the tasks tree; also run by `ops init` |
 | `ops backlog task create/edit/list/view` | Manage `.backlog/` markdown tasks — a compatible subset of [Backlog.md](https://github.com/MrLesk/Backlog.md); see [backlog.md](backlog.md) |
 | `ops backlog search` | Keyword search over tasks, with `--modified-file` filtering |
@@ -46,6 +47,7 @@ to let a push or commit through without running the configured hook commands.
 | Command | Available on |
 |---------|--------------|
 | `ops deps` | Rust |
+| `ops msrv` | Rust — fails unless `clippy.toml`'s `msrv` equals `Cargo.toml`'s `rust-version` (`[workspace.package]`, else `[package]`), then runs `rustup run <rust-version> cargo check --workspace --all-features --all-targets`; `--install` installs that toolchain first (minimal profile), and `--dry-run` checks the agreement and prints the commands |
 | `ops plans` | Terraform (plan summary tables) |
 | `ops about coverage` / `dependencies` | Rust |
 | `ops about loc` | Rust |

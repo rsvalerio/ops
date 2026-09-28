@@ -89,6 +89,23 @@ impl FoundationSection {
     }
 }
 
+/// `[lint_actions]` — settings for `ops lint-actions` (TASK-2328).
+#[derive(Debug, Clone, Default, PartialEq, Eq, Deserialize, Serialize)]
+#[serde(deny_unknown_fields)]
+pub struct LintActionsSection {
+    /// `uses:` reference prefixes exempt from the full-SHA pin rule — a
+    /// first-party reusable workflow version-pinned by decision, say
+    /// (`owner/repo/`). Local references (`./…`) are always exempt.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub allow: Vec<String>,
+}
+
+impl LintActionsSection {
+    pub(crate) const fn is_default(&self) -> bool {
+        self.allow.is_empty()
+    }
+}
+
 /// Backlog settings (`[backlog]` in `.ops.toml`) — the five keys the ops
 /// backlog features read.
 ///

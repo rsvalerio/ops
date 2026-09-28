@@ -109,9 +109,13 @@ pub fn builtin_category(name: &str) -> &'static str {
     match name {
         "about" | "explain" => "Insights",
         "backlog" | "lock" => "Tasks",
-        "deps" | "trailing-whitespace" | "end-of-file-fixer" | "sec" | "clippy-findings" => {
-            "Code Quality"
-        }
+        "deps"
+        | "trailing-whitespace"
+        | "end-of-file-fixer"
+        | "sec"
+        | "clippy-findings"
+        | "msrv"
+        | "lint-actions" => "Code Quality",
         "init" | "theme" | "extension" | "run-before-commit" | "run-before-push" => "Setup",
         _ => "Commands",
     }

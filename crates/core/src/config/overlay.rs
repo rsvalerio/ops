@@ -11,7 +11,7 @@ use indexmap::IndexMap;
 use serde::Deserialize;
 
 use super::commands::CommandSpec;
-use super::sections::{BacklogSection, FoundationSection};
+use super::sections::{BacklogSection, FoundationSection, LintActionsSection};
 use super::theme_types::ThemeConfig;
 
 /// Overlay configuration with optional fields — only explicitly-set values
@@ -41,6 +41,10 @@ pub struct ConfigOverlay {
     /// layer's reasons, it never drops them.
     #[serde(default)]
     pub foundation: Option<FoundationSection>,
+    /// The allow-list accumulates: a later layer adds prefixes, it never
+    /// drops an earlier layer's.
+    #[serde(default)]
+    pub lint_actions: Option<LintActionsSection>,
     #[serde(default)]
     pub stack: Option<String>,
 }

@@ -262,14 +262,15 @@ hand-written allow would need revisiting by hand every time the floor moved;
 extern "C"` blocks (Rust 1.82) in
 `crates/core/src/{test_utils.rs,config/edit.rs}` would not be flagged against a
 lower floor by any lint. Only compiling on the floor catches those, which is
-what the **MSRV** job in `.github/workflows/ci.yml` does: it reads
-`rust-version` out of `Cargo.toml`, installs exactly that toolchain, and runs
-`cargo check --all --all-features --all-targets`.
+what `ops msrv` — the **MSRV** job in `.github/workflows/ci.yml` — does: it
+reads `rust-version` out of `Cargo.toml`, installs exactly that toolchain
+(`--install`), and runs `cargo check --workspace --all-features --all-targets`
+on it.
 
-That job also asserts `clippy.toml`'s `msrv` equals `Cargo.toml`'s
+It also asserts `clippy.toml`'s `msrv` equals `Cargo.toml`'s
 `rust-version`. If the two disagree, the lint and the build disagree about the
 floor and each lets through what the other rejects. It reads the version rather
-than hardcoding it, so the workflow cannot itself become a second place to
+than hardcoding it, so the check cannot itself become a second place to
 drift.
 
 ## Current site-local allows

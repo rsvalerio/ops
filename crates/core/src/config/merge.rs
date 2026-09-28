@@ -150,6 +150,7 @@ pub fn merge_config(base: &mut Config, overlay: ConfigOverlay) {
         about,
         backlog,
         foundation,
+        lint_actions,
         stack,
     } = overlay;
 
@@ -184,6 +185,11 @@ pub fn merge_config(base: &mut Config, overlay: ConfigOverlay) {
         );
     }
     merge_indexmap(&mut base.foundation.waivers, foundation.map(|f| f.waivers));
+    for prefix in lint_actions.into_iter().flat_map(|l| l.allow) {
+        if !base.lint_actions.allow.contains(&prefix) {
+            base.lint_actions.allow.push(prefix);
+        }
+    }
     if let Some(s) = stack {
         base.stack = Some(s);
     }
@@ -432,6 +438,20 @@ mod tests {
             base.foundation.waivers.get("deny.toml").map(String::as_str),
             Some("c")
         );
+    }
+
+    /// `[lint_actions] allow` accumulates across layers without duplicates.
+    #[test]
+    fn merge_config_lint_actions_allow_accumulates() {
+        let mut base = Config::default();
+        for layer in [
+            "[lint_actions]\nallow = [\"a/\", \"b/\"]\n",
+            "[lint_actions]\nallow = [\"b/\", \"c/\"]\n",
+        ] {
+            let layer: ConfigOverlay = toml::from_str(layer).expect("parse layer");
+            merge_config(&mut base, layer);
+        }
+        assert_eq!(base.lint_actions.allow, ["a/", "b/", "c/"]);
     }
 
     #[test]
