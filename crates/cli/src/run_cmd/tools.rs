@@ -6,7 +6,8 @@
 //! installed:
 //!
 //! - an `ops` subcommand reports the tools that subcommand spawns (`sec` →
-//!   Trivy, `deps` → cargo-edit / cargo-deny / cargo-machete), never `ops`
+//!   Trivy, `deps` → cargo-edit / cargo-deny / cargo-machete, `msrv` →
+//!   rustup), never `ops`
 //!   itself;
 //! - any other bare program name is a tool; a program given as a path
 //!   (`./gradlew`, `/usr/bin/env`) lives in the repo or at a fixed location
@@ -133,6 +134,8 @@ fn cargo_plugin(args: &[String]) -> Option<Tool> {
 fn ops_subcommand_tools(sub: &str) -> Vec<Tool> {
     match sub {
         "sec" => vec![Tool::required("trivy", Some(crate::sec_cmd::TRIVY_INSTALL))],
+        // `rustup run <rust-version> cargo check …` (TASK-2327).
+        "msrv" => vec![Tool::required("rustup", Some("https://rustup.rs"))],
         #[cfg(feature = "stack-rust")]
         "deps" => ops_deps::external_tools()
             .into_iter()
@@ -190,6 +193,8 @@ mod tests {
             .as_deref()
             .is_some_and(|i| i.contains("trivy")));
         assert!(tools("ops", &["end-of-file-fixer"]).is_empty());
+        assert!(tools("ops", &["lint-actions"]).is_empty());
+        assert_eq!(tools("ops", &["msrv"]), ["rustup"]);
         assert!(tools("ops", &[]).is_empty());
     }
 
