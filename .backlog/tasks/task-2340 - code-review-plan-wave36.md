@@ -1,10 +1,10 @@
 ---
 id: TASK-2340
 title: 'code-review-plan-wave36'
-status: To Do
+status: Done
 assignee: []
 created_date: '2026-09-28 16:38'
-updated_date: '2026-09-28 16:38'
+updated_date: '2026-09-28 17:03'
 labels:
   - code-review-wave
 dependencies:
@@ -34,4 +34,7 @@ code-review-plan-wave36
 <!-- SECTION:NOTES:BEGIN -->
 Rationale: deps extension command registration and ops explain tool reporting; both surfaced in TASK-2333 and share extensions-rust/deps/src/lib.rs (2336 moves deps to ExecCommandSpec::ops_subcommand; 2335 adds versions to explain tools[]).
 Overlaps: TASK-2334/wave35 (docs/commands.md)
+
+Branch: code-review/TASK-2340
+
 <!-- SECTION:NOTES:END -->

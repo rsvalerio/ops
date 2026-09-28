@@ -1,10 +1,10 @@
 ---
 id: TASK-2336
 title: 'SEC-13: deps extension registers a bare ''ops'' program resolved through PATH instead of current_ops_program'
-status: To Do
+status: Done
 assignee: []
 created_date: '2026-09-28 15:19'
-updated_date: '2026-09-28 16:38'
+updated_date: '2026-09-28 16:55'
 labels:
   - code-review-rust
   - security
@@ -30,5 +30,6 @@ ordinal: 1000
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 deps registers via ExecCommandSpec::ops_subcommand (keeping its exclusive/read-only semantics deliberate) with a test pinning the resolved program
+- [x] #1 deps registers via ExecCommandSpec::ops_subcommand (keeping its exclusive/read-only semantics deliberate) with a test pinning the resolved program
+
 <!-- AC:END -->
