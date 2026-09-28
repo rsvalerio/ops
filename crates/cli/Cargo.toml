@@ -12,7 +12,7 @@ rust-version.workspace = true
 [features]
 default = []
 sqlite = ["dep:ops-sqlite", "ops-extension/sqlite", "ops-about/sqlite"]
-stack-rust = ["dep:ops-about-rust", "dep:ops-cargo-toml", "dep:ops-cargo-update", "dep:ops-create-review-tasks-rust", "dep:ops-deps", "dep:ops-metadata", "dep:ops-rust-loc", "sqlite"]
+stack-rust = ["dep:ops-about-rust", "dep:ops-cargo-toml", "dep:ops-cargo-update", "dep:ops-create-review-tasks-rust", "dep:ops-deps", "dep:ops-metadata", "dep:ops-rust-loc", "dep:ops-rust-foundation", "sqlite"]
 stack-node = ["dep:ops-about-node"]
 stack-vite = []
 stack-go = ["dep:ops-about-go"]
@@ -47,6 +47,7 @@ ops-cargo-update = { workspace = true, optional = true }
 ops-deps = { workspace = true, optional = true }
 ops-metadata = { workspace = true, optional = true }
 ops-rust-loc = { workspace = true, optional = true }
+ops-rust-foundation = { workspace = true, optional = true }
 ops-test-coverage = { workspace = true, optional = true }
 ops-run-before-commit = { workspace = true }
 ops-run-before-push = { workspace = true }

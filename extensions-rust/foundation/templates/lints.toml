@@ -1,0 +1,49 @@
+# Rust foundation lint policy, written by `ops init --rust`.
+#
+# `ops init --rust --check` compares these tables with the copy built into the
+# running ops: every lint below must be set at least this strictly (`deny` or
+# `forbid` satisfy `warn`), and lints you add are yours. Record a deliberate
+# divergence under `[foundation.waivers]` in `.ops.toml`.
+#
+# In a workspace every member opts in with `[lints] workspace = true`; without
+# it this table configures nothing. No crate sets its own lint levels.
+#
+# `warn` rather than `deny` so a repo can adopt the policy before clearing its
+# findings; CI's `-D warnings` still fails on them. Tighten to `deny` once the
+# backlog is clear.
+[lints.rust]
+elided_lifetimes_in_paths = "warn"
+unsafe_op_in_unsafe_fn = "warn"
+unused_lifetimes = "warn"
+# NOT `rust_2018_idioms`: it implies `unused_extern_crates`, which fires on the
+# deliberate `extern crate` lines that keep link-time-only crates (a `linkme`
+# registry, for instance) from being dropped by the linker.
+
+# Broken intra-doc links fail `cargo doc` under `-D warnings`.
+[lints.rustdoc]
+broken_intra_doc_links = "warn"
+
+# `priority = -1` is mandatory on the groups: Cargo rejects a manifest where a
+# group and a lint inside it share a priority, and the negative value makes the
+# groups apply first so the named lints override them.
+[lints.clippy]
+all = { level = "warn", priority = -1 }
+pedantic = { level = "warn", priority = -1 }
+nursery = { level = "warn", priority = -1 }
+
+# Panics and silent wrap-around in production code. Test code opts out through
+# the `allow-*-in-tests` keys in clippy.toml. An exception belongs at the call
+# site, as `#[allow(clippy::x, reason = "...")]`, never as a blanket allow here.
+unwrap_used = "warn"
+expect_used = "warn"
+panic = "warn"
+todo = "warn"
+unimplemented = "warn"
+unreachable = "warn"
+panic_in_result_fn = "warn"
+indexing_slicing = "warn"
+string_slice = "warn"
+arithmetic_side_effects = "warn"
+as_conversions = "warn"
+unchecked_time_subtraction = "warn"
+exit = "warn"

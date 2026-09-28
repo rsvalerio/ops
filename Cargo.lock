@@ -1338,6 +1338,7 @@ dependencies = [
  "ops-run-before-commit",
  "ops-run-before-push",
  "ops-runner",
+ "ops-rust-foundation",
  "ops-rust-loc",
  "ops-sqlite",
  "ops-test-coverage",
@@ -1708,6 +1709,21 @@ dependencies = [
  "tokio",
  "tracing",
  "tracing-subscriber",
+]
+
+[[package]]
+name = "ops-rust-foundation"
+version = "0.73.0"
+dependencies = [
+ "anyhow",
+ "indexmap",
+ "ops-about-rust",
+ "ops-cargo-toml",
+ "ops-core",
+ "tempfile",
+ "toml 1.1.4+spec-1.1.0",
+ "toml_edit 0.25.13+spec-1.1.0",
+ "tracing",
 ]
 
 [[package]]

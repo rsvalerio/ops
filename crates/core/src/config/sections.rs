@@ -4,6 +4,7 @@
 //! resolution behind `output.columns` is the only non-trivial logic.
 
 use crate::serde_defaults;
+use indexmap::IndexMap;
 use serde::{Deserialize, Serialize};
 use std::path::PathBuf;
 use std::sync::OnceLock;
@@ -67,6 +68,24 @@ pub struct DataConfig {
 impl DataConfig {
     pub(crate) const fn is_default(&self) -> bool {
         self.path.is_none() && self.provider_budget_secs.is_none()
+    }
+}
+
+/// `[foundation]` — settings for the Rust foundation check
+/// (`ops init --rust --check`, TASK-2330).
+#[derive(Debug, Clone, Default, PartialEq, Eq, Deserialize, Serialize)]
+#[serde(deny_unknown_fields)]
+pub struct FoundationSection {
+    /// Drift location → why the divergence is deliberate. A key names one
+    /// location (`clippy.toml:cognitive-complexity-threshold`), a whole file
+    /// (`rustfmt.toml`) or a table (`Cargo.toml:workspace.lints.clippy`).
+    #[serde(default, skip_serializing_if = "IndexMap::is_empty")]
+    pub waivers: IndexMap<String, String>,
+}
+
+impl FoundationSection {
+    pub(crate) fn is_default(&self) -> bool {
+        self.waivers.is_empty()
     }
 }
 

@@ -4,7 +4,9 @@
 //! because cycle and unknown-reference checks need the whole command map.
 
 use super::commands::CommandSpec;
-use super::sections::{AboutConfig, BacklogSection, DataConfig, ExtensionConfig, OutputConfig};
+use super::sections::{
+    AboutConfig, BacklogSection, DataConfig, ExtensionConfig, FoundationSection, OutputConfig,
+};
 use super::theme_types::ThemeConfig;
 use indexmap::IndexMap;
 use serde::{Deserialize, Serialize};
@@ -51,6 +53,9 @@ pub struct Config {
     /// the built-in defaults instead (the CLI resolves that precedence).
     #[serde(default, skip_serializing_if = "BacklogSection::is_default")]
     pub backlog: BacklogSection,
+    /// `[foundation]` — waivers for the Rust foundation check.
+    #[serde(default, skip_serializing_if = "FoundationSection::is_default")]
+    pub foundation: FoundationSection,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub stack: Option<String>,
     /// Load-time provenance of `commands` entries that `clone` / `[extend]`
@@ -125,6 +130,7 @@ impl Config {
             extensions: ExtensionConfig::default(),
             about: AboutConfig::default(),
             backlog: BacklogSection::default(),
+            foundation: FoundationSection::default(),
             stack: None,
             provenance: CommandProvenance::default(),
         }

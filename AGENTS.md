@@ -90,6 +90,7 @@ vulnerabilities as described in [SECURITY.md](SECURITY.md).
 - `crates/cli/src/theme_cmd.rs`: theme management CLI.
 - `crates/cli/src/sec_cmd.rs`: Trivy-based security scans (`ops sec`).
 - `crates/cli/src/lock_cmd.rs`: `ops lock` — named `flock` locks under the common git dir, shared by all worktrees.
+- `extensions-rust/foundation/`: the Rust foundation templates and the `ops init --rust` scaffold and drift check — see `docs/foundation.md`.
 - `extensions/`: generic extensions.
 - `extensions-<stack>/`: Each stack have its own code folder, e.g. extensions-java.
 
@@ -102,4 +103,5 @@ vulnerabilities as described in [SECURITY.md](SECURITY.md).
 - Stack default command mappings: `docs/command-mappings.md`
 - Visual components and theme comparison: `docs/components.md`
 - Lint policy, exceptions and how to add one: `docs/clippy.md`
+- Rust foundation templates, scaffold and drift check (`ops init --rust`): `docs/foundation.md`
 - DuckDB → SQLite migration notes: `docs/duckdb-to-sqlite.md`

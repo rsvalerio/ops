@@ -11,7 +11,7 @@ use indexmap::IndexMap;
 use serde::Deserialize;
 
 use super::commands::CommandSpec;
-use super::sections::BacklogSection;
+use super::sections::{BacklogSection, FoundationSection};
 use super::theme_types::ThemeConfig;
 
 /// Overlay configuration with optional fields — only explicitly-set values
@@ -37,6 +37,10 @@ pub struct ConfigOverlay {
     /// the overlay source sets overwrites the base, the rest are preserved.
     #[serde(default)]
     pub backlog: Option<BacklogSection>,
+    /// Waivers merge per key: a later layer adds to or replaces an earlier
+    /// layer's reasons, it never drops them.
+    #[serde(default)]
+    pub foundation: Option<FoundationSection>,
     #[serde(default)]
     pub stack: Option<String>,
 }
