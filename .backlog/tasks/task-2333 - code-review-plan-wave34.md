@@ -1,10 +1,10 @@
 ---
 id: TASK-2333
 title: 'code-review-plan-wave34'
-status: To Do
+status: Done
 assignee: []
 created_date: '2026-09-28 15:07'
-updated_date: '2026-09-28 15:07'
+updated_date: '2026-09-28 15:20'
 labels:
   - code-review-wave
 dependencies:
@@ -35,4 +35,7 @@ code-review-plan-wave34
 <!-- SECTION:NOTES:BEGIN -->
 Rationale: machine-readable required-tools report via ops explain --json. Scope is predicted (feature tasks carry no --modified-file); new source files may be added.
 Overlaps: TASK-2331/wave32 (crates/cli/src/args.rs, extensions-rust/deps/src/lib.rs, docs/commands.md); TASK-2334/wave35 (crates/cli/src/args.rs, docs/commands.md)
+
+Branch: code-review/TASK-2333
+
 <!-- SECTION:NOTES:END -->
