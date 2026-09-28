@@ -1,13 +1,15 @@
 ---
 id: TASK-2323
 title: 'Support --locked across the Rust stack defaults'
-status: Triage
+status: To Do
 assignee: []
 created_date: '2026-09-28 10:59'
+updated_date: '2026-09-28 15:07'
 labels:
   - ci
   - ops-alignment
 dependencies: []
+parent_task_id: 'TASK-2331'
 modified_files: []
 priority: medium
 ordinal: 1000

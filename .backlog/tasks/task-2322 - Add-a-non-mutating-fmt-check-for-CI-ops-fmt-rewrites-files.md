@@ -1,13 +1,15 @@
 ---
 id: TASK-2322
 title: 'Add a non-mutating fmt check for CI (ops fmt rewrites files)'
-status: Triage
+status: To Do
 assignee: []
 created_date: '2026-09-28 10:59'
+updated_date: '2026-09-28 15:07'
 labels:
   - ci
   - ops-alignment
 dependencies: []
+parent_task_id: 'TASK-2331'
 modified_files: []
 priority: high
 ordinal: 1000

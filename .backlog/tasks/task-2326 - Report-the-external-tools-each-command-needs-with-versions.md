@@ -1,13 +1,15 @@
 ---
 id: TASK-2326
 title: 'Report the external tools each command needs, with versions'
-status: Triage
+status: To Do
 assignee: []
 created_date: '2026-09-28 10:59'
+updated_date: '2026-09-28 15:07'
 labels:
   - ci
   - ops-alignment
 dependencies: []
+parent_task_id: 'TASK-2333'
 modified_files: []
 priority: low
 ordinal: 1000

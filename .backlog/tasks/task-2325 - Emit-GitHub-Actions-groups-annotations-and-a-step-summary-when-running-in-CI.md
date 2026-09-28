@@ -1,13 +1,15 @@
 ---
 id: TASK-2325
 title: 'Emit GitHub Actions groups, annotations and a step summary when running in CI'
-status: Triage
+status: To Do
 assignee: []
 created_date: '2026-09-28 10:59'
+updated_date: '2026-09-28 15:07'
 labels:
   - ci
   - ops-alignment
 dependencies: []
+parent_task_id: 'TASK-2332'
 modified_files: []
 priority: medium
 ordinal: 1000

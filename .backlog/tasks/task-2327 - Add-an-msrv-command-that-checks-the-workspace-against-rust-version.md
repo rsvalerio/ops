@@ -1,13 +1,15 @@
 ---
 id: TASK-2327
 title: 'Add an msrv command that checks the workspace against rust-version'
-status: Triage
+status: To Do
 assignee: []
 created_date: '2026-09-28 10:59'
+updated_date: '2026-09-28 15:07'
 labels:
   - ci
   - ops-alignment
 dependencies: []
+parent_task_id: 'TASK-2334'
 modified_files: []
 priority: low
 ordinal: 1000

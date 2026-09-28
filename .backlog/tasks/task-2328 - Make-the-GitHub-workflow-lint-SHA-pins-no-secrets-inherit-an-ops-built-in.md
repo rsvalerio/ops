@@ -1,14 +1,16 @@
 ---
 id: TASK-2328
 title: 'Make the GitHub workflow lint (SHA pins, no secrets: inherit) an ops built-in'
-status: Triage
+status: To Do
 assignee: []
 created_date: '2026-09-28 10:59'
+updated_date: '2026-09-28 15:07'
 labels:
   - ci
   - ops-alignment
   - security
 dependencies: []
+parent_task_id: 'TASK-2334'
 modified_files: []
 priority: low
 ordinal: 1000
