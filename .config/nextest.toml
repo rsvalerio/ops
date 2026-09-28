@@ -11,8 +11,14 @@
 # the `skip:` lines. A run with skips is distinguishable in the log without
 # turning on success output for the whole suite.
 #
-# Only the `ci` profile sets this; `[profile.default]` is left untouched so
-# `ops next` / plain `cargo nextest run` behave exactly as before.
+# Only the `ci` profile sets this, so `ops next` / plain `cargo nextest run`
+# keep success output captured and out of the report.
+
+[profile.default]
+# Rust foundation baseline (ops init --rust): nextest flags a test as LEAK
+# when its output pipes have not reached EOF this long after it reports a
+# result. The 100ms default flags exits that merely lost the race for a core.
+leak-timeout = "2s"
 
 [profile.ci.junit]
 # Relative paths resolve against target/nextest/<profile>/ — this produces
