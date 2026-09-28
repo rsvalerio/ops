@@ -15,6 +15,7 @@ Below, **exec** lines are `program` plus `args` from config. **Composite** comma
 | Command | Maps to |
 | --- | --- |
 | `fmt` | `cargo fmt --all` |
+| `fmt-check` | `cargo fmt --all -- --check` |
 | `check` | `cargo check --workspace --all-features --all-targets` |
 | `clippy` | `cargo clippy --workspace --all-features --all-targets -- -D warnings` |
 | `lint` | alias → `clippy` |
@@ -26,8 +27,20 @@ Below, **exec** lines are `program` plus `args` from config. **Composite** comma
 | `next-ignored` | `cargo nextest run --workspace --all-features --run-ignored ignored-only` |
 | `clean` | `cargo clean` |
 | `verify` | composite: `fmt`, `trailing-whitespace`, `end-of-file-fixer`, `clippy`, `build`, `check-json`, `check-yaml`, `doc` (staged parallel, fail-fast) |
+| `verify-check` | composite: `fmt-check`, `trailing-whitespace-check`, `end-of-file-fixer-check`, `clippy`, `build`, `check-json`, `check-yaml`, `doc` (parallel, fail-fast) |
 | `qa` | composite: `deps`, `test`, `test-doc`, `sec` (sequential, fail-fast) |
 | `qa-next` (`qax`) | composite: `deps`, `next`, `test-doc`, `sec` (sequential, fail-fast) |
+
+**`verify-check` is `verify` for CI:** each rewriter is swapped for its
+non-mutating twin — `fmt-check` in the stack TOML, `trailing-whitespace-check`
+and `end-of-file-fixer-check` registered by the text-fixers extension (they run
+the fixer with `--check`). A dirty tree fails the gate instead of being
+repaired, and since nothing writes, every step runs in one parallel stage.
+
+**`--locked`:** none of the defaults pass it, because `--locked` refuses to
+create a missing `Cargo.lock`. Set `[cargo] locked = true` (or
+`OPS__CARGO__LOCKED=true` in CI) to add it to every lockfile-resolving cargo
+command — see [Locked cargo commands](configuration.md#locked-cargo-commands).
 
 **`--all-targets` on `test`:** deliberately absent. For `cargo test` the flag
 *disables* doctests ("Test all targets (does not include doctests)"), so adding
@@ -43,7 +56,7 @@ See [Exclusive steps in a parallel group](configuration.md#exclusive-steps-in-a-
 type-checks independently, so including it compiled the workspace a third time
 under a third fingerprint. It remains available standalone.
 
-**`deps`:** not defined in the embedded TOML; it is supplied by the **Rust `deps` extension** when built in. That command runs seven dependency health checks: compatible and breaking upgrades (`cargo upgrade --dry-run`), advisories, licenses, duplicate crates and sources (`cargo deny check`), and unused dependencies (`cargo machete`). `cargo-edit` and `cargo-deny` are required. `cargo-machete` is optional: without it the Unused Dependencies row shows as skipped with the install hint. Unused dependencies are a warning and never fail the gate, because cargo-machete is heuristic; suppress a false positive with `[package.metadata.cargo-machete] ignored = ["name"]`. See `extensions-rust/deps`.
+**`deps`:** not defined in the embedded TOML; it is supplied by the **Rust `deps` extension** when built in. That command runs seven dependency health checks: compatible and breaking upgrades (`cargo upgrade --dry-run`), advisories, licenses, duplicate crates and sources (`cargo deny check`), and unused dependencies (`cargo machete`). `cargo-edit` and `cargo-deny` are required. `ops deps --check` is the CI-safe gate: only `cargo deny check` and (when installed) `cargo machete`, collected fresh without the data cache, so `cargo-edit` is not needed; it fails on the same findings. `cargo-machete` is optional: without it the Unused Dependencies row shows as skipped with the install hint. Unused dependencies are a warning and never fail the gate, because cargo-machete is heuristic; suppress a false positive with `[package.metadata.cargo-machete] ignored = ["name"]`. See `extensions-rust/deps`.
 
 **`sec`:** also not defined in the embedded TOML; it is the built-in `ops sec` subcommand (Trivy security scans — secrets always, vulnerability/misconfig auto-selected). Requires the `trivy` CLI on `PATH`.
 

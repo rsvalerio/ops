@@ -63,6 +63,17 @@ The extras are appended at load time. Rules:
 - Extends concatenate across config layers, so `.ops.d/*.toml` fragments stack on top of `.ops.toml` appends.
 - Extending controls list order only, not execution order. Each appended command keeps the `exclusive` flag of its own definition. In a sequential group it runs after the earlier steps. In a parallel group (see below), an appended non-exclusive command joins the final stage and may run concurrently with the earlier non-exclusive steps. Mark it `exclusive = true` if it must not overlap them.
 
+## Locked cargo commands
+
+CI should build against the committed `Cargo.lock`. One switch adds `--locked` to every cargo command that resolves the lockfile (`build`, `check`, `clippy`, `doc`, `test`, `nextest`, `run`, `bench`) — the Rust stack defaults and your own `[commands]` alike:
+
+```toml
+[cargo]
+locked = true
+```
+
+Like any key it can come from the environment instead, which keeps local runs free to update the lockfile: `OPS__CARGO__LOCKED=true`. The flag goes before any `--` separator, commands already passing `--locked` or `--frozen` are left alone, and it applies after `[extend]`. It is off by default because `--locked` refuses to create a missing `Cargo.lock`.
+
 ## Cloning existing commands
 
 To define a command as a variant of an existing one — typically a stack default — without copying (and going stale on) its whole spec, use `clone`:

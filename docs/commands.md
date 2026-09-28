@@ -19,8 +19,8 @@ stack ships. How to define your own is in [Configuration](configuration.md).
 | `ops run-before-commit [install]` | Pre-commit hook runner (`--changed-only` skips when nothing is staged) |
 | `ops run-before-push [install]` | Pre-push hook runner (skips a delete-only or empty push) |
 | `ops sec` | Security scans via Trivy — secrets always, vulnerability/misconfig auto-selected by file types (`--skip`/`--force` to override). Fails closed: non-zero on findings, on a scan timeout, and when `--skip` leaves no scan to run. Each scan is bounded by a 10-minute timeout, overridable with `OPS_SEC_TIMEOUT_SECS=<seconds>`. Build/dependency directories are skipped at any depth by default (see the [skip list](#ops-sec-default-skip-list) below); `--no-default-skips` opts out. See [scan root, ignore file, dev deps](#ops-sec-scan-root-ignore-file-and-dev-dependencies) for `--repo`, `.trivyignore.yaml` and `--no-dev-deps` |
-| `ops trailing-whitespace` (`tw`) | Strip trailing whitespace in place; non-zero when files changed (pre-commit contract) |
-| `ops end-of-file-fixer` (`eof`) | Ensure files end with exactly one newline; non-zero when files changed |
+| `ops trailing-whitespace` (`tw`) | Strip trailing whitespace in place; non-zero when files changed (pre-commit contract); `--check` reports without writing |
+| `ops end-of-file-fixer` (`eof`) | Ensure files end with exactly one newline; non-zero when files changed; `--check` reports without writing |
 | `ops check-json` / `check-yaml` | Verify every JSON/YAML file parses (`--tracked` limits to git files; `--allow-json5` for JSON5) |
 | `ops lint-actions` | Lint `.github/workflows/*.yml`: every `uses:` pinned to a full 40-hex commit SHA with a trailing `# vX.Y.Z` comment (`docker://` images to an `@sha256:` digest), and no `secrets: inherit`. Local `./` references the prefixes under `[lint_actions] allow = ["owner/repo/"]` in `.ops.toml` (layers add to the list) and those passed with `--allow <prefix>` are exempt. Symlinked workflow files are skipped. Non-zero on any violation; composites can list it (it only reads) |
 | `ops backlog init` | Bootstrap the backlog: a `[backlog]` section in `.ops.toml` (or `backlog.config.yml` with `--backlog.md`) plus the tasks tree; also run by `ops init` |
@@ -52,7 +52,7 @@ to let a push or commit through without running the configured hook commands.
 
 | Command | Available on |
 |---------|--------------|
-| `ops deps` | Rust |
+| `ops deps` (`--check`: CI-safe, cargo-deny + machete only, no cargo-edit) | Rust |
 | `ops msrv` | Rust — fails unless `clippy.toml`'s `msrv` equals `Cargo.toml`'s `rust-version` (`[workspace.package]`, else `[package]`), then runs `rustup run <rust-version> cargo check --workspace --all-features --all-targets`; `--install` installs that toolchain first (minimal profile), and `--dry-run` checks the agreement and prints the commands |
 | `ops plans` | Terraform (plan summary tables) |
 | `ops about coverage` / `dependencies` | Rust |
@@ -100,7 +100,10 @@ The Rust stack default goes beyond the contract: it also ships `next` / `next-ig
 (cargo-nextest; nextest does not run doctests), `test-doc` for those doctests, and a
 `qa-next` composite (alias `qax`) that runs the test legs through nextest. The Rust `qa`
 runs `deps`, `test`, `test-doc`, and `sec` — `sec` requires the
-[Trivy](https://trivy.dev) CLI on `PATH`.
+[Trivy](https://trivy.dev) CLI on `PATH`. For CI it ships `verify-check`, the
+non-mutating `verify` (`fmt-check` plus the text fixers' `--check` twins), and
+`[cargo] locked = true` / `OPS__CARGO__LOCKED=true` runs its cargo commands with
+`--locked`.
 
 ### `ops sec` default skip list
 
