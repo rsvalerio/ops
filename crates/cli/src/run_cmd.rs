@@ -37,6 +37,8 @@ pub struct RunOptions {
     pub dry_run: bool,
     pub verbose: bool,
     pub tap: Option<PathBuf>,
+    /// TASK-2338: `--junit <file>` `JUnit` XML report of the run's steps.
+    pub junit: Option<PathBuf>,
     pub raw: bool,
     /// cwd-escape policy applied to the runner this invocation builds. Hook-triggered entry points
     /// (`run-before-commit`, `run-before-push`) set
@@ -188,6 +190,7 @@ fn run_commands(
         dry_run,
         verbose,
         tap,
+        junit,
         raw,
         cwd_escape_policy,
     } = opts;
@@ -198,6 +201,12 @@ fn run_commands(
         // so users invoking `ops <cmd> --dry-run --raw --tap=path` see that
         // --raw/--tap have no effect, instead of a silent override.
         emit_dry_run_warnings(raw, tap.is_some(), verbose);
+        if junit.is_some() {
+            tracing::warn!(
+                "--junit is ignored under --dry-run; the dry-run preview never executes children, \
+                 so no JUnit report will be written"
+            );
+        }
         for name in names {
             run_command_dry_run(&runner, name)?;
         }
@@ -209,7 +218,7 @@ fn run_commands(
     let results = if raw {
         run_commands_raw(&runner, &plans, tap.as_deref(), verbose)?
     } else {
-        run_commands_with_display(&runner, &plans, tap.as_deref(), verbose)?
+        run_commands_with_display(&runner, &plans, tap.as_deref(), junit, verbose)?
     };
     Ok(summarize(&results))
 }
@@ -561,6 +570,7 @@ fn run_commands_with_display(
     runner: &ops_runner::command::CommandRunner,
     plans: &[NamePlan],
     tap: Option<&Path>,
+    junit: Option<PathBuf>,
     verbose: bool,
 ) -> anyhow::Result<Vec<StepResult>> {
     // One display covering every named command's steps (TASK-2262 AC #4):
@@ -574,13 +584,16 @@ fn run_commands_with_display(
     // A matrix cell's row id is its label (`name [key=value]`), which
     // `display_cmd_for` falls back to since no command has that name.
     let display_map = build_display_map(runner, &runner.row_ids(&all_leaf_ids));
-    let mut display = ProgressDisplay::new(DisplayOptions::new(
-        runner.output_config(),
-        display_map,
-        &runner.config().themes,
-        tap.map(PathBuf::from),
-        verbose,
-    ))?;
+    let mut display = ProgressDisplay::new(
+        DisplayOptions::new(
+            runner.output_config(),
+            display_map,
+            &runner.config().themes,
+            tap.map(PathBuf::from),
+            verbose,
+        )
+        .with_junit(junit),
+    )?;
 
     let echo_guard = EchoGuard::disable_echo();
     // Parallel orchestration only pays off with >=2 leaves;

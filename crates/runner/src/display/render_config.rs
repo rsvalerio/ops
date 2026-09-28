@@ -82,6 +82,8 @@ pub struct DisplayOptions<'a> {
     pub display_map: HashMap<String, String>,
     pub custom_themes: &'a IndexMap<String, ThemeConfig>,
     pub tap: Option<PathBuf>,
+    /// TASK-2338: write a `JUnit` XML report of the run's steps to this path.
+    pub junit: Option<PathBuf>,
     /// When true, stderr tail is unbounded regardless of config setting.
     pub verbose: bool,
 }
@@ -100,7 +102,15 @@ impl<'a> DisplayOptions<'a> {
             display_map,
             custom_themes,
             tap,
+            junit: None,
             verbose,
         }
+    }
+
+    /// Request a `JUnit` XML report (`--junit <file>`) of the run's steps.
+    #[must_use]
+    pub fn with_junit(mut self, junit: Option<PathBuf>) -> Self {
+        self.junit = junit;
+        self
     }
 }

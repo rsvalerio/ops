@@ -36,7 +36,14 @@ Global flags: `--dry-run` (preview the resolved plan — never executes: `run-be
 builtins that write or run tools without a preview mode: `init`, `new-command`,
 `import-makefile`, `trailing-whitespace`, `end-of-file-fixer`, `theme select`, `lock` /
 `lock break`, `about` (except `about backlog`), `deps` and `plans`), `--verbose` (full stderr on
-failure), `--tap <file>` (capture raw output), `--raw` (inherit child stdio, no ops output).
+failure), `--tap <file>` (capture raw output), `--junit <file>` (JUnit XML report of the run's
+steps), `--raw` (inherit child stdio, no ops output).
+
+JUnit: `--junit <file>` writes a JUnit XML report when the run finishes, one `<testcase>` per
+plan step (`classname` is `ops.<step id>`). A failed step carries a `<failure>` whose message is
+the failure message and whose body is the last 50 lines of its output; a step that never ran is
+`<skipped/>`. The file is replaced on every run, and a write failure is reported on stderr
+without failing the run. Not available with `--raw`, ignored with `--dry-run`.
 
 GitHub Actions: when `GITHUB_ACTIONS=true` and stderr is not a terminal, each finished
 step's captured output is printed as a collapsible `::group::` (fenced with

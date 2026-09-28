@@ -38,6 +38,14 @@ pub struct Cli {
     #[arg(long, global = true, value_name = "FILE")]
     pub tap: Option<PathBuf>,
 
+    /// Write a `JUnit` XML report of the run's steps to a file.
+    ///
+    /// One testcase per plan step; a failed step carries the failure message
+    /// and the tail of its output, a step that never ran is skipped. For CI
+    /// test-report consumers. Cannot be combined with `--raw`.
+    #[arg(long, global = true, value_name = "FILE", conflicts_with = "raw")]
+    pub junit: Option<PathBuf>,
+
     /// Inherit child stdio directly and suppress ops' own output (like make/just).
     ///
     /// The child process writes straight to the terminal — colors, TUIs, and
@@ -1368,6 +1376,20 @@ mod tests {
     fn parse_tap_flag() {
         let cli = Cli::parse_from(["ops", "--tap", "out.log", "build"]);
         assert_eq!(cli.tap, Some(PathBuf::from("out.log")));
+    }
+
+    #[test]
+    fn parse_junit_flag() {
+        let cli = Cli::parse_from(["ops", "--junit", "report.xml", "build"]);
+        assert_eq!(cli.junit, Some(PathBuf::from("report.xml")));
+        assert!(Cli::parse_from(["ops", "build"]).junit.is_none());
+    }
+
+    #[test]
+    fn parse_raw_and_junit_conflict() {
+        let err = Cli::try_parse_from(["ops", "--raw", "--junit", "r.xml", "build"])
+            .expect_err("--raw and --junit must conflict");
+        assert_eq!(err.kind(), clap::error::ErrorKind::ArgumentConflict);
     }
 
     #[test]

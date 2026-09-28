@@ -49,6 +49,7 @@ fn test_display_with_config(
         display_map,
         custom_themes: &custom_themes,
         tap: None,
+        junit: None,
         verbose: false,
     })
     .expect("test display construct")
@@ -158,6 +159,7 @@ fn emit_line_non_tty_writes_to_stderr() {
             display_map: HashMap::new(),
             custom_themes: &custom_themes,
             tap: None,
+            junit: None,
             verbose: false,
         },
         || false,
@@ -183,6 +185,7 @@ fn tap_file_captures_raw_output() {
         display_map,
         custom_themes: &custom_themes,
         tap: Some(tap_path.clone()),
+        junit: None,
         verbose: false,
     })
     .expect("should construct with tap");
@@ -292,6 +295,7 @@ fn verbose_overrides_to_unbounded_without_mutating_config() {
         display_map,
         custom_themes: &custom_themes,
         tap: None,
+        junit: None,
         verbose: true,
     })
     .expect("test display construct");
@@ -374,6 +378,83 @@ fn github_actions_summary_covers_every_step() {
     );
     assert!(written.contains("| doc | skipped |"), "{written}");
     assert!(written.contains("1 failed, 1 succeeded of 3"), "{written}");
+}
+
+/// TASK-2338: `--junit <file>` writes one testcase per plan step — failed
+/// (with message and output tail), succeeded, and orphaned-as-skipped — at
+/// `RunFinished`.
+#[test]
+fn junit_report_has_one_testcase_per_plan_step() {
+    let dir = tempfile::tempdir().expect("tempdir");
+    let report = dir.path().join("junit.xml");
+    let output = config::OutputConfig::default();
+    let custom_themes = test_themes();
+    let mut display = ProgressDisplay::new(
+        DisplayOptions::new(
+            &output,
+            HashMap::from([
+                ("build".to_string(), "cargo build".to_string()),
+                ("test".to_string(), "cargo test".to_string()),
+            ]),
+            &custom_themes,
+            None,
+            false,
+        )
+        .with_junit(Some(report.clone())),
+    )
+    .expect("display with junit");
+
+    display.handle_event(RunnerEvent::PlanStarted {
+        command_ids: vec!["build".into(), "test".into(), "doc".into()],
+    });
+    display.handle_event(RunnerEvent::StepStarted {
+        id: "build".into(),
+        display_cmd: None,
+    });
+    display.handle_event(RunnerEvent::StepOutput {
+        id: "build".into(),
+        line: "error[E0425]: cannot find value `x`".into(),
+        stderr: true,
+    });
+    display.handle_event(RunnerEvent::StepFailed {
+        id: "build".into(),
+        duration_secs: 1.0,
+        message: "exit status: 1".to_string(),
+        display_cmd: None,
+    });
+    display.handle_event(RunnerEvent::StepFinished {
+        id: "test".into(),
+        duration_secs: 2.0,
+        display_cmd: None,
+    });
+    // `doc` never finishes: it is finalized as an orphan on RunFinished.
+    display.handle_event(RunnerEvent::RunFinished {
+        duration_secs: 3.0,
+        success: false,
+    });
+
+    let xml = std::fs::read_to_string(&report).expect("junit report written");
+    assert_eq!(xml.matches("<testcase ").count(), 3, "{xml}");
+    assert!(
+        xml.contains("tests=\"3\" failures=\"1\" errors=\"0\" skipped=\"1\""),
+        "{xml}"
+    );
+    assert!(
+        xml.contains("<testcase name=\"cargo build\" classname=\"ops.build\" time=\"1.000\">"),
+        "{xml}"
+    );
+    assert!(
+        xml.contains("<failure message=\"exit status: 1\" type=\"failure\">exit status: 1&#10;error[E0425]: cannot find value `x`</failure>"),
+        "{xml}"
+    );
+    assert!(
+        xml.contains("<testcase name=\"cargo test\" classname=\"ops.test\" time=\"2.000\"/>"),
+        "{xml}"
+    );
+    assert!(
+        xml.contains("classname=\"ops.doc\"") && xml.contains("<skipped/>"),
+        "{xml}"
+    );
 }
 
 mod edge_case_tests {
@@ -564,6 +645,7 @@ mod error_path_tests {
             display_map: HashMap::new(),
             custom_themes: &custom_themes,
             tap: None,
+            junit: None,
             verbose: false,
         });
 

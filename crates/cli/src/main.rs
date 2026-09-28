@@ -365,6 +365,7 @@ fn dispatch(
                     dry_run: cli.dry_run,
                     verbose: cli.verbose,
                     tap: cli.tap,
+                    junit: cli.junit,
                     raw: cli.raw,
                     ..Default::default()
                 },
