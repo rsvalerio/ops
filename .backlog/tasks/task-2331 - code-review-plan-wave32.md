@@ -1,10 +1,10 @@
 ---
 id: TASK-2331
 title: 'code-review-plan-wave32'
-status: To Do
+status: Done
 assignee: []
 created_date: '2026-09-28 15:07'
-updated_date: '2026-09-28 15:07'
+updated_date: '2026-09-28 15:29'
 labels:
   - code-review-wave
 dependencies:
@@ -40,4 +40,7 @@ code-review-plan-wave32
 <!-- SECTION:NOTES:BEGIN -->
 Rationale: CI-safe Rust stack gates — non-mutating fmt/tw/eof check, --locked defaults, deps check mode. Scope is predicted (feature tasks carry no --modified-file); new source files may be added.
 Overlaps: TASK-2333/wave34 (crates/cli/src/args.rs, extensions-rust/deps/src/lib.rs, docs/commands.md); TASK-2334/wave35 (crates/cli/src/args.rs, crates/cli/src/subcommands.rs, .github/workflows/ci.yml, docs/commands.md)
+
+Branch: code-review/TASK-2331
+
 <!-- SECTION:NOTES:END -->
