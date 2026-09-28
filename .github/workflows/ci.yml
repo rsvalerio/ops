@@ -34,8 +34,10 @@ jobs:
           components: rustfmt
           rustflags: ""
       - uses: mozilla-actions/sccache-action@7d986dd989559c6ecdb630a3fd2557667be217ad # v0.0.9
-      - name: cargo fmt --all
-        run: cargo fmt --all
+      # TASK-2322: `--check` fails on unformatted code; without it `cargo fmt`
+      # rewrites the checkout and exits 0, so this job could never fail.
+      - name: cargo fmt --all -- --check
+        run: cargo fmt --all -- --check
 
   check:
     name: Check
