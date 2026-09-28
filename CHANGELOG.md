@@ -2,6 +2,23 @@
 All notable changes to this project will be documented in this file. See [conventional commits](https://www.conventionalcommits.org/) for commit guidelines.
 
 - - -
+## [v0.76.0](https://github.com/rsvalerio/ops/compare/138fa7c34884c00edcc26e2406259e0af42d372f..v0.76.0) - 2026-09-28
+#### 🚀 Features
+- (**explain**) opt-in --tool-versions reports installed tool versions - ([fa36ea6](https://github.com/rsvalerio/ops/commit/fa36ea6eac8f488359bcb17ea70b87a78bbdea20)) - [@rsvalerio](https://github.com/rsvalerio), Claude Opus 5.5 (1M context)
+- (**runner**) write a JUnit XML report of step results with --junit <file> - ([b22727c](https://github.com/rsvalerio/ops/commit/b22727ccf574d51ca069818ec3cd79ec148f4d36)) - [@rsvalerio](https://github.com/rsvalerio), Claude Opus 5.5 (1M context)
+#### 🐛 Bug Fixes
+- (**deps**) register deps via ExecCommandSpec::ops_subcommand - ([4435d6d](https://github.com/rsvalerio/ops/commit/4435d6d12ec282fb50f10b01b17f97e322018fd4)) - [@rsvalerio](https://github.com/rsvalerio), Claude Opus 5.5 (1M context)
+#### 🔄 CI/CD
+- run the gates through ops verify-check and ops qa-next - ([d6da4bf](https://github.com/rsvalerio/ops/commit/d6da4bf6d02c479d0adbcf7b74918b44ee7c9c8c)) - [@rsvalerio](https://github.com/rsvalerio), Claude Opus 5.5 (1M context)
+- move the lint-actions allow-list into .ops.toml - ([c318222](https://github.com/rsvalerio/ops/commit/c31822284ab50fccd739824002d99dc9a90e499a)) - [@rsvalerio](https://github.com/rsvalerio), Claude Opus 5.5 (1M context)
+#### ⚙️ Miscellaneous
+- (**backlog**) close code-review wave 36 - ([08f3316](https://github.com/rsvalerio/ops/commit/08f331629a8abbc1b31e13cdbc95c0ff053744b8)) - [@rsvalerio](https://github.com/rsvalerio), Claude Opus 5.5 (1M context)
+- (**backlog**) close code-review wave 38 - ([91c053f](https://github.com/rsvalerio/ops/commit/91c053fcdc6b5916ce857301bb5fe251b38b8075)) - [@rsvalerio](https://github.com/rsvalerio), Claude Opus 5.5 (1M context)
+- (**backlog**) close code-review wave 37 - ([36fb547](https://github.com/rsvalerio/ops/commit/36fb54782138c3c9399422942899662cbe308d74)) - [@rsvalerio](https://github.com/rsvalerio), Claude Opus 5.5 (1M context)
+- (**backlog**) triage waves 36-38 - ([138fa7c](https://github.com/rsvalerio/ops/commit/138fa7c34884c00edcc26e2406259e0af42d372f)) - [@rsvalerio](https://github.com/rsvalerio), Claude Opus 5.5 (1M context)
+
+- - -
+
 ## [v0.75.0](https://github.com/rsvalerio/ops/compare/35b939c635e4c2cf02a9d1145dde47d88a2ab27f..v0.75.0) - 2026-09-28
 #### 🚀 Features
 - (**cli**) add msrv and lint-actions built-ins - ([fceb23f](https://github.com/rsvalerio/ops/commit/fceb23f232d44ed44e75c455edd77a9ddd3f53b7)) - [@rsvalerio](https://github.com/rsvalerio), Claude Opus 5.5 (1M context)
