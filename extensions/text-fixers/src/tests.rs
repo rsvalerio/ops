@@ -68,6 +68,37 @@ fn trailing_whitespace_rewrites_dirty_files() {
     );
 }
 
+/// TASK-2322: check mode reports the files a fix would change, keeps the
+/// exit-code contract (`changed()`), and writes nothing.
+#[test]
+fn check_mode_reports_without_writing() {
+    let dir = tempfile::tempdir().unwrap();
+    let root = &canon(&dir);
+    write(&root.join("a.txt"), b"hello   \nworld");
+    write(&root.join("clean.txt"), b"clean\n");
+    let before = snapshot(root);
+
+    let check = opts(root).with_check(true);
+    let mut buf = Vec::new();
+    let tw = run_trailing_whitespace(&check, &mut buf).unwrap();
+    let eof = run_end_of_file_fixer(&check, &mut buf).unwrap();
+
+    assert_eq!(tw.files_changed, vec![PathBuf::from("a.txt")]);
+    assert_eq!(eof.files_changed, vec![PathBuf::from("a.txt")]);
+    assert!(
+        tw.changed() && eof.changed(),
+        "a dirty tree must fail the check"
+    );
+    assert!(tw.check_only && eof.check_only);
+    assert_eq!(snapshot(root), before, "check mode must not write");
+    let out = String::from_utf8(buf).unwrap();
+    assert!(
+        out.contains("trailing-whitespace: would fix a.txt"),
+        "{out}"
+    );
+    assert!(!out.contains(": fixed "), "{out}");
+}
+
 #[test]
 fn eof_fixer_adds_missing_newline() {
     let dir = tempfile::tempdir().unwrap();
@@ -525,5 +556,29 @@ fn registered_fixers_spawn_absolute_ops_and_are_exclusive() {
         );
         assert_eq!(exec.display_cmd(), format!("ops {id}"));
         assert!(exec.exclusive, "{id} rewrites files and must run alone");
+    }
+}
+
+/// TASK-2322: each fixer has a registered `--check` twin that never writes,
+/// so it is not exclusive and can run in `verify-check`'s parallel stage.
+#[test]
+fn registered_check_twins_pass_check_and_are_not_exclusive() {
+    use ops_core::config::CommandSpec;
+    use ops_extension::Extension as _;
+
+    let mut registry = ops_extension::CommandRegistry::new();
+    TextFixersExtension.register_commands(&mut registry);
+
+    for fixer in ["trailing-whitespace", "end-of-file-fixer"] {
+        let id = format!("{fixer}-check");
+        let Some(CommandSpec::Exec(exec)) = registry.get(id.as_str()) else {
+            panic!("{id} must be registered as an Exec spec");
+        };
+        assert!(Path::new(&exec.program).is_absolute());
+        assert_eq!(exec.display_cmd(), format!("ops {fixer} --check"));
+        assert!(
+            !exec.exclusive,
+            "{id} never writes and must not serialize the plan"
+        );
     }
 }

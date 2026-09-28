@@ -17,6 +17,11 @@ pub struct FixerOptions {
     /// Per-file size cap; see [`DEFAULT_MAX_BYTES`]. Enforced on the read
     /// itself, not by a preceding `metadata()` call.
     pub max_bytes: u64,
+    /// Report the files a fix would change without writing any of them —
+    /// the CI mode, where a gate must fail on a dirty tree rather than
+    /// repair it. The exit-code contract is unchanged: a file that needs
+    /// fixing still lands in [`crate::FixerReport::files_changed`].
+    pub check: bool,
 }
 
 impl FixerOptions {
@@ -26,12 +31,20 @@ impl FixerOptions {
             root,
             tracked_only,
             max_bytes: DEFAULT_MAX_BYTES,
+            check: false,
         }
     }
 
     #[must_use]
     pub const fn with_max_bytes(mut self, max_bytes: u64) -> Self {
         self.max_bytes = max_bytes;
+        self
+    }
+
+    /// Switch to check-only mode; see [`FixerOptions::check`].
+    #[must_use]
+    pub const fn with_check(mut self, check: bool) -> Self {
+        self.check = check;
         self
     }
 }

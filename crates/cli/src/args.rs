@@ -120,6 +120,11 @@ pub enum CoreSubcommand {
         /// Force re-collection of data (ignores cached results).
         #[arg(long)]
         refresh: bool,
+        /// CI-safe check: run only cargo-deny and cargo-machete (no
+        /// cargo-edit, no upgrade scan), always fresh, never writing the
+        /// data cache.
+        #[arg(long)]
+        check: bool,
     },
     /// Interactively add a new command to `.ops.toml`.
     NewCommand,
@@ -171,25 +176,33 @@ pub enum CoreSubcommand {
     Plans(ops_tfplan::PlanOptions),
     /// Strip trailing spaces and tabs from every text file under cwd.
     ///
-    /// Fixes files in place. Exits non-zero when at least one file was
-    /// modified, matching the `pre-commit-hooks` contract so a commit hook
-    /// fails on change.
+    /// Fixes files in place (or, with `--check`, only reports them). Exits
+    /// non-zero when at least one file was modified, matching the
+    /// `pre-commit-hooks` contract so a commit hook fails on change.
     #[command(name = "trailing-whitespace", visible_alias = "tw")]
     TrailingWhitespace {
         /// Limit to git-tracked files (uses `git ls-files`).
         #[arg(long)]
         tracked: bool,
+        /// Report files that need fixing without writing them (CI mode);
+        /// the exit code is the same as if they had been fixed.
+        #[arg(long)]
+        check: bool,
     },
     /// Ensure every text file ends with exactly one newline.
     ///
-    /// Fixes files in place. Exits non-zero when at least one file was
-    /// modified, matching the `pre-commit-hooks` contract so a commit hook
-    /// fails on change.
+    /// Fixes files in place (or, with `--check`, only reports them). Exits
+    /// non-zero when at least one file was modified, matching the
+    /// `pre-commit-hooks` contract so a commit hook fails on change.
     #[command(name = "end-of-file-fixer", visible_alias = "eof")]
     EndOfFileFixer {
         /// Limit to git-tracked files (uses `git ls-files`).
         #[arg(long)]
         tracked: bool,
+        /// Report files that need fixing without writing them (CI mode);
+        /// the exit code is the same as if they had been fixed.
+        #[arg(long)]
+        check: bool,
     },
     /// Verify every `*.json` file under cwd parses as JSON.
     ///

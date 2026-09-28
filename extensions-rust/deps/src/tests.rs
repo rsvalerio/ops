@@ -112,6 +112,47 @@ mod command_path_tests {
         run_deps(&registry, &DepsOptions::new(false)).expect("clean report must return Ok");
     }
 
+    /// TASK-2324: `ops deps --check` needs neither cargo-edit nor the data
+    /// provider. The fake cargo reports `upgrade` as not installed and logs
+    /// every subcommand it is asked for; the registry carries a payload with
+    /// an actionable advisory, so a check that went through the (cacheable)
+    /// provider instead of running `cargo deny` fresh would fail here.
+    #[cfg(unix)]
+    #[test]
+    #[serial]
+    fn run_deps_check_needs_no_cargo_edit_and_bypasses_the_provider() {
+        let dir = tempfile::tempdir().expect("tempdir");
+        let log = dir.path().join("calls");
+        let script = format!(
+            r#"echo "$*" >> '{}'
+case "$1" in
+  upgrade) exit 101 ;;
+  deny) exit 0 ;;
+  machete) exit 101 ;;
+  *) exit 0 ;;
+esac"#,
+            log.display()
+        );
+        let _cargo = EnvVarGuard::set("CARGO", fake_cargo(dir.path(), &script));
+        let _cwd = CwdGuard::new(dir.path()).expect("CwdGuard");
+
+        let (registry, _) = stub_registry(advisory_report_json());
+        run_deps(&registry, &DepsOptions::new(false).with_check(true))
+            .expect("a clean cargo deny must pass the check without cargo-edit");
+
+        let calls = std::fs::read_to_string(&log).expect("cargo must have been invoked");
+        assert!(
+            !calls.lines().any(|l| l.starts_with("upgrade")),
+            "check mode must never invoke cargo upgrade: {calls}"
+        );
+        assert!(
+            calls
+                .lines()
+                .any(|l| l.starts_with("deny ") && l.ends_with(" check")),
+            "check mode must run cargo deny check: {calls}"
+        );
+    }
+
     /// The product's contract: `ops deps` fails CI when there are dependency
     /// issues. `has_issues` → `bail!` is the only place "fail loudly" becomes
     /// a non-zero exit, so without this test a refactor that rendered the

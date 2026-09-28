@@ -113,19 +113,19 @@ pub fn run_about(
     }
 }
 
-/// The `--refresh` flag's one and only translation into the library's
-/// options bag. Split out of [`run_deps`] so the mapping can be pinned
-/// without spawning cargo: `run_deps` shells out to `cargo upgrade` and
-/// `cargo deny` before it can be observed.
+/// The `--refresh` / `--check` flags' one and only translation into the
+/// library's options bag. Split out of [`run_deps`] so the mapping can be
+/// pinned without spawning cargo: `run_deps` shells out to `cargo upgrade`
+/// and `cargo deny` before it can be observed.
 #[cfg(feature = "stack-rust")]
-const fn deps_options(refresh: bool) -> ops_deps::DepsOptions {
-    ops_deps::DepsOptions::new(refresh)
+const fn deps_options(refresh: bool, check: bool) -> ops_deps::DepsOptions {
+    ops_deps::DepsOptions::new(refresh).with_check(check)
 }
 
 #[cfg(feature = "stack-rust")]
-pub fn run_deps(config: &Config, refresh: bool) -> anyhow::Result<()> {
+pub fn run_deps(config: &Config, refresh: bool, check: bool) -> anyhow::Result<()> {
     let (_cwd, registry) = cli_data_context(config)?;
-    ops_deps::run_deps(&registry, &deps_options(refresh))
+    ops_deps::run_deps(&registry, &deps_options(refresh, check))
 }
 
 pub fn run_create_review_tasks(config: &Config, dry_run: bool) -> anyhow::Result<()> {
@@ -426,7 +426,7 @@ pub fn run_before_push(
 /// `pre-commit-hooks` contract so a commit hook driver fails the commit on
 /// change; the second keeps "could not check" from passing as "clean", which
 /// is what a gate's exit zero is taken to mean.
-fn run_text_fixer<F>(label: &str, tracked: bool, fixer: F) -> anyhow::Result<ExitCode>
+fn run_text_fixer<F>(label: &str, tracked: bool, check: bool, fixer: F) -> anyhow::Result<ExitCode>
 where
     F: FnOnce(
         &ops_text_fixers::FixerOptions,
@@ -434,7 +434,7 @@ where
     ) -> anyhow::Result<ops_text_fixers::FixerReport>,
 {
     let cwd = crate::cwd()?;
-    let opts = ops_text_fixers::FixerOptions::new(cwd, tracked);
+    let opts = ops_text_fixers::FixerOptions::new(cwd, tracked).with_check(check);
     let mut stdout = std::io::stdout();
     let report = fixer(&opts, &mut stdout)?;
     ops_text_fixers::write_summary(&report, label, &mut stdout)
@@ -446,18 +446,20 @@ where
     }
 }
 
-pub fn run_trailing_whitespace(tracked: bool) -> anyhow::Result<ExitCode> {
+pub fn run_trailing_whitespace(tracked: bool, check: bool) -> anyhow::Result<ExitCode> {
     run_text_fixer(
         "trailing-whitespace",
         tracked,
+        check,
         ops_text_fixers::run_trailing_whitespace,
     )
 }
 
-pub fn run_end_of_file_fixer(tracked: bool) -> anyhow::Result<ExitCode> {
+pub fn run_end_of_file_fixer(tracked: bool, check: bool) -> anyhow::Result<ExitCode> {
     run_text_fixer(
         "end-of-file-fixer",
         tracked,
+        check,
         ops_text_fixers::run_end_of_file_fixer,
     )
 }
@@ -606,20 +608,23 @@ mod tests {
     fn deps_refresh_flag_reaches_deps_options() {
         use crate::args::{Cli, Parser as _};
 
-        for (argv, expected) in [
-            (vec!["ops", "deps"], false),
-            (vec!["ops", "deps", "--refresh"], true),
+        for (argv, expected_refresh, expected_check) in [
+            (vec!["ops", "deps"], false, false),
+            (vec!["ops", "deps", "--refresh"], true, false),
+            (vec!["ops", "deps", "--check"], false, true),
         ] {
             let cli = Cli::parse_from(argv);
-            let Some(crate::args::CoreSubcommand::Deps { refresh }) = cli.subcommand else {
+            let Some(crate::args::CoreSubcommand::Deps { refresh, check }) = cli.subcommand else {
                 panic!("expected the deps subcommand");
             };
-            assert_eq!(refresh, expected, "--refresh must survive parsing");
+            assert_eq!(refresh, expected_refresh, "--refresh must survive parsing");
+            assert_eq!(check, expected_check, "--check must survive parsing");
+            let opts = deps_options(refresh, check);
             assert_eq!(
-                deps_options(refresh).refresh,
-                expected,
+                opts.refresh, expected_refresh,
                 "the parsed flag must reach DepsOptions"
             );
+            assert_eq!(opts.check, expected_check, "--check must reach DepsOptions");
         }
     }
 

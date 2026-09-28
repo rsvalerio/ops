@@ -960,6 +960,31 @@ mod tests {
         );
     }
 
+    /// TASK-2322: `verify-check` is `verify` with every rewriter swapped for
+    /// its check twin — the same gates, none of which writes.
+    #[test]
+    fn rust_verify_check_mirrors_verify_without_rewriters() {
+        let cmds = Stack::Rust.default_commands_ref();
+        let composite = |name: &str| match cmds.get(name) {
+            Some(CommandSpec::Composite(c)) => c.commands.clone(),
+            other => panic!("rust `{name}` must be a composite, got {other:?}"),
+        };
+        let expected: Vec<String> = composite("verify")
+            .into_iter()
+            .map(|c| match c.as_str() {
+                "fmt" | "trailing-whitespace" | "end-of-file-fixer" => format!("{c}-check"),
+                _ => c,
+            })
+            .collect();
+        assert_eq!(composite("verify-check"), expected);
+
+        let Some(CommandSpec::Exec(fmt_check)) = cmds.get("fmt-check") else {
+            panic!("rust `fmt-check` must be an exec command");
+        };
+        assert_eq!(fmt_check.args, ["fmt", "--all", "--", "--check"]);
+        assert!(!fmt_check.exclusive, "fmt-check writes nothing");
+    }
+
     #[test]
     fn go_vet_aliased_to_lint() {
         let cmds = Stack::Go.default_commands_ref();
