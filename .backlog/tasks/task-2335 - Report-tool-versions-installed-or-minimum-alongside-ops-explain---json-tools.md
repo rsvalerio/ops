@@ -1,14 +1,16 @@
 ---
 id: TASK-2335
 title: 'Report tool versions (installed or minimum) alongside ops explain --json tools'
-status: Triage
+status: Done
 assignee: []
 created_date: '2026-09-28 15:19'
+updated_date: '2026-09-28 17:02'
 labels:
   - code-review-rust
   - ci
   - ops-alignment
 dependencies: []
+parent_task_id: 'TASK-2340'
 modified_files:
   - crates/cli/src/run_cmd/tools.rs
   - extensions-rust/deps/src/lib.rs
@@ -31,5 +33,12 @@ ordinal: 1000
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 Each reported tool carries a minimum/pinned version when ops declares one, or an opt-in probe reports the installed version without making plain ops explain spawn
+- [x] #1 Each reported tool carries a minimum/pinned version when ops declares one, or an opt-in probe reports the installed version without making plain ops explain spawn
+
 <!-- AC:END -->
+
+## Implementation Notes
+
+<!-- SECTION:NOTES:BEGIN -->
+ops declares no minimum/pinned tool versions, so the AC is met through its opt-in branch: `ops explain --json --tool-versions` runs each tool's `--version` (cargo plugins as `cargo <sub> --version`) and adds `installedVersion` (null when missing); plain explain/--json spawn nothing (asserted), and the flag refuses --dry-run.
+<!-- SECTION:NOTES:END -->

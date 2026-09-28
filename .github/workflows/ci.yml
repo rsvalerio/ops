@@ -24,32 +24,43 @@ env:
   RUSTC_WRAPPER: sccache
 
 jobs:
-  fmt:
-    name: Format
+  # The pre-commit gate, in its CI form. `ops verify` repairs formatting and
+  # whitespace in place and exits 0, which in CI would pass a dirty tree
+  # (TASK-2322); `verify-check` runs the same plan with every step as a check —
+  # fmt-check, trailing-whitespace-check, end-of-file-fixer-check, clippy,
+  # build, check-json, check-yaml, doc — and writes nothing. `build` covers what
+  # the old standalone `cargo check` job did.
+  verify:
+    name: ops verify
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
       - uses: actions-rust-lang/setup-rust-toolchain@166cdcfd11aee3cb47222f9ddb555ce30ddb9659 # v1.17.0
         with:
-          components: rustfmt
+          components: rustfmt, clippy
           rustflags: ""
       - uses: mozilla-actions/sccache-action@7d986dd989559c6ecdb630a3fd2557667be217ad # v0.0.9
-      # TASK-2322: `--check` fails on unformatted code; without it `cargo fmt`
-      # rewrites the checkout and exits 0, so this job could never fail.
-      - name: cargo fmt --all -- --check
-        run: cargo fmt --all -- --check
-
-  check:
-    name: Check
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
-      - uses: actions-rust-lang/setup-rust-toolchain@166cdcfd11aee3cb47222f9ddb555ce30ddb9659 # v1.17.0
-        with:
-          rustflags: ""
-      - uses: mozilla-actions/sccache-action@7d986dd989559c6ecdb630a3fd2557667be217ad # v0.0.9
-      - name: cargo check --all --all-features
-        run: cargo check --all --all-features
+      # Build this checkout's ops once and put it on PATH, so every gate below
+      # runs through the tool that defines it rather than re-spelled cargo
+      # invocations. It is copied out of target/ because the gates rebuild
+      # target/debug/ops while it runs.
+      - name: Build ops
+        run: |
+          cargo build --locked -p ops --all-features
+          install -D target/debug/ops "$RUNNER_TEMP/ops/bin/ops"
+          echo "$RUNNER_TEMP/ops/bin" >> "$GITHUB_PATH"
+      - name: ops verify-check
+        run: ops verify-check
+      # ARCH-11 / TASK-2053: the `clippy` step in verify-check lints
+      # `--all-features`, so it never compiles a single
+      # `#[cfg(not(feature = ...))]` arm, and a lint that fires only in the
+      # feature-off build is invisible to it. TASK-2027 is the worked example:
+      # two `clippy::missing_const_for_fn` errors sat on the feature-off
+      # `enrich_from_db` stubs in ops-about and only surfaced when someone ran
+      # `cargo clippy -p ops-about`. `clippy-default` (.ops.toml) is the
+      # default-feature half of the matrix, also wired into `run-before-push`.
+      - name: ops clippy-default
+        run: ops clippy-default
 
   # VER (TASK-1669): build on the *declared* floor, not on latest stable.
   #
@@ -80,44 +91,11 @@ jobs:
       - name: ops msrv --install
         run: cargo run --locked -p ops -- msrv --install
 
-  clippy:
-    name: Lint
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
-      - uses: actions-rust-lang/setup-rust-toolchain@166cdcfd11aee3cb47222f9ddb555ce30ddb9659 # v1.17.0
-        with:
-          components: clippy
-          rustflags: ""
-      - uses: mozilla-actions/sccache-action@7d986dd989559c6ecdb630a3fd2557667be217ad # v0.0.9
-      - name: cargo clippy --all --all-features -- -D warnings
-        run: cargo clippy --all --all-features -- -D warnings
-      # ARCH-11 / TASK-2053: the step above never compiles a single
-      # `#[cfg(not(feature = ...))]` arm, so a lint that fires only in the
-      # feature-off build is invisible to it. TASK-2027 is the worked example:
-      # two `clippy::missing_const_for_fn` errors sat on the feature-off
-      # `enrich_from_db` stubs in ops-about and only surfaced when someone ran
-      # `cargo clippy -p ops-about`. `-D clippy::nursery` is workspace policy,
-      # so such a regression lands on whoever next lints a subset of crates.
-      # The default-feature sweep is the other half of the matrix; locally it
-      # is `ops clippy-default`, wired into `run-before-push`.
-      - name: cargo clippy --workspace --all-targets -- -D warnings (default features)
-        run: cargo clippy --workspace --all-targets -- -D warnings
-
-  build:
-    name: Build
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
-      - uses: actions-rust-lang/setup-rust-toolchain@166cdcfd11aee3cb47222f9ddb555ce30ddb9659 # v1.17.0
-        with:
-          rustflags: ""
-      - uses: mozilla-actions/sccache-action@7d986dd989559c6ecdb630a3fd2557667be217ad # v0.0.9
-      - name: cargo build --all --all-features
-        run: cargo build --all --all-features
-
-  test:
-    name: Test
+  # The pre-push gate: `ops qa-next` (alias `qax`) runs deps (cargo upgrade,
+  # cargo deny, cargo machete), next (cargo nextest), test-doc (doctests, which
+  # nextest does not run) and sec (trivy secret and vulnerability scans).
+  qa:
+    name: ops qa
     runs-on: ubuntu-latest
     env:
       CARGO_TERM_VERBOSE: true
@@ -128,23 +106,30 @@ jobs:
         with:
           rustflags: ""
       - uses: mozilla-actions/sccache-action@7d986dd989559c6ecdb630a3fd2557667be217ad # v0.0.9
-      - name: Install cargo-nextest
+      # The tools qa-next needs, as listed by `ops explain --json qa-next`.
+      - name: Install QA tools
         uses: taiki-e/install-action@82cd3e7658a6f96c86c0234aeeda1748937cb0a1 # v2.85.13
         with:
-          tool: cargo-nextest
-      # `-- --ignored` runs *only* ignored tests, so this job was executing 22
-      # of the workspace's ~2500 and filtering out the rest — the Test check
-      # passed on roughly 1% of the suite. `--run-ignored all` (nextest's
-      # --include-ignored) runs both. Doctests stay on cargo test: nextest
-      # does not run them.
-      #
-      # `--profile ci` (.config/nextest.toml) stores passed tests' captured
-      # output in a JUnit report instead of the console. That is the sink the
-      # step below reads: skip_precondition lines are captured away by both
-      # runners' default output handling, so a passing-but-skipped test is
-      # otherwise invisible in a green log (TEST-26 / TASK-2252).
-      - name: cargo nextest run --all --all-features --run-ignored all
-        run: cargo nextest run --profile ci --all --all-features --run-ignored all
+          tool: cargo-nextest,cargo-edit,cargo-deny,cargo-machete,trivy
+      # Build this checkout's ops once and put it on PATH, so every gate below
+      # runs through the tool that defines it rather than re-spelled cargo
+      # invocations. It is copied out of target/ because the gates rebuild
+      # target/debug/ops while it runs.
+      - name: Build ops
+        run: |
+          cargo build --locked -p ops --all-features
+          install -D target/debug/ops "$RUNNER_TEMP/ops/bin/ops"
+          echo "$RUNNER_TEMP/ops/bin" >> "$GITHUB_PATH"
+      # `NEXTEST_PROFILE=ci` (.config/nextest.toml) makes the `next` step store
+      # passed tests' captured output in a JUnit report instead of the console.
+      # That is the sink the step below reads: skip_precondition lines are
+      # captured away by both runners' default output handling, so a
+      # passing-but-skipped test is otherwise invisible in a green log
+      # (TEST-26 / TASK-2252).
+      - name: ops qa-next
+        run: ops qa-next
+        env:
+          NEXTEST_PROFILE: ci
       # TEST-26 / TASK-2252: surface `skip: …` lines from the JUnit report.
       # Skips are a warning, not a failure — the guards that emit them exist
       # precisely so environments lacking a capability can still run the
@@ -169,8 +154,11 @@ jobs:
           else
             echo "No skip_precondition lines: every guard that tripped also ran its assertions."
           fi
-      - name: cargo test --all --all-features --doc
-        run: cargo test --all --all-features --doc
+      # qa-next's `next` step skips `#[ignore]` tests; CI has always run them
+      # too. Run after the surfacing step, on the default profile, so it does
+      # not overwrite the report read above.
+      - name: ops next-ignored
+        run: ops next-ignored
 
   # TASK-2294: `Store::lock_allocation` has a `#[cfg(not(unix))]` branch (a
   # persistent `.allocation.lock` file instead of a lock on the `tasks/`
@@ -251,28 +239,6 @@ jobs:
       - name: cargo miri test -p ops-runner (EchoGuard non-TTY construction)
         run: cargo +nightly miri test -p ops-runner disable_echo
 
-  deps:
-    name: Deps
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
-      - uses: actions-rust-lang/setup-rust-toolchain@166cdcfd11aee3cb47222f9ddb555ce30ddb9659 # v1.17.0
-        with:
-          rustflags: ""
-      - uses: mozilla-actions/sccache-action@7d986dd989559c6ecdb630a3fd2557667be217ad # v0.0.9
-      - name: Install cargo-edit and cargo-deny
-        uses: taiki-e/install-action@82cd3e7658a6f96c86c0234aeeda1748937cb0a1 # v2.85.13
-        with:
-          tool: cargo-edit,cargo-deny
-      # SEC-37 (TASK-1663): the `Install ops` step that used to sit here was
-      # removed. It pulled the *latest* published `ops` release (unpinned) on
-      # every PR run, but nothing consumed it — the step below shells out to
-      # `cargo deny` directly. It was pure supply-chain surface for no benefit,
-      # and installing the last release to check the PR that changes it is
-      # backwards regardless.
-      - name: cargo deny check
-        run: cargo deny check
-
   # SEC-35 (TASK-1661) / SEC-36 (TASK-1662): the workflow supply-chain policy.
   #
   # Third-party actions must be pinned to a full commit SHA with a `# vX.Y.Z`
@@ -292,9 +258,9 @@ jobs:
   #
   # TASK-2328: the policy is the `ops lint-actions` built-in. Local `./` calls
   # and the first-party forge reusable workflows (version-pinned by deliberate
-  # decision, see bump.yml) are exempt. The allow-list is passed with --allow
-  # rather than set under `[lint_actions]` in .ops.toml so that ops binaries
-  # predating the section can still parse this repository's config.
+  # decision, see bump.yml) are exempt. The allow-list lives under
+  # `[lint_actions]` in .ops.toml (TASK-2337), so a local `ops lint-actions`
+  # applies the same exemptions as this job.
   workflow-guard:
     name: Workflow Guard
     runs-on: ubuntu-latest
@@ -305,4 +271,4 @@ jobs:
           rustflags: ""
       - uses: mozilla-actions/sccache-action@7d986dd989559c6ecdb630a3fd2557667be217ad # v0.0.9
       - name: ops lint-actions
-        run: cargo run --locked -p ops -- lint-actions --allow rsvalerio/forge/
+        run: cargo run --locked -p ops -- lint-actions

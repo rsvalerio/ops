@@ -38,6 +38,14 @@ pub struct Cli {
     #[arg(long, global = true, value_name = "FILE")]
     pub tap: Option<PathBuf>,
 
+    /// Write a `JUnit` XML report of the run's steps to a file.
+    ///
+    /// One testcase per plan step; a failed step carries the failure message
+    /// and the tail of its output, a step that never ran is skipped. For CI
+    /// test-report consumers. Cannot be combined with `--raw`.
+    #[arg(long, global = true, value_name = "FILE", conflicts_with = "raw")]
+    pub junit: Option<PathBuf>,
+
     /// Inherit child stdio directly and suppress ops' own output (like make/just).
     ///
     /// The child process writes straight to the terminal — colors, TUIs, and
@@ -338,14 +346,7 @@ pub enum CoreSubcommand {
     /// program, args, env, cwd and origin (stack default, config, `clone`,
     /// `[extend]`, extension or builtin). Never executes a step — not even
     /// for `run-before-commit` / `run-before-push`.
-    Explain {
-        /// Command names, as `ops <cmd>...` would run them.
-        #[arg(required = true, value_name = "COMMAND")]
-        commands: Vec<String>,
-        /// Versioned machine-readable JSON (`schemaVersion`).
-        #[arg(long)]
-        json: bool,
-    },
+    Explain(ExplainArgs),
     /// Manage `.backlog` task files (backlog.md-compatible subset).
     Backlog {
         #[command(subcommand)]
@@ -363,6 +364,21 @@ pub enum CoreSubcommand {
     /// Catch-all for dynamic config-defined commands (e.g. `ops verify`).
     #[command(external_subcommand)]
     External(Vec<OsString>),
+}
+
+/// Arguments of `ops explain`.
+#[derive(clap::Args, Debug, Clone)]
+pub struct ExplainArgs {
+    /// Command names, as `ops <cmd>...` would run them.
+    #[arg(required = true, value_name = "COMMAND")]
+    pub commands: Vec<String>,
+    /// Versioned machine-readable JSON (`schemaVersion`).
+    #[arg(long)]
+    pub json: bool,
+    /// With `--json`, report each tool's installed version by running its
+    /// `--version`. Plain `explain` spawns nothing.
+    #[arg(long, requires = "json")]
+    pub tool_versions: bool,
 }
 
 /// Arguments of `ops clippy-findings`: the build selection and the lint
@@ -1371,6 +1387,20 @@ mod tests {
     }
 
     #[test]
+    fn parse_junit_flag() {
+        let cli = Cli::parse_from(["ops", "--junit", "report.xml", "build"]);
+        assert_eq!(cli.junit, Some(PathBuf::from("report.xml")));
+        assert!(Cli::parse_from(["ops", "build"]).junit.is_none());
+    }
+
+    #[test]
+    fn parse_raw_and_junit_conflict() {
+        let err = Cli::try_parse_from(["ops", "--raw", "--junit", "r.xml", "build"])
+            .expect_err("--raw and --junit must conflict");
+        assert_eq!(err.kind(), clap::error::ErrorKind::ArgumentConflict);
+    }
+
+    #[test]
     fn parse_no_tap_flag() {
         let cli = Cli::parse_from(["ops", "build"]);
         assert!(cli.tap.is_none());
@@ -1456,11 +1486,28 @@ mod tests {
     #[test]
     fn parse_explain_names_and_json() {
         let cli = Cli::parse_from(["ops", "explain", "verify", "qa", "--json"]);
-        let Some(CoreSubcommand::Explain { commands, json }) = cli.subcommand else {
+        let Some(CoreSubcommand::Explain(ExplainArgs {
+            commands,
+            json,
+            tool_versions,
+        })) = cli.subcommand
+        else {
             panic!("must parse as explain");
         };
         assert_eq!(commands, ["verify", "qa"]);
         assert!(json);
+        assert!(!tool_versions);
+        assert!(
+            Cli::try_parse_from(["ops", "explain", "qa", "--tool-versions"]).is_err(),
+            "--tool-versions only extends the JSON document"
+        );
+        assert!(matches!(
+            Cli::parse_from(["ops", "explain", "qa", "--json", "--tool-versions"]).subcommand,
+            Some(CoreSubcommand::Explain(ExplainArgs {
+                tool_versions: true,
+                ..
+            }))
+        ));
         assert!(
             Cli::try_parse_from(["ops", "explain"]).is_err(),
             "explain without a command must be rejected"

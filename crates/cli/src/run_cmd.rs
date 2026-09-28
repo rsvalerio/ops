@@ -37,6 +37,8 @@ pub struct RunOptions {
     pub dry_run: bool,
     pub verbose: bool,
     pub tap: Option<PathBuf>,
+    /// TASK-2338: `--junit <file>` `JUnit` XML report of the run's steps.
+    pub junit: Option<PathBuf>,
     pub raw: bool,
     /// cwd-escape policy applied to the runner this invocation builds. Hook-triggered entry points
     /// (`run-before-commit`, `run-before-push`) set
@@ -90,25 +92,51 @@ pub fn run_external_command(
 /// expand, or a failed write to stdout.
 pub fn run_explain(
     config: std::sync::Arc<ops_core::config::Config>,
-    names: &[String],
-    json: bool,
+    args: &crate::args::ExplainArgs,
 ) -> anyhow::Result<ExitCode> {
-    run_explain_to(config, names, json, &mut std::io::stdout())
+    let output = ExplainOutput::from_flags(args.json, args.tool_versions);
+    run_explain_to(config, &args.commands, output, &mut std::io::stdout())
+}
+
+/// What `ops explain` prints.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum ExplainOutput {
+    /// The human-readable plan.
+    Text,
+    /// The versioned JSON document. Spawns nothing.
+    Json,
+    /// The JSON document with each tool's `installedVersion`, probed by
+    /// running its `--version` (`--tool-versions`, TASK-2335).
+    JsonWithToolVersions,
+}
+
+impl ExplainOutput {
+    /// From the `--json` / `--tool-versions` flags; clap rejects
+    /// `--tool-versions` without `--json`.
+    const fn from_flags(json: bool, tool_versions: bool) -> Self {
+        match (json, tool_versions) {
+            (false, _) => Self::Text,
+            (true, false) => Self::Json,
+            (true, true) => Self::JsonWithToolVersions,
+        }
+    }
 }
 
 fn run_explain_to(
     config: std::sync::Arc<ops_core::config::Config>,
     names: &[String],
-    json: bool,
+    output: ExplainOutput,
     w: &mut dyn std::io::Write,
 ) -> anyhow::Result<ExitCode> {
     let runner = build_runner(config, ops_runner::command::CwdEscapePolicy::WarnAndAllow)?;
     let names: Vec<&str> = names.iter().map(String::as_str).collect();
     let plans = plans_for_names(&runner, &names)?;
-    if json {
-        explain::write_json(&runner, &plans, w)?;
-    } else {
-        explain::write_text(&runner, &plans, w)?;
+    match output {
+        ExplainOutput::Text => explain::write_text(&runner, &plans, w)?,
+        ExplainOutput::Json => explain::write_json(&runner, &plans, None, w)?,
+        ExplainOutput::JsonWithToolVersions => {
+            explain::write_json(&runner, &plans, Some(&tools::installed_version), w)?;
+        }
     }
     Ok(ExitCode::SUCCESS)
 }
@@ -188,6 +216,7 @@ fn run_commands(
         dry_run,
         verbose,
         tap,
+        junit,
         raw,
         cwd_escape_policy,
     } = opts;
@@ -198,6 +227,12 @@ fn run_commands(
         // so users invoking `ops <cmd> --dry-run --raw --tap=path` see that
         // --raw/--tap have no effect, instead of a silent override.
         emit_dry_run_warnings(raw, tap.is_some(), verbose);
+        if junit.is_some() {
+            tracing::warn!(
+                "--junit is ignored under --dry-run; the dry-run preview never executes children, \
+                 so no JUnit report will be written"
+            );
+        }
         for name in names {
             run_command_dry_run(&runner, name)?;
         }
@@ -209,7 +244,7 @@ fn run_commands(
     let results = if raw {
         run_commands_raw(&runner, &plans, tap.as_deref(), verbose)?
     } else {
-        run_commands_with_display(&runner, &plans, tap.as_deref(), verbose)?
+        run_commands_with_display(&runner, &plans, tap.as_deref(), junit, verbose)?
     };
     Ok(summarize(&results))
 }
@@ -561,6 +596,7 @@ fn run_commands_with_display(
     runner: &ops_runner::command::CommandRunner,
     plans: &[NamePlan],
     tap: Option<&Path>,
+    junit: Option<PathBuf>,
     verbose: bool,
 ) -> anyhow::Result<Vec<StepResult>> {
     // One display covering every named command's steps (TASK-2262 AC #4):
@@ -574,13 +610,16 @@ fn run_commands_with_display(
     // A matrix cell's row id is its label (`name [key=value]`), which
     // `display_cmd_for` falls back to since no command has that name.
     let display_map = build_display_map(runner, &runner.row_ids(&all_leaf_ids));
-    let mut display = ProgressDisplay::new(DisplayOptions::new(
-        runner.output_config(),
-        display_map,
-        &runner.config().themes,
-        tap.map(PathBuf::from),
-        verbose,
-    ))?;
+    let mut display = ProgressDisplay::new(
+        DisplayOptions::new(
+            runner.output_config(),
+            display_map,
+            &runner.config().themes,
+            tap.map(PathBuf::from),
+            verbose,
+        )
+        .with_junit(junit),
+    )?;
 
     let echo_guard = EchoGuard::disable_echo();
     // Parallel orchestration only pays off with >=2 leaves;

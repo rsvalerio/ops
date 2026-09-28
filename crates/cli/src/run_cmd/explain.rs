@@ -6,7 +6,9 @@
 //! command's plan tree, every composite's `parallel` / `fail_fast`, the
 //! stages a parallel group splits into at its `exclusive` steps, and each
 //! step's program, args, env, cwd and origin. Nothing here spawns a process:
-//! the module only resolves specs and renders them.
+//! the module only resolves specs and renders them. The one exception is
+//! opt-in: `--json --tool-versions` hands [`write_json`] a version prober
+//! that runs each listed tool's `--version` (TASK-2335).
 //!
 //! The subcommand is `explain` rather than `plan` because the terraform
 //! stack ships a `plan` command, which a builtin `plan` would shadow.
@@ -26,6 +28,9 @@ use super::tools::{exec_tools, Tool};
 /// Version of the `--json` document; bump on any breaking shape change.
 pub const SCHEMA_VERSION: u32 = 1;
 
+/// Answers the installed version of one tool, for `installedVersion`.
+pub type VersionProbe<'a> = &'a dyn Fn(&Tool) -> Option<String>;
+
 /// Render the plans as the versioned JSON document.
 ///
 /// # Errors
@@ -35,9 +40,10 @@ pub const SCHEMA_VERSION: u32 = 1;
 pub fn write_json(
     runner: &CommandRunner,
     plans: &[NamePlan],
+    probe: Option<VersionProbe<'_>>,
     w: &mut dyn Write,
 ) -> anyhow::Result<()> {
-    let doc = plan_document(runner, plans)?;
+    let doc = plan_document(runner, plans, probe)?;
     serde_json::to_writer_pretty(&mut *w, &doc)?;
     writeln!(w)?;
     Ok(())
@@ -51,12 +57,21 @@ pub fn write_json(
 ///
 /// `tools` (TASK-2326) lists every external binary the plan needs on `PATH`,
 /// once each in first-use order, with the steps that need it (see
-/// [`super::tools`] for how they are derived).
+/// [`super::tools`] for how they are derived). With a `probe`
+/// (`--tool-versions`, TASK-2335) each tool also carries `installedVersion`:
+/// what the probe answered, or `null` when the tool is missing or its
+/// version could not be read. Without one the key is absent and nothing is
+/// spawned. ops declares no minimum version for any tool, so none is
+/// reported.
 ///
 /// # Errors
 ///
 /// As [`write_json`], minus the write.
-pub fn plan_document(runner: &CommandRunner, plans: &[NamePlan]) -> anyhow::Result<Value> {
+pub fn plan_document(
+    runner: &CommandRunner,
+    plans: &[NamePlan],
+    probe: Option<VersionProbe<'_>>,
+) -> anyhow::Result<Value> {
     let config = runner.config();
     let vars = runner.variables();
     let mut composites = Vec::new();
@@ -97,12 +112,18 @@ pub fn plan_document(runner: &CommandRunner, plans: &[NamePlan]) -> anyhow::Resu
         "steps": steps,
         "tools": tools
             .into_iter()
-            .map(|(tool, required_by)| json!({
-                "name": tool.name,
-                "optional": tool.optional,
-                "install": tool.install,
-                "requiredBy": required_by,
-            }))
+            .map(|(tool, required_by)| {
+                let mut entry = json!({
+                    "name": tool.name,
+                    "optional": tool.optional,
+                    "install": tool.install,
+                    "requiredBy": required_by,
+                });
+                if let (Some(probe), Some(fields)) = (probe, entry.as_object_mut()) {
+                    fields.insert("installedVersion".into(), json!(probe(&tool)));
+                }
+                entry
+            })
             .collect::<Vec<_>>(),
     }))
 }
@@ -416,11 +437,22 @@ fn write_node(
 mod tests {
     use std::sync::Arc;
 
+    use super::super::ExplainOutput;
+
     fn explain(names: &[&str], json: bool) -> String {
+        let output = if json {
+            ExplainOutput::Json
+        } else {
+            ExplainOutput::Text
+        };
+        explain_as(names, output)
+    }
+
+    fn explain_as(names: &[&str], output: ExplainOutput) -> String {
         let config = Arc::new(ops_core::config::load_config_or_default("test-explain"));
         let names: Vec<String> = names.iter().map(ToString::to_string).collect();
         let mut out = Vec::new();
-        super::super::run_explain_to(config, &names, json, &mut out).expect("explain");
+        super::super::run_explain_to(config, &names, output, &mut out).expect("explain");
         String::from_utf8(out).expect("utf8")
     }
 
@@ -604,6 +636,12 @@ commands = ["nt", "lint", "bld", "script", "sec", "end-of-file-fixer"]
         assert_eq!(doc["tools"][3]["requiredBy"], serde_json::json!(["sec"]));
         assert_eq!(doc["tools"][3]["optional"], false);
         assert_eq!(doc["tools"][2]["install"], "rustup component add clippy");
+        assert!(
+            doc["tools"]
+                .as_array()
+                .is_some_and(|t| t.iter().all(|t| t.get("installedVersion").is_none())),
+            "plain --json probes nothing, so no tool carries a version: {doc}"
+        );
         let step = |id: &str| {
             doc["steps"]
                 .as_array()
@@ -614,6 +652,43 @@ commands = ["nt", "lint", "bld", "script", "sec", "end-of-file-fixer"]
         assert_eq!(step("nt"), serde_json::json!(["cargo", "cargo-nextest"]));
         assert_eq!(step("script"), serde_json::json!([]));
         assert_eq!(step("end-of-file-fixer"), serde_json::json!([]));
+    }
+
+    /// TASK-2335: `--tool-versions` adds each tool's `installedVersion` —
+    /// the `--version` banner when the tool runs, `null` when it is missing.
+    #[test]
+    #[serial_test::serial]
+    fn explain_tool_versions_reports_installed_versions() {
+        let (_dir, _guard) = crate::test_utils::with_temp_config(
+            r#"
+[commands.bld]
+program = "cargo"
+args = ["build"]
+
+[commands.missing]
+program = "ops-no-such-tool-2335"
+
+[commands.gate]
+commands = ["bld", "missing"]
+"#,
+        );
+        let doc: serde_json::Value =
+            serde_json::from_str(&explain_as(&["gate"], ExplainOutput::JsonWithToolVersions))
+                .expect("valid JSON");
+        let version = |name: &str| {
+            doc["tools"]
+                .as_array()
+                .and_then(|t| t.iter().find(|t| t["name"] == name))
+                .unwrap_or_else(|| panic!("tool {name} missing from {doc}"))["installedVersion"]
+                .clone()
+        };
+        assert!(
+            version("cargo")
+                .as_str()
+                .is_some_and(|v| v.starts_with("cargo ")),
+            "{doc}"
+        );
+        assert_eq!(version("ops-no-such-tool-2335"), serde_json::Value::Null);
     }
 
     /// A sequential composite is a sequence node whose entries keep their
@@ -662,7 +737,7 @@ commands = ["pair", "one"]
         let err = super::super::run_explain_to(
             config,
             &["definitely-not-a-command".to_string()],
-            true,
+            ExplainOutput::Json,
             &mut Vec::new(),
         )
         .expect_err("unknown command must fail");

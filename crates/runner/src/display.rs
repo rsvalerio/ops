@@ -6,10 +6,12 @@
 //! - [`style`] — progress-bar style construction
 //! - [`progress_state`] — per-plan step bookkeeping (bars, steps, captured stderr)
 //! - [`github`] — GitHub Actions groups, annotations and step summary
+//! - [`junit`] — `--junit <file>` `JUnit` XML report of step results
 
 mod error_detail;
 mod finalize;
 mod github;
+mod junit;
 mod progress_state;
 mod render_config;
 mod style;
@@ -27,6 +29,7 @@ use ops_theme::{self as theme, BoxSnapshot};
 
 use github::{GithubActions, StepOutcome};
 use indicatif::{MultiProgress, ProgressBar, ProgressDrawTarget, ProgressStyle};
+use junit::JunitReport;
 use progress_state::ProgressState;
 use std::io::{self, IsTerminal, Write};
 use std::marker::PhantomData;
@@ -90,6 +93,9 @@ pub struct ProgressDisplay {
     /// TASK-2325: GitHub Actions reporter, present only when running under
     /// `GITHUB_ACTIONS=true` without a TTY (the runner's log is plain text).
     github: Option<GithubActions>,
+    /// TASK-2338: `JUnit` XML report, present only when `--junit <file>` was
+    /// given. Written once, at `RunFinished`.
+    junit: Option<JunitReport>,
     /// CL-3 / TASK-0656 + TRAIT-9 / TASK-0907: structurally enforce the
     /// sync-IO invariant on [`Self::handle_event`].
     ///
@@ -167,6 +173,7 @@ impl ProgressDisplay {
             display_map,
             custom_themes,
             tap,
+            junit,
             verbose,
         } = opts;
         let is_tty = is_tty_fn();
@@ -178,6 +185,7 @@ impl ProgressDisplay {
         let resolved_theme = theme::resolve_theme(&output.theme, custom_themes)?;
         let running_style = build_running_style(&resolved_theme, &output.theme)?;
         let tap = tap.map(TapWriter::new);
+        let junit = junit.map(JunitReport::new);
         let github = if is_tty {
             None
         } else {
@@ -211,6 +219,7 @@ impl ProgressDisplay {
             run_started_at: None,
             tap,
             github,
+            junit,
             _not_send: PhantomData,
         })
     }
@@ -321,6 +330,9 @@ impl ProgressDisplay {
         self.state.reset_for_plan(command_ids);
         if let Some(ref mut github) = self.github {
             github.reset();
+        }
+        if let Some(ref mut junit) = self.junit {
+            junit.reset();
         }
 
         self.total_steps = command_ids.len();
@@ -578,6 +590,9 @@ impl ProgressDisplay {
         if let Some(ref mut github) = self.github {
             github.record_output(id, line.as_str());
         }
+        if let Some(ref mut junit) = self.junit {
+            junit.record_output(id, line.as_str());
+        }
         self.tap_line_for(line.as_str(), Some(id));
     }
 
@@ -635,25 +650,36 @@ impl ProgressDisplay {
                 duration_secs,
                 failure: None,
             };
-            self.emit_github_step(i, display_cmd, &outcome);
+            self.emit_step_reports(i, display_cmd, &outcome);
         }
     }
 
-    /// TASK-2325: emit the GitHub Actions group (and, for a failure, the
-    /// `::error` annotation) for the step `finish_step` just finalized at
-    /// row `i`. No-op outside GitHub Actions.
-    fn emit_github_step(&mut self, i: usize, display_cmd: Option<&str>, outcome: &StepOutcome<'_>) {
-        let Some(ref mut github) = self.github else {
+    /// Feed the step `finish_step` just finalized at row `i` to the
+    /// optional reporters: the GitHub Actions group (and, for a failure, the
+    /// `::error` annotation — TASK-2325) and the `JUnit` testcase (TASK-2338).
+    /// No-op when neither is active.
+    fn emit_step_reports(
+        &mut self,
+        i: usize,
+        display_cmd: Option<&str>,
+        outcome: &StepOutcome<'_>,
+    ) {
+        if self.github.is_none() && self.junit.is_none() {
             return;
-        };
+        }
         let fallback = self
             .state
             .steps
             .get(i)
             .map_or(outcome.id, |step| step.1.as_str());
         let display = display_cmd.unwrap_or(fallback);
-        for line in github.step_finished(display, outcome) {
-            write_stderr(Some(&line));
+        if let Some(ref mut junit) = self.junit {
+            junit.step_finished(display, outcome);
+        }
+        if let Some(ref mut github) = self.github {
+            for line in github.step_finished(display, outcome) {
+                write_stderr(Some(&line));
+            }
         }
     }
 
@@ -672,7 +698,7 @@ impl ProgressDisplay {
                 duration_secs: elapsed,
                 failure: None,
             };
-            self.emit_github_step(i, display_cmd, &outcome);
+            self.emit_step_reports(i, display_cmd, &outcome);
         }
     }
 
@@ -713,7 +739,7 @@ impl ProgressDisplay {
             duration_secs,
             failure: Some(message),
         };
-        self.emit_github_step(i, display_cmd, &outcome);
+        self.emit_step_reports(i, display_cmd, &outcome);
 
         if !self.render.show_error_detail {
             return;
@@ -749,6 +775,7 @@ impl ProgressDisplay {
         if let Some(ref github) = self.github {
             github.write_summary(success, duration_secs);
         }
+        self.write_junit_report(duration_secs);
         if self.finalize_boxed_layout(duration_secs, success) {
             return;
         }

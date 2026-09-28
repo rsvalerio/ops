@@ -122,21 +122,20 @@ git push -u origin feat/my-feature
 gh pr create
 ```
 
-### 2. CI Status Checks (7 parallel jobs)
+### 2. CI Status Checks (6 parallel jobs)
 
-The [CI workflow](../.github/workflows/ci.yml) runs on every PR and produces seven status checks that must all pass before merge. **Workflow Guard** is new — if the branch ruleset names its required checks explicitly, add it there so it can block merge:
+The [CI workflow](../.github/workflows/ci.yml) runs on every PR and produces six status checks. The gates run through `ops` itself: each job builds this checkout's `ops` and puts it on `PATH`, so CI proves the same commands contributors run locally. The `main-protection` ruleset requires **ops verify** and **ops qa**; the job names are those check names, so renaming either job blocks every merge until the ruleset is updated.
 
 | Check | Command | Description |
 |-------|---------|-------------|
-| **Format** | `ops fmt` | Format all code |
-| **Check** | `ops check` | Check all targets |
-| **Lint** | `ops clippy` | Lint with clippy |
-| **Build** | `ops build` | Build all targets |
-| **Test** | `ops test` | Run all tests |
-| **Deps** | `cargo deny check` | Check dependencies, advisories, licenses, bans and sources |
-| **Workflow Guard** | `grep` over `.github/workflows/` | Fail if any action is not SHA-pinned, or any workflow uses `secrets: inherit` |
+| **ops verify** | `ops verify-check`, `ops clippy-default` | The pre-commit gate in check-only form (fmt-check, whitespace and EOF checks, clippy, build, JSON/YAML checks, doc), plus the default-feature clippy sweep |
+| **MSRV** | `ops msrv --install` | Build on the declared `rust-version` |
+| **ops qa** | `ops qa-next`, `ops next-ignored` | The pre-push gate: deps (cargo upgrade, cargo deny, cargo machete), nextest, doctests, trivy scans; then the `#[ignore]` tests |
+| **Windows (ops-backlog)** | `cargo check`/`cargo test -p ops-backlog` | Compile and exercise the non-Unix allocation lock |
+| **Miri** | `cargo +nightly miri test` | Miri over the workspace's pure-memory `unsafe` |
+| **Workflow Guard** | `ops lint-actions` | Fail if any action is not SHA-pinned, or any workflow uses `secrets: inherit` |
 
-CI installs `cargo-edit`/`cargo-deny` via [`taiki-e/install-action`](https://github.com/taiki-e/install-action) (for the Deps job). The Deps job invokes `cargo deny` directly rather than through `ops`; it does not install `ops` itself.
+The QA job installs `cargo-nextest`, `cargo-edit`, `cargo-deny`, `cargo-machete` and `trivy` via [`taiki-e/install-action`](https://github.com/taiki-e/install-action) — the tools `ops explain --json qa-next` lists. `ops` is built from the checkout, never installed from a release.
 
 All third-party actions are pinned to full commit SHAs with a trailing `# vX.Y.Z` comment. The **Workflow Guard** check enforces this, and also rejects `secrets: inherit`.
 

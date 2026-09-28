@@ -1,13 +1,15 @@
 ---
 id: TASK-2338
 title: 'Emit a JUnit XML report of ops step results for CI test reporters'
-status: Triage
+status: Done
 assignee: []
 created_date: '2026-09-28 15:25'
+updated_date: '2026-09-28 17:01'
 labels:
   - ci
   - ops-alignment
 dependencies: []
+parent_task_id: 'TASK-2342'
 modified_files:
   - crates/runner/src/display.rs
 priority: low
@@ -28,5 +30,12 @@ ordinal: 1000
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 A run can write a JUnit XML file with one testcase per plan step, failures carrying the message and output tail
+- [x] #1 A run can write a JUnit XML file with one testcase per plan step, failures carrying the message and output tail
+
 <!-- AC:END -->
+
+## Implementation Notes
+
+<!-- SECTION:NOTES:BEGIN -->
+Implemented global `--junit <file>` (crates/runner/src/display/junit.rs): one testcase per plan step, failures carry message + last 50 output lines, never-run steps <skipped/>; conflicts with --raw, warned under --dry-run. Commit b22727cc.
+<!-- SECTION:NOTES:END -->

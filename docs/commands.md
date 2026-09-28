@@ -10,7 +10,7 @@ stack ships. How to define your own is in [Configuration](configuration.md).
 | `ops <name>` | Run a configured command or command group |
 | `ops init` | Create `.ops.toml` (minimal by default; `--force` to overwrite; `--output`/`--themes`/`--commands` add those sections, with stack-detected commands under `--commands`) |
 | `ops init --rust` | Write the Rust foundation config (clippy.toml, deny.toml, rustfmt.toml, .config/nextest.toml, the lint policy); `--force` replaces, `--check` reports drift and exits 1 — see [foundation.md](foundation.md) |
-| `ops explain <cmd>... [--json]` | Show the resolved plan without running anything: each composite's `parallel`/`fail_fast`, the stages a parallel group splits into at its `exclusive` steps, and each step's program, args, env, cwd and origin (stack default, config, `clone`, `[extend]`, extension, builtin). `--json` emits a versioned (`schemaVersion`) document whose `tools` list names every external binary the plan needs on `PATH` (with `requiredBy` steps, `optional`, and an `install` hint when known) — cargo plugins such as `cargo-nextest`, and what builtins spawn (`sec` → Trivy, `deps` → cargo-edit/cargo-deny/cargo-machete); it is derived statically, never probed, so CI can build its install list from it. Named `explain` because the terraform stack ships a `plan` command |
+| `ops explain <cmd>... [--json [--tool-versions]]` | Show the resolved plan without running anything: each composite's `parallel`/`fail_fast`, the stages a parallel group splits into at its `exclusive` steps, and each step's program, args, env, cwd and origin (stack default, config, `clone`, `[extend]`, extension, builtin). `--json` emits a versioned (`schemaVersion`) document whose `tools` list names every external binary the plan needs on `PATH` (with `requiredBy` steps, `optional`, and an `install` hint when known) — cargo plugins such as `cargo-nextest`, and what builtins spawn (`sec` → Trivy, `deps` → cargo-edit/cargo-deny/cargo-machete); it is derived statically, never probed, so CI can build its install list from it. ops pins no minimum tool versions; `--json --tool-versions` opts in to running each listed tool's `--version` (a `cargo-<sub>` plugin as `cargo <sub> --version`) and adds its first output line as `installedVersion` (`null` when the tool is missing or fails), and so refuses `--dry-run`. Named `explain` because the terraform stack ships a `plan` command |
 | `ops new-command` | Add a new command from a command line string |
 | `ops import-makefile` | Import Makefile targets as `.ops.toml` commands (interactive picker) |
 | `ops theme list\|select` | List or select output themes |
@@ -36,7 +36,14 @@ Global flags: `--dry-run` (preview the resolved plan — never executes: `run-be
 builtins that write or run tools without a preview mode: `init`, `new-command`,
 `import-makefile`, `trailing-whitespace`, `end-of-file-fixer`, `theme select`, `lock` /
 `lock break`, `about` (except `about backlog`), `deps` and `plans`), `--verbose` (full stderr on
-failure), `--tap <file>` (capture raw output), `--raw` (inherit child stdio, no ops output).
+failure), `--tap <file>` (capture raw output), `--junit <file>` (JUnit XML report of the run's
+steps), `--raw` (inherit child stdio, no ops output).
+
+JUnit: `--junit <file>` writes a JUnit XML report when the run finishes, one `<testcase>` per
+plan step (`classname` is `ops.<step id>`). A failed step carries a `<failure>` whose message is
+the failure message and whose body is the last 50 lines of its output; a step that never ran is
+`<skipped/>`. The file is replaced on every run, and a write failure is reported on stderr
+without failing the run. Not available with `--raw`, ignored with `--dry-run`.
 
 GitHub Actions: when `GITHUB_ACTIONS=true` and stderr is not a terminal, each finished
 step's captured output is printed as a collapsible `::group::` (fenced with

@@ -6,6 +6,7 @@
 //! emission, and flat-layout summary fallback. Each owns its own state
 //! machine and failure mode, so each lives in its own helper here.
 
+use super::github::StepOutcome;
 use super::style::pending_style;
 use super::{write_stderr, ProgressDisplay};
 use indicatif::ProgressBar;
@@ -29,7 +30,7 @@ impl ProgressDisplay {
         // `bars` and `steps` are filled in lock-step by `create_pending_bars`,
         // so zipping visits exactly the rows the index loop used to; if the
         // two ever diverged we finalize the common prefix instead of panicking.
-        for (bar, (_, display)) in self.state.bars.iter().zip(self.state.steps.iter()) {
+        for (bar, (id, display)) in self.state.bars.iter().zip(self.state.steps.iter()) {
             if bar.is_finished() {
                 continue;
             }
@@ -44,8 +45,41 @@ impl ProgressDisplay {
             if let Some(ref mut github) = self.github {
                 github.record_skipped(display, elapsed);
             }
+            if let Some(ref mut junit) = self.junit {
+                junit.step_finished(
+                    display,
+                    &StepOutcome {
+                        id,
+                        status: StepStatus::Skipped,
+                        duration_secs: elapsed,
+                        failure: None,
+                    },
+                );
+            }
             let line = self.render_and_wrap_step(&step);
             self.finish_bar(bar, line);
+        }
+    }
+
+    /// TASK-2338: write the `--junit` report. A write failure is reported
+    /// on stderr but never fails the run the report describes — the same
+    /// contract as a truncated tap file.
+    pub(super) fn write_junit_report(&self, duration_secs: f64) {
+        let Some(ref junit) = self.junit else {
+            return;
+        };
+        if let Err(e) = junit.write(duration_secs) {
+            // Debug-format the path (ERR-7): a path containing newlines or
+            // ANSI escapes must not forge log records.
+            tracing::warn!(
+                path = ?junit.path().display(),
+                error = %e,
+                "failed to write JUnit report"
+            );
+            write_stderr(Some(&format!(
+                "[ops] failed to write JUnit report {:?}: {e}",
+                junit.path().display()
+            )));
         }
     }
 

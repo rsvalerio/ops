@@ -439,6 +439,33 @@ fn external_tools_mirror_the_probed_tool_table() {
 mod extension_tests {
     use super::*;
 
+    /// SEC-13 / TASK-2336: the registered command spawns an absolute
+    /// `current_exe()`-derived program, never a bare PATH-resolved `"ops"`,
+    /// and renders as `ops deps`. It only reads, so it stays non-exclusive.
+    #[test]
+    fn registered_deps_spawns_absolute_ops_and_displays_as_ops() {
+        use ops_core::config::CommandSpec;
+        use ops_extension::Extension as _;
+
+        let mut registry = ops_extension::CommandRegistry::new();
+        DepsExtension.register_commands(&mut registry);
+
+        let Some(CommandSpec::Exec(exec)) = registry.get("deps") else {
+            panic!("deps must be registered as an Exec spec");
+        };
+        assert!(
+            std::path::Path::new(&exec.program).is_absolute(),
+            "deps must spawn an absolute current_exe()-derived program, got {:?}",
+            exec.program
+        );
+        assert_eq!(exec.display_cmd(), "ops deps");
+        assert_eq!(exec.args, vec!["deps".to_string()]);
+        assert!(
+            !exec.exclusive,
+            "deps only reads, so it may overlap other steps"
+        );
+    }
+
     ops_extension::test_datasource_extension!(
         DepsExtension,
         name: "deps",

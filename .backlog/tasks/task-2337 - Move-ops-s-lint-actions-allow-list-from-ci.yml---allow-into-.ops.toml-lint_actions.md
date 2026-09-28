@@ -1,13 +1,15 @@
 ---
 id: TASK-2337
 title: 'Move ops''s lint-actions allow-list from ci.yml --allow into .ops.toml [lint_actions]'
-status: Triage
+status: Done
 assignee: []
 created_date: '2026-09-28 15:24'
+updated_date: '2026-09-28 16:56'
 labels:
   - code-review-rust
   - ci
 dependencies: []
+parent_task_id: 'TASK-2341'
 modified_files:
   - .github/workflows/ci.yml
   - .ops.toml
@@ -29,5 +31,12 @@ ordinal: 1000
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 Once a released ops with [lint_actions] is the installed baseline, .ops.toml sets allow = ["rsvalerio/forge/"], ci.yml drops --allow, and a local ops lint-actions passes
+- [x] #1 Once a released ops with [lint_actions] is the installed baseline, .ops.toml sets allow = ["rsvalerio/forge/"], ci.yml drops --allow, and a local ops lint-actions passes
+
 <!-- AC:END -->
+
+## Implementation Notes
+
+<!-- SECTION:NOTES:BEGIN -->
+Moved allow-list to .ops.toml [lint_actions]; ci.yml drops --allow and its comment is updated. Local `ops lint-actions` fails before (rc=1) and passes after (rc=0). Commit c3182228. Composite follow-up filed as TASK-2343.
+<!-- SECTION:NOTES:END -->
