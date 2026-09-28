@@ -27,9 +27,31 @@ fn deps_report_serialization_round_trip() {
             bans: vec![],
             sources: vec![],
         },
+        unused: UnusedDepsResult::Checked {
+            entries: vec![UnusedDepEntry {
+                package: "app".into(),
+                manifest_path: "./Cargo.toml".into(),
+                dependency: "serde".into(),
+            }],
+        },
     };
     let json = serde_json::to_value(&report).unwrap();
     let deserialized: DepsReport = serde_json::from_value(json).unwrap();
     assert_eq!(deserialized.upgrades.compatible.len(), 1);
     assert_eq!(deserialized.deny.advisories.len(), 1);
+    assert_eq!(deserialized.unused, report.unused);
+}
+
+/// The skipped check survives the cache round trip as skipped, so a cached
+/// report never re-renders a check that did not run as "None".
+#[test]
+fn unused_not_installed_round_trips() {
+    let report = DepsReport {
+        unused: UnusedDepsResult::NotInstalled,
+        ..Default::default()
+    };
+    let json = serde_json::to_value(&report).unwrap();
+    assert_eq!(json["unused"]["status"], "not_installed");
+    let deserialized: DepsReport = serde_json::from_value(json).unwrap();
+    assert_eq!(deserialized.unused, UnusedDepsResult::NotInstalled);
 }

@@ -2,7 +2,10 @@
 //! through the shared theme machinery, exactly as `run_deps` renders it.
 
 use super::*;
-use crate::{AdvisoryEntry, DenyEntry, DenyResult, LicenseEntry, SourceEntry, UpgradeResult};
+use crate::{
+    AdvisoryEntry, DenyEntry, DenyResult, LicenseEntry, SourceEntry, UnusedDepEntry,
+    UnusedDepsResult, UpgradeResult,
+};
 
 /// Render a report through the shared theme machinery, mirroring `run_deps`.
 /// Color is gated off in tests (no TTY), so the output is plain text and these
@@ -26,8 +29,9 @@ fn format_report_all_clean() {
     assert!(output.contains("License Issues"));
     assert!(output.contains("Duplicate Crates"));
     assert!(output.contains("Source Issues"));
+    assert!(output.contains("Unused Dependencies"));
     // Footer reuses the runner's summary chrome, counting checks not time.
-    assert!(output.contains("Done 6 checks"));
+    assert!(output.contains("Done 7 checks"));
 }
 
 #[test]
@@ -45,6 +49,7 @@ fn format_report_with_upgrades() {
             incompatible: vec![],
         },
         deny: DenyResult::default(),
+        ..Default::default()
     };
     let output = render(&report);
     assert!(output.contains("Compatible Upgrades"));
@@ -70,6 +75,7 @@ fn format_report_with_breaking_upgrades_shows_advice() {
             }],
         },
         deny: DenyResult::default(),
+        ..Default::default()
     };
     let output = render(&report);
     assert!(output.contains("Breaking Upgrades"));
@@ -96,6 +102,7 @@ fn format_report_with_advisory() {
             }],
             ..Default::default()
         },
+        ..Default::default()
     };
     let output = render(&report);
     assert!(output.contains("Advisories"));
@@ -124,6 +131,7 @@ fn format_report_duplicate_crates_shows_totals_only() {
             ],
             ..Default::default()
         },
+        ..Default::default()
     };
     let output = render(&report);
     assert!(output.contains("Duplicate Crates"));
@@ -157,6 +165,7 @@ fn format_report_with_license_issues() {
             ],
             ..Default::default()
         },
+        ..Default::default()
     };
     let output = render(&report);
     assert!(output.contains("License Issues"));
@@ -179,6 +188,7 @@ fn format_report_with_source_issues() {
             })],
             ..Default::default()
         },
+        ..Default::default()
     };
     let output = render(&report);
     assert!(output.contains("Source Issues"));
@@ -201,6 +211,7 @@ fn format_report_bans_info_only() {
             })],
             ..Default::default()
         },
+        ..Default::default()
     };
     let output = render(&report);
     assert!(output.contains("Duplicate Crates"));
@@ -243,6 +254,7 @@ fn format_report_bans_plural_errors_and_warnings() {
             ],
             ..Default::default()
         },
+        ..Default::default()
     };
     let output = render(&report);
     assert!(output.contains("2 errors"));
@@ -278,6 +290,7 @@ fn format_report_advisories_mixed_severities() {
             ],
             ..Default::default()
         },
+        ..Default::default()
     };
     let output = render(&report);
     assert!(output.contains("Advisories"));
@@ -322,6 +335,7 @@ fn format_report_multiple_upgrades_aligned() {
             }],
         },
         deny: DenyResult::default(),
+        ..Default::default()
     };
     let output = render(&report);
     assert!(output.contains("Compatible Upgrades"));
@@ -330,4 +344,51 @@ fn format_report_multiple_upgrades_aligned() {
     assert!(output.contains("serde"));
     assert!(output.contains("tokio-stream"));
     assert!(output.contains("clap"));
+}
+
+// -- Format: unused dependencies --
+
+#[test]
+fn format_report_unused_dependencies_lists_package_dep_and_manifest() {
+    let report = DepsReport {
+        unused: UnusedDepsResult::Checked {
+            entries: vec![
+                UnusedDepEntry {
+                    package: "ops-run-before-push".into(),
+                    manifest_path: "./extensions/run-before-push/Cargo.toml".into(),
+                    dependency: "anyhow".into(),
+                },
+                UnusedDepEntry {
+                    package: "ops".into(),
+                    manifest_path: "./crates/cli/Cargo.toml".into(),
+                    dependency: "ops-sqlite".into(),
+                },
+            ],
+        },
+        ..Default::default()
+    };
+    let output = render(&report);
+    assert!(output.contains("Unused Dependencies"));
+    assert!(output.contains("2 dependencies"));
+    for needle in [
+        "ops-run-before-push",
+        "anyhow",
+        "./extensions/run-before-push/Cargo.toml",
+        "ops-sqlite",
+        "./crates/cli/Cargo.toml",
+        "[package.metadata.cargo-machete]",
+    ] {
+        assert!(output.contains(needle), "missing {needle}:\n{output}");
+    }
+}
+
+#[test]
+fn format_report_unused_not_installed_renders_skipped_with_install_hint() {
+    let report = DepsReport {
+        unused: UnusedDepsResult::NotInstalled,
+        ..Default::default()
+    };
+    let output = render(&report);
+    assert!(output.contains("Skipped"), "{output}");
+    assert!(output.contains("cargo install cargo-machete"), "{output}");
 }

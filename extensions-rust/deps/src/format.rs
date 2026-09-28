@@ -3,7 +3,7 @@
 //! `build_report` turns a [`DepsReport`] into a theme-agnostic
 //! [`ops_core::report::Report`]: one [`ReportRow`] per section (Compatible /
 //! Breaking Upgrades, Advisories, License Issues, Duplicate Crates, Source
-//! Issues). The theme (`ConfigurableTheme::render_report`) owns all icons,
+//! Issues, Unused Dependencies). The theme (`ConfigurableTheme::render_report`) owns all icons,
 //! colors, separators, and the footer, so `ops deps` shares the exact
 //! rendering system the runner commands (`ops verify`, `ops qa`) use.
 //!
@@ -12,7 +12,7 @@
 //! pre-formatted `details` (the per-entry tables and `💡` advice) that the
 //! renderer emits verbatim beneath the row.
 
-use crate::{BanEntry, DepsReport, UpgradeEntry};
+use crate::{BanEntry, DepsReport, UnusedDepEntry, UnusedDepsResult, UpgradeEntry};
 use ops_core::report::{Report, ReportRow, ReportStatus};
 use ops_core::style::{dim, green};
 use std::borrow::Cow;
@@ -215,6 +215,8 @@ pub fn build_report(report: &DepsReport) -> Report {
         "Configure trusted sources in deny.toml [sources] section.",
     ));
 
+    out.push(unused_row(&report.unused));
+
     out
 }
 
@@ -399,6 +401,66 @@ fn bans_row(bans: &[BanEntry]) -> ReportRow {
             )]
         },
     )
+}
+
+/// Unused dependencies render at warning level at most (see the crate docs:
+/// cargo-machete is heuristic), and a skipped check renders as `Skipped` with
+/// the install hint rather than as `None`.
+fn unused_row(unused: &UnusedDepsResult) -> ReportRow {
+    const TITLE: &str = "Unused Dependencies";
+    let entries: &[UnusedDepEntry] =
+        match unused {
+            UnusedDepsResult::Checked { entries } => entries,
+            UnusedDepsResult::NotInstalled => {
+                return ReportRow::new(ReportStatus::Info, TITLE, "Skipped").with_details(vec![
+                    format!(
+                    "{DETAIL_INDENT}{} {}",
+                    dim("\u{1f4a1}"),
+                    dim("cargo-machete is not installed. Install with: cargo install cargo-machete")
+                ),
+                ]);
+            }
+        };
+    if entries.is_empty() {
+        return ReportRow::new(ReportStatus::Ok, TITLE, "None");
+    }
+
+    let result = format!(
+        "{} {}",
+        entries.len(),
+        if entries.len() == 1 {
+            "dependency"
+        } else {
+            "dependencies"
+        }
+    );
+    let pkg_w = entries.iter().map(|e| e.package.len()).max().unwrap_or(0);
+    let dep_w = entries
+        .iter()
+        .map(|e| e.dependency.len())
+        .max()
+        .unwrap_or(0);
+    let icon = SeverityClass::Warning.style(SeverityClass::Warning.icon());
+
+    // A live slice length is at most `isize::MAX`, so `saturating_add` here
+    // equals `+ 2` exactly.
+    let mut details = Vec::with_capacity(entries.len().saturating_add(2));
+    for e in entries {
+        details.push(format!(
+            "{DETAIL_INDENT}{icon} {:<pkg_w$}  {:<dep_w$}  {}",
+            e.package,
+            e.dependency,
+            dim(&e.manifest_path),
+        ));
+    }
+    for advice in [
+        "Remove them from Cargo.toml, or run `cargo machete --fix`.",
+        "cargo-machete is heuristic: list false positives under [package.metadata.cargo-machete] ignored = [...].",
+    ] {
+        details.push(format!("{DETAIL_INDENT}{} {}", dim("\u{1f4a1}"), dim(advice)));
+    }
+
+    ReportRow::new(ReportStatus::Warning, TITLE, result).with_details(details)
 }
 
 #[cfg(test)]

@@ -43,7 +43,7 @@ See [Exclusive steps in a parallel group](configuration.md#exclusive-steps-in-a-
 type-checks independently, so including it compiled the workspace a third time
 under a third fingerprint. It remains available standalone.
 
-**`deps`:** not defined in the embedded TOML; it is supplied by the **Rust `deps` extension** when built in. That command runs dependency health checks (notably `cargo upgrade --dry-run` and `cargo deny check`); see `extensions-rust/deps`.
+**`deps`:** not defined in the embedded TOML; it is supplied by the **Rust `deps` extension** when built in. That command runs seven dependency health checks: compatible and breaking upgrades (`cargo upgrade --dry-run`), advisories, licenses, duplicate crates and sources (`cargo deny check`), and unused dependencies (`cargo machete`). `cargo-edit` and `cargo-deny` are required. `cargo-machete` is optional: without it the Unused Dependencies row shows as skipped with the install hint. Unused dependencies are a warning and never fail the gate, because cargo-machete is heuristic; suppress a false positive with `[package.metadata.cargo-machete] ignored = ["name"]`. See `extensions-rust/deps`.
 
 **`sec`:** also not defined in the embedded TOML; it is the built-in `ops sec` subcommand (Trivy security scans — secrets always, vulnerability/misconfig auto-selected). Requires the `trivy` CLI on `PATH`.
 

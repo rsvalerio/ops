@@ -301,9 +301,18 @@ mod command_path_tests {
     printf 'serde  1.0.100 1.0.228    1.0.228 1.0.228\n'
     exit 0 ;;
   deny) exit 0 ;;
+  machete)
+    # Real cargo-machete misparses its args when CARGO_PKG_NAME is set.
+    [ -n "$CARGO_PKG_NAME" ] && exit 2
+    [ "$2" = "--version" ] && exit 0
+    printf 'cargo-machete found the following unused dependencies in this directory:\n'
+    printf 'app -- ./Cargo.toml:\n\tserde\n'
+    exit 1 ;;
   *) exit 0 ;;
 esac"#;
         let _cargo = EnvVarGuard::set("CARGO", fake_cargo(dir.path(), script));
+        // Set as it is when cargo launched `ops`; machete must not see it.
+        let _pkg = EnvVarGuard::set("CARGO_PKG_NAME", "ops");
 
         let mut ctx = Context::new(
             std::sync::Arc::new(ops_core::config::Config::empty()),
@@ -320,7 +329,46 @@ esac"#;
         assert_eq!(report.upgrades.incompatible.len(), 1);
         assert_eq!(report.upgrades.incompatible[0].name, "clap");
         assert!(report.deny.advisories.is_empty());
-        assert!(!has_issues(&report), "a clean deny run must pass the gate");
+        let UnusedDepsResult::Checked { entries } = &report.unused else {
+            panic!("an installed cargo-machete must run: {:?}", report.unused);
+        };
+        assert_eq!(entries.len(), 1);
+        assert_eq!(entries[0].dependency, "serde");
+        assert!(
+            !has_issues(&report),
+            "a clean deny run must pass the gate, unused deps included"
+        );
+    }
+
+    /// cargo-machete is optional: a failing probe records the check as
+    /// skipped instead of failing the provider, and `cargo machete` itself
+    /// is never spawned.
+    #[cfg(unix)]
+    #[test]
+    #[serial]
+    fn deps_provider_skips_unused_check_when_machete_is_missing() {
+        let dir = tempfile::tempdir().expect("tempdir");
+        let record = dir.path().join("machete-calls");
+        let script = format!(
+            r#"case "$1" in
+  machete) echo "$@" >> '{}'; exit 101 ;;
+  *) exit 0 ;;
+esac"#,
+            record.display()
+        );
+        let _cargo = EnvVarGuard::set("CARGO", fake_cargo(dir.path(), &script));
+
+        let mut ctx = Context::new(
+            std::sync::Arc::new(ops_core::config::Config::empty()),
+            dir.path().to_path_buf(),
+        );
+        let value = DepsProvider
+            .provide(&mut ctx)
+            .expect("a missing optional tool must not fail the provider");
+        let report: DepsReport = serde_json::from_value(value).expect("decode");
+        assert_eq!(report.unused, UnusedDepsResult::NotInstalled);
+        let calls = std::fs::read_to_string(&record).expect("probe ran");
+        assert_eq!(calls.trim(), "machete --version", "only the probe may run");
     }
 }
 
@@ -725,7 +773,7 @@ fn has_issues_source_warning() {
 fn schema_has_expected_fields() {
     use ops_extension::DataProvider;
     let schema = DepsProvider.schema();
-    assert_eq!(schema.fields.len(), 6);
+    assert_eq!(schema.fields.len(), 7);
     let field_names: Vec<&str> = schema.fields.iter().map(|f| f.name).collect();
     assert!(field_names.contains(&"upgrades.compatible"));
     assert!(field_names.contains(&"upgrades.incompatible"));
@@ -733,6 +781,23 @@ fn schema_has_expected_fields() {
     assert!(field_names.contains(&"deny.licenses"));
     assert!(field_names.contains(&"deny.bans"));
     assert!(field_names.contains(&"deny.sources"));
+    assert!(field_names.contains(&"unused"));
+}
+
+/// Unused dependencies are a warning row, never a gate failure.
+#[test]
+fn has_issues_ignores_unused_dependencies() {
+    let report = DepsReport {
+        unused: UnusedDepsResult::Checked {
+            entries: vec![UnusedDepEntry {
+                package: "app".into(),
+                manifest_path: "./Cargo.toml".into(),
+                dependency: "serde".into(),
+            }],
+        },
+        ..Default::default()
+    };
+    assert!(!has_issues(&report));
 }
 
 /// `check_tool_in` surfaces a clear timeout error when the cargo probe
@@ -760,6 +825,7 @@ fn check_tool_in_times_out_on_hung_probe() {
         subcommand: "probe-test",
         install_crate: "cargo-probe-test",
         probe_args: &["probe-test", "--version"],
+        strip_env: &[],
     };
 
     // The env mutations are reverted by `Drop`, which runs on the unwind

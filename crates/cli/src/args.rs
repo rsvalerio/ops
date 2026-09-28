@@ -94,7 +94,7 @@ pub enum CoreSubcommand {
         #[command(subcommand)]
         action: Option<AboutAction>,
     },
-    /// Dependency health: upgrades, advisories, licenses, bans, sources.
+    /// Dependency health: upgrades, advisories, licenses, bans, sources, unused deps.
     #[cfg(feature = "stack-rust")]
     Deps {
         /// Force re-collection of data (ignores cached results).
