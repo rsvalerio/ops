@@ -296,6 +296,10 @@ pub fn load_config_at(workspace_root: &Path) -> anyhow::Result<Config> {
     super::extend::apply(&mut config, workspace_root)
         .context("applying [extend] command sections")?;
 
+    // TASK-2323: after `[extend]`, so an extended stack default is locked
+    // in its materialized copy rather than re-copied from the default.
+    super::locked::apply(&mut config, workspace_root);
+
     config.validate()?;
 
     debug!(command_count = config.commands.len(), "config loaded");
@@ -591,6 +595,40 @@ mod tests {
         assert_eq!(
             config.output.theme, "from-env",
             "the OPS__ env layer must override .ops.toml"
+        );
+    }
+
+    /// TASK-2323: `[cargo] locked` is one switch, reachable from CI as
+    /// `OPS__CARGO__LOCKED=true` without touching `.ops.toml`, and the load
+    /// path applies it to the stack defaults.
+    #[test]
+    #[serial_test::serial]
+    fn cargo_locked_env_switch_locks_stack_defaults() {
+        let dir = tempfile::tempdir().unwrap();
+        let root = crate::test_utils::canonical_root(&dir);
+        let _xdg = crate::test_utils::isolate_global_config(&root);
+        let _theme = crate::test_utils::EnvGuard::remove("OPS__OUTPUT__THEME");
+        fs::write(root.join("Cargo.toml"), "[package]\nname = \"x\"\n").unwrap();
+
+        let unlocked = {
+            let _env = crate::test_utils::EnvGuard::remove("OPS__CARGO__LOCKED");
+            load_config_at(&root).expect("load must succeed")
+        };
+        assert!(
+            !unlocked.commands.contains_key("build"),
+            "without the switch the stack default stays unmaterialized"
+        );
+
+        let _env = crate::test_utils::EnvGuard::set("OPS__CARGO__LOCKED", "true");
+        let config = load_config_at(&root).expect("load must succeed");
+        assert_eq!(config.cargo.locked, Some(true));
+        let Some(super::super::CommandSpec::Exec(build)) = config.commands.get("build") else {
+            panic!("the locked build must be materialized");
+        };
+        assert!(
+            build.args.iter().any(|a| a == "--locked"),
+            "{:?}",
+            build.args
         );
     }
 

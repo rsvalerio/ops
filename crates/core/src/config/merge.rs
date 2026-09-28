@@ -151,6 +151,7 @@ pub fn merge_config(base: &mut Config, overlay: ConfigOverlay) {
         backlog,
         foundation,
         lint_actions,
+        cargo,
         stack,
     } = overlay;
 
@@ -189,6 +190,9 @@ pub fn merge_config(base: &mut Config, overlay: ConfigOverlay) {
         if !base.lint_actions.allow.contains(&prefix) {
             base.lint_actions.allow.push(prefix);
         }
+    }
+    if let Some(cargo) = cargo.as_ref() {
+        copy_optional_field(&mut base.cargo.locked, Some(&cargo.locked));
     }
     if let Some(s) = stack {
         base.stack = Some(s);

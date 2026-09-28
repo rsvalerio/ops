@@ -35,6 +35,8 @@
 //! - [`commands`] / [`command_id`] — command specs and the [`CommandId`] newtype.
 //! - [`extend`] — the `[extend.<target>]` sections appending commands to an
 //!   existing composite at load time.
+//! - `locked` — the `[cargo] locked = true` switch, adding `--locked` to
+//!   every lockfile-resolving cargo command after `[extend]` (TASK-2323).
 //! - `clone` — the `[commands.<name>] clone = "<source>"` declarations,
 //!   materialized into concrete specs at load time before `[extend]` runs
 //!   (TASK-2273).
@@ -53,6 +55,7 @@ mod edit;
 pub(crate) mod extend;
 mod init;
 mod loader;
+mod locked;
 pub(crate) mod merge;
 pub(crate) mod overlay;
 pub(crate) mod root;
@@ -77,7 +80,7 @@ pub use overlay::{
 };
 pub use root::{CloneOrigin, CommandProvenance, Config, MAX_COMPOSITE_DEPTH};
 pub use sections::{
-    AboutConfig, BacklogSection, DataConfig, ExtensionConfig, FoundationSection,
+    AboutConfig, BacklogSection, CargoSection, DataConfig, ExtensionConfig, FoundationSection,
     LintActionsSection, OutputConfig,
 };
 pub use strategy::{

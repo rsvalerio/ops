@@ -11,7 +11,7 @@ use indexmap::IndexMap;
 use serde::Deserialize;
 
 use super::commands::CommandSpec;
-use super::sections::{BacklogSection, FoundationSection, LintActionsSection};
+use super::sections::{BacklogSection, CargoSection, FoundationSection, LintActionsSection};
 use super::theme_types::ThemeConfig;
 
 /// Overlay configuration with optional fields — only explicitly-set values
@@ -45,6 +45,10 @@ pub struct ConfigOverlay {
     /// drops an earlier layer's.
     #[serde(default)]
     pub lint_actions: Option<LintActionsSection>,
+    /// All-`Option` like `backlog`: each key a layer sets overwrites the
+    /// base, the rest are preserved.
+    #[serde(default)]
+    pub cargo: Option<CargoSection>,
     #[serde(default)]
     pub stack: Option<String>,
 }

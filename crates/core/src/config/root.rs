@@ -5,7 +5,7 @@
 
 use super::commands::CommandSpec;
 use super::sections::{
-    AboutConfig, BacklogSection, DataConfig, ExtensionConfig, FoundationSection,
+    AboutConfig, BacklogSection, CargoSection, DataConfig, ExtensionConfig, FoundationSection,
     LintActionsSection, OutputConfig,
 };
 use super::theme_types::ThemeConfig;
@@ -60,6 +60,9 @@ pub struct Config {
     /// `[lint_actions]` — the allow-list for `ops lint-actions`.
     #[serde(default, skip_serializing_if = "LintActionsSection::is_default")]
     pub lint_actions: LintActionsSection,
+    /// `[cargo]` — switches for the cargo commands ops runs (`locked`).
+    #[serde(default, skip_serializing_if = "CargoSection::is_default")]
+    pub cargo: CargoSection,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub stack: Option<String>,
     /// Load-time provenance of `commands` entries that `clone` / `[extend]`
@@ -136,6 +139,7 @@ impl Config {
             backlog: BacklogSection::default(),
             foundation: FoundationSection::default(),
             lint_actions: LintActionsSection::default(),
+            cargo: CargoSection::default(),
             stack: None,
             provenance: CommandProvenance::default(),
         }
