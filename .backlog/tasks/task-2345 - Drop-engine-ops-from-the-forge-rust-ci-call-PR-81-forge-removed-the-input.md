@@ -4,6 +4,7 @@ title: 'Drop engine: ops from the forge rust-ci call (PR #81): forge removed the
 status: Triage
 assignee: []
 created_date: '2026-09-29 19:01'
+updated_date: '2026-09-29 19:27'
 labels:
   - ci
 dependencies: []
@@ -30,3 +31,9 @@ ordinal: 1000
 - [ ] #1 ops's rust-ci call passes no engine input, and its comments describe rust-ci as ops-only
 - [ ] #2 PR #81 (or its successor) is green against forge's ops-only rust-ci
 <!-- AC:END -->
+
+## Implementation Notes
+
+<!-- SECTION:NOTES:BEGIN -->
+2026-09-29, forge #21 (28d5d96): rust-ci also dropped forge-ref, toolchain and use-sccache, and installs tools from the caller's mise.toml via jdx/mise-action. PR #81 must drop engine: ops and rely on ops's own mise.toml pinning ops >= 0.77.0 (enforced by the verify job), cargo-nextest, cargo-deny, cargo-machete, trivy, and rust with rustfmt,clippy.
+<!-- SECTION:NOTES:END -->
