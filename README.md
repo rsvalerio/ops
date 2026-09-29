@@ -112,7 +112,7 @@ ops init
 # Run a command
 ops build
 
-# Run static checks (fmt, check, clippy, build)
+# Run static checks, fixing nothing (ops verify-fix formats and fixes in place)
 ops verify
 
 # Run tests and quality checks
@@ -160,7 +160,7 @@ extending, cloning, scheduling, exclusive steps and matrix commands.
 The project gates itself with its own commands:
 
 ```bash
-ops verify   # fmt, check, clippy, build
+ops verify   # check-only: fmt, whitespace, clippy, build, doc (ops verify-fix repairs)
 ops qa       # deps, test, test-doc, sec (qa needs the Trivy CLI on PATH)
 ```
 

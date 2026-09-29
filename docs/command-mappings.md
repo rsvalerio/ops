@@ -26,16 +26,18 @@ Below, **exec** lines are `program` plus `args` from config. **Composite** comma
 | `next` | `cargo nextest run --workspace --all-features` |
 | `next-ignored` | `cargo nextest run --workspace --all-features --run-ignored ignored-only` |
 | `clean` | `cargo clean` |
-| `verify` | composite: `fmt`, `trailing-whitespace`, `end-of-file-fixer`, `clippy`, `build`, `check-json`, `check-yaml`, `doc` (staged parallel, fail-fast) |
-| `verify-check` | composite: `fmt-check`, `trailing-whitespace-check`, `end-of-file-fixer-check`, `clippy`, `build`, `check-json`, `check-yaml`, `doc` (parallel, fail-fast) |
+| `verify` (`verify-check`) | composite: `fmt-check`, `trailing-whitespace-check`, `end-of-file-fixer-check`, `clippy`, `build`, `check-json`, `check-yaml`, `doc` (parallel, fail-fast); fixes nothing in place |
+| `verify-fix` | composite: `fmt`, `trailing-whitespace`, `end-of-file-fixer`, `clippy`, `build`, `check-json`, `check-yaml`, `doc` (staged parallel, fail-fast); rewrites files in place |
 | `qa` | composite: `deps`, `test`, `test-doc`, `sec` (sequential, fail-fast) |
 | `qa-next` (`qax`) | composite: `deps`, `next`, `test-doc`, `sec` (sequential, fail-fast) |
 
-**`verify-check` is `verify` for CI:** each rewriter is swapped for its
-non-mutating twin — `fmt-check` in the stack TOML, `trailing-whitespace-check`
-and `end-of-file-fixer-check` registered by the text-fixers extension (they run
-the fixer with `--check`). A dirty tree fails the gate instead of being
-repaired, and since nothing writes, every step runs in one parallel stage.
+**`verify` only checks, in every stack:** each rewriter in `verify-fix` is
+swapped for its non-mutating twin — `fmt-check` in the stack TOML (Rust, Go,
+Terraform), `trailing-whitespace-check` and `end-of-file-fixer-check` built in
+(they run the fixer with `--check`). A dirty tree fails the gate instead of
+being repaired, so the same command is safe on a dev machine and in CI. Run
+`verify-fix` to format and fix files in place. `verify-check`, the name of the
+Rust check form before it became the default, is kept as an alias.
 
 **`--locked`:** none of the defaults pass it, because `--locked` refuses to
 create a missing `Cargo.lock`. Set `[cargo] locked = true` (or
@@ -46,7 +48,7 @@ command — see [Locked cargo commands](configuration.md#locked-cargo-commands).
 *disables* doctests ("Test all targets (does not include doctests)"), so adding
 it for symmetry would silently drop doctest coverage.
 
-**`verify` is staged:** `fmt`, `trailing-whitespace` and `end-of-file-fixer`
+**`verify-fix` is staged:** `fmt`, `trailing-whitespace` and `end-of-file-fixer`
 rewrite files the checks read, so each is exclusive and runs alone, in that
 order (`fmt` is marked in the stack TOML, the fixers in their definitions).
 `clippy`, `build`, `check-json`, `check-yaml` and `doc` then run concurrently.
@@ -73,7 +75,8 @@ under a third fingerprint. It remains available standalone.
 | `test` | `npm test` |
 | `lint` | `npm run lint` |
 | `clean` | `rm -rf node_modules dist` |
-| `verify` | composite: `install`, `lint`, `build`, `trailing-whitespace`, `end-of-file-fixer`, `check-json`, `check-yaml` (sequential, fail-fast) |
+| `verify` | composite: `install`, `lint`, `build`, `trailing-whitespace-check`, `end-of-file-fixer-check`, `check-json`, `check-yaml` (sequential, fail-fast); fixes nothing in place |
+| `verify-fix` | composite: `install`, `lint`, `build`, `trailing-whitespace`, `end-of-file-fixer`, `check-json`, `check-yaml` (sequential, fail-fast); rewrites files in place |
 | `qa` | composite: `test` (sequential, fail-fast) |
 
 A suggested `fmt` command exists only as a **commented** template in the default TOML.
@@ -92,7 +95,8 @@ Detected **before** node, since every Vite project also ships a `package.json`. 
 | `lint` | `bunx eslint .` |
 | `test` | `bunx vitest run` |
 | `clean` | `rm -rf node_modules dist` |
-| `verify` | composite: `install`, `typecheck`, `lint`, `build`, `trailing-whitespace`, `end-of-file-fixer`, `check-json`, `check-yaml` (sequential, fail-fast) |
+| `verify` | composite: `install`, `typecheck`, `lint`, `build`, `trailing-whitespace-check`, `end-of-file-fixer-check`, `check-json`, `check-yaml` (sequential, fail-fast); fixes nothing in place |
+| `verify-fix` | composite: `install`, `typecheck`, `lint`, `build`, `trailing-whitespace`, `end-of-file-fixer`, `check-json`, `check-yaml` (sequential, fail-fast); rewrites files in place |
 | `qa` | composite: `test` (sequential, fail-fast) |
 
 Suggested `fmt` (`bunx prettier --write .`) and `preview` (`bunx vite preview`) commands exist only as **commented** templates in the default TOML.
@@ -104,12 +108,14 @@ Suggested `fmt` (`bunx prettier --write .`) and `preview` (`bunx vite preview`) 
 | Command | Maps to |
 | --- | --- |
 | `fmt` | `go fmt ./...` |
+| `fmt-check` | `gofmt -l` over the files `go list ./...` reports (what `go fmt ./...` formats), failing if it lists any file or errors |
 | `vet` | `go vet ./...` |
 | `lint` | alias → `vet` |
 | `build` | `go build ./...` |
 | `test` | `go test ./...` |
 | `clean` | `go clean ./...` |
-| `verify` | composite: `fmt`, `build`, `trailing-whitespace`, `end-of-file-fixer`, `check-json`, `check-yaml` (sequential, fail-fast) |
+| `verify` | composite: `fmt-check`, `build`, `trailing-whitespace-check`, `end-of-file-fixer-check`, `check-json`, `check-yaml` (sequential, fail-fast); fixes nothing in place |
+| `verify-fix` | composite: `fmt`, `build`, `trailing-whitespace`, `end-of-file-fixer`, `check-json`, `check-yaml` (sequential, fail-fast); rewrites files in place |
 | `qa` | composite: `test`, `vet` (sequential, fail-fast) |
 
 ---
@@ -128,7 +134,8 @@ Suggested `fmt` (`bunx prettier --write .`) and `preview` (`bunx vite preview`) 
 | `type` | `uv run pyright` |
 | `test` | `uv run pytest -q` |
 | `clean` | `rm -rf .pytest_cache .ruff_cache .pyright build dist` |
-| `verify` | composite: `fmt`, `lint`, `type`, `trailing-whitespace`, `end-of-file-fixer`, `check-json`, `check-yaml` (sequential, fail-fast) |
+| `verify` | composite: `lint`, `type`, `trailing-whitespace-check`, `end-of-file-fixer-check`, `check-json`, `check-yaml` (sequential, fail-fast); fixes nothing in place |
+| `verify-fix` | composite: `fmt`, `lint`, `type`, `trailing-whitespace`, `end-of-file-fixer`, `check-json`, `check-yaml` (sequential, fail-fast); rewrites files in place |
 | `qa` | composite: `test` (sequential, fail-fast) |
 
 A suggested `build` (`uv build`) is commented in the default TOML.
@@ -141,10 +148,12 @@ A suggested `build` (`uv build`) is commented in the default TOML.
 | --- | --- |
 | `tf-init` | `terraform init` (not `init`: `ops init` is the builtin that scaffolds `.ops.toml`) |
 | `fmt` | `terraform fmt -recursive` |
+| `fmt-check` | `terraform fmt -check -recursive` |
 | `validate` | `terraform validate` |
 | `plan` | `terraform plan` |
 | `clean` | `rm -rf .terraform` (keeps `.terraform.lock.hcl`) |
-| `verify` | composite: `fmt`, `validate`, `trailing-whitespace`, `end-of-file-fixer`, `check-json`, `check-yaml` (sequential, fail-fast) |
+| `verify` | composite: `fmt-check`, `validate`, `trailing-whitespace-check`, `end-of-file-fixer-check`, `check-json`, `check-yaml` (sequential, fail-fast); fixes nothing in place |
+| `verify-fix` | composite: `fmt`, `validate`, `trailing-whitespace`, `end-of-file-fixer`, `check-json`, `check-yaml` (sequential, fail-fast); rewrites files in place |
 | `qa` | composite: `plan` (sequential, fail-fast) |
 
 Suggested `lint` (`tflint`), `build`, and `test` are commented templates.
@@ -158,7 +167,8 @@ Suggested `lint` (`tflint`), `build`, and `test` are commented templates.
 | `lint` | `ansible-lint` |
 | `check` | `ansible-playbook --check site.yml` |
 | `clean` | `sh -c 'rm -rf .ansible *.retry'` (shell expands the glob; the runner execs without one) |
-| `verify` | composite: `lint`, `check`, `trailing-whitespace`, `end-of-file-fixer`, `check-json`, `check-yaml` (sequential, fail-fast) |
+| `verify` | composite: `lint`, `check`, `trailing-whitespace-check`, `end-of-file-fixer-check`, `check-json`, `check-yaml` (sequential, fail-fast); fixes nothing in place |
+| `verify-fix` | composite: `lint`, `check`, `trailing-whitespace`, `end-of-file-fixer`, `check-json`, `check-yaml` (sequential, fail-fast); rewrites files in place |
 | `qa` | composite: `check` (sequential, fail-fast) |
 
 Suggested `fmt`, `build`, and `test` are commented templates.
@@ -175,7 +185,8 @@ Uses `./mvnw` (Maven wrapper).
 | `build` | `./mvnw package -DskipTests` |
 | `test` | `./mvnw test` |
 | `clean` | `./mvnw clean` |
-| `verify` | composite: `compile`, `trailing-whitespace`, `end-of-file-fixer`, `check-json`, `check-yaml` (sequential, fail-fast) |
+| `verify` | composite: `compile`, `trailing-whitespace-check`, `end-of-file-fixer-check`, `check-json`, `check-yaml` (sequential, fail-fast); fixes nothing in place |
+| `verify-fix` | composite: `compile`, `trailing-whitespace`, `end-of-file-fixer`, `check-json`, `check-yaml` (sequential, fail-fast); rewrites files in place |
 | `qa` | composite: `test` (sequential, fail-fast) |
 
 Suggested `fmt` / `lint` (e.g. Spotless) are commented templates.
@@ -192,7 +203,8 @@ Uses `./gradlew` (Gradle wrapper).
 | `build` | `./gradlew build -x test` |
 | `test` | `./gradlew test` |
 | `clean` | `./gradlew clean` |
-| `verify` | composite: `compile`, `trailing-whitespace`, `end-of-file-fixer`, `check-json`, `check-yaml` (sequential, fail-fast) |
+| `verify` | composite: `compile`, `trailing-whitespace-check`, `end-of-file-fixer-check`, `check-json`, `check-yaml` (sequential, fail-fast); fixes nothing in place |
+| `verify-fix` | composite: `compile`, `trailing-whitespace`, `end-of-file-fixer`, `check-json`, `check-yaml` (sequential, fail-fast); rewrites files in place |
 | `qa` | composite: `test` (sequential, fail-fast) |
 
 Suggested `fmt` / `lint` (e.g. Spotless) are commented templates.

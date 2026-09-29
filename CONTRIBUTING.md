@@ -92,7 +92,7 @@ ops run-before-push install
 Run both gates before you push; CI runs the same checks:
 
 ```bash
-ops verify   # fmt, check, clippy, build
+ops verify   # check-only: fmt, whitespace, clippy, build, doc (ops verify-fix repairs)
 ops qa       # deps, test, test-doc, sec
 ```
 

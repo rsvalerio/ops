@@ -38,11 +38,23 @@ category = "Build"
 # help = "Lint sources (requires spotless or checkstyle plugin)"
 # category = "Code Quality"
 
+# `verify` only checks: a formatter or text fixer that would change a file
+# fails the gate instead of rewriting it, so the same command is safe in CI
+# and on a dev machine. `verify-fix` is the rewriting form.
 [commands.verify]
+commands = ["compile", "trailing-whitespace-check", "end-of-file-fixer-check", "check-json", "check-yaml"]
+parallel = false
+fail_fast = true
+help = "Run compile, trailing-whitespace-check, end-of-file-fixer-check, check-json, check-yaml; fixes nothing in place"
+category = "Code Quality"
+
+# `verify` with the rewriters: formats and fixes files in place, then runs
+# the same gates.
+[commands.verify-fix]
 commands = ["compile", "trailing-whitespace", "end-of-file-fixer", "check-json", "check-yaml"]
 parallel = false
 fail_fast = true
-help = "Run compile, trailing-whitespace, end-of-file-fixer, check-json, check-yaml"
+help = "Run compile, trailing-whitespace, end-of-file-fixer, check-json, check-yaml; rewrites files in place"
 category = "Code Quality"
 
 [commands.qa]

@@ -98,6 +98,7 @@ as a suggestion you can uncomment and adjust.
 | `test`      | ✓ | ✓ (bunx vitest run) | ✓ | ✓ | ✓ (pytest) | * (terraform test) | * (molecule test) | ✓ | ✓ |
 | `clean`     | ✓ (cargo clean) | ✓ (rm node_modules dist) | ✓ (rm node_modules dist) | ✓ (go clean) | ✓ (rm caches) | ✓ (rm .terraform) | ✓ (sh -c rm .ansible *.retry) | ✓ | ✓ |
 | `verify`    | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ |
+| `verify-fix`| ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ |
 | `qa`        | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ |
 
 The Vite stack also ships a `typecheck` command (`bunx tsc -b --noEmit`) wired into its `verify`,
@@ -107,10 +108,15 @@ The Rust stack default goes beyond the contract: it also ships `next` / `next-ig
 (cargo-nextest; nextest does not run doctests), `test-doc` for those doctests, and a
 `qa-next` composite (alias `qax`) that runs the test legs through nextest. The Rust `qa`
 runs `deps`, `test`, `test-doc`, and `sec` — `sec` requires the
-[Trivy](https://trivy.dev) CLI on `PATH`. For CI it ships `verify-check`, the
-non-mutating `verify` (`fmt-check` plus the text fixers' `--check` twins), and
-`[cargo] locked = true` / `OPS__CARGO__LOCKED=true` runs its cargo commands with
-`--locked`.
+[Trivy](https://trivy.dev) CLI on `PATH`. Its `verify` also answers to
+`verify-check`, and `[cargo] locked = true` / `OPS__CARGO__LOCKED=true` runs its
+cargo commands with `--locked`.
+
+In every stack `verify` only checks: formatters and text fixers run in their
+check form (`fmt-check` where the stack has one, `trailing-whitespace-check`,
+`end-of-file-fixer-check`), so a dirty tree fails the gate instead of being
+repaired, and the same command is safe in CI. `verify-fix` is the same gate with
+the rewriters, for formatting and fixing files in place.
 
 ### `ops sec` default skip list
 

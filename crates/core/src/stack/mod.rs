@@ -924,17 +924,18 @@ mod tests {
     /// flag lives in the stack TOML and is checked here; the text fixers are
     /// exclusive in their own definitions (tested next to them).
     #[test]
-    fn rust_verify_runs_rewriters_alone_before_readers() {
+    fn rust_verify_fix_runs_rewriters_alone_before_readers() {
         let cmds = Stack::Rust.default_commands_ref();
-        let CommandSpec::Composite(verify) = cmds.get("verify").expect("verify must exist") else {
-            panic!("rust `verify` must be a composite command");
+        let CommandSpec::Composite(verify) = cmds.get("verify-fix").expect("verify-fix must exist")
+        else {
+            panic!("rust `verify-fix` must be a composite command");
         };
         let Some(CommandSpec::Exec(fmt)) = cmds.get("fmt") else {
             panic!("rust `fmt` must be an exec command");
         };
         assert!(
             !verify.parallel || fmt.exclusive,
-            "rust `verify` is parallel, so `fmt` must be exclusive: it rewrites files the checks read"
+            "rust `verify-fix` is parallel, so `fmt` must be exclusive: it rewrites files the checks read"
         );
 
         let pos = |name: &str| {
@@ -942,7 +943,7 @@ mod tests {
                 .commands
                 .iter()
                 .position(|c| c == name)
-                .unwrap_or_else(|| panic!("verify must run {name}"))
+                .unwrap_or_else(|| panic!("verify-fix must run {name}"))
         };
         for rewriter in ["fmt", "trailing-whitespace", "end-of-file-fixer"] {
             for reader in ["clippy", "build", "check-json", "check-yaml", "doc"] {
@@ -960,23 +961,78 @@ mod tests {
         );
     }
 
-    /// TASK-2322: `verify-check` is `verify` with every rewriter swapped for
-    /// its check twin — the same gates, none of which writes.
+    /// Stack defaults are not validated at load like `.ops.toml` commands, so
+    /// pin that each one would pass: a control character in a default (a
+    /// multi-line `sh -c` script, say) would otherwise break only a user who
+    /// clones or overrides it.
     #[test]
-    fn rust_verify_check_mirrors_verify_without_rewriters() {
+    fn every_stack_default_exec_command_validates() {
+        for stack in Stack::iter() {
+            for (name, spec) in stack.default_commands_ref() {
+                if let CommandSpec::Exec(exec) = spec {
+                    exec.validate(name.as_str())
+                        .unwrap_or_else(|e| panic!("{stack:?} `{name}`: {e}"));
+                }
+            }
+        }
+    }
+
+    /// Every stack's `verify` only checks, and `verify-fix` is its rewriting
+    /// form: no step of `verify` may rewrite the files it gates.
+    #[test]
+    fn every_stack_verify_names_no_rewriter() {
+        const REWRITERS: [&str; 5] = [
+            "fmt",
+            "trailing-whitespace",
+            "end-of-file-fixer",
+            "ruff-fix",
+            "black-fmt",
+        ];
+        // Generic ships no default commands.
+        for stack in Stack::iter().filter(|s| *s != Stack::Generic) {
+            let cmds = stack.default_commands_ref();
+            let Some(CommandSpec::Composite(verify)) = cmds.get("verify") else {
+                panic!("{stack:?} `verify` must be a composite");
+            };
+            let rewriters: Vec<&String> = verify
+                .commands
+                .iter()
+                .filter(|c| REWRITERS.contains(&c.as_str()))
+                .collect();
+            assert!(
+                rewriters.is_empty(),
+                "{stack:?} `verify` runs rewriter(s) {rewriters:?}; they belong in `verify-fix`"
+            );
+            assert!(
+                matches!(cmds.get("verify-fix"), Some(CommandSpec::Composite(_))),
+                "{stack:?} must ship `verify-fix`"
+            );
+        }
+    }
+
+    /// `verify` is `verify-fix` with every rewriter swapped for its check
+    /// twin — the same gates, none of which writes — and still answers to
+    /// `verify-check`, its name before it became the default (TASK-2322).
+    #[test]
+    fn rust_verify_is_verify_fix_without_rewriters() {
         let cmds = Stack::Rust.default_commands_ref();
         let composite = |name: &str| match cmds.get(name) {
             Some(CommandSpec::Composite(c)) => c.commands.clone(),
             other => panic!("rust `{name}` must be a composite, got {other:?}"),
         };
-        let expected: Vec<String> = composite("verify")
+        let expected: Vec<String> = composite("verify-fix")
             .into_iter()
             .map(|c| match c.as_str() {
                 "fmt" | "trailing-whitespace" | "end-of-file-fixer" => format!("{c}-check"),
                 _ => c,
             })
             .collect();
-        assert_eq!(composite("verify-check"), expected);
+        assert_eq!(composite("verify"), expected);
+        assert!(
+            cmds.get("verify")
+                .is_some_and(|v| v.aliases().iter().any(|a| a == "verify-check")),
+            "rust `verify` must keep the `verify-check` alias"
+        );
 
         let Some(CommandSpec::Exec(fmt_check)) = cmds.get("fmt-check") else {
             panic!("rust `fmt-check` must be an exec command");
@@ -1106,26 +1162,27 @@ mod tests {
     /// them can overlap, `black` rewrites files while `black --check` and
     /// `pyright` read them.
     #[test]
-    fn python_verify_is_sequential_so_formatters_cannot_race_checkers() {
+    fn python_verify_fix_is_sequential_so_formatters_cannot_race_checkers() {
         let cmds = Stack::Python.default_commands_ref();
-        let CommandSpec::Composite(verify) = cmds.get("verify").expect("verify must exist") else {
-            panic!("python `verify` must be a composite command");
+        let CommandSpec::Composite(verify) = cmds.get("verify-fix").expect("verify-fix must exist")
+        else {
+            panic!("python `verify-fix` must be a composite command");
         };
         assert!(
             !verify.parallel,
-            "python `verify` must be sequential: fmt rewrites files lint and type read"
+            "python `verify-fix` must be sequential: fmt rewrites files lint and type read"
         );
 
         let mut found = Vec::new();
         parallel_descendants(
             cmds,
-            "verify",
+            "verify-fix",
             &mut std::collections::HashSet::new(),
             &mut found,
         );
         assert!(
             found.is_empty(),
-            "python `verify` has parallel descendant(s) {found:?}; the flattened plan \
+            "python `verify-fix` has parallel descendant(s) {found:?}; the flattened plan \
              would run formatters concurrently with checkers"
         );
 
@@ -1134,7 +1191,7 @@ mod tests {
                 .commands
                 .iter()
                 .position(|c| c == name)
-                .unwrap_or_else(|| panic!("verify must run {name}"))
+                .unwrap_or_else(|| panic!("verify-fix must run {name}"))
         };
         let fmt = pos("fmt");
         for reader in ["lint", "type"] {
