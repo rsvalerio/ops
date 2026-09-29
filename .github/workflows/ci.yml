@@ -22,11 +22,10 @@ env:
   CARGO_TERM_COLOR: always
   RUST_BACKTRACE: 1
   RUSTC_WRAPPER: sccache
-  # The same settings forge's rust-ci gives the jobs it runs, so the ops-specific
-  # jobs below build the way the shared gates do: against the committed
-  # Cargo.lock (ops adds `--locked` to every cargo command that resolves it) and
-  # without incremental compilation, which sccache cannot cache.
-  OPS__CARGO__LOCKED: "true"
+  # As in forge's rust-ci: sccache cannot cache an incremental build. rust-ci
+  # also sets OPS__CARGO__LOCKED=true; it is deliberately absent here, because
+  # the `test` job runs ops's own config tests, which would see it and expect
+  # `--locked` in every cargo command they resolve.
   CARGO_INCREMENTAL: "0"
 
 jobs:
