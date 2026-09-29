@@ -2,6 +2,15 @@
 All notable changes to this project will be documented in this file. See [conventional commits](https://www.conventionalcommits.org/) for commit guidelines.
 
 - - -
+## [v0.77.0](https://github.com/rsvalerio/ops/compare/abc322c401db95633c72bfd41733764a162b486a..v0.77.0) - 2026-09-29
+#### 🚀 Features
+- (**runner**) register the text fixers' --check twins as builtins - ([abc322c](https://github.com/rsvalerio/ops/commit/abc322c401db95633c72bfd41733764a162b486a)) - [@rsvalerio](https://github.com/rsvalerio), Claude Opus 5.5 (1M context)
+- ![BREAKING](https://img.shields.io/badge/BREAKING-red) (**stack**) make verify check-only and add verify-fix - ([fe7e8e4](https://github.com/rsvalerio/ops/commit/fe7e8e443e8e644a1590668b2c827df7d0a6ad4c)) - [@rsvalerio](https://github.com/rsvalerio), Claude Opus 5.5 (1M context)
+#### ⚙️ Miscellaneous
+- auto-fix on commit through verify-fix - ([11d4249](https://github.com/rsvalerio/ops/commit/11d424979c31367bb6a74556f7244c37b5d53ddb)) - [@rsvalerio](https://github.com/rsvalerio), Claude Opus 5.5 (1M context)
+
+- - -
+
 ## [v0.76.0](https://github.com/rsvalerio/ops/compare/138fa7c34884c00edcc26e2406259e0af42d372f..v0.76.0) - 2026-09-28
 #### 🚀 Features
 - (**explain**) opt-in --tool-versions reports installed tool versions - ([fa36ea6](https://github.com/rsvalerio/ops/commit/fa36ea6eac8f488359bcb17ea70b87a78bbdea20)) - [@rsvalerio](https://github.com/rsvalerio), Claude Opus 5.5 (1M context)
