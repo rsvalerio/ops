@@ -4,6 +4,7 @@ title: 'Scaffold and drift-check mise.toml from the Rust foundation templates'
 status: Triage
 assignee: []
 created_date: '2026-09-29 18:03'
+updated_date: '2026-09-29 19:28'
 labels:
   - foundation
 dependencies: []
@@ -31,4 +32,12 @@ Add a mise.toml template to extensions-rust/foundation/templates/ carrying the g
 - [ ] #2 ops init --rust --check reports a drifted or missing tool pin and honours [foundation.waivers]
 - [ ] #3 ops's own mise.toml matches the template
 - [ ] #4 ops docs/foundation.md lists the file
+- [ ] #5 The template pins rust (with rustfmt,clippy components) and ops at or above 0.77.0, the first check-only verify; forge rust-ci enforces that floor
+
 <!-- AC:END -->
+
+## Implementation Notes
+
+<!-- SECTION:NOTES:BEGIN -->
+2026-09-29: forge rust-ci now installs from the caller's mise.toml (forge #21), so this template is what keeps callers' CI pins current.
+<!-- SECTION:NOTES:END -->
