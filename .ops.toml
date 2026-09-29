@@ -30,7 +30,7 @@ help = "Lint the default-feature build (the --all-features gate's blind spot)"
 category = "Code Quality"
 
 [commands.run-before-commit]
-commands = ["verify","end-of-file-fixer","trailing-whitespace"]
+commands = ["verify-fix","end-of-file-fixer","trailing-whitespace"]
 fail_fast = true
 help = "Run run-before-commit checks before committing"
 
