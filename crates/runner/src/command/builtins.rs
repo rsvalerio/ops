@@ -22,12 +22,14 @@ use ops_core::config::{CommandId, CommandSpec, ExecCommandSpec};
 /// Build the always-available builtin command store.
 ///
 /// Currently registers the text fixers (`end-of-file-fixer` / `eof`,
-/// `trailing-whitespace` / `tw`), the config checkers (`check-json`,
+/// `trailing-whitespace` / `tw`) and their `--check` twins
+/// (`end-of-file-fixer-check`, `trailing-whitespace-check`, which every
+/// stack's `verify` names), the config checkers (`check-json`,
 /// `check-yaml`), `sec`, `lint-actions` and `msrv`. Add new entries here whenever a clap-level
 /// subcommand should also be referenceable from composite `commands = [...]`.
 ///
 /// The fixers rewrite files, so they keep `ops_subcommand`'s exclusive
-/// default; the checkers (`lint-actions` included) only read and are marked
+/// default; their twins and the checkers (`lint-actions` included) only read and are marked
 /// [`read_only`]. `msrv` compiles into `target/`, so it keeps the exclusive
 /// default like any build step. `sec` also
 /// never writes the worktree, but it stays exclusive (TASK-2263): Trivy
@@ -45,6 +47,14 @@ pub(super) fn builtin_commands() -> IndexMap<CommandId, CommandSpec> {
         CommandId::from("trailing-whitespace"),
         CommandSpec::Exec(builtin_exec("trailing-whitespace", &["tw"])),
     );
+    for fixer in ["end-of-file-fixer", "trailing-whitespace"] {
+        let mut check = ExecCommandSpec::ops_subcommand_check(fixer);
+        check.category = Some("Code Quality".to_string());
+        map.insert(
+            CommandId::from(format!("{fixer}-check")),
+            CommandSpec::Exec(check),
+        );
+    }
     map.insert(
         CommandId::from("check-json"),
         CommandSpec::Exec(read_only(builtin_exec("check-json", &[]))),
@@ -103,6 +113,20 @@ mod tests {
             .get("trailing-whitespace")
             .expect("trailing-whitespace registered");
         assert!(tw.aliases().iter().any(|a| a == "tw"));
+    }
+
+    /// Every stack's `verify` names these twins, so they must resolve even
+    /// where the text-fixers extension is not registered.
+    #[test]
+    fn registers_text_fixer_check_twins_as_read_only() {
+        let map = builtin_commands();
+        for fixer in ["end-of-file-fixer", "trailing-whitespace"] {
+            let Some(CommandSpec::Exec(check)) = map.get(format!("{fixer}-check").as_str()) else {
+                panic!("{fixer}-check must be registered as an exec builtin");
+            };
+            assert_eq!(check.args, [fixer, "--check"]);
+            assert!(!check.exclusive, "{fixer}-check never writes");
+        }
     }
 
     #[test]

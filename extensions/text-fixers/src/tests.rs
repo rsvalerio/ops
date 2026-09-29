@@ -560,7 +560,7 @@ fn registered_fixers_spawn_absolute_ops_and_are_exclusive() {
 }
 
 /// TASK-2322: each fixer has a registered `--check` twin that never writes,
-/// so it is not exclusive and can run in `verify-check`'s parallel stage.
+/// so it is not exclusive and can run in `verify`'s parallel stage.
 #[test]
 fn registered_check_twins_pass_check_and_are_not_exclusive() {
     use ops_core::config::CommandSpec;

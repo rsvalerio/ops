@@ -97,15 +97,13 @@ ops_extension::impl_extension! {
                     ops_core::config::ExecCommandSpec::ops_subcommand(subcommand),
                 ),
             );
-            // TASK-2322: the `--check` twin for CI gates (`verify-check`).
+            // TASK-2322: the `--check` twin every stack's `verify` runs.
             // It never writes, so it may overlap the other readers.
-            let mut check = ops_core::config::ExecCommandSpec::ops_subcommand(subcommand);
-            check.args.push("--check".into());
-            check.exclusive = false;
-            check.help = Some(format!("Fail if `{subcommand}` would change a file; never writes"));
             registry.insert(
                 format!("{subcommand}-check").into(),
-                ops_core::config::CommandSpec::Exec(check),
+                ops_core::config::CommandSpec::Exec(
+                    ops_core::config::ExecCommandSpec::ops_subcommand_check(subcommand),
+                ),
             );
         }
     },
