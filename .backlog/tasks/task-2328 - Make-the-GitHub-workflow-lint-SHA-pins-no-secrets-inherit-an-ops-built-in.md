@@ -1,10 +1,10 @@
 ---
 id: TASK-2328
 title: 'Make the GitHub workflow lint (SHA pins, no secrets: inherit) an ops built-in'
-status: To Do
+status: In Progress
 assignee: []
 created_date: '2026-09-28 10:59'
-updated_date: '2026-09-28 15:24'
+updated_date: '2026-09-29 16:16'
 labels:
   - ci
   - ops-alignment
@@ -38,4 +38,7 @@ dedup_key: 'ops-align:ops-lint-actions'
 
 <!-- SECTION:NOTES:BEGIN -->
 AC#1 done (fceb23f2): `ops lint-actions` enforces full-SHA pins with a `# vX.Y.Z` comment, docker digests, rejects `secrets: inherit`; exempts ./ refs, `[lint_actions] allow` in .ops.toml and `--allow`. AC#2 half done: ops ci.yml workflow-guard now runs `ops lint-actions --allow rsvalerio/forge/` (01237b74). Remaining: replace forge`s `ci/lint.sh pinned-actions` with it — forge repo, out of this repo; needs re-triage.
+
+AC#2 prerequisite done in ops: forge's pinned-actions also covers its composite actions (actions/*/action.yml), which lint-actions did not scan, so swapping would have dropped that coverage. lint-actions now also scans composite action manifests (root action.yml/.yaml, and one dir deep under .github/actions/ and actions/), skipping symlinked files and dirs; against forge main it passes the same 17 files (8 workflows + 9 actions) as ci/lint.sh pinned-actions. Remaining, in forge, after the next ops release: bump mise.toml ops to it, add [lint_actions] allow = ["rsvalerio/forge/"] to forge .ops.toml, point verify's lint-pinned-actions at ops lint-actions, delete check_pinned_actions from ci/lint.sh, and update README rule 6 and the dependabot.yml comment.
+
 <!-- SECTION:NOTES:END -->
