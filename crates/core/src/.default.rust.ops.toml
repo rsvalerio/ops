@@ -78,8 +78,25 @@ args = ["clean"]
 help = "Remove build artifacts"
 category = "Build"
 
-# Staged: the steps that rewrite files run alone and in order, then the
-# readers run together:
+# `verify` only checks: every step is a check, so nothing is rewritten and a
+# dirty tree fails instead of being repaired. The same command is therefore
+# safe in CI and on a dev machine. With no exclusive step the whole plan runs
+# as one parallel stage. `verify-check` (TASK-2322) is kept as an alias for
+# callers that name the CI form, such as forge's rust-ci.
+#
+# `check` is deliberately absent — `build --all-targets` subsumes it and clippy
+# type-checks independently, so including it compiled the workspace a third
+# time under a third fingerprint. It remains available as a standalone command.
+[commands.verify]
+commands = ["fmt-check", "trailing-whitespace-check", "end-of-file-fixer-check", "clippy", "build", "check-json", "check-yaml", "doc"]
+aliases = ["verify-check"]
+parallel = true
+fail_fast = true
+help = "Run fmt-check, trailing-whitespace-check, end-of-file-fixer-check, clippy, build, check-json, check-yaml, doc in parallel; fixes nothing in place"
+category = "Code Quality"
+
+# `verify` with the rewriters. Staged: the steps that rewrite files run alone
+# and in order, then the readers run together:
 #
 #   fmt → trailing-whitespace → end-of-file-fixer
 #       → (clippy | build | check-json | check-yaml | doc)
@@ -88,25 +105,11 @@ category = "Build"
 # definitions (`ExecCommandSpec::ops_subcommand`). trailing-whitespace must
 # precede end-of-file-fixer: the EOF fixer strips only newlines, so running it
 # first leaves a double newline where a whitespace-only last line was.
-#
-# `check` is deliberately absent — `build --all-targets` subsumes it and clippy
-# type-checks independently, so including it compiled the workspace a third
-# time under a third fingerprint. It remains available as a standalone command.
-[commands.verify]
+[commands.verify-fix]
 commands = ["fmt", "trailing-whitespace", "end-of-file-fixer", "clippy", "build", "check-json", "check-yaml", "doc"]
 parallel = true
 fail_fast = true
-help = "Run fmt, trailing-whitespace, end-of-file-fixer, then clippy, build, check-json, check-yaml, doc in parallel"
-category = "Code Quality"
-
-# The CI form of `verify` (TASK-2322): every step is a check, so nothing is
-# rewritten and a dirty tree fails instead of being repaired. With no
-# exclusive step the whole plan runs as one parallel stage.
-[commands.verify-check]
-commands = ["fmt-check", "trailing-whitespace-check", "end-of-file-fixer-check", "clippy", "build", "check-json", "check-yaml", "doc"]
-parallel = true
-fail_fast = true
-help = "CI-safe verify: fmt-check, trailing-whitespace-check, end-of-file-fixer-check, clippy, build, check-json, check-yaml, doc in parallel; writes nothing"
+help = "Run fmt, trailing-whitespace, end-of-file-fixer, then clippy, build, check-json, check-yaml, doc in parallel; rewrites files in place"
 category = "Code Quality"
 
 [commands.qa]

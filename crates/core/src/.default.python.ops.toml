@@ -72,11 +72,24 @@ category = "Build"
 # help = "Build sdist and wheel"
 # category = "Build"
 
+# `verify` only checks: a formatter or text fixer that would change a file
+# fails the gate instead of rewriting it, so the same command is safe in CI
+# and on a dev machine. `verify-fix` is the rewriting form. There is no
+# `fmt` step: `lint` already runs its check form (ruff check, black --check).
 [commands.verify]
+commands = ["lint", "type", "trailing-whitespace-check", "end-of-file-fixer-check", "check-json", "check-yaml"]
+parallel = false
+fail_fast = true
+help = "Run lint, type, trailing-whitespace-check, end-of-file-fixer-check, check-json, check-yaml; fixes nothing in place"
+category = "Code Quality"
+
+# `verify` with the rewriters: formats and fixes files in place, then runs
+# the same gates.
+[commands.verify-fix]
 commands = ["fmt", "lint", "type", "trailing-whitespace", "end-of-file-fixer", "check-json", "check-yaml"]
 parallel = false
 fail_fast = true
-help = "Run fmt, lint, type, trailing-whitespace, end-of-file-fixer, check-json, check-yaml"
+help = "Run fmt, lint, type, trailing-whitespace, end-of-file-fixer, check-json, check-yaml; rewrites files in place"
 category = "Code Quality"
 
 [commands.qa]

@@ -284,6 +284,24 @@ impl ExecCommandSpec {
         spec
     }
 
+    /// The `--check` twin of a text fixer: [`Self::ops_subcommand`] with
+    /// `--check`, which fails where the fixer would change a file and never
+    /// writes, so it may overlap other steps (`exclusive = false`).
+    ///
+    /// Shared by the runner builtins and the text-fixers extension, so the
+    /// twin every stack's `verify` names is the same spec wherever it
+    /// resolves (TASK-2322).
+    #[must_use]
+    pub fn ops_subcommand_check(subcommand: &str) -> Self {
+        let mut spec = Self::ops_subcommand(subcommand);
+        spec.args.push("--check".into());
+        spec.exclusive = false;
+        spec.help = Some(format!(
+            "Fail if `{subcommand}` would change a file; never writes"
+        ));
+        spec
+    }
+
     /// Validate fields that would cause confusing errors at execution time.
     ///
     /// ERR-1 (TASK-1445): rejects NUL and other control characters

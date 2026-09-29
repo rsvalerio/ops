@@ -54,7 +54,8 @@ queries work with the stock `sqlite3` CLI. Migration notes:
 - Put tests next to the code they cover with `#[cfg(test)] mod tests` when practical.
 - Add or update tests for new behavior.
 - After changing any `*.rs` file, run `ops verify` and `ops qa`. If those commands
-  report errors or warnings, fix them and rerun the same gate. (`qa` ends with
+  report errors or warnings, fix them and rerun the same gate. `ops verify` only
+  checks; `ops verify-fix` applies formatting and whitespace fixes. (`qa` ends with
   `sec`, which needs the Trivy CLI on `PATH`.)
 - Run `cargo fmt`, `cargo clippy --all-targets --workspace -- -D warnings`, and
   `cargo nextest run --workspace --all-features` (plus `cargo test --workspace

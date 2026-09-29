@@ -42,11 +42,23 @@ args = ["-c", "rm -rf .ansible *.retry"]
 help = "Remove ansible caches"
 category = "Build"
 
+# `verify` only checks: a formatter or text fixer that would change a file
+# fails the gate instead of rewriting it, so the same command is safe in CI
+# and on a dev machine. `verify-fix` is the rewriting form.
 [commands.verify]
+commands = ["lint", "check", "trailing-whitespace-check", "end-of-file-fixer-check", "check-json", "check-yaml"]
+parallel = false
+fail_fast = true
+help = "Run lint, check, trailing-whitespace-check, end-of-file-fixer-check, check-json, check-yaml; fixes nothing in place"
+category = "Code Quality"
+
+# `verify` with the rewriters: formats and fixes files in place, then runs
+# the same gates.
+[commands.verify-fix]
 commands = ["lint", "check", "trailing-whitespace", "end-of-file-fixer", "check-json", "check-yaml"]
 parallel = false
 fail_fast = true
-help = "Run lint, check, trailing-whitespace, end-of-file-fixer, check-json, check-yaml"
+help = "Run lint, check, trailing-whitespace, end-of-file-fixer, check-json, check-yaml; rewrites files in place"
 category = "Code Quality"
 
 [commands.qa]
