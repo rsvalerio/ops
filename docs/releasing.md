@@ -12,7 +12,7 @@ This project uses automated release management with two tools:
 │                              Release Workflow                              │
 ├────────────────────────────────────────────────────────────────────────────┤
 │                                                                            │
-│  1. Feature Branch + PR     2. CI (6 parallel checks)  3. Merge to Main    │
+│  1. Feature Branch + PR     2. CI (parallel checks)    3. Merge to Main    │
 │  ────────────────────────   ──────────────────────────  ─────────────────  │
 │                                                                            │
 │  git checkout -b feat/x     Format ─┐                  PR merged to main   │
@@ -122,20 +122,21 @@ git push -u origin feat/my-feature
 gh pr create
 ```
 
-### 2. CI Status Checks (6 parallel jobs)
+### 2. CI Status Checks
 
-The [CI workflow](../.github/workflows/ci.yml) runs on every PR and produces six status checks. The gates run through `ops` itself: each job builds this checkout's `ops` and puts it on `PATH`, so CI proves the same commands contributors run locally. The `main-protection` ruleset requires **ops verify** and **ops qa**; the job names are those check names, so renaming either job blocks every merge until the ruleset is updated.
+The [CI workflow](../.github/workflows/ci.yml) runs on every PR. The shared gates come from forge's [`rust-ci`](https://github.com/rsvalerio/forge/blob/v1/docs/consuming.md) reusable workflow with `engine: ops`, the same workflow every other Rust repo runs, so CI proves the same `ops` commands contributors run locally. The jobs ops keeps for itself set up through forge's `actions/setup-rust` (or `actions/setup-tools`, for a job that compiles nothing). Either way `ops` is the release forge pins in its `mise.toml`, installed checksum-verified by `actions/setup-ops`; this checkout's own behaviour is covered by its tests. The `main-protection` ruleset requires **rust-ci / ops verify-check** and **ops test**; a reusable workflow's checks are named `<caller job> / <called job>`, so renaming either job blocks every merge until the ruleset is updated.
 
 | Check | Command | Description |
 |-------|---------|-------------|
-| **ops verify** | `ops verify-check`, `ops clippy-default` | The pre-commit gate in check-only form (fmt-check, whitespace and EOF checks, clippy, build, JSON/YAML checks, doc), plus the default-feature clippy sweep |
-| **MSRV** | `ops msrv --install` | Build on the declared `rust-version` |
-| **ops qa** | `ops qa-next`, `ops next-ignored` | The pre-push gate: deps (cargo upgrade, cargo deny, cargo machete), nextest, doctests, trivy scans; then the `#[ignore]` tests |
+| **rust-ci / ops verify-check** | `ops verify-check` | The pre-commit gate in check-only form: fmt-check, whitespace and EOF checks, clippy, build, JSON/YAML checks, doc |
+| **rust-ci / ops deps** | `ops deps --check` | cargo deny and cargo machete, without the upgrade survey |
+| **rust-ci / ops sec** | `ops sec` | Trivy secret and vulnerability scans |
+| **rust-ci / MSRV** | `ops msrv --install` | Build on the declared `rust-version` |
+| **ops clippy-default** | `ops clippy-default` | The default-feature clippy sweep, the `--all-features` gate's blind spot |
+| **ops test** | `ops next`, `ops next-ignored`, `ops test-doc` | nextest with skip_precondition lines surfaced from its JUnit report, then the `#[ignore]` tests and the doctests |
 | **Windows (ops-backlog)** | `cargo check`/`cargo test -p ops-backlog` | Compile and exercise the non-Unix allocation lock |
 | **Miri** | `cargo +nightly miri test` | Miri over the workspace's pure-memory `unsafe` |
 | **Workflow Guard** | `ops lint-actions` | Fail if any action is not SHA-pinned, or any workflow uses `secrets: inherit` |
-
-The QA job installs `cargo-nextest`, `cargo-edit`, `cargo-deny`, `cargo-machete` and `trivy` via [`taiki-e/install-action`](https://github.com/taiki-e/install-action) — the tools `ops explain --json qa-next` lists. `ops` is built from the checkout, never installed from a release.
 
 All third-party actions are pinned to full commit SHAs with a trailing `# vX.Y.Z` comment. The **Workflow Guard** check enforces this, and also rejects `secrets: inherit`.
 

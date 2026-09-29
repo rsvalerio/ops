@@ -22,112 +22,105 @@ env:
   CARGO_TERM_COLOR: always
   RUST_BACKTRACE: 1
   RUSTC_WRAPPER: sccache
+  # The same settings forge's rust-ci gives the jobs it runs, so the ops-specific
+  # jobs below build the way the shared gates do: against the committed
+  # Cargo.lock (ops adds `--locked` to every cargo command that resolves it) and
+  # without incremental compilation, which sccache cannot cache.
+  OPS__CARGO__LOCKED: "true"
+  CARGO_INCREMENTAL: "0"
 
 jobs:
-  # The pre-commit gate, in its CI form. `ops verify` repairs formatting and
-  # whitespace in place and exits 0, which in CI would pass a dirty tree
-  # (TASK-2322); `verify-check` runs the same plan with every step as a check —
-  # fmt-check, trailing-whitespace-check, end-of-file-fixer-check, clippy,
-  # build, check-json, check-yaml, doc — and writes nothing. `build` covers what
-  # the old standalone `cargo check` job did.
-  verify:
-    name: ops verify
+  # TASK-2329: the shared gates come from forge's rust-ci, run through ops, the
+  # same way every other Rust repo runs them, so the tool that defines the gates
+  # proves them in CI. `engine: ops` runs `ops verify-check` (fmt-check, the
+  # whitespace and end-of-file checks, clippy, build, check-json, check-yaml,
+  # doc — all check-only, TASK-2322), `ops deps --check`, `ops sec` and, with
+  # `run-msrv`, `ops msrv --install` (TASK-1669 / TASK-2327: build on the
+  # declared rust-version floor, not on latest stable).
+  #
+  # The gates run through the ops release forge pins in its mise.toml, not
+  # through this checkout's build: CI proves the gates as a consumer sees them,
+  # and this checkout's own behaviour is covered by its tests below.
+  #
+  # `run-tests` is off because ops's test job is ops-specific (see `test`).
+  # forge is referenced by its moving major tag like bump.yml does; the
+  # `[lint_actions]` allow-list in .ops.toml exempts it from SHA pinning.
+  rust-ci:
+    name: rust-ci
+    uses: rsvalerio/forge/.github/workflows/rust-ci.yml@v1
+    with:
+      engine: ops
+      run-tests: false
+      run-msrv: true
+
+  # ARCH-11 / TASK-2053: the `clippy` step in verify-check lints
+  # `--all-features`, so it never compiles a single
+  # `#[cfg(not(feature = ...))]` arm, and a lint that fires only in the
+  # feature-off build is invisible to it. TASK-2027 is the worked example:
+  # two `clippy::missing_const_for_fn` errors sat on the feature-off
+  # `enrich_from_db` stubs in ops-about and only surfaced when someone ran
+  # `cargo clippy -p ops-about`. `clippy-default` (.ops.toml) is the
+  # default-feature half of the matrix, also wired into `run-before-push`.
+  #
+  # Like the jobs below, it sets up through forge's shared actions/setup-rust
+  # (toolchain, sccache, and ops plus tools at forge's mise.toml pins), loaded
+  # from a forge checkout at `.forge` that is kept out of the gate.
+  clippy-default:
+    name: ops clippy-default
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
-      - uses: actions-rust-lang/setup-rust-toolchain@166cdcfd11aee3cb47222f9ddb555ce30ddb9659 # v1.17.0
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
-          components: rustfmt, clippy
-          rustflags: ""
-      - uses: mozilla-actions/sccache-action@7d986dd989559c6ecdb630a3fd2557667be217ad # v0.0.9
-      # Build this checkout's ops once and put it on PATH, so every gate below
-      # runs through the tool that defines it rather than re-spelled cargo
-      # invocations. It is copied out of target/ because the gates rebuild
-      # target/debug/ops while it runs.
-      - name: Build ops
-        run: |
-          cargo build --locked -p ops --all-features
-          install -D target/debug/ops "$RUNNER_TEMP/ops/bin/ops"
-          echo "$RUNNER_TEMP/ops/bin" >> "$GITHUB_PATH"
-      - name: ops verify-check
-        run: ops verify-check
-      # ARCH-11 / TASK-2053: the `clippy` step in verify-check lints
-      # `--all-features`, so it never compiles a single
-      # `#[cfg(not(feature = ...))]` arm, and a lint that fires only in the
-      # feature-off build is invisible to it. TASK-2027 is the worked example:
-      # two `clippy::missing_const_for_fn` errors sat on the feature-off
-      # `enrich_from_db` stubs in ops-about and only surfaced when someone ran
-      # `cargo clippy -p ops-about`. `clippy-default` (.ops.toml) is the
-      # default-feature half of the matrix, also wired into `run-before-push`.
+          persist-credentials: false
+      - name: Check out forge
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          repository: rsvalerio/forge
+          ref: v1
+          path: .forge
+          persist-credentials: false
+      - uses: ./.forge/actions/setup-rust
+        with:
+          components: clippy
+          tools: ops
+      - name: Keep forge out of the gate
+        run: echo '/.forge/' >>.git/info/exclude
       - name: ops clippy-default
         run: ops clippy-default
 
-  # VER (TASK-1669): build on the *declared* floor, not on latest stable.
-  #
-  # Every other job installs the default toolchain, so for a long time
-  # `rust-version` was whatever the last person typed — it said 1.80 while the
-  # tree needed 1.82 and the dependency graph needed 1.88, and nothing noticed
-  # because CI never built on 1.80. `clippy::incompatible_msrv` (configured via
-  # `msrv` in clippy.toml) catches *library* calls above the floor, but it is
-  # blind to language features: the `unsafe extern "C"` blocks that forced 1.82
-  # would not have tripped it. Actually compiling on the floor is the only
-  # check that covers both.
-  #
-  # TASK-2327: the check is the `ops msrv` built-in rather than inline shell.
-  # It reads rust-version from Cargo.toml (never a second hardcoded copy),
-  # fails unless clippy.toml's msrv agrees, installs exactly that toolchain
-  # (--install) and runs `cargo check --workspace --all-features
-  # --all-targets` on it — --all-targets because test_utils.rs is where the
-  # 1.82 `unsafe extern "C"` blocks live. ops itself builds on stable.
-  msrv:
-    name: MSRV
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
-      - uses: actions-rust-lang/setup-rust-toolchain@166cdcfd11aee3cb47222f9ddb555ce30ddb9659 # v1.17.0
-        with:
-          rustflags: ""
-      - uses: mozilla-actions/sccache-action@7d986dd989559c6ecdb630a3fd2557667be217ad # v0.0.9
-      - name: ops msrv --install
-        run: cargo run --locked -p ops -- msrv --install
-
-  # The pre-push gate: `ops qa-next` (alias `qax`) runs deps (cargo upgrade,
-  # cargo deny, cargo machete), next (cargo nextest), test-doc (doctests, which
-  # nextest does not run) and sec (trivy secret and vulnerability scans).
-  qa:
-    name: ops qa
+  # The test leg of the pre-push gate. rust-ci's test job runs `ops next` and
+  # `ops test-doc`; ops also needs its skip_precondition lines surfaced from a
+  # JUnit report and its `#[ignore]` tests run, so it keeps its own job.
+  test:
+    name: ops test
     runs-on: ubuntu-latest
     env:
       CARGO_TERM_VERBOSE: true
       OPS_LOG_LEVEL: debug
     steps:
-      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
-      - uses: actions-rust-lang/setup-rust-toolchain@166cdcfd11aee3cb47222f9ddb555ce30ddb9659 # v1.17.0
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
-          rustflags: ""
-      - uses: mozilla-actions/sccache-action@7d986dd989559c6ecdb630a3fd2557667be217ad # v0.0.9
-      # The tools qa-next needs, as listed by `ops explain --json qa-next`.
-      - name: Install QA tools
-        uses: taiki-e/install-action@82cd3e7658a6f96c86c0234aeeda1748937cb0a1 # v2.85.13
+          persist-credentials: false
+      - name: Check out forge
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
-          tool: cargo-nextest,cargo-edit,cargo-deny,cargo-machete,trivy
-      # Build this checkout's ops once and put it on PATH, so every gate below
-      # runs through the tool that defines it rather than re-spelled cargo
-      # invocations. It is copied out of target/ because the gates rebuild
-      # target/debug/ops while it runs.
-      - name: Build ops
-        run: |
-          cargo build --locked -p ops --all-features
-          install -D target/debug/ops "$RUNNER_TEMP/ops/bin/ops"
-          echo "$RUNNER_TEMP/ops/bin" >> "$GITHUB_PATH"
-      # `NEXTEST_PROFILE=ci` (.config/nextest.toml) makes the `next` step store
+          repository: rsvalerio/forge
+          ref: v1
+          path: .forge
+          persist-credentials: false
+      - uses: ./.forge/actions/setup-rust
+        with:
+          tools: ops, cargo-nextest
+      - name: Keep forge out of the gate
+        run: echo '/.forge/' >>.git/info/exclude
+      # `NEXTEST_PROFILE=ci` (.config/nextest.toml) makes `ops next` store
       # passed tests' captured output in a JUnit report instead of the console.
       # That is the sink the step below reads: skip_precondition lines are
       # captured away by both runners' default output handling, so a
       # passing-but-skipped test is otherwise invisible in a green log
       # (TEST-26 / TASK-2252).
-      - name: ops qa-next
-        run: ops qa-next
+      - name: ops next
+        run: ops next
         env:
           NEXTEST_PROFILE: ci
       # TEST-26 / TASK-2252: surface `skip: …` lines from the JUnit report.
@@ -154,11 +147,14 @@ jobs:
           else
             echo "No skip_precondition lines: every guard that tripped also ran its assertions."
           fi
-      # qa-next's `next` step skips `#[ignore]` tests; CI has always run them
-      # too. Run after the surfacing step, on the default profile, so it does
-      # not overwrite the report read above.
+      # `ops next` skips `#[ignore]` tests; CI has always run them too. Run
+      # after the surfacing step, on the default profile, so it does not
+      # overwrite the report read above.
       - name: ops next-ignored
         run: ops next-ignored
+      # Doctests, which nextest does not run.
+      - name: ops test-doc
+        run: ops test-doc
 
   # TASK-2294: `Store::lock_allocation` has a `#[cfg(not(unix))]` branch (a
   # persistent `.allocation.lock` file instead of a lock on the `tasks/`
@@ -261,14 +257,27 @@ jobs:
   # decision, see bump.yml) are exempt. The allow-list lives under
   # `[lint_actions]` in .ops.toml (TASK-2337), so a local `ops lint-actions`
   # applies the same exemptions as this job.
+  #
+  # ops comes from forge's actions/setup-tools at the mise.toml pin; the check
+  # compiles nothing, so the job installs no toolchain.
   workflow-guard:
     name: Workflow Guard
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
-      - uses: actions-rust-lang/setup-rust-toolchain@166cdcfd11aee3cb47222f9ddb555ce30ddb9659 # v1.17.0
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
-          rustflags: ""
-      - uses: mozilla-actions/sccache-action@7d986dd989559c6ecdb630a3fd2557667be217ad # v0.0.9
+          persist-credentials: false
+      - name: Check out forge
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          repository: rsvalerio/forge
+          ref: v1
+          path: .forge
+          persist-credentials: false
+      - uses: ./.forge/actions/setup-tools
+        with:
+          tools: ops
+      - name: Keep forge out of the gate
+        run: echo '/.forge/' >>.git/info/exclude
       - name: ops lint-actions
-        run: cargo run --locked -p ops -- lint-actions
+        run: ops lint-actions
