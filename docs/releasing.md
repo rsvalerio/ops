@@ -124,11 +124,10 @@ gh pr create
 
 ### 2. CI Status Checks
 
-The [CI workflow](../.github/workflows/ci.yml) runs on every PR. The shared gates come from forge's [`rust-ci`](https://github.com/rsvalerio/forge/blob/v1/docs/consuming.md) reusable workflow with `engine: ops`, the same workflow every other Rust repo runs, so CI proves the same `ops` commands contributors run locally. The jobs ops keeps for itself set up through forge's `actions/setup-rust` (or `actions/setup-tools`, for a job that compiles nothing). Either way `ops` is the release forge pins in its `mise.toml`, installed checksum-verified by `actions/setup-ops`; this checkout's own behaviour is covered by its tests. The `main-protection` ruleset requires **ops verify** and **ops qa**. A reusable workflow's checks are named `<caller job> / <called job>`, so no rust-ci job can carry those names; instead two gate jobs pass only when the jobs they gather all succeeded. Renaming either gate blocks every merge until the ruleset is updated.
+The [CI workflow](../.github/workflows/ci.yml) runs on every PR. The shared gates come from forge's [`rust-ci`](https://github.com/rsvalerio/forge/blob/v1/docs/consuming.md) reusable workflow with `engine: ops`, the same workflow every other Rust repo runs, so CI proves the same `ops` commands contributors run locally. The jobs ops keeps for itself set up through forge's `actions/setup-rust` (or `actions/setup-tools`, for a job that compiles nothing). Either way `ops` is the release forge pins in its `mise.toml`, installed checksum-verified by `actions/setup-ops`; this checkout's own behaviour is covered by its tests. The `main-protection` ruleset requires **rust-ci / ops verify-check**, **ops clippy-default** and **ops qa**. A reusable workflow's checks are named `<caller job> / <called job>`, so no rust-ci job can carry the name `ops qa`; it is a gate job that passes only when the jobs it gathers all succeeded. Renaming any required job blocks every merge until the ruleset is updated.
 
 | Check | Command | Description |
 |-------|---------|-------------|
-| **ops verify** | — | Required gate: passes only if rust-ci and **ops clippy-default** succeeded |
 | **ops qa** | — | Required gate: passes only if rust-ci and **ops test** succeeded |
 | **rust-ci / ops verify-check** | `ops verify-check` | The pre-commit gate in check-only form: fmt-check, whitespace and EOF checks, clippy, build, JSON/YAML checks, doc |
 | **rust-ci / ops deps** | `ops deps --check` | cargo deny and cargo machete, without the upgrade survey |

@@ -155,30 +155,16 @@ jobs:
       - name: ops test-doc
         run: ops test-doc
 
-  # The two checks the `main-protection` ruleset requires, under the names it
-  # has always required. A reusable workflow's checks are named
-  # `<caller job> / <called job>`, so no rust-ci job can carry them; these
-  # jobs gather the gates instead. `ops verify` stands for the static gates
-  # (verify-check in rust-ci, clippy-default) and `ops qa` for the deps, sec
-  # and test legs, as before the move to rust-ci. Both wait on the whole
-  # rust-ci call, because `needs:` cannot name one job inside it.
+  # `ops qa` is a check the `main-protection` ruleset requires. A reusable
+  # workflow's checks are named `<caller job> / <called job>`, so no rust-ci
+  # job can carry that name; this job gathers the deps, sec and test legs
+  # instead, as before the move to rust-ci. It waits on the whole rust-ci
+  # call, because `needs:` cannot name one job inside it. The static gates are
+  # required by their own names (`rust-ci / ops verify-check`,
+  # `ops clippy-default`).
   #
   # `if: always()` matters: without it a failed dependency *skips* the gate,
   # and a skipped required check counts as passing.
-  ops-verify:
-    name: ops verify
-    if: always()
-    needs: [rust-ci, clippy-default]
-    runs-on: ubuntu-latest
-    steps:
-      - name: Require every static gate to pass
-        env:
-          NEEDS: ${{ toJSON(needs) }}
-        run: |
-          set -euo pipefail
-          jq -r 'to_entries[] | "\(.key): \(.value.result)"' <<<"$NEEDS"
-          jq -e 'all(.[]; .result == "success")' <<<"$NEEDS" >/dev/null
-
   ops-qa:
     name: ops qa
     if: always()
