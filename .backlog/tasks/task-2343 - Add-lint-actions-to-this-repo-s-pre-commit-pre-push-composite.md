@@ -4,7 +4,7 @@ title: 'Add lint-actions to this repo''s pre-commit/pre-push composite'
 status: In Progress
 assignee: []
 created_date: '2026-09-28 16:56'
-updated_date: '2026-09-29 16:10'
+updated_date: '2026-09-29 17:14'
 labels:
   - code-review-rust
   - ci
@@ -37,4 +37,7 @@ ordinal: 1000
 
 <!-- SECTION:NOTES:BEGIN -->
 lint-actions appended to run-before-commit in .ops.toml (it compiles nothing and runs in ms, so commit time rather than pre-push). ops --dry-run run-before-commit shows it as the last step; ops lint-actions passes on the tree.
+
+ops side in rsvalerio/ops#81.
+
 <!-- SECTION:NOTES:END -->

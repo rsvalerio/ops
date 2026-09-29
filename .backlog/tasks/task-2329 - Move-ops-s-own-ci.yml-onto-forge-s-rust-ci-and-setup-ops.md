@@ -4,7 +4,7 @@ title: 'Move ops''s own ci.yml onto forge''s rust-ci and setup-ops'
 status: In Progress
 assignee: []
 created_date: '2026-09-28 10:59'
-updated_date: '2026-09-29 16:08'
+updated_date: '2026-09-29 17:14'
 labels:
   - ci
   - ops-alignment
@@ -35,4 +35,7 @@ dedup_key: 'ops-align:ops-dogfood-ci'
 
 <!-- SECTION:NOTES:BEGIN -->
 ci.yml now calls forge rust-ci@v1 with engine: ops (verify-check, deps --check, sec, run-msrv) and keeps only ops-specific jobs: clippy-default, test (next under NEXTEST_PROFILE=ci + skip surfacing + next-ignored + test-doc), windows-backlog, miri, workflow-guard. The kept jobs set up via forge actions/setup-rust / setup-tools (ops at forge's mise.toml pin, via setup-ops) instead of building this checkout's ops. docs/releasing.md check table updated. Before merge: the main-protection ruleset requires 'ops verify' and 'ops qa', which no longer exist; replace them with 'rust-ci / ops verify-check' and 'ops test'. Close once the PR's CI is green.
+
+ops side in rsvalerio/ops#81.
+
 <!-- SECTION:NOTES:END -->
