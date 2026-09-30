@@ -1,6 +1,9 @@
 //! `ops lint-actions`: the GitHub workflow supply-chain policy (TASK-2328).
 //!
-//! Two rules over every `.github/workflows/*.yml` / `*.yaml`:
+//! Two rules over every `.github/workflows/*.yml` / `*.yaml` and every
+//! composite action manifest (`action.yml` / `action.yaml` at the root, or one
+//! directory deep under `.github/actions/` or `actions/`), whose steps pin
+//! third-party actions the same way:
 //!
 //! - every `uses:` is pinned to a full 40-hex commit SHA with a trailing
 //!   `# vX.Y.Z` comment naming the version. A tag is repointable by its
@@ -13,8 +16,8 @@
 //!
 //! The scan is line-based, like the grep guard it replaces: a `uses:` key
 //! written inside a `run: |` block would be read as a reference too.
-//! Symlinked workflow files are skipped — the scan never follows a link out
-//! of the workspace.
+//! Symlinked files and directories are skipped — the scan never follows a
+//! link out of the workspace.
 
 use std::io::Write;
 use std::path::{Path, PathBuf};
@@ -24,6 +27,14 @@ use anyhow::Context;
 
 const WORKFLOWS_DIR: &str = ".github/workflows";
 
+/// Directories whose immediate subdirectories may each hold a composite
+/// action manifest: the local-action convention and the layout of repos that
+/// publish several actions (forge's `actions/<name>/action.yml`).
+const ACTION_DIRS: [&str; 2] = [".github/actions", "actions"];
+
+/// A composite action's manifest file names.
+const ACTION_MANIFESTS: [&str; 2] = ["action.yml", "action.yaml"];
+
 /// One policy violation: 1-based line and what is wrong.
 #[derive(Debug, PartialEq, Eq)]
 struct Finding {
@@ -31,17 +42,22 @@ struct Finding {
     message: String,
 }
 
-/// `ops lint-actions`: lint every workflow under `root`, print one
+/// `ops lint-actions`: lint every workflow and composite action manifest
+/// under `root`, print one
 /// `path:line: message` per violation, and fail when there is any.
 ///
 /// # Errors
 ///
 /// The workflows directory or a workflow file cannot be read.
 pub fn run_lint_actions(root: &Path, allow: &[String]) -> anyhow::Result<ExitCode> {
-    let files = workflow_files(&root.join(WORKFLOWS_DIR))?;
+    let mut files = workflow_files(&root.join(WORKFLOWS_DIR))?;
+    files.extend(action_files(root)?);
     let mut out = std::io::stdout().lock();
     if files.is_empty() {
-        writeln!(out, "no workflows under {WORKFLOWS_DIR}; nothing to lint")?;
+        writeln!(
+            out,
+            "no workflows under {WORKFLOWS_DIR} and no composite actions; nothing to lint"
+        )?;
         return Ok(ExitCode::SUCCESS);
     }
     let mut count = 0usize;
@@ -61,7 +77,7 @@ pub fn run_lint_actions(root: &Path, allow: &[String]) -> anyhow::Result<ExitCod
     if count == 0 {
         writeln!(
             out,
-            "{} workflow file(s): every action is SHA-pinned and no job uses `secrets: inherit`",
+            "{} workflow/action file(s): every action is SHA-pinned and no job uses `secrets: inherit`",
             files.len()
         )?;
         Ok(ExitCode::SUCCESS)
@@ -98,7 +114,51 @@ fn workflow_files(dir: &Path) -> anyhow::Result<Vec<PathBuf>> {
     Ok(files)
 }
 
-/// Every violation in one workflow's text.
+/// Composite action manifests: `action.yml` / `action.yaml` at `root`, and in
+/// each immediate subdirectory of the [`ACTION_DIRS`], sorted. Missing
+/// directories contribute nothing; symlinked directories and manifests are
+/// skipped.
+fn action_files(root: &Path) -> anyhow::Result<Vec<PathBuf>> {
+    let mut files = manifests_in(root)?;
+    for dir in ACTION_DIRS.map(|d| root.join(d)) {
+        if !is_real(&dir, std::fs::FileType::is_dir)? {
+            continue;
+        }
+        let entries =
+            std::fs::read_dir(&dir).with_context(|| format!("reading {}", dir.display()))?;
+        for entry in entries {
+            let entry = entry.with_context(|| format!("reading {}", dir.display()))?;
+            // `DirEntry::file_type` does not follow symlinks.
+            if entry.file_type()?.is_dir() {
+                files.extend(manifests_in(&entry.path())?);
+            }
+        }
+    }
+    files.sort();
+    Ok(files)
+}
+
+/// The composite action manifests directly in `dir` that are regular files.
+fn manifests_in(dir: &Path) -> anyhow::Result<Vec<PathBuf>> {
+    let mut files = Vec::new();
+    for path in ACTION_MANIFESTS.map(|name| dir.join(name)) {
+        if is_real(&path, std::fs::FileType::is_file)? {
+            files.push(path);
+        }
+    }
+    Ok(files)
+}
+
+/// Whether `path` exists, is not a symlink, and its type passes `kind`.
+fn is_real(path: &Path, kind: fn(&std::fs::FileType) -> bool) -> anyhow::Result<bool> {
+    match std::fs::symlink_metadata(path) {
+        Ok(meta) => Ok(kind(&meta.file_type())),
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(false),
+        Err(e) => Err(e).with_context(|| format!("reading {}", path.display())),
+    }
+}
+
+/// Every violation in one workflow's or action manifest's text.
 fn lint(text: &str, allow: &[String]) -> Vec<Finding> {
     let mut findings = Vec::new();
     for (index, line) in text.lines().enumerate() {
@@ -283,6 +343,64 @@ mod tests {
             .map(|p| p.file_name().unwrap().to_string_lossy().into_owned())
             .collect();
         assert_eq!(names, ["a.yml", "b.yaml"]);
+    }
+
+    #[test]
+    fn finds_composite_action_manifests_without_following_links() {
+        let dir = tempfile::tempdir().unwrap();
+        let root = dir.path();
+        assert!(action_files(root).unwrap().is_empty());
+        std::fs::write(root.join("action.yml"), "").unwrap();
+        for sub in [
+            ".github/actions/local",
+            "actions/published",
+            "actions/empty",
+        ] {
+            std::fs::create_dir_all(root.join(sub)).unwrap();
+        }
+        std::fs::write(root.join(".github/actions/local/action.yaml"), "").unwrap();
+        std::fs::write(root.join("actions/published/action.yml"), "").unwrap();
+        std::fs::write(root.join("actions/published/notes.yml"), "").unwrap();
+        // Two levels deep is not a manifest location.
+        std::fs::create_dir_all(root.join("actions/published/nested")).unwrap();
+        std::fs::write(root.join("actions/published/nested/action.yml"), "").unwrap();
+        #[cfg(unix)]
+        {
+            let outside = tempfile::tempdir().unwrap();
+            std::fs::write(outside.path().join("action.yml"), "").unwrap();
+            std::os::unix::fs::symlink(outside.path(), root.join("actions/linked")).unwrap();
+            std::fs::create_dir_all(root.join("actions/file-link")).unwrap();
+            std::os::unix::fs::symlink(
+                outside.path().join("action.yml"),
+                root.join("actions/file-link/action.yml"),
+            )
+            .unwrap();
+        }
+        let found: Vec<String> = action_files(root)
+            .unwrap()
+            .iter()
+            .map(|p| p.strip_prefix(root).unwrap().display().to_string())
+            .collect();
+        assert_eq!(
+            found,
+            [
+                ".github/actions/local/action.yaml",
+                "action.yml",
+                "actions/published/action.yml",
+            ]
+        );
+    }
+
+    #[test]
+    fn run_fails_on_an_unpinned_composite_action() {
+        let dir = tempfile::tempdir().unwrap();
+        let action = dir.path().join("actions/setup");
+        std::fs::create_dir_all(&action).unwrap();
+        std::fs::write(action.join("action.yml"), "    - uses: a/b@v1\n").unwrap();
+        assert_eq!(
+            run_lint_actions(dir.path(), &[]).unwrap(),
+            ExitCode::FAILURE
+        );
     }
 
     #[test]

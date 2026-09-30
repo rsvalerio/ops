@@ -325,7 +325,9 @@ pub enum CoreSubcommand {
     },
     /// Lint GitHub workflows: full-SHA action pins, no `secrets: inherit`.
     ///
-    /// Every `uses:` under `.github/workflows/` must be pinned to a 40-hex
+    /// Every `uses:` under `.github/workflows/` and in composite action
+    /// manifests (`action.yml` at the root, or one directory deep under
+    /// `.github/actions/` or `actions/`) must be pinned to a 40-hex
     /// commit SHA with a trailing `# vX.Y.Z` comment (`docker://` images to
     /// an `@sha256:` digest), and no job may forward every secret with
     /// `secrets: inherit`. Local references (`./…`), the prefixes listed

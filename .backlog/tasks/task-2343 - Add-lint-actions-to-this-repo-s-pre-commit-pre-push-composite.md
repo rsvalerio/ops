@@ -1,9 +1,10 @@
 ---
 id: TASK-2343
 title: 'Add lint-actions to this repo''s pre-commit/pre-push composite'
-status: Triage
+status: In Progress
 assignee: []
 created_date: '2026-09-28 16:56'
+updated_date: '2026-09-29 17:14'
 labels:
   - code-review-rust
   - ci
@@ -28,5 +29,15 @@ ordinal: 1000
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 lint-actions runs in a local composite (run-before-commit or run-before-push), or a note records why it stays CI-only
+- [x] #1 lint-actions runs in a local composite (run-before-commit or run-before-push), or a note records why it stays CI-only
+
 <!-- AC:END -->
+
+## Implementation Notes
+
+<!-- SECTION:NOTES:BEGIN -->
+lint-actions appended to run-before-commit in .ops.toml (it compiles nothing and runs in ms, so commit time rather than pre-push). ops --dry-run run-before-commit shows it as the last step; ops lint-actions passes on the tree.
+
+ops side in rsvalerio/ops#81.
+
+<!-- SECTION:NOTES:END -->
