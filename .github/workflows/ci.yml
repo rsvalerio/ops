@@ -32,15 +32,17 @@ jobs:
   # proves them in CI. It runs exactly the two gates a developer runs, one job
   # each: `ops verify` (fmt-check, the whitespace and end-of-file checks,
   # clippy, build, check-json, check-yaml, doc — all check-only, TASK-2322) and
-  # `ops qa` (deps, tests, doctests, sec), as this repo's .ops.toml defines
-  # them; and, with `run-msrv`, `ops msrv --install` (TASK-1669 / TASK-2327:
-  # build on the declared rust-version floor, not on latest stable). The
-  # `main-protection` ruleset requires `rust-ci / verify` and `rust-ci / qa`.
+  # `ops qa` as this repo's .ops.toml defines it (deps, nextest, doctests, sec,
+  # the TEST-26 skip report, the `#[ignore]` tests and the default-feature
+  # clippy: the same gate run-before-push runs). With `run-msrv` it adds
+  # `ops msrv --install` (TASK-1669 / TASK-2327: build on the declared
+  # rust-version floor, not on latest stable). The `main-protection` ruleset
+  # requires `rust-ci / verify` and `rust-ci / qa`.
   #
   # The gates run through the ops release this repo's mise.toml pins, installed
   # by rust-ci with jdx/mise-action, not through this checkout's build: CI
   # proves the gates as a consumer sees them, and this checkout's own behaviour
-  # is covered by its tests below.
+  # is covered by the test suite `ops qa` runs.
   #
   # forge is referenced by its moving major tag like bump.yml does; the
   # `[lint_actions]` allow-list in .ops.toml exempts it from SHA pinning.
@@ -49,92 +51,6 @@ jobs:
     uses: rsvalerio/forge/.github/workflows/rust-ci.yml@feat/rust-ci-verify-qa # TEMP: back to @v1 once forge v0.7.0 moves v1, before merging
     with:
       run-msrv: true
-
-  # ARCH-11 / TASK-2053: the `clippy` step in `ops verify` lints
-  # `--all-features`, so it never compiles a single
-  # `#[cfg(not(feature = ...))]` arm, and a lint that fires only in the
-  # feature-off build is invisible to it. TASK-2027 is the worked example:
-  # two `clippy::missing_const_for_fn` errors sat on the feature-off
-  # `enrich_from_db` stubs in ops-about and only surfaced when someone ran
-  # `cargo clippy -p ops-about`. `clippy-default` (.ops.toml) is the
-  # default-feature half of the matrix, also wired into `run-before-push`.
-  #
-  # Like the jobs below, it sets up the way forge's rust-ci does: jdx/mise-action
-  # installs this repo's mise.toml (toolchain, ops and the gate tools), and
-  # Swatinem/rust-cache caches target/.
-  clippy-default:
-    name: ops clippy-default
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-        with:
-          persist-credentials: false
-      - uses: jdx/mise-action@c2a87611a18de5b3828c5652fe268e992400cb5c # v4.3.0
-        with:
-          version: 2026.9.14
-      - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
-      - name: ops clippy-default
-        run: ops clippy-default
-
-  # The test leg of the pre-push gate. rust-ci's test job runs `ops next` and
-  # `ops test-doc`; ops also needs its skip_precondition lines surfaced from a
-  # JUnit report and its `#[ignore]` tests run, so it keeps its own job.
-  test:
-    name: ops test
-    runs-on: ubuntu-latest
-    env:
-      CARGO_TERM_VERBOSE: true
-      OPS_LOG_LEVEL: debug
-    steps:
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-        with:
-          persist-credentials: false
-      - uses: jdx/mise-action@c2a87611a18de5b3828c5652fe268e992400cb5c # v4.3.0
-        with:
-          version: 2026.9.14
-      - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
-      # `NEXTEST_PROFILE=ci` (.config/nextest.toml) makes `ops next` store
-      # passed tests' captured output in a JUnit report instead of the console.
-      # That is the sink the step below reads: skip_precondition lines are
-      # captured away by both runners' default output handling, so a
-      # passing-but-skipped test is otherwise invisible in a green log
-      # (TEST-26 / TASK-2252).
-      - name: ops next
-        run: ops next
-        env:
-          NEXTEST_PROFILE: ci
-      # TEST-26 / TASK-2252: surface `skip: …` lines from the JUnit report.
-      # Skips are a warning, not a failure — the guards that emit them exist
-      # precisely so environments lacking a capability can still run the
-      # suite — but the log must never show an unexplained green where
-      # assertions did not run. Only lines carrying the `skip:` marker are
-      # printed, so no whole-suite success-output noise comes with them.
-      - name: Surface skip_precondition lines (TEST-26)
-        run: |
-          set -euo pipefail
-          report=target/nextest/ci/junit.xml
-          # A missing report must fail the step: the `|| true` below would
-          # otherwise print "No skip_precondition lines" and succeed — the
-          # exact unexplained green this step exists to prevent.
-          if [ ! -f "$report" ]; then
-            echo "::error::JUnit report not found at $report — skip surfacing could not inspect test output (TEST-26 / TASK-2252)"
-            exit 1
-          fi
-          count=$(grep -o 'skip: [^<]*' "$report" | wc -l || true)
-          if [ "$count" -gt 0 ]; then
-            echo "::warning::$count skip_precondition line(s) were printed by passing tests — the assertions behind them did not run"
-            grep -o 'skip: [^<]*' "$report" | sort | uniq -c
-          else
-            echo "No skip_precondition lines: every guard that tripped also ran its assertions."
-          fi
-      # `ops next` skips `#[ignore]` tests; CI has always run them too. Run
-      # after the surfacing step, on the default profile, so it does not
-      # overwrite the report read above.
-      - name: ops next-ignored
-        run: ops next-ignored
-      # Doctests, which nextest does not run.
-      - name: ops test-doc
-        run: ops test-doc
 
   # TASK-2294: `Store::lock_allocation` has a `#[cfg(not(unix))]` branch (a
   # persistent `.allocation.lock` file instead of a lock on the `tasks/`

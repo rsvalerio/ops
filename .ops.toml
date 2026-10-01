@@ -38,7 +38,25 @@ commands = ["verify-fix","end-of-file-fixer","trailing-whitespace","lint-actions
 fail_fast = true
 help = "Run run-before-commit checks before committing"
 
+# The full gate, identical locally and in CI: forge's rust-ci runs `ops qa` as
+# its qa job, and run-before-push runs exactly `qa`. On top of the built-in qa's
+# deps, tests, doctests and sec, it uses nextest (`qax`), reports skipped
+# preconditions (TEST-26), runs the `#[ignore]` tests, and lints the
+# default-feature build (`clippy-default`).
+[commands.qa]
+commands = ["qax","skip-report","next-ignored","clippy-default"]
+fail_fast = true
+help = "Run the full gate: deps, tests, doctests, sec, ignored tests, default-feature clippy"
+
+# TEST-26 / TASK-2252: `skip_precondition` prints `skip: …` when a test bails on
+# an unmet precondition, but nextest captures passing tests' output, so a green
+# run hides it. See scripts/skip-report.sh.
+[commands.skip-report]
+program = "scripts/skip-report.sh"
+help = "Print the skip_precondition lines of the last ops next run (TEST-26)"
+category = "Testing"
+
 [commands.run-before-push]
-commands = ["qax","clippy-default"]
+commands = ["qa"]
 fail_fast = true
 help = "Run run-before-push checks before pushing"
