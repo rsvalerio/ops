@@ -48,7 +48,7 @@ jobs:
   # `[lint_actions]` allow-list in .ops.toml exempts it from SHA pinning.
   rust-ci:
     name: rust-ci
-    uses: rsvalerio/forge/.github/workflows/rust-ci.yml@feat/rust-ci-verify-qa # TEMP: back to @v1 once forge v0.7.0 moves v1, before merging
+    uses: rsvalerio/forge/.github/workflows/rust-ci.yml@v1
     with:
       run-msrv: true
 
