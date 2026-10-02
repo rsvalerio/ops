@@ -371,7 +371,12 @@ fn sync_parent_dir(parent: &Path) {
             "no portable directory fsync on this platform; rename may not survive a power loss"
         );
     }
-    #[cfg(unix)]
+    // Miri cannot open a directory (nightly 2026-10-01 aborts with "opening
+    // directories is not supported"), and a directory fsync has no memory
+    // safety to check, so the Miri job's atomic_write tests skip it.
+    #[cfg(all(unix, miri))]
+    let _ = parent;
+    #[cfg(all(unix, not(miri)))]
     match std::fs::File::open(parent) {
         Ok(dir) => {
             if let Err(e) = dir.sync_all() {
@@ -843,6 +848,10 @@ mod tests {
     /// `.ops.toml` write path (which IS a bare filename).
     #[test]
     #[serial_test::serial]
+    #[cfg_attr(
+        miri,
+        ignore = "Miri cannot open a directory, which is what this asserts"
+    )]
     fn atomic_write_bare_filename_fsyncs_cwd_parent() {
         let dir = tempfile::tempdir().unwrap();
         let saved_cwd = std::env::current_dir().unwrap();
