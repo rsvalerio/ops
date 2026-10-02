@@ -1,10 +1,10 @@
 ---
 id: TASK-2344
 title: 'Scaffold and drift-check mise.toml from the Rust foundation templates'
-status: To Do
+status: Done
 assignee: []
 created_date: '2026-09-29 18:03'
-updated_date: '2026-10-02 20:37'
+updated_date: '2026-10-02 20:46'
 labels:
   - foundation
 dependencies: []
@@ -29,11 +29,11 @@ Add a mise.toml template to extensions-rust/foundation/templates/ carrying the g
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 The template ships in ops and ops init --rust writes mise.toml when missing
-- [ ] #2 ops init --rust --check reports a drifted or missing tool pin and honours [foundation.waivers]
-- [ ] #3 ops's own mise.toml matches the template
-- [ ] #4 ops docs/foundation.md lists the file
-- [ ] #5 The template pins rust (with rustfmt,clippy components) and ops at or above 0.77.0, the first check-only verify (forge rust-ci relies on callers pinning it)
+- [x] #1 The template ships in ops and ops init --rust writes mise.toml when missing
+- [x] #2 ops init --rust --check reports a drifted or missing tool pin and honours [foundation.waivers]
+- [x] #3 ops's own mise.toml matches the template
+- [x] #4 ops docs/foundation.md lists the file
+- [x] #5 The template pins rust (with rustfmt,clippy components) and ops at or above 0.77.0, the first check-only verify (forge rust-ci relies on callers pinning it)
 
 <!-- AC:END -->
 
@@ -41,4 +41,7 @@ Add a mise.toml template to extensions-rust/foundation/templates/ carrying the g
 
 <!-- SECTION:NOTES:BEGIN -->
 2026-09-29: forge rust-ci now installs from the caller's mise.toml (forge #21), so this template is what keeps callers' CI pins current.
+
+2026-10-02 (wave39): mise.toml template added (extensions-rust/foundation/templates/mise.toml, FILES entry in lib.rs); scaffold writes it when missing, check compares it exactly per key so a pinned tool must keep its version, added tools pass, waivers apply at mise.toml:tools.<tool>. cargo-llvm-cov pinned at 0.9.1 (latest aqua release; forge pins none). ops's mise.toml gained that pin; tests.rs asserts it matches the template. Docs: foundation.md table + check bullet, commands.md, init --rust help.
+
 <!-- SECTION:NOTES:END -->

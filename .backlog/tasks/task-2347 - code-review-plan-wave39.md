@@ -1,10 +1,10 @@
 ---
 id: TASK-2347
 title: 'code-review-plan-wave39'
-status: To Do
+status: In Progress
 assignee: []
 created_date: '2026-10-02 20:37'
-updated_date: '2026-10-02 20:37'
+updated_date: '2026-10-02 20:47'
 labels:
   - code-review-wave
 dependencies:
@@ -40,4 +40,11 @@ Rationale: ship mise.toml as a Rust foundation template so ops init --rust write
 
 <!-- SECTION:NOTES:BEGIN -->
 Overlaps: none
+
+Branch: code-review/TASK-2347
+Worktree: /home/rsvalerio/projects/.wave-TASK-2347
+
+Parked: TASK-2344 Done; branch code-review/TASK-2347 (6618d870, on top of code-review/run-20261002 at b4052d77; pre-merge and integration ops verify clean) is ready to land. Not merged: the runner's harness worktree-isolation guard refused every VCS command aimed at the main checkout, so the fast-forward could not run. Resume: under the code-review-merge lock, rebase the wave branch on the landing branch, run ops verify in ../.wave-TASK-2347, fast-forward the landing branch to code-review/TASK-2347, then close the wave and tear down.
+Resume from branch code-review/TASK-2347, worktree /home/rsvalerio/projects/.wave-TASK-2347
+
 <!-- SECTION:NOTES:END -->
