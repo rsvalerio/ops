@@ -2,6 +2,37 @@
 All notable changes to this project will be documented in this file. See [conventional commits](https://www.conventionalcommits.org/) for commit guidelines.
 
 - - -
+## [v0.79.0](https://github.com/rsvalerio/ops/compare/ac22c58da85192ea6ab5409283851519595bf38f..v0.79.0) - 2026-10-02
+#### 🚀 Features
+- (**init**) scaffold and drift-check mise.toml from the Rust foundation - ([4aecb02](https://github.com/rsvalerio/ops/commit/4aecb0230669db3e025723cd63021959fef8e9ae)) - [@rsvalerio](https://github.com/rsvalerio), Claude Opus 5.5 (1M context)
+#### 🐛 Bug Fixes
+- (**deps**) decode cargo-deny license-not-encountered warnings - ([a176ac8](https://github.com/rsvalerio/ops/commit/a176ac8e438b75ac7f7014d4079806b73d54052b)) - [@rsvalerio](https://github.com/rsvalerio), Claude Opus 5.5 (1M context)
+#### 🧪 Testing
+- (**core**) keep directory opens out of Miri's atomic_write run - ([41021ab](https://github.com/rsvalerio/ops/commit/41021abf6c59f89ccd56640fe397707b8b9c9f84)) - [@rsvalerio](https://github.com/rsvalerio), Claude Opus 5.5 (1M context)
+#### 🔄 CI/CD
+- call forge rust-ci at v1 now that v0.7.0 is released - ([7789052](https://github.com/rsvalerio/ops/commit/77890525280c69000756928949181998679aa8f3)) - [@rsvalerio](https://github.com/rsvalerio), Claude Opus 5.5 (1M context)
+- make `ops qa` the pre-push gate and run only it in CI - ([494e798](https://github.com/rsvalerio/ops/commit/494e798dbca47e2d66a776aa4c8bd6e165fb2e2e)) - [@rsvalerio](https://github.com/rsvalerio), Claude Opus 5.5 (1M context)
+- require rust-ci's verify and qa, drop the ops qa roll-up - ([4515508](https://github.com/rsvalerio/ops/commit/451550836703bb9397afc126d9339a6cec62f8f0)) - [@rsvalerio](https://github.com/rsvalerio), Claude Opus 5.5 (1M context)
+- install tools from mise.toml, as forge's rust-ci now does - ([ac22c58](https://github.com/rsvalerio/ops/commit/ac22c58da85192ea6ab5409283851519595bf38f)) - [@rsvalerio](https://github.com/rsvalerio), Claude Opus 5.5 (1M context)
+#### ⚙️ Miscellaneous
+- (**backlog**) close code-review wave 39 - ([8c488fc](https://github.com/rsvalerio/ops/commit/8c488fc30488d61348dca2bd1e4b2ad2d55ae8d9)) - [@rsvalerio](https://github.com/rsvalerio), Claude Opus 5.5 (1M context)
+- (**backlog**) close code-review wave 40 - ([1887e4a](https://github.com/rsvalerio/ops/commit/1887e4aa9156c189ca020261a6c6d847e64e6129)) - [@rsvalerio](https://github.com/rsvalerio)
+- (**backlog**) park code-review wave 39 - ([bd2ea25](https://github.com/rsvalerio/ops/commit/bd2ea25d72fa386e8c2b494ad43edd381742940c)) - [@rsvalerio](https://github.com/rsvalerio)
+- (**backlog**) triage waves 39 and 40, close TASK-2345 - ([b4052d7](https://github.com/rsvalerio/ops/commit/b4052d7793aa4e15a1c3dbc716657483e72c8bff)) - [@rsvalerio](https://github.com/rsvalerio), Claude Opus 5.5 (1M context)
+- (**backlog**) file ops deps license-not-encountered decoding bug - ([3b31a3c](https://github.com/rsvalerio/ops/commit/3b31a3c01125c80c302cf685ce329ad44b9837a2)) - [@rsvalerio](https://github.com/rsvalerio), Claude Opus 5.5 (1M context)
+- (**backlog**) note rust-ci's renamed checks and dropped ops floor guard - ([07ffef1](https://github.com/rsvalerio/ops/commit/07ffef1e40081fb315676658bf3f45466520f4b4)) - [@rsvalerio](https://github.com/rsvalerio), Claude Opus 5.5 (1M context)
+- (**backlog**) note forge rust-ci's move to the caller's mise.toml - ([0e98e84](https://github.com/rsvalerio/ops/commit/0e98e84019d7b2c0970e2cc33dfb18a636e0c3dc)) - [@rsvalerio](https://github.com/rsvalerio), Claude Opus 5.5 (1M context)
+- (**backlog**) file the rust-ci engine-input removal task - ([858075c](https://github.com/rsvalerio/ops/commit/858075c9871278d4f732997d656b761f05a3e6e5)) - [@rsvalerio](https://github.com/rsvalerio), Claude Opus 5.5 (1M context)
+- (**backlog**) file the mise.toml foundation template follow-up from forge TASK-0050 - ([30b82ed](https://github.com/rsvalerio/ops/commit/30b82edff9123a3085e316a53e57d618ff110090)) - [@rsvalerio](https://github.com/rsvalerio), Claude Opus 5.5 (1M context)
+- (**backlog**) close TASK-2345, done in #83 - ([f3bf9fa](https://github.com/rsvalerio/ops/commit/f3bf9fa3106909fa98e0d9eb31aeb6ca4a215e2e)) - [@rsvalerio](https://github.com/rsvalerio), Claude Opus 5.5 (1M context)
+- (**backlog**) file ops deps license-not-encountered decoding bug - ([c704622](https://github.com/rsvalerio/ops/commit/c7046228d1bd96e2675b5deb0ca972295a30cbed)) - [@rsvalerio](https://github.com/rsvalerio), Claude Opus 5.5 (1M context)
+- (**backlog**) note rust-ci's renamed checks and dropped ops floor guard - ([f4bddf6](https://github.com/rsvalerio/ops/commit/f4bddf69abcac3d2da7eb555009947abd55fa470)) - [@rsvalerio](https://github.com/rsvalerio), Claude Opus 5.5 (1M context)
+- (**backlog**) note forge rust-ci's move to the caller's mise.toml - ([faec536](https://github.com/rsvalerio/ops/commit/faec536640369244a2f6fe5125635bb204db6069)) - [@rsvalerio](https://github.com/rsvalerio), Claude Opus 5.5 (1M context)
+- (**backlog**) file the rust-ci engine-input removal task - ([73997bb](https://github.com/rsvalerio/ops/commit/73997bb634a8604edc77a427b825066b27337f50)) - [@rsvalerio](https://github.com/rsvalerio), Claude Opus 5.5 (1M context)
+- (**backlog**) file the mise.toml foundation template follow-up from forge TASK-0050 - ([babfd04](https://github.com/rsvalerio/ops/commit/babfd042e99a9d8f33e8e718fd424ea6433b821d)) - [@rsvalerio](https://github.com/rsvalerio), Claude Opus 5.5 (1M context)
+
+- - -
+
 ## [v0.78.0](https://github.com/rsvalerio/ops/compare/1a6c9831c38b45d9d4ac7830bc385a450ff7781b..v0.78.0) - 2026-09-30
 #### 🚀 Features
 - (**lint-actions**) also lint composite action manifests - ([1a6c983](https://github.com/rsvalerio/ops/commit/1a6c9831c38b45d9d4ac7830bc385a450ff7781b)) - [@rsvalerio](https://github.com/rsvalerio), Claude Opus 5.5 (1M context)
