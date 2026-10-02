@@ -1,13 +1,14 @@
 ---
 id: TASK-2344
 title: 'Scaffold and drift-check mise.toml from the Rust foundation templates'
-status: Triage
+status: To Do
 assignee: []
 created_date: '2026-09-29 18:03'
-updated_date: '2026-09-29 19:28'
+updated_date: '2026-10-02 20:37'
 labels:
   - foundation
 dependencies: []
+parent_task_id: 'TASK-2347'
 modified_files:
   - extensions-rust/foundation/templates/mise.toml
   - mise.toml

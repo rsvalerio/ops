@@ -1,13 +1,15 @@
 ---
 id: TASK-2346
 title: 'ops deps --check fails when cargo-deny emits license-not-encountered warnings'
-status: Triage
+status: To Do
 assignee: []
 created_date: '2026-09-30 20:45'
+updated_date: '2026-10-02 20:37'
 labels:
   - deps
   - bug
 dependencies: []
+parent_task_id: 'TASK-2348'
 modified_files:
   - crates/deps/src/parse/deny.rs
 priority: medium
