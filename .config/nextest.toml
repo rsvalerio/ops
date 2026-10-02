@@ -1,5 +1,4 @@
-# TEST-26 / TASK-2252: a profile for pipelines, not local runs.
-#
+# TEST-26 / TASK-2252: surface `skip:` lines from passing tests.
 # `skip_precondition` (ops_core::test_utils) prints a `skip: …` line when a
 # test bails on an unmet precondition — no git on PATH, root EUID, a missing
 # /dev/zero. Both runners capture per-test stderr for *passing* tests, so on
@@ -7,12 +6,11 @@
 #
 # The fix is at the sink, not the source: this profile asks nextest to store
 # success output in its JUnit report (the console stays at the default —
-# captured, quiet), and the CI step that consumes the report greps out only
-# the `skip:` lines. A run with skips is distinguishable in the log without
-# turning on success output for the whole suite.
-#
-# Only the `ci` profile sets this, so `ops next` / plain `cargo nextest run`
-# keep success output captured and out of the report.
+# captured, quiet), and `ops skip-report` (part of `ops qa`, .ops.toml) greps
+# out only the `skip:` lines. A run with skips is distinguishable in the log
+# without turning on success output for the whole suite. It is on the default
+# profile, so a local `ops qa` and CI's (forge rust-ci's qa job) report the
+# same.
 
 [profile.default]
 # Rust foundation baseline (ops init --rust): nextest flags a test as LEAK
@@ -20,11 +18,17 @@
 # result. The 100ms default flags exits that merely lost the race for a core.
 leak-timeout = "2s"
 
-[profile.ci.junit]
+[profile.default.junit]
 # Relative paths resolve against target/nextest/<profile>/ — this produces
-# target/nextest/ci/junit.xml, the path the CI surfacing step greps.
+# target/nextest/default/junit.xml, the path `ops skip-report` greps.
 path = "junit.xml"
 # Passed tests' captured output is written into the report (never shown on
 # the console). This is the whole cost of the mechanism: one XML file under
 # target/, discarded with the rest of the build cache.
+store-success-output = true
+
+# The foundation template's pipeline profile (`ops init --rust --check` expects it), kept
+# as shipped; this repo's gate uses the default profile above.
+[profile.ci.junit]
+path = "junit.xml"
 store-success-output = true

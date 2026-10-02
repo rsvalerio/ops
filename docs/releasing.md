@@ -124,17 +124,13 @@ gh pr create
 
 ### 2. CI Status Checks
 
-The [CI workflow](../.github/workflows/ci.yml) runs on every PR. The shared gates come from forge's [`rust-ci`](https://github.com/rsvalerio/forge/blob/v1/docs/consuming.md) reusable workflow with `engine: ops`, the same workflow every other Rust repo runs, so CI proves the same `ops` commands contributors run locally. The jobs ops keeps for itself set up through forge's `actions/setup-rust` (or `actions/setup-tools`, for a job that compiles nothing). Either way `ops` is the release forge pins in its `mise.toml`, installed checksum-verified by `actions/setup-ops`; this checkout's own behaviour is covered by its tests. The `main-protection` ruleset requires **rust-ci / ops verify-check**, **ops clippy-default** and **ops qa**. A reusable workflow's checks are named `<caller job> / <called job>`, so no rust-ci job can carry the name `ops qa`; it is a gate job that passes only when the jobs it gathers all succeeded. Renaming any required job blocks every merge until the ruleset is updated.
+The [CI workflow](../.github/workflows/ci.yml) runs on every PR. Its gates come from forge's [`rust-ci`](https://github.com/rsvalerio/forge/blob/v1/docs/consuming.md) reusable workflow, the same workflow every other Rust repo runs, and it runs exactly the two gates a contributor runs locally: `ops verify` (the pre-commit gate) and `ops qa` (the pre-push gate, as `.ops.toml` defines it). Every job installs its tools from this repo's `mise.toml` with `jdx/mise-action`, so CI runs the ops release that `mise install` gives you; this checkout's own behaviour is covered by the test suite `ops qa` runs. The `main-protection` ruleset requires **rust-ci / verify** and **rust-ci / qa**. A reusable workflow's checks are named `<caller job> / <called job>`, and renaming a required job blocks every merge until the ruleset is updated.
 
 | Check | Command | Description |
 |-------|---------|-------------|
-| **ops qa** | — | Required gate: passes only if rust-ci and **ops test** succeeded |
-| **rust-ci / ops verify-check** | `ops verify-check` | The pre-commit gate in check-only form: fmt-check, whitespace and EOF checks, clippy, build, JSON/YAML checks, doc |
-| **rust-ci / ops deps** | `ops deps --check` | cargo deny and cargo machete, without the upgrade survey |
-| **rust-ci / ops sec** | `ops sec` | Trivy secret and vulnerability scans |
-| **rust-ci / MSRV** | `ops msrv --install` | Build on the declared `rust-version` |
-| **ops clippy-default** | `ops clippy-default` | The default-feature clippy sweep, the `--all-features` gate's blind spot |
-| **ops test** | `ops next`, `ops next-ignored`, `ops test-doc` | nextest with skip_precondition lines surfaced from its JUnit report, then the `#[ignore]` tests and the doctests |
+| **rust-ci / verify** | `ops verify` | The pre-commit gate, check-only: fmt-check, whitespace and EOF checks, clippy, build, JSON/YAML checks, doc |
+| **rust-ci / qa** | `ops qa` | The pre-push gate: deps, nextest, doctests, sec, the skip_precondition report (TEST-26), the `#[ignore]` tests, and the default-feature clippy sweep |
+| **rust-ci / msrv** | `ops msrv --install` | Build on the declared `rust-version` |
 | **Windows (ops-backlog)** | `cargo check`/`cargo test -p ops-backlog` | Compile and exercise the non-Unix allocation lock |
 | **Miri** | `cargo +nightly miri test` | Miri over the workspace's pure-memory `unsafe` |
 | **Workflow Guard** | `ops lint-actions` | Fail if any action is not SHA-pinned, or any workflow uses `secrets: inherit` |
