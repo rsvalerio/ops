@@ -1,0 +1,31 @@
+# Rust foundation tool pins, written by `ops init --rust`.
+#
+# `ops init --rust --check` compares this file with the copy built into the
+# running ops: every tool below must keep its version, and tools you add are
+# yours. Record a deliberate divergence under `[foundation.waivers]` in
+# `.ops.toml`.
+#
+# The tools a Rust repo's gates and pipelines run, at the versions CI and
+# laptops share: forge's rust-ci installs exactly this file with
+# jdx/mise-action, and `mise install` gives a laptop the same. Kept at forge's
+# pins (forge docs/foundation.md, "Pipeline tools"). ops must stay at 0.77.0 or
+# later, the first check-only `verify`, which rust-ci relies on.
+
+# Names mise's registry does not know, or knows by another name.
+[tool_alias]
+ops = "github:rsvalerio/ops"
+cargo-nextest = "github:nextest-rs/nextest"
+cargo-machete = "github:bnjbvr/cargo-machete"
+cargo-edit = "cargo:cargo-edit"
+
+[tools]
+rust = { version = "1.98.0", components = "rustfmt,clippy" }
+ops = "0.77.0"
+cargo-nextest = { version = "0.9.146", version_prefix = "cargo-nextest-" }
+cargo-deny = "0.20.2"
+cargo-machete = "0.9.2"
+# No release binaries: mise compiles it.
+cargo-edit = "0.13.13"
+trivy = "0.70.0"
+# `ops coverage`.
+"aqua:taiki-e/cargo-llvm-cov" = "0.9.1"

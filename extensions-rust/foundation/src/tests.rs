@@ -50,6 +50,7 @@ fn scaffold_then_check_is_clean() {
             ("deny.toml", &Outcome::Created),
             ("rustfmt.toml", &Outcome::Created),
             (".config/nextest.toml", &Outcome::Created),
+            ("mise.toml", &Outcome::Created),
             ("Cargo.toml:workspace.lints", &Outcome::Added),
             ("crates/a/Cargo.toml:lints", &Outcome::Added),
             ("crates/b/Cargo.toml:lints", &Outcome::Added),
@@ -124,7 +125,7 @@ fn force_replaces_files_and_the_lint_table() {
 
     let written = scaffold(dir.path(), true).expect("force scaffold");
     assert_eq!(written[1].outcome, Outcome::Replaced);
-    assert_eq!(written[4].outcome, Outcome::Replaced);
+    assert_eq!(written[5].outcome, Outcome::Replaced);
     assert!(read(&dir, "deny.toml").contains("[licenses]"));
     let manifest = read(&dir, "Cargo.toml");
     assert_eq!(manifest.matches("[workspace.lints.clippy]").count(), 1);
@@ -275,4 +276,122 @@ fn a_symlinked_config_dir_is_refused() {
     let err = scaffold(dir.path(), false).expect_err("symlinked .config");
     assert!(format!("{err:#}").contains("symlink"));
     assert!(!outside.path().join("nextest.toml").exists());
+}
+
+fn mise_template() -> Value {
+    let file = FILES
+        .iter()
+        .find(|f| f.path == "mise.toml")
+        .expect("mise.toml is a foundation file");
+    template_value(file.template).expect("mise template")
+}
+
+#[test]
+fn mise_template_pins_rust_components_and_a_check_only_ops() {
+    let mise = mise_template();
+    let tools = mise.get("tools").expect("[tools]");
+    let rust = tools.get("rust").expect("rust pin");
+    assert_eq!(
+        rust.get("components").and_then(Value::as_str),
+        Some("rustfmt,clippy")
+    );
+    let ops = tools.get("ops").and_then(Value::as_str).expect("ops pin");
+    let parts: Vec<u64> = ops
+        .split('.')
+        .map(|p| p.parse().expect("numeric ops pin"))
+        .collect();
+    assert!(
+        parts >= vec![0, 77, 0],
+        "ops {ops} predates check-only verify"
+    );
+    for tool in [
+        "cargo-deny",
+        "cargo-machete",
+        "cargo-nextest",
+        "cargo-edit",
+        "trivy",
+        "aqua:taiki-e/cargo-llvm-cov",
+    ] {
+        assert!(tools.get(tool).is_some(), "{tool} is pinned");
+    }
+    for alias in ["ops", "cargo-nextest", "cargo-machete", "cargo-edit"] {
+        assert!(
+            mise.get("tool_alias").and_then(|a| a.get(alias)).is_some(),
+            "{alias} is aliased"
+        );
+    }
+}
+
+#[test]
+fn ops_own_mise_toml_matches_the_template() {
+    let path = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../mise.toml");
+    let text = std::fs::read_to_string(&path).expect("ops's mise.toml");
+    let actual = Value::Table(toml::from_str(&text).expect("ops's mise.toml parses"));
+    let mut drift = Vec::new();
+    compare::compare(
+        &mise_template(),
+        Some(&actual),
+        "mise.toml",
+        Rule::Exact,
+        &mut drift,
+    );
+    assert!(drift.is_empty(), "{drift:?}");
+}
+
+#[test]
+fn mise_pin_drift_is_reported_and_tool_additions_are_not() {
+    let dir = workspace();
+    scaffold(dir.path(), false).expect("scaffold");
+    let mise = read(&dir, "mise.toml")
+        .replace("trivy = \"0.70.0\"", "trivy = \"0.69.0\"")
+        .replace("cargo-deny = \"0.20.2\"\n", "")
+        + "cocogitto = \"7.0.0\"\n";
+    std::fs::write(dir.path().join("mise.toml"), mise).expect("edit");
+
+    let report = check(dir.path(), &no_waivers()).expect("check");
+    assert_eq!(
+        report.drift,
+        vec![
+            Drift::new("mise.toml:tools.cargo-deny", "missing"),
+            Drift::new(
+                "mise.toml:tools.trivy",
+                "expected \"0.70.0\", found \"0.69.0\""
+            ),
+        ]
+    );
+
+    let waivers: IndexMap<String, String> = [
+        (
+            "mise.toml:tools.trivy",
+            "held back until the scanner fix ships",
+        ),
+        ("mise.toml:tools.cargo-deny", "installed by the distro"),
+    ]
+    .into_iter()
+    .map(|(k, v)| (k.to_owned(), v.to_owned()))
+    .collect();
+    let report = check(dir.path(), &waivers).expect("check");
+    assert!(report.drift.is_empty(), "{:?}", report.drift);
+    assert_eq!(report.waived.len(), 2);
+    assert!(report.unused_waivers.is_empty());
+}
+
+#[test]
+fn a_missing_mise_toml_is_drift_and_scaffold_writes_it() {
+    let dir = workspace();
+    scaffold(dir.path(), false).expect("scaffold");
+    std::fs::remove_file(dir.path().join("mise.toml")).expect("rm");
+    let report = check(dir.path(), &no_waivers()).expect("check");
+    assert_eq!(report.drift, vec![Drift::new("mise.toml", "missing")]);
+
+    let written = scaffold(dir.path(), false).expect("rescaffold");
+    let mise = written
+        .iter()
+        .find(|w| w.target == "mise.toml")
+        .expect("mise.toml target");
+    assert_eq!(mise.outcome, Outcome::Created);
+    assert!(check(dir.path(), &no_waivers())
+        .expect("check")
+        .drift
+        .is_empty());
 }

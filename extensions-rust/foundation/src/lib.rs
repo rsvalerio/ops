@@ -1,7 +1,8 @@
 //! The Rust foundation: the shared config every Rust repo starts from.
 //!
 //! ops is the single source for `clippy.toml`, `deny.toml`, `rustfmt.toml`,
-//! `.config/nextest.toml` and the `[workspace.lints]` policy (TASK-2330). The
+//! `.config/nextest.toml`, the `mise.toml` tool pins (TASK-2344) and the
+//! `[workspace.lints]` policy (TASK-2330). The
 //! templates are embedded in the binary, [`scaffold`] writes them into a repo
 //! (`ops init --rust`), and [`check`] reports where the repo has drifted from
 //! the running ops version's copy (`ops init --rust --check`). Updates ship
@@ -33,7 +34,7 @@ pub struct ConfigFile {
 }
 
 /// The whole-file templates, in the order they are written and checked.
-pub const FILES: [ConfigFile; 4] = [
+pub const FILES: [ConfigFile; 5] = [
     ConfigFile {
         path: "clippy.toml",
         template: include_str!("../templates/clippy.toml"),
@@ -49,6 +50,10 @@ pub const FILES: [ConfigFile; 4] = [
     ConfigFile {
         path: ".config/nextest.toml",
         template: include_str!("../templates/nextest.toml"),
+    },
+    ConfigFile {
+        path: "mise.toml",
+        template: include_str!("../templates/mise.toml"),
     },
 ];
 

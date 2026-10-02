@@ -8,6 +8,7 @@ ops is the single source for the config every Rust repo starts from:
 | `deny.toml` | The cargo-deny baseline: advisory DB, permissive license allow list, bans, sources |
 | `rustfmt.toml` | Stable rustfmt settings (`max_width = 100`, `use_small_heuristics = "Max"`) |
 | `.config/nextest.toml` | `leak-timeout = "2s"` and a `ci` profile that writes a JUnit report |
+| `mise.toml` | The tool pins CI and laptops share, at forge's versions: the Rust toolchain (with `rustfmt,clippy`), ops (0.77.0 or later, the first check-only `verify`), cargo-deny, cargo-machete, cargo-nextest, cargo-edit, trivy and cargo-llvm-cov, plus the `[tool_alias]` entries mise's registry lacks |
 | `Cargo.toml` | The lint policy: `[workspace.lints]` (or `[lints]` for a single package), plus `[lints] workspace = true` in every member |
 
 The templates are embedded in the ops binary (`extensions-rust/foundation/templates/`), so
@@ -23,7 +24,7 @@ ops init --rust --force   # replace the files and the lint table with the templa
 ```
 
 Without `--force`, an existing file or lint table is kept and reported as `kept`. With it,
-the four files and the root lint table are replaced. Member `[lints]` tables are only
+the five files and the root lint table are replaced. Member `[lints]` tables are only
 ever added: a member that already has one is left for the check to report.
 
 `clippy.toml` gets `msrv` set to the root's `rust-version` when one is declared. `msrv`
@@ -45,6 +46,9 @@ The comparison is semantic, not textual. Each template is a baseline:
 - Arrays compare as sets. Reordering is fine, but adding or removing an item is drift,
   so a widened license allow list is reported. Admit one crate's license with a
   `[[licenses.exceptions]]` entry instead.
+- In `mise.toml`, every tool the template pins must keep its exact version (drift is
+  reported at `mise.toml:tools.<tool>`), and tools the repo adds, such as `cocogitto`,
+  are its own. Hold a pin back with a waiver on that location.
 - Lint levels only need to be at least as strict: `deny` or `forbid` satisfies the
   template's `warn`.
 - In a workspace, every member must have `[lints] workspace = true`, or the policy

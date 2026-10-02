@@ -79,8 +79,8 @@ pub struct InitArgs {
     #[arg(long)]
     pub commands: bool,
     /// Write the Rust foundation config instead of `.ops.toml`: clippy.toml,
-    /// deny.toml, rustfmt.toml, .config/nextest.toml and the lint policy in
-    /// Cargo.toml. Existing files are kept unless `--force`.
+    /// deny.toml, rustfmt.toml, .config/nextest.toml, mise.toml and the lint
+    /// policy in Cargo.toml. Existing files are kept unless `--force`.
     #[cfg(feature = "stack-rust")]
     #[arg(long, conflicts_with_all = ["output", "themes", "commands"])]
     pub rust: bool,
