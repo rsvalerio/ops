@@ -24,6 +24,7 @@ fn deps_report_serialization_round_trip() {
                 title: "bad thing".into(),
             }],
             licenses: vec![],
+            unused_license_allowances: vec![],
             bans: vec![],
             sources: vec![],
         },
@@ -54,4 +55,18 @@ fn unused_not_installed_round_trips() {
     assert_eq!(json["unused"]["status"], "not_installed");
     let deserialized: DepsReport = serde_json::from_value(json).unwrap();
     assert_eq!(deserialized.unused, UnusedDepsResult::NotInstalled);
+}
+
+/// A payload cached before `unused_license_allowances` existed still decodes,
+/// with the section empty, rather than forcing an `ops deps --refresh`.
+#[test]
+fn deny_result_without_unused_license_allowances_decodes() {
+    let json = serde_json::json!({
+        "advisories": [],
+        "licenses": [],
+        "bans": [],
+        "sources": [],
+    });
+    let deny: DenyResult = serde_json::from_value(json).unwrap();
+    assert!(deny.unused_license_allowances.is_empty());
 }

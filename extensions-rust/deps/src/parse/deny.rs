@@ -19,6 +19,8 @@ const CARGO_DENY_TIMEOUT: Duration = Duration::from_mins(4);
 enum DiagClass {
     Advisory,
     License,
+    /// An unused `[licenses]` config entry; see [`is_unused_license_config`].
+    UnusedLicenseAllowance,
     Ban,
     Source,
 }
@@ -29,10 +31,27 @@ fn classify_code(code: &str) -> Option<DiagClass> {
             Some(DiagClass::Advisory)
         }
         "rejected" | "unlicensed" | "no-license-field" => Some(DiagClass::License),
+        code if is_unused_license_config(code) => Some(DiagClass::UnusedLicenseAllowance),
         "banned" | "not-allowed" | "duplicate" | "workspace-duplicate" => Some(DiagClass::Ban),
         "source-not-allowed" | "git-source-underspecified" => Some(DiagClass::Source),
         _ => None,
     }
+}
+
+/// cargo-deny codes that report an unused `[licenses]` config entry rather
+/// than a crate: `license-not-encountered` (an `allow` entry no dependency
+/// uses, governed by `unused-allowed-license`, `warn` by default) and its
+/// `exceptions` sibling. They carry `graphs: []`, and their subject is the
+/// license named in `labels[0].span`. Classifying them keeps a shared
+/// allow-list baseline from tripping the partial-decode-loss guard. They land
+/// in their own [`DenyResult::unused_license_allowances`] section so the gate
+/// can treat them as config hygiene: a `warning` never fails it, while
+/// `unused-allowed-license = "deny"` (an `error`) still does.
+fn is_unused_license_config(code: &str) -> bool {
+    matches!(
+        code,
+        "license-not-encountered" | "license-exception-not-encountered"
+    )
 }
 
 /// Run `cargo deny check` and parse the JSON output.
@@ -123,6 +142,7 @@ pub fn interpret_deny_result(exit_code: Option<i32>, stderr: &str) -> anyhow::Re
             // instead of silently muting the supply-chain gate.
             if parsed.advisories.is_empty()
                 && parsed.licenses.is_empty()
+                && parsed.unused_license_allowances.is_empty()
                 && parsed.bans.is_empty()
                 && parsed.sources.is_empty()
             {
@@ -168,7 +188,7 @@ struct DenyParseDiagnostics {
     /// unparseable lines are excluded: they are not findings, so counting
     /// them would inflate the denominator on every normal run.
     candidate_diagnostics: usize,
-    /// Candidates that made it into one of the four sections.
+    /// Candidates that made it into one of the `DenyResult` sections.
     entries_emitted: usize,
 }
 
@@ -254,6 +274,10 @@ struct DiagnosticFields {
     code: Option<String>,
     graphs: Option<Vec<DenyGraph>>,
     advisory: Option<DenyAdvisory>,
+    /// Left undecoded: only config-level diagnostics read it (see
+    /// [`label_subject`]), so a `labels` shape change must not drop every
+    /// crate diagnostic along with it.
+    labels: Option<serde_json::Value>,
 }
 
 #[derive(Deserialize)]
@@ -280,6 +304,7 @@ struct DecodedDiagnostic {
     message: String,
     advisory: Option<DenyAdvisory>,
     graphs: Option<Vec<DenyGraph>>,
+    labels: Option<serde_json::Value>,
 }
 
 /// Decode one stderr line.
@@ -366,6 +391,7 @@ fn decode_diagnostic(trimmed: &str, diag: &mut DenyParseDiagnostics) -> Option<D
         message: fields.message.unwrap_or_default(),
         advisory: fields.advisory,
         graphs: fields.graphs,
+        labels: fields.labels,
     })
 }
 
@@ -379,7 +405,8 @@ pub const MISSING_SEVERITY_SENTINEL: &str = "<missing-severity>";
 /// Answer "which package is this diagnostic about".
 ///
 /// Falls back to the advisory's package, then to `graphs[0].krate.name`, then
-/// to a `<no package>` sentinel.
+/// — for config-level diagnostics only ([`is_unused_license_config`]) — to
+/// the license in `labels[0].span`, then to a `<no package>` sentinel.
 ///
 /// The read is immutable and clones the name: leaving `diag` untouched makes
 /// the function idempotent, so no caller has to know which fields a previous
@@ -399,6 +426,11 @@ fn resolve_package(diag: &DecodedDiagnostic) -> String {
                 .and_then(|g| g.krate.as_ref())
                 .map(|k| k.name.clone())
         })
+        .or_else(|| {
+            is_unused_license_config(&diag.code)
+                .then(|| label_subject(diag))
+                .flatten()
+        })
         .unwrap_or_else(|| {
             tracing::debug!(
                 code = %diag.code,
@@ -409,6 +441,18 @@ fn resolve_package(diag: &DecodedDiagnostic) -> String {
             );
             "<no package>".to_string()
         })
+}
+
+/// The first label's `span` — for a config-level diagnostic, the `deny.toml`
+/// value it is about (e.g. the unused license `0BSD`).
+fn label_subject(diag: &DecodedDiagnostic) -> Option<String> {
+    diag.labels
+        .as_ref()?
+        .get(0)?
+        .get("span")?
+        .as_str()
+        .filter(|s| !s.is_empty())
+        .map(str::to_owned)
 }
 
 /// Parse newline-delimited JSON from `cargo deny --format json check` stderr.
@@ -475,6 +519,15 @@ fn push_diagnostic(result: &mut DenyResult, class: DiagClass, diag: DecodedDiagn
             message: diag.message,
             severity: diag.severity,
         })),
+        DiagClass::UnusedLicenseAllowance => {
+            result
+                .unused_license_allowances
+                .push(LicenseEntry(DenyEntry {
+                    package,
+                    message: diag.message,
+                    severity: diag.severity,
+                }));
+        }
         DiagClass::Ban => result.bans.push(BanEntry(DenyEntry {
             package,
             message: diag.message,
