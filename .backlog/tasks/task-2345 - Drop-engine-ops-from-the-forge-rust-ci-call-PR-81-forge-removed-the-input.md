@@ -30,7 +30,6 @@ ordinal: 1000
 <!-- AC:BEGIN -->
 - [x] #1 ops's rust-ci call passes no engine input, and its comments describe rust-ci as ops-only
 - [x] #2 PR #81 (or its successor) is green against forge's ops-only rust-ci
-
 <!-- AC:END -->
 
 ## Implementation Notes
