@@ -2,6 +2,21 @@
 All notable changes to this project will be documented in this file. See [conventional commits](https://www.conventionalcommits.org/) for commit guidelines.
 
 - - -
+## [v0.78.0](https://github.com/rsvalerio/ops/compare/1a6c9831c38b45d9d4ac7830bc385a450ff7781b..v0.78.0) - 2026-09-30
+#### 🚀 Features
+- (**lint-actions**) also lint composite action manifests - ([1a6c983](https://github.com/rsvalerio/ops/commit/1a6c9831c38b45d9d4ac7830bc385a450ff7781b)) - [@rsvalerio](https://github.com/rsvalerio), Claude Opus 5.5 (1M context)
+#### 🔄 CI/CD
+- drop the ops verify gate job - ([0958816](https://github.com/rsvalerio/ops/commit/0958816e0206462bb558f68dde3054e75dab67fe)) - [@rsvalerio](https://github.com/rsvalerio), Claude Opus 5.5 (1M context)
+- restore the ops verify and ops qa required checks - ([68a381c](https://github.com/rsvalerio/ops/commit/68a381c4c41361be3c21837e3dc250a2bdad6bf8)) - [@rsvalerio](https://github.com/rsvalerio), Claude Opus 5.5 (1M context)
+- keep OPS__CARGO__LOCKED out of the workflow env - ([d8ec62d](https://github.com/rsvalerio/ops/commit/d8ec62d6e3182bfb3ceeafe55fbec46e192eee8a)) - [@rsvalerio](https://github.com/rsvalerio), Claude Opus 5.5 (1M context)
+- run the shared gates through forge's rust-ci - ([510b326](https://github.com/rsvalerio/ops/commit/510b3264d2ffda62976168adcfa9910ddba4ef99)) - [@rsvalerio](https://github.com/rsvalerio), Claude Opus 5.5 (1M context)
+#### ⚙️ Miscellaneous
+- (**backlog**) link TASK-2328, 2329, 2339, 2343 to their PRs - ([06a206b](https://github.com/rsvalerio/ops/commit/06a206b917023577e05a2a93b5f78f4ae333c62b)) - [@rsvalerio](https://github.com/rsvalerio), Claude Opus 5.5 (1M context)
+- (**backlog**) record progress on TASK-2328, 2329, 2339, 2343 - ([2325b6d](https://github.com/rsvalerio/ops/commit/2325b6d17a2c3ba5becf18e8efe3a83d79c9268e)) - [@rsvalerio](https://github.com/rsvalerio), Claude Opus 5.5 (1M context)
+- run lint-actions in run-before-commit - ([bdb46a2](https://github.com/rsvalerio/ops/commit/bdb46a2855abc59123ca18dac2e0accdf3e26937)) - [@rsvalerio](https://github.com/rsvalerio), Claude Opus 5.5 (1M context)
+
+- - -
+
 ## [v0.77.0](https://github.com/rsvalerio/ops/compare/abc322c401db95633c72bfd41733764a162b486a..v0.77.0) - 2026-09-29
 #### 🚀 Features
 - (**runner**) register the text fixers' --check twins as builtins - ([abc322c](https://github.com/rsvalerio/ops/commit/abc322c401db95633c72bfd41733764a162b486a)) - [@rsvalerio](https://github.com/rsvalerio), Claude Opus 5.5 (1M context)
