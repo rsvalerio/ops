@@ -1,13 +1,15 @@
 ---
 id: TASK-2346
 title: 'ops deps --check fails when cargo-deny emits license-not-encountered warnings'
-status: Triage
+status: Done
 assignee: []
 created_date: '2026-09-30 20:45'
+updated_date: '2026-10-02 20:47'
 labels:
   - deps
   - bug
 dependencies: []
+parent_task_id: 'TASK-2348'
 modified_files:
   - crates/deps/src/parse/deny.rs
 priority: medium
@@ -32,7 +34,14 @@ ordinal: 1000
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 A cargo-deny license-not-encountered warning (cargo-deny 0.20.2) is decoded and classified as a warning, not dropped
-- [ ] #2 ops deps --check passes on a repo whose deny.toml allow-list has unused entries (unless configured to deny them)
-- [ ] #3 A test covers the license-not-encountered diagnostic shape
+- [x] #1 A cargo-deny license-not-encountered warning (cargo-deny 0.20.2) is decoded and classified as a warning, not dropped
+- [x] #2 ops deps --check passes on a repo whose deny.toml allow-list has unused entries (unless configured to deny them)
+- [x] #3 A test covers the license-not-encountered diagnostic shape
+
 <!-- AC:END -->
+
+## Implementation Notes
+
+<!-- SECTION:NOTES:BEGIN -->
+Fixed in extensions-rust/deps/src/parse/deny.rs (the task's crates/deps path is stale). license-not-encountered and license-exception-not-encountered now classify into DenyResult::unused_license_allowances (serde(default) for old caches), subject = labels[0].span, rendered in the License Issues row. has_issues relaxes them at warning, fails at error. End-to-end on this repo's deny.toml (3 unused allowances) with cargo-deny 0.20.2: ops deps --check exits 0 with 3 license warnings. With unused-allowed-license = "deny" it still fails, though cargo-deny exits 4 there and ops reports "unexpected status code 4": filed TASK-2349 for the exit-code bitset.
+<!-- SECTION:NOTES:END -->

@@ -183,6 +183,7 @@ fn resolve_package_is_idempotent_and_leaves_the_diagnostic_intact() {
             title: Some("vuln title".to_string()),
         }),
         graphs: None,
+        labels: None,
     };
     assert_eq!(resolve_package(&advisory_backed), "vuln-pkg");
     assert_eq!(
@@ -209,6 +210,7 @@ fn resolve_package_is_idempotent_and_leaves_the_diagnostic_intact() {
                 name: "bad-crate".to_string(),
             }),
         }]),
+        labels: None,
     };
     assert_eq!(resolve_package(&graph_backed), "bad-crate");
     assert_eq!(
@@ -540,6 +542,62 @@ fn parse_deny_additional_license_codes() {
     assert_eq!(result.licenses.len(), 2);
     assert_eq!(result.licenses[0].package, "pkg-a");
     assert_eq!(result.licenses[1].package, "pkg-b");
+}
+
+/// cargo-deny 0.20.2 emits one `license-not-encountered` warning per
+/// `[licenses] allow` entry no dependency uses. The diagnostic is about the
+/// config, not a crate (`graphs: []`), so its subject is the license in
+/// `labels[0].span`. It must decode as a license warning rather than drop.
+const LICENSE_NOT_ENCOUNTERED: &str = r#"{"type":"diagnostic","fields":{"code":"license-not-encountered","graphs":[],"labels":[{"column":6,"line":24,"message":"unmatched license allowance","span":"0BSD"}],"message":"license was not encountered","notes":[],"severity":"warning"}}"#;
+
+#[test]
+fn parse_deny_license_not_encountered_is_an_unused_allowance_warning() {
+    let result = parse_deny_output(LICENSE_NOT_ENCOUNTERED);
+    assert!(result.licenses.is_empty(), "not a finding about a crate");
+    let unused = &result.unused_license_allowances;
+    assert_eq!(unused.len(), 1);
+    assert_eq!(unused[0].package, "0BSD");
+    assert_eq!(unused[0].severity, "warning");
+    assert_eq!(unused[0].message, "license was not encountered");
+}
+
+/// A shared allow-list baseline makes these the whole stream; before they
+/// were classified, every line dropped and the partial-decode-loss guard
+/// failed `ops deps --check` on an otherwise clean run.
+#[test]
+fn interpret_deny_result_accepts_a_stream_of_unused_license_allowances() {
+    let second = LICENSE_NOT_ENCOUNTERED.replace("0BSD", "Zlib");
+    let stderr = format!(
+        "{LICENSE_NOT_ENCOUNTERED}\n{second}\n{}",
+        r#"{"type":"summary","fields":{"errors":0,"warnings":2}}"#
+    );
+    let result = interpret_deny_result(Some(0), &stderr).expect("unused allowances are warnings");
+    let subjects: Vec<&str> = result
+        .unused_license_allowances
+        .iter()
+        .map(|l| l.package.as_str())
+        .collect();
+    assert_eq!(subjects, ["0BSD", "Zlib"]);
+}
+
+/// The label fallback is limited to config-level codes: a crate diagnostic
+/// with no crate in it keeps the `<no package>` sentinel rather than borrowing
+/// a license string as its package name.
+#[test]
+fn parse_deny_label_span_is_not_a_package_for_crate_diagnostics() {
+    let stderr = r#"{"type":"diagnostic","fields":{"severity":"error","message":"rejected","code":"rejected","labels":[{"span":"GPL-3.0"}],"graphs":[]}}"#;
+    let result = parse_deny_output(stderr);
+    assert_eq!(result.licenses[0].package, "<no package>");
+}
+
+/// Undecodable diagnostics still fail closed: classifying the unused-allowance
+/// code must not loosen the guard for codes nobody recognises.
+#[test]
+fn interpret_deny_result_still_fails_closed_on_unknown_codes_beside_unused_allowances() {
+    let unknown = r#"{"type":"diagnostic","fields":{"severity":"error","message":"m","code":"brand-new-code","graphs":[]}}"#;
+    let stderr = format!("{LICENSE_NOT_ENCOUNTERED}\n{unknown}");
+    let err = interpret_deny_result(Some(1), &stderr).expect_err("1 of 2 dropped must fail closed");
+    assert!(err.to_string().contains("1 dropped"), "got: {err}");
 }
 
 #[test]

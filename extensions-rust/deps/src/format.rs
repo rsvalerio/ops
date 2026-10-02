@@ -12,7 +12,7 @@
 //! pre-formatted `details` (the per-entry tables and `💡` advice) that the
 //! renderer emits verbatim beneath the row.
 
-use crate::{BanEntry, DepsReport, UnusedDepEntry, UnusedDepsResult, UpgradeEntry};
+use crate::{BanEntry, DepsReport, LicenseEntry, UnusedDepEntry, UnusedDepsResult, UpgradeEntry};
 use ops_core::report::{Report, ReportRow, ReportStatus};
 use ops_core::style::{dim, green};
 use std::borrow::Cow;
@@ -204,9 +204,18 @@ fn push_check_rows(out: &mut Report, report: &DepsReport) {
         "Run `cargo deny check advisories` for details. Update affected crates or add exceptions to deny.toml.",
     ));
 
+    // Unused `[licenses]` allowances share the license row: they are
+    // license-config findings, and only the gate (`has_issues`) treats them
+    // differently.
+    let licenses: Vec<&LicenseEntry> = report
+        .deny
+        .licenses
+        .iter()
+        .chain(&report.deny.unused_license_allowances)
+        .collect();
     out.push(severity_row(
         "License Issues",
-        &report.deny.licenses,
+        &licenses,
         |l| AdvisoryRow {
             id: None,
             package: &l.package,

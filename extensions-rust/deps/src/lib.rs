@@ -465,7 +465,9 @@ fn severity_is_actionable(severity: &str, relax_warning: bool, warned_unknown: &
 
 /// Returns true if the report contains any actionable issues.
 ///
-/// Duplicate crate bans (warnings) are excluded — they are informational.
+/// Duplicate crate bans (warnings) are excluded — they are informational —
+/// and so are unused `[licenses]` allowances at `warning`: config hygiene, not
+/// a finding about a dependency. Either still fails the gate at `error`.
 /// Unused dependencies never fail the gate either: cargo-machete is heuristic,
 /// so they render as a warning row only.
 ///
@@ -474,7 +476,7 @@ fn severity_is_actionable(severity: &str, relax_warning: bool, warned_unknown: &
 /// `<missing-severity>` sentinel `parse_deny_output` substitutes) errs
 /// towards failing CI rather than towards a silent pass. The first such
 /// severity encountered fires a `tracing::warn!`; the `warned_unknown` flag
-/// threaded through the four sections holds it to at most one line per call,
+/// threaded through the five sections holds it to at most one line per call,
 /// matching the per-section guard the report formatter applies per section.
 fn has_issues(report: &DepsReport) -> bool {
     let warned_unknown = &mut false;
@@ -488,6 +490,11 @@ fn has_issues(report: &DepsReport) -> bool {
             .licenses
             .iter()
             .any(|e| severity_is_actionable(&e.severity, false, warned_unknown))
+        || report
+            .deny
+            .unused_license_allowances
+            .iter()
+            .any(|e| severity_is_actionable(&e.severity, true, warned_unknown))
         || report
             .deny
             .bans
@@ -609,6 +616,11 @@ impl DataProvider for DepsProvider {
                     "deny.licenses",
                     "Vec<LicenseEntry>",
                     "License compliance issues",
+                ),
+                DataField::new(
+                    "deny.unused_license_allowances",
+                    "Vec<LicenseEntry>",
+                    "Allowed licenses in deny.toml that no dependency uses",
                 ),
                 DataField::new(
                     "deny.bans",

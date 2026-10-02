@@ -108,6 +108,13 @@ pub struct DenyResult {
     pub advisories: Vec<AdvisoryEntry>,
     /// License-policy findings.
     pub licenses: Vec<LicenseEntry>,
+    /// `[licenses]` config entries no dependency matched (cargo-deny's
+    /// `license-not-encountered` / `license-exception-not-encountered`); the
+    /// `package` field holds the unused license. Warnings here never fail the
+    /// gate. `serde(default)` keeps payloads cached before the field existed
+    /// decodable.
+    #[serde(default)]
+    pub unused_license_allowances: Vec<LicenseEntry>,
     /// Dependency-ban findings.
     pub bans: Vec<BanEntry>,
     /// Source-replacement findings.
