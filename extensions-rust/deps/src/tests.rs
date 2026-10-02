@@ -770,6 +770,26 @@ fn has_issues_license_warning() {
     assert!(has_issues(&report));
 }
 
+/// Unused `[licenses]` allowances at the default `warning` are config
+/// hygiene and must not fail `ops deps --check`; set to `deny` they arrive as
+/// `error` and must.
+#[test]
+fn has_issues_unused_license_allowance_fails_only_at_error() {
+    let report_at = |severity: &str| DepsReport {
+        deny: DenyResult {
+            unused_license_allowances: vec![LicenseEntry(DenyEntry {
+                package: "0BSD".into(),
+                message: "license was not encountered".into(),
+                severity: severity.into(),
+            })],
+            ..Default::default()
+        },
+        ..Default::default()
+    };
+    assert!(!has_issues(&report_at("warning")));
+    assert!(has_issues(&report_at("error")));
+}
+
 #[test]
 fn has_issues_ban_error() {
     let report = DepsReport {
@@ -862,12 +882,13 @@ fn has_issues_source_warning() {
 fn schema_has_expected_fields() {
     use ops_extension::DataProvider;
     let schema = DepsProvider.schema();
-    assert_eq!(schema.fields.len(), 7);
+    assert_eq!(schema.fields.len(), 8);
     let field_names: Vec<&str> = schema.fields.iter().map(|f| f.name).collect();
     assert!(field_names.contains(&"upgrades.compatible"));
     assert!(field_names.contains(&"upgrades.incompatible"));
     assert!(field_names.contains(&"deny.advisories"));
     assert!(field_names.contains(&"deny.licenses"));
+    assert!(field_names.contains(&"deny.unused_license_allowances"));
     assert!(field_names.contains(&"deny.bans"));
     assert!(field_names.contains(&"deny.sources"));
     assert!(field_names.contains(&"unused"));

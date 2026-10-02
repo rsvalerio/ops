@@ -176,6 +176,31 @@ fn format_report_with_license_issues() {
     assert!(output.contains("deny.toml"));
 }
 
+/// Unused `[licenses]` allowances render in the License Issues row, beside
+/// any crate findings, with the unused license in the package column.
+#[test]
+fn format_report_shows_unused_license_allowances_in_the_license_row() {
+    let report = DepsReport {
+        deny: DenyResult {
+            unused_license_allowances: vec![LicenseEntry(DenyEntry {
+                package: "0BSD".into(),
+                message: "license was not encountered".into(),
+                severity: "warning".into(),
+            })],
+            ..Default::default()
+        },
+        ..Default::default()
+    };
+    let output = render(&report);
+    let row = output
+        .lines()
+        .find(|l| l.contains("License Issues"))
+        .expect("license row");
+    assert!(row.contains("1 warning"), "got: {row}");
+    assert!(output.contains("0BSD"));
+    assert!(output.contains("license was not encountered"));
+}
+
 #[test]
 fn format_report_with_source_issues() {
     let report = DepsReport {
