@@ -30,16 +30,13 @@ ordinal: 1000
 <!-- AC:BEGIN -->
 - [x] #1 ops's rust-ci call passes no engine input, and its comments describe rust-ci as ops-only
 - [x] #2 PR #81 (or its successor) is green against forge's ops-only rust-ci
-
 <!-- AC:END -->
 
 ## Implementation Notes
 
 <!-- SECTION:NOTES:BEGIN -->
 2026-09-29, forge #21 (28d5d96): rust-ci also dropped forge-ref, toolchain and use-sccache, and installs tools from the caller's mise.toml via jdx/mise-action. PR #81 must drop engine: ops and rely on ops's own mise.toml pinning ops >= 0.77.0 (enforced by the verify job), cargo-nextest, cargo-deny, cargo-machete, trivy, and rust with rustfmt,clippy.
-
-Update (forge 1366e08): rust-ci's check names are now verify, test, deps, sec and msrv, with no ops- prefix. The ops >= 0.77.0 guard step was removed, so ops's own mise.toml must pin ops >= 0.77.0. If ops's ruleset requires checks produced by rust-ci, update them.
-
+Done in #83 (merged 2026-10-02): the rust-ci call drops engine and calls forge rust-ci@v1 (v0.7.0), mise.toml pins ops 0.77.0 and the gate tools, qa is the pre-push gate, and the ruleset requires rust-ci / verify, rust-ci / qa and rust-ci / msrv.
 2026-10-02 triage: already satisfied on main. ci.yml calls rsvalerio/forge rust-ci@v1 with only run-msrv (no engine input; 77890525) and its comments describe the ops-only gates; mise.toml pins ops 0.77.0 (ac22c58d); main-protection requires rust-ci / verify, qa, msrv. PR #81 merged; CI on main 3b31a3c0 green (rust-ci / verify, qa, msrv all success). Closed without a wave.
 
 <!-- SECTION:NOTES:END -->
