@@ -67,8 +67,7 @@ fn has_accepted_filename(path: &Path) -> bool {
 /// case here by rejecting a symlinked HEAD, and `canonical_subdir` separately
 /// rejects a symlinked `hooks/` directory. The remaining ancestor-rename
 /// window is not closed by std-only APIs (would need `openat`-style handle
-/// operations); accepting it is a deliberate trade-off documented in
-/// TASK-0361.
+/// operations); accepting it is a deliberate trade-off.
 fn looks_like_git_dir(path: &Path) -> bool {
     let head = path.join("HEAD");
     std::fs::symlink_metadata(&head).is_ok_and(|meta| meta.file_type().is_file())
