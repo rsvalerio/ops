@@ -5,23 +5,113 @@ use super::*;
 
 // -- Deny exit-code interpretation --
 
+/// A broken `deny.toml` is not a check failure: cargo-deny 0.20 logs the
+/// reason at `ERROR` and exits 1 (the same value as an advisories-only
+/// failure) without emitting a classifiable diagnostic. The stream below is
+/// what `cargo deny --format json check` prints for a key it does not know.
 #[test]
-fn interpret_deny_result_treats_exit_code_2_as_config_error() {
-    // cargo-deny exit 2 = configuration error (e.g. broken deny.toml).
-    // `interpret_deny_result` surfaces that rather than returning an empty
-    // `DenyResult`.
-    let stderr = "error: failed to read deny.toml: invalid TOML at line 4\n";
-    let result = interpret_deny_result(Some(2), stderr);
-    let err = result.expect_err("config error must surface");
+fn interpret_deny_result_reports_config_error_from_error_log() {
+    let stderr = r#"{"fields":{"code":"unexpected-keys","labels":[{"column":1,"line":3,"message":"","span":"bogus-key"}],"message":"found 1 unexpected keys","severity":"error"},"type":"diagnostic"}
+{"fields":{"level":"ERROR","message":"failed to deserialize config from 'deny.toml'","timestamp":"2026-10-04T14:59:58Z"},"type":"log"}"#;
+    let err = interpret_deny_result(Some(1), stderr).expect_err("config error must surface");
     let msg = err.to_string();
     assert!(
-        msg.contains("status 2") && msg.contains("configuration error"),
-        "expected exit-2 error, got: {msg}"
+        msg.contains("status 1") && msg.contains("configuration error"),
+        "expected a configuration error, got: {msg}"
     );
     assert!(
-        msg.contains("invalid TOML"),
+        msg.contains("failed to deserialize config"),
+        "cargo-deny's reason preserved: {msg}"
+    );
+}
+
+/// The reason is cargo-deny's own text, so it is Debug-escaped like every
+/// other stderr excerpt.
+#[test]
+fn interpret_deny_result_config_error_debug_escapes_reason() {
+    let stderr = r#"{"fields":{"level":"ERROR","message":"failed to parse \u001b[31mconfig\u001b[0m"},"type":"log"}"#;
+    let err = interpret_deny_result(Some(1), stderr).expect_err("config error must surface");
+    let msg = err.to_string();
+    assert!(msg.contains("configuration error"), "got: {msg}");
+    assert!(
+        !msg.contains('\u{1b}'),
+        "ANSI ESC must not survive in: {msg:?}"
+    );
+}
+
+/// An `ERROR` log next to decodable findings does not hide them: the run
+/// reported what it found, so the findings are rendered.
+#[test]
+fn interpret_deny_result_keeps_findings_despite_error_log() {
+    let stderr = r#"{"type":"log","fields":{"level":"ERROR","message":"failed to fetch advisory database"}}
+{"type":"diagnostic","fields":{"severity":"error","message":"crate is banned","code":"banned","graphs":[{"Krate":{"name":"bad","version":"0.1.0"}}]}}"#;
+    let result = interpret_deny_result(Some(2), stderr).expect("findings decode");
+    assert_eq!(result.bans.len(), 1);
+}
+
+/// A usage error exits 2 — the same value as a bans-only failure — with
+/// plain-text stderr. With no diagnostic to decode it must surface as an
+/// error rather than as a clean bans check.
+#[test]
+fn interpret_deny_result_errs_on_exit_2_usage_error() {
+    let stderr = "error: unexpected argument '--nope' found\n";
+    let err = interpret_deny_result(Some(2), stderr).expect_err("usage error must surface");
+    let msg = err.to_string();
+    assert!(
+        msg.contains("status 2") && msg.contains("zero diagnostics"),
+        "expected the exit-2 zero-diagnostics error, got: {msg}"
+    );
+    assert!(
+        msg.contains("unexpected argument"),
         "stderr context preserved: {msg}"
     );
+}
+
+/// cargo-deny 0.20 exits with a bitset of the failed checks. A bans-only
+/// failure exits 2; its findings are decoded, not reported as a
+/// configuration error. Stream captured from cargo-deny 0.20.2.
+#[test]
+fn interpret_deny_result_decodes_bans_only_exit_code() {
+    let stderr = r#"{"fields":{"code":"banned","graphs":[{"Krate":{"name":"denyexp","version":"0.1.0"}}],"labels":[{"column":19,"line":2,"message":"banned here","span":"denyexp"}],"message":"crate 'denyexp = 0.1.0' is explicitly banned","severity":"error"},"type":"diagnostic"}
+{"fields":{"bans":{"errors":1,"helps":0,"notes":0,"warnings":0},"licenses":{"errors":0,"helps":1,"notes":0,"warnings":0},"sources":{"errors":0,"helps":0,"notes":0,"warnings":0}},"type":"summary"}"#;
+    let result = interpret_deny_result(Some(2), stderr).expect("bans-only failure decodes");
+    assert_eq!(result.bans.len(), 1);
+    assert_eq!(result.bans[0].0.package, "denyexp");
+    assert!(result.licenses.is_empty());
+}
+
+/// A licenses-only failure exits 4. Stream captured from cargo-deny 0.20.2.
+#[test]
+fn interpret_deny_result_decodes_licenses_only_exit_code() {
+    let stderr = r#"{"fields":{"code":"rejected","graphs":[{"Krate":{"name":"denyexp","version":"0.1.0"}}],"labels":[{"column":12,"line":5,"message":"rejected: license is not explicitly allowed","span":"MIT"}],"message":"failed to satisfy license requirements","severity":"error"},"type":"diagnostic"}
+{"fields":{"code":"license-not-encountered","graphs":[],"labels":[{"column":11,"line":2,"message":"unmatched license allowance","span":"Apache-2.0"}],"message":"license was not encountered","severity":"warning"},"type":"diagnostic"}
+{"fields":{"bans":{"errors":0,"helps":0,"notes":0,"warnings":0},"licenses":{"errors":1,"helps":0,"notes":0,"warnings":1},"sources":{"errors":0,"helps":0,"notes":0,"warnings":0}},"type":"summary"}"#;
+    let result = interpret_deny_result(Some(4), stderr).expect("licenses-only failure decodes");
+    assert_eq!(result.licenses.len(), 1);
+    assert_eq!(result.licenses[0].0.package, "denyexp");
+    assert_eq!(result.unused_license_allowances.len(), 1);
+    assert!(result.bans.is_empty());
+}
+
+/// Every non-empty combination of the four check bits is a check failure;
+/// the first value past the mask is not.
+#[test]
+fn interpret_deny_result_accepts_every_check_bitset_and_nothing_wider() {
+    let stderr = r#"{"type":"diagnostic","fields":{"severity":"error","message":"crate is banned","code":"banned","graphs":[{"Krate":{"name":"bad","version":"0.1.0"}}]}}"#;
+    for code in 1..=15 {
+        let result = interpret_deny_result(Some(code), stderr)
+            .unwrap_or_else(|e| panic!("exit {code} is a check failure: {e}"));
+        assert_eq!(result.bans.len(), 1, "exit {code}");
+    }
+    for code in [16, 17, 101, -1] {
+        let err = interpret_deny_result(Some(code), stderr)
+            .expect_err("a status outside the check bitset must surface");
+        assert!(
+            err.to_string()
+                .contains(&format!("unexpected status code {code}")),
+            "exit {code}: {err}"
+        );
+    }
 }
 
 /// cargo-deny exit 1 with empty stderr is "binary crashed before emitting
@@ -345,7 +435,7 @@ fn parse_deny_missing_code_logs_a_breadcrumb() {
         crate::test_support::capture_tracing(tracing::Level::DEBUG, || parse_deny_output(stderr));
     assert!(result.advisories.is_empty());
     assert!(
-        logged.contains("TASK-1840") && logged.contains("code"),
+        logged.contains("no `code` field"),
         "expected a missing-code breadcrumb; got: {logged}"
     );
 }
@@ -646,7 +736,6 @@ fn parse_deny_output_skips_malformed_json_with_tracing() {
     let (logged, result) =
         crate::test_support::capture_tracing(tracing::Level::DEBUG, || parse_deny_output(stderr));
     assert!(result.advisories.is_empty());
-    assert!(logged.contains("ERR-1"), "missing ERR-1 marker: {logged}");
     assert!(
         logged.contains("malformed cargo-deny JSON line"),
         "missing malformed-line message: {logged}"
@@ -672,12 +761,12 @@ fn interpret_deny_result_zero_diagnostics_debug_escapes_stderr_tail() {
     );
 }
 
-/// The same escape contract on the exit-2 (configuration error) arm.
+/// The same escape contract on an exit-2 usage error.
 #[test]
 fn interpret_deny_result_exit_two_debug_escapes_stderr_tail() {
     let stderr = "error: \x1b[31minvalid TOML\x1b[0m\nbye\n";
     let result = interpret_deny_result(Some(2), stderr);
-    let err = result.expect_err("config error must surface");
+    let err = result.expect_err("usage error must surface");
     let msg = err.to_string();
     assert!(
         !msg.contains('\u{1b}'),

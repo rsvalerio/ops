@@ -105,7 +105,7 @@ fn check_missing_separator_drift(diag: &UpgradeParseDiagnostics) -> anyhow::Resu
 fn check_header_drift(diag: &UpgradeParseDiagnostics) -> anyhow::Result<()> {
     if diag.saw_separator && !diag.saw_recognised_header {
         tracing::warn!(
-            "TASK-1074: cargo-upgrade stdout had a `====` separator row but no recognised header line; \
+            "cargo-upgrade stdout had a `====` separator row but no recognised header line; \
              refusing to parse output as authoritative — suspect cargo-edit header-token drift"
         );
         anyhow::bail!(
@@ -146,7 +146,7 @@ fn check_row_shape_drift(diag: &UpgradeParseDiagnostics) -> anyhow::Result<()> {
     if diag.entries_emitted == 0 {
         tracing::warn!(
             body_lines = diag.body_lines,
-            "TASK-1202: cargo-upgrade stdout had a recognised header, a `====` separator, \
+            "cargo-upgrade stdout had a recognised header, a `====` separator, \
              and body lines, but every row failed parse_upgrade_row (column-shape drift); \
              refusing to parse output as authoritative"
         );
@@ -168,7 +168,7 @@ fn check_row_shape_drift(diag: &UpgradeParseDiagnostics) -> anyhow::Result<()> {
             body_lines = diag.body_lines,
             entries_emitted = diag.entries_emitted,
             dropped,
-            "TASK-2179: cargo-upgrade body rows largely failed parse_upgrade_row; \
+            "cargo-upgrade body rows largely failed parse_upgrade_row; \
              refusing to treat the surviving subset as the complete upgrade list"
         );
         anyhow::bail!(
@@ -288,7 +288,9 @@ fn parse_upgrade_table_inner(stdout: &str) -> (Vec<UpgradeEntry>, UpgradeParseDi
     }
 
     if total_content_lines > 0 && !saw_separator {
-        tracing::warn!("TASK-1026: cargo-upgrade stdout had body lines but no `====` separator — suspect format drift");
+        tracing::warn!(
+            "cargo-upgrade stdout had body lines but no `====` separator — suspect format drift"
+        );
     }
     let diag = UpgradeParseDiagnostics {
         saw_separator,
@@ -340,14 +342,15 @@ fn parse_upgrade_row(line: &str, cols: &[(usize, usize)]) -> Option<UpgradeEntry
     if cols.len() < 5 {
         tracing::debug!(
             column_count = cols.len(),
-            "TASK-0404: skipping row — fewer than 5 columns"
+            "skipping row — fewer than 5 columns"
         );
         return None;
     }
-    let [name, old_req, compatible, latest, new_req] = slice_fixed_columns(line, cols).or_else(|| {
-        tracing::debug!(line = %line, "TASK-0404: skipping row that did not fill 5 fixed columns");
-        None
-    })?;
+    let [name, old_req, compatible, latest, new_req] =
+        slice_fixed_columns(line, cols).or_else(|| {
+            tracing::debug!(line = %line, "skipping row that did not fill 5 fixed columns");
+            None
+        })?;
     Some(UpgradeEntry {
         name: name.to_string(),
         old_req: old_req.to_string(),
@@ -386,7 +389,7 @@ fn clamp_to_char_boundaries(line: &str, start: usize, end: usize) -> Option<(usi
             adjusted_start = s,
             adjusted_end = e,
             line = %line,
-            "TASK-0960: cargo-upgrade row slice clamped to UTF-8 char boundaries (multi-byte content crossed a column edge)"
+            "cargo-upgrade row slice clamped to UTF-8 char boundaries (multi-byte content crossed a column edge)"
         );
     }
     Some((s, e))

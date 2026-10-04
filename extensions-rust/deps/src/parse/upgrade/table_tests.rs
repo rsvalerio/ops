@@ -118,8 +118,8 @@ tokio    1.35.0          1.38.0
         "no column geometry means no entries can be sliced"
     );
     assert!(
-        logged.contains("TASK-1026") && logged.contains("separator"),
-        "expected a TASK-1026 separator-drift warn; got: {logged}"
+        logged.contains("no `====` separator"),
+        "expected a separator-drift warn; got: {logged}"
     );
 }
 

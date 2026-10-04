@@ -87,8 +87,8 @@ fn interpret_upgrade_output_bails_on_unrecognised_header_with_separator() {
         "error must call out header-drift; got: {msg}"
     );
     assert!(
-        logged.contains("TASK-1074") && logged.contains("header"),
-        "expected a TASK-1074 header-drift warn; got: {logged}"
+        logged.contains("no recognised header line"),
+        "expected a header-drift warn; got: {logged}"
     );
 }
 
@@ -220,8 +220,8 @@ fn interpret_upgrade_output_bails_on_missing_separator() {
     );
     // The separator-drift breadcrumb stays observable in logs.
     assert!(
-        logged.contains("TASK-1026") && logged.contains("separator"),
-        "expected the TASK-1026 separator-drift warn to survive; got: {logged}"
+        logged.contains("no `====` separator"),
+        "expected the separator-drift warn to survive; got: {logged}"
     );
 }
 
