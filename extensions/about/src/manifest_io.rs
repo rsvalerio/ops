@@ -1,46 +1,41 @@
 //! Shared "read this manifest if it exists" helper for the about extensions.
 //!
-//! ERR-2 (TASK-0622): the per-stack about crates each had a near-identical
-//! `match std::fs::read_to_string` block that downgraded `NotFound` to silence
-//! and other IO errors to `tracing::debug!`. Six copies meant the next
-//! copy/paste would silently drift the policy (TASK-0467 already filed one
-//! such drift in the duckdb providers). This helper centralises the rule
-//! so adding a stack inherits the consistent severity policy.
-//!
-//! TASK-0649: non-NotFound IO errors now log at `tracing::warn!` matching
-//! the sibling `try_read_manifest` / `resolve_member_globs` policy so that
-//! operators at default log levels see unreadable-manifest diagnostics.
+//! Every per-stack about crate reads its manifests through this one helper,
+//! so they all share the same policy: a missing manifest is silent, any
+//! other failure logs at `tracing::warn!` (visible at default log levels),
+//! the read is size-capped, and only regular files are read.
 
 use std::io::Read;
 use std::path::Path;
 
-/// SEC-33 (TASK-0831): hard cap on manifest size.
+/// Hard cap on manifest size.
 ///
 /// `ops about` runs in user-controlled working directories where an
-/// adversarial repository (or a `/dev/zero` symlink) could otherwise
-/// force an unbounded allocation. 4 MiB is well above any real
+/// adversarial repository could otherwise force an unbounded allocation.
+/// 4 MiB is well above any real
 /// `package.json` / `pom.xml` / `pnpm-workspace.yaml` while keeping a
 /// single oversize read bounded.
 pub const MAX_MANIFEST_BYTES: u64 = 4 * 1024 * 1024;
 
 /// Read a manifest's text content if the file exists.
 ///
-/// Returns `Some(content)` on success, `None` when the file is absent or
-/// when an unrelated IO error occurred. The classification matches the
-/// six pre-existing call sites:
+/// Returns `Some(content)` on success, `None` when the file is absent, is
+/// not a regular file, is larger than [`MAX_MANIFEST_BYTES`], or could not
+/// be read:
 ///
 /// - `ErrorKind::NotFound` → silent `None` (a missing manifest is not an
 ///   error; the caller falls back to defaults).
+/// - a non-regular file (FIFO, device, directory) → `tracing::warn!`,
+///   returns `None`. The open never blocks, so a FIFO named like a manifest
+///   in a hostile checkout cannot hang `ops about` waiting for a writer.
 /// - any other IO error → emits `tracing::warn!` with `path` and `error`,
-///   returns `None`. This matches the policy established by
-///   `try_read_manifest` (TASK-0548) and `resolve_member_globs` (TASK-0517):
-///   a permission-denied or EIO manifest read is a real environment problem
-///   that the user needs to be told about.
+///   returns `None`: a permission-denied or EIO manifest read is a real
+///   environment problem that the user needs to be told about.
 ///
 /// `kind` is included in the log event so operators can grep by manifest
 /// type ("package.json" vs "go.mod") without scraping paths.
 pub fn read_optional_text(path: &Path, kind: &str) -> Option<String> {
-    let mut file = match std::fs::File::open(path) {
+    let mut file = match open_nonblocking(path) {
         Ok(f) => f,
         Err(e) if e.kind() == std::io::ErrorKind::NotFound => return None,
         Err(e) => {
@@ -54,15 +49,35 @@ pub fn read_optional_text(path: &Path, kind: &str) -> Option<String> {
         }
     };
 
-    // PERF-1 / TASK-0971: pre-size the read buffer from file metadata
-    // (clamped to MAX_MANIFEST_BYTES) so a single allocation covers the
-    // whole manifest instead of paying the doubling-resize cost on every
-    // read. The metadata-unknown branch falls back to `String::new()` so
-    // the SEC-33 cap and oversize-bail policy stay identical.
-    let preallocate = file
-        .metadata()
-        .ok()
-        .map_or(0, |m| m.len().min(MAX_MANIFEST_BYTES));
+    // The type check is made on the open handle, so it describes the file
+    // that will actually be read rather than whatever the path resolves to
+    // on a second lookup. Only a regular file is read: a FIFO or device
+    // could block the read or never reach end-of-file.
+    let metadata = match file.metadata() {
+        Ok(metadata) => metadata,
+        Err(e) => {
+            tracing::warn!(
+                path = ?path.display(),
+                error = ?e,
+                kind = kind,
+                "failed to read manifest"
+            );
+            return None;
+        }
+    };
+    if !metadata.is_file() {
+        tracing::warn!(
+            path = ?path.display(),
+            kind = kind,
+            "failed to read manifest: not a regular file"
+        );
+        return None;
+    }
+
+    // Pre-size the read buffer from the file length (clamped to
+    // MAX_MANIFEST_BYTES) so a single allocation covers the whole manifest
+    // instead of paying the doubling-resize cost on every read.
+    let preallocate = metadata.len().min(MAX_MANIFEST_BYTES);
     // `preallocate` is already clamped to MAX_MANIFEST_BYTES, so the only
     // platform where this could truncate is one whose usize cannot hold the
     // cap; saturating there just means a smaller preallocation.
@@ -95,6 +110,27 @@ pub fn read_optional_text(path: &Path, kind: &str) -> Option<String> {
     }
 
     Some(buf)
+}
+
+/// Open `path` for reading without blocking.
+///
+/// `O_NONBLOCK` makes opening a FIFO return immediately instead of waiting
+/// for a writer; it has no effect on reads from a regular file, which is
+/// the only kind [`read_optional_text`] goes on to read.
+#[cfg(unix)]
+fn open_nonblocking(path: &Path) -> std::io::Result<std::fs::File> {
+    use std::os::unix::fs::OpenOptionsExt as _;
+    std::fs::OpenOptions::new()
+        .read(true)
+        .custom_flags(libc::O_NONBLOCK)
+        .open(path)
+}
+
+/// Open `path` for reading. Non-Unix targets have no FIFO that blocks
+/// `open`; the regular-file check in [`read_optional_text`] still applies.
+#[cfg(not(unix))]
+fn open_nonblocking(path: &Path) -> std::io::Result<std::fs::File> {
+    std::fs::File::open(path)
 }
 
 #[cfg(test)]
@@ -130,13 +166,13 @@ mod tests {
     #[cfg(unix)]
     #[test]
     fn other_io_error_returns_none_after_warn_log() {
-        // Path is a directory, so read_to_string returns IsADirectory (not NotFound).
+        // Path is a directory: not a regular file, and not NotFound either.
         let dir = tempfile::tempdir().expect("tempdir");
         let result = read_optional_text(dir.path(), "test");
         assert!(result.is_none());
     }
 
-    /// SEC-33 (TASK-0831): files larger than `MAX_MANIFEST_BYTES` must not be
+    /// Files larger than `MAX_MANIFEST_BYTES` must not be
     /// slurped into memory. Use a sentinel-byte content larger than the cap
     /// and assert the helper bails to None.
     #[test]
@@ -159,12 +195,36 @@ mod tests {
         assert_eq!(got.len(), cap_bytes_as_usize(0));
     }
 
-    /// ERR-7 (TASK-0665): paths must be Debug-formatted in log fields so
+    /// A FIFO named like a manifest must be rejected promptly instead of
+    /// blocking on a writer that never appears. The read runs on its own
+    /// thread so a regression fails the test rather than hanging the suite.
+    #[cfg(unix)]
+    #[test]
+    fn fifo_returns_none_without_blocking() {
+        let dir = tempfile::tempdir().expect("tempdir");
+        let p = dir.path().join("package.json");
+        let status = std::process::Command::new("mkfifo")
+            .arg(&p)
+            .status()
+            .expect("run mkfifo");
+        assert!(status.success(), "mkfifo failed");
+
+        let (tx, rx) = std::sync::mpsc::channel();
+        std::thread::spawn(move || {
+            let _ = tx.send(read_optional_text(&p, "package.json"));
+        });
+        let result = rx
+            .recv_timeout(std::time::Duration::from_secs(10))
+            .expect("read_optional_text blocked on a FIFO");
+        assert!(result.is_none(), "a FIFO must not be read as a manifest");
+    }
+
+    /// Paths must be Debug-formatted in log fields so
     /// embedded newlines/ANSI escapes cannot forge log lines. This test
     /// pins the formatting choice without requiring a tracing-subscriber
     /// dependency: the same `?` formatter used in the `tracing::warn!` call
     /// site escapes control characters at the value layer.
-    /// ERR-7 / TASK-0999: `io::Error` messages flowing through the Debug
+    /// `io::Error` messages flowing through the Debug
     /// formatter must escape control characters so a hostile filename or
     /// symlink-target whose error message contains `\n` or `\u{1b}[31m`
     /// cannot forge log lines.

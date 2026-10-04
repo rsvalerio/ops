@@ -2,41 +2,36 @@
 //! providers (Node, Python, ...).
 //!
 //! Returns `(member_path, manifest_contents)` tuples so callers do not need
-//! to re-open the manifest. The single read avoids the SEC-25 TOCTOU window
-//! where a symlink swap between an `exists()` probe and a later open could
-//! redirect the read.
+//! to re-open the manifest: the manifest is opened exactly once, so there is
+//! no window between an `exists()` probe and a later open in which a symlink
+//! swap could redirect the read.
 //!
 //! Pattern shape supported is the simple `prefix/*` case Cargo / yarn / npm /
 //! uv all use in practice. Multi-segment globs (`**`, `prefix/*/suffix`) are
-//! **not supported** and are skipped with a `tracing::warn` per
-//! TASK-1069 — the previous behaviour silently flattened them onto the
-//! prefix, producing either a brute-force scan of the workspace root
-//! (`**/foo`) or dropped patterns (`prefix/*/suffix`) with no breadcrumb.
+//! **not supported** and are skipped with a `tracing::warn` per pattern.
 //! Exclusion patterns follow the same single-`*`-per-segment shape and
-//! filter the resolved list (TASK-0389 / TASK-0400).
+//! filter the resolved list.
+//!
+//! # Containment
+//!
+//! A member never resolves outside the workspace root. The member *string*
+//! is rejected when it is absolute or contains `..` (see `member_escape`),
+//! and the member's manifest is read only when its fully resolved path is
+//! still inside the resolved root, so a member directory (or manifest) that
+//! is a symlink pointing out of the workspace is skipped.
 
 use std::path::{Component, Path};
-
-use crate::manifest_io::read_optional_text;
 
 /// Resolve workspace member globs against `root`, looking for `marker` (e.g.
 /// `"package.json"`, `"pyproject.toml"`) inside each candidate directory.
 ///
 /// Excludes are matched with the same single-`*`-per-pattern glob shape and
-/// applied after expansion.
+/// applied after expansion. An exclude pattern with more than one `*` is
+/// unsupported and fails **closed**: the candidate is dropped (treated as
+/// matching) and a `tracing::warn` is emitted.
 ///
-/// PATTERN-1 (TASK-1052): an exclude pattern with more than one `*` is
-/// unsupported and fails **closed** — the candidate is dropped (treated as
-/// matching) and a `tracing::warn` is emitted, rather than the previous
-/// fail-open behaviour that silently let the unit through.
-///
-/// FN-1 / TASK-1743: the body used to inline five concerns — member-value
-/// validation, glob-shape validation, directory enumeration with per-entry
-/// error classification, relative-path derivation, and post-processing —
-/// across 136 lines nested six deep under a bare
-/// `#[allow(clippy::too_many_lines)]`. Each concern now has a name; what is
-/// left here is the orchestration: validate the member, expand it, filter the
-/// excludes, sort and dedup.
+/// A member whose manifest resolves outside `root` through a symlink is
+/// skipped with a `tracing::warn`.
 pub fn resolve_member_globs(
     members: &[String],
     excludes: &[String],
@@ -63,7 +58,7 @@ pub fn resolve_member_globs(
                 resolved.extend(resolver.expand_segment_glob(member, prefix));
             }
             MemberPattern::Literal(literal) => {
-                if let Some(manifest) = try_read_manifest(&root.join(literal), marker) {
+                if let Some(manifest) = resolver.read_member_manifest(&root.join(literal)) {
                     resolved.push((literal.to_string(), manifest));
                 }
             }
@@ -100,27 +95,24 @@ impl MemberEscape {
     }
 }
 
-/// Whether `member` breaks the containment invariant, and how.
+/// Whether `member` lexically breaks the containment invariant, and how.
 ///
-/// **Containment invariant**: `root.join(member)` resolves inside `root` only
-/// when `member` is *relative* **and** free of `..` components. Both halves
-/// are enforced here, before any I/O:
+/// **Containment invariant**: `root.join(member)` names a path under `root`
+/// only when `member` is *relative* **and** free of `..` components. Both
+/// halves are enforced here, before any I/O:
 ///
-/// - **`..`** (PATTERN-1 / TASK-1071): `root.join("../sibling")` walks out of
-///   the workspace root. Aligns with the SEC-13 dot-only-segment work in
-///   `git/src/remote.rs`.
-/// - **absolute** (SEC-14 / TASK-1726): an absolute member has no
-///   `ParentDir` component — `/etc/foo` decomposes to `RootDir, Normal,
-///   Normal` — so the `..` check alone let it through, and
-///   `root.join("/etc/foo")` is `/etc/foo`, discarding `root`. That made the
-///   *simpler* of the two escapes the open one: a checked-in manifest could
-///   direct reads anywhere on the filesystem and echo the contents into
-///   rendered `about` output. Windows drive prefixes (`C:\…`, and the
-///   drive-relative `C:foo`) are rejected for the same reason.
+/// - **`..`**: `root.join("../sibling")` walks out of the workspace root.
+/// - **absolute**: an absolute member has no `ParentDir` component —
+///   `/etc/foo` decomposes to `RootDir, Normal, Normal` — and
+///   `root.join("/etc/foo")` is `/etc/foo`, discarding `root`. Left
+///   unchecked, a checked-in manifest could direct reads anywhere on the
+///   filesystem and echo the contents into rendered `about` output. Windows
+///   drive prefixes (`C:\…`, and the drive-relative `C:foo`) are rejected
+///   for the same reason.
 ///
-/// Workspace config is operator-authored, so the impact is bounded — but the
-/// guard exists precisely so a reviewer can conclude members cannot escape
-/// `root`, and that conclusion has to be true.
+/// This check is lexical. A relative, `..`-free member can still leave the
+/// root through a symlink; `Resolver::read_member_manifest` closes that half
+/// by checking the resolved manifest path.
 ///
 /// Pure and filesystem-free: it inspects the string's path components only.
 fn member_escape(member: &str) -> Option<MemberEscape> {
@@ -134,8 +126,7 @@ fn member_escape(member: &str) -> Option<MemberEscape> {
 /// The glob shape of a member value, once [`member_escape`] has cleared it.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum MemberPattern<'a> {
-    /// No `*` at all: a literal member directory, joined straight onto the
-    /// root.
+    /// No `*` at all: a literal member directory under the root.
     Literal(&'a str),
     /// A supported whole-segment trailing `*`. The payload is the directory
     /// prefix to enumerate — `""` for a bare `*`, `"packages/"` for
@@ -147,17 +138,12 @@ enum MemberPattern<'a> {
 
 /// Classify the glob shape of `member`.
 ///
-/// PATTERN-1 (TASK-1069): the original implementation found the first `*` and
-/// treated everything before it as the prefix, silently ignoring any suffix.
-/// That made `**/foo` (prefix `""`) brute-force-scan the workspace root and
-/// flattened `prefix/*/suffix` to `prefix/*`.
-///
-/// PATTERN-1 (TASK-1069 follow-up): the `*` must span a *whole* path segment
-/// (`*`, `packages/*`). The earlier check only rejected a suffix containing
-/// `/`, so a partial-segment pattern like `packages/*-internal` or
-/// `packages/foo*` passed and was then expanded as a bare `read_dir(prefix)`
-/// — the text around the `*` was silently dropped and every sibling directory
-/// matched.
+/// The `*` must be the last character and span a *whole* path segment (`*`,
+/// `packages/*`). Every other shape is [`MemberPattern::Unsupported`]:
+/// recursive `**`, a suffix after the `*` (`prefix/*/suffix`), and a
+/// partial-segment wildcard (`packages/*-internal`, `packages/foo*`).
+/// Expanding those as a plain directory listing would drop the text around
+/// the `*` and match every sibling directory.
 ///
 /// Pure and filesystem-free, so the shape rules are unit-testable on their own.
 fn classify_member_pattern(member: &str) -> MemberPattern<'_> {
@@ -178,30 +164,25 @@ fn classify_member_pattern(member: &str) -> MemberPattern<'_> {
 struct Resolver<'a> {
     root: &'a Path,
     marker: &'a str,
-    /// PERF-3 / TASK-1149: lazily canonicalize `root` once across the whole
-    /// resolution. The recovery path (run when `strip_prefix(root)` misses,
-    /// e.g. macOS `/var` ↔ `/private/var` or any symlinked workspace root)
-    /// re-canonicalised the *same* root for every directory entry, turning a
-    /// one-shot fallback into O(N) syscalls on monorepos with hundreds of
-    /// members.
-    ///
+    /// `root` canonicalized lazily, once across the whole resolution, so a
+    /// monorepo with hundreds of members pays one syscall rather than one
+    /// per member.
     root_canonical: RootCanonical,
 }
 
-/// Memo state for the canonicalised workspace root (PERF-3 / TASK-1149).
+/// Memo state for the canonicalised workspace root.
 ///
 /// A named enum rather than `Option<Option<PathBuf>>`: all three states are
-/// meaningful and the nested-option spelling made which `None` meant what a
-/// matter of counting layers.
+/// meaningful, and a nested option leaves which `None` means what to
+/// counting layers.
 enum RootCanonical {
-    /// Not attempted — no `strip_prefix` has missed yet, so the syscall has
-    /// not been paid for.
+    /// Not attempted — nothing has needed the canonical root yet, so the
+    /// syscall has not been paid for.
     Unattempted,
     /// `canonicalize(root)` succeeded.
     Resolved(std::path::PathBuf),
-    /// `canonicalize(root)` failed. The strip cannot succeed without a valid
-    /// canonical root, so recovery goes straight to the absolute-path
-    /// fallback. Cached so the failing syscall is not repeated per entry.
+    /// `canonicalize(root)` failed. Cached so the failing syscall is not
+    /// repeated per entry.
     Failed,
 }
 
@@ -227,7 +208,7 @@ impl<'a> Resolver<'a> {
             let Some(path) = glob_child_dir(member, &parent, entry) else {
                 continue;
             };
-            let Some(manifest) = try_read_manifest(&path, self.marker) else {
+            let Some(manifest) = self.read_member_manifest(&path) else {
                 continue;
             };
             resolved.push((self.relative_path(&path), manifest));
@@ -235,43 +216,111 @@ impl<'a> Resolver<'a> {
         resolved
     }
 
+    /// The canonicalised workspace root, resolved on first use and memoised.
+    ///
+    /// `None` when `canonicalize(root)` failed.
+    fn canonical_root(&mut self) -> Option<&Path> {
+        if matches!(self.root_canonical, RootCanonical::Unattempted) {
+            self.root_canonical = std::fs::canonicalize(self.root)
+                .map_or(RootCanonical::Failed, RootCanonical::Resolved);
+        }
+        match &self.root_canonical {
+            RootCanonical::Resolved(canonical) => Some(canonical.as_path()),
+            RootCanonical::Unattempted | RootCanonical::Failed => None,
+        }
+    }
+
+    /// Read `<dir>/<marker>` if the member directory holds one and the
+    /// manifest lies inside the workspace root.
+    ///
+    /// The manifest path is canonicalized and must sit under the canonical
+    /// root, so a member directory or manifest that is a symlink out of the
+    /// workspace (`packages/x -> /some/other/dir`) is skipped with a
+    /// `tracing::warn` instead of having its contents surfaced. Symlinks
+    /// that stay inside the root are followed.
+    ///
+    /// The read then goes through [`ops_core::text::read_capped_to_string`]
+    /// on the canonical path. That open refuses a symlink at every path
+    /// component and any non-regular file, so an entry swapped in after the
+    /// containment check cannot redirect the read, and a FIFO named like the
+    /// manifest cannot block it.
+    ///
+    /// A missing manifest is silent — the directory is simply not a member.
+    /// Every other failure logs at `tracing::warn!` and yields `None`.
+    fn read_member_manifest(&mut self, dir: &Path) -> Option<String> {
+        let marker = self.marker;
+        let manifest = dir.join(marker);
+        let canonical = match std::fs::canonicalize(&manifest) {
+            Ok(path) => path,
+            Err(e) if e.kind() == std::io::ErrorKind::NotFound => return None,
+            Err(e) => {
+                warn_manifest_unreadable(&manifest, marker, &e);
+                return None;
+            }
+        };
+        // Fail closed: without a canonical root, containment cannot be shown.
+        let contained = self
+            .canonical_root()
+            .is_some_and(|root| canonical.starts_with(root));
+        if !contained {
+            tracing::warn!(
+                path = ?manifest.display(),
+                kind = marker,
+                "workspace member manifest resolves outside the workspace root; skipping"
+            );
+            return None;
+        }
+        match ops_core::text::read_capped_to_string(&canonical) {
+            Ok(content) => Some(content),
+            Err(e) if e.kind() == std::io::ErrorKind::NotFound => None,
+            Err(e) => {
+                warn_manifest_unreadable(&manifest, marker, &e);
+                None
+            }
+        }
+    }
+
     /// Render `path` relative to the workspace root.
     ///
-    /// ERR-1 (TASK-1070): a `strip_prefix` failure here used to silently drop
-    /// a successfully-read manifest — typically when `root` and
-    /// `entry.path()` disagree on symlink resolution (common on macOS via
-    /// `/var` vs `/private/var`). Canonicalise both sides as a fallback, log
-    /// a breadcrumb either way, and fall back to the absolute path so the
-    /// unit is not silently lost.
+    /// `strip_prefix` misses when `root` and `path` disagree on symlink
+    /// resolution (common on macOS via `/var` vs `/private/var`). In that
+    /// case both sides are compared in canonical form, and failing that the
+    /// absolute path is used, so a successfully-read manifest is never
+    /// silently dropped.
     fn relative_path(&mut self, path: &Path) -> String {
         let root = self.root;
         if let Ok(rel) = path.strip_prefix(root) {
             return rel.to_string_lossy().to_string();
         }
-        if matches!(self.root_canonical, RootCanonical::Unattempted) {
-            self.root_canonical =
-                std::fs::canonicalize(root).map_or(RootCanonical::Failed, RootCanonical::Resolved);
-        }
-        let root_canon = match &self.root_canonical {
-            RootCanonical::Resolved(canonical) => Some(canonical.as_path()),
-            RootCanonical::Unattempted | RootCanonical::Failed => None,
-        };
+        let root_canon = self.canonical_root();
         recover_relative_path(path, root, root_canon)
     }
 }
 
+/// Log a member manifest that exists but could not be resolved or read.
+///
+/// The path and error are Debug-formatted so embedded newlines / ANSI
+/// escapes cannot forge log lines.
+fn warn_manifest_unreadable(manifest: &Path, marker: &str, error: &std::io::Error) {
+    tracing::warn!(
+        path = ?manifest.display(),
+        error = ?error,
+        kind = marker,
+        "failed to read workspace member manifest"
+    );
+}
+
 /// Open the directory a segment glob expands over.
 ///
-/// ERR-1 (TASK-0517): a `read_dir` error here used to silently produce "No
-/// project units found". Log at warn so a permissions or missing-prefix issue
-/// is visible, without changing the best-effort behaviour that lets the rest
-/// of the globs resolve. A missing prefix is routine (an optional
-/// `packages/` directory) and stays at debug.
+/// A `read_dir` error logs at warn so a permissions problem is visible
+/// rather than surfacing only as "No project units found"; resolution stays
+/// best-effort and the remaining globs still resolve. A missing prefix is
+/// routine (an optional `packages/` directory) and stays at debug.
 fn open_glob_parent(member: &str, parent: &Path) -> Option<std::fs::ReadDir> {
     match std::fs::read_dir(parent) {
         Ok(entries) => Some(entries),
         Err(e) if e.kind() == std::io::ErrorKind::NotFound => {
-            // ERR-7 (TASK-0665): Debug-format the path so embedded newlines /
+            // Debug-format the path so embedded newlines /
             // ANSI escapes cannot forge log lines.
             tracing::debug!(
                 member,
@@ -294,12 +343,15 @@ fn open_glob_parent(member: &str, parent: &Path) -> Option<std::fs::ReadDir> {
 
 /// Accept one `read_dir` item as a candidate member directory.
 ///
-/// ERR-1 (TASK-0942): the per-entry `Result` is matched explicitly rather
-/// than `flatten()`ed, so an IO error on one entry (EACCES on a sibling
-/// member, EIO, ...) is visible at warn level instead of disappearing into
-/// "no project units found". Mirrors the policy `open_glob_parent` adopted in
-/// TASK-0517. Non-directories are skipped silently — they are ordinary files
+/// The per-entry `Result` is matched explicitly rather than `flatten()`ed,
+/// so an IO error on one entry (EACCES on a sibling member, EIO, ...) is
+/// visible at warn level instead of disappearing into "no project units
+/// found". Non-directories are skipped silently — they are ordinary files
 /// sitting beside the members, not an error.
+///
+/// A symlink to a directory is accepted as a candidate here; whether it
+/// stays inside the workspace root is decided by
+/// [`Resolver::read_member_manifest`] on the resolved manifest path.
 fn glob_child_dir(
     member: &str,
     parent: &Path,
@@ -321,18 +373,14 @@ fn glob_child_dir(
     path.is_dir().then_some(path)
 }
 
-/// ERR-1 (TASK-1070): recover a workspace-relative path when
-/// `path.strip_prefix(root)` misses, which happens when `root` and the entry
-/// path disagree on symlink resolution (commonly macOS `/var` vs
-/// `/private/var`). Falls back to the absolute path so a
-/// successfully-read manifest is never silently dropped.
+/// Recover a workspace-relative path when `path.strip_prefix(root)` misses,
+/// which happens when `root` and the entry path disagree on symlink
+/// resolution (commonly macOS `/var` vs `/private/var`). Falls back to the
+/// absolute path so a successfully-read manifest is never silently dropped.
 ///
-/// `root_canon` is the caller's memoised canonicalised root (PERF-3 /
-/// TASK-1149), or `None` when canonicalising the root itself failed — the
-/// strip cannot succeed without it, so recovery goes straight to the fallback.
-///
-/// Split out of the loop body so the caller's `map_or_else` keeps the common
-/// `strip_prefix` success on one line instead of trailing 25 lines of recovery.
+/// `root_canon` is the caller's memoised canonicalised root, or `None` when
+/// canonicalising the root itself failed — the strip cannot succeed without
+/// it, so recovery goes straight to the fallback.
 fn recover_relative_path(path: &Path, root: &Path, root_canon: Option<&Path>) -> String {
     let canonical_rel = root_canon.and_then(|root_canon| {
         std::fs::canonicalize(path).ok().and_then(|p_canon| {
@@ -362,23 +410,19 @@ fn recover_relative_path(path: &Path, root: &Path, root_canon: Option<&Path>) ->
     )
 }
 
-fn try_read_manifest(dir: &Path, marker: &str) -> Option<String> {
-    let path = dir.join(marker);
-    read_optional_text(&path, marker)
-}
-
-/// PATTERN-1 (TASK-0503): exclude patterns now support a single `*` anywhere
-/// in the final path segment — `prefix*`, `*suffix`, `prefix*suffix`, and
-/// bare `*`. The `*` matches any non-empty run of characters that does not
-/// cross a `/`, mirroring Cargo / yarn / npm single-segment glob semantics.
+/// Whether the exclude `pattern` matches the resolved member `candidate`.
 ///
-/// PATTERN-1 (TASK-1052): multi-`*` patterns are unsupported and now fail
-/// **closed** — the candidate is treated as matching (i.e. excluded) so a
-/// typo like `packages/*-internal-*` does not silently leak the unit into
-/// published output. A `tracing::warn` is still emitted so operators can
-/// see and fix the pattern; the fail-closed default is the safer wrong
-/// answer (over-restrictive) versus the previous fail-open behaviour
-/// (under-restrictive) that shipped private modules until someone noticed.
+/// A pattern supports a single `*` anywhere in the final path segment —
+/// `prefix*`, `*suffix`, `prefix*suffix`, and bare `*`. The `*` matches any
+/// non-empty run of characters that does not cross a `/`, mirroring Cargo /
+/// yarn / npm single-segment glob semantics.
+///
+/// Multi-`*` patterns are unsupported and fail **closed** — the candidate
+/// is treated as matching (i.e. excluded) so a typo like
+/// `packages/*-internal-*` does not silently leak the unit into published
+/// output. A `tracing::warn` is emitted so operators can see and fix the
+/// pattern; over-restrictive is the safer wrong answer than shipping a
+/// private module.
 fn matches_exclude(pattern: &str, candidate: &str) -> bool {
     let star_count = pattern.bytes().filter(|b| *b == b'*').count();
     if star_count == 0 {
@@ -407,23 +451,25 @@ fn matches_exclude(pattern: &str, candidate: &str) -> bool {
 
 /// Manifest-level identity fields surfaced by the units providers.
 ///
-/// Replaces the old positional `(Option<String>, Option<String>,
-/// Option<String>)` so argument-order errors at call sites become compile
+/// A named struct rather than a positional `(Option<String>, Option<String>,
+/// Option<String>)`, so argument-order errors at call sites are compile
 /// errors.
 #[derive(Debug, Default, Clone, PartialEq, Eq)]
 pub struct PackageMetadata {
+    /// Package name declared by the manifest.
     pub name: Option<String>,
+    /// Package version declared by the manifest.
     pub version: Option<String>,
+    /// Package description; trimmed, and `None` when blank.
     pub description: Option<String>,
 }
 
-/// DUP-3 (TASK-0620): shared `(name, version, description)` projection
-/// shared by Node `package.json` and Python `pyproject.toml` units providers.
+/// `(name, version, description)` projection shared by the Node
+/// `package.json` and Python `pyproject.toml` units providers.
 ///
 /// Calls `parse` to produce the raw fields from the manifest contents. On
 /// parser error, logs at warn with the manifest path and returns
-/// `PackageMetadata::default()` — matching the swallow-and-warn shape
-/// established by TASK-0440. Description is trimmed and empty values are
+/// `PackageMetadata::default()`. Description is trimmed and empty values are
 /// filtered out.
 pub fn parse_package_metadata<E, F>(path: &Path, content: &str, parse: F) -> PackageMetadata
 where
@@ -480,11 +526,11 @@ mod tests {
         assert_eq!(names, vec!["packages/a", "packages/b"]);
     }
 
-    /// PATTERN-1 (TASK-1069 follow-up): a partial-segment wildcard is not a
-    /// supported shape. It used to pass validation and then expand as a bare
-    /// `read_dir("packages")`, so `packages/*-internal` silently matched every
-    /// sibling — including `packages/other`, which does not end in `-internal`.
-    /// Rejecting the pattern outright is what keeps the sibling out.
+    /// A partial-segment wildcard is not a supported shape. Expanding
+    /// `packages/*-internal` as a bare `read_dir("packages")` would match
+    /// every sibling — including `packages/other`, which does not end in
+    /// `-internal`. Rejecting the pattern outright is what keeps the sibling
+    /// out.
     #[test]
     fn rejects_partial_segment_glob_instead_of_matching_every_sibling() {
         let dir = tempfile::tempdir().unwrap();
@@ -515,9 +561,8 @@ mod tests {
     }
 
     /// The trailing-`*`-inside-a-segment shape (`packages/foo*`) is rejected
-    /// for the same reason: it used to `read_dir("packages/foo")`, a directory
-    /// that generally does not exist, so it silently resolved to nothing while
-    /// looking like a working prefix filter.
+    /// for the same reason: it must not be read as `read_dir("packages/foo")`,
+    /// enumerating the children of the literal prefix.
     #[test]
     fn rejects_prefix_glob_inside_a_segment() {
         let dir = tempfile::tempdir().unwrap();
@@ -583,7 +628,7 @@ mod tests {
         assert_eq!(names, vec!["packages/keep"]);
     }
 
-    /// ERR-1 (TASK-0517): an unreadable glob-prefix directory must not
+    /// An unreadable glob-prefix directory must not
     /// crash; resolution returns empty for that member while other globs
     /// still resolve normally. The accompanying `tracing::warn` is exercised
     /// by the `read_dir` failure path; pinning the value-level contract here
@@ -611,9 +656,8 @@ mod tests {
         assert!(resolved.is_empty());
     }
 
-    /// ERR-1: an unreadable manifest (permission denied) must drop the unit
-    /// out of the resolved listing. The previous `.ok()` shape coerced every
-    /// IO failure to `NotFound`, silently producing "no project units".
+    /// An unreadable manifest (permission denied) must drop the unit out of
+    /// the resolved listing rather than include it.
     #[cfg(unix)]
     #[test]
     fn unreadable_manifest_is_skipped_not_silent() {
@@ -645,17 +689,13 @@ mod tests {
         );
     }
 
-    /// PERF-3 / TASK-1149: when the workspace root is reached through a
-    /// symlink, `path.strip_prefix(root)` misses for every entry and the
-    /// recovery path canonicalises both sides. The root canonicalisation
-    /// is hoisted out of the per-entry loop and cached on first miss, so
-    /// a many-entry tree pays one root canonicalize, not N.
+    /// When the workspace root is reached through a symlink, the root
+    /// canonicalisation is memoised, so a many-entry tree pays one root
+    /// canonicalize, not N.
     ///
     /// We can't observe syscall counts portably; instead we exercise a
     /// 200-entry symlinked-root tree and assert every member resolves
-    /// without the recovery path silently dropping units. Combined with
-    /// the structural lazy-init in `resolve_member_globs`, this pins the
-    /// behaviour the AC asks for.
+    /// without any unit being dropped.
     #[cfg(unix)]
     #[test]
     fn symlinked_root_with_many_entries_resolves_via_cached_canonicalize() {
@@ -689,7 +729,7 @@ mod tests {
         );
     }
 
-    /// PATTERN-1 (TASK-0503): `prefix*suffix` excludes match a single
+    /// `prefix*suffix` excludes match a single
     /// non-`/`-spanning segment middle.
     #[test]
     fn prefix_star_suffix_exclude_matches_single_segment() {
@@ -711,7 +751,7 @@ mod tests {
         assert_eq!(names, vec!["packages/keep"]);
     }
 
-    /// PATTERN-1 (TASK-0503): bare `*` only matches a single path segment, so
+    /// Bare `*` only matches a single path segment, so
     /// nested multi-segment members are left in place.
     #[test]
     fn bare_star_exclude_only_matches_single_segment() {
@@ -720,8 +760,8 @@ mod tests {
         assert!(!matches_exclude("*", ""));
     }
 
-    /// PATTERN-1 (TASK-1052): multi-`*` patterns are explicitly unsupported
-    /// and now fail **closed** — `matches_exclude` returns true so the
+    /// Multi-`*` patterns are explicitly unsupported
+    /// and fail **closed** — `matches_exclude` returns true so the
     /// candidate is dropped rather than silently leaked. The accompanying
     /// `tracing::warn` is exercised but not asserted here to avoid pulling
     /// in a tracing-subscriber dev-dep just for this case.
@@ -731,10 +771,9 @@ mod tests {
         assert!(matches_exclude("packages/*-internal-*", "packages/foo"));
     }
 
-    /// PATTERN-1 (TASK-1052): end-to-end — a multi-`*` exclude pattern must
+    /// End-to-end — a multi-`*` exclude pattern must
     /// drop the matching candidate from `resolve_member_globs` rather than
-    /// fail open and ship it. Mirrors the typo case `packages/*-internal-*`
-    /// from the task description.
+    /// fail open and ship it, as for the typo `packages/*-internal-*`.
     #[test]
     fn multi_star_exclude_drops_candidate_in_resolve() {
         let dir = tempfile::tempdir().unwrap();
@@ -760,7 +799,7 @@ mod tests {
         );
     }
 
-    /// PATTERN-1 (TASK-1071): a non-glob member value containing `..` must be
+    /// A non-glob member value containing `..` must be
     /// rejected before any I/O — `root.join("../sibling")` would otherwise
     /// escape the workspace root. The valid sibling member `packages/foo`
     /// continues to resolve, confirming the check only fires on `ParentDir`
@@ -794,9 +833,9 @@ mod tests {
         );
     }
 
-    /// SEC-14 / TASK-1726: an **absolute** member decomposes to `RootDir,
-    /// Normal, …` with no `ParentDir` component, so the `..` guard alone let
-    /// it through — and `root.join("/abs/path")` discards `root` entirely.
+    /// An **absolute** member decomposes to `RootDir, Normal, …` with no
+    /// `ParentDir` component, so the `..` guard alone does not catch it —
+    /// and `root.join("/abs/path")` discards `root` entirely.
     /// Pin that an absolute member resolves to nothing while a valid relative
     /// sibling in the same call still loads.
     #[test]
@@ -831,7 +870,7 @@ mod tests {
         );
     }
 
-    /// SEC-14 / TASK-1726: the glob branch joins `root.join(prefix)`, so it
+    /// The glob branch joins `root.join(prefix)`, so it
     /// has the same absolute-path hole. An absolute glob must not enumerate
     /// the directory it names.
     #[test]
@@ -851,7 +890,7 @@ mod tests {
         );
     }
 
-    /// FN-1 / TASK-1743: member-value validation is now a pure predicate, so
+    /// Member-value validation is a pure predicate, so the lexical half of
     /// the containment invariant is testable without touching the filesystem.
     #[test]
     fn member_escape_classifies_both_escapes() {
@@ -878,7 +917,7 @@ mod tests {
         assert_eq!(member_escape("/"), Some(MemberEscape::Absolute));
     }
 
-    /// FN-1 / TASK-1743: glob-shape validation is likewise pure, so every
+    /// Glob-shape validation is likewise pure, so every
     /// supported and unsupported shape is pinned without a tempdir.
     #[test]
     fn classify_member_pattern_covers_every_shape() {
@@ -914,9 +953,8 @@ mod tests {
         assert_eq!(classify_member_pattern("**"), MemberPattern::Unsupported);
     }
 
-    /// PATTERN-1 (TASK-1069): non-trivial suffix-after-`*` (e.g.
-    /// `prefix/*/suffix`) is now explicitly skipped rather than silently
-    /// flattened onto the prefix. The valid sibling member must still load
+    /// Non-trivial suffix-after-`*` (e.g.
+    /// `prefix/*/suffix`) is skipped rather than flattened onto the prefix. The valid sibling member must still load
     /// to confirm the skip is per-pattern, not whole-call.
     #[test]
     fn suffix_after_star_is_skipped_with_warning() {
@@ -938,13 +976,13 @@ mod tests {
         );
     }
 
-    /// PATTERN-1 (TASK-1069): a recursive `**` member must be skipped, not
+    /// A recursive `**` member must be skipped, not
     /// brute-force-scanned over the entire workspace root.
     #[test]
     fn double_star_member_is_skipped() {
         let dir = tempfile::tempdir().unwrap();
-        // Populate top-level dirs that the pre-fix behaviour would have
-        // brute-force enumerated when prefix collapsed to `""`.
+        // Populate top-level dirs that a prefix collapsed to `""` would
+        // brute-force enumerate.
         write(&dir.path().join("a/package.json"), r"{}");
         write(&dir.path().join("b/package.json"), r"{}");
 
@@ -956,7 +994,7 @@ mod tests {
         );
     }
 
-    /// ERR-1 (TASK-1070): a `strip_prefix` mismatch caused by symlinked
+    /// A `strip_prefix` mismatch caused by symlinked
     /// roots must not silently drop the manifest. macOS `/var` ->
     /// `/private/var` is the canonical example: callers pass the
     /// non-canonical root and `read_dir` yields canonical entry paths.
@@ -979,11 +1017,8 @@ mod tests {
         );
         std::os::unix::fs::symlink(&real_root, &symlink_root).unwrap();
 
-        // Read via the symlinked root *with* the symlink resolved on the
-        // entries side — emulate the macOS `/var` -> `/private/var`
-        // mismatch by canonicalising the parent that read_dir walks.
-        // We achieve this by passing `symlink_root` directly and relying
-        // on the implementation's canonicalize-fallback to recover.
+        // Pass the symlinked root directly, emulating the macOS `/var` ->
+        // `/private/var` mismatch.
         let resolved = resolve_member_globs(
             &["packages/*".to_string()],
             &[],
@@ -1007,5 +1042,120 @@ mod tests {
             "expected resolved name to end with `packages/a`, got {:?}",
             resolved[0].0
         );
+    }
+
+    /// A workspace with one real member (`packages/real`) and an `outside`
+    /// directory, beside the root, holding a manifest of its own. Returns
+    /// the tempdir guard, the root and the outside directory.
+    #[cfg(unix)]
+    fn root_with_outside_manifest() -> (tempfile::TempDir, std::path::PathBuf, std::path::PathBuf) {
+        let dir = tempfile::tempdir().unwrap();
+        let root = dir.path().join("root");
+        let outside = dir.path().join("outside");
+        write(
+            &root.join("packages/real/package.json"),
+            r#"{"name":"real"}"#,
+        );
+        write(&outside.join("package.json"), r#"{"name":"escape"}"#);
+        (dir, root, outside)
+    }
+
+    /// A member directory matched by a glob that is a symlink pointing out
+    /// of the workspace root must not have its manifest read; the real
+    /// sibling still resolves.
+    #[cfg(unix)]
+    #[test]
+    fn symlinked_glob_member_outside_root_is_skipped() {
+        let (_dir, root, outside) = root_with_outside_manifest();
+        std::os::unix::fs::symlink(&outside, root.join("packages/x")).unwrap();
+
+        let resolved =
+            resolve_member_globs(&["packages/*".to_string()], &[], &root, "package.json");
+        let names: Vec<&str> = resolved.iter().map(|(p, _)| p.as_str()).collect();
+        assert_eq!(
+            names,
+            vec!["packages/real"],
+            "a member symlinked out of the root must be skipped"
+        );
+        assert!(
+            resolved
+                .iter()
+                .all(|(_, manifest)| !manifest.contains("escape")),
+            "the outside manifest must not be read: {resolved:?}"
+        );
+    }
+
+    /// The literal member arm gets the same containment check as the glob
+    /// arm.
+    #[cfg(unix)]
+    #[test]
+    fn symlinked_literal_member_outside_root_is_skipped() {
+        let (_dir, root, outside) = root_with_outside_manifest();
+        std::os::unix::fs::symlink(&outside, root.join("packages/x")).unwrap();
+
+        let resolved = resolve_member_globs(
+            &["packages/x".to_string(), "packages/real".to_string()],
+            &[],
+            &root,
+            "package.json",
+        );
+        let names: Vec<&str> = resolved.iter().map(|(p, _)| p.as_str()).collect();
+        assert_eq!(names, vec!["packages/real"]);
+    }
+
+    /// A symlinked glob *prefix* escapes the root one level up: every child
+    /// of `packages -> <outside>` lies outside the workspace.
+    #[cfg(unix)]
+    #[test]
+    fn symlinked_glob_prefix_outside_root_is_skipped() {
+        let dir = tempfile::tempdir().unwrap();
+        let root = dir.path().join("root");
+        std::fs::create_dir_all(&root).unwrap();
+        let outside = dir.path().join("outside");
+        write(&outside.join("secret/package.json"), r#"{"name":"escape"}"#);
+        std::os::unix::fs::symlink(&outside, root.join("packages")).unwrap();
+
+        let resolved =
+            resolve_member_globs(&["packages/*".to_string()], &[], &root, "package.json");
+        assert!(
+            resolved.is_empty(),
+            "a glob prefix symlinked out of the root must resolve to nothing, got {resolved:?}"
+        );
+    }
+
+    /// A real member directory whose manifest file is itself a symlink out
+    /// of the root is skipped too.
+    #[cfg(unix)]
+    #[test]
+    fn symlinked_manifest_outside_root_is_skipped() {
+        let (_dir, root, outside) = root_with_outside_manifest();
+        std::fs::create_dir_all(root.join("packages/x")).unwrap();
+        std::os::unix::fs::symlink(
+            outside.join("package.json"),
+            root.join("packages/x/package.json"),
+        )
+        .unwrap();
+
+        let resolved =
+            resolve_member_globs(&["packages/*".to_string()], &[], &root, "package.json");
+        let names: Vec<&str> = resolved.iter().map(|(p, _)| p.as_str()).collect();
+        assert_eq!(names, vec!["packages/real"]);
+    }
+
+    /// A symlinked member that stays inside the workspace root is still a
+    /// member: containment, not symlink-ness, is what is enforced.
+    #[cfg(unix)]
+    #[test]
+    fn symlinked_member_inside_root_still_resolves() {
+        let dir = tempfile::tempdir().unwrap();
+        let root = dir.path().join("root");
+        write(&root.join("vendor/lib/package.json"), r#"{"name":"lib"}"#);
+        std::fs::create_dir_all(root.join("packages")).unwrap();
+        std::os::unix::fs::symlink(root.join("vendor/lib"), root.join("packages/lib")).unwrap();
+
+        let resolved =
+            resolve_member_globs(&["packages/*".to_string()], &[], &root, "package.json");
+        let names: Vec<&str> = resolved.iter().map(|(p, _)| p.as_str()).collect();
+        assert_eq!(names, vec!["packages/lib"]);
     }
 }
