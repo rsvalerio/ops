@@ -1,10 +1,10 @@
 ---
 id: TASK-2383
 title: 'TEST-32: name/constant tests assert a value back to its own literal'
-status: To Do
+status: Done
 assignee: []
 created_date: '2026-10-04 14:13'
-updated_date: '2026-10-04 14:52'
+updated_date: '2026-10-04 15:25'
 labels:
   - code-review-rust
   - test
@@ -37,6 +37,13 @@ dedup_key: 'TEST-32:extensions-rust/loc/src/tests.rs:name-constant-tests'
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 Each listed test is removed or replaced by a property/behaviour assertion that can fail for a real reason
-- [ ] #2 Behavioural coverage (collect+load cycle, summary view query) is retained
+- [x] #1 Each listed test is removed or replaced by a property/behaviour assertion that can fail for a real reason
+- [x] #2 Behavioural coverage (collect+load cycle, summary view query) is retained
+
 <!-- AC:END -->
+
+## Implementation Notes
+
+<!-- SECTION:NOTES:BEGIN -->
+Removed the five tautologies (extension type/stack, provider name, ingestor name, view SQL contains_aggregation). Kept views.rs rust_loc_summary_view_sql_quotes_identifiers: it asserts quoting added by the CreateViewSql builder, not text present in the literal. Behavioural coverage retained: rust_loc_collect_and_load_cycle, rust_loc_summary_view_satisfies_the_shared_summary_query.
+<!-- SECTION:NOTES:END -->

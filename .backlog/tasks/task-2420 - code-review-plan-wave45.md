@@ -1,10 +1,10 @@
 ---
 id: TASK-2420
 title: 'code-review-plan-wave45'
-status: To Do
+status: Done
 assignee: []
 created_date: '2026-10-04 14:52'
-updated_date: '2026-10-04 14:52'
+updated_date: '2026-10-04 15:45'
 labels:
   - code-review-wave
 dependencies:
@@ -49,4 +49,8 @@ Line counting and coverage: ops-loc, tokei and test-coverage scan/count handling
 
 <!-- SECTION:NOTES:BEGIN -->
 Overlaps: none
+
+Branch: code-review/TASK-2420
+Worktree: /home/rsvalerio/projects/.wave-TASK-2420
+
 <!-- SECTION:NOTES:END -->

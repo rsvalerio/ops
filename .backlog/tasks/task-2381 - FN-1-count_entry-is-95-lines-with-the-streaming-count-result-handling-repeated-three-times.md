@@ -1,10 +1,10 @@
 ---
 id: TASK-2381
 title: 'FN-1: count_entry is ~95 lines with the streaming-count result handling repeated three times'
-status: To Do
+status: Done
 assignee: []
 created_date: '2026-10-04 14:13'
-updated_date: '2026-10-04 14:52'
+updated_date: '2026-10-04 15:24'
 labels:
   - code-review-rust
   - fn
@@ -31,7 +31,8 @@ dedup_key: 'FN-1:extensions-rust/loc/src/lib.rs:count_entry'
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 count_entry is at most 50 lines and nests at most 3 levels
-- [ ] #2 The count_streaming Ok(Some)/Ok(None)/Err mapping exists in exactly one helper
-- [ ] #3 Existing tests in extensions-rust/loc/src/tests.rs pass unchanged
+- [x] #1 count_entry is at most 50 lines and nests at most 3 levels
+- [x] #2 The count_streaming Ok(Some)/Ok(None)/Err mapping exists in exactly one helper
+- [x] #3 Existing tests in extensions-rust/loc/src/tests.rs pass unchanged
+
 <!-- AC:END -->

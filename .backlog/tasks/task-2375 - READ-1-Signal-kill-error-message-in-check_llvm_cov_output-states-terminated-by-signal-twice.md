@@ -1,10 +1,10 @@
 ---
 id: TASK-2375
 title: 'READ-1: Signal-kill error message in check_llvm_cov_output states ''terminated by signal'' twice'
-status: To Do
+status: Done
 assignee: []
 created_date: '2026-10-04 14:12'
-updated_date: '2026-10-04 14:52'
+updated_date: '2026-10-04 15:22'
 labels:
   - code-review-rust
   - READ
@@ -30,6 +30,7 @@ dedup_key: 'READ-1:extensions-rust/test-coverage/src/subprocess.rs:check_llvm_co
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 Signal-kill error mentions the signal termination once, keeping the 'cargo llvm-cov' prefix and the stderr tail
-- [ ] #2 A unix test asserts the signal-arm message (via ExitStatus::from_raw(9)) so the shape is pinned
+- [x] #1 Signal-kill error mentions the signal termination once, keeping the 'cargo llvm-cov' prefix and the stderr tail
+- [x] #2 A unix test asserts the signal-arm message (via ExitStatus::from_raw(9)) so the shape is pinned
+
 <!-- AC:END -->
