@@ -35,7 +35,7 @@ fn load_coverage_missing_json_file_errors() {
         .expect("write workspace sidecar");
     let db = Sqlite::open_in_memory().expect("open in-memory db");
     let err = load_coverage(&dir, &db).unwrap_err();
-    let msg = err.to_string();
+    let msg = format!("{err:#}");
     // SQLite port: the failure comes from the anchored `open_read` inside
     // `execute_json_load` — the staged bytes are read in Rust and bound as a
     // parameter, so a missing file fails before any SQL runs. The open error

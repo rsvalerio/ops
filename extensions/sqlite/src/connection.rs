@@ -91,7 +91,12 @@ impl Sqlite {
     /// [`DbError::Sqlite`] if the database cannot be opened.
     pub fn open(path: &Path) -> DbResult<Self> {
         if let Some(parent) = path.parent() {
-            std::fs::create_dir_all(parent).map_err(DbError::Io)?;
+            std::fs::create_dir_all(parent).map_err(|e| {
+                DbError::Io(crate::error::io_context(
+                    format!("creating database directory {}", parent.display()),
+                    e,
+                ))
+            })?;
         }
         let conn = open_conn(path, rusqlite::OpenFlags::default())?;
         Ok(Self {
@@ -313,6 +318,22 @@ mod tests {
 
             assert!(result.is_ok(), "should create parent directories");
             assert!(db_path.exists(), "db file should exist");
+        }
+
+        /// ERR-13: a failure creating the database's directory names it.
+        #[test]
+        fn sqlite_open_names_the_directory_it_could_not_create() {
+            let dir = tempfile::tempdir().expect("tempdir");
+            let blocker = dir.path().join("not-a-dir");
+            std::fs::write(&blocker, b"x").expect("write");
+            let Err(DbError::Io(io)) = Sqlite::open(&blocker.join("db.sqlite")) else {
+                panic!("expected DbError::Io");
+            };
+            assert!(
+                io.to_string().contains(&blocker.display().to_string()),
+                "error must name the directory: {io}"
+            );
+            assert!(std::error::Error::source(&io).is_some());
         }
 
         #[test]

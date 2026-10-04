@@ -52,19 +52,8 @@ impl DataIngestor for MetadataIngestor {
         // for the subsequent `load` step to read.
         // The write is also anchored: temp create and publish rename both
         // resolve against the verified directory descriptor.
+        // ERR-13: `write_atomic` already names the staged path it acted on.
         dir.write_atomic(METADATA_JSON, &output.stdout)
-            .map_err(|e| {
-                // Name the path the write acted on; `write_atomic` reports
-                // the syscall error, not the destination.
-                match e {
-                    DbError::Io(io) => io_at(
-                        "writing staged cargo metadata JSON",
-                        &dir.entry_path(METADATA_JSON),
-                        &io,
-                    ),
-                    other => other,
-                }
-            })
     }
 
     fn load(&self, dir: &IngestDir, db: &Sqlite) -> DbResult<LoadResult> {
@@ -216,11 +205,9 @@ fn build_views(conn: &rusqlite::Connection, payload: &str) -> DbResult<()> {
 
 /// Wraps an IO failure with the operation and the path it acted on.
 ///
-/// `DbError::Io` renders as `"IO error: {0}"` and a bare `std::io::Error` names
-/// no path, so an ENOSPC/EACCES on the ingest directory, on the working
-/// directory, and on the staged JSON file would otherwise render identically —
-/// `IO error: Permission denied (os error 13)`, with nothing telling the
-/// operator which of the three failed. `ErrorKind` is preserved so callers
+/// A bare `std::io::Error` names no path, so an ENOSPC/EACCES on the working
+/// directory would otherwise render as `Permission denied (os error 13)`,
+/// with nothing telling the operator which directory failed. `ErrorKind` is preserved so callers
 /// that branch on `NotFound` / `PermissionDenied` still can, and the variant
 /// stays `DbError::Io` so a genuine filesystem failure is not laundered into
 /// `DbError::External` (which `collect`'s tests use to mean "cargo ran and
@@ -393,7 +380,7 @@ fn cleanup_staged_file(dir: &IngestDir) {
         Err(e) => {
             tracing::warn!(
                 path = %dir.entry_path(METADATA_JSON).display(),
-                error = %e,
+                error = ?e,
                 "failed to remove staged metadata file after load; leaving in place"
             );
         }
@@ -467,13 +454,13 @@ mod tests {
         let err = MetadataIngestor
             .collect(&ctx, &dir)
             .expect_err("publishing over a directory must fail");
-        let rendered = format!("{err:#}");
+        let rendered = format!("{:#}", anyhow::Error::new(err));
         assert!(
             rendered.contains(&dir.entry_path(METADATA_JSON).display().to_string()),
             "IO error must name the path it operated on, got: {rendered}"
         );
         assert!(
-            rendered.contains("writing staged cargo metadata JSON"),
+            rendered.contains("writing staged entry"),
             "IO error must name the operation that failed, got: {rendered}"
         );
     }
@@ -597,7 +584,7 @@ mod tests {
         let ingestor = MetadataIngestor;
         let (logs, result) = capture_tracing(tracing::Level::WARN, || ingestor.load(&dir, &db));
         let err = result.expect_err("a non-object payload must not load successfully");
-        let rendered = format!("{err:#}");
+        let rendered = format!("{:#}", anyhow::Error::new(err));
         assert!(
             rendered.contains("single JSON object") && rendered.contains("found array"),
             "error must name the invariant and the observed shape, got: {rendered}"

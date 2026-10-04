@@ -54,28 +54,28 @@ impl LoadResult {
 /// workflow, eliminating duplicated boilerplate across ingestor implementations.
 #[non_exhaustive]
 pub struct SidecarIngestorConfig {
+    /// Source name: the `data_sources` key and the workspace sidecar's prefix.
     pub name: &'static str,
+    /// Entry name of the staged JSON file inside the ingest directory.
     pub json_filename: &'static str,
-    /// SEC-12 / TASK-0856: validated newtype wrapping the table name. Built
-    /// via `TableName::from_static` (const-time validation) so an invalid
-    /// identifier is a build error rather than a runtime `SqlValidation`
-    /// failure inside `load_with_sidecar`. `count_records_with` interpolates
-    /// the pre-quoted form without a runtime re-validation pass.
+    /// Table whose row count is reported as the load's `record_count`.
+    ///
+    /// A [`TableName`](crate::sql::validation::TableName), so an invalid
+    /// identifier is a build error and the quoted form is interpolated
+    /// without a runtime validation pass.
     pub count_table: crate::sql::validation::TableName,
 }
 
 impl SidecarIngestorConfig {
-    /// Construct a sidecar ingestor config (API-9 / TASK-0468).
+    /// Construct a sidecar ingestor config.
     ///
-    /// `#[non_exhaustive]` forbids struct-init on the type, so downstream
-    /// extensions must route through this constructor. New fields can be
-    /// added (with backward-compatible defaults) without bumping every
-    /// caller.
+    /// The type is `#[non_exhaustive]`, so this constructor is the only way
+    /// to build one outside the crate.
     ///
-    /// SEC-12 / TASK-0856: `count_table` is validated at compile time via
-    /// `TableName::from_static`. Passing a non-identifier literal here
-    /// fails the build instead of surfacing as a runtime SQL validation
-    /// error.
+    /// # Panics
+    ///
+    /// If `count_table` is not a valid SQL identifier. In a `const` context
+    /// this is a compile-time error.
     #[must_use]
     pub const fn new(
         name: &'static str,
@@ -91,22 +91,10 @@ impl SidecarIngestorConfig {
 
     /// Write serializable data to JSON and create workspace sidecar.
     ///
-    /// SEC-25 / TASK-0911: the JSON staging file is now written via
-    /// `ops_core::config::atomic_write` (sibling temp + fsync + rename),
-    /// matching the workspace-sidecar path that TASK-0663 already
-    /// hardened. A crash between the JSON write and the sidecar create
-    /// previously left a torn or zero-byte file that `load_with_sidecar`
-    /// would feed to the engine's JSON parser, corrupting the database
-    /// with truncated input. With `atomic_write` the
-    /// destination either holds the previous content or the full new
-    /// payload — never a partial write.
-    ///
-    /// SEC-25 / TASK-2054: both staged writes now go through the verified
-    /// [`IngestDir`] anchor rather than by path. `create_dir_all` is gone with
-    /// them — the directory is created, hardened and verified once by
-    /// [`IngestDir::open`] before `collect` is ever called, and re-creating it
-    /// here would have been another by-name resolution of exactly the kind the
-    /// anchor removes.
+    /// Both files are staged through the verified [`IngestDir`] anchor with
+    /// [`IngestDir::write_atomic`], so each destination holds either its
+    /// previous content or the full new payload — never a torn write — and
+    /// neither can be redirected by swapping the ingest directory's name.
     ///
     /// # Errors
     ///
@@ -130,22 +118,26 @@ impl SidecarIngestorConfig {
     /// # Steps and side effects
     ///
     /// 1. `init_schema(db)` — idempotent; creates `data_sources` if absent.
-    /// 2. Validate `count_table` and read the workspace sidecar (file I/O,
-    ///    no lock held). Failure here aborts before any DB mutation.
+    /// 2. Read the workspace sidecar (file I/O, no lock held). Failure here
+    ///    aborts before any DB mutation.
     /// 3. Acquire the connection lock, read `<json_filename>` through the
     ///    verified anchor, execute the `load` DDL batch, insert the staged
     ///    bytes as a bound parameter, then execute `view_sql`. On failure,
     ///    the table/view created up to the failing statement remain in
     ///    `SQLite` (partial state).
     /// 4. `SELECT COUNT(*) FROM count_table` runs **under the same lock**
-    ///    acquired in step 3 (CONC-2 / TASK-0364), so a concurrent ingestor
-    ///    cannot interleave a table replacement between load and count and
-    ///    have the reported `record_count` describe a different table than
-    ///    the one this call wrote. Failure leaves table/view intact.
-    /// 5. Drop the lock; compute checksum of `<json_filename>` (file I/O).
+    ///    acquired in step 3, so a concurrent ingestor cannot replace the
+    ///    table between load and count and make the reported `record_count`
+    ///    describe a different table than the one this call wrote. Failure
+    ///    leaves table/view intact.
+    /// 5. Drop the lock; compute the checksum of `<json_filename>` through
+    ///    the anchor (file I/O).
     /// 6. `upsert_data_source(...)` — upserts the tracking row.
-    /// 7. `remove(json_path)` — best-effort delete of the JSON staging file.
-    /// 8. `remove_workspace_sidecar(...)` — best-effort delete of sidecar.
+    /// 7. Rename `<json_filename>` to `<json_filename>.done`, then unlink it
+    ///    — best-effort. If the rename fails the original name is unlinked
+    ///    directly.
+    /// 8. Remove the workspace sidecar — best-effort, and only once the
+    ///    staged JSON is gone.
     ///
     /// # Failure semantics
     ///
@@ -163,33 +155,22 @@ impl SidecarIngestorConfig {
     /// Callers retrying after a failure should not call any cleanup helper
     /// in between; just call `load_with_sidecar` again.
     ///
-    /// # Crash between step 6 and steps 7-8 (TASK-1008)
+    /// # Crash during steps 7-8
     ///
-    /// If the host crashes (`kill -9`, OOM, power loss) after the
-    /// `upsert_data_source` row is durable but before `remove(json_path)`
-    /// or `remove_workspace_sidecar` runs, the next invocation observes:
+    /// The `data_sources` row written in step 6 is the durable source of
+    /// truth; steps 7 and 8 only clear staging debris. A host crash
+    /// (`kill -9`, OOM, power loss) after step 6 leaves one of these states
+    /// in the ingest directory:
     ///
-    /// - `SQLite` row says `(source, checksum)` is fresh.
-    /// - The staging JSON and sidecar are still on disk.
-    /// - The next `provide_via_ingestor` short-circuits via
-    ///   `table_has_data == true` and skips collect/load entirely.
+    /// - before the rename: `<json_filename>` and the sidecar;
+    /// - between the rename and the unlink: `<json_filename>.done` and the
+    ///   sidecar;
+    /// - between the unlink and step 8: the sidecar alone.
     ///
-    /// **Decision**: leftover JSON / sidecar after a successful upsert is
-    /// expected debris of a crash and is operationally safe to delete.
-    /// The post-success cleanup is best-effort by design — the durable
-    /// state-of-truth is the `data_sources` row, and the staged files
-    /// carry no information not already encoded in the checksum on that
-    /// row. Operators auditing `target/ops/data.db.ingest/` can
-    /// remove any file whose corresponding `(source, checksum)` row is
-    /// already current; a future ops invocation will repopulate the
-    /// stage as needed.
-    ///
-    /// A future hardening (option B in TASK-1008) is to rename the JSON
-    /// to a `.done` suffix under the same lock as the upsert so leftover
-    /// debris is unambiguously post-load rather than mid-flight. The
-    /// rename is *not* implemented today because the lower-cost
-    /// mitigation — operators can recognize debris from the checksum row
-    /// — covers the audit-clarity concern this contract documents.
+    /// A `*.done` file is therefore always post-load debris, never a staged
+    /// file in flight. All three states are safe to delete by hand, and none
+    /// blocks the next invocation: `provide_via_ingestor` sees the table
+    /// populated and skips collect and load.
     ///
     /// # Errors
     ///
@@ -204,27 +185,17 @@ impl SidecarIngestorConfig {
     ) -> DbResult<crate::ingestor::LoadResult> {
         crate::schema::init_schema(db)?;
 
-        // SEC-12 / TASK-0856: count_table is a TableName, validated at
-        // construction. The quoted form is built without a runtime
-        // identifier check — invalid identifiers can no longer reach
-        // here at runtime.
+        // `count_table` is a `TableName`, validated at construction, so the
+        // quoted form needs no runtime identifier check.
         let quoted = self.count_table.quoted();
         let workspace_root = crate::sql::read_workspace_sidecar(dir, self.name)?;
 
         let record_count = {
-            // CONC-2 / TASK-0364: hold the lock for the entire create→count
-            // critical section. Splitting these into two `db.lock()` calls
-            // let a concurrent ingestor replacing the table between them
-            // produce a record_count from a different table than the one
-            // we just wrote.
+            // Hold the lock for the entire create→count critical section. Two
+            // separate `db.lock()` calls would let a concurrent ingestor
+            // replace the table in between, producing a record_count from a
+            // different table than the one written here.
             let conn = db.lock()?;
-            // SEC-25 / TASK-2067 (closed by the SQLite port): the staged
-            // JSON is read through the verified anchor (`open_read`) and
-            // handed to the engine as a bound `?1` parameter — no path
-            // reaches SQL, so the swap window the old
-            // `read_json_auto('<path>')` residual left open no longer
-            // exists and the `verify_entry_identity` pre-check is not
-            // needed here.
             self.load_tables_with(&conn, dir, load, view_sql)?;
             self.count_records_with(&conn, &quoted)?
         };
@@ -235,9 +206,9 @@ impl SidecarIngestorConfig {
         Ok(LoadResult::success(self.name, record_count))
     }
 
-    /// Step 1: execute the table load (DDL batch + bound-parameter insert)
-    /// and the view batch on the already-locked connection. CONC-2 /
-    /// TASK-0364: callers hold the lock across this *and*
+    /// Step 3 of [`Self::load_with_sidecar`]: execute the table load (DDL
+    /// batch + bound-parameter insert) and the view batch on the
+    /// already-locked connection. Callers hold the lock across this *and*
     /// `count_records_with` so the row count is guaranteed to describe the
     /// table written by this call.
     fn load_tables_with(
@@ -255,9 +226,9 @@ impl SidecarIngestorConfig {
         Ok(())
     }
 
-    /// Step 2: read the row count from the loaded count table on the
-    /// already-locked connection. `quoted` must already be the validated,
-    /// double-quoted identifier returned by `quoted_ident(self.count_table)`.
+    /// Step 4 of [`Self::load_with_sidecar`]: read the row count from the
+    /// loaded count table on the already-locked connection. `quoted` must be
+    /// the double-quoted identifier returned by `self.count_table.quoted()`.
     fn count_records_with(&self, conn: &rusqlite::Connection, quoted: &str) -> DbResult<u64> {
         let raw_count: i64 = conn
             .query_row(
@@ -277,12 +248,12 @@ impl SidecarIngestorConfig {
         })
     }
 
-    /// Step 3: upsert the `data_sources` tracking row. Computes the file
-    /// checksum (no lock held) before delegating to `upsert_data_source`.
-    /// SEC-25 / TASK-2054: the checksum is computed over the file opened
-    /// *through the anchor*, not over a re-resolved path, so the bytes recorded
-    /// in `data_sources` are the bytes of the file this pipeline staged. The
-    /// path stored on the provenance row stays a plain path — it is a label an
+    /// Steps 5-6 of [`Self::load_with_sidecar`]: compute the staged file's
+    /// checksum (no lock held) and upsert the `data_sources` tracking row.
+    ///
+    /// The checksum is computed over the file opened *through the anchor*, so
+    /// the bytes recorded in `data_sources` are the bytes of the file this
+    /// pipeline staged. The path stored on the provenance row is a label an
     /// operator reads, never something this code opens.
     fn persist_record(
         &self,
@@ -304,52 +275,38 @@ impl SidecarIngestorConfig {
         )
     }
 
-    /// Step 4: delete the staged JSON file and the sidecar.
+    /// Steps 7-8 of [`Self::load_with_sidecar`]: rename the staged JSON to
+    /// `.done`, unlink it, then remove the sidecar.
     ///
-    /// Both removals are best-effort: data is already persisted in `SQLite` by
-    /// the time we get here, so a leftover staged JSON or sidecar is a
+    /// Every removal is best-effort: data is already persisted in `SQLite` by
+    /// the time this runs, so a leftover staged JSON or sidecar is a
     /// recoverable disk-hygiene issue, not a load failure. A transient
     /// permission error must not fail the whole ingest.
     ///
-    /// ERR-1 (TASK-0466): the sidecar is removed only after the JSON
-    /// removal has succeeded. If the JSON cannot be deleted, the sidecar
-    /// is left in place so `read_workspace_sidecar` can drive a clean
-    /// recovery on the next run instead of failing on a missing sidecar
-    /// while leftover JSON still sits on disk.
+    /// The sidecar is removed only after the JSON is gone. If the JSON cannot
+    /// be deleted, the sidecar stays in place so `read_workspace_sidecar` can
+    /// drive a clean recovery on the next run instead of failing on a missing
+    /// sidecar while leftover JSON still sits on disk.
     ///
-    /// ERR-1 / TASK-1242: every breadcrumb that references the staging
-    /// file logs *both* the original JSON path and the post-rename
-    /// effective path. The two paths diverge in the cross-device-rename
-    /// fallback (rename fails with EXDEV → `effective == original`) and
-    /// after a successful rename (`effective == original.with_extension
-    /// ("json.done")`). Emitting only one of the two collapsed those
-    /// cases together and made it ambiguous which file an operator
-    /// should be looking for after a half-cleaned crash. The dual-field
-    /// contract is shared with `cleanup_artifacts_breadcrumb_paths` so
-    /// the unit test can pin the formatting without intercepting a
-    /// tracing subscriber.
+    /// Every breadcrumb that references the staging file logs *both* the
+    /// original JSON path and the effective path the unlink targeted. The two
+    /// are equal when the rename failed and differ (`<json>.done`) when it
+    /// succeeded, so an operator reading a half-cleaned crash knows which
+    /// file to look for.
     fn cleanup_artifacts(&self, dir: &IngestDir) {
-        // FN-1 / TASK-1631: the rename-or-fallback and the unlink-with-recovery
-        // each live in their own helper so this body stays a three-line
-        // recovery policy ("rename, then unlink the effective path, removing
-        // the sidecar when JSON is gone") rather than ~67 lines of mixed
-        // syscalls + log formatting.
         let effective = rename_json_to_done(self.name, dir, self.json_filename);
         unlink_and_remove_sidecar(self.name, dir, self.json_filename, &effective);
     }
 }
 
-/// ARCH-2 / TASK-1008 (option B) — FN-1 / TASK-1631 (extracted): rename
-/// the staging JSON to a `.done` suffix before unlinking. A `kill -9`
-/// between rename and unlink leaves a single `*.done` file on disk that
-/// operators can unambiguously identify as post-load debris (vs. a
-/// `*.json` mid-flight). The rename → unlink ordering keeps the success
-/// path identical while making the crash window observable rather than
-/// indistinguishable.
+/// Step 7, first half: rename the staging JSON to a `.done` suffix before
+/// it is unlinked.
 ///
-/// SEC-25 / TASK-2054: `renameat` on the verified anchor, so the rename cannot
-/// be redirected into a directory an attacker substituted for the ingest dir's
-/// name after verification.
+/// A `kill -9` between rename and unlink leaves a single `*.done` file on
+/// disk that operators can unambiguously identify as post-load debris, as
+/// opposed to a `*.json` still in flight. The rename is a `renameat` on the
+/// verified anchor, so it cannot be redirected into a directory substituted
+/// for the ingest dir's name.
 ///
 /// Returns the entry name that the subsequent unlink should target:
 /// * the `.done` name on successful rename,
@@ -378,20 +335,17 @@ fn rename_json_to_done(source: &'static str, dir: &IngestDir, json_name: &str) -
     }
 }
 
-/// FN-1 / TASK-1631 (extracted): unlink the post-rename staging file and
-/// remove the workspace sidecar. Both go through the verified anchor
-/// (SEC-25 / TASK-2054).
+/// Step 7, second half, and step 8: unlink the post-rename staging file,
+/// then remove the workspace sidecar. Both go through the verified anchor.
 ///
-/// ERR-1 / TASK-0466 contract: the sidecar is only removed once the JSON
-/// is gone, so a transient permission/IO error leaves the sidecar in
-/// place so `read_workspace_sidecar` can drive a clean recovery on the
-/// next run.
+/// The sidecar is only removed once the JSON is gone, so a transient
+/// permission/IO error leaves the sidecar in place and `read_workspace_sidecar`
+/// can drive a clean recovery on the next run.
 ///
-/// ARCH-2 / TASK-1005: a `NotFound` on the unlink is operationally rare
-/// (external scrubber, manual `rm`, mid-pipeline interruption). The
-/// ERR-1 post-condition ("sidecar removed only after JSON gone") is
-/// already satisfied if the JSON is absent, so the sidecar is removed
-/// too; a debug breadcrumb makes the unexpected absence visible.
+/// A `NotFound` on the unlink is operationally rare (external scrubber,
+/// manual `rm`, mid-pipeline interruption). The JSON is absent either way,
+/// so the sidecar is removed too; a debug breadcrumb makes the unexpected
+/// absence visible.
 fn unlink_and_remove_sidecar(
     source: &'static str,
     dir: &IngestDir,
@@ -426,11 +380,11 @@ fn unlink_and_remove_sidecar(
     }
 }
 
-/// ERR-1 / TASK-1242: format both the original JSON staging path and the
-/// post-rename effective path into a single breadcrumb field. Sharing this
-/// helper between the warn / debug call sites and the unit test pins the
-/// dual-path logging contract: an operator chasing a half-cleaned crash
-/// always sees both names, regardless of which branch the cleanup hit.
+/// Format both the original JSON staging path and the post-rename effective
+/// path into a single breadcrumb field. Sharing this helper between the warn /
+/// debug call sites and the unit test pins the dual-path logging contract: an
+/// operator chasing a half-cleaned crash always sees both names, regardless
+/// of which branch the cleanup hit.
 fn cleanup_artifacts_breadcrumb_paths(original: &Path, effective: &Path) -> String {
     format!(
         "original={:?} effective={:?}",
@@ -472,11 +426,11 @@ pub trait DataIngestor: Send + Sync {
     /// the output inside the ingest directory. It should not interact with the
     /// database.
     ///
-    /// SEC-25 / TASK-2054: the parameter is a verified [`IngestDir`] anchor,
-    /// not a bare `&Path`. Stage through [`IngestDir::write_atomic`] so the
-    /// write resolves against the directory descriptor that was verified;
-    /// re-deriving a path from [`IngestDir::path`] and opening it reintroduces
-    /// exactly the swap window this signature exists to close.
+    /// `dir` is a verified [`IngestDir`] anchor. Stage through
+    /// [`IngestDir::write_atomic`] so the write resolves against the directory
+    /// descriptor that was verified; opening a path derived from
+    /// [`IngestDir::path`] instead would let a swapped directory name redirect
+    /// the write.
     ///
     /// # Errors
     ///
@@ -488,11 +442,10 @@ pub trait DataIngestor: Send + Sync {
     /// This method reads the files staged in `dir` and creates or replaces
     /// tables/views in the database. Should be idempotent.
     ///
-    /// SEC-25 / TASK-2054: reads and cleanup go through the anchor
-    /// ([`IngestDir::open_read`], [`IngestDir::rename`],
-    /// [`IngestDir::remove_file`]); the staged JSON reaches the engine as a
-    /// bound parameter, never as an interpolated path.
-    /// [`IngestDir::entry_path`] remains for provenance labels.
+    /// Reads and cleanup go through the anchor ([`IngestDir::open_read`],
+    /// [`IngestDir::rename`], [`IngestDir::remove_file`]); the staged JSON
+    /// reaches the engine as a bound parameter, never as an interpolated
+    /// path. [`IngestDir::entry_path`] is for provenance labels only.
     ///
     /// # Errors
     ///
@@ -782,8 +735,9 @@ mod tests {
             let temp_dir = tempfile::tempdir().expect("tempdir");
             let dir = anchor(&temp_dir);
             let result = ingestor.collect(&ctx, &dir);
-            assert!(result.is_err());
-            assert!(result.unwrap_err().to_string().contains("collect failed"));
+            let err = result.expect_err("collect must fail");
+            let chain = format!("{:#}", anyhow::Error::new(err));
+            assert!(chain.contains("collect failed"), "got: {chain}");
         }
 
         #[test]

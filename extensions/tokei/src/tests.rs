@@ -625,10 +625,10 @@ fn ingestor_load_errors_when_json_missing() {
     init_schema(&db).expect("init schema");
     let ingestor = TokeiIngestor;
     let err = ingestor.load(&dir, &db).unwrap_err();
-    let msg = err.to_string().to_lowercase();
+    let msg = format!("{:#}", anyhow::Error::new(err)).to_lowercase();
     assert!(
         msg.contains("not found") || msg.contains("no such file") || msg.contains("os error 2"),
-        "expected missing-file error, got: {err}"
+        "expected missing-file error, got: {msg}"
     );
 }
 
