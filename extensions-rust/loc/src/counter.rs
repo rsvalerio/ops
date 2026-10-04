@@ -74,13 +74,19 @@ pub enum LineKind {
 }
 
 /// Which bucket a line's counts land in.
+///
+/// A file's base region comes from its path ([`region_from_path`]). Within a
+/// file whose base region is [`Region::Main`], `#[cfg(test)]`-gated items are
+/// counted under [`Region::Test`] instead.
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub enum Region {
-    /// Production code: everything outside `tests/` and `examples/`.
+    /// Production code: every line not claimed by [`Region::Test`] or
+    /// [`Region::Example`].
     Main,
-    /// Integration tests under `tests/`.
+    /// Test code: files under a `tests/` or `benches/` directory, any file
+    /// named `tests.rs`, and `#[cfg(test)]`-gated items inside production files.
     Test,
-    /// Examples under `examples/`.
+    /// Examples: files under an `examples/` directory.
     Example,
 }
 
@@ -96,7 +102,7 @@ impl Region {
     }
 }
 
-/// Line counts for one region of one file.
+/// Line counts for one [`Region`] of one file.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 #[non_exhaustive]
 pub struct Locs {
@@ -150,11 +156,12 @@ impl Locs {
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 #[non_exhaustive]
 pub struct FileCounts {
-    /// Counts for production code (`src/` and the crate root).
+    /// Counts for production code: lines in neither of the other regions.
     pub main: Locs,
-    /// Counts for integration tests (`tests/`).
+    /// Counts for test code: files under `tests/` or `benches/`, files named
+    /// `tests.rs`, and `#[cfg(test)]`-gated items inside production files.
     pub test: Locs,
-    /// Counts for examples (`examples/`).
+    /// Counts for examples: files under `examples/`.
     pub example: Locs,
 }
 

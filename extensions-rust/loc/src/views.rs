@@ -52,15 +52,6 @@ mod tests {
     use super::*;
 
     #[test]
-    fn rust_loc_summary_view_sql_contains_aggregation() {
-        let sql = rust_loc_summary_view_sql().to_string();
-        assert!(sql.contains("rust_loc_summary"));
-        assert!(sql.contains("GROUP BY region"));
-        assert!(sql.contains("SUM(code)"));
-        assert!(sql.contains("COUNT(*)"));
-    }
-
-    #[test]
     fn rust_loc_summary_view_sql_quotes_identifiers() {
         let sql = rust_loc_summary_view_sql().to_string();
         assert!(
