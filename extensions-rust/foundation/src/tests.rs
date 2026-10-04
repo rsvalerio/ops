@@ -423,7 +423,15 @@ fn the_ops_pin_is_a_floor_so_the_running_ops_passes_unwaived() {
 
 #[test]
 fn an_ops_pin_below_the_floor_or_unversioned_is_drift() {
-    for pin in ["\"0.76.9\"", "\"0.9.0\"", "\"latest\"", "77"] {
+    for pin in [
+        "\"0.76.9\"",
+        "\"0.9.0\"",
+        "\"latest\"",
+        "77",
+        "\"77\"",
+        "\"1.0\"",
+        "\"1.0.0.0\"",
+    ] {
         assert_eq!(
             check_with_ops_pin(pin),
             vec![Drift::new(

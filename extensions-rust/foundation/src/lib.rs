@@ -474,9 +474,11 @@ fn check_ops_pin(expected: &mut Value, actual: &Value, out: &mut Vec<Drift>) {
 }
 
 /// `1.2.3` as `[1, 2, 3]`, which orders the way versions do. Anything else,
-/// such as `latest`, has no place against a floor.
-fn parse_version(v: &str) -> Option<Vec<u64>> {
-    v.split('.').map(|part| part.parse().ok()).collect()
+/// such as `latest` or a partial `77`, has no place against a floor.
+fn parse_version(v: &str) -> Option<[u64; 3]> {
+    let mut parts = v.split('.').map(|part| part.parse().ok());
+    let version = [parts.next()??, parts.next()??, parts.next()??];
+    parts.next().is_none().then_some(version)
 }
 
 fn check_lints(manifest: &Root, out: &mut Vec<Drift>) -> anyhow::Result<()> {
