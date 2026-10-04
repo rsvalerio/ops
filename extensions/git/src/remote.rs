@@ -14,27 +14,28 @@ use serde::Serialize;
 /// multiple of these as positional arguments.
 ///
 /// Invariant for `url`: normalized URL preserving the original input scheme
-/// (https / http / ssh / git), no credentials, no `.git` suffix. PATTERN-1
-/// (TASK-1237): the previous shape unconditionally synthesised `https://…`,
-/// which silently rewrote `http`/`git`/`ssh` remotes to advertise TLS — a
-/// misattribution audit/policy code that distinguishes scheme can mistake for
-/// "TLS-fronted". scp-style remotes (`git@host:owner/repo`) are normalised to
+/// (https / http / ssh / git), no credentials, no `.git` suffix. The scheme
+/// is never rewritten to `https`: audit and policy code that distinguishes
+/// schemes must not mistake an `http`/`git`/`ssh` remote for a TLS-fronted
+/// one. scp-style remotes (`git@host:owner/repo`) are normalised to
 /// `ssh://…` since scp form has no syntactic equivalent in the JSON contract.
 /// Enforced inside [`parse_remote_url`]; do not construct `RemoteInfo` outside
 /// that function.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 #[non_exhaustive]
 pub struct RemoteInfo {
+    /// Bare hostname, ASCII-lowercased, without port or userinfo.
     pub host: String,
+    /// Owner path, case-preserved; nested groups keep every segment
+    /// (`group/subgroup`).
     pub owner: String,
+    /// Repository name, case-preserved, without the `.git` suffix.
     pub repo: String,
     /// Normalized URL preserving the input scheme (`https` / `http` / `ssh` /
     /// `git`), with scp-style remotes normalised to `ssh://`. No `.git`
-    /// suffix, no credentials. READ-4 / TASK-1878: this field used to claim
-    /// "normalized https URL", which contradicted the struct-level invariant
-    /// above after PATTERN-1 / TASK-1237 stopped rewriting every scheme to
-    /// `https` — the exact misreading that change was filed to prevent.
-    /// PATTERN-1 / TASK-2105: an explicit non-default port is preserved
+    /// suffix, no credentials.
+    ///
+    /// An explicit non-default port is preserved
     /// (`ssh://git.example.com:2222/o/r`), so the URL names the endpoint the
     /// remote actually points at; `host` above carries the bare hostname —
     /// consumers compare and group by it — so the port lives only here.
@@ -66,7 +67,7 @@ pub fn parse_remote_url(raw: &str) -> Option<RemoteInfo> {
         return None;
     }
 
-    // READ-6 / TASK-1880: canonicalise the host the same way the scheme is
+    // Canonicalise the host the same way the scheme is
     // canonicalised (`split_scheme_host_and_path` lowercases it via
     // `ALLOWED_SCHEMES`). DNS names are case-insensitive, and `git_info.host`
     // is what consumers compare against (`host == "github.com"`) and group by,
@@ -76,9 +77,9 @@ pub fn parse_remote_url(raw: &str) -> Option<RemoteInfo> {
     // lowercasing them would synthesise a URL that 404s.
     let host = host.to_ascii_lowercase();
 
-    // PATTERN-1 / TASK-2105: the explicit port, when present, rides into the
-    // URL — dropping it re-pointed `ssh://host:2222/o/r` at port 22, an
-    // endpoint the remote never named.
+    // The explicit port, when present, rides into the URL — dropping it
+    // would re-point `ssh://host:2222/o/r` at port 22, an endpoint the
+    // remote never named.
     let port_suffix = port.map_or_else(String::new, |p| format!(":{p}"));
     let url = format!("{scheme}://{host}{port_suffix}/{owner}/{repo}");
 
@@ -96,21 +97,21 @@ pub fn parse_remote_url(raw: &str) -> Option<RemoteInfo> {
 /// rejected to keep attacker-influenced git config values from producing
 /// unsafe URLs downstream.
 ///
-/// SEC-11 / TASK-1861: this list gates the `://` form only. A value with a
+/// This list gates the `://` form only. A value with a
 /// *single* colon and no `//` (`file:/srv/git/o/r`, `javascript:evil/repo`)
 /// never reaches this branch — it is syntactically indistinguishable from an
 /// scp-style `host:owner/repo` remote, so it is gated separately by
 /// [`SCHEME_LIKE_HOSTS`] on the scp branch.
 const ALLOWED_SCHEMES: &[&str] = &["https", "http", "ssh", "git"];
 
-/// SEC-11 / TASK-1861: pre-colon tokens that must never be accepted as an
+/// Pre-colon tokens that must never be accepted as an
 /// scp-style host.
 ///
-/// The scp branch treats everything before the first `:` as a host, which
-/// made `file:/srv/git/o/repo.git` parse as a remote on a host named `file`
-/// and re-advertise itself as `ssh://file/srv/git/o/repo` — the transport
-/// misattribution PATTERN-1 / TASK-1237 fixed on the `://` path, reached
-/// through the branch [`ALLOWED_SCHEMES`] never sees. A single colon is
+/// The scp branch treats everything before the first `:` as a host. Without
+/// this gate `file:/srv/git/o/repo.git` would parse as a remote on a host
+/// named `file` and re-advertise itself as `ssh://file/srv/git/o/repo`, a
+/// transport misattribution reached through the branch [`ALLOWED_SCHEMES`]
+/// never sees. A single colon is
 /// genuinely ambiguous (`intranet:owner/repo` is a valid remote on a
 /// dotless intranet host), so the gate is a deny-list of scheme names
 /// rather than a hostname heuristic:
@@ -125,7 +126,7 @@ const ALLOWED_SCHEMES: &[&str] = &["https", "http", "ssh", "git"];
 /// Matched case-insensitively, against the token *after* any `user@` prefix
 /// is stripped. Fail-closed: a host that genuinely carries one of these
 /// names drops to `None`, which `provider.rs` renders as "no remote"
-/// (SEC-13 / TASK-1151) rather than as a fabricated URL.
+/// rather than as a fabricated URL.
 const SCHEME_LIKE_HOSTS: &[&str] = &[
     // ALLOWED_SCHEMES in scp position — a mistyped `scheme://`.
     "https",
@@ -145,11 +146,11 @@ const SCHEME_LIKE_HOSTS: &[&str] = &[
     "view-source",
 ];
 
-/// PATTERN-1 (TASK-1237): return the original scheme alongside the host/path
+/// Return the original scheme alongside the host/path
 /// split, so the synthesised `RemoteInfo.url` can preserve it. scp form has
 /// no scheme syntax — return `"ssh"` for it, matching how every Git client
 /// dispatches scp-style remotes. On the `scheme://` form the third element is
-/// the explicit port, validated to digits 1–65535 (PATTERN-1 / TASK-2105):
+/// the explicit port, validated to digits 1–65535:
 /// a malformed port fails closed to `None` rather than being silently
 /// dropped.
 fn split_scheme_host_and_path(raw: &str) -> Option<(&'static str, &str, Option<u16>, &str)> {
@@ -167,9 +168,8 @@ fn split_scheme_host_and_path(raw: &str) -> Option<(&'static str, &str, Option<u
         if host.contains('/') {
             return None;
         }
-        // SEC-11 / TASK-1861: the `://` branch below is the only place
-        // `ALLOWED_SCHEMES` was consulted, so a single-colon value fell
-        // through to here with no scheme gate at all. Reject the pre-colon
+        // `ALLOWED_SCHEMES` gates only the `://` branch below, so a
+        // single-colon value needs its own scheme gate: reject the pre-colon
         // token when it names a URI scheme — see `SCHEME_LIKE_HOSTS`.
         if SCHEME_LIKE_HOSTS
             .iter()
@@ -188,7 +188,7 @@ fn split_scheme_host_and_path(raw: &str) -> Option<(&'static str, &str, Option<u
         .copied()?;
     let (authority, path) = after_scheme.split_once('/')?;
     let host_part = authority.rsplit('@').next()?;
-    // PATTERN-1 / TASK-2105: preserve an explicit `:port` instead of
+    // Preserve an explicit `:port` instead of
     // discarding it — the URL rebuilt downstream must name the endpoint the
     // remote actually points at. Anything after the `:` that is not a port
     // in 1–65535 fails closed, matching the posture of every other
@@ -205,16 +205,16 @@ fn split_scheme_host_and_path(raw: &str) -> Option<(&'static str, &str, Option<u
 /// `\`, `?`, `#`, `@`, etc. — anywhere those could end up interpolated into a
 /// URL or shown as a clickable link by a downstream consumer.
 ///
-/// SEC-11 / TASK-0782: also rejects degenerate shapes that pass the byte
+/// Also rejects degenerate shapes that pass the byte
 /// allowlist but produce hosts that no DNS resolver would accept and that
 /// downstream consumers can mis-parse — a leading `-` is treated as a flag
 /// by some legacy curl-like consumers, a leading/trailing `.` is meaningless
 /// DNS, and an empty label (e.g. `..` or `foo..bar`) is invalid.
 ///
-/// SEC-33 / TASK-1869: also enforces the DNS size limits. The `.git/config`
+/// Also enforces the DNS size limits. The `.git/config`
 /// read is capped at `MAX_GIT_CONFIG_BYTES` (4 MiB), but that bounds the
 /// *file*, not a single value — a `url = https://<4 MiB of 'a'>/o/r` line
-/// otherwise propagated whole into `git_info.host` and `remote_url`.
+/// would otherwise propagate whole into `git_info.host` and `remote_url`.
 fn is_valid_host(host: &str) -> bool {
     if host.is_empty() || host.len() > MAX_HOST_BYTES {
         return false;
@@ -234,41 +234,41 @@ fn is_valid_host(host: &str) -> bool {
         .all(|b| b.is_ascii_alphanumeric() || *b == b'.' || *b == b'-')
 }
 
-/// SEC-33 / TASK-1869: RFC 1035 caps a DNS name at 253 presentation bytes.
+/// RFC 1035 caps a DNS name at 253 presentation bytes.
 /// Anything longer is unresolvable, so accepting it only lets attacker-chosen
 /// text of unbounded length reach `git_info.host` / `remote_url` and the
 /// renderers that pad, wrap, or column-align those values.
 const MAX_HOST_BYTES: usize = 253;
 
-/// SEC-33 / TASK-1869: RFC 1035 caps a single DNS label at 63 bytes.
+/// RFC 1035 caps a single DNS label at 63 bytes.
 const MAX_HOST_LABEL_BYTES: usize = 63;
 
-/// SEC-33 / TASK-1869: cap on one owner / repo path segment.
+/// Cap on one owner / repo path segment.
 ///
 /// GitHub caps repository and account names at 100 characters and GitLab at
 /// 255; 255 is the generous bound that still rejects the megabyte-scale
 /// segment a hostile `.git/config` can otherwise smuggle through.
 const MAX_PATH_SEGMENT_BYTES: usize = 255;
 
-/// SEC-33 / TASK-1869: cap on the *whole* owner path, which
+/// Cap on the *whole* owner path, which
 /// [`split_owner_repo`] deliberately preserves at arbitrary depth for nested
-/// GitLab subgroups (PATTERN-1 / TASK-0724). Per-segment bounds alone leave
+/// GitLab subgroups. Per-segment bounds alone leave
 /// the total unbounded, so bound the depth and the total length too. GitLab
 /// allows 20 levels of subgroup nesting; 32 segments / 1 KiB clears every
 /// real forge layout by a wide margin.
 const MAX_OWNER_SEGMENTS: usize = 32;
 
-/// SEC-33 / TASK-1869: cap on the total owner-path length. See
+/// Cap on the total owner-path length. See
 /// [`MAX_OWNER_SEGMENTS`].
 const MAX_OWNER_BYTES: usize = 1024;
 
 fn split_owner_repo(path: &str) -> Option<(&str, &str)> {
     let path = path.trim_start_matches('/');
-    // PATTERN-1 / TASK-0724: preserve the full owner path so nested GitLab
-    // subgroups (`group/subgroup/repo`) round-trip correctly. The previous
-    // behaviour kept only the last two segments, which produced a 404 URL
-    // for any subgroup project. Each owner segment is still validated by
-    // `is_valid_path_segment` to keep the smuggled-char allowlist intact.
+    // Preserve the full owner path so nested GitLab subgroups
+    // (`group/subgroup/repo`) round-trip correctly; keeping only the last
+    // two segments would produce a 404 URL for any subgroup project. Each
+    // owner segment is validated by `is_valid_path_segment` to keep the
+    // smuggled-char allowlist intact.
     let trimmed = path.trim_end_matches('/');
     let (owner, repo) = trimmed.rsplit_once('/')?;
     if owner.is_empty() || repo.is_empty() {
@@ -277,7 +277,7 @@ fn split_owner_repo(path: &str) -> Option<(&str, &str)> {
     if !is_valid_path_segment(repo) {
         return None;
     }
-    // SEC-33 / TASK-1869: bound the preserved owner path as a whole, not
+    // Bound the preserved owner path as a whole, not
     // only segment by segment — see `MAX_OWNER_SEGMENTS` / `MAX_OWNER_BYTES`.
     if owner.len() > MAX_OWNER_BYTES {
         return None;
@@ -303,8 +303,8 @@ fn split_owner_repo(path: &str) -> Option<(&str, &str)> {
 /// "normalized". Allowed: ASCII alphanumerics, `.`, `-`, `_`, plus a single
 /// leading `~` for sourcehut-style users (`~user/repo`).
 ///
-/// SEC-33 / TASK-1869: also bounded at [`MAX_PATH_SEGMENT_BYTES`] — the
-/// allowlist alone left a single segment free to carry megabytes of
+/// Also bounded at [`MAX_PATH_SEGMENT_BYTES`] — the
+/// allowlist alone would leave a single segment free to carry megabytes of
 /// attacker-chosen text into `git_info.owner` / `repo` / `remote_url`.
 fn is_valid_path_segment(segment: &str) -> bool {
     if segment.is_empty() || segment.len() > MAX_PATH_SEGMENT_BYTES {
@@ -314,13 +314,13 @@ fn is_valid_path_segment(segment: &str) -> bool {
     if rest.is_empty() {
         return false;
     }
-    // SEC-13 (TASK-0929): reject segments composed entirely of `.` (`.`,
+    // Reject segments composed entirely of `.` (`.`,
     // `..`, `...`, ...). Otherwise a hostile `.git/config` like
     // `https://github.com/../etc.git` would round-trip through
     // `git_info.remote_url`, and downstream tools that consume the JSON
     // literally (audit logs, mirrors, tickets) would capture a
     // path-traversal form. Aligns with the host-segment validator that
-    // already rejects empty / dot-only labels (TASK-0782).
+    // already rejects empty / dot-only labels.
     if rest.iter().all(|b| *b == b'.') {
         return false;
     }
@@ -345,7 +345,7 @@ mod tests {
         }
     }
 
-    /// SEC-13 (TASK-0929): a `.`-only path segment (`.`, `..`, `...`) must
+    /// A `.`-only path segment (`.`, `..`, `...`) must
     /// be rejected before the synthesized URL can capture a traversal form.
     /// Browsers collapse `../` away, but downstream tools that consume the
     /// JSON literally (audit logs, mirrors, tickets) capture the
@@ -362,7 +362,7 @@ mod tests {
         assert_eq!(parse_remote_url("https://github.com/.../repo.git"), None);
     }
 
-    /// SEC-13 (TASK-0929): legitimate `.`-containing names (e.g. `my.lib`,
+    /// Legitimate `.`-containing names (e.g. `my.lib`,
     /// `lib.rs`) must still parse — the rejection is *all*-`.` segments,
     /// not any segment containing a `.`.
     #[test]
@@ -397,7 +397,7 @@ mod tests {
         );
     }
 
-    /// PATTERN-1 (TASK-1237): scp-style remotes synthesise an `ssh://` URL,
+    /// Scp-style remotes synthesise an `ssh://` URL,
     /// not `https://` — the original transport is ssh, not TLS.
     #[test]
     fn scp_style() {
@@ -407,8 +407,8 @@ mod tests {
         );
     }
 
-    /// PATTERN-1 (TASK-1237): an explicit `ssh://` scheme round-trips into
-    /// the synthesised `RemoteInfo.url` — previously rewritten to https.
+    /// An explicit `ssh://` scheme round-trips into the synthesised
+    /// `RemoteInfo.url` rather than being rewritten to https.
     #[test]
     fn ssh_scheme() {
         assert_eq!(
@@ -417,9 +417,9 @@ mod tests {
         );
     }
 
-    /// PATTERN-1 / TASK-2105: an explicit port is preserved in `url` — the
-    /// pre-fix behaviour silently re-pointed this remote at port 22 — while
-    /// `host` stays the bare hostname consumers compare and group by.
+    /// An explicit port is preserved in `url`, so the remote is not
+    /// re-pointed at port 22, while `host` stays the bare hostname consumers
+    /// compare and group by.
     #[test]
     fn ssh_scheme_with_port() {
         assert_eq!(
@@ -433,7 +433,7 @@ mod tests {
         );
     }
 
-    /// PATTERN-1 / TASK-2105: same preservation on the TLS branch — a
+    /// Same preservation on the TLS branch — a
     /// self-hosted forge on a non-default port must not be re-pointed at 443.
     #[test]
     fn https_scheme_with_port() {
@@ -448,7 +448,7 @@ mod tests {
         );
     }
 
-    /// PATTERN-1 / TASK-2105: a port that is not digits in 1–65535 fails
+    /// A port that is not digits in 1–65535 fails
     /// closed — non-numeric, out of range, and zero are all rejected rather
     /// than silently dropped or re-emitted.
     #[test]
@@ -464,9 +464,9 @@ mod tests {
         assert_eq!(parse_remote_url("https://gitea.internal:0/o/r.git"), None);
     }
 
-    /// PATTERN-1 (TASK-1237): an `http://` remote keeps its scheme — audit
+    /// An `http://` remote keeps its scheme — audit
     /// code that distinguishes TLS-fronted (`https`) from cleartext (`http`)
-    /// must not see the previous silent rewrite.
+    /// must not see it rewritten.
     #[test]
     fn http_scheme_round_trips() {
         assert_eq!(
@@ -475,7 +475,7 @@ mod tests {
         );
     }
 
-    /// PATTERN-1 (TASK-1237): the `git://` anonymous-clone scheme is
+    /// The `git://` anonymous-clone scheme is
     /// preserved verbatim, not silently upgraded to `https`.
     #[test]
     fn git_scheme_round_trips() {
@@ -485,7 +485,7 @@ mod tests {
         );
     }
 
-    /// PATTERN-1 (TASK-1237): scheme matching is case-insensitive on input
+    /// Scheme matching is case-insensitive on input
     /// but the synthesised scheme is normalised to lowercase, so audit code
     /// downstream sees a canonical value.
     #[test]
@@ -496,7 +496,7 @@ mod tests {
 
     #[test]
     fn gitlab_nested_group_preserves_full_owner_path() {
-        // PATTERN-1 / TASK-0724: nested GitLab subgroups round-trip with the
+        // Nested GitLab subgroups round-trip with the
         // full owner path (`group/subgroup`), so the synthesised URL points
         // at a real project page instead of a 404.
         assert_eq!(
@@ -569,7 +569,7 @@ mod tests {
 
     #[test]
     fn rejects_owner_or_repo_with_smuggled_chars() {
-        // SEC-11 / SEC-13: the reconstructed `https://{host}/{owner}/{repo}`
+        // The reconstructed `https://{host}/{owner}/{repo}`
         // URL must not silently embed quotes, angle brackets, control chars,
         // or other shell metacharacters smuggled through the owner/repo slot.
         assert!(parse_remote_url("https://github.com/own'er/repo").is_none());
@@ -579,7 +579,7 @@ mod tests {
         assert!(parse_remote_url("https://github.com/foo/bar?evil").is_none());
     }
 
-    /// SEC-11 / TASK-0782: hosts must reject leading/trailing dash or dot
+    /// Hosts must reject leading/trailing dash or dot
     /// and any empty label — these shapes pass the byte allowlist but are
     /// invalid DNS and can be mis-parsed downstream (a leading `-` is a
     /// flag to some curl-like consumers; `..` and `host.` have no resolver
@@ -611,11 +611,10 @@ mod tests {
         assert!(parse_remote_url("https://../o/r").is_none());
     }
 
-    /// SEC-11 / TASK-1861: a single-colon value never reaches the `://`
-    /// branch, so `ALLOWED_SCHEMES` never saw it. Each of these previously
-    /// parsed as an scp remote with a fabricated host (`ssh://file/…`,
-    /// `ssh://javascript/…`), which is the transport misattribution
-    /// TASK-1237 closed on the other branch.
+    /// A single-colon value never reaches the `://` branch, so
+    /// `ALLOWED_SCHEMES` never sees it. Each of these must be rejected
+    /// rather than parsed as an scp remote with a fabricated host
+    /// (`ssh://file/…`, `ssh://javascript/…`).
     #[test]
     fn rejects_single_colon_scheme_forms() {
         assert_eq!(parse_remote_url("file:/srv/git/o/repo.git"), None);
@@ -630,7 +629,7 @@ mod tests {
         assert_eq!(parse_remote_url("git@javascript:evil/repo"), None);
     }
 
-    /// SEC-11 / TASK-1861: the deny-list must not cost the genuine scp
+    /// The deny-list must not cost the genuine scp
     /// shapes — both the raw `user@host:owner/repo` form and the
     /// already-redacted `host:owner/repo` form `read_origin_url` produces.
     #[test]
@@ -652,7 +651,7 @@ mod tests {
         );
     }
 
-    /// SEC-33 / TASK-1869: the 4 MiB `.git/config` cap bounds the file, not
+    /// The 4 MiB `.git/config` cap bounds the file, not
     /// a single value. Without per-value bounds a megabyte-long host or
     /// owner segment propagates whole into `git_info` JSON and About cards.
     #[test]
@@ -708,8 +707,8 @@ mod tests {
         assert!(parse_remote_url(&format!("https://gitlab.com/{wide}/repo")).is_none());
     }
 
-    /// SEC-33 / TASK-1869: a realistic nested GitLab subgroup must be
-    /// unaffected by the new bounds.
+    /// A realistic nested GitLab subgroup must be unaffected by the length
+    /// bounds.
     #[test]
     fn realistic_nested_subgroup_unaffected_by_length_bounds() {
         assert_eq!(
@@ -718,7 +717,7 @@ mod tests {
         );
     }
 
-    /// READ-6 / TASK-1880: the host is canonicalised to lowercase alongside
+    /// The host is canonicalised to lowercase alongside
     /// the scheme, so `host == "github.com"` comparisons and any grouping
     /// keyed on `host` / `remote_url` survive a mixed-case `.git/config`.
     #[test]
@@ -728,7 +727,7 @@ mod tests {
         assert_eq!(parsed.url, "https://github.com/o/r");
     }
 
-    /// READ-6 / TASK-1880: owner and repo keep their case — forge path
+    /// Owner and repo keep their case — forge path
     /// segments are case-sensitive, so lowercasing them would synthesise a
     /// URL that 404s.
     #[test]

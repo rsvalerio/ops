@@ -66,9 +66,8 @@ impl GitInfo {
                 ..Self::default()
             };
         };
-        // ARCH-2 / TASK-0894: `raw` is a `RedactedUrl` so the type
-        // system already guarantees userinfo has been stripped. Pull
-        // the inner str only at the parse boundary.
+        // `raw` is a `RedactedUrl`, so the type system guarantees userinfo
+        // has been stripped. Pull the inner str only at the parse boundary.
         if let Some(RemoteInfo {
             host,
             owner,
@@ -84,23 +83,18 @@ impl GitInfo {
                 branch,
             }
         } else {
-            // PATTERN-1 (TASK-0863): the parser intentionally rejects
-            // bracketed-IPv6 hosts and other shapes outside the reg-name
-            // allowlist. Without this breadcrumb the about card silently
-            // loses host/owner/repo with no operator clue why; debug-level
-            // keeps it out of the default log volume while remaining
-            // discoverable when someone goes looking.
+            // The parser intentionally rejects bracketed-IPv6 hosts and
+            // other shapes outside the reg-name allowlist. Without this
+            // breadcrumb the about card silently loses host/owner/repo with
+            // no operator clue why; debug-level keeps it out of the default
+            // log volume while remaining discoverable when someone goes
+            // looking.
             //
-            // SEC-13 / TASK-1151: previously the fallback shipped the
-            // post-redaction `raw` string verbatim as `remote_url`. That
-            // adopts the same fail-open posture SEC-2 / TASK-1102 already
-            // closed for control-byte values: pathological scp-style
-            // inputs trim to a single segment after redaction and end up
-            // in operator-facing logs / about cards as a plausible URL.
             // The parser is the canonical "this is a recognisable remote
-            // URL" gate, so when it rejects the value, drop `remote_url`
-            // entirely and let downstream surfaces render the absence
-            // instead of garbage.
+            // URL" gate, so a value it rejects is dropped entirely rather
+            // than shipped as `remote_url`: pathological scp-style inputs
+            // trim to a single segment after redaction and would otherwise
+            // reach operator-facing logs / about cards as a plausible URL.
             tracing::debug!(
                 raw_remote = %raw.as_str(),
                 "git remote URL did not match parse_remote_url shape; host/owner/repo and remote_url will be omitted"
@@ -138,12 +132,10 @@ impl DataProvider for GitInfoProvider {
                 data_field!(
                     "remote_url",
                     "Option<String>",
-                    // READ-4 / TASK-1878: this said "Normalized https URL",
-                    // the same claim PATTERN-1 / TASK-1237 invalidated on
-                    // `RemoteInfo.url`. The schema string is the description
-                    // consumers read, so it must not promise TLS either.
-                    // PATTERN-1 / TASK-2105: an explicit port is preserved so
-                    // the URL keeps naming the endpoint the remote points at.
+                    // The schema string is the description consumers
+                    // read, so it must not promise TLS: the input scheme is
+                    // preserved. An explicit port is preserved too, so the
+                    // URL keeps naming the endpoint the remote points at.
                     "Normalized origin remote URL, preserving the input scheme (https/http/ssh/git; scp-style becomes ssh) and any explicit port"
                 ),
                 data_field!(
@@ -207,11 +199,9 @@ mod tests {
         assert!(info.host.is_none());
     }
 
-    /// SEC-13 / TASK-1151: when `parse_remote_url` rejects the redacted
-    /// value, `remote_url` is dropped entirely. Previously the fallback
-    /// shipped the post-redaction string verbatim, leaving operator-facing
-    /// surfaces with shapes like `weird-value-without-shape` masquerading
-    /// as a remote URL.
+    /// When `parse_remote_url` rejects the redacted value, `remote_url` is
+    /// dropped entirely, so a shape like `weird-value-without-shape` never
+    /// masquerades as a remote URL on operator-facing surfaces.
     #[test]
     fn collect_unparseable_remote_drops_remote_url() {
         let dir = tempfile::tempdir().unwrap();
@@ -232,12 +222,10 @@ mod tests {
         assert!(info.host.is_none());
     }
 
-    /// SEC-13 / TASK-1151: same fail-closed posture as the
-    /// previously-named `..._strips_credentials` test, now expressed as
-    /// "drop the value entirely". The redacted form
-    /// `https://host.example/weird` happens to be parseable, so we use a
-    /// shape `parse_remote_url` rejects (bracketed IPv6) to exercise the
-    /// fallback.
+    /// Same fail-closed posture for a credentialed remote: the value is
+    /// dropped entirely. The redacted form `https://host.example/weird`
+    /// happens to be parseable, so we use a shape `parse_remote_url` rejects
+    /// (bracketed IPv6) to exercise the fallback.
     #[test]
     fn collect_unparseable_remote_with_credentials_drops_remote_url() {
         let dir = tempfile::tempdir().unwrap();
@@ -257,7 +245,7 @@ mod tests {
         );
     }
 
-    /// SEC-2 / TASK-1102 + TEST-32 / TASK-2118: a `.git/config` whose
+    /// A `.git/config` whose
     /// `url = ...` value contains ASCII control bytes (raw newline, ANSI
     /// escape) must not surface those bytes through `info.remote_url`.
     /// The redaction layer fails closed — `RedactedUrl::redact` returns
@@ -296,9 +284,9 @@ mod tests {
         );
     }
 
-    /// OWN-8 / TASK-0785 AC#2: pin that `read_origin_url_from` already returns
-    /// redacted values, so the provider's fallback branch can trust it without
-    /// re-redacting. If this test breaks, the provider must add redaction back.
+    /// Pin that `read_origin_url_from` returns redacted values, so the
+    /// provider can trust it without re-redacting. If this test breaks, the
+    /// provider must redact the value itself.
     #[test]
     fn read_origin_url_from_already_redacts_credentials() {
         let cfg = "[remote \"origin\"]\n\turl = https://user:secret@host.example/repo.git\n";
@@ -332,7 +320,7 @@ mod tests {
 
         let mut ctx = ops_extension::Context::test_context(dir.path().to_path_buf());
         let v = GitInfoProvider.provide(&mut ctx).unwrap();
-        // PATTERN-1 (TASK-1237): scp-style remote synthesises ssh:// URL.
+        // Scp-style remote synthesises ssh:// URL.
         assert_eq!(
             v.get("remote_url").and_then(|s| s.as_str()),
             Some("ssh://github.com/o/r")

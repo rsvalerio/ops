@@ -6,11 +6,8 @@
 //! This extension is stack-agnostic — it's useful in any project with a `.git`
 //! directory, regardless of language.
 
-// ARCH-11 / TASK-2107: the three cast allows this root used to carry are
-// gone -- the crate contains no `as` cast, and the workspace denies
-// `clippy::as_conversions` anyway -- so they suppressed nothing while
-// pre-authorizing future lossy casts with no reviewer signal. The test
-// unwrap allow stays: fixture assertions read better as `.unwrap()`.
+// Fixture assertions read better as `.unwrap()`. No other lint is relaxed
+// at the crate root: the crate contains no `as` cast.
 #![cfg_attr(test, allow(clippy::unwrap_used))]
 
 pub mod config;
