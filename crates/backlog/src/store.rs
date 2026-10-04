@@ -126,14 +126,16 @@ impl Store {
     ///
     /// # Errors
     ///
-    /// A task file that exists but does not parse; the error names the file.
+    /// `tasks/` or one of its entries cannot be read (the error names the
+    /// directory), or a task file that exists does not parse (the error
+    /// names the file).
     pub fn scan_tasks(&self) -> anyhow::Result<Vec<TaskEntry>> {
         let mut entries = Vec::new();
         let dir = self.backlog_root.join("tasks");
         let read = std::fs::read_dir(&dir)
             .map_err(|e| anyhow::anyhow!("reading {}: {e}", dir.display()))?;
-        for entry in read.flatten() {
-            let path = entry.path();
+        for entry in read {
+            let path = readable_entry(entry, &dir)?.path();
             if path.extension().and_then(|e| e.to_str()) != Some("md") {
                 continue;
             }
@@ -161,9 +163,9 @@ impl Store {
     ///
     /// # Errors
     ///
-    /// A directory exists but cannot be read (the error names the
-    /// directory), or a task file that exists does not parse (the error
-    /// names the file).
+    /// A directory exists but it, or one of its entries, cannot be read (the
+    /// error names the directory), or a task file that exists does not
+    /// parse (the error names the file).
     pub fn scan_all_tasks(&self) -> anyhow::Result<Vec<LocatedTask>> {
         let mut located = Vec::new();
         for dir in TASK_DIRS {
@@ -171,20 +173,12 @@ impl Store {
                 continue;
             };
             let dir_path = self.backlog_root.join(dir);
-            // Only a missing directory is skippable (only `tasks/` is
-            // required); any other read failure — permissions, a file where
-            // a directory belongs — must surface rather than silently
-            // under-count the tree.
-            let read = match std::fs::read_dir(&dir_path) {
-                Ok(read) => read,
-                Err(err) if err.kind() == std::io::ErrorKind::NotFound => continue,
-                Err(err) => {
-                    return Err(anyhow::anyhow!("reading {}: {err}", dir_path.display()));
-                }
+            let Some(read) = read_existing_dir(&dir_path)? else {
+                continue;
             };
             let mut entries = Vec::new();
-            for entry in read.flatten() {
-                let path = entry.path();
+            for entry in read {
+                let path = readable_entry(entry, &dir_path)?.path();
                 if path.extension().and_then(|e| e.to_str()) != Some("md") {
                     continue;
                 }
@@ -214,34 +208,18 @@ impl Store {
     ///
     /// # Errors
     ///
-    /// A lookup directory exists but cannot be read (the error names the
-    /// directory), mirroring [`Store::scan_all_tasks`].
+    /// A lookup directory exists but it, or one of its entries, cannot be
+    /// read (the error names the directory), mirroring
+    /// [`Store::scan_all_tasks`].
     pub fn find(&self, id: &str) -> anyhow::Result<Option<TaskEntry>> {
         let wanted = id.to_ascii_lowercase();
         for dir in LOOKUP_DIRS {
             let dir_path = self.backlog_root.join(dir);
-            // Only a missing directory is skippable; any other read failure —
-            // permissions, a file where a directory belongs — must surface
-            // rather than read as "not found".
-            let read = match std::fs::read_dir(&dir_path) {
-                Ok(read) => read,
-                Err(err) if err.kind() == std::io::ErrorKind::NotFound => continue,
-                Err(err) => {
-                    return Err(anyhow::anyhow!("reading {}: {err}", dir_path.display()));
-                }
+            let Some(read) = read_existing_dir(&dir_path)? else {
+                continue;
             };
-            // A directory-entry read failure (EIO, permissions surfacing
-            // mid-iteration) is the directory being unreadable, not a
-            // damaged neighbour file — surface it rather than let a partial
-            // scan read as "not found".
             for entry in read {
-                let entry = match entry {
-                    Ok(entry) => entry,
-                    Err(err) => {
-                        return Err(anyhow::anyhow!("reading {}: {err}", dir_path.display()));
-                    }
-                };
-                let path = entry.path();
+                let path = readable_entry(entry, &dir_path)?.path();
                 if path.extension().and_then(|e| e.to_str()) != Some("md") {
                     continue;
                 }
@@ -265,15 +243,31 @@ impl Store {
     /// allocation; a number living only in `completed/` or an archive is
     /// still taken, or the CLI would treat the new task as the resurrected
     /// old one.
-    #[must_use = "allocating without using the number burns the id for nothing"]
-    pub fn next_task_number(&self) -> u32 {
+    ///
+    /// # Errors
+    ///
+    /// A task directory exists but it, or one of its entries, cannot be
+    /// read; the error names the directory. Allocating from a partial
+    /// listing could hand out a number an unseen file already carries.
+    pub fn next_task_number(&self) -> anyhow::Result<u32> {
         let mut max_number = 0u32;
-        for_each_task_file(&self.backlog_root, |_dir, file_name| {
-            if let Some(number) = TaskFileName::parse(file_name).and_then(|parsed| parsed.number) {
-                max_number = max_number.max(number);
+        for dir in TASK_DIRS {
+            let dir_path = self.backlog_root.join(dir);
+            let Some(read) = read_existing_dir(&dir_path)? else {
+                continue;
+            };
+            for entry in read {
+                let name = readable_entry(entry, &dir_path)?.file_name();
+                let number = name
+                    .to_str()
+                    .and_then(TaskFileName::parse)
+                    .and_then(|parsed| parsed.number);
+                if let Some(number) = number {
+                    max_number = max_number.max(number);
+                }
             }
-        });
-        max_number.saturating_add(1)
+        }
+        Ok(max_number.saturating_add(1))
     }
 
     /// Take the exclusive allocation lock, blocking until it is free.
@@ -383,12 +377,47 @@ fn leading_task_number(id: &str) -> Option<u32> {
     digits.parse::<u32>().ok()
 }
 
+/// Open `dir_path` for iteration, or `None` when it does not exist.
+///
+/// Only a missing directory is skippable (only `tasks/` is required, by
+/// [`Store::open`]); any other failure — permissions, a file where a
+/// directory belongs — surfaces, so a directory that could not be listed
+/// never reads as an empty one.
+///
+/// # Errors
+///
+/// The directory exists but cannot be read; the error names it.
+fn read_existing_dir(dir_path: &Path) -> anyhow::Result<Option<std::fs::ReadDir>> {
+    match std::fs::read_dir(dir_path) {
+        Ok(read) => Ok(Some(read)),
+        Err(err) if err.kind() == std::io::ErrorKind::NotFound => Ok(None),
+        Err(err) => Err(anyhow::anyhow!("reading {}: {err}", dir_path.display())),
+    }
+}
+
+/// One entry yielded while iterating `dir_path`.
+///
+/// An entry read failure (EIO, permissions surfacing mid-iteration) is the
+/// directory being unreadable, not a damaged neighbour file: it surfaces
+/// rather than leave the caller with a partial listing.
+///
+/// # Errors
+///
+/// The entry could not be read; the error names the directory.
+fn readable_entry(
+    entry: std::io::Result<std::fs::DirEntry>,
+    dir_path: &Path,
+) -> anyhow::Result<std::fs::DirEntry> {
+    entry.map_err(|err| anyhow::anyhow!("reading {}: {err}", dir_path.display()))
+}
+
 /// Invoke `f` for every entry name in each existing [`TASK_DIRS`] directory.
 ///
-/// Read errors and non-UTF-8 names are skipped silently here: id allocation
-/// treats an unreadable directory like an absent one rather than failing the
-/// whole command (the required `tasks` dir existence is checked separately
-/// by [`Store::open`]).
+/// This walk is tolerant by contract: a directory or entry that cannot be
+/// read is skipped like an absent one, as are non-UTF-8 names, and the walk
+/// has no error channel. It suits callers for whom a partial listing is
+/// acceptable; [`Store::next_task_number`] is the strict allocator and
+/// fails on an unreadable directory instead.
 pub fn for_each_task_file(backlog_root: &Path, mut f: impl FnMut(&str, &str)) {
     for dir in TASK_DIRS {
         let Ok(entries) = std::fs::read_dir(backlog_root.join(dir)) else {
@@ -405,12 +434,12 @@ pub fn for_each_task_file(backlog_root: &Path, mut f: impl FnMut(&str, &str)) {
 /// Find the first task file for which `f` returns `Some`, stopping the walk
 /// at that entry.
 ///
-/// PERF-3 / TASK-2131: early-exit twin of [`for_each_task_file`] — a
-/// conflict re-check only needs the first match, and a real backlog tree
-/// holds thousands of files, so enumerating the rest of the tree after the
-/// answer is decided is pure I/O (retried up to 32 times per contended
-/// allocation). Directory order, silent error skipping and non-UTF-8
-/// handling match [`for_each_task_file`].
+/// Early-exit twin of [`for_each_task_file`] — a conflict re-check only
+/// needs the first match, and a real backlog tree holds thousands of files,
+/// so enumerating the rest of the tree after the answer is decided is pure
+/// I/O (retried up to 32 times per contended allocation). Directory order,
+/// the tolerant skipping of unreadable directories and entries, and
+/// non-UTF-8 handling match [`for_each_task_file`].
 pub fn find_task_file<B>(
     backlog_root: &Path,
     mut f: impl FnMut(&str, &str) -> Option<B>,
@@ -490,21 +519,21 @@ mod tests {
             ("archive/completed", "task-0003 - old.md"),
         ]);
         let store = Store::open(&dir.path().join(".backlog")).expect("open");
-        assert_eq!(store.next_task_number(), 1668);
+        assert_eq!(store.next_task_number().expect("allocate"), 1668);
     }
 
     #[test]
     fn next_number_starts_at_one_for_empty_backlog() {
         let dir = scratch_backlog(&[]);
         let store = Store::open(&dir.path().join(".backlog")).expect("open");
-        assert_eq!(store.next_task_number(), 1);
+        assert_eq!(store.next_task_number().expect("allocate"), 1);
     }
 
     #[test]
     fn next_number_ignores_dotted_subtask_fraction() {
         let dir = scratch_backlog(&[("tasks", "task-0007.09 - child.md")]);
         let store = Store::open(&dir.path().join(".backlog")).expect("open");
-        assert_eq!(store.next_task_number(), 8);
+        assert_eq!(store.next_task_number().expect("allocate"), 8);
     }
 
     /// PERF-3 / TASK-2131: `find_task_file` must stop the walk at the first
@@ -605,6 +634,55 @@ mod tests {
         );
     }
 
+    /// A directory-entry read failure is reported against the directory
+    /// being iterated — the shared mapping `scan_tasks`, `scan_all_tasks`,
+    /// `find` and `next_task_number` all route their entries through.
+    #[test]
+    fn entry_read_failure_names_the_directory() {
+        let dir_path = Path::new("/backlog/completed");
+        let err = readable_entry(Err(std::io::Error::other("input/output error")), dir_path)
+            .expect_err("must fail");
+        let rendered = format!("{err:#}");
+        assert!(
+            rendered.contains("/backlog/completed") && rendered.contains("input/output error"),
+            "error must name the directory and the cause, got: {rendered}"
+        );
+    }
+
+    /// Id allocation must fail, naming the directory, when a task directory
+    /// exists but cannot be listed — here, a file squatting where
+    /// `completed/` belongs. Skipping it would allocate from a partial
+    /// listing and could reuse a number living only in that directory.
+    #[test]
+    fn next_number_read_failure_names_the_directory() {
+        let dir = scratch_backlog(&[("tasks", "task-0001 - live.md")]);
+        std::fs::write(dir.path().join(".backlog/completed"), "not a dir").expect("write file");
+        let store = Store::open(&dir.path().join(".backlog")).expect("open");
+        let err = store.next_task_number().expect_err("must fail");
+        let rendered = format!("{err:#}");
+        assert!(
+            rendered.contains("completed"),
+            "error must name the unreadable directory, got: {rendered}"
+        );
+    }
+
+    /// The free-function walkers are tolerant by contract: an unreadable
+    /// directory is skipped like an absent one and the readable ones are
+    /// still visited.
+    #[test]
+    fn tolerant_walkers_skip_an_unreadable_directory() {
+        let dir = scratch_backlog(&[("tasks", "task-0001 - live.md")]);
+        let root = dir.path().join(".backlog");
+        std::fs::write(root.join("completed"), "not a dir").expect("write file");
+
+        let mut seen = Vec::new();
+        for_each_task_file(&root, |sub, name| seen.push(format!("{sub}/{name}")));
+        assert_eq!(seen, vec!["tasks/task-0001 - live.md".to_string()]);
+
+        let found = find_task_file(&root, |_sub, name| Some(name.to_string()));
+        assert_eq!(found.as_deref(), Some("task-0001 - live.md"));
+    }
+
     #[test]
     fn scan_tasks_sorts_by_numeric_id_and_skips_non_md() {
         let dir = scratch_backlog(&[
@@ -637,7 +715,7 @@ mod tests {
     fn next_number_reserves_slugless_names() {
         let dir = scratch_backlog(&[("tasks", "task-0030.md"), ("tasks", "task-0020 - real.md")]);
         let store = Store::open(&dir.path().join(".backlog")).expect("open");
-        assert_eq!(store.next_task_number(), 31);
+        assert_eq!(store.next_task_number().expect("allocate"), 31);
     }
 
     #[test]
