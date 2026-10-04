@@ -1,34 +1,24 @@
 //! Shared LRU primitives for manifest-style caches.
 //!
-//! DUP-1 / TASK-1145: the typed-manifest cache in
-//! `extensions-rust/about/src/query.rs` and the raw-text manifest cache in
-//! [`crate::manifest_cache`] both needed identical bookkeeping: a monotonic
-//! access-tick stamp and an `O(log n)` LRU victim queue with lazy
-//! invalidation. Each was reimplemented from scratch and the doc comments
-//! warned that the policies "must be kept in lockstep ... or the two caches
-//! will silently drift". Lifting the bookkeeping into one place pins the
-//! eviction policy at the code level — a future tweak (different staleness
-//! check, batch eviction, etc.) lands in one source location.
+//! Two layers:
 //!
-//! DUP-1 / TASK-2150: [`BoundedLruCache`] completes that lift. Three caches
-//! in `extensions-rust/about` (typed manifests, project coverage,
-//! workspace-root memoization) had each rebuilt the same scaffold on top of
-//! [`LruVictimQueue`] — the record/compact/evict loop, the slack constant,
-//! the cap-check-then-evict insert preamble — and every past fix to the
-//! construct (TASK-1723 compaction, TASK-1572 `Arc` queue keys, TASK-1240
-//! heap eviction, TASK-1023 tick-on-hit) had to be applied three times.
-//! The scaffold now lives here once; caches keep only their key type,
-//! value type and cap.
+//! - [`next_lru_tick`] and [`LruVictimQueue`]: a monotonic access-tick stamp
+//!   and an `O(log n)` LRU victim queue with lazy invalidation.
+//! - [`BoundedLruCache`]: the complete bounded cache built on them — the
+//!   record/compact/evict loop, the compaction slack and the
+//!   cap-check-then-evict insert.
 //!
-//! DUP-1 / TASK-2257: the fourth instance — the raw-text `ArcTextCache` in
-//! [`crate::manifest_cache`] — migrated too, via
-//! [`BoundedLruCache::insert_filtered`]: its CONC-1 / TASK-1144
-//! in-flight-entry pinning is expressed as an eviction-candidate filter on
-//! the shared type rather than a per-cache eviction loop.
+//! The caches in `extensions-rust/about` (typed manifests, project coverage,
+//! workspace-root memoization) and the raw-text `ArcTextCache` in
+//! [`crate::manifest_cache`] all use [`BoundedLruCache`], so the eviction
+//! policy has a single definition. A cache-specific policy such as
+//! `ArcTextCache`'s in-flight-entry pinning is expressed as an
+//! eviction-candidate filter ([`BoundedLruCache::insert_filtered`]) rather
+//! than a per-cache eviction loop.
 //!
-//! Caches still own their own value type (a typed `LoadedManifest` pairs with
+//! Caches own their value type (a typed `LoadedManifest` pairs with
 //! freshness metadata; raw text pairs with a per-key `OnceLock`) and their
-//! own cap; only the *policy shape* is shared.
+//! cap; only the *policy shape* is shared.
 
 use std::borrow::Borrow;
 use std::cmp::Reverse;
@@ -66,6 +56,7 @@ impl<K: Ord> Default for LruVictimQueue<K> {
 }
 
 impl<K: Ord> LruVictimQueue<K> {
+    /// An empty victim queue.
     #[must_use = "store the returned queue; each call allocates a fresh, empty one"]
     pub const fn new() -> Self {
         Self {
@@ -79,10 +70,10 @@ impl<K: Ord> LruVictimQueue<K> {
         self.heap.clear();
     }
 
-    /// Stamp a fresh `(tick, key)` access. The previous stamp is left in the
-    /// heap and discarded as stale on the next eviction sweep.
+    /// Stamp a fresh `(tick, key)` access. The key's earlier stamp is left
+    /// in the heap and discarded as stale on the next eviction sweep.
     ///
-    /// PERF-16 / TASK-1723: pushing alone never shrinks the queue, and the
+    /// Pushing alone never shrinks the queue, and the
     /// eviction sweep only runs when the caller's map is at its cap. A cache
     /// that stamps on every access therefore grows this heap without bound
     /// for as long as it sits *below* the cap. Callers must pair `push` with
@@ -143,7 +134,7 @@ impl<K: Ord> LruVictimQueue<K> {
 /// Slack added to the victim-queue compaction threshold of every
 /// [`BoundedLruCache`].
 ///
-/// PERF-16 / TASK-1723: without it a cache holding a single key would
+/// Without it a cache holding a single key would
 /// compact on every other access. Sixteen stale stamps is a few hundred
 /// bytes and buys amortisation for the small-key-count shape the CLI
 /// actually runs.
@@ -156,25 +147,21 @@ struct BoundedEntry<V, Q> {
     last_accessed: u64,
     /// The queue-key form of the map key, so a hit-path restamp is a cheap
     /// `Q::clone` (an `Arc` bump when `Q = Arc<K>`) rather than a fresh key
-    /// allocation (PERF-3 / TASK-1572).
+    /// allocation.
     queue_key: Q,
 }
 
-/// A bounded LRU cache: the map + victim-queue scaffold three
-/// `extensions-rust/about` caches used to duplicate (DUP-1 / TASK-2150).
+/// A bounded LRU cache: an entry map plus the victim queue that bounds it.
 ///
 /// - `K` is the map key (`PathBuf`, `u64`, …); lookups accept any `QL`
 ///   where `K: Borrow<QL>`, so a `PathBuf`-keyed cache is probed with a
 ///   `&Path`.
 /// - `Q` is the victim-queue key. It defaults to `K`, and for allocation
 ///   -heavy keys it should be the shared form (`Arc<PathBuf>`), making the
-///   hit-path restamp an atomic bump instead of a `PathBuf` clone
-///   (PERF-3 / TASK-1572).
+///   hit-path restamp an atomic bump instead of a `PathBuf` clone.
 ///
-/// The type owns the whole policy: the record/compact loop
-/// (PERF-16 / TASK-1723), LRU eviction at the cap (PERF-1 / TASK-1240,
-/// CONC-2 / TASK-0843), the tick-on-hit refresh (CONC-2 / TASK-1023) and
-/// the cap-check-then-evict insert preamble.
+/// The type owns the whole policy: the record/compact loop, LRU eviction at
+/// the cap, the tick-on-hit refresh and the cap-check-then-evict insert.
 pub struct BoundedLruCache<K, V, Q = K>
 where
     K: Eq + Hash,
@@ -271,9 +258,9 @@ where
     }
 
     /// Push a fresh `(tick, queue_key)` stamp and compact the queue once it
-    /// outgrows `2 * live + VICTIM_QUEUE_SLACK` (PERF-16 / TASK-1723:
-    /// stamping on every hit must not grow the queue without bound while
-    /// the map sits below its cap — the shape every CLI run has).
+    /// outgrows `2 * live + VICTIM_QUEUE_SLACK`: stamping on every hit
+    /// must not grow the queue without bound while the map sits below its
+    /// cap — the shape every CLI run has.
     ///
     /// Must run *after* the map reflects the access: compaction validates
     /// each stamp against `map[key].last_accessed`, so a pre-update call
@@ -293,8 +280,8 @@ where
     }
 
     /// Look `key` up; when present and `accept` approves the value, stamp
-    /// the entry most-recently-used (CONC-2 / TASK-1023: a hit refreshes
-    /// the tick so hot entries survive eviction) and return the value.
+    /// the entry most-recently-used (a hit refreshes the tick so hot
+    /// entries survive eviction) and return the value.
     ///
     /// A value `accept` rejects is returned as `None` and left *unstamped*
     /// — the caller's staleness check runs before the restamp, so a stale
@@ -304,9 +291,8 @@ where
         K: Borrow<QL>,
         QL: Hash + Eq + ?Sized,
     {
-        // DUP-1 / TASK-2260: decide and restamp inside a block so the
-        // mutable map borrow ends before the stamp-and-compact step —
-        // which is `push_stamp`'s to run, not an inline copy of it.
+        // Decide and restamp inside a block so the mutable map borrow ends
+        // before `push_stamp` runs the stamp-and-compact step.
         let (queue_key, tick) = {
             let entry = self.map.get_mut(key)?;
             if !accept(&entry.value) {
@@ -336,7 +322,7 @@ where
     /// and return its queue key, if any.
     ///
     /// `can_evict` decides eviction candidacy. An entry it rejects is
-    /// **pinned** (CONC-1 / TASK-1144, lifted here by DUP-1 / TASK-2257):
+    /// **pinned**:
     /// skipped as a victim and pushed back onto the queue with its original
     /// tick, so it stays evictable the moment the pin lifts. Returning
     /// `None` (every candidate pinned) deliberately leaves the cache above
@@ -375,8 +361,8 @@ where
     }
 
     /// Insert or replace `key`'s entry, first evicting the LRU entry when a
-    /// *new* key would exceed the cap (CONC-2 / TASK-0843: the soft cap,
-    /// with the hot working set surviving).
+    /// *new* key would exceed the cap (a soft cap: the hot working set
+    /// survives).
     ///
     /// Replacing an existing key never evicts and resets the entry's tick.
     pub fn insert(&mut self, key: K, value: V) {
@@ -385,7 +371,7 @@ where
 
     /// [`Self::insert`] with an eviction-candidate filter: when a *new* key
     /// would exceed the cap, only entries whose value `can_evict` accepts
-    /// are eviction candidates (DUP-1 / TASK-2257). Returns the evicted
+    /// are eviction candidates. Returns the evicted
     /// victim's queue key, if any, so the caller can log the eviction.
     pub fn insert_filtered(
         &mut self,
@@ -393,8 +379,7 @@ where
         value: V,
         can_evict: impl Fn(&V) -> bool,
     ) -> Option<Q> {
-        // PERF-1 / TASK-1240: O(log n) eviction via the lazy-invalidation
-        // min-heap, replacing the previous O(n) `min_by_key` scan.
+        // O(log n) eviction via the lazy-invalidation min-heap.
         let victim = if !self.map.contains_key(&key) && self.map.len() >= self.cap {
             self.evict_lru_where(can_evict)
         } else {
@@ -440,11 +425,6 @@ where
     }
 }
 
-// DUP-1 / TASK-2258: the poison-recovering lock helper that used to live
-// here (`lock_recovering`) was deleted — `ops_core::sync` owns the policy
-// (`lock_recover`, `lock_recover_warn`, `lock_recover_with`) and this crate
-// depends on it directly.
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -485,7 +465,7 @@ mod tests {
         assert_eq!(popped, Some("b"), "smallest fresh tick wins, stale skipped");
     }
 
-    /// PERF-16 / TASK-1723: compaction must drop every stale stamp, keep the
+    /// Compaction must drop every stale stamp, keep the
     /// queue at one entry per live key, and leave pop order intact.
     #[test]
     fn retain_fresh_drops_stale_stamps_and_preserves_order() {
@@ -528,9 +508,8 @@ mod tests {
         assert!(popped.is_none());
     }
 
-    /// DUP-1 / TASK-2150: the per-cache LRU tests the three
-    /// `extensions-rust/about` caches used to carry, against the shared
-    /// type directly.
+    /// LRU behaviour of [`BoundedLruCache`] itself, shared by every cache
+    /// built on it.
     mod bounded_cache {
         use super::super::{BoundedLruCache, VICTIM_QUEUE_SLACK};
 
@@ -555,7 +534,7 @@ mod tests {
             );
         }
 
-        /// PERF-16 / TASK-1723: stamping on every hit must not leak stamps
+        /// Stamping on every hit must not leak stamps
         /// while the map sits below its cap — the shape every CLI run has.
         #[test]
         fn victim_queue_stays_bounded_below_the_cap() {
@@ -575,7 +554,7 @@ mod tests {
             );
         }
 
-        /// CONC-2 / TASK-1023 plus the stale-probe rule: `touch_if` rejects
+        /// The stale-probe rule: `touch_if` rejects
         /// without restamping, and a rejected entry is later overwritten by
         /// `insert`, not evicted as a phantom.
         #[test]
@@ -617,7 +596,7 @@ mod tests {
             );
         }
 
-        // DUP-1 / TASK-2258: `lock_recovering`'s hook-once-per-poisoning
+        // `lock_recovering`'s hook-once-per-poisoning
         // test moved to `ops_core::sync` as
         // `lock_recover_with_runs_the_hook_once_per_poisoning` when the
         // helper itself was deleted from this module.
