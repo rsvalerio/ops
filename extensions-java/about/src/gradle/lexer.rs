@@ -3,6 +3,137 @@
 //! Gradle DSL semantics (the settings/properties/build parsers) live in the
 //! parent `gradle` module; the quote-aware tokenisation primitives that produce
 //! string slices live here. The Maven side is split the same way.
+//!
+//! Every scanner below is line-local. The two constructs that span lines,
+//! `/* … */` block comments and triple-quoted strings, are removed first by
+//! [`MultilineStripper`], which carries their open/closed state from one line
+//! to the next.
+
+use std::borrow::Cow;
+
+/// Triple-quote delimiters, each paired with the empty literal that stands in
+/// for the whole string once [`MultilineStripper`] has removed its content.
+const TRIPLE_QUOTES: &[(&str, &str)] = &[("\"\"\"", "\"\""), ("'''", "''")];
+
+/// What the previous line left open.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+enum Open {
+    /// Ordinary code: nothing spans into this line.
+    #[default]
+    Code,
+    /// Inside a `/* … */` block comment.
+    BlockComment,
+    /// Inside a triple-quoted string closed by `delimiter`.
+    TripleQuoted { delimiter: &'static str },
+}
+
+/// Removes the constructs that span lines, so the line-local scanners in this
+/// module only ever see live, single-line code.
+///
+/// Feed it a file's lines in order. From each line it removes:
+///
+/// - `/* … */` block comments, replaced by a single space so the tokens on
+///   either side stay separate;
+/// - the content of `"""…"""` and `'''…'''` strings, replaced by an empty
+///   literal (`""` / `''`), so a `{`, `}` or quote inside the string cannot
+///   reach the brace or quote scanners.
+///
+/// `//` comments and single-line string literals are copied through verbatim:
+/// a `/*` or `"""` inside either one opens nothing.
+///
+/// Limits: Groovy slashy (`/…/`) and dollar-slashy strings are not recognised,
+/// and a backslash-escaped delimiter inside a triple-quoted string closes it.
+#[derive(Debug, Default)]
+pub(super) struct MultilineStripper {
+    open: Open,
+}
+
+impl MultilineStripper {
+    /// Return `line` with every block comment and triple-quoted string body
+    /// removed, updating the state carried into the next line.
+    pub(super) fn strip<'a>(&mut self, line: &'a str) -> Cow<'a, str> {
+        let opens_nothing = !line.contains("/*")
+            && TRIPLE_QUOTES
+                .iter()
+                .all(|(delimiter, _)| !line.contains(delimiter));
+        if self.open == Open::Code && opens_nothing {
+            return Cow::Borrowed(line);
+        }
+        let mut out = String::with_capacity(line.len());
+        let mut rest = line;
+        while !rest.is_empty() {
+            rest = match self.open {
+                Open::Code => self.strip_code(rest, &mut out),
+                Open::BlockComment => self.skip_past(rest, "*/"),
+                Open::TripleQuoted { delimiter } => self.skip_past(rest, delimiter),
+            };
+        }
+        Cow::Owned(out)
+    }
+
+    /// Name of the construct still open after the last line, or `None` when
+    /// the input ended in ordinary code.
+    pub(super) const fn unterminated(&self) -> Option<&'static str> {
+        match self.open {
+            Open::Code => None,
+            Open::BlockComment => Some("block comment"),
+            Open::TripleQuoted { .. } => Some("triple-quoted string"),
+        }
+    }
+
+    /// Drop everything up to and including `close`, returning what follows
+    /// it. Without `close` on this line the whole remainder is dropped and
+    /// the construct stays open.
+    fn skip_past<'a>(&mut self, rest: &'a str, close: &str) -> &'a str {
+        let Some((_, after)) = rest.split_once(close) else {
+            return "";
+        };
+        self.open = Open::Code;
+        after
+    }
+
+    /// Consume one lexical unit of live code from the head of `rest`,
+    /// appending what survives to `out`, and return the unconsumed tail.
+    fn strip_code<'a>(&mut self, rest: &'a str, out: &mut String) -> &'a str {
+        if rest.starts_with("//") {
+            out.push_str(rest);
+            return "";
+        }
+        if let Some(after) = rest.strip_prefix("/*") {
+            self.open = Open::BlockComment;
+            out.push(' ');
+            return after;
+        }
+        for &(delimiter, empty_literal) in TRIPLE_QUOTES {
+            if let Some(after) = rest.strip_prefix(delimiter) {
+                self.open = Open::TripleQuoted { delimiter };
+                out.push_str(empty_literal);
+                return after;
+            }
+        }
+        let mut chars = rest.chars();
+        let Some(c) = chars.next() else {
+            return "";
+        };
+        let after = chars.as_str();
+        if c != '"' && c != '\'' {
+            out.push(c);
+            return after;
+        }
+        // A single-line string literal is copied whole, so comment and
+        // triple-quote markers inside it open nothing. An unterminated one
+        // runs to the end of the line, as it does for `scan_unquoted`.
+        let literal = find_unescaped(after, c)
+            .map(|end| c.len_utf8().saturating_mul(2).saturating_add(end))
+            .and_then(|len| rest.split_at_checked(len));
+        let Some((literal, tail)) = literal else {
+            out.push_str(rest);
+            return "";
+        };
+        out.push_str(literal);
+        tail
+    }
+}
 
 /// Extract a quoted string value: `"foo"` or `'foo'`.
 ///

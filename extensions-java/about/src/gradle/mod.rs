@@ -4,6 +4,14 @@
 //! matching) live in [`lexer`]; this module owns the Gradle DSL semantics built
 //! on top of them and the [`GradleIdentityProvider`] impl. Mirrors the
 //! maven/pom split.
+//!
+//! ## Known limits
+//!
+//! The DSL parsers are line-oriented. `//` comments, `/* … */` block comments
+//! and triple-quoted strings are recognised (the last two across lines), so
+//! nothing inside them contributes an `include`, a `rootProject.name`, a
+//! `description` or brace depth. Groovy slashy (`/…/`) and dollar-slashy
+//! strings are not recognised, and a directive must fit on one line.
 
 mod lexer;
 
@@ -18,7 +26,7 @@ use ops_extension::{Context, DataProvider, DataProviderError};
 use super::gradle_about_fields;
 use lexer::{
     brace_delta, extract_quoted, extract_quoted_list, split_at_unquoted_close_paren,
-    strip_properties_comment, strip_trailing_comment,
+    strip_properties_comment, strip_trailing_comment, MultilineStripper,
 };
 
 pub struct GradleIdentityProvider;
@@ -104,8 +112,11 @@ fn parse_gradle_settings(project_root: &Path) -> Option<GradleSettings> {
     let mut root_project_name: Option<String> = None;
     let mut includes = Vec::new();
     let mut depth = 0_i32;
+    let mut stripper = MultilineStripper::default();
 
     let mut scan = |line: &str| {
+        let line = stripper.strip(line);
+        let line = line.trim();
         if depth == 0 {
             if root_project_name.is_none() {
                 root_project_name = extract_assignment(line, "rootProject.name");
@@ -117,6 +128,7 @@ fn parse_gradle_settings(project_root: &Path) -> Option<GradleSettings> {
 
     for_each_trimmed_line(&project_root.join("settings.gradle"), &mut scan)
         .or_else(|| for_each_trimmed_line(&project_root.join("settings.gradle.kts"), &mut scan))?;
+    warn_unterminated(&stripper, "settings.gradle");
 
     // Dedup on the normalised path, first writer wins.
     let mut seen = std::collections::HashSet::new();
@@ -192,8 +204,11 @@ fn parse_gradle_properties(project_root: &Path) -> Option<GradleProperties> {
 fn parse_gradle_build(project_root: &Path) -> Option<GradleBuild> {
     let mut description: Option<String> = None;
     let mut depth = 0_i32;
+    let mut stripper = MultilineStripper::default();
 
     let mut scan = |line: &str| {
+        let line = stripper.strip(line);
+        let line = line.trim();
         if depth == 0 && description.is_none() {
             description = extract_assignment(line, "description")
                 .or_else(|| extract_bare_method(line, "description"));
@@ -207,8 +222,24 @@ fn parse_gradle_build(project_root: &Path) -> Option<GradleBuild> {
 
     for_each_trimmed_line(&project_root.join("build.gradle"), &mut scan)
         .or_else(|| for_each_trimmed_line(&project_root.join("build.gradle.kts"), &mut scan))?;
+    warn_unterminated(&stripper, "build.gradle");
 
     Some(GradleBuild { description })
+}
+
+/// Report a block comment or triple-quoted string still open at end of file.
+///
+/// Every line after its opener was dropped, so the fields parsed before it are
+/// kept and the truncation is surfaced instead of reading as a short script.
+/// `manifest` names the script family; the `.kts` sibling shares the label.
+fn warn_unterminated(stripper: &MultilineStripper, manifest: &'static str) {
+    if let Some(construct) = stripper.unterminated() {
+        tracing::warn!(
+            manifest,
+            construct,
+            "gradle script: unterminated construct at end of file; every line after its opener was dropped"
+        );
+    }
 }
 
 /// Collect the project paths from every Gradle `include` shape that fits on a
