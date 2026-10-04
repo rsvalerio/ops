@@ -98,7 +98,7 @@ impl DataProvider for RustUnitsProvider {
 }
 
 /// Per-crate dep counts from `SQLite`, keyed by `crate_manifest_path`
-/// (ERR-2 / TASK-1253 — the previous bare-name key collided for renamed
+/// (ERR-2: a bare package name is not unique — it collides for renamed
 /// (`package = "alt-name"`) or duplicate-named workspace members).
 ///
 /// ERR-2 / TASK-0376: query failures route through `query_or_warn` so they
@@ -229,10 +229,8 @@ fn build_unit(
 /// map, emitting the diagnostic breadcrumb for each way the lookup can come up
 /// empty.
 ///
-/// FN-1 / TASK-1784: extracted from `provide`'s map closure so the three
-/// diagnostic branches are reachable from a unit test without a live `SQLite`,
-/// and so the `clippy::option_if_let_else` suppression the nesting used to
-/// require is no longer needed.
+/// A free function over the already-queried map, so the three diagnostic
+/// branches are reachable from a unit test without a live `SQLite`.
 fn resolve_dep_count(
     member: &str,
     package_name: Option<&str>,
@@ -255,8 +253,7 @@ fn resolve_dep_count(
         tracing::debug!(
             member,
             manifest_path = ?canonical_manifest_path,
-            "PERF-3 / TASK-1570: canonical manifest_path is not valid UTF-8; \
-             skipping dep_count lookup rather than collapsing through to_string_lossy"
+            "canonical manifest_path is not valid UTF-8; skipping dep_count lookup"
         );
         return None;
     };
@@ -265,7 +262,7 @@ fn resolve_dep_count(
         tracing::debug!(
             member,
             manifest_path = %key,
-            "ERR-2 / TASK-1253: no dep_count row for canonical manifest_path"
+            "no dep_count row for canonical manifest_path"
         );
     }
     lookup
@@ -451,7 +448,7 @@ mod tests {
         });
 
         assert!(
-            logs.contains("SEC-14 / TASK-1246"),
+            logs.contains("rejecting absolute or `..` workspace member"),
             "expected the shared rejection breadcrumb, got: {logs}"
         );
         assert!(

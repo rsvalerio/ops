@@ -1,8 +1,7 @@
 //! Loading the workspace `Cargo.toml` for the Rust about providers.
 //!
-//! ARCH-1 / TASK-1791: extracted from the former `query.rs`, which mixed this
-//! loader with the cache it consults ([`crate::manifest_cache`]) and the glob
-//! expander it calls ([`crate::members`]).
+//! The loader consults the cache in [`crate::manifest_cache`] and resolves
+//! member globs through [`crate::members`].
 
 use ops_cargo_toml::{
     find_workspace_root_strict, CargoToml, CargoTomlProvider, FindWorkspaceRootError, Package,
@@ -18,27 +17,19 @@ use crate::manifest_cache;
 use crate::members::resolved_workspace_members;
 use crate::workspace_root_cache;
 
-/// ERR-1 / TASK-1076: pairs the cached parsed manifest with its resolved
-/// `[workspace].members` list so the original glob spec on the cached
-/// `CargoToml` is preserved verbatim.
+/// ERR-1: pairs the cached parsed manifest with its resolved
+/// `[workspace].members` list.
 ///
-/// Before TASK-1076 `load_workspace_manifest` overwrote
-/// `manifest.workspace.members` with the resolved list before caching the
-/// `Arc<CargoToml>`. That mutation lost the literal `["crates/*"]` spec for
-/// every subsequent consumer (a future linter or doc generator wanting the
-/// raw spec would see only the expanded list), and any code re-running glob
-/// expansion on the cached manifest no-op'd because the list was already
-/// flattened. Storing the resolved view in a sibling field keeps `ws.members`
-/// immutable post-parse while preserving the PERF-3 / TASK-0969 contract that
-/// resolved members survive across calls without re-walking the filesystem.
+/// The resolved list lives in a sibling field, so `workspace.members` on the
+/// cached `CargoToml` stays the literal glob spec (`["crates/*"]`) exactly as
+/// the manifest wrote it, while the resolved members survive across calls
+/// without re-walking the filesystem (PERF-3).
 ///
-/// OWN-12 / TASK-1767: this is an aggregate, not a smart pointer, so it does
-/// **not** implement `Deref<Target = CargoToml>`. The `Deref` it used to carry
-/// put `manifest.resolved_members()` (the expanded list) and
-/// `manifest.workspace.members` (the raw `["crates/*"]` spec) on the same
-/// receiver, and reaching for the wrong one was a silent wrong answer rather
-/// than a compile error. Consumers now go through the named accessors below;
-/// the unexpanded spec is reachable only via
+/// OWN-12: this is an aggregate, not a smart pointer, so it does **not**
+/// implement `Deref<Target = CargoToml>`: the expanded list and the raw spec
+/// must not be reachable from the same receiver, where picking the wrong one
+/// is a silent wrong answer rather than a compile error. Consumers go through
+/// the named accessors below; the unexpanded spec is reachable only via
 /// `unexpanded_workspace_members_spec`, whose name says what it hands back.
 ///
 /// C-DEBUG: derives `Debug` so a provider can `tracing::debug!(?manifest)` and
@@ -51,11 +42,11 @@ pub struct LoadedManifest {
     /// anywhere below this; every member join must use this root.
     workspace_root: Arc<PathBuf>,
     resolved_members: Arc<Vec<String>>,
-    /// PERF-3 / TASK-1569: lazy map from workspace member (as listed in
+    /// PERF-3: lazy map from workspace member (as listed in
     /// `resolved_members`) to its canonical `Cargo.toml` path. Computed
     /// once per `LoadedManifest` instance — itself cached per workspace
-    /// — so `RustUnitsProvider::provide` no longer fans out N
-    /// `std::fs::canonicalize` syscalls on every invocation. Held behind
+    /// — so `RustUnitsProvider::provide` pays the N `std::fs::canonicalize`
+    /// syscalls once rather than on every invocation. Held behind
     /// `Arc<OnceLock<_>>` because `LoadedManifest` is cloned freely
     /// across providers and the canonicalize work must happen once even
     /// when both `units` and a sibling consumer hit the same cache
@@ -179,9 +170,15 @@ impl LoadedManifest {
 /// mirroring `read_crate_metadata` (TASK-0433).
 pub fn log_manifest_load_failure(err: &DataProviderError) {
     if is_manifest_missing(err) {
-        tracing::debug!("Cargo.toml not found; Rust providers will produce empty results: {err:#}");
+        tracing::debug!(
+            error = %format_args!("{err:#}"),
+            "Cargo.toml not found; Rust providers will produce empty results"
+        );
     } else {
-        tracing::warn!("failed to load workspace Cargo.toml: {err:#}");
+        tracing::warn!(
+            error = %format_args!("{err:#}"),
+            "failed to load workspace Cargo.toml"
+        );
     }
 }
 
@@ -268,7 +265,7 @@ fn resolve_workspace_root(ctx: &Context) -> Result<Arc<PathBuf>, DataProviderErr
         tracing::debug!(
             cwd = ?cwd.display(),
             error = ?err,
-            "TASK-1204: strict workspace-root resolution failed; surfacing typed error"
+            "strict workspace-root resolution failed; surfacing typed error"
         );
         DataProviderError::from(anyhow::Error::from(err))
     })?;
@@ -277,12 +274,12 @@ fn resolve_workspace_root(ctx: &Context) -> Result<Arc<PathBuf>, DataProviderErr
     Ok(root)
 }
 
-/// PERF-1 / TASK-1195: the cache-miss path goes through
+/// PERF-1: the cache-miss path goes through
 /// `CargoTomlProvider::provide_typed` so the typed `CargoToml` arrives here
-/// directly — no `serde_json::Value` round-trip. The pre-existing `ctx.cached`
-/// fast path stays for cross-extension consumers that may have populated the
-/// JSON cache via `Context::get_or_provide`; that arm still pays one
-/// `serde_json::from_value`, but the dominant typed cache miss no longer does.
+/// directly, with no `serde_json::Value` round-trip. The `ctx.cached` fast
+/// path serves cross-extension consumers that may have populated the JSON
+/// cache via `Context::get_or_provide`; that arm pays one
+/// `serde_json::from_value`, the dominant typed cache miss does not.
 fn parse_manifest(ctx: &mut Context, root: &Path) -> Result<CargoToml, DataProviderError> {
     if let Some(cached) = ctx.cached(ops_cargo_toml::DATA_PROVIDER_NAME) {
         // PERF-3 / TASK-1201: deserialize against a borrowed `&serde_json::Value`
