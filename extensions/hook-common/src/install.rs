@@ -51,23 +51,22 @@ pub fn install_hook(
     handle_existing_hook(&hook_path, config, w)
 }
 
-/// SEC-25 (TASK-1892): the hook file is the last component of the write path,
-/// and until now the only one with no symlink check — `canonical_git_dir`
-/// refuses a symlinked `.git`, `canonical_subdir` a symlinked `hooks/`, and
-/// `looks_like_git_dir` a symlinked `HEAD`, each with a test.
+/// Refuse to install over a symlinked hook file.
 ///
-/// A symlinked `<git_dir>/hooks/<hook>` split the decision from the write:
-/// `read_to_string` follows the link, so ops classified the *target's*
-/// content, while every write targets the link path. Two divergent outcomes
-/// followed. If the target held the current ops script, ops reported "Hook
-/// already installed" and exited 0 for a hook whose real body lives outside
-/// the repository and can be changed by whoever owns that file — and
-/// reinstalling never corrected it, because the idempotent branch returned
-/// early every time. If it held a legacy marker, the upgrade path's
-/// `rename(2)` (which does not follow symlinks) silently replaced the link
-/// with a regular file, destroying an operator's deliberate wiring into a
-/// shared hooks directory with no diagnostic beyond "Updating outdated ops
-/// hook".
+/// SEC-25: the hook file is the last component of the write path, and every
+/// component is checked — `canonical_git_dir` refuses a symlinked `.git`,
+/// `canonical_subdir` a symlinked `hooks/`, `looks_like_git_dir` a symlinked
+/// `HEAD`, and this function the hook itself.
+///
+/// A symlinked `<git_dir>/hooks/<hook>` would split the decision from the
+/// write: a read follows the link, so the *target's* content is what gets
+/// classified, while every write targets the link path. If the target holds
+/// the current ops script, the install would report "Hook already installed"
+/// for a hook whose real body lives outside the repository and can be changed
+/// by whoever owns that file. If it holds a legacy marker, the upgrade path's
+/// `rename(2)` (which does not follow symlinks) would replace the link with a
+/// regular file, destroying an operator's deliberate wiring into a shared
+/// hooks directory.
 ///
 /// Writing the symlink requires write access to `.git/hooks` already, so this
 /// is not a privilege boundary — but reporting a hook as installed when the
@@ -85,21 +84,20 @@ fn reject_symlinked_hook(hook_path: &Path) -> anyhow::Result<()> {
 
 /// Create the hook for the first time, atomically.
 ///
-/// SEC-25 (TASK-1882): the previous shape opened `hook_path` itself with
-/// `OpenOptions::create_new(true)` and wrote the script straight into the
-/// live path. A failure (ENOSPC, EIO, EDQUOT) or a kill mid-write left a
-/// truncated — most often zero-byte — file at `.git/hooks/<name>`, which git
-/// happily executes: an empty hook exits 0, so every subsequent commit passed
-/// with no checks and no diagnostic. The create path now mirrors
-/// [`upgrade_legacy_hook`]: stage the payload in a randomised sibling, fsync
-/// it, make it executable, then link it into place. Nothing is ever written
-/// through `hook_path`, so the destination only ever appears complete.
+/// SEC-25: nothing is ever written through `hook_path`, so the destination
+/// only ever appears complete. Like [`upgrade_legacy_hook`], the payload is
+/// staged in a randomised sibling, fsynced, made executable, then linked into
+/// place. Writing the script straight into the live path would let a failure
+/// (ENOSPC, EIO, EDQUOT) or a kill mid-write leave a truncated — most often
+/// zero-byte — file at `.git/hooks/<name>`, which git happily executes: an
+/// empty hook exits 0, so every subsequent commit would pass with no checks
+/// and no diagnostic.
 ///
-/// `persist_noclobber` keeps the exclusive-create semantics `create_new` gave
-/// us: it fails with [`ErrorKind::AlreadyExists`] rather than clobbering a
-/// hook that appeared concurrently. Returns `Ok(None)` in that case so the
-/// caller falls through to [`handle_existing_hook`]; the staged file is
-/// unlinked by `NamedTempFile`'s `Drop`.
+/// `persist_noclobber` gives exclusive-create semantics: it fails with
+/// [`ErrorKind::AlreadyExists`] rather than clobbering a hook that appeared
+/// concurrently. Returns `Ok(None)` in that case so the caller falls through
+/// to [`handle_existing_hook`]; the staged file is unlinked by
+/// `NamedTempFile`'s `Drop`.
 fn write_new_hook(
     hook_path: &Path,
     config: &HookConfig,
@@ -108,17 +106,17 @@ fn write_new_hook(
     let tmp = stage_hook_payload(hook_path, config)?;
     match tmp.persist_noclobber(hook_path) {
         Ok(_file) => {
-            // SEC-25 (TASK-0713): fsync the parent so the new directory entry
-            // survives a power loss. Without this, the inode is durable but
-            // the .git/hooks/<name> link can be lost on ext4/xfs, silently
+            // SEC-25: fsync the parent so the new directory entry survives a
+            // power loss. Without this, the inode is durable but the
+            // .git/hooks/<name> link can be lost on ext4/xfs, silently
             // disabling the hook even though `ops install` reported success.
-            // Mirrors ops_core::config::atomic_write (TASK-0340).
+            // Mirrors ops_core::config::atomic_write.
             sync_parent_dir(hook_path);
             writeln!(w, "Installed hook at {}", hook_path.display())?;
             Ok(Some(hook_path.to_path_buf()))
         }
-        // A hook appeared between our stage and the link — the same race
-        // `create_new` used to report. Hand off to the existing-hook path.
+        // A hook appeared between our stage and the link. Hand off to the
+        // existing-hook path.
         Err(e) if e.error.kind() == ErrorKind::AlreadyExists => Ok(None),
         Err(e) => Err(anyhow::Error::from(e.error))
             .with_context(|| format!("failed to install hook at {}", hook_path.display())),
@@ -134,12 +132,11 @@ enum ExistingHook {
     Legacy,
     /// Empty, whitespace-only, or a strict prefix of the current ops script.
     ///
-    /// SEC-25 (TASK-1882): this is the shape a pre-TASK-1882 install left
-    /// behind when it died mid-write, and the shape a truncating filesystem
-    /// error still produces for any writer. It is ops's own artefact, not
-    /// user content, so replacing it is safe — and reporting it as a foreign
-    /// user-authored hook (which is what the old marker-only check did) told
-    /// the operator to "remove it manually" about a file ops wrote itself.
+    /// SEC-25: this is the shape a write that died mid-stream, or a
+    /// truncating filesystem error, leaves behind. It is ops's own artefact,
+    /// not user content, so replacing it is safe — reporting it as a foreign
+    /// user-authored hook would tell the operator to "remove it manually"
+    /// about a file ops wrote itself.
     Partial,
     /// Anything else: user-authored, refuse to touch it.
     Foreign,
@@ -157,7 +154,7 @@ fn classify_existing_hook(content: &str, config: &HookConfig) -> ExistingHook {
     }
 }
 
-/// SEC-33 / TASK-2129: byte cap for reading an existing hook during
+/// SEC-33: byte cap for reading an existing hook during
 /// classification, mirroring the bounded-read posture of `git.rs`'s
 /// `read_capped_to_string` (and its `MAX_GITDIR_BACKREFERENCE_BYTES`).
 /// Classification never needs more than
@@ -182,7 +179,7 @@ fn existing_hook_read_cap(config: &HookConfig) -> u64 {
 /// Read the existing hook for classification, bounded by
 /// [`existing_hook_read_cap`].
 ///
-/// SEC-33 / TASK-2129: the hook file is operator- or attacker-controlled
+/// SEC-33: the hook file is operator- or attacker-controlled
 /// content on a path ops does not own, so it is read through a `take()`
 /// bound rather than slurped whole. Returns `Ok(None)` — meaning "can only
 /// be [`ExistingHook::Foreign`]" — when the content is over the cap or not
@@ -231,7 +228,7 @@ fn handle_existing_hook(
     config: &HookConfig,
     w: &mut dyn Write,
 ) -> anyhow::Result<PathBuf> {
-    // SEC-33 / TASK-2129: over-cap or non-UTF-8 content can only be foreign
+    // SEC-33: over-cap or non-UTF-8 content can only be foreign
     // — ops scripts are short valid UTF-8 — so it is refused with the same
     // actionable message as any other user-authored hook, never surfaced as
     // an opaque read error.
@@ -267,7 +264,7 @@ fn handle_existing_hook(
 
 /// Match a legacy ops marker against the script body.
 ///
-/// PATTERN-1 (TASK-1072 / TASK-1239): match the marker only as a **leading
+/// The marker matches only as a **leading
 /// word** of an uncommented line — the line, after `trim_start`, must begin
 /// with either:
 ///
@@ -275,10 +272,10 @@ fn handle_existing_hook(
 /// * `exec <marker>` (followed by whitespace or end-of-line).
 ///
 /// `trim_start` discards leading whitespace; lines whose first non-whitespace
-/// char is `#` are skipped as shell comments (TASK-1072). Earlier shapes used
-/// `trimmed.contains(marker)` so a string literal inside an `echo`, `printf`,
-/// or here-doc body that *mentioned* the marker triggered the upgrade path
-/// and clobbered a hand-written user hook (TASK-1239).
+/// char is `#` are skipped as shell comments. A substring match
+/// (`contains(marker)`) would be too wide: a string literal inside an `echo`,
+/// `printf`, or here-doc body that merely *mentions* the marker would trigger
+/// the upgrade path and clobber a hand-written user hook.
 ///
 /// Note: the marker is treated as the verbatim prefix of a command line; it
 /// must end at a word boundary so `ops run-before-commit-extra` is not
@@ -308,28 +305,21 @@ fn has_legacy_marker(content: &str, config: &HookConfig) -> bool {
 /// Replace a legacy ops hook with the current script via a sibling temp file
 /// and an atomic rename.
 ///
-/// SEC-25: the previous implementation `read_to_string` → `fs::write` left a
-/// race window in which a user-authored hook could be written between the
-/// marker check and the overwrite. We now (a) stage the new content in a temp
-/// file created with a randomised sibling name, (b) re-read the original and
-/// re-verify the legacy marker right before the rename, and (c) `rename(2)`
-/// over the target (atomic on POSIX). The remaining window is a single
-/// rename call.
+/// SEC-25: the upgrade (a) stages the new content in a temp file with a
+/// randomised sibling name, (b) re-reads the original and re-verifies the
+/// legacy marker right before the rename, and (c) `rename(2)`s over the
+/// target (atomic on POSIX). A user-authored hook written between the first
+/// marker check and the overwrite is therefore seen by the re-check; the
+/// remaining window is a single rename call.
 ///
-/// SEC-25 / TASK-1210: the temp-file name is randomised via
-/// [`tempfile::NamedTempFile::new_in`] rather than the previous fixed
-/// `.{file_name}.ops-tmp` sibling. Concurrent installs against shared
-/// worktrees (`.git/worktrees/<name>/hooks/` is shared between checkouts of
-/// the same repo) used to race: process A would create the fixed temp path
-/// and start writing, process B would observe `AlreadyExists`, fall into the
-/// TASK-1113 stale-recovery branch, **delete process A's mid-write temp
-/// file**, then create its own. With randomised names the two processes get
-/// disjoint paths — both can stage in parallel and the rename serialises
-/// (`rename(2)` is atomic on POSIX, so exactly one writer wins the
-/// destination and the loser's stage gets cleaned up). The TASK-1113
-/// stale-leftover recovery path is therefore no longer needed: a crashed
-/// install leaves a randomised orphan, which subsequent installs simply
-/// ignore.
+/// The temp-file name is randomised via [`tempfile::NamedTempFile::new_in`]
+/// so that concurrent installs get disjoint stage paths — hooks directories
+/// are shared between checkouts of the same repo
+/// (`.git/worktrees/<name>/hooks/`). Both processes can stage in parallel and
+/// the rename serialises: exactly one writer wins the destination and the
+/// loser's stage is cleaned up. A fixed name would have one process observe
+/// the other's mid-write stage as a stale leftover. A crashed install leaves
+/// a randomised orphan, which subsequent installs ignore.
 fn upgrade_legacy_hook(
     hook_path: &Path,
     config: &HookConfig,
@@ -337,7 +327,7 @@ fn upgrade_legacy_hook(
 ) -> anyhow::Result<PathBuf> {
     let tmp = stage_hook_payload(hook_path, config)?;
 
-    // SEC-33 / TASK-2129: the re-read is bounded and UTF-8-guarded like the
+    // SEC-33: the re-read is bounded and UTF-8-guarded like the
     // first one; over-cap or non-UTF-8 content mid-install is foreign (the
     // `None` arm below), not a read error.
     let message = match read_existing_hook_capped(hook_path, config)?
@@ -345,7 +335,7 @@ fn upgrade_legacy_hook(
         .map(|content| classify_existing_hook(content, config))
     {
         Some(ExistingHook::Legacy) => "Updating outdated ops hook at",
-        // SEC-25 (TASK-1882): a truncated ops artefact is replaced, not
+        // SEC-25: a truncated ops artefact is replaced, not
         // reported as a foreign hook.
         Some(ExistingHook::Partial) => "Replacing partially written ops hook at",
         // A concurrent installer won the race with the identical payload.
@@ -383,7 +373,7 @@ fn upgrade_legacy_hook(
             hook_path.display()
         ))
     })?;
-    // SEC-25 (TASK-0713): fsync the parent so the rename hits disk; without
+    // SEC-25: fsync the parent so the rename hits disk; without
     // this a crash can leave the directory entry pointing at the temp
     // inode (or the old hook) even though the new content is durable.
     sync_parent_dir(hook_path);
@@ -394,7 +384,7 @@ fn upgrade_legacy_hook(
 /// platforms this is a no-op (Windows does not require the equivalent for
 /// crash safety, and an `open(parent)` there would fail anyway). Errors are
 /// logged rather than returned because the install has already succeeded —
-/// surfacing a parent-dir fsync failure as a hard error would regress the
+/// surfacing a parent-dir fsync failure as a hard error would fail the
 /// success path on filesystems that do not support directory fsync.
 fn sync_parent_dir(path: &Path) {
     #[cfg(not(unix))]
@@ -404,7 +394,7 @@ fn sync_parent_dir(path: &Path) {
         match File::open(parent) {
             Ok(dir) => {
                 if let Err(e) = dir.sync_all() {
-                    // ERR-7 (TASK-0937 / TASK-1886): Debug-format the path and
+                    // ERR-7: Debug-format the path and
                     // error so a directory name carrying newlines or ANSI
                     // escapes cannot forge lines in the developer's terminal.
                     tracing::debug!(
@@ -415,7 +405,7 @@ fn sync_parent_dir(path: &Path) {
                 }
             }
             Err(e) => {
-                // ERR-7 (TASK-0937 / TASK-1886): see above.
+                // ERR-7: see above.
                 tracing::debug!(
                     parent = ?parent.display(),
                     error = ?e,
@@ -429,12 +419,12 @@ fn sync_parent_dir(path: &Path) {
 /// Stage the hook payload in a randomised sibling of `hook_path`, fsynced and
 /// already executable, ready to be renamed into place.
 ///
-/// SEC-25 / TASK-1210: the name is randomised rather than a fixed
+/// SEC-25: the name is randomised rather than a fixed
 /// `.{file_name}.ops-tmp` sibling. Prefix with `.` so the partial write is
 /// hidden by typical directory listings, and tag with the hook filename so an
 /// orphan from a crashed install is recognisable in a post-mortem `ls -la`.
 ///
-/// SEC-25 / TASK-1882: shared by the create and the upgrade path so both get
+/// Shared by the create and the upgrade path so both get
 /// the same crash-safety. On any failure the staged file is unlinked and
 /// nothing is left at `hook_path`.
 fn stage_hook_payload(
@@ -542,7 +532,7 @@ mod tests {
         assert!(output.contains("Installed hook"));
     }
 
-    /// ERR-13 / TASK-2137: an install failure must name the offending path.
+    /// ERR-13: an install failure must name the offending path.
     /// A regular file squatting where `.git/hooks` should be makes
     /// `create_dir_all` fail deterministically regardless of euid; the
     /// error must then carry the hooks directory path so an operator with
@@ -570,12 +560,10 @@ mod tests {
         );
     }
 
-    /// SEC-25 / TASK-1882: if the create path fails, nothing may be left at
-    /// `.git/hooks/<hook>`. The pre-TASK-1882 shape opened the live hook path
-    /// with `create_new` before writing, so any failure downstream of that
-    /// open left a zero-byte hook behind — a file git runs and that exits 0,
-    /// silently disabling the gate. Staging in a sibling makes the failure
-    /// path leave the destination untouched.
+    /// SEC-25: if the create path fails, nothing may be left at
+    /// `.git/hooks/<hook>`. A zero-byte hook is a file git runs and that
+    /// exits 0, silently disabling the gate; staging in a sibling makes the
+    /// failure path leave the destination untouched.
     #[cfg(unix)]
     #[test]
     fn install_hook_create_failure_leaves_no_hook_file() {
@@ -617,7 +605,7 @@ mod tests {
         );
     }
 
-    /// SEC-25 / TASK-1882: an install killed between staging and the rename
+    /// SEC-25: an install killed between staging and the rename
     /// leaves a randomised `.pre-commit.ops-tmp.*` orphan and *no* hook. The
     /// next install must ignore the orphan and complete normally.
     #[test]
@@ -643,7 +631,7 @@ mod tests {
         assert!(output.contains("Installed hook"), "unexpected: {output}");
     }
 
-    /// SEC-25 / TASK-1882: a truncated hook is ops's own artefact, not a
+    /// SEC-25: a truncated hook is ops's own artefact, not a
     /// user-authored hook. Before the fix the installer read it, found no
     /// legacy marker, and told the operator to remove "a hook not installed
     /// by ops" — about a file ops itself had half-written, wedging reinstall.
@@ -692,7 +680,7 @@ mod tests {
         );
     }
 
-    /// SEC-33 / TASK-2129 AC#2+#4: a hook that is not valid UTF-8 (a
+    /// SEC-33: a hook that is not valid UTF-8 (a
     /// compiled binary, a latin-1 script) is refused as a foreign hook with
     /// the actionable "not installed by ops" message — not an opaque
     /// `InvalidData` read error with no path — and is left byte-for-byte
@@ -731,7 +719,7 @@ mod tests {
         );
     }
 
-    /// SEC-33 / TASK-2129 AC#1+#3+#4: a hook larger than the classification
+    /// SEC-33: a hook larger than the classification
     /// read cap is refused as foreign rather than read whole into memory,
     /// and is left intact.
     #[test]
@@ -828,7 +816,7 @@ mod tests {
         assert!(output.contains("Updating outdated"));
     }
 
-    /// PATTERN-1 (TASK-1072): a user-authored hook whose only mention of an
+    /// PATTERN-1: a user-authored hook whose only mention of an
     /// ops legacy marker lives inside a shell comment must NOT be classified
     /// as an ops legacy hook. The installer must refuse to overwrite it.
     #[test]
@@ -863,7 +851,7 @@ mod tests {
         );
     }
 
-    /// PATTERN-1 (TASK-1239): a user-authored hook that mentions the
+    /// PATTERN-1: a user-authored hook that mentions the
     /// marker only inside an `echo`/`printf` argument or a here-doc body
     /// must NOT be classified as an ops legacy hook. The leading-word
     /// contract ensures the marker is matched only when it is the head of
@@ -908,7 +896,7 @@ mod tests {
         assert!(has_legacy_marker(with_args, &cfg));
     }
 
-    /// PATTERN-1 (TASK-1239): integration-level analogue of TASK-1072 — a
+    /// PATTERN-1: integration-level analogue of the marker unit tests — a
     /// user-authored hook whose only mention of the marker lives inside an
     /// `echo` argument must be refused, not silently overwritten.
     #[test]
@@ -939,7 +927,7 @@ mod tests {
         );
     }
 
-    /// PATTERN-1 (TASK-1072): unit-level coverage of `has_legacy_marker`
+    /// PATTERN-1: unit-level coverage of `has_legacy_marker`
     /// covering the comment-skip and indented-comment paths.
     #[test]
     fn has_legacy_marker_skips_commented_lines() {
@@ -999,7 +987,7 @@ mod tests {
         );
     }
 
-    /// SEC-25 / TASK-1892: a symlinked `pre-commit` pointing at a file whose
+    /// SEC-25: a symlinked `pre-commit` pointing at a file whose
     /// content *is* the ops script must not be reported as "Hook already
     /// installed" — the body git executes lives outside the repository and is
     /// owned by whoever owns that file.
@@ -1034,10 +1022,10 @@ mod tests {
             .is_symlink());
     }
 
-    /// SEC-25 / TASK-1892: `rename(2)` does not follow symlinks, so the
-    /// upgrade path used to replace a deliberately symlinked hook with a
-    /// regular file and report only "Updating outdated ops hook". Refuse
-    /// instead, leaving the operator's wiring intact.
+    /// SEC-25: `rename(2)` does not follow symlinks, so upgrading through a
+    /// deliberately symlinked hook would replace the link with a regular
+    /// file. The install refuses instead, leaving the operator's wiring
+    /// intact.
     #[cfg(unix)]
     #[test]
     fn install_hook_does_not_replace_symlinked_legacy_hook() {
@@ -1069,7 +1057,7 @@ mod tests {
         assert_eq!(std::fs::read_to_string(&outside).unwrap(), legacy);
     }
 
-    /// SEC-25 / TASK-0361: HEAD must be a real regular file. A symlinked HEAD
+    /// SEC-25: HEAD must be a real regular file. A symlinked HEAD
     /// is the simplest swap an attacker can stage between the shape check and
     /// the hook write, so the substance check rejects it outright.
     #[cfg(unix)]
@@ -1151,11 +1139,10 @@ mod tests {
 
         // User's hook is preserved.
         assert_eq!(std::fs::read_to_string(&hook_path).unwrap(), foreign);
-        // TEST-11 (TASK-1888): count randomised stages by prefix, matching
-        // the two sibling tests below. The previous assertion probed the
-        // pre-TASK-1210 fixed name `.pre-commit.ops-tmp`, which randomised
-        // staging can never create — so it held unconditionally and left the
-        // bail path's stage cleanup, the only coverage it has, unverified.
+        // Count randomised stages by prefix, matching the two sibling tests
+        // below: staging never creates the bare `.pre-commit.ops-tmp` name,
+        // so probing for it would hold unconditionally and leave the bail
+        // path's stage cleanup unverified.
         let stray = std::fs::read_dir(&hooks)
             .unwrap()
             .filter_map(std::result::Result::ok)
@@ -1165,16 +1152,12 @@ mod tests {
         assert_eq!(stray, 0, "staged temp file must be removed on bail");
     }
 
-    /// ERR-1 (TASK-1113) + SEC-25 (TASK-1210): a prior `ops install` that
-    /// crashed between `write_hook_payload` and the rename now leaves a
-    /// **randomised** orphan (e.g. `.pre-commit.ops-tmp.AbCxYz`) rather
-    /// than the previous fixed `.pre-commit.ops-tmp` sibling. The next
-    /// upgrade must succeed regardless of the orphan: with randomised
-    /// names there is no collision, so no stale-recovery branch is
-    /// needed. We assert the legacy fixed-name file is left untouched
-    /// (this is a foreign file from the new code's perspective) and the
-    /// install completes with a fresh randomised stage that gets
-    /// renamed onto the hook path.
+    /// SEC-25: an install that crashes between staging and the rename
+    /// leaves a **randomised** orphan (e.g. `.pre-commit.ops-tmp.AbCxYz`),
+    /// and stage names never collide, so no orphan can block an upgrade.
+    /// That holds for a file with the bare `.pre-commit.ops-tmp` name too:
+    /// it is a foreign file, left untouched, and the install completes with
+    /// a fresh randomised stage that gets renamed onto the hook path.
     #[test]
     fn upgrade_legacy_hook_ignores_legacy_fixed_name_orphan() {
         let cfg = commit_config();
@@ -1186,14 +1169,13 @@ mod tests {
         // Legacy ops hook on disk that should be upgraded.
         std::fs::write(&hook_path, "#!/bin/sh\nexec ops before-commit\n").unwrap();
 
-        // Pre-TASK-1210 orphan: the fixed sibling name a crashed install
-        // *used to* leave on disk. With randomised names this is no
-        // longer ours; a future cleanup can sweep it, but the install
-        // must not block on it.
+        // A fixed-name sibling, as an older ops release could leave on
+        // disk. It is not a name this code creates, so it is not ours to
+        // remove, and the install must not block on it.
         let legacy_orphan = hooks.join(".pre-commit.ops-tmp");
         std::fs::write(
             &legacy_orphan,
-            "garbage from a previous crashed install (pre-TASK-1210)",
+            "garbage from a crashed install of an older release",
         )
         .unwrap();
 
@@ -1207,7 +1189,7 @@ mod tests {
         // Legacy fixed-name orphan is left in place (not ours to remove).
         assert!(
             legacy_orphan.exists(),
-            "pre-TASK-1210 fixed-name orphan must not be touched"
+            "the fixed-name orphan must not be touched"
         );
         // The randomised stage created by this install was consumed by
         // `persist`; no `.pre-commit.ops-tmp.*` siblings should remain
@@ -1230,16 +1212,14 @@ mod tests {
         );
     }
 
-    /// SEC-25 / TASK-1210 AC #2: two concurrent `upgrade_legacy_hook`
+    /// SEC-25: two concurrent `upgrade_legacy_hook`
     /// calls against the same `hook_path` must not collide on a fixed
     /// temp-file name. With randomised stages the two writers get
     /// disjoint files and the rename serialises atomically — exactly
     /// one wins and writes the new payload, the other observes the
     /// post-win content and returns the "file changed during install"
-    /// typed error from the recheck step. Pre-TASK-1210 the loser
-    /// would either (a) hit `AlreadyExists` on the fixed sibling or
-    /// (b) **delete the winner's mid-write temp file** via the
-    /// stale-recovery branch and clobber the install.
+    /// typed error from the recheck step. Neither writer can delete or
+    /// overwrite the other's mid-write stage.
     #[test]
     fn upgrade_legacy_hook_concurrent_callers_do_not_corrupt_install() {
         use std::sync::Arc;
@@ -1272,7 +1252,7 @@ mod tests {
                 Err(e) => {
                     let msg = e.to_string();
                     // The loser of the rename race re-reads the file
-                    // (now the new ops payload) and surfaces the
+                    // (by then the new ops payload) and surfaces the
                     // typed "file changed during install" error.
                     assert!(
                         msg.contains("file changed during install")

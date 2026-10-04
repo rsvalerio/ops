@@ -42,6 +42,7 @@ pub use install::install_hook;
 /// (or the [`crate::impl_hook_wrappers!`] macro that wraps it) so adding new
 /// fields stays a non-breaking change.
 #[non_exhaustive]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct HookConfig {
     /// Command name, e.g. `"run-before-commit"`.
     pub name: &'static str,
@@ -50,8 +51,7 @@ pub struct HookConfig {
     /// The full hook script to install.
     pub hook_script: &'static str,
     /// Environment variable that skips execution when set to a truthy value.
-    /// [`should_skip`] is the source of truth for which values count
-    /// (READ-5 / TASK-1916).
+    /// [`should_skip`] is the source of truth for which values count.
     pub skip_env_var: &'static str,
     /// Substrings in an existing hook that mark it as a legacy ops hook
     /// (will be overwritten).
@@ -89,13 +89,13 @@ impl HookConfig {
 
 /// Generate a complete POSIX sh hook script from a crate-specific tail.
 ///
-/// DUP-1 / TASK-2108: the bypass-then-probe prologue — the skip-var `case`
-/// guard followed by the `command -v ops` preflight with its diagnostic —
-/// used to be hand-copied into every hook crate, and the copies diverged:
-/// the pre-push script advertised `SKIP_OPS_RUN_BEFORE_PUSH` as the escape
-/// hatch yet never evaluated it, so the advertised bypass did not work in
-/// exactly the situation its own diagnostic described. The prologue now
-/// lives here, once, parameterised by the same fields [`HookConfig`] carries.
+/// The generated script opens with the bypass-then-probe prologue every ops
+/// hook shares: the skip-var `case` guard, then the `command -v ops`
+/// preflight with its diagnostic. The guard comes first because the
+/// diagnostic advertises the skip variable as the escape hatch, so the bypass
+/// has to work when `ops` is missing from `PATH`. Defining the prologue here,
+/// parameterised by the same fields [`HookConfig`] carries, keeps every hook
+/// crate's copy identical.
 ///
 /// Every argument must be a string literal, so the result is a `&'static
 /// str` usable in `const` contexts (`const HOOK_SCRIPT: &str = ...`):
@@ -144,8 +144,8 @@ macro_rules! hook_script {
 /// Accepts (case-insensitive): `"1"`, `"true"`, `"yes"`, `"on"`. Anything else
 /// — including the empty string, `"0"`, `"false"`, or arbitrary text — is
 /// treated as "don't skip". This matches how most CLI env-var opt-outs are
-/// commonly typed; documenting only `"1"` previously surprised users who set
-/// `SKIP_OPS_RUN_BEFORE_COMMIT=true`.
+/// commonly typed, so `SKIP_OPS_RUN_BEFORE_COMMIT=true` works as well as
+/// `=1`.
 #[must_use]
 pub fn should_skip(config: &HookConfig) -> bool {
     std::env::var(config.skip_env_var)
@@ -173,8 +173,7 @@ macro_rules! impl_hook_wrappers {
         /// This const is the crate's single public path to its hook
         /// configuration; the generated wrappers read it, and callers that
         /// need the raw descriptor (e.g. tests pinning its fields) read it
-        /// too. API-13 / TASK-2128: the `hook_config()` accessor that
-        /// duplicated this value was removed — one public path per item.
+        /// too.
         pub const HOOK_CONFIG: $crate::HookConfig = $crate::HookConfig::new(
             $name,
             $hook_filename,
@@ -258,7 +257,7 @@ mod tests {
         assert!(!should_skip(&cfg));
     }
 
-    /// TEST-6 (TASK-1884): the accepted-token set is the operator's opt-out
+    /// TEST-6: the accepted-token set is the operator's opt-out
     /// contract. Pin every documented spelling so a refactor to `v == "1"`
     /// cannot silently remove the escape hatch.
     #[test]
@@ -271,7 +270,7 @@ mod tests {
         }
     }
 
-    /// TEST-6 (TASK-1884): the doc promises case-insensitivity.
+    /// TEST-6: the doc promises case-insensitivity.
     #[test]
     #[serial_test::serial]
     fn should_skip_is_case_insensitive() {
@@ -282,7 +281,7 @@ mod tests {
         }
     }
 
-    /// TEST-6 (TASK-1884): the rejection half of the contract, which nothing
+    /// TEST-6: the rejection half of the contract, which nothing
     /// covered. A refactor to "set means true" would make `SKIP_...=false` —
     /// the spelling an operator reaches for to *re-enable* the hook —
     /// silently disable every pre-commit and pre-push check.
@@ -296,7 +295,7 @@ mod tests {
         }
     }
 
-    // -- hook_script! prologue (DUP-1 / TASK-2108) --
+    // -- hook_script! prologue (DUP-1) --
 
     /// A stand-in script with no risk of colliding with a real crate's
     /// identifiers, so these tests pin the *prologue* rather than any one
@@ -312,7 +311,7 @@ mod tests {
         };
     }
 
-    /// TASK-2108 AC#1+#2: the generated prologue evaluates the bypass
+    /// The generated prologue evaluates the bypass
     /// *before* the missing-ops probe, and names the hook path, the skip
     /// var, and the reinstall command in its diagnostic.
     #[test]
@@ -334,7 +333,7 @@ mod tests {
         assert!(script.contains("rerun \\`ops run-before-probe install\\`"));
     }
 
-    /// TASK-2108 AC#4: the generated script parses under `sh -n`, fails
+    /// The generated script parses under `sh -n`, fails
     /// closed with `ops` off PATH, and exits 0 for every documented truthy
     /// bypass token in that same situation.
     #[cfg(unix)]

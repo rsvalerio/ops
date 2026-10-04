@@ -1,15 +1,12 @@
 //! Shared test fixtures.
 //!
-//! Test modules in `lib.rs`, `install.rs`, and `config.rs` previously each
-//! declared their own `commit_config` / `push_config` literals; centralising
-//! them here removes drift risk when `HookConfig` fields evolve.
+//! The one definition of the `commit_config` / `push_config` values the test
+//! modules in `lib.rs`, `install.rs`, and `config.rs` share, so a change to
+//! `HookConfig`'s fields is made in one place.
 //!
-//! READ-10 / TASK-2036: the `hook_script` values track what the wrapper
-//! crates actually install — `#!/bin/sh`, not the `#!/usr/bin/env bash` shape
-//! `run-before-commit` and `run-before-push` abandoned in TASK-1910 /
-//! TASK-1911. A fixture that has drifted from every real value it stands in
-//! for is a false reference for anyone reading these tests to learn what an
-//! ops hook looks like.
+//! The `hook_script` values use the `#!/bin/sh` shebang the wrapper crates
+//! install, so the fixtures stay a true reference for what an ops hook looks
+//! like.
 
 #![cfg(test)]
 
@@ -46,11 +43,9 @@ pub fn push_config() -> HookConfig {
 /// `install::classify_existing_hook` must report as `Partial` rather than as
 /// a foreign user-authored hook.
 ///
-/// READ-10 / TASK-2036: derived from `cfg.hook_script` instead of hardcoded.
-/// The partial-classification tests used to spell the prefix out as a literal,
-/// which silently coupled them to the fixture's shebang — editing the fixture
-/// reclassified the literal from `Partial` to `Foreign` and failed the tests
-/// for a reason that had nothing to do with the change.
+/// Derived from `cfg.hook_script` rather than spelled out as a literal: a
+/// literal prefix is coupled to the fixture's shebang, and stops being a
+/// prefix — `Foreign`, not `Partial` — the moment the fixture is edited.
 pub fn truncated_hook_script(cfg: &HookConfig) -> &'static str {
     // Everything up to and including the first `ops ` token: still inside the
     // second line, so the result cannot equal the whole script.
