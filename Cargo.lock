@@ -1674,7 +1674,6 @@ dependencies = [
  "ops-hook-common",
  "serial_test",
  "tempfile",
- "tracing",
 ]
 
 [[package]]
