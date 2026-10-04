@@ -18,6 +18,12 @@
 //! - **No nested duplicate elements.** Inside a section like `<scm>` the
 //!   first matching child wins; deeper nesting (e.g. nested `<url>` inside
 //!   another tag) is not tracked.
+//! - **Only direct children of `<project>` are project scalars.** The
+//!   containers in `SKIP_SECTIONS` (`<parent>`, `<dependencies>`, `<build>`,
+//!   `<profiles>`, …) are skipped wholesale, so a `<version>`, `<url>`,
+//!   `<name>`, `<description>` or `<modules>` nested inside one never fills a
+//!   project field. A container not listed there is not skipped. A project
+//!   that inherits its `<version>` from `<parent>` reports no version.
 //! - **No attribute-bearing tag matching.** Elements with attributes
 //!   (`<artifactId xml:lang="en">…</artifactId>`) or namespace prefixes are
 //!   not recognised; the canonical bare-tag form is required.
@@ -67,10 +73,10 @@ enum PomSection {
     Licenses {
         in_license: bool,
     },
-    /// Container section we deliberately ignore (organization, parent,
-    /// issueManagement, ciManagement, distributionManagement). Tracks the
-    /// closing tag we're waiting for so a stray `<url>` inside doesn't get
-    /// captured as the SCM URL.
+    /// Container section we deliberately ignore (every entry of
+    /// [`SKIP_SECTIONS`]). Tracks the closing tag we're waiting for so a
+    /// `<url>`, `<version>`, `<name>` or `<modules>` inside it is not
+    /// captured as a project-level field.
     Skip {
         close: &'static str,
     },
@@ -111,13 +117,29 @@ enum SectionOutcome {
 }
 
 /// Top-level container sections to skip wholesale: their inner `<url>`,
-/// `<name>` etc. must not be captured at top level.
+/// `<name>`, `<version>`, `<description>` and `<modules>` belong to the
+/// container (a dependency, plugin, repository, profile, …), not to the
+/// project, and must not be captured at top level.
+///
+/// None of these containers nests an element of its own name in the POM
+/// schema, so waiting for the bare closing tag is enough to find the end.
 const SKIP_SECTIONS: &[(&str, &str)] = &[
     ("<organization>", "</organization>"),
     ("<parent>", "</parent>"),
     ("<issueManagement>", "</issueManagement>"),
     ("<ciManagement>", "</ciManagement>"),
     ("<distributionManagement>", "</distributionManagement>"),
+    ("<dependencies>", "</dependencies>"),
+    ("<dependencyManagement>", "</dependencyManagement>"),
+    ("<build>", "</build>"),
+    ("<reporting>", "</reporting>"),
+    ("<repositories>", "</repositories>"),
+    ("<pluginRepositories>", "</pluginRepositories>"),
+    ("<profiles>", "</profiles>"),
+    ("<properties>", "</properties>"),
+    ("<contributors>", "</contributors>"),
+    ("<mailingLists>", "</mailingLists>"),
+    ("<prerequisites>", "</prerequisites>"),
 ];
 
 pub(super) fn parse_pom_xml(project_root: &Path) -> Option<PomData> {
@@ -1243,5 +1265,184 @@ mod tests {
             rendered.contains("unterminated"),
             "warn should say what is wrong: {rendered}"
         );
+    }
+
+    fn parse_pom_str(content: &str) -> PomData {
+        let dir = tempfile::tempdir().unwrap();
+        std::fs::write(dir.path().join("pom.xml"), content).unwrap();
+        parse_pom_xml(dir.path()).unwrap()
+    }
+
+    /// A child POM that inherits its version from `<parent>` reports no
+    /// version: the `<version>` of a dependency, a managed dependency or a
+    /// build plugin is not the project's.
+    #[test]
+    fn parse_pom_inherited_version_is_not_taken_from_dependencies_or_plugins() {
+        let pom = parse_pom_str(
+            r"<project>
+    <parent>
+        <groupId>com.example</groupId>
+        <artifactId>parent-pom</artifactId>
+        <version>9.9.9</version>
+    </parent>
+    <artifactId>child</artifactId>
+    <dependencyManagement>
+        <dependencies>
+            <dependency>
+                <artifactId>managed</artifactId>
+                <version>1.1.1</version>
+            </dependency>
+        </dependencies>
+    </dependencyManagement>
+    <dependencies>
+        <dependency>
+            <artifactId>junit</artifactId>
+            <version>4.13.2</version>
+        </dependency>
+    </dependencies>
+    <build>
+        <plugins>
+            <plugin>
+                <artifactId>maven-compiler-plugin</artifactId>
+                <version>3.11.0</version>
+                <dependencies>
+                    <dependency>
+                        <artifactId>plugin-dep</artifactId>
+                        <version>2.2.2</version>
+                    </dependency>
+                </dependencies>
+            </plugin>
+        </plugins>
+    </build>
+</project>",
+        );
+
+        assert_eq!(pom.artifact_id, Some("child".to_string()));
+        assert_eq!(pom.version, None);
+    }
+
+    /// Fields declared after a skipped container are still captured, and the
+    /// container's own children do not pre-empt them (first-writer-wins).
+    #[test]
+    fn parse_pom_fields_after_skipped_containers_are_captured() {
+        let pom = parse_pom_str(
+            r"<project>
+    <dependencies>
+        <dependency>
+            <artifactId>junit</artifactId>
+            <version>4.13.2</version>
+        </dependency>
+    </dependencies>
+    <build>
+        <plugins>
+            <plugin>
+                <artifactId>some-plugin</artifactId>
+                <name>Plugin Name</name>
+                <description>Plugin description</description>
+            </plugin>
+        </plugins>
+    </build>
+    <artifactId>app</artifactId>
+    <version>1.0.0</version>
+    <name>App</name>
+    <description>The app</description>
+</project>",
+        );
+
+        assert_eq!(pom.artifact_id, Some("app".to_string()));
+        assert_eq!(pom.version, Some("1.0.0".to_string()));
+        assert_eq!(pom.name, Some("App".to_string()));
+        assert_eq!(pom.description, Some("The app".to_string()));
+    }
+
+    /// A `<repository><url>` (or plugin repository URL) is where artifacts
+    /// are fetched from, never the project homepage.
+    #[test]
+    fn parse_pom_repository_url_is_not_the_project_homepage() {
+        let pom = parse_pom_str(
+            r"<project>
+    <artifactId>app</artifactId>
+    <repositories>
+        <repository>
+            <id>central</id>
+            <name>Central</name>
+            <url>https://repo.example/maven2</url>
+        </repository>
+    </repositories>
+    <pluginRepositories>
+        <pluginRepository>
+            <id>plugins</id>
+            <url>https://plugins.example/maven2</url>
+        </pluginRepository>
+    </pluginRepositories>
+</project>",
+        );
+
+        assert_eq!(pom.project_url, None);
+        assert_eq!(pom.name, None);
+    }
+
+    /// `<modules>` inside `<profiles><profile>` only builds when the profile
+    /// is active, so it is not counted; neither are the profile's own
+    /// dependency versions or repository URLs.
+    #[test]
+    fn parse_pom_profile_modules_are_not_counted() {
+        let pom = parse_pom_str(
+            r"<project>
+    <artifactId>app</artifactId>
+    <modules>
+        <module>core</module>
+    </modules>
+    <profiles>
+        <profile>
+            <id>extras</id>
+            <modules>
+                <module>extra-a</module>
+                <module>extra-b</module>
+            </modules>
+            <dependencies>
+                <dependency>
+                    <artifactId>profile-dep</artifactId>
+                    <version>7.7.7</version>
+                </dependency>
+            </dependencies>
+            <repositories>
+                <repository>
+                    <url>https://profile.example/repo</url>
+                </repository>
+            </repositories>
+            <build>
+                <plugins>
+                    <plugin>
+                        <version>8.8.8</version>
+                    </plugin>
+                </plugins>
+            </build>
+        </profile>
+    </profiles>
+</project>",
+        );
+
+        assert_eq!(pom.modules, vec!["core"]);
+        assert_eq!(pom.version, None);
+        assert_eq!(pom.project_url, None);
+    }
+
+    /// `<properties>` holds arbitrary user-named elements, including ones
+    /// spelled like project scalars.
+    #[test]
+    fn parse_pom_properties_do_not_fill_project_fields() {
+        let pom = parse_pom_str(
+            r"<project>
+    <artifactId>app</artifactId>
+    <properties>
+        <version>${revision}</version>
+        <url>https://property.example</url>
+    </properties>
+</project>",
+        );
+
+        assert_eq!(pom.version, None);
+        assert_eq!(pom.project_url, None);
     }
 }
