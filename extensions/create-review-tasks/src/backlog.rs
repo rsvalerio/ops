@@ -70,10 +70,9 @@ pub struct NextIds {
 /// determines allocation), and one more than the highest `<n>` in a
 /// `review-request-<date>-<n>` slug for `date`.
 ///
-/// DUP-1: the two allocators used to be the same scan-extract-max loop run
-/// twice. Deriving both maxima from one listing makes them consistent with
-/// each other by construction — no concurrent writer can land between them —
-/// and cuts the per-attempt directory I/O in half.
+/// Deriving both maxima from one listing makes them consistent with each
+/// other by construction — no concurrent writer can land between them — and
+/// costs one directory walk per attempt rather than two.
 pub fn next_ids(workspace_root: &Path, date: &str) -> NextIds {
     let prefix = format!("review-request-{date}-");
     let backlog_root = workspace_root.join(".backlog");
@@ -137,8 +136,8 @@ pub struct MainTaskClaim<'a> {
 pub fn conflicting_claim(workspace_root: &Path, claim: &MainTaskClaim<'_>) -> Option<String> {
     let backlog_root = workspace_root.join(".backlog");
     let own_slug = ops_backlog::model::slugify(claim.title);
-    // PERF-3 / TASK-2131: early-exit traversal — the walk stops at the first
-    // conflicting file instead of flag-checking every remaining entry.
+    // Early-exit traversal: the walk stops at the first conflicting file
+    // instead of flag-checking every remaining entry.
     find_task_file(&backlog_root, |dir, file_name| {
         // The claimant's own reservation lives in `tasks`; an identically
         // named file in `completed` or an archive is somebody else's.
@@ -163,7 +162,7 @@ pub fn conflicting_claim(workspace_root: &Path, claim: &MainTaskClaim<'_>) -> Op
 /// sets, ordinals, `parent_task_id`) enters as a [`Frontmatter`] field
 /// here, not as a second frontmatter implementation.
 ///
-/// PERF-13 / TASK-2117: the rendered document reaches `w` as one
+/// The rendered document reaches `w` as one
 /// `write_all` of the shared renderer's `String` — the one-write-per-
 /// document property — and `w` must still be buffered (e.g. a `BufWriter`
 /// around the `File`) at the call site for the surrounding task-writing
@@ -539,8 +538,8 @@ mod tests {
         assert_eq!(next_ids(dir.path(), "2026-08-27").sequence, 2);
     }
 
-    /// Both ids come from the same listing, so one call answers what two
-    /// separate walks used to.
+    /// Both ids come from the same listing: one call answers for the task
+    /// number and the review-request sequence alike.
     #[test]
     fn next_ids_reads_number_and_sequence_from_one_scan() {
         let dir = scratch_backlog(&[
