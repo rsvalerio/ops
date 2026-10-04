@@ -2,6 +2,18 @@
 All notable changes to this project will be documented in this file. See [conventional commits](https://www.conventionalcommits.org/) for commit guidelines.
 
 - - -
+## [v0.79.1](https://github.com/rsvalerio/ops/compare/a8c7d8d48f12114956e9b07fe7ad1cf7e973e524..v0.79.1) - 2026-10-04
+#### 🐛 Bug Fixes
+- (**foundation**) require a three-part version for the ops pin - ([33be55f](https://github.com/rsvalerio/ops/commit/33be55feb689059e2d3b36b78f4d34a637c92674)) - [@rsvalerio](https://github.com/rsvalerio), Claude Opus 5.5
+- (**foundation**) compare the mise.toml ops pin as a floor (TASK-2350) - ([be2efc6](https://github.com/rsvalerio/ops/commit/be2efc6a62c811c93b097c8baabd006089ab4399)) - [@rsvalerio](https://github.com/rsvalerio), Claude Opus 5.5
+#### ⚙️ Miscellaneous
+- (**backlog**) close TASK-2350 - ([58179c3](https://github.com/rsvalerio/ops/commit/58179c3f21bf75b596fcf9949a9ffafc292c22e1)) - [@rsvalerio](https://github.com/rsvalerio), Claude Opus 5.5
+- (**backlog**) file the foundation template's exact ops pin (TASK-2350) - ([a8c7d8d](https://github.com/rsvalerio/ops/commit/a8c7d8d48f12114956e9b07fe7ad1cf7e973e524)) - [@rsvalerio](https://github.com/rsvalerio), Claude Opus 5.5 (1M context)
+- update backlogs tasks - ([bf2e1b9](https://github.com/rsvalerio/ops/commit/bf2e1b97647841a10ca8e89911422ab84ddd99ac)) - [@rsvalerio](https://github.com/rsvalerio)
+- include extensions-java/about/target/ to gitignore - ([2623e64](https://github.com/rsvalerio/ops/commit/2623e64c32d7f0b030725af74391ef694c0b620b)) - [@rsvalerio](https://github.com/rsvalerio)
+
+- - -
+
 ## [v0.79.0](https://github.com/rsvalerio/ops/compare/ac22c58da85192ea6ab5409283851519595bf38f..v0.79.0) - 2026-10-02
 #### 🚀 Features
 - (**init**) scaffold and drift-check mise.toml from the Rust foundation - ([4aecb02](https://github.com/rsvalerio/ops/commit/4aecb0230669db3e025723cd63021959fef8e9ae)) - [@rsvalerio](https://github.com/rsvalerio), Claude Opus 5.5 (1M context)
