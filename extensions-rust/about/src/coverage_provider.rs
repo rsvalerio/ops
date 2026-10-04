@@ -14,27 +14,22 @@ use crate::units::resolve_crate_display_name;
 
 pub const PROVIDER_NAME: &str = "project_coverage";
 
-/// DUP-1 (TASK-1079): per-process memoization for `query_project_coverage`.
+/// DUP-1: per-process memoization for `query_project_coverage`.
 ///
 /// `RustCoverageProvider::provide` and `identity::metrics::query_identity_metrics`
-/// both run during a single `ops about` invocation and historically each
-/// dispatched their own `query_project_coverage` call against the same
-/// `SQLite`. That doubled the scan and — more visibly — fired any
-/// `query_or_warn` schema-drift log line twice.
+/// both run during a single `ops about` invocation against the same `SQLite`.
+/// Sharing one memoized result keeps that to a single scan and a single
+/// `query_or_warn` schema-drift log line.
 ///
-/// ARCH-9 / TASK-1155: dedup with a tiny process-local cache keyed by the
-/// `Sqlite` instance's stable `id()` (a monotonic u64 minted on
-/// construction). Earlier this used `std::ptr::from_ref(db) as usize` as
-/// the key, which was vulnerable to pointer-address ABA — a dropped-and-
-/// replaced `Sqlite` could re-allocate at the same address and return a
-/// previous instance's cached value. The id-keyed scheme guarantees two
-/// distinct instances always receive distinct keys regardless of allocation
-/// reuse. `Option<CrateCoverage>` mirrors the `query_or_warn` fallback
-/// (None on query failure) so a hard failure is also memoized — the warn
-/// fires exactly once per run regardless of how many providers consume the
-/// value.
+/// ARCH-9: the cache is keyed by the `Sqlite` instance's stable `id()` (a
+/// monotonic u64 minted on construction) rather than by its address, so a
+/// dropped-and-replaced `Sqlite` that re-allocates at the same address can
+/// never be served another instance's cached value. `Option<CrateCoverage>`
+/// mirrors the `query_or_warn` fallback (None on query failure) so a hard
+/// failure is also memoized — the warn fires exactly once per run regardless
+/// of how many providers consume the value.
 ///
-/// # PERF-16 / TASK-1764: cache contract
+/// # PERF-16: cache contract
 ///
 /// - **Key**: `Sqlite::id()`, a monotonic per-instance counter. A key is never
 ///   reused, so an entry outlives the `Sqlite` it describes.
@@ -46,11 +41,9 @@ pub const PROVIDER_NAME: &str = "project_coverage";
 ///   slots are pinned against eviction); the overshoot is bounded by their
 ///   number and the next insert trims back — there is deliberately no
 ///   post-initialization trim, which would evict just-memoized entries to
-///   no benefit. Without a cap this
-///   map grew one slot per `Sqlite` ever opened, forever: harmless in the
-///   single-shot `ops about` CLI, an unbounded leak in the daemon / CI-worker
-///   host shape that opens a handle per project or per refresh, and every
-///   leaked entry describes an instance that is already gone.
+///   no benefit. The cap is what keeps a daemon / CI-worker host that opens
+///   a handle per project or per refresh from accumulating one slot per
+///   `Sqlite` ever opened, each describing an instance that is already gone.
 /// - **Invalidation**: none within the life of a `Sqlite` handle. This is
 ///   deliberate and is the memoization's whole point (one query, one warn per
 ///   run), but it means coverage data re-ingested behind a *live* handle keeps
@@ -114,14 +107,12 @@ fn project_coverage_cache() -> &'static Mutex<ProjectCoverageCache> {
 /// (including the cached `None` when the query failed and `query_or_warn`
 /// already logged the warn).
 ///
-/// CONC-2 / TASK-1193: keyed by an `Arc<OnceLock<...>>` per `Sqlite` id so
-/// concurrent first-callers race only on the inner `OnceLock::get_or_init`
-/// (which guarantees the closure runs exactly once). Pre-fix the outer
-/// mutex was acquired, the entry checked, the guard dropped, and
-/// `query_or_warn` then ran outside any lock — two threads entering at
-/// the same time both observed a miss, both dispatched the query, and the
-/// "warn fires exactly once" contract advertised by DUP-1 / TASK-1079
-/// silently degraded to "warn fires once per concurrent first-caller".
+/// CONC-2: keyed by an `Arc<OnceLock<...>>` per `Sqlite` id so concurrent
+/// first-callers race only on the inner `OnceLock::get_or_init`, which
+/// guarantees the closure runs exactly once. The query itself runs outside
+/// the outer mutex, so it is the `OnceLock` — not the mutex — that upholds
+/// the "one query, one warn per `Sqlite`" contract when two threads enter at
+/// the same time.
 pub fn cached_query_project_coverage(db: &Sqlite) -> Option<CrateCoverage> {
     let slot: CoverageSlot = {
         // DUP-1 / TASK-2258: the poison-recovery policy lives in
