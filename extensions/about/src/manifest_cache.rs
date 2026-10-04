@@ -24,7 +24,7 @@
 //! a steady rate do not pay a full re-read of every manifest at once.
 //!
 //! The entry map is [`crate::lru::BoundedLruCache`], shared with the sibling
-//! `typed_manifest_cache` in `extensions-rust/about/src/query.rs`. Both
+//! `typed_manifest_cache` in `extensions-rust/about/src/manifest_cache.rs`. Both
 //! caches own their own value type and cap, but the eviction policy
 //! (monotonic tick + min-heap victim queue with lazy invalidation) has a
 //! single definition. The one policy specific to this cache, in-flight-entry
