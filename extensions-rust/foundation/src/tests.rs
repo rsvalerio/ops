@@ -395,3 +395,42 @@ fn a_missing_mise_toml_is_drift_and_scaffold_writes_it() {
         .drift
         .is_empty());
 }
+
+fn check_with_ops_pin(pin: &str) -> Vec<Drift> {
+    let dir = workspace();
+    scaffold(dir.path(), false).expect("scaffold");
+    let mise = read(&dir, "mise.toml");
+    let floor = "ops = \"0.77.0\"";
+    assert!(mise.contains(floor), "template ops pin not found");
+    let edited = mise.replace(floor, &format!("ops = {pin}"));
+    std::fs::write(dir.path().join("mise.toml"), edited).expect("edit");
+    check(dir.path(), &no_waivers()).expect("check").drift
+}
+
+#[test]
+fn the_ops_pin_is_a_floor_so_the_running_ops_passes_unwaived() {
+    for pin in [
+        format!("\"{}\"", env!("CARGO_PKG_VERSION")),
+        "\"0.77.0\"".to_owned(),
+        "\"0.77.1\"".to_owned(),
+        "\"1.0.0\"".to_owned(),
+        "{ version = \"0.100.0\" }".to_owned(),
+    ] {
+        let drift = check_with_ops_pin(&pin);
+        assert!(drift.is_empty(), "{pin}: {drift:?}");
+    }
+}
+
+#[test]
+fn an_ops_pin_below_the_floor_or_unversioned_is_drift() {
+    for pin in ["\"0.76.9\"", "\"0.9.0\"", "\"latest\"", "77"] {
+        assert_eq!(
+            check_with_ops_pin(pin),
+            vec![Drift::new(
+                "mise.toml:tools.ops",
+                format!("expected \"0.77.0\" or later, found {pin}")
+            )],
+            "{pin}"
+        );
+    }
+}

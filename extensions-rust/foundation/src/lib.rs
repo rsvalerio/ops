@@ -62,6 +62,7 @@ pub const FILES: [ConfigFile; 5] = [
 pub const LINTS_TEMPLATE: &str = include_str!("../templates/lints.toml");
 
 const MANIFEST: &str = "Cargo.toml";
+const MISE: &str = "mise.toml";
 
 /// What [`scaffold`] did with one target.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -435,14 +436,47 @@ fn check_file(root: &Path, file: &ConfigFile, out: &mut Vec<Drift>) -> anyhow::R
             return Ok(());
         }
     };
-    compare::compare(
-        &template_value(file.template)?,
-        Some(&actual),
-        file.path,
-        Rule::Exact,
-        out,
-    );
+    let mut expected = template_value(file.template)?;
+    if file.path == MISE {
+        check_ops_pin(&mut expected, &actual, out);
+    }
+    compare::compare(&expected, Some(&actual), file.path, Rule::Exact, out);
     Ok(())
+}
+
+/// The ops pin is a floor, not an equality: the template names the oldest ops
+/// the pipeline works with, and the ops running the check is the one the repo
+/// pins, so a repo on a newer release must pass (TASK-2350). Takes the pin out
+/// of `expected` so the exact comparison skips it.
+fn check_ops_pin(expected: &mut Value, actual: &Value, out: &mut Vec<Drift>) {
+    let Some(floor) = expected
+        .get_mut("tools")
+        .and_then(Value::as_table_mut)
+        .and_then(|tools| tools.remove("ops"))
+    else {
+        return;
+    };
+    let location = format!("{MISE}:tools.ops");
+    let Some(pin) = actual.get("tools").and_then(|tools| tools.get("ops")) else {
+        out.push(Drift::new(location, "missing"));
+        return;
+    };
+    let version = |v: &Value| parse_version(v.as_str().or_else(|| v.get("version")?.as_str())?);
+    if version(pin)
+        .zip(version(&floor))
+        .is_none_or(|(have, want)| have < want)
+    {
+        out.push(Drift::new(
+            location,
+            format!("expected {floor} or later, found {pin}"),
+        ));
+    }
+}
+
+/// `1.2.3` as `[1, 2, 3]`, which orders the way versions do. Anything else,
+/// such as `latest`, has no place against a floor.
+fn parse_version(v: &str) -> Option<Vec<u64>> {
+    v.split('.').map(|part| part.parse().ok()).collect()
 }
 
 fn check_lints(manifest: &Root, out: &mut Vec<Drift>) -> anyhow::Result<()> {
