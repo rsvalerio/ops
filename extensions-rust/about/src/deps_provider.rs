@@ -420,23 +420,61 @@ pub fn find_duplicates(
 ) -> DuplicateReport {
     let packages = package_index(metadata);
     let edges = resolve_edges(metadata, include_dev, platforms);
-    let members: BTreeSet<&str> = metadata
+    let members = workspace_member_ids(metadata);
+    let member_units: Vec<Unit<'_>> = members.iter().map(|m| (*m, Side::Target)).collect();
+    let reachable = closure(&member_units, &edges);
+
+    let mut pullers = Pullers {
+        direct_closures: direct_closures(&member_units, &members, &edges, &packages),
+        packages: &packages,
+        updater,
+        dry_runs: HashMap::new(),
+    };
+    let crates = versions_by_name(&reachable, &members, &packages)
+        .into_iter()
+        .filter(|(_, versions)| versions.len() >= 2)
+        .map(|(name, versions)| pullers.duplicate_crate(name, versions))
+        .collect();
+    DuplicateReport { crates }
+}
+
+/// `(name, version)` of a package.
+type Package<'a> = (&'a str, &'a str);
+
+/// Package ids of the workspace members.
+fn workspace_member_ids(metadata: &serde_json::Value) -> BTreeSet<&str> {
+    metadata
         .get("workspace_members")
         .and_then(serde_json::Value::as_array)
         .into_iter()
         .flatten()
         .filter_map(serde_json::Value::as_str)
-        .collect();
-    let member_units: Vec<Unit<'_>> = members.iter().map(|m| (*m, Side::Target)).collect();
-    let reachable = closure(&member_units, &edges);
+        .collect()
+}
 
-    let mut versions_by_name: BTreeMap<&str, BTreeSet<&str>> = BTreeMap::new();
+/// The distinct versions of each non-member crate among `reachable`.
+fn versions_by_name<'a>(
+    reachable: &BTreeSet<&'a str>,
+    members: &BTreeSet<&'a str>,
+    packages: &HashMap<&'a str, Package<'a>>,
+) -> BTreeMap<&'a str, BTreeSet<&'a str>> {
+    let mut versions: BTreeMap<&str, BTreeSet<&str>> = BTreeMap::new();
     for id in reachable.iter().filter(|id| !members.contains(*id)) {
         if let Some((name, version)) = packages.get(id) {
-            versions_by_name.entry(name).or_default().insert(version);
+            versions.entry(name).or_default().insert(version);
         }
     }
+    versions
+}
 
+/// Each direct (non-member) dependency of the workspace members, by package
+/// id, with every package reachable from it.
+fn direct_closures<'a>(
+    member_units: &[Unit<'a>],
+    members: &BTreeSet<&'a str>,
+    edges: &HashMap<Unit<'a>, Vec<Unit<'a>>>,
+    packages: &HashMap<&'a str, Package<'a>>,
+) -> Vec<(&'a str, BTreeSet<Package<'a>>)> {
     let mut direct: BTreeMap<&str, Vec<Unit<'_>>> = BTreeMap::new();
     for unit in member_units
         .iter()
@@ -445,63 +483,79 @@ pub fn find_duplicates(
     {
         direct.entry(unit.0).or_default().push(unit);
     }
-    let direct_closures: Vec<(&str, BTreeSet<(&str, &str)>)> = direct
+    direct
         .iter()
-        .map(|(d, units)| {
-            let reached = closure(units, &edges)
+        .map(|(id, units)| {
+            let reached = closure(units, edges)
                 .into_iter()
                 .filter_map(|id| packages.get(id).copied())
                 .collect();
-            (*d, reached)
+            (*id, reached)
         })
-        .collect();
+        .collect()
+}
 
-    let mut dry_runs: HashMap<&str, Option<Vec<UpdateEntry>>> = HashMap::new();
-    let mut crates = Vec::new();
-    for (name, versions) in versions_by_name.into_iter().filter(|(_, v)| v.len() >= 2) {
+/// Names the direct dependencies pulling a duplicated crate's older versions,
+/// running `updater` at most once per distinct puller.
+struct Pullers<'a, 'u> {
+    direct_closures: Vec<(&'a str, BTreeSet<Package<'a>>)>,
+    packages: &'u HashMap<&'a str, Package<'a>>,
+    updater: &'u dyn Fn(&str, &str) -> Option<Vec<UpdateEntry>>,
+    /// Dry-run result per puller package id; `None` when the check could not
+    /// run.
+    dry_runs: HashMap<&'a str, Option<Vec<UpdateEntry>>>,
+}
+
+impl<'a> Pullers<'a, '_> {
+    /// The report entry for `name`, locked at two or more `versions`: every
+    /// version but the newest is listed with its pullers.
+    fn duplicate_crate(&mut self, name: &'a str, versions: BTreeSet<&'a str>) -> DuplicateCrate {
         let mut sorted: Vec<&str> = versions.into_iter().collect();
         sorted.sort_by_key(|v| version_key(v));
-        let newest_others =
-            |older: &str| -> Vec<&str> { sorted.iter().copied().filter(|v| *v != older).collect() };
-        let older_versions: Vec<&str> = sorted
-            .split_last()
-            .map(|(_, rest)| rest.to_vec())
-            .unwrap_or_default();
-        let mut older = Vec::new();
-        for version in older_versions {
-            let others = newest_others(version);
-            let mut pulled_by = Vec::new();
-            for (puller_id, reached) in &direct_closures {
-                if !reached.contains(&(name, version)) {
-                    continue;
+        let older_versions = sorted.split_last().map_or(&[][..], |(_, rest)| rest);
+        let older = older_versions
+            .iter()
+            .map(|&version| {
+                let others: Vec<&str> = sorted.iter().copied().filter(|v| *v != version).collect();
+                OlderVersion {
+                    version: version.to_string(),
+                    pulled_by: self.pullers_of(name, version, &others),
                 }
-                let Some(&(puller_name, puller_version)) = packages.get(puller_id) else {
-                    continue;
-                };
-                let entries = dry_runs
-                    .entry(puller_id)
-                    .or_insert_with(|| updater(puller_name, puller_version));
-                let update_removes_duplicate = entries
-                    .as_ref()
-                    .map(|e| update_drops_version(e, name, version, &others));
-                pulled_by.push(PullingDependency {
-                    name: puller_name.to_string(),
-                    version: puller_version.to_string(),
-                    update_removes_duplicate,
-                });
-            }
-            older.push(OlderVersion {
-                version: version.to_string(),
-                pulled_by,
-            });
-        }
-        crates.push(DuplicateCrate {
+            })
+            .collect();
+        DuplicateCrate {
             name: name.to_string(),
             versions: sorted.iter().map(ToString::to_string).collect(),
             older,
-        });
+        }
     }
-    DuplicateReport { crates }
+
+    /// The direct dependencies whose closure reaches `name@version`, each with
+    /// whether updating it drops that version in favour of one of `others`.
+    fn pullers_of(&mut self, name: &str, version: &str, others: &[&str]) -> Vec<PullingDependency> {
+        let mut pulled_by = Vec::new();
+        for (puller_id, reached) in &self.direct_closures {
+            if !reached.contains(&(name, version)) {
+                continue;
+            }
+            let Some(&(puller_name, puller_version)) = self.packages.get(puller_id) else {
+                continue;
+            };
+            let entries = self
+                .dry_runs
+                .entry(puller_id)
+                .or_insert_with(|| (self.updater)(puller_name, puller_version));
+            let update_removes_duplicate = entries
+                .as_ref()
+                .map(|e| update_drops_version(e, name, version, others));
+            pulled_by.push(PullingDependency {
+                name: puller_name.to_string(),
+                version: puller_version.to_string(),
+                update_removes_duplicate,
+            });
+        }
+        pulled_by
+    }
 }
 
 /// Whether the dry-run `entries` remove `name@version` outright, or move it
