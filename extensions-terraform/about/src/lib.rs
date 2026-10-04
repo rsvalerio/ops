@@ -11,20 +11,19 @@
 //! back" applies here the same way it does in the Python / Go siblings.
 //! A permission-denied / EIO / "is a directory" failure on `versions.tf`
 //! is therefore distinguishable from "no version declared" in the logs.
-//! The directory enumeration in [`find_required_version`] mirrors the same
-//! policy: non-NotFound `read_dir` failures are logged at `warn`, and so are
-//! *per-entry* failures in both [`fallback_tf_paths`] and
-//! [`count_local_modules`], rather than being dropped through `flatten()` or
-//! an `exists()` probe.
+//! Directory enumeration follows the same policy through
+//! [`read_dir_logged`]: a missing directory is silent, while any other
+//! `read_dir` failure, and a failure reading a single entry, is logged at
+//! `warn`.
 //!
 //! # Rendered values are untrusted
 //!
-//! `ops about` runs inside repositories the operator
-//! cloned but did not audit, and `stack_detail` reaches the terminal with no
-//! escaping layer in between. [`sanitize_required_version`] is the single
-//! producing-side gate: a value carrying a control or Unicode formatting
-//! codepoint is dropped, not stripped, matching `ops_about::text_util`'s
-//! policy for manifest URL and repository fields.
+//! `ops about` runs inside repositories the operator cloned but did not
+//! audit, and `stack_detail` reaches the terminal with no escaping layer in
+//! between. [`sanitize_required_version`] is the single producing-side gate:
+//! a value carrying a control or Unicode formatting codepoint is dropped, not
+//! stripped, matching `ops_about::text_util`'s policy for manifest URL and
+//! repository fields.
 
 #![cfg_attr(
     test,
@@ -107,9 +106,8 @@ const CANDIDATE_FILES: [&str; 4] = ["versions.tf", "main.tf", "terraform.tf", "v
 fn find_required_version(root: &Path) -> Option<String> {
     for candidate in CANDIDATE_FILES {
         let path = root.join(candidate);
-        // Route through the shared helper so a
-        // permission-denied / EIO / "is a directory" failure surfaces as
-        // tracing::warn! instead of silently degrading to "no version".
+        // The shared helper warns on a permission-denied / EIO / "is a
+        // directory" failure; only a missing file is silent.
         if let Some(content) = ops_about::manifest_io::read_optional_text(&path, candidate) {
             if let Some(v) = extract_required_version(&content, candidate) {
                 return Some(v);
@@ -133,53 +131,63 @@ fn find_required_version(root: &Path) -> Option<String> {
 /// The `.tf` files in `root` that [`find_required_version`]'s fallback walk
 /// should read, in a deterministic order.
 ///
-/// The order is deterministic because `read_dir` ordering is not: ext4 hashes,
-/// APFS is insertion-ish, Windows is alphabetical. Sorting by path makes the
-/// alphabetically-first `.tf` carrying a constraint the reproducible winner
+/// `read_dir` ordering is filesystem-dependent (ext4 hashes, APFS is
+/// insertion-ish, Windows is alphabetical), so the paths are sorted: the
+/// alphabetically-first `.tf` carrying a constraint is the reproducible winner
 /// when several `.tf` files declare different `required_version` strings.
 ///
-/// Per-entry `read_dir` failures are logged rather than dropped by
-/// `flatten()`, matching the module-level IO policy and
-/// [`count_local_modules`].
-///
-/// Files already probed by the named-candidate loop are skipped, so the common
-/// "a `main.tf` with no constraint" project reads and parses that file once
-/// instead of twice. The comparison is exact-name: on a case-sensitive
-/// filesystem a `Main.TF` is a genuinely different file that
-/// `root.join("main.tf")` never opened.
+/// Files already probed by the named-candidate loop are skipped, so a
+/// `main.tf` with no constraint is read and parsed once. The comparison is
+/// exact-name: on a case-sensitive filesystem a `Main.TF` is a different file
+/// that `root.join("main.tf")` never opened.
 fn fallback_tf_paths(root: &Path) -> Vec<PathBuf> {
-    // A non-NotFound read_dir failure deserves a warn — same rationale as the
-    // per-candidate reads. NotFound on the workspace root is silent (the
-    // caller falls back).
-    let entries = match std::fs::read_dir(root) {
-        Ok(e) => e,
-        Err(e) if e.kind() == std::io::ErrorKind::NotFound => return Vec::new(),
-        Err(e) => {
-            tracing::warn!(
-                root = ?root.display(),
-                error = %e,
-                "failed to enumerate workspace root for .tf files"
-            );
-            return Vec::new();
-        }
+    let Some(entries) = read_dir_logged(root, "workspace root") else {
+        return Vec::new();
     };
     let mut tf_paths: Vec<PathBuf> = entries
-        .filter_map(|res| match res {
-            Ok(entry) => Some(entry.path()),
-            Err(e) => {
-                tracing::warn!(
-                    root = ?root.display(),
-                    error = %e,
-                    "failed to read directory entry in workspace root"
-                );
-                None
-            }
-        })
+        .map(|entry| entry.path())
         .filter(|p| has_tf_extension(p))
         .filter(|p| !is_named_candidate(p))
         .collect();
     tf_paths.sort();
     tf_paths
+}
+
+/// Enumerate `dir` under the module-level IO policy, yielding the entries
+/// that could be read.
+///
+/// A missing `dir` is the expected "nothing there" case and returns `None`
+/// silently. Any other `read_dir` failure (permission denied, EIO, "not a
+/// directory") is logged at `warn` and also returns `None`. A failure reading
+/// one entry is logged at `warn` and that entry is skipped. `what` names the
+/// directory's role in both messages.
+fn read_dir_logged<'a>(
+    dir: &'a Path,
+    what: &'static str,
+) -> Option<impl Iterator<Item = std::fs::DirEntry> + 'a> {
+    let entries = match std::fs::read_dir(dir) {
+        Ok(entries) => entries,
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => return None,
+        Err(e) => {
+            tracing::warn!(
+                dir = ?dir.display(),
+                error = %e,
+                "failed to enumerate {what}"
+            );
+            return None;
+        }
+    };
+    Some(entries.filter_map(move |res| match res {
+        Ok(entry) => Some(entry),
+        Err(e) => {
+            tracing::warn!(
+                dir = ?dir.display(),
+                error = %e,
+                "failed to read directory entry in {what}"
+            );
+            None
+        }
+    }))
 }
 
 /// Whether `path` has a `.tf` extension, compared ASCII-case-insensitively.
@@ -216,48 +224,95 @@ const REQUIRED_VERSION_MAX_LEN: usize = 64;
 /// [`sanitize_required_version`] identify which of the workspace's `.tf`
 /// files triggered them.
 ///
-/// The scan is three separable, independently testable stages rather than one
-/// loop body mixing all of them: [`strip_comments`] blanks every comment form,
-/// [`scan_line`] tracks block structure and locates the assignment, and
-/// [`sanitize_required_version`] applies the rendering policy to the extracted
-/// string.
+/// [`scan_required_version`] locates the value or refuses the file, and
+/// [`sanitize_required_version`] applies the rendering policy to the located
+/// string. This is the one place a [`Refusal`] is reported.
 fn extract_required_version(content: &str, source: &str) -> Option<String> {
-    // Blank every comment form up front so the structural scan below never
-    // has to reason about them.
-    //
-    // A `/*` or `"` that never closes is
-    // malformed input. Terraform's own lexer rejects the file; the scanner
-    // reports it and refuses, rather than silently blanking the remainder
-    // (`/*`) or silently passing it through while comment stripping stays
-    // disabled for the rest of the file (`"`).
-    let (stripped, strip_eof) = strip_comments(content);
-    match strip_eof {
-        StripEof::Clean => {}
-        StripEof::UnterminatedBlockComment => {
+    match scan_required_version(content) {
+        Ok(found) => found
+            .as_deref()
+            .and_then(|v| sanitize_required_version(v, source)),
+        Err(refusal) => {
+            // The warn names the file: the fallback walk feeds every root
+            // `.tf` through here, and the repeats are otherwise
+            // indistinguishable.
             tracing::warn!(
                 source = ?source,
-                construct = "block-comment",
-                ".tf content ends inside an unterminated /* ... */ comment; skipping file"
+                construct = refusal.construct(),
+                "{}; skipping file",
+                refusal.describe()
             );
-            return None;
-        }
-        StripEof::UnterminatedString => {
-            tracing::warn!(
-                source = ?source,
-                construct = "string",
-                ".tf content has a line ending inside an unterminated string; skipping file"
-            );
-            return None;
+            None
         }
     }
-    // Only accept `required_version = "…"` when it appears at the top level
-    // of a `terraform { … }` block.
+}
+
+/// A structural reason to refuse a `.tf` file outright.
+///
+/// Each variant is input terraform's own parser rejects. A constraint read
+/// out of such a file is not trustworthy: the nesting level it was found at
+/// is unknown, or part of the file was consumed as comment, string or heredoc
+/// body.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum Refusal {
+    /// A `/* … */` block comment never closed.
+    UnterminatedBlockComment,
+    /// A line ended inside a `"` string that never closed.
+    UnterminatedString,
+    /// A `}` appeared with no block open, so every depth judgement after it
+    /// would be guesswork.
+    UnbalancedClosingBrace,
+    /// A heredoc's terminator never arrived, so every line after the opener
+    /// was consumed as body.
+    UnterminatedHeredoc,
+    /// The file ended with a block still open: truncated or hand-mangled
+    /// input, not a well-formed file that declares nothing.
+    UnclosedBlock,
+}
+
+impl Refusal {
+    /// Value of the warn record's `construct` field.
+    const fn construct(self) -> &'static str {
+        match self {
+            Self::UnterminatedBlockComment => "block-comment",
+            Self::UnterminatedString => "string",
+            Self::UnbalancedClosingBrace => "closing-brace",
+            Self::UnterminatedHeredoc => "heredoc",
+            Self::UnclosedBlock => "block",
+        }
+    }
+
+    /// What is wrong with the file: the head of the warn message.
+    const fn describe(self) -> &'static str {
+        match self {
+            Self::UnterminatedBlockComment => {
+                ".tf content ends inside an unterminated /* ... */ comment"
+            }
+            Self::UnterminatedString => {
+                ".tf content has a line ending inside an unterminated string"
+            }
+            Self::UnbalancedClosingBrace => "unbalanced closing brace in .tf content",
+            Self::UnterminatedHeredoc => ".tf content ends inside an unterminated heredoc",
+            Self::UnclosedBlock => ".tf content ends with an unclosed block",
+        }
+    }
+}
+
+/// Locate the `required_version` assignment at the top level of a
+/// `terraform { … }` block, or refuse the file.
+///
+/// [`strip_comments`] blanks every comment form first, so the structural scan
+/// ([`scan_line`]) never has to reason about them.
+///
+/// The first value found is recorded, not returned on the spot: it is only
+/// trustworthy if the rest of the file is structurally clean, which the
+/// end-of-file check decides.
+fn scan_required_version(content: &str) -> Result<Option<String>, Refusal> {
+    let (stripped, strip_eof) = strip_comments(content);
+    if let Some(refusal) = strip_eof.refusal() {
+        return Err(refusal);
+    }
     let mut state = ScanState::new();
-    // The first found value is *recorded*, not
-    // returned — it is only trustworthy if the rest of the file turns out to
-    // be structurally clean. A constraint read out of a file that never
-    // closes its `terraform {` block is a truncated file accepted as
-    // well-formed, which is what the EOF checks below exist to refuse.
     let mut found: Option<String> = None;
     for line in stripped.lines() {
         match scan_line(line, &mut state) {
@@ -267,62 +322,13 @@ fn extract_required_version(content: &str, source: &str) -> Option<String> {
                     found = Some(value);
                 }
             }
-            LineScan::Malformed => {
-                // A `}` with nothing to close means the braces do not
-                // balance, so every depth judgement after it would be
-                // guesswork. Refuse the file rather than render a constraint
-                // read at an unknown nesting level. The warn names the file:
-                // the fallback walk feeds every root `.tf` through here, so
-                // without `source` the repeats are indistinguishable.
-                tracing::warn!(
-                    source = ?source,
-                    "unbalanced closing brace in .tf content; skipping file"
-                );
-                return None;
-            }
-            LineScan::UnterminatedString => {
-                // The line ended inside a `"`
-                // that never closed. On the owned strip path `StripEof`
-                // already reported and refused it above; this arm is the only
-                // reporter for files that took the comment-stripper's
-                // no-comment fast path, where `strip_comments` never inspects
-                // strings.
-                tracing::warn!(
-                    source = ?source,
-                    construct = "string",
-                    ".tf content has a line ending inside an unterminated string; skipping file"
-                );
-                return None;
-            }
+            LineScan::Malformed => return Err(Refusal::UnbalancedClosingBrace),
+            // `strip_comments` does not inspect strings on its no-comment
+            // fast path, so for those files this arm is the only reporter.
+            LineScan::UnterminatedString => return Err(Refusal::UnterminatedString),
         }
     }
-    // A heredoc still open at EOF means the
-    // terminator never arrived, so every line after the opener was consumed
-    // as body. Report it exactly like the unbalanced closing brace above —
-    // warn and refuse the file — instead of falling off the loop as a
-    // silent `None` indistinguishable from "no constraint declared".
-    if state.heredoc.is_open() {
-        tracing::warn!(
-            source = ?source,
-            construct = "heredoc",
-            ".tf content ends inside an unterminated heredoc; skipping file"
-        );
-        return None;
-    }
-    // A non-empty brace stack at EOF means the
-    // file opened blocks it never closed — truncated or hand-mangled input,
-    // not a well-formed file that happens to declare nothing.
-    if !state.stack.is_empty() {
-        tracing::warn!(
-            source = ?source,
-            construct = "block",
-            ".tf content ends with an unclosed block; skipping file"
-        );
-        return None;
-    }
-    found
-        .as_deref()
-        .and_then(|v| sanitize_required_version(v, source))
+    state.end_of_file_refusal().map_or(Ok(found), Err)
 }
 
 /// The HCL block nesting the scanner is currently inside.
@@ -444,6 +450,18 @@ impl ScanState {
             },
         }
     }
+
+    /// The refusal owed once the last line has been scanned, if any: a
+    /// heredoc still open, or a block the file never closed.
+    const fn end_of_file_refusal(&self) -> Option<Refusal> {
+        if self.heredoc.is_open() {
+            Some(Refusal::UnterminatedHeredoc)
+        } else if self.stack.is_empty() {
+            None
+        } else {
+            Some(Refusal::UnclosedBlock)
+        }
+    }
 }
 
 /// Outcome of scanning one already-comment-stripped line.
@@ -476,8 +494,8 @@ enum LineScan {
 /// file never opened, which the balance check would then read as malformed
 /// input and drop the whole file.
 fn scan_line(line: &str, state: &mut ScanState) -> LineScan {
-    // Heredoc bodies are skipped whole, classified by
-    // the same tracker [`strip_comments`] consults for each of its lines.
+    // Heredoc bodies are skipped whole, classified by the same tracker
+    // [`strip_comments`] consults for each of its lines.
     // The opener's spelling decides whether an indented terminator counts
     // (`<<-`) or only one that starts the line (`<<`) — [`Heredoc::closes`],
     // shared — so a body line whose *trimmed* text happens to equal the
@@ -493,11 +511,9 @@ fn scan_line(line: &str, state: &mut ScanState) -> LineScan {
     if let Some(early) = scan_code_chars(line, state, &mut walk) {
         return early;
     }
-    // `in_string` is line-local by construction, so
-    // it can only be true here if the line's closing `"` never arrived.
-    // Report it here rather than in `strip_comments`: this stage sees every
-    // line, including files that take the comment-stripper's no-comment fast
-    // path.
+    // `in_string` is line-local, so it is still set here only when the
+    // line's closing `"` never arrived. This stage sees every line, including
+    // files that take the comment-stripper's no-comment fast path.
     if walk.in_string {
         return LineScan::UnterminatedString;
     }
@@ -691,9 +707,9 @@ fn required_version_here(
 
 /// Parse a `required_version = "…"` assignment out of a brace-free fragment.
 ///
-/// HCL standardises the value as a double-quoted string,
-/// so a bare or single-quoted value is rejected — surfacing it would mislead
-/// the operator about what the manifest actually says. Comments are already
+/// HCL standardises the value as a double-quoted string, so a bare or
+/// single-quoted value is rejected — surfacing it would mislead the operator
+/// about what the manifest actually says. Comments are already
 /// blanked by [`strip_comments`], so anything left after the closing quote is
 /// genuine trailing content and disqualifies the line.
 fn parse_required_version_assignment(fragment: &str) -> Option<&str> {
@@ -749,10 +765,10 @@ fn sanitize_required_version(value: &str, source: &str) -> Option<String> {
     Some(value.to_string())
 }
 
-/// Extract the leading identifier of an HCL block opener
-/// from the text preceding its `{` — `terraform`, `provider "aws"`,
-/// `required_providers`. Returns `None` when the brace is not a named block
-/// opener, which [`scan_line`] records as an anonymous stack entry.
+/// Extract the leading identifier of an HCL block opener from the text
+/// preceding its `{` — `terraform`, `provider "aws"`, `required_providers`.
+/// Returns `None` when the brace is not a named block opener, which
+/// [`scan_line`] records as an anonymous stack entry.
 fn block_open_ident(prefix: &str) -> Option<&str> {
     let prefix = prefix.trim();
     // An `=` before the brace means an object-valued attribute (`aws = {`),
@@ -785,9 +801,9 @@ fn block_open_ident(prefix: &str) -> Option<&str> {
     prefix.get(..end)
 }
 
-/// Blank every HCL comment — `#`, `//` and
-/// `/* … */` — with spaces, preserving newlines, so the downstream scanner
-/// sees a structurally-equivalent file with the comment bodies removed.
+/// Blank every HCL comment — `#`, `//` and `/* … */` — with spaces,
+/// preserving newlines, so the downstream scanner sees a
+/// structurally-equivalent file with the comment bodies removed.
 ///
 /// All three forms are resolved in the *same* pass, outside double-quoted
 /// strings, because they interact: a `/*` inside a `# …` comment
@@ -808,7 +824,7 @@ fn block_open_ident(prefix: &str) -> Option<&str> {
 /// comment stripping for the remainder of the file. An unterminated `/*`
 /// likewise runs to EOF *and* is reported
 /// ([`StripEof::UnterminatedBlockComment`]); terraform's own parser errors on
-/// both shapes rather than accepting them.
+/// both shapes.
 ///
 /// The walk is line-oriented — [`strip_one_line`] per line — and heredoc
 /// bodies are classified by the same [`HeredocTracker`] [`scan_line`] consults
@@ -819,10 +835,10 @@ fn block_open_ident(prefix: &str) -> Option<&str> {
 /// [`StripEof`]: the structural scan owns that construct and reports it, so
 /// it has exactly one reporter.
 ///
-/// Returns [`Cow::Borrowed`] when the content carries no
-/// comment introducer at all, so the common case allocates nothing. A file
-/// whose only "comments" live inside heredocs still takes the owned path —
-/// the fast check is deliberately syntax-free — and comes back unchanged.
+/// Returns [`Cow::Borrowed`] when the content carries no comment introducer
+/// at all, so the common case allocates nothing. A file whose only "comments"
+/// live inside heredocs still takes the owned path — the fast check is
+/// deliberately syntax-free — and comes back unchanged.
 fn strip_comments(content: &str) -> (Cow<'_, str>, StripEof) {
     if !content.contains("/*") && !content.contains('#') && !content.contains("//") {
         return (Cow::Borrowed(content), StripEof::Clean);
@@ -832,16 +848,14 @@ fn strip_comments(content: &str) -> (Cow<'_, str>, StripEof) {
     for line in content.split_inclusive('\n') {
         strip_one_line(line, &mut state, &mut out);
     }
-    // A `"` still open at end of input — the
-    // file stopped mid-string with no final newline to trip the line-local
-    // reset in [`strip_one_line`], or on a trailing backslash — is the same
-    // malformation the reset reports; eof must not stay Clean for it.
+    // A `"` still open at end of input — the file stopped mid-string with no
+    // final newline to trip the line-local reset in [`strip_one_line`], or on
+    // a trailing backslash — is the same malformation the reset reports.
     if state.in_string {
         state.eof = StripEof::UnterminatedString;
     }
-    // A `/*` still open at end of input
-    // blanked the remainder as comment — the file is refused, not silently
-    // accepted with the tail missing.
+    // A `/*` still open at end of input blanked the remainder as comment, so
+    // the tail of the file is missing from `out`.
     if state.in_block_comment {
         state.eof = StripEof::UnterminatedBlockComment;
     }
@@ -869,14 +883,10 @@ struct StripState {
 /// *before* that classification, so a block comment that straddles the
 /// opener-to-body handoff swallows the body's first lines.
 fn strip_one_line(line: &str, state: &mut StripState, out: &mut String) {
-    // The match names both arms' payloads symmetrically (the line with and
-    // without its newline); `map_or` would bury the common shaped pair in a
-    // closure.
-    #[allow(clippy::option_if_let_else)]
-    let (text, newline) = match line.strip_suffix('\n') {
-        Some(text) => (text, "\n"),
-        None => (line, ""),
-    };
+    // `newline` is whatever follows `text` in `line`: "\n", or "" on a final
+    // line with no trailing newline.
+    let text = line.strip_suffix('\n').unwrap_or(line);
+    let newline = line.get(text.len()..).unwrap_or_default();
     let started_in_block_comment = state.in_block_comment;
     let mut chars = text.chars();
     if state.in_block_comment {
@@ -893,20 +903,20 @@ fn strip_one_line(line: &str, state: &mut StripState, out: &mut String) {
     // tail is walked as code below and a pending heredoc hands off to its
     // body on the next line.
     if !started_in_block_comment && state.heredoc.consumes_line(text) {
-        // A heredoc body is an unquoted string
-        // literal — a `#` line inside it is shell or policy text, not an
-        // HCL comment, and blanking it would corrupt the very content the
-        // scanner is asked to reason about.
+        // A heredoc body is an unquoted string literal — a `#` line inside
+        // it is shell or policy text, not an HCL comment, and blanking it
+        // would corrupt the very content the scanner is asked to reason
+        // about.
         out.push_str(text);
         out.push_str(newline);
         return;
     }
     strip_code_chars(&mut chars, state, out);
-    // Quoted strings are line-local in HCL. A string
-    // still open at the line's newline is malformed input: report it and
-    // reset, instead of carrying the string state into the next line's
-    // comment stripping. A final line without a trailing newline is left
-    // open here for [`strip_comments`]' end-of-input check.
+    // Quoted strings are line-local in HCL. A string still open at the
+    // line's newline is malformed input: it is reported and the state reset,
+    // so it never reaches the next line's comment stripping. A final line
+    // without a trailing newline is left open here for [`strip_comments`]'
+    // end-of-input check.
     if state.in_string && !newline.is_empty() {
         state.in_string = false;
         state.eof = StripEof::UnterminatedString;
@@ -953,10 +963,9 @@ fn strip_code_chars(chars: &mut std::str::Chars<'_>, state: &mut StripState, out
                 out.push(' ');
                 out.push(' ');
                 if !blank_block_comment_line(chars, out) {
-                    // The comment runs past this
-                    // line; the flag makes the next line blank as comment
-                    // continuation, and a `/*` that never closes is
-                    // reported at end of input.
+                    // The comment runs past this line; the flag makes the
+                    // next line blank as comment continuation, and a `/*`
+                    // that never closes is reported at end of input.
                     state.in_block_comment = true;
                 }
             }
@@ -1007,12 +1016,11 @@ fn push_heredoc_opener(
 /// End-of-input state of [`strip_comments`] for the constructs only the
 /// stripping stage owns.
 ///
-/// Both variants describe input terraform's own lexer would reject.
-/// [`extract_required_version`] warns and refuses the file on either, rather
-/// than degrading silently — an unterminated `/*` would otherwise blank the
-/// remainder, and an unterminated `"` would disable comment stripping for the
-/// rest of the file.
-#[derive(Debug, Default, PartialEq, Eq)]
+/// Both non-clean variants describe input terraform's own lexer rejects, and
+/// each maps to a [`Refusal`]: an unterminated `/*` blanks the remainder of
+/// the file, and an unterminated `"` leaves the string state of its line
+/// unknown.
+#[derive(Debug, Default, Clone, Copy, PartialEq, Eq)]
 enum StripEof {
     /// No comment or string construct was left open at end of input.
     #[default]
@@ -1021,6 +1029,17 @@ enum StripEof {
     UnterminatedBlockComment,
     /// A line ended inside a `"` string that never closed.
     UnterminatedString,
+}
+
+impl StripEof {
+    /// The [`Refusal`] this end state amounts to, or `None` when clean.
+    const fn refusal(self) -> Option<Refusal> {
+        match self {
+            Self::Clean => None,
+            Self::UnterminatedBlockComment => Some(Refusal::UnterminatedBlockComment),
+            Self::UnterminatedString => Some(Refusal::UnterminatedString),
+        }
+    }
 }
 
 /// Blank a `#` / `//` comment through to the end of its line.
@@ -1063,70 +1082,38 @@ fn blank_block_comment_line(chars: &mut std::str::Chars<'_>, out: &mut String) -
 /// A subdirectory counts as a module when it contains at least one `.tf` (or
 /// `.tf.json`) file. That is terraform's own definition — `main.tf` is a
 /// convention, not a requirement — so `modules/network/network.tf` and
-/// `modules/vpc/{variables,outputs,resources}.tf` layouts count, where probing
-/// for `modules/*/main.tf` would report them as zero modules and render no
-/// `modules` line at all.
+/// `modules/vpc/{variables,outputs,resources}.tf` layouts count.
 ///
-/// A missing `modules/` directory is distinguished
-/// (the expected "no local modules" case) from a real IO failure (permission
-/// denied, EIO, "is not a directory") so operators see a `tracing::warn!`
-/// instead of silently rendering "no modules". Per-entry and per-subdirectory
-/// failures are logged too, rather than folded into "not a module".
+/// Returns `None` when there are no local modules. A missing `modules/`
+/// directory is that case and is silent; a real IO failure on it, on one of
+/// its entries, or on a subdirectory is logged at `warn` per the module-level
+/// IO policy ([`read_dir_logged`]).
 fn count_local_modules(root: &Path) -> Option<usize> {
     let modules_dir = root.join("modules");
-    let entries = match std::fs::read_dir(&modules_dir) {
-        Ok(e) => e,
-        Err(e) if e.kind() == std::io::ErrorKind::NotFound => return None,
-        Err(e) => {
-            tracing::warn!(
-                modules_dir = ?modules_dir.display(),
-                error = %e,
-                "failed to enumerate modules directory"
-            );
-            return None;
-        }
-    };
-    let count = entries
-        .filter_map(|res| match res {
-            Ok(entry) => Some(entry),
-            Err(e) => {
-                tracing::warn!(
-                    modules_dir = ?modules_dir.display(),
-                    error = %e,
-                    "failed to read directory entry under modules/"
-                );
-                None
-            }
-        })
+    let count = read_dir_logged(&modules_dir, "modules directory")?
         .filter(is_module_dir)
         .count();
-    if count > 0 {
-        Some(count)
-    } else {
-        None
-    }
+    (count > 0).then_some(count)
 }
 
 /// Whether a `modules/` child is a directory holding terraform sources.
 ///
-/// Uses `fs::metadata` (which follows symlinks) rather than
-/// `DirEntry::file_type` (which does not): a `modules/` entry that is a
+/// Symlinks are followed (`fs::metadata`): a `modules/` entry that is a
 /// symlink to a real module directory is a normal terraform layout — shared
-/// modules vendored once and linked per stack — and `file_type` would report
-/// it as `Symlink`, not `Dir`, silently omitting it from the count.
-/// This function only *counts* modules for the about report; it never opens
-/// or writes anything under the target, and `contains_terraform_source`
-/// likewise only lists names, so following the link grants no capability an
-/// operator running `ops about` in their own checkout did not already have.
+/// modules vendored once and linked per stack — and counts as a module.
+/// Nothing under the target is opened or written, and
+/// [`contains_terraform_source`] only lists names, so following the link
+/// grants no capability an operator running `ops about` in their own checkout
+/// did not already have.
 fn is_module_dir(entry: &std::fs::DirEntry) -> bool {
     match std::fs::metadata(entry.path()) {
         Ok(m) if !m.is_dir() => return false,
         Ok(_) => {}
         Err(e) if e.kind() == std::io::ErrorKind::NotFound => return false,
         Err(e) => {
-            // An unreadable entry is an IO failure, not
-            // evidence that it is not a module. A dangling symlink resolves
-            // to `NotFound` above and is simply not a module.
+            // An unreadable entry is an IO failure, not evidence that it is
+            // not a module. A dangling symlink resolves to `NotFound` above
+            // and is simply not a module.
             tracing::warn!(
                 entry = ?entry.path().display(),
                 error = %e,
@@ -1140,34 +1127,12 @@ fn is_module_dir(entry: &std::fs::DirEntry) -> bool {
 
 /// Whether `dir` directly contains at least one `.tf` / `.tf.json` file.
 ///
-/// One `read_dir` answers the question directly and, unlike `Path::exists()`,
-/// reports non-NotFound errors instead of folding them into `false`.
+/// A `dir` that cannot be enumerated holds no visible source and is `false`;
+/// the failure itself is reported by [`read_dir_logged`].
 fn contains_terraform_source(dir: &Path) -> bool {
-    let entries = match std::fs::read_dir(dir) {
-        Ok(e) => e,
-        Err(e) if e.kind() == std::io::ErrorKind::NotFound => return false,
-        Err(e) => {
-            tracing::warn!(
-                module_dir = ?dir.display(),
-                error = %e,
-                "failed to enumerate module directory"
-            );
-            return false;
-        }
-    };
-    entries
-        .filter_map(|res| match res {
-            Ok(entry) => Some(entry),
-            Err(e) => {
-                tracing::warn!(
-                    module_dir = ?dir.display(),
-                    error = %e,
-                    "failed to read directory entry in module directory"
-                );
-                None
-            }
-        })
-        .any(|entry| is_terraform_source_name(&entry.file_name()))
+    read_dir_logged(dir, "module directory").is_some_and(|mut entries| {
+        entries.any(|entry| is_terraform_source_name(&entry.file_name()))
+    })
 }
 
 /// Whether `name` is a terraform source file: `.tf` or `.tf.json` (terraform's
