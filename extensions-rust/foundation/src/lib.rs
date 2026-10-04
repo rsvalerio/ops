@@ -1,8 +1,8 @@
 //! The Rust foundation: the shared config every Rust repo starts from.
 //!
 //! ops is the single source for `clippy.toml`, `deny.toml`, `rustfmt.toml`,
-//! `.config/nextest.toml`, the `mise.toml` tool pins (TASK-2344) and the
-//! `[workspace.lints]` policy (TASK-2330). The
+//! `.config/nextest.toml`, the `mise.toml` tool pins and the
+//! `[workspace.lints]` policy. The
 //! templates are embedded in the binary, [`scaffold`] writes them into a repo
 //! (`ops init --rust`), and [`check`] reports where the repo has drifted from
 //! the running ops version's copy (`ops init --rust --check`). Updates ship
@@ -403,7 +403,8 @@ fn remove_path(doc: &mut toml_edit::DocumentMut, path: &[&str]) {
 /// # Errors
 ///
 /// If `root` has no parseable `Cargo.toml`, or a file exists but cannot be
-/// read. A file that is missing or does not parse is drift, not an error.
+/// read. A file or member manifest that is missing or does not parse is
+/// drift, not an error.
 pub fn check(root: &Path, waivers: &IndexMap<String, String>) -> anyhow::Result<Report> {
     let manifest = Root::load(root)?;
     let mut drift = Vec::new();
@@ -429,10 +430,7 @@ fn check_file(root: &Path, file: &ConfigFile, out: &mut Vec<Drift>) -> anyhow::R
     let actual = match toml::from_str::<toml::Table>(&text) {
         Ok(t) => Value::Table(t),
         Err(e) => {
-            out.push(Drift::new(
-                file.path,
-                format!("does not parse: {}", e.message()),
-            ));
+            out.push(Drift::new(file.path, parse_failure(&text, &e)));
             return Ok(());
         }
     };
@@ -444,9 +442,25 @@ fn check_file(root: &Path, file: &ConfigFile, out: &mut Vec<Drift>) -> anyhow::R
     Ok(())
 }
 
+/// The drift message for a hand-edited file that is not valid TOML: the
+/// reason plus the line and column it was found at, on one line.
+fn parse_failure(text: &str, err: &toml::de::Error) -> String {
+    let reason = err.message();
+    let Some(before) = err.span().and_then(|span| text.get(..span.start)) else {
+        return format!("does not parse: {reason}");
+    };
+    let line = before.matches('\n').count().saturating_add(1);
+    let column = before
+        .rsplit('\n')
+        .next()
+        .map_or(0, |l| l.chars().count())
+        .saturating_add(1);
+    format!("does not parse at line {line}, column {column}: {reason}")
+}
+
 /// The ops pin is a floor, not an equality: the template names the oldest ops
 /// the pipeline works with, and the ops running the check is the one the repo
-/// pins, so a repo on a newer release must pass (TASK-2350). Takes the pin out
+/// pins, so a repo on a newer release must pass. Takes the pin out
 /// of `expected` so the exact comparison skips it.
 fn check_ops_pin(expected: &mut Value, actual: &Value, out: &mut Vec<Drift>) {
     let Some(floor) = expected
@@ -509,9 +523,17 @@ fn check_member_opt_in(root: &Path, member: &str, out: &mut Vec<Drift>) -> anyho
         Err(e) if e.kind() == ErrorKind::NotFound => return Ok(()),
         Err(e) => return Err(e).with_context(|| format!("reading {rel}")),
     };
-    let opted_in = toml::from_str::<toml::Table>(&text)
-        .ok()
-        .and_then(|t| t.get("lints")?.get("workspace")?.as_bool())
+    let manifest = match toml::from_str::<toml::Table>(&text) {
+        Ok(t) => t,
+        Err(e) => {
+            out.push(Drift::new(rel, parse_failure(&text, &e)));
+            return Ok(());
+        }
+    };
+    let opted_in = manifest
+        .get("lints")
+        .and_then(|lints| lints.get("workspace"))
+        .and_then(Value::as_bool)
         .unwrap_or(false);
     if !opted_in {
         out.push(Drift::new(
