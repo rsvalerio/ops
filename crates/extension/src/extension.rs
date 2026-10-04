@@ -15,7 +15,7 @@ use std::path::Path;
 ///
 /// # The returned config name
 ///
-/// ARCH-9 / TASK-1868: the `&'static str` in the returned pair is the
+/// The `&'static str` in the returned pair is the
 /// **config name** — the key users write in `extensions.enabled` and the key
 /// consumers deduplicate on. It is a value independent of
 /// [`Extension::name`], which is what diagnostics, the data-provider audit
@@ -34,7 +34,7 @@ pub type ExtensionFactory = fn(&Config, &Path) -> Option<(&'static str, Box<dyn 
 ///
 /// # Ordering is unspecified
 ///
-/// ARCH-9 / TASK-1868: `linkme` makes **no guarantee** about slot order. It is
+/// `linkme` makes **no guarantee** about slot order. It is
 /// whatever the linker emits and it can change with link order, LTO settings
 /// or a toolchain bump, with no source change. Therefore:
 ///
@@ -54,7 +54,7 @@ pub static EXTENSION_REGISTRY: [ExtensionFactory];
 
 /// Impose a deterministic total order on probed extension factory results.
 ///
-/// ARCH-9 / TASK-1868: [`EXTENSION_REGISTRY`] hands out pairs in unspecified
+/// [`EXTENSION_REGISTRY`] hands out pairs in unspecified
 /// link order, and every consumer collapses them into a map — which means the
 /// *link order* decides which extension survives a `config_name` collision.
 /// That is genuine functional non-determinism: the winner can flip between
@@ -106,7 +106,7 @@ impl ExtensionType {
 
 /// Metadata describing an extension.
 ///
-/// API-9 / TASK-0349: marked `#[non_exhaustive]` so that adding a field
+/// Marked `#[non_exhaustive]` so that adding a field
 /// here is not a `SemVer` break for downstream extensions. External callers
 /// should construct via [`ExtensionInfo::new`] (and adjust fields via
 /// direct field access — the fields stay `pub` for ergonomic struct
@@ -150,7 +150,7 @@ impl ExtensionInfo {
 /// Config-defined commands take precedence over extension commands when
 /// merged into the `CommandRunner`.
 ///
-/// ERR-2 (TASK-0579): unlike a bare `IndexMap`, [`CommandRegistry::insert`]
+/// Unlike a bare `IndexMap`, [`CommandRegistry::insert`]
 /// remembers any keys that get re-inserted during the lifetime of the
 /// registry instance. The CLI wiring layer drains that list after each
 /// extension's `register_commands` call so a single extension that registers
@@ -162,7 +162,7 @@ pub struct CommandRegistry {
     duplicate_inserts: Vec<CommandId>,
 }
 
-// TRAIT-4 (TASK-0653): `duplicate_inserts` is a per-instance audit trail
+// `duplicate_inserts` is a per-instance audit trail
 // drained once by `take_duplicate_inserts`. A blanket `derive(Clone)`
 // would copy that history into the clone, so a downstream reader would
 // see phantom warnings. Clone the data only and reset the audit trail.
@@ -182,10 +182,10 @@ impl CommandRegistry {
         Self::default()
     }
 
-    /// Insert a command, returning the previous value if any. ERR-2
-    /// (TASK-0579): a re-insert for the same id is recorded so the CLI
-    /// wiring layer can warn about within-extension self-shadowing instead
-    /// of letting the silent overwrite swallow the first registration.
+    /// Insert a command, returning the value it replaced, if any. A
+    /// re-insert for the same id is recorded so the CLI wiring layer can
+    /// warn about within-extension self-shadowing instead of letting the
+    /// silent overwrite swallow the first registration.
     ///
     /// Duplicate-registration policy for the two registries in this crate:
     ///
@@ -199,14 +199,10 @@ impl CommandRegistry {
     /// one `tracing::warn!` per entry. The audit trail is the *aggregated*
     /// signal; the return value is the per-call one.
     pub fn insert(&mut self, id: CommandId, spec: CommandSpec) -> Option<CommandSpec> {
-        // PATTERN-3 / TASK-0753: route through `Entry` so a registration
-        // consults the hash map exactly once. The previous shape did a
-        // `contains_key`, then cloned the input id into the audit trail, then
-        // called `insert` — three probes per registration. READ-4 /
-        // TASK-1881: the cost profile that buys is one probe instead of
-        // three; the duplicate path still pays a key clone, because `entry`
-        // consumed the input `id` and the audit trail needs an owned copy of
-        // the key that stayed in the map.
+        // `Entry` consults the hash map exactly once per registration. The
+        // duplicate path pays a key clone, because `entry` consumed the
+        // input `id` and the audit trail needs an owned copy of the key that
+        // stayed in the map.
         match self.inner.entry(id) {
             indexmap::map::Entry::Occupied(mut occupied) => {
                 self.duplicate_inserts.push(occupied.key().clone());
@@ -220,7 +216,7 @@ impl CommandRegistry {
     }
 
     /// Drain ids that were re-inserted into this registry since the last
-    /// drain (ERR-2 / TASK-0579). Caller decides how to surface them — the
+    /// drain. Caller decides how to surface them — the
     /// CLI emits one `tracing::warn!` per duplicate; tests assert the list
     /// is non-empty for malformed extensions.
     pub fn take_duplicate_inserts(&mut self) -> Vec<CommandId> {
@@ -228,12 +224,12 @@ impl CommandRegistry {
     }
 }
 
-// ARCH-9 (TASK-0652): only `Deref` is exposed so the audit trail in
+// Only `Deref` is exposed so the audit trail in
 // `duplicate_inserts` cannot be bypassed by routing mutations through
 // `IndexMap::insert` / `entry` / etc. The single mutating path is
 // `CommandRegistry::insert`.
 //
-// ARCH-9 / TASK-0874: `Deref<Target = IndexMap<…>>` is intentional public
+// `Deref<Target = IndexMap<…>>` is intentional public
 // API surface. Every read-only method on `IndexMap` (`get`, `iter`, `len`,
 // `keys`, `values`, `contains_key`, `is_empty`, …) is part of the
 // `CommandRegistry` contract and downstream extension authors are
@@ -267,13 +263,11 @@ impl<'a> IntoIterator for &'a CommandRegistry {
 }
 
 impl FromIterator<(CommandId, CommandSpec)> for CommandRegistry {
-    /// DUP-3 / TASK-1225: drain the audit trail emitted by [`Self::insert`]
-    /// and surface duplicates via `tracing::warn!` here, since
-    /// `collect()` / `from_iter()` consumers don't see the
-    /// `duplicate_inserts` Vec the per-extension registration path drains
-    /// explicitly. Without this, building a registry through
-    /// `iter.collect()` silently lost the warning signal that ERR-2 /
-    /// TASK-0579 hardened the `.insert()` path to preserve.
+    /// Drains the audit trail recorded by [`Self::insert`] and surfaces
+    /// each duplicate via `tracing::warn!` here, since `collect()` /
+    /// `from_iter()` consumers never see the `duplicate_inserts` list the
+    /// per-extension registration path drains explicitly. The returned
+    /// registry therefore starts with an empty audit trail.
     fn from_iter<I: IntoIterator<Item = (CommandId, CommandSpec)>>(iter: I) -> Self {
         let mut reg = Self::new();
         for (id, spec) in iter {

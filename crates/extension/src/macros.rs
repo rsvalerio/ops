@@ -2,7 +2,7 @@
 
 /// Macro to reduce boilerplate when implementing the Extension trait.
 ///
-/// DUP-002: Single variant with optional `command_names` arm.
+/// Single variant with optional `command_names` arm.
 ///
 /// Generates the simple accessor methods (name, description, shortname, types,
 /// `data_provider_name`) from the provided constants, and accepts custom blocks
@@ -28,7 +28,7 @@
 /// ```
 #[macro_export]
 macro_rules! impl_extension {
-    // Internal rule: shared accessor methods (DUP-036 fix)
+    // Internal rule: shared accessor methods
     (@accessors $struct:ty, $name:expr, $desc:expr, $short:expr, $types:expr, $dp:expr $(, stack: $stack:expr)? $(, command_names: $cn:expr)?) => {
         fn name(&self) -> &'static str {
             $name
@@ -85,7 +85,7 @@ macro_rules! impl_extension {
             }
         }
 
-        // UNSAFE-12 / TASK-2104: linkme's distributed_slice expansion emits
+        // linkme's distributed_slice expansion emits
         // `#[link_section]` (an unsafe attribute wrapper) on this static —
         // unsafe tokens the compiler counts into the invoking crate. The
         // allow must live here, on the generated item: rustc ignores
@@ -151,7 +151,7 @@ macro_rules! impl_extension {
             }
         }
 
-        // UNSAFE-12 / TASK-2104: as in the full factory arm above — the
+        // As in the full factory arm above — the
         // allow rides the generated static because linkme's expansion emits
         // an unsafe `#[link_section]` attribute wrapper.
         #[allow(unsafe_code)]
