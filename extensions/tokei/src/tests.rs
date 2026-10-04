@@ -350,6 +350,29 @@ fn scan_tokei_honours_the_depth_cap() {
 
     assert_eq!(scan.records.len(), 1);
     assert_eq!(scan.records[0]["file"], "top.rs");
+    assert_eq!(
+        scan.skipped_too_deep, 1,
+        "`a/` sits at the cap and is not entered, so the scan must say so"
+    );
+    assert!(
+        scan.is_incomplete(),
+        "a depth-capped scan must feed the incomplete-statistics warning"
+    );
+}
+
+/// A tree that fits inside the depth cap reports nothing skipped: the signal
+/// must mean "something was not walked", not "the tree has directories".
+#[test]
+fn scan_tokei_within_the_depth_cap_reports_nothing_too_deep() {
+    let dir = tempfile::tempdir().expect("tempdir");
+    std::fs::create_dir_all(dir.path().join("a/b")).expect("mkdir nested");
+    std::fs::write(dir.path().join("a/b/deep.rs"), "fn deep() {}\n").expect("write deep");
+
+    let scan = super::scan_tokei(dir.path(), super::ScanLimits::DEFAULT, None).expect("scan");
+
+    assert_eq!(scan.records.len(), 1);
+    assert_eq!(scan.skipped_too_deep, 0);
+    assert!(!scan.is_incomplete());
 }
 
 // -- scan root error tests (ERR-2, TASK-1972) --
