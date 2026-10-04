@@ -1,10 +1,10 @@
 ---
 id: TASK-2422
 title: 'code-review-plan-wave47'
-status: To Do
+status: Done
 assignee: []
 created_date: '2026-10-04 14:52'
-updated_date: '2026-10-04 14:52'
+updated_date: '2026-10-04 16:06'
 labels:
   - code-review-wave
 dependencies:
@@ -61,4 +61,8 @@ Hooks, fixers and checkers: text-fixers write-back race, hook-common, run-before
 
 <!-- SECTION:NOTES:BEGIN -->
 Overlaps: none
+
+Branch: code-review/TASK-2422
+Worktree: /home/rsvalerio/projects/.wave-TASK-2422
+
 <!-- SECTION:NOTES:END -->

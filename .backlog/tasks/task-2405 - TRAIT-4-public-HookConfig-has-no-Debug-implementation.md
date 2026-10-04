@@ -1,10 +1,10 @@
 ---
 id: TASK-2405
 title: 'TRAIT-4: public HookConfig has no Debug implementation'
-status: To Do
+status: Done
 assignee: []
 created_date: '2026-10-04 14:16'
-updated_date: '2026-10-04 14:52'
+updated_date: '2026-10-04 15:59'
 labels:
   - code-review-rust
   - TRAIT
@@ -29,5 +29,6 @@ dedup_key: 'TRAIT-4:extensions/hook-common/src/lib.rs:HookConfig'
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 HookConfig derives Debug (and Clone/PartialEq/Eq if intended)
+- [x] #1 HookConfig derives Debug (and Clone/PartialEq/Eq if intended)
+
 <!-- AC:END -->

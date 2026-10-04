@@ -1,10 +1,10 @@
 ---
 id: TASK-2392
 title: 'FN-1: run_checker is ~75 lines mixing discovery, notices, and per-file outcome handling'
-status: To Do
+status: Done
 assignee: []
 created_date: '2026-10-04 14:15'
-updated_date: '2026-10-04 14:52'
+updated_date: '2026-10-04 15:59'
 labels:
   - code-review-rust
   - functions
@@ -29,6 +29,7 @@ dedup_key: 'FN-1:extensions/config-checkers/src/runner.rs:run_checker'
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 run_checker is <= 50 lines, with discovery and per-file handling extracted into named helpers
-- [ ] #2 Existing tests in tests.rs pass unchanged
+- [x] #1 run_checker is <= 50 lines, with discovery and per-file handling extracted into named helpers
+- [x] #2 Existing tests in tests.rs pass unchanged
+
 <!-- AC:END -->

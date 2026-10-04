@@ -1,10 +1,10 @@
 ---
 id: TASK-2390
 title: 'SEC-11: create-review-tasks validate() accepts Unicode format/bidi characters that is_control() does not catch, so provider strings can still reorder the terminal report'
-status: To Do
+status: Done
 assignee: []
 created_date: '2026-10-04 14:15'
-updated_date: '2026-10-04 14:52'
+updated_date: '2026-10-04 15:59'
 labels:
   - code-review-rust
   - SEC
@@ -29,6 +29,7 @@ dedup_key: 'SEC-11:extensions/create-review-tasks/src/lib.rs:validate_field'
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 validate_field also rejects Unicode format characters (bidi overrides/isolates, zero-width, BOM) or restricts to a printable allowlist
-- [ ] #2 A unit test feeds a target name containing U+202E and asserts the run fails before any file is written
+- [x] #1 validate_field also rejects Unicode format characters (bidi overrides/isolates, zero-width, BOM) or restricts to a printable allowlist
+- [x] #2 A unit test feeds a target name containing U+202E and asserts the run fails before any file is written
+
 <!-- AC:END -->

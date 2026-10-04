@@ -1,10 +1,10 @@
 ---
 id: TASK-2391
 title: 'READ-13: Docs and comments narrate change history instead of the end state'
-status: To Do
+status: Done
 assignee: []
 created_date: '2026-10-04 14:15'
-updated_date: '2026-10-04 14:52'
+updated_date: '2026-10-04 15:59'
 labels:
   - code-review-rust
   - readability
@@ -33,6 +33,7 @@ dedup_key: 'READ-13:extensions/config-checkers/src/yaml.rs:module-docs'
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 Docs/comments state current behaviour without 'as before', 'now', 'before this' or dedup/migration narrative
-- [ ] #2 Retained rationale (event-level parse, stream-wide budget, walk-error fail-closed) is kept as timeless statements
+- [x] #1 Docs/comments state current behaviour without 'as before', 'now', 'before this' or dedup/migration narrative
+- [x] #2 Retained rationale (event-level parse, stream-wide budget, walk-error fail-closed) is kept as timeless statements
+
 <!-- AC:END -->

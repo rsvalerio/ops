@@ -1,10 +1,10 @@
 ---
 id: TASK-2404
 title: 'READ-13: hook-common docs narrate past implementations and task history'
-status: To Do
+status: Done
 assignee: []
 created_date: '2026-10-04 14:16'
-updated_date: '2026-10-04 14:52'
+updated_date: '2026-10-04 15:59'
 labels:
   - code-review-rust
   - READ
@@ -34,6 +34,7 @@ dedup_key: 'READ-13:extensions/hook-common/src:docs'
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 Doc comments state current behaviour and invariants only; no 'previously', 'used to', 'previous shape' narrative
-- [ ] #2 Retained security rationale is rewritten as present-tense invariants; history is left to git log
+- [x] #1 Doc comments state current behaviour and invariants only; no 'previously', 'used to', 'previous shape' narrative
+- [x] #2 Retained security rationale is rewritten as present-tense invariants; history is left to git log
+
 <!-- AC:END -->

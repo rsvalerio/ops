@@ -1,10 +1,10 @@
 ---
 id: TASK-2402
 title: 'API-14: text-fixers public items lack doc summaries'
-status: To Do
+status: Done
 assignee: []
 created_date: '2026-10-04 14:16'
-updated_date: '2026-10-04 14:52'
+updated_date: '2026-10-04 15:59'
 labels:
   - code-review-rust
   - API
@@ -30,6 +30,7 @@ dedup_key: 'API-14:extensions/text-fixers/src/eof.rs:fix_eof'
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 fix_eof has a short summary documenting the Option return (None = already correct) and the CRLF/lone-CR rules
-- [ ] #2 NAME, DESCRIPTION, SHORTNAME and TextFixersExtension carry doc summaries
+- [x] #1 fix_eof has a short summary documenting the Option return (None = already correct) and the CRLF/lone-CR rules
+- [x] #2 NAME, DESCRIPTION, SHORTNAME and TextFixersExtension carry doc summaries
+
 <!-- AC:END -->

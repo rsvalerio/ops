@@ -1,10 +1,10 @@
 ---
 id: TASK-2389
 title: 'READ-13: create-review-tasks docs narrate refactor history and carry a stale comment about per-line writeln! calls'
-status: To Do
+status: Done
 assignee: []
 created_date: '2026-10-04 14:15'
-updated_date: '2026-10-04 14:52'
+updated_date: '2026-10-04 15:59'
 labels:
   - code-review-rust
   - READ
@@ -30,6 +30,7 @@ dedup_key: 'READ-13:extensions/create-review-tasks/src/backlog.rs:next_ids'
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 Docs and comments in create-review-tasks state current behaviour without 'used to' history or TASK-NNNN references
-- [ ] #2 The BufWriter comment in stage_task_file reflects that render_task_file performs a single write_all, or is dropped
+- [x] #1 Docs and comments in create-review-tasks state current behaviour without 'used to' history or TASK-NNNN references
+- [x] #2 The BufWriter comment in stage_task_file reflects that render_task_file performs a single write_all, or is dropped
+
 <!-- AC:END -->

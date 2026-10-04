@@ -1,10 +1,10 @@
 ---
 id: TASK-2403
 title: 'ARCH-12: ops-run-before-commit declares unused tracing dependency'
-status: To Do
+status: Done
 assignee: []
 created_date: '2026-10-04 14:16'
-updated_date: '2026-10-04 14:52'
+updated_date: '2026-10-04 15:59'
 labels:
   - code-review-rust
   - architecture
@@ -29,6 +29,7 @@ dedup_key: 'ARCH-12:extensions/run-before-commit/Cargo.toml:dependencies'
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 tracing removed from [dependencies] of ops-run-before-commit
-- [ ] #2 cargo build and cargo test -p ops-run-before-commit pass; linkme retained
+- [x] #1 tracing removed from [dependencies] of ops-run-before-commit
+- [x] #2 cargo build and cargo test -p ops-run-before-commit pass; linkme retained
+
 <!-- AC:END -->
