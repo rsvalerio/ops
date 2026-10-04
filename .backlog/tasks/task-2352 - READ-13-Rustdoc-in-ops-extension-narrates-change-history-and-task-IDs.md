@@ -1,10 +1,10 @@
 ---
 id: TASK-2352
 title: 'READ-13: Rustdoc in ops-extension narrates change history and task IDs'
-status: To Do
+status: Done
 assignee: []
 created_date: '2026-10-04 14:08'
-updated_date: '2026-10-04 14:52'
+updated_date: '2026-10-04 15:52'
 labels:
   - code-review-rust
   - READ
@@ -34,7 +34,8 @@ Candidates: data.rs:4,23,76,211,223,241,263,271,284,305-314,338,357,391-419,439,
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 Docs on public items state the current contract only, with no 'previously'/'the previous implementation' narration
-- [ ] #2 Rule-ID / TASK-NNNN provenance tags removed from rustdoc and comments, unless the comment explains a non-obvious current invariant
-- [ ] #3 lib.rs verification-log comment trimmed to the enduring rationale for #![forbid(unsafe_code)]
+- [x] #1 Docs on public items state the current contract only, with no 'previously'/'the previous implementation' narration
+- [x] #2 Rule-ID / TASK-NNNN provenance tags removed from rustdoc and comments, unless the comment explains a non-obvious current invariant
+- [x] #3 lib.rs verification-log comment trimmed to the enduring rationale for #![forbid(unsafe_code)]
+
 <!-- AC:END -->

@@ -1,10 +1,10 @@
 ---
 id: TASK-2361
 title: 'READ-13: ops-theme docs narrate change history instead of the end state'
-status: To Do
+status: Done
 assignee: []
 created_date: '2026-10-04 14:10'
-updated_date: '2026-10-04 14:52'
+updated_date: '2026-10-04 15:53'
 labels:
   - code-review-rust
   - READ
@@ -36,6 +36,13 @@ dedup_key: 'READ-13:crates/theme/src:module-docs'
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 Doc comments state current behaviour and invariants only; no 'previously', 'used to', 'was removed', or migration narration remains
-- [ ] #2 Enduring policies (width measurement, truncation, colour gating) stay documented
+- [x] #1 Doc comments state current behaviour and invariants only; no 'previously', 'used to', 'was removed', or migration narration remains
+- [x] #2 Enduring policies (width measurement, truncation, colour gating) stay documented
+
 <!-- AC:END -->
+
+## Implementation Notes
+
+<!-- SECTION:NOTES:BEGIN -->
+Scope: the six files named in the task. Remaining narration and rule/TASK tags in crates/theme/src/style/strip.rs, configurable/report.rs, resolve.rs, lib.rs and the tests are filed as a separate Triage task.
+<!-- SECTION:NOTES:END -->

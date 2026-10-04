@@ -1,10 +1,10 @@
 ---
 id: TASK-2353
 title: 'DUP-1: atomic_write and atomic_write_noclobber duplicate the staging sequence'
-status: To Do
+status: Done
 assignee: []
 created_date: '2026-10-04 14:08'
-updated_date: '2026-10-04 14:52'
+updated_date: '2026-10-04 15:47'
 labels:
   - code-review-rust
   - DUP
@@ -29,6 +29,7 @@ dedup_key: 'DUP-1:crates/backlog/src/cmd/mod.rs:atomic_write'
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 Staging (name, create_new open, write, sync, cleanup on error) lives in one private helper used by both functions
-- [ ] #2 Existing atomic_write and noclobber tests pass unchanged
+- [x] #1 Staging (name, create_new open, write, sync, cleanup on error) lives in one private helper used by both functions
+- [x] #2 Existing atomic_write and noclobber tests pass unchanged
+
 <!-- AC:END -->
