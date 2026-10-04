@@ -115,6 +115,7 @@ impl ChildGroup {
     /// Send `signal` to the whole group. Returns `false` when there is no
     /// group to signal or the group is already gone (`ESRCH`).
     #[cfg(unix)]
+    #[expect(unsafe_code, reason = "libc::killpg FFI; see the SAFETY comment")]
     fn signal(&self, signal: libc::c_int) -> bool {
         let Some(pgid) = self.pgid else {
             return false;
@@ -148,6 +149,7 @@ impl ChildGroup {
 }
 
 impl Drop for ChildGroup {
+    #[expect(unsafe_code, reason = "libc::killpg FFI; see the SAFETY comments")]
     fn drop(&mut self) {
         if !self.armed {
             return;

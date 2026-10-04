@@ -99,6 +99,7 @@ fn wait_until(what: &str, mut cond: impl FnMut() -> bool) {
 /// held from the linked worktree, blocks an acquirer there, and is released
 /// — record cleared — when the holder is sent SIGTERM.
 #[test]
+#[expect(unsafe_code, reason = "libc::kill FFI to signal the child under test")]
 fn lock_is_shared_across_worktrees_and_released_on_sigterm() {
     let (_dir, repo, wt) = repo_with_worktree();
     let mut holder = ops(&repo)

@@ -19,6 +19,10 @@
         clippy::cast_sign_loss
     )
 )]
+// Tests mutate the process environment and probe processes through libc.
+// Production unsafe is not covered: each site carries its own scoped
+// `#[expect(unsafe_code)]`.
+#![cfg_attr(test, allow(unsafe_code))]
 
 pub mod bounded_read;
 pub mod config;
@@ -37,4 +41,8 @@ pub mod text;
 pub mod ui;
 
 #[cfg(any(test, feature = "test-support"))]
+#[expect(
+    unsafe_code,
+    reason = "test support: process env and cwd guards, and a geteuid probe"
+)]
 pub mod test_utils;

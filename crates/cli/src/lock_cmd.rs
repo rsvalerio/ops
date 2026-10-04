@@ -556,6 +556,7 @@ async fn forward_signals_until_exit(child: &mut tokio::process::Child) -> anyhow
 
 /// Send `signo` to the child, if it is still running.
 #[cfg(unix)]
+#[expect(unsafe_code, reason = "libc::kill FFI; see the SAFETY comment")]
 fn forward(child: &tokio::process::Child, signo: i32) {
     let Some(pid) = child.id().and_then(|pid| libc::pid_t::try_from(pid).ok()) else {
         return;

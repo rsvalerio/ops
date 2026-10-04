@@ -67,8 +67,18 @@ this page, so it needs to be justified as policy rather than as convenience.
 | Lint | Level |
 |---|---|
 | `elided_lifetimes_in_paths` | warn |
+| `unsafe_code` | deny |
 | `unsafe_op_in_unsafe_fn` | warn |
 | `unused_lifetimes` | warn |
+
+`unsafe_code` is `deny` rather than `forbid` because `impl_extension!` puts
+`#[allow(unsafe_code)]` on the linkme static it generates, and `forbid` rejects
+that attribute. A production `unsafe` site carries
+`#[expect(unsafe_code, reason = "..")]` on its function or module; test code in
+`ops-core`, `ops-runner` and `ops` is relaxed at the crate root
+(`#![cfg_attr(test, allow(unsafe_code))]`). Crates with no `unsafe` that do not
+invoke `impl_extension!` (`ops-backlog`, `ops-theme`, `ops-extension`) go one
+step further with `#![forbid(unsafe_code)]` at their root.
 
 `rust_2018_idioms` is deliberately **not** enabled as a group. It implies
 `unused_extern_crates`, which flags the `extern crate` lines in

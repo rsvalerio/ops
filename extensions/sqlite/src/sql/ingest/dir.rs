@@ -277,6 +277,7 @@ fn harden_ingest_parent(parent: &Path) -> std::io::Result<()> {
 /// shape this accepts; a co-tenant's own `0o1777` directory is the shape it
 /// must not, because its owner is not bound by the sticky bit they set.
 #[cfg(unix)]
+#[expect(unsafe_code, reason = "libc::geteuid FFI; see the SAFETY comment")]
 fn is_trusted_parent_owner(owner: u32) -> bool {
     // SAFETY: `geteuid` takes no arguments, dereferences nothing, and is
     // defined to always succeed, so there are no preconditions to uphold and
@@ -587,6 +588,10 @@ impl IngestDir {
     }
 
     #[cfg(unix)]
+    #[expect(
+        unsafe_code,
+        reason = "libc::openat FFI and fd ownership transfer; each block carries its SAFETY comment"
+    )]
     fn openat(
         &self,
         name: &str,
@@ -622,6 +627,7 @@ impl IngestDir {
     }
 
     #[cfg(unix)]
+    #[expect(unsafe_code, reason = "libc::renameat FFI; see the SAFETY comment")]
     fn rename_io(&self, from: &str, to: &str) -> std::io::Result<()> {
         use std::os::unix::io::AsRawFd;
 
@@ -659,6 +665,7 @@ impl IngestDir {
     }
 
     #[cfg(unix)]
+    #[expect(unsafe_code, reason = "libc::unlinkat FFI; see the SAFETY comment")]
     fn remove_file_io(&self, name: &str) -> std::io::Result<()> {
         use std::os::unix::io::AsRawFd;
 

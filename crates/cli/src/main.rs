@@ -9,6 +9,10 @@
         clippy::cast_sign_loss
     )
 )]
+// Tests mutate the process environment and probe processes through libc.
+// Production unsafe is not covered: each site carries its own scoped
+// `#[expect(unsafe_code)]`.
+#![cfg_attr(test, allow(unsafe_code))]
 
 // Force the linker to retain extension crates that only register via linkme
 // distributed slices (no other symbols are referenced from the main binary).

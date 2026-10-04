@@ -551,6 +551,7 @@ where
 /// $ echo $?                # 130
 /// ```
 #[cfg(unix)]
+#[expect(unsafe_code, reason = "libc::signal FFI; see the SAFETY comment")]
 fn restore_default_shutdown_dispositions() {
     // SAFETY: `signal(2)` with `SIG_DFL` only rewrites this process's
     // disposition for the two named signals. It dereferences nothing, and
