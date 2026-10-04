@@ -1,10 +1,10 @@
 ---
 id: TASK-2370
 title: 'DUP-3: cargo-machete install hint hardcoded in unused_row instead of derived from CARGO_MACHETE'
-status: To Do
+status: Done
 assignee: []
 created_date: '2026-10-04 14:11'
-updated_date: '2026-10-04 14:52'
+updated_date: '2026-10-04 15:27'
 labels:
   - code-review-rust
   - duplication
@@ -30,6 +30,13 @@ dedup_key: 'DUP-3:extensions-rust/deps/src/format.rs:unused_row'
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 unused_row builds its install hint from CARGO_MACHETE.install_crate (no second literal)
-- [ ] #2 Existing render tests still pass
+- [x] #1 unused_row builds its install hint from CARGO_MACHETE.install_crate (no second literal)
+- [x] #2 Existing render tests still pass
+
 <!-- AC:END -->
+
+## Implementation Notes
+
+<!-- SECTION:NOTES:BEGIN -->
+Landed in wave TASK-2417. CargoTool gained install_command() and not_installed_hint(); check_tool_in, external_tools and unused_row all derive from them. The skipped-row text now reads 'cargo machete is not installed. Install with: cargo install cargo-machete' (was 'cargo-machete is not installed. ...').
+<!-- SECTION:NOTES:END -->

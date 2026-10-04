@@ -1,10 +1,10 @@
 ---
 id: TASK-2367
 title: 'SEC-11: content_declares_workspace treats `"""` inside a comment as a multi-line string opener'
-status: To Do
+status: Done
 assignee: []
 created_date: '2026-10-04 14:11'
-updated_date: '2026-10-04 14:52'
+updated_date: '2026-10-04 15:27'
 labels:
   - code-review-rust
   - security
@@ -31,6 +31,13 @@ dedup_key: 'SEC-11:extensions-rust/cargo-toml/src/workspace_root.rs:content_decl
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 Comment text (full-line and trailing, outside strings) is ignored when counting triple-quote delimiters
-- [ ] #2 Regression tests: a comment with an odd number of `"""` / `'''` before `[workspace]` still detects the workspace
+- [x] #1 Comment text (full-line and trailing, outside strings) is ignored when counting triple-quote delimiters
+- [x] #2 Regression tests: a comment with an odd number of `"""` / `'''` before `[workspace]` still detects the workspace
+
 <!-- AC:END -->
+
+## Implementation Notes
+
+<!-- SECTION:NOTES:BEGIN -->
+Landed in wave TASK-2417. Delimiter counting replaced by a per-line scanner (multiline_string_open_after) that stops at a comment outside strings, steps over single-line strings, and carries the open multi-line delimiter across lines.
+<!-- SECTION:NOTES:END -->

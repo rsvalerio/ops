@@ -1,10 +1,10 @@
 ---
 id: TASK-2369
 title: 'READ-13: Backlog task IDs embedded in runtime tracing messages of ops-deps parsers'
-status: To Do
+status: Done
 assignee: []
 created_date: '2026-10-04 14:11'
-updated_date: '2026-10-04 14:52'
+updated_date: '2026-10-04 15:27'
 labels:
   - code-review-rust
   - readability
@@ -33,6 +33,13 @@ dedup_key: 'READ-13:extensions-rust/deps/src/parse:tracing-messages'
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 No tracing message in ops-deps non-test code starts with a TASK-NNNN or rule-ID prefix; messages describe the event only
-- [ ] #2 Existing tests that match on the old message text are updated and pass
+- [x] #1 No tracing message in ops-deps non-test code starts with a TASK-NNNN or rule-ID prefix; messages describe the event only
+- [x] #2 Existing tests that match on the old message text are updated and pass
+
 <!-- AC:END -->
+
+## Implementation Notes
+
+<!-- SECTION:NOTES:BEGIN -->
+Landed in wave TASK-2417. Prefixes stripped from every tracing message in deny.rs, upgrade.rs and format.rs; tests that matched on TASK-1840, ERR-1, TASK-1026 and TASK-1074 now match on the message text.
+<!-- SECTION:NOTES:END -->
