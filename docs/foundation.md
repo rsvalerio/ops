@@ -48,7 +48,10 @@ The comparison is semantic, not textual. Each template is a baseline:
   `[[licenses.exceptions]]` entry instead.
 - In `mise.toml`, every tool the template pins must keep its exact version (drift is
   reported at `mise.toml:tools.<tool>`), and tools the repo adds, such as `cocogitto`,
-  are its own. Hold a pin back with a waiver on that location.
+  are its own. Hold a pin back with a waiver on that location. The ops pin is the one
+  exception: the template's version is a floor, so any `x.y.z` release from it on
+  passes, including the ops running the check. A pin below the floor, or one that is
+  not a plain version such as `latest`, is drift at `mise.toml:tools.ops`.
 - Lint levels only need to be at least as strict: `deny` or `forbid` satisfies the
   template's `warn`.
 - In a workspace, every member must have `[lints] workspace = true`, or the policy

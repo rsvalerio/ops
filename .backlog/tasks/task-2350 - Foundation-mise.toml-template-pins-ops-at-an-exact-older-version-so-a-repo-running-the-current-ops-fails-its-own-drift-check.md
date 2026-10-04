@@ -1,15 +1,15 @@
 ---
 id: TASK-2350
-title: >-
-  Foundation mise.toml template pins ops at an exact older version, so a repo
-  running the current ops fails its own drift check
-status: Triage
+title: 'Foundation mise.toml template pins ops at an exact older version, so a repo running the current ops fails its own drift check'
+status: Done
 assignee: []
 created_date: '2026-10-03 07:51'
+updated_date: '2026-10-04 14:41'
 labels:
   - foundation
   - bug
 dependencies: []
+modified_files: []
 priority: medium
 ordinal: 163000
 ---
@@ -37,7 +37,14 @@ Pinning 0.77.0 instead passes only because 0.77.0 does not check `mise.toml` at 
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 A mise.toml that pins the running ops version passes ops init --rust --check with no waiver
-- [ ] #2 An ops pin below the floor the template states (0.77.0, the first check-only verify) is still reported as drift
-- [ ] #3 A test covers both, and docs/foundation.md says how the ops pin is compared
+- [x] #1 A mise.toml that pins the running ops version passes ops init --rust --check with no waiver
+- [x] #2 An ops pin below the floor the template states (0.77.0, the first check-only verify) is still reported as drift
+- [x] #3 A test covers both, and docs/foundation.md says how the ops pin is compared
+
 <!-- AC:END -->
+
+## Implementation Notes
+
+<!-- SECTION:NOTES:BEGIN -->
+The ops pin in mise.toml is now compared as a floor (check_ops_pin in extensions-rust/foundation/src/lib.rs): any x.y.z at or above the template's version passes, a lower or non-version pin (e.g. latest) is drift at mise.toml:tools.ops. Every other tool pin stays exact. The template still writes 0.77.0; scaffold does not substitute the running version.
+<!-- SECTION:NOTES:END -->
