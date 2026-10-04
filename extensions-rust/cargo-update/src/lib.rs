@@ -333,30 +333,20 @@ pub fn parse_update_output(stderr: &[u8]) -> CargoUpdateResult {
 // stray introducers survive verbatim so the field validators below reject the
 // line instead of silently swallowing visible text.
 
-/// Shape of the version portion that follows the crate name on an action line.
-#[derive(Clone, Copy, Debug)]
-enum VersionShape {
-    /// `<from> -> <to>` — both versions present, separated by the arrow.
-    Arrow,
-    /// A single version recorded as the `from` version.
-    From,
-    /// A single version recorded as the `to` version.
-    To,
-}
-
 /// Table-driven dispatch for cargo's lockfile-change verbs.
 ///
-/// Each entry maps a leading verb to its [`UpdateAction`] and the shape of the
-/// version portion that follows the crate name.
+/// Each entry maps a leading verb to its [`UpdateAction`]; the action alone
+/// decides the shape of the version portion that follows the crate name (see
+/// [`parse_action_line`]).
 ///
 /// The table must list every verb cargo's `print_lockfile_updates` printer
 /// emits — `Unchanged` is the one exception, filtered as noise in
 /// [`parse_update_output`] because it is verbose-only and carries no change.
-const ACTION_PREFIXES: &[(&str, UpdateAction, VersionShape)] = &[
-    ("Updating", UpdateAction::Update, VersionShape::Arrow),
-    ("Downgrading", UpdateAction::Downgrade, VersionShape::Arrow),
-    ("Adding", UpdateAction::Add, VersionShape::To),
-    ("Removing", UpdateAction::Remove, VersionShape::From),
+const ACTION_PREFIXES: &[(&str, UpdateAction)] = &[
+    ("Updating", UpdateAction::Update),
+    ("Downgrading", UpdateAction::Downgrade),
+    ("Adding", UpdateAction::Add),
+    ("Removing", UpdateAction::Remove),
 ];
 
 /// `true` iff `line` is the index-progress noise line (`Updating crates.io
@@ -398,8 +388,8 @@ fn is_index_progress_line(line: &str) -> bool {
     tokens.next().is_none_or(|rest| rest.starts_with('('))
 }
 
-/// Matches `line` against [`ACTION_PREFIXES`], returning the matched action,
-/// its version shape, and the trimmed remainder of the line after the verb.
+/// Matches `line` against [`ACTION_PREFIXES`], returning the matched action
+/// and the trimmed remainder of the line after the verb.
 ///
 /// This is the single definition of "does `line` open with a known verb,
 /// followed by a whitespace boundary?", shared by [`parse_action_line`] and
@@ -408,13 +398,13 @@ fn is_index_progress_line(line: &str) -> bool {
 /// `Updatingxyz serde v1 -> v2` from classifying as a known verb (a
 /// false-positive drift warning) and from being consumed by the caller's
 /// `strip_prefix`.
-fn match_verb(line: &str) -> Option<(UpdateAction, VersionShape, &str)> {
-    ACTION_PREFIXES.iter().find_map(|&(prefix, action, shape)| {
+fn match_verb(line: &str) -> Option<(UpdateAction, &str)> {
+    ACTION_PREFIXES.iter().find_map(|&(prefix, action)| {
         let rest = line.strip_prefix(prefix)?;
         rest.chars()
             .next()
             .is_none_or(char::is_whitespace)
-            .then(|| (action, shape, rest.trim()))
+            .then(|| (action, rest.trim()))
     })
 }
 
@@ -496,8 +486,12 @@ fn is_available_annotation<'a>(it: &mut impl Iterator<Item = &'a str>) -> bool {
 /// - `Downgrading serde v1.0.220 -> v1.0.219`
 /// - `Adding new-crate v0.1.0`
 /// - `Removing old-crate v0.2.0`
+///
+/// The action picks both the line shape and the entry variant in one match,
+/// so the variant, not a doc comment, states which versions each action
+/// carries.
 fn parse_action_line(line: &str) -> ActionLineOutcome {
-    let Some((action, shape, rest)) = match_verb(line) else {
+    let Some((action, rest)) = match_verb(line) else {
         return ActionLineOutcome::NoMatch;
     };
 
@@ -508,93 +502,92 @@ fn parse_action_line(line: &str) -> ActionLineOutcome {
         return ActionLineOutcome::NoMatch;
     };
 
-    if matches!(shape, VersionShape::Arrow) {
-        let (Some(from), Some(arrow), Some(to)) = (it.next(), it.next(), it.next()) else {
-            return ActionLineOutcome::NoMatch;
-        };
-        if arrow != "->" {
-            return ActionLineOutcome::NoMatch;
+    match action {
+        UpdateAction::Update => parse_arrow_line(line, name, it, |name, from, to| {
+            UpdateEntry::Update { name, from, to }
+        }),
+        UpdateAction::Downgrade => parse_arrow_line(line, name, it, |name, from, to| {
+            UpdateEntry::Downgrade { name, from, to }
+        }),
+        UpdateAction::Add => {
+            parse_single_version_line(line, name, it, |name, to| UpdateEntry::Add { name, to })
         }
-        // Modern cargo appends `(available: vX)` when a newer
-        // semver-incompatible release exists; that annotation is expected on
-        // healthy runs and is accepted silently. Any *other* trailing tokens
-        // (e.g. a future `(yanked)`) are kept out of `to` rather than glued
-        // onto the version, and warn so the format drift is visible instead of
-        // producing wrong-but-plausible output.
-        if !is_available_annotation(&mut it) {
-            tracing::warn!(line = ?line, "cargo-update `Updating`/`Downgrading` line has unexpected trailing tokens; annotation discarded");
-        }
-        if !is_control_free(name) {
-            return ActionLineOutcome::Rejected("crate name carries control characters");
-        }
-        if !is_version_shaped(from) || !is_version_shaped(to) {
-            return ActionLineOutcome::Rejected("version token is not shaped like a version");
-        }
-        // The variant, not a doc comment, states which versions this action
-        // carries.
-        let entry = match action {
-            UpdateAction::Update => UpdateEntry::Update {
-                name: name.to_string(),
-                from: strip_v_prefix(from).to_string(),
-                to: strip_v_prefix(to).to_string(),
-            },
-            UpdateAction::Downgrade => UpdateEntry::Downgrade {
-                name: name.to_string(),
-                from: strip_v_prefix(from).to_string(),
-                to: strip_v_prefix(to).to_string(),
-            },
-            // ACTION_PREFIXES pairs the Arrow shape only with Update and
-            // Downgrade; Add/Remove carry single-version shapes below. There
-            // is no non-panicking body for this arm — per docs/clippy.md the
-            // invariant lives in ACTION_PREFIXES, not here.
-            #[allow(clippy::unreachable)]
-            other => unreachable!("Arrow shape paired with {other:?} in ACTION_PREFIXES"),
-        };
-        return ActionLineOutcome::Parsed(entry);
+        UpdateAction::Remove => parse_single_version_line(line, name, it, |name, from| {
+            UpdateEntry::Remove { name, from }
+        }),
     }
+}
 
-    // Mirrors the `Updating` arm: `<name> <version> <extra…>` warns rather than
-    // gluing a future cargo annotation like `Adding new-crate v0.1.0 (locked)`
-    // onto the parsed version.
-    let Some(version_raw) = it.next() else {
+/// Validate the crate name and every version token of an action line.
+///
+/// The version position is validated, not merely occupied: without this check
+/// `Adding new-crate (locked) v0.1.0` would publish `(locked)` as the version,
+/// and `Adding foo v` would publish an empty one, which reads as a known
+/// version to every consumer.
+fn validate_fields(name: &str, versions: &[&str]) -> Result<(), &'static str> {
+    if !is_control_free(name) {
+        return Err("crate name carries control characters");
+    }
+    if !versions.iter().copied().all(is_version_shaped) {
+        return Err("version token is not shaped like a version");
+    }
+    Ok(())
+}
+
+/// Parse the `<from> -> <to>` remainder of an `Updating`/`Downgrading` line;
+/// `tokens` starts right after the crate name.
+fn parse_arrow_line<'a>(
+    line: &str,
+    name: &str,
+    mut tokens: impl Iterator<Item = &'a str>,
+    build: fn(String, String, String) -> UpdateEntry,
+) -> ActionLineOutcome {
+    let (Some(from), Some("->"), Some(to)) = (tokens.next(), tokens.next(), tokens.next()) else {
         return ActionLineOutcome::NoMatch;
     };
-    if it.next().is_some() {
+    // Modern cargo appends `(available: vX)` when a newer
+    // semver-incompatible release exists; that annotation is expected on
+    // healthy runs and is accepted silently. Any *other* trailing tokens
+    // (e.g. a future `(yanked)`) are kept out of `to` rather than glued
+    // onto the version, and warn so the format drift is visible instead of
+    // producing wrong-but-plausible output.
+    if !is_available_annotation(&mut tokens) {
+        tracing::warn!(line = ?line, "cargo-update `Updating`/`Downgrading` line has unexpected trailing tokens; annotation discarded");
+    }
+    if let Err(reason) = validate_fields(name, &[from, to]) {
+        return ActionLineOutcome::Rejected(reason);
+    }
+    ActionLineOutcome::Parsed(build(
+        name.to_string(),
+        strip_v_prefix(from).to_string(),
+        strip_v_prefix(to).to_string(),
+    ))
+}
+
+/// Parse the single-version remainder of an `Adding`/`Removing` line;
+/// `tokens` starts right after the crate name.
+fn parse_single_version_line<'a>(
+    line: &str,
+    name: &str,
+    mut tokens: impl Iterator<Item = &'a str>,
+    build: fn(String, String) -> UpdateEntry,
+) -> ActionLineOutcome {
+    let Some(version) = tokens.next() else {
+        return ActionLineOutcome::NoMatch;
+    };
+    // Mirrors the arrow shape: `<name> <version> <extra…>` warns rather than
+    // gluing a future cargo annotation like `Adding new-crate v0.1.0 (locked)`
+    // onto the parsed version.
+    if tokens.next().is_some() {
         tracing::warn!(
             line = ?line,
             "cargo-update `Adding`/`Removing` line has unexpected trailing tokens; annotation discarded"
         );
     }
-    if !is_control_free(name) {
-        return ActionLineOutcome::Rejected("crate name carries control characters");
+    if let Err(reason) = validate_fields(name, &[version]) {
+        return ActionLineOutcome::Rejected(reason);
     }
-    // The version position is validated, not merely occupied: without this
-    // check `Adding new-crate (locked) v0.1.0` would publish `(locked)` as the
-    // version, and `Adding foo v` would publish `Some("")`, which reads as a
-    // known version to every consumer that checks `is_some()`.
-    if !is_version_shaped(version_raw) {
-        return ActionLineOutcome::Rejected("version token is not shaped like a version");
-    }
-    // The variant, not a doc comment, states which versions each action
-    // carries.
-    let entry = match shape {
-        VersionShape::From => UpdateEntry::Remove {
-            name: name.to_string(),
-            from: strip_v_prefix(version_raw).to_string(),
-        },
-        VersionShape::To => UpdateEntry::Add {
-            name: name.to_string(),
-            to: strip_v_prefix(version_raw).to_string(),
-        },
-        // The arrow shape returned above, so this arm cannot run; there is
-        // no non-panicking body for it — per docs/clippy.md the invariant
-        // lives in the early return above, not here.
-        #[allow(clippy::unreachable)]
-        other @ VersionShape::Arrow => {
-            unreachable!("single-version branch reached with {other:?} shape")
-        }
-    };
-    ActionLineOutcome::Parsed(entry)
+    ActionLineOutcome::Parsed(build(name.to_string(), strip_v_prefix(version).to_string()))
 }
 
 /// Datasource extension exposing parsed `cargo update --dry-run` results
