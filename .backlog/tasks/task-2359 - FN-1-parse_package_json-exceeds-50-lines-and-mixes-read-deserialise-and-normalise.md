@@ -1,10 +1,10 @@
 ---
 id: TASK-2359
 title: 'FN-1: parse_package_json exceeds 50 lines and mixes read, deserialise and normalise'
-status: To Do
+status: Done
 assignee: []
 created_date: '2026-10-04 14:10'
-updated_date: '2026-10-04 14:52'
+updated_date: '2026-10-04 16:14'
 labels:
   - code-review-rust
   - fn
@@ -29,6 +29,7 @@ dedup_key: 'FN-1:extensions-node/about/src/package_json.rs:parse_package_json'
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 parse_package_json is <= 50 lines, with author assembly and repository normalisation extracted into named helpers (e.g. collect_authors, normalise_repository)
-- [ ] #2 Existing package_json and lib tests pass unchanged
+- [x] #1 parse_package_json is <= 50 lines, with author assembly and repository normalisation extracted into named helpers (e.g. collect_authors, normalise_repository)
+- [x] #2 Existing package_json and lib tests pass unchanged
+
 <!-- AC:END -->

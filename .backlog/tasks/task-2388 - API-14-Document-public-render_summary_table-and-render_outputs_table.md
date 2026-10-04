@@ -1,10 +1,10 @@
 ---
 id: TASK-2388
 title: 'API-14: Document public render_summary_table and render_outputs_table'
-status: To Do
+status: Done
 assignee: []
 created_date: '2026-10-04 14:15'
-updated_date: '2026-10-04 14:52'
+updated_date: '2026-10-04 16:14'
 labels:
   - code-review-rust
   - api
@@ -29,6 +29,7 @@ dedup_key: 'API-14:extensions-terraform/plan/src/render.rs:render_summary_table'
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 render_summary_table and render_outputs_table each have a short doc summary naming what they render and the empty-input return value
-- [ ] #2 cargo clippy with missing_docs on the crate reports no undocumented public item in render.rs
+- [x] #1 render_summary_table and render_outputs_table each have a short doc summary naming what they render and the empty-input return value
+- [x] #2 cargo clippy with missing_docs on the crate reports no undocumented public item in render.rs
+
 <!-- AC:END -->

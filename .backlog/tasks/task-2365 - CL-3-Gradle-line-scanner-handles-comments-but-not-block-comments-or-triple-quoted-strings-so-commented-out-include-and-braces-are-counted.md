@@ -1,10 +1,10 @@
 ---
 id: TASK-2365
 title: 'CL-3: Gradle line scanner handles // comments but not /* */ block comments or triple-quoted strings, so commented-out include and braces are counted'
-status: To Do
+status: Done
 assignee: []
 created_date: '2026-10-04 14:10'
-updated_date: '2026-10-04 14:52'
+updated_date: '2026-10-04 16:14'
 labels:
   - code-review-rust
   - CL
@@ -32,7 +32,8 @@ dedup_key: 'CL-3:extensions-java/about/src/gradle/lexer.rs:scan_unquoted'
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 Lines inside a multi-line /* ... */ block never contribute include, rootProject.name, description or brace depth
-- [ ] #2 Multi-line triple-quoted strings do not desynchronise quote or brace state, or the limitation is documented in the module docs
-- [ ] #3 Regression tests cover block-commented include and braces
+- [x] #1 Lines inside a multi-line /* ... */ block never contribute include, rootProject.name, description or brace depth
+- [x] #2 Multi-line triple-quoted strings do not desynchronise quote or brace state, or the limitation is documented in the module docs
+- [x] #3 Regression tests cover block-commented include and braces
+
 <!-- AC:END -->
