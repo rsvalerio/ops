@@ -1,6 +1,6 @@
 //! SQL utilities for cargo metadata.
 //!
-//! # Security (SEC-001)
+//! # Security
 //!
 //! Identifier gating is handled by `ops_sqlite::sql` (shared
 //! defense-in-depth validation). This module only contains metadata-specific
@@ -13,46 +13,40 @@ use ops_sqlite::sql::{CreateViewSql, JsonTableLoad, TableName};
 /// row in `metadata_raw`. The [`crate_dependencies_view_sql`] view tears the
 /// blob apart with JSON1 (`json_each`) at query time.
 ///
-/// SEC-12: the table name is const-validated at construction, and the staged
+/// The table name is const-validated at construction, and the staged
 /// JSON reaches the engine as a bound `?1` parameter — no path is ever
 /// interpolated into a statement.
 pub const METADATA_RAW_LOAD: JsonTableLoad = JsonTableLoad::single_object_blob("metadata_raw");
 
 /// The `crate_dependencies` view over the `metadata_raw` JSON blob.
 ///
-/// SQLite JSON1 port of the `DuckDB` `unnest` body, verified against this
-/// workspace's real `cargo metadata` (see `docs/duckdb-alternatives.md`,
-/// preserved in `docs/duckdb-to-sqlite.md`'s appendix): 354 rows, matching
-/// per-crate counts, and the `cfg(unix)` target rows that PATTERN-1 /
-/// TASK-1056 exists to preserve come through intact.
+/// One row per dependency declaration of each workspace member, read out of
+/// the blob with JSON1 (`json_each`).
 ///
-/// TASK-0982: include path/intra-workspace deps. Cargo metadata sets
+/// Path and intra-workspace dependencies are included. Cargo metadata sets
 /// `dep.source` to NULL for path dependencies, so a `WHERE dep.source IS NOT
-/// NULL` filter would silently drop workspace-internal coupling — the
-/// dependency count would underreport reality for workspaces (such as this
-/// repo) that use path deps as the primary modularity tool.
+/// NULL` filter would silently drop workspace-internal coupling and the
+/// dependency count would underreport workspaces that use path deps as
+/// their primary modularity tool.
 ///
-/// PATTERN-1 / TASK-1056: include `dep.target` so target-conditional
-/// declarations of the same dep (e.g. a `[target.'cfg(windows)'.dependencies]`
-/// and a `[target.'cfg(unix)'.dependencies]` pair) preserve their
-/// platform-specific shape instead of presenting as identical `(crate_name,
-/// dependency_name, version_req, dependency_kind, is_optional)` tuples that
-/// double-count in downstream consumers. NULL means "all targets" (the
-/// default `[dependencies]` table); a non-empty string is the cfg expression.
+/// `target` keeps target-conditional declarations of the same dep (e.g. a
+/// `[target.'cfg(windows)'.dependencies]` and a
+/// `[target.'cfg(unix)'.dependencies]` pair) distinct, instead of presenting
+/// as identical `(crate_name, dependency_name, version_req, dependency_kind,
+/// is_optional)` tuples that double-count in downstream consumers. NULL
+/// means "all targets" (the default `[dependencies]` table); a non-empty
+/// string is the cfg expression.
 ///
-/// ERR-2 / TASK-1253: surface `pkg.manifest_path` so callers
-/// (e.g. `query_crate_dep_counts`) can key per-crate counts on a unique
-/// identifier. `pkg.name` collides for renamed (`package = "alt"`) or
-/// duplicate-named workspace crates and used to silently mis-attribute
-/// counts. The column is nullable in extreme edge cases (synthetic
-/// metadata) and ordered last so existing positional consumers keep
-/// working.
+/// `crate_manifest_path` gives callers (e.g. `query_crate_dep_counts`) a
+/// unique identifier to key per-crate counts on: `pkg.name` collides for
+/// renamed (`package = "alt"`) or duplicate-named workspace crates. The
+/// column is nullable for synthetic metadata and ordered last, after the
+/// columns positional consumers read.
 ///
-/// Boolean shape: `is_optional` is INTEGER 0/1 (`COALESCE(...,0)` over
-/// `json_extract`), not a SQL boolean — SQLite has none. No consumer reads
-/// `is_optional` typed (checked: `query_crate_deps` selects name/req only).
+/// `is_optional` is INTEGER 0/1 (`COALESCE(...,0)` over `json_extract`), not
+/// a SQL boolean — SQLite has none.
 ///
-/// SEC-12 / TASK-1864: returned as the gated [`CreateViewSql`] newtype so the
+/// Returned as the gated [`CreateViewSql`] newtype so the
 /// `crate_dependencies` DDL this crate executes is provably builder-produced,
 /// matching the sibling ingestors.
 #[must_use = "the view statement is the only gated form; discarding it means nothing is executed"]
@@ -90,20 +84,20 @@ mod tests {
         // SQLite has no CREATE OR REPLACE: the batch drops first.
         assert!(sql.contains("DROP VIEW IF EXISTS \"crate_dependencies\""));
         assert!(sql.contains("CREATE VIEW \"crate_dependencies\""));
-        // JSON1 replaces DuckDB's unnest over the blob's packages array.
+        // The packages array is read out of the blob with JSON1.
         assert!(sql.contains("json_each(m.json,'$.packages')"));
         assert!(sql.contains("workspace_members"));
-        // TASK-0982: path/intra-workspace deps must not be filtered out.
+        // Path/intra-workspace deps must not be filtered out.
         assert!(!sql.contains("dep.source IS NOT NULL"));
         assert!(sql.contains("dependency_kind"));
-        // PATTERN-1 / TASK-1056: target column must surface so
+        // The target column must surface so
         // target-conditional duplicates don't collapse into identical
         // tuples and inflate downstream counts.
         assert!(sql.contains("dep,'$.target'"));
         assert!(sql.contains("AS target"));
     }
 
-    /// SEC-12: the load spec's DDL is the single-blob shape — one `json`
+    /// The load spec's DDL is the single-blob shape — one `json`
     /// TEXT NOT NULL column — quoted and idempotent.
     #[test]
     fn metadata_raw_load_declares_single_json_blob() {

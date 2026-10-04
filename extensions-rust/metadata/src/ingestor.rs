@@ -23,7 +23,7 @@ impl DataIngestor for MetadataIngestor {
     }
 
     fn collect(&self, ctx: &Context, dir: &IngestDir) -> DbResult<()> {
-        // SEC-25: no `create_dir_all` here — the ingest directory is created,
+        // No `create_dir_all` here — the ingest directory is created,
         // hardened and verified once by `IngestDir::open` before `collect`
         // runs, and re-creating it by path would be another by-name resolution
         // of the directory this anchor exists to pin.
@@ -41,22 +41,21 @@ impl DataIngestor for MetadataIngestor {
             other => external_err(anyhow::Error::new(other).context("cargo metadata")),
         })?;
         check_metadata_output(&output).map_err(external_err)?;
-        // ERR-1 / TASK-2188: a capped stdout is a truncated document. Refuse
-        // it *before* `write_atomic`, so a truncated `metadata.json` is never
-        // staged, never handed to `read_json_auto`, and never checksummed
-        // into `data_sources` as certified ground truth.
+        // A capped stdout is a truncated document. Refuse it *before*
+        // `write_atomic`, so a truncated `metadata.json` is never staged,
+        // never loaded, and never checksummed into `data_sources` as
+        // certified ground truth.
         check_metadata_not_capped(&output).map_err(external_err)?;
-        // SEC-25: persist `cargo metadata` stdout atomically (sibling temp +
-        // fsync + rename), matching `SidecarIngestorConfig::collect_sidecar`,
-        // so a crash mid-write cannot leave a torn or zero-byte
-        // `metadata.json` for the subsequent `load` step to feed to SQLite's
-        // `read_json_auto` and corrupt the database with truncated input.
+        // Persist `cargo metadata` stdout atomically (sibling temp + fsync +
+        // rename), matching `SidecarIngestorConfig::collect_sidecar`, so a
+        // crash mid-write cannot leave a torn or zero-byte `metadata.json`
+        // for the subsequent `load` step to read.
         // The write is also anchored: temp create and publish rename both
         // resolve against the verified directory descriptor.
         dir.write_atomic(METADATA_JSON, &output.stdout)
             .map_err(|e| {
-                // ERR-13 / TASK-1893: keep naming the path the write acted on;
-                // `write_atomic` reports the syscall error, not the destination.
+                // Name the path the write acted on; `write_atomic` reports
+                // the syscall error, not the destination.
                 match e {
                     DbError::Io(io) => io_at(
                         "writing staged cargo metadata JSON",
@@ -70,7 +69,7 @@ impl DataIngestor for MetadataIngestor {
 
     fn load(&self, dir: &IngestDir, db: &Sqlite) -> DbResult<LoadResult> {
         let path = dir.entry_path(METADATA_JSON);
-        // SEC-32: arm the cleanup *before* the first fallible step, so every
+        // Arm the cleanup *before* the first fallible step, so every
         // exit from `load` unlinks the staged file. `read_staged_payload`,
         // `init_schema`, `build_views`, the invariant guards, the
         // workspace-root extract and the checksum/upsert all return via `?`;
@@ -78,34 +77,32 @@ impl DataIngestor for MetadataIngestor {
         // every workspace member, every dependency and absolute local paths —
         // on disk indefinitely.
         let _staged = StagedFile::new(dir);
-        // ARCH-9 / TASK-1247 successor: the payload is read through the
-        // anchor once, here, so the OPS_METADATA_MAX_BYTES cap is enforced in
-        // Rust before the bytes reach the engine (the SQLite port replaced
-        // the engine-side `maximum_object_size` read option with this check).
+        // The payload is read through the anchor once, here, so the
+        // OPS_METADATA_MAX_BYTES cap is enforced in Rust before the bytes
+        // reach the engine.
         let payload = read_staged_payload(dir)?;
-        // SEC-25 / TASK-2054: checksum the file opened through the anchor, so
-        // the provenance row describes the bytes this pipeline staged. It is
-        // computed *before* anything is published: the checksum reads the
-        // staged file, not the database, so ordering it first removes a
-        // failure point that used to sit between the published table and its
-        // provenance row — a checksum failure there left `metadata_raw`
-        // populated while `table_has_data()` reported data no `data_sources`
-        // row ever certified.
+        // Checksum the file opened through the anchor, so the provenance
+        // row describes the bytes this pipeline staged. It is computed
+        // *before* anything is published: the checksum reads the staged
+        // file, not the database, so a checksum failure cannot sit between
+        // the published table and its provenance row and leave
+        // `metadata_raw` populated with data no `data_sources` row
+        // certifies.
         let checksum = dir.checksum(METADATA_JSON)?;
         init_schema(db)?;
-        // CONC-2: one guard held across table creation *and* the reads of
+        // One guard held across table creation *and* the reads of
         // that table. Scoping `build_views` in its own block and re-acquiring
         // the lock on the next line would release nothing useful (nothing runs
         // in between) while splitting the `metadata_raw` (re)build from the
         // `count(*)` and `workspace_root` reads whose results are persisted
         // into the `data_sources` provenance row below. Anything replacing
         // `metadata_raw` in that gap would leave the recorded provenance
-        // describing data that is no longer there. The orchestrator's
+        // describing data that has been replaced. The orchestrator's
         // per-table ingest mutex
-        // (`extensions/sqlite/src/sql/ingest/orchestrator.rs`) happens to
-        // close the gap today, but `DataIngestor::load` is a public trait
-        // method and its signature promises no such caller, so the atomicity
-        // is enforced here instead of depended on from a distance.
+        // (`extensions/sqlite/src/sql/ingest/orchestrator.rs`) also closes
+        // the gap, but `DataIngestor::load` is a public trait method and its
+        // signature promises no such caller, so the atomicity is enforced
+        // here instead of depended on from a distance.
         let conn = db.lock()?;
         build_views(&conn, &payload)?;
         let (record_count, workspace_root) = validate_published(&conn)?;
@@ -139,14 +136,14 @@ impl DataIngestor for MetadataIngestor {
 /// Runs every post-publication invariant check inside one connection guard,
 /// dropping the just-published tables on **any** failure.
 ///
-/// `reject_non_singleton` and `reject_non_object` already tear down on their
-/// own paths; this wrapper extends the same recovery to the failures that
-/// used to leak past them — a raw count/shape query error, and a
-/// `workspace_root` that is present but not a string. Without it those
-/// failures left a populated `metadata_raw` behind, and because
-/// `table_has_data()` then reports data, the orchestrator would skip
-/// re-ingest on every later run and replay the failure forever. The double
-/// teardown on the two reject paths is harmless: `DROP … IF EXISTS`.
+/// `reject_non_singleton` and `reject_non_object` tear down on their own
+/// paths; this wrapper extends the same recovery to the failures neither of
+/// them sees — a raw count/shape query error, and a `workspace_root` that is
+/// present but not a string. Without it those failures would leave a
+/// populated `metadata_raw` behind, and because `table_has_data()` then
+/// reports data, the orchestrator would skip re-ingest on every later run
+/// and replay the failure forever. The double teardown on the two reject
+/// paths is harmless: `DROP … IF EXISTS`.
 fn validate_published(conn: &rusqlite::Connection) -> DbResult<(u64, String)> {
     let outcome = (|| {
         let record_count = query_record_count(conn)?;
@@ -207,8 +204,7 @@ fn read_staged_payload(dir: &IngestDir) -> DbResult<String> {
 ///
 /// Kept separate from `MetadataIngestor::load` so the loader reads at one
 /// nesting level. The staged payload arrives as an already-read string and is
-/// bound as `?1` — no path reaches SQL (the SEC-25 / TASK-2067 residual is
-/// closed by construction under the SQLite port).
+/// bound as `?1`, so no path reaches SQL.
 fn build_views(conn: &rusqlite::Connection, payload: &str) -> DbResult<()> {
     ops_sqlite::sql::load_json_string(conn, &views::METADATA_RAW_LOAD, payload)?;
     let view_sql = views::crate_dependencies_view_sql();
@@ -386,11 +382,11 @@ impl Drop for StagedFile<'_> {
 /// re-ingest loop, and on a failure path the caller's own error is the one
 /// worth surfacing.
 fn cleanup_staged_file(dir: &IngestDir) {
-    // SEC-25: no `exists()` probe first — that is check-then-act, and
+    // No `exists()` probe first — that is check-then-act, and
     // `remove_file` already reports `NotFound`. An absent file is the normal
     // outcome when `load` fails before `collect` ever staged one, so it is
-    // not worth a warning.
-    // SEC-25 / TASK-2054: `unlinkat` on the verified descriptor.
+    // not worth a warning. The removal is an `unlinkat` on the verified
+    // descriptor.
     match dir.remove_file(METADATA_JSON) {
         Ok(()) => {}
         Err(DbError::Io(e)) if e.kind() == std::io::ErrorKind::NotFound => {}
@@ -415,12 +411,11 @@ mod tests {
         assert_eq!(ingestor.name(), "metadata");
     }
 
-    /// TEST-1 / TASK-1546: pin the failure mode to "cargo ran but couldn't
-    /// locate a Cargo.toml" rather than asserting only `is_err()`. The bare
-    /// assertion passed for the wrong reason on environments without
-    /// `cargo` on `PATH` (`DbError::Io`) and on slow CI hits
+    /// Pins the failure mode to "cargo ran but couldn't locate a
+    /// Cargo.toml" rather than asserting only `is_err()`, which also holds
+    /// without `cargo` on `PATH` (`DbError::Io`) and on a slow CI hit
     /// (`DbError::Timeout`), neither of which is what the test name
-    /// promises. Match on `DbError::External` whose Display chain mentions
+    /// promises. Matches on `DbError::External` whose Display chain mentions
     /// `cargo metadata` so the test fails loudly if the upstream failure
     /// path stops surfacing the cargo origin.
     #[test]
@@ -453,17 +448,14 @@ mod tests {
         }
     }
 
-    /// ERR-13 / TASK-1893: an IO failure inside `collect` must name the path
-    /// it acted on, so a CI log distinguishes the filesystem edges without
-    /// reading the source.
+    /// An IO failure inside `collect` must name the path it acted on, so a
+    /// CI log distinguishes the filesystem edges without reading the source.
     ///
-    /// SEC-25 / TASK-2054 rewrote which edges exist. `collect` no longer calls
-    /// `create_dir_all` — the ingest directory is created, hardened and
-    /// verified once by `IngestDir::open` before any ingestor runs — so the
-    /// "creating metadata ingest directory" edge this test used to drive is
-    /// gone with it. The staged-JSON edge is the one that remains inside
-    /// `collect`, and it is driven here by parking a *directory* on the
-    /// staged file's own name so the publish rename cannot succeed.
+    /// The ingest directory is created, hardened and verified by
+    /// `IngestDir::open` before any ingestor runs, so the staged-JSON write
+    /// is the only filesystem edge inside `collect`. It is driven here by
+    /// parking a *directory* on the staged file's own name so the publish
+    /// rename cannot succeed.
     #[test]
     fn metadata_collect_io_error_names_the_offending_path() {
         let data_dir = tempfile::tempdir().unwrap();
@@ -486,12 +478,12 @@ mod tests {
         );
     }
 
-    /// SEC-25 / TASK-0933: a successful `MetadataIngestor::collect` must
-    /// leave no `.tmp.*` leftover from the `atomic_write` sibling-temp
-    /// pattern. Pin the cargo-metadata stdout write on the same crash-safe
-    /// helper that `SidecarIngestorConfig::collect_sidecar` uses (TASK-0911),
-    /// so a crash mid-write leaves either no `metadata.json` or the previous
-    /// version — never a partial.
+    /// A successful `MetadataIngestor::collect` must leave no `.tmp.*`
+    /// leftover from the `atomic_write` sibling-temp pattern. Pins the
+    /// cargo-metadata stdout write on the same crash-safe helper that
+    /// `SidecarIngestorConfig::collect_sidecar` uses, so a crash mid-write
+    /// leaves either no `metadata.json` or the previous version — never a
+    /// partial.
     #[test]
     fn metadata_collect_writes_atomically_no_tmp_leftover() {
         let manifest_dir = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"));
@@ -547,9 +539,8 @@ mod tests {
         assert!(!json_path.exists());
     }
 
-    /// TASK-0982: regression — path dependencies (source = null) must not be
-    /// silently dropped from the `crate_dependencies` view alongside registry
-    /// deps.
+    /// Path dependencies (source = null) must not be silently dropped from
+    /// the `crate_dependencies` view alongside registry deps.
     #[test]
     fn crate_dependencies_view_includes_path_deps() {
         let data_dir = tempfile::tempdir().unwrap();
@@ -584,12 +575,10 @@ mod tests {
         assert_eq!(path_dep_count, 1, "path dep (source=null) must be retained");
     }
 
-    /// ERR-1 / TASK-1891 (was TASK-1043), ported to the blob shape: a staged
-    /// payload that is not a single JSON object (here: an array of two
-    /// cargo-metadata documents — the shape `DuckDB`'s `read_json_auto` used to
-    /// explode into multiple rows) must be rejected at ingest rather than
+    /// A staged payload that is not a single JSON object (here: an array of
+    /// two cargo-metadata documents) must be rejected at ingest rather than
     /// committed as a state `query_metadata_raw` then refuses to read.
-    /// Assert both the warn and the error.
+    /// Asserts both the warn and the error.
     #[test]
     fn metadata_load_rejects_metadata_raw_with_multiple_rows() {
         use ops_about::test_support::capture_tracing;
@@ -625,7 +614,7 @@ mod tests {
         );
     }
 
-    /// ERR-1 / TASK-1891 AC #2 + #3: the halves of the crate must agree.
+    /// The halves of the crate must agree.
     /// Drive `load` and then `query_metadata_raw` against the *same*
     /// `Sqlite`, and assert the combined outcome — a rejected load leaves no
     /// `metadata_raw` behind, so the orchestrator's `table_has_data()` probe
@@ -670,13 +659,12 @@ mod tests {
         assert_eq!(tables, 0, "metadata_raw must be gone after a rejected load");
     }
 
-    /// Regression (PR #54 review): a payload whose `workspace_root` is not a
-    /// string fails *after* `metadata_raw` was published — later than the
-    /// shape/row-count guards — and that failure used to leave the populated
-    /// table behind. `table_has_data()` would then report data on every
-    /// later run, the orchestrator would skip re-ingest, and the failure
-    /// would replay forever. The post-publication wrapper must tear the
-    /// table (and its view) back down.
+    /// A payload whose `workspace_root` is not a string fails *after*
+    /// `metadata_raw` was published — later than the shape/row-count guards.
+    /// A populated table left behind would make `table_has_data()` report
+    /// data on every later run, the orchestrator would skip re-ingest, and
+    /// the failure would replay forever. The post-publication wrapper must
+    /// tear the table (and its view) back down.
     #[test]
     fn metadata_load_rejection_on_non_string_workspace_root_leaves_no_sticky_table() {
         let data_dir = tempfile::tempdir().unwrap();
@@ -706,11 +694,11 @@ mod tests {
         );
     }
 
-    /// SEC-32 / TASK-2033 AC #2 + #3: the rejection path added by ERR-1 /
-    /// TASK-1891 is the most likely way out of `load` that is not `Ok`, and it
-    /// used to skip the cleanup entirely — leaving a full `cargo metadata`
-    /// dump (every workspace member, every dependency, absolute local paths)
-    /// on disk with no bound on how long it stays there.
+    /// The rejection path is the most likely way out of `load` that is not
+    /// `Ok`, and it must clean up too: skipping it would leave a full
+    /// `cargo metadata` dump (every workspace member, every dependency,
+    /// absolute local paths) on disk with no bound on how long it stays
+    /// there.
     #[test]
     fn metadata_load_rejection_removes_the_staged_json() {
         let data_dir = tempfile::tempdir().unwrap();
@@ -732,11 +720,11 @@ mod tests {
         );
     }
 
-    /// SEC-32 / TASK-2033 AC #1: the guard is armed before the first fallible
-    /// step, so a failure that happens *earlier* than the row-count check —
-    /// here `metadata_raw create` choking on input `read_json_auto` cannot
-    /// parse — cleans up too. Pins that the cleanup is a scope guard rather
-    /// than a second call site bolted onto one more error path.
+    /// The guard is armed before the first fallible step, so a failure that
+    /// happens *earlier* than the row-count check — here the blob load
+    /// refusing input that is not JSON — cleans up too. Pins that the
+    /// cleanup is a scope guard rather than a second call site bolted onto
+    /// one more error path.
     #[test]
     fn metadata_load_removes_the_staged_json_when_the_table_build_fails() {
         let data_dir = tempfile::tempdir().unwrap();
@@ -756,14 +744,13 @@ mod tests {
         );
     }
 
-    /// PATTERN-1 / TASK-1056: the same dependency declared under two
+    /// The same dependency declared under two
     /// `[target.'cfg(...)'.dependencies]` blocks must surface as TWO
     /// distinct rows in `crate_dependencies` (preserving the
-    /// platform-specific shape via the new `target` column) rather than
+    /// platform-specific shape via the `target` column) rather than
     /// collapsing into a single tuple. cargo metadata serialises each
     /// declaration as its own entry in `package.dependencies`, so the
-    /// view must keep both — TASK-0982 fixed the inverse drop, this
-    /// fixes the duplicate-collapse.
+    /// view must keep both.
     #[test]
     fn crate_dependencies_view_preserves_target_conditional_duplicates() {
         let data_dir = tempfile::tempdir().unwrap();
@@ -791,7 +778,7 @@ mod tests {
             "both target-conditional libc declarations must surface as distinct rows"
         );
 
-        // The new `target` column must carry the cfg expression so
+        // The `target` column must carry the cfg expression so
         // platform-specific shape isn't lost.
         let mut targets: Vec<String> = Vec::new();
         let mut stmt = conn
@@ -817,7 +804,7 @@ mod tests {
         assert_eq!(targets, vec!["cfg(unix)", "cfg(windows)"]);
     }
 
-    /// FN-1 / TASK-1543 AC#2: drive the `extract_workspace_root` typeof-probe
+    /// Drives the `extract_workspace_root` typeof-probe
     /// fallback by handing it a blob whose `workspace_root` value is
     /// JSON-numeric (`json_extract` then yields an INTEGER, which cannot
     /// decode to `String`). The probe should observe the type and surface it
@@ -842,13 +829,4 @@ mod tests {
             "typeof-probe must name observed value type; got: {rendered}"
         );
     }
-
-    // TEST-1 / TASK-1546: the previous `negative_record_count_surfaces_as_…`
-    // test constructed `u64::try_from(-1)` inline and pattern-matched the
-    // error it created itself — it exercised no production code path. The
-    // `InvalidRecordCount` mapping in `MetadataIngestor::load` (see lines
-    // ~67-72 above) is already exercised by the loader's existing
-    // success-path tests and by the broader SQLite record-count plumbing
-    // in `ops-sqlite`; a dedicated tautology test added no coverage and
-    // gave reviewers false confidence, so it has been removed.
 }
