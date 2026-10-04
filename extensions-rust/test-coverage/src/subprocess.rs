@@ -132,16 +132,13 @@ pub fn format_cargo_exit(status: ExitStatus) -> String {
 pub fn check_llvm_cov_output(output: &Output) -> Result<(), anyhow::Error> {
     if !output.status.success() {
         let tail = format_error_tail(&output.stderr, 5);
+        // One shape for both exits: `marker` already says whether this was a
+        // regular non-zero status or a signal kill, so the signal case is
+        // named exactly once and the "cargo llvm-cov exited with" prefix
+        // stays greppable across both.
         let marker = format_cargo_exit(output.status);
-        // Preserve the historical "status 0" / "exit_code = None (terminated
-        // by signal)" Display shape so log greps that pre-date TASK-1560
-        // keep matching. PATTERN-1 / TASK-1099: keep "cargo llvm-cov" prefix
-        // intact so sister assertions still bind.
         let hint = missing_tool_hint(&output.stderr);
-        match output.status.code() {
-            Some(_) => anyhow::bail!("cargo llvm-cov exited with {marker}: {tail}{hint}"),
-            None => anyhow::bail!("cargo llvm-cov terminated by signal ({marker}): {tail}"),
-        }
+        anyhow::bail!("cargo llvm-cov exited with {marker}: {tail}{hint}");
     }
     Ok(())
 }

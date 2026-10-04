@@ -139,23 +139,33 @@ fn check_llvm_cov_output_failure_includes_exit_code() {
     assert!(msg.contains("panicked"), "stderr tail must remain: {msg}");
 }
 
-/// PATTERN-1 / TASK-1099: a None exit (signal kill, e.g. OOM) is named
-/// as `signal` so it's distinguishable from a real cargo failure.
+/// A signal kill (SIGKILL / OOM, `code() == None`) is named exactly once,
+/// behind the same "cargo llvm-cov exited with" prefix as a regular non-zero
+/// exit, and still carries the stderr tail.
 #[cfg(unix)]
 #[test]
-fn check_llvm_cov_output_failure_signal_kill_says_signal() {
+fn check_llvm_cov_output_failure_signal_kill_names_the_signal_once() {
     use std::os::unix::process::ExitStatusExt;
-    // signal 9 (SIGKILL) → exit_code() returns None
+    // Raw wait status 9: killed by SIGKILL, so `code()` is `None`.
     let output = std::process::Output {
         status: std::process::ExitStatus::from_raw(9),
         stdout: Vec::new(),
-        stderr: Vec::new(),
+        stderr: b"error: test run interrupted\n".to_vec(),
     };
     let err = check_llvm_cov_output(&output).expect_err("signal must fail");
     let msg = err.to_string();
     assert!(
-        msg.contains("signal") || msg.contains("None"),
-        "signal-kill case must be named in error: {msg}"
+        msg.starts_with("cargo llvm-cov exited with exit_code = None (terminated by signal): "),
+        "signal-kill message must keep the shared prefix and marker: {msg}"
+    );
+    assert_eq!(
+        msg.matches("terminated by signal").count(),
+        1,
+        "signal termination must be stated once: {msg}"
+    );
+    assert!(
+        msg.contains("test run interrupted"),
+        "signal-kill message must keep the stderr tail: {msg}"
     );
 }
 
