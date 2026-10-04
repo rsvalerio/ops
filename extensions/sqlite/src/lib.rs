@@ -196,9 +196,16 @@ mod tests {
             ),
         )
         .expect("upsert should succeed");
-        let checksum = schema::get_source_checksum(&db, "test_source", "/test/workspace")
+        let conn = db.lock().expect("lock");
+        let checksum: String = conn
+            .query_row(
+                "SELECT checksum FROM data_sources WHERE source_name = ? AND workspace_root = ?",
+                rusqlite::params!["test_source", "/test/workspace"],
+                |row| row.get(0),
+            )
             .expect("get should succeed");
-        assert_eq!(checksum, Some("abc123".to_string()));
+        drop(conn);
+        assert_eq!(checksum, "abc123");
     }
 
     #[test]
