@@ -1,10 +1,10 @@
 ---
 id: TASK-2379
 title: 'ERR-4: check_member_opt_in swallows a member manifest parse error as a misleading drift'
-status: To Do
+status: Done
 assignee: []
 created_date: '2026-10-04 14:13'
-updated_date: '2026-10-04 14:52'
+updated_date: '2026-10-04 15:06'
 labels:
   - code-review-rust
   - ERR
@@ -29,6 +29,7 @@ dedup_key: 'ERR-4:extensions-rust/foundation/src/lib.rs:check_member_opt_in'
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 An unparseable member manifest produces a distinct 'does not parse' drift (or error) that includes the path and the parse message, not the missing-opt-in message
-- [ ] #2 A test covers a member with malformed TOML for both check and scaffold
+- [x] #1 An unparseable member manifest produces a distinct 'does not parse' drift (or error) that includes the path and the parse message, not the missing-opt-in message
+- [x] #2 A test covers a member with malformed TOML for both check and scaffold
+
 <!-- AC:END -->

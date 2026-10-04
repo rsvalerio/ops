@@ -1,10 +1,10 @@
 ---
 id: TASK-2378
 title: 'ERR-14: check_file drops the TOML line/column from a does-not-parse drift message'
-status: To Do
+status: Done
 assignee: []
 created_date: '2026-10-04 14:13'
-updated_date: '2026-10-04 14:52'
+updated_date: '2026-10-04 15:06'
 labels:
   - code-review-rust
   - ERR
@@ -29,6 +29,7 @@ dedup_key: 'ERR-14:extensions-rust/foundation/src/lib.rs:check_file'
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 The does-not-parse drift message carries the TOML line/column (via Display or e.span()) so the editor can locate the error
-- [ ] #2 A test with a malformed template-named file asserts the drift message contains the line number
+- [x] #1 The does-not-parse drift message carries the TOML line/column (via Display or e.span()) so the editor can locate the error
+- [x] #2 A test with a malformed template-named file asserts the drift message contains the line number
+
 <!-- AC:END -->

@@ -1,10 +1,10 @@
 ---
 id: TASK-2380
 title: 'TEST-6: foundation error and drift branches (unparseable file, unparseable member, unresolvable members) have no tests'
-status: To Do
+status: Done
 assignee: []
 created_date: '2026-10-04 14:13'
-updated_date: '2026-10-04 14:52'
+updated_date: '2026-10-04 15:07'
 labels:
   - code-review-rust
   - TEST
@@ -34,6 +34,7 @@ dedup_key: 'TEST-6:extensions-rust/foundation/src/tests.rs:error-branches'
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 Tests cover a malformed foundation file, a malformed member manifest, and a root manifest whose members cannot be resolved, asserting the specific drift or error text
-- [ ] #2 A test covers a non-NotFound read error and the Package-shape force replace
+- [x] #1 Tests cover a malformed foundation file, a malformed member manifest, and a root manifest whose members cannot be resolved, asserting the specific drift or error text
+- [x] #2 A test covers a non-NotFound read error and the Package-shape force replace
+
 <!-- AC:END -->
