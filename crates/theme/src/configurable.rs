@@ -2,21 +2,20 @@
 //!
 //! # Width measurement
 //!
-//! READ-6 / TASK-1973: **every** string measured in this module's
-//! render/layout pipeline is measured with [`visible_width`], the ANSI-aware
-//! helper. The module previously mixed it with `ops_core::output::display_width`
-//! (a bare `UnicodeWidthStr::width` with no ANSI grammar), so a label, title
-//! or icon carrying an escape sequence got two different widths depending on
-//! which half of a line was being computed, and the two halves disagreed by
-//! exactly the escape's byte length. Those values are not hypothetical:
-//! report labels and results come from tool output, and the icon glyphs and
-//! `plan_header_prefix` come from user TOML. Consistency here is what keeps
-//! the boxed frame straight, and it is the precondition for the truncation
-//! policy below.
+//! **Every** string measured in this module's render/layout pipeline is
+//! measured with [`visible_width`], the ANSI-aware helper — never with
+//! `ops_core::output::display_width`, a bare `UnicodeWidthStr::width` with
+//! no ANSI grammar. Mixing the two would give a label, title or icon
+//! carrying an escape sequence two different widths depending on which half
+//! of a line was being computed, off by exactly the escape's byte length.
+//! Such values are not hypothetical: report labels and results come from
+//! tool output, and the icon glyphs and `plan_header_prefix` come from user
+//! TOML. Consistency here is what keeps the boxed frame straight, and it is
+//! the precondition for the truncation policy below.
 //!
 //! # Truncation policy
 //!
-//! CL-3 / TASK-1969: no rendered line may exceed the column budget it was
+//! No rendered line may exceed the column budget it was
 //! given. The budget is spent in this order — chrome (indent, icon column,
 //! the space after it), the trailing slot, [`MIN_SEP_GLYPHS`] separator
 //! columns — and the **label** absorbs whatever is left, truncated through
@@ -44,10 +43,11 @@ const MIN_SEP_GLYPHS: usize = 3;
 
 /// A theme backed by a [`ThemeConfig`].
 ///
-/// TASK-0747: SGR prefixes are precomputed at construction so the per-step
-/// render path avoids repeated spec parsing and allocation.
-/// TASK-0748: fields are private; construction goes through [`Self::new`].
+/// SGR prefixes are precomputed at construction so the per-step render path
+/// avoids repeated spec parsing and allocation. Fields are private;
+/// construction goes through [`Self::new`].
 /// `#[non_exhaustive]` gates future field additions as non-breaking.
+#[derive(Debug, Clone)]
 #[non_exhaustive]
 pub struct ConfigurableTheme {
     config: ThemeConfig,
@@ -65,14 +65,13 @@ pub struct ConfigurableTheme {
     report_warning_prefix: Option<String>,
     report_error_prefix: Option<String>,
     report_title_prefix: Option<String>,
-    /// TASK-1035: precomputed `" ".repeat(config.left_pad)` so the per-step
+    /// Precomputed `" ".repeat(config.left_pad)` so the per-step
     /// render path doesn't allocate a fresh padding string on every call.
     left_pad_str: String,
-    /// PERF-3 / TASK-1975: the widest [`ALL_STATUSES`] icon, in columns.
-    /// Derived only from `config`, which is moved in here and never mutated,
-    /// so it is constant for the theme's lifetime — but it was measured
-    /// afresh on every rendered row (and again per error block) before being
-    /// hoisted into the same precomputed block as the SGR prefixes.
+    /// The widest [`ALL_STATUSES`] icon, in columns. Derived only from
+    /// `config`, which is owned here and never mutated, so it is constant
+    /// for the theme's lifetime and measured once at construction, like the
+    /// SGR prefixes, rather than per rendered row.
     icon_column_width: usize,
     /// READ-5 / TASK-1971: columns the spinner cell occupies on a running
     /// row — the widest glyph in `config.tick_chars`, not a literal `1`.
@@ -125,11 +124,10 @@ impl ConfigurableTheme {
         }
     }
 
-    /// READ-5 / TASK-1971 + TEST-33 / TASK-2096: the
-    /// `running_template_overhead` mis-budget diagnostic, as a value.
+    /// The `running_template_overhead` mis-budget diagnostic, as a value.
     ///
     /// The field is a hand-maintained column count that a theme author must
-    /// keep consistent with `running_template` by eye; nothing derived it
+    /// keep consistent with `running_template` by eye; nothing derives it
     /// and `render_separator` subtracts it from the budget as fact. The
     /// literal (non-placeholder) text of the template plus the widest
     /// spinner glyph is a *lower bound* on that overhead — the `{elapsed}`
@@ -137,12 +135,11 @@ impl ConfigurableTheme {
     /// is legitimate. A configured value below the bound is not: the
     /// separator then over-runs the terminal width on every running row.
     ///
-    /// TEST-33 / TASK-2096: [`Self::new`] performs no I/O; the diagnostic
-    /// is returned here so callers (tests, library embeddings) can observe
-    /// it without reading stderr. The theme-resolution entry points
-    /// (`resolve_theme` / `resolve_theme_owned`) render it via
-    /// `ops_core::ui::warn` at resolution time, preserving the operator
-    /// visibility the constructor-side warn used to provide.
+    /// [`Self::new`] performs no I/O; the diagnostic is returned here so
+    /// callers (tests, library embeddings) can observe it without reading
+    /// stderr. The theme-resolution entry points (`resolve_theme` /
+    /// `resolve_theme_owned`) render it via `ops_core::ui::warn` at
+    /// resolution time, which is where the operator sees it.
     #[must_use]
     pub fn template_overhead_diagnostic(&self) -> Option<String> {
         let minimum = template_literal_width(&self.config.running_template)
@@ -320,8 +317,8 @@ impl ConfigurableTheme {
         out
     }
 
-    // TASK-0747: render uses precomputed SGR prefixes instead of re-parsing
-    // the spec string on every step line. The body now lives in
+    // `render` uses precomputed SGR prefixes instead of re-parsing the spec
+    // string on every step line. The body lives in
     // [`render_slot`](Self::render_slot); `render` only maps a `StepLine` onto a
     // `SlotLine` (icon = status icon, trailing = formatted duration). Keep this
     // mapping mechanical so the runner output stays byte-identical.
@@ -440,7 +437,7 @@ impl ConfigurableTheme {
         budget.saturating_sub(reserved)
     }
 
-    // TASK-0747: render_summary uses precomputed SGR prefix. Split so report
+    // render_summary uses precomputed SGR prefix. Split so report
     // footers reuse the same chrome (`render_summary_text`) with their own body.
     #[must_use]
     pub fn render_summary(&self, success: bool, elapsed_secs: f64) -> String {

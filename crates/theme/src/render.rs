@@ -37,12 +37,9 @@ pub fn render_error_block(
 
 /// [`render_error_block`] with an explicit colour gate.
 ///
-/// TEST-25 / TASK-1979: the colour behaviour of the error block used to be
-/// covered by a local re-implementation in the test module, because
-/// `apply_style` consults live stderr TTY state and a test harness never has
-/// one. Injecting the gate here lets those tests exercise the shipped
-/// renderer — including the `stderr_tail` branch — instead of a copy that
-/// had already drifted from it.
+/// `apply_style` consults live stderr TTY state, which a test harness never
+/// has. Injecting the gate here lets tests exercise the shipped renderer's
+/// colour behaviour — including the `stderr_tail` branch — directly.
 #[must_use]
 pub fn render_error_block_gated(
     detail: &ErrorDetail,

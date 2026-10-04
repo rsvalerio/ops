@@ -1,10 +1,9 @@
 //! Boxed-layout frame geometry.
 //!
-//! ARCH-1 / TASK-1981: split out of `configurable.rs`, which had grown past
-//! the module red flag with four unrelated concerns behind one type. This is
-//! the column arithmetic — frame reserves, borders, the wrap helpers and the
-//! error-block re-indent — kept together so it can be reviewed on its own
-//! rather than interleaved with config getters and the report path.
+//! The column arithmetic of [`ConfigurableTheme`] — frame reserves, borders,
+//! the wrap helpers and the error-block re-indent — kept together so it can
+//! be reviewed on its own rather than interleaved with config getters and
+//! the report path.
 //!
 //! The width-measurement and truncation policies these helpers follow are
 //! documented on the parent module.
@@ -286,11 +285,11 @@ pub(super) fn build_horizontal_border(args: BorderArgs<'_>) -> String {
     // report producer or a themed `plan_header_prefix`.
     let corner_l_w = visible_width(left_corner);
     let corner_r_w = visible_width(right_corner);
-    // CL-3 / TASK-1969: the corners are non-negotiable, so the title only
-    // owns whatever interior is left once both are paid for. A title wider
-    // than that (a long `Running: ...` step list, a report producer's own
-    // heading) previously pushed the closing corner past `columns` and
-    // wrapped the border onto a second line. Clamp with the module's
+    // The corners are non-negotiable, so the title only owns whatever
+    // interior is left once both are paid for. A title wider than that (a
+    // long `Running: ...` step list, a report producer's own heading) would
+    // otherwise push the closing corner past `columns` and wrap the border
+    // onto a second line. Clamp with the module's
     // ANSI-aware truncator -- the same helper every other width in this file
     // uses -- and measure the *clamped* text for the fill, so the rendered
     // border is at most `columns` wide.
