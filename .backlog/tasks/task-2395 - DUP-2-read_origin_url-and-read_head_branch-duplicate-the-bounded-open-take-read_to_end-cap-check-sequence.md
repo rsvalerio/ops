@@ -1,13 +1,15 @@
 ---
 id: TASK-2395
 title: 'DUP-2: read_origin_url and read_head_branch duplicate the bounded open/take/read_to_end/cap-check sequence'
-status: Triage
+status: To Do
 assignee: []
 created_date: '2026-10-04 14:15'
+updated_date: '2026-10-04 14:52'
 labels:
   - code-review-rust
   - DUP
 dependencies: []
+parent_task_id: 'TASK-2421'
 modified_files:
   - extensions/git/src/config.rs
 priority: low

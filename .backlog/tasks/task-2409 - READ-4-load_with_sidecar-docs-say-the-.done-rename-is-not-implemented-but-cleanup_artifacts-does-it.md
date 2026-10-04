@@ -1,13 +1,15 @@
 ---
 id: TASK-2409
 title: 'READ-4: load_with_sidecar docs say the .done rename is not implemented, but cleanup_artifacts does it'
-status: Triage
+status: To Do
 assignee: []
 created_date: '2026-10-04 14:18'
+updated_date: '2026-10-04 14:52'
 labels:
   - code-review-rust
   - READ
 dependencies: []
+parent_task_id: 'TASK-2416'
 modified_files:
   - extensions/sqlite/src/ingestor.rs
 priority: low

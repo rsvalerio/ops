@@ -1,13 +1,15 @@
 ---
 id: TASK-2354
 title: 'ERR-4: Task scans silently drop directory-entry read errors, unlike Store::find'
-status: Triage
+status: To Do
 assignee: []
 created_date: '2026-10-04 14:08'
+updated_date: '2026-10-04 14:52'
 labels:
   - code-review-rust
   - ERR
 dependencies: []
+parent_task_id: 'TASK-2423'
 modified_files:
   - crates/backlog/src/store.rs
 priority: low

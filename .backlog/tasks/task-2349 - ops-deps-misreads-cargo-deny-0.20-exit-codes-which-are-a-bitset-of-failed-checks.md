@@ -1,14 +1,16 @@
 ---
 id: TASK-2349
 title: 'ops deps misreads cargo-deny 0.20 exit codes, which are a bitset of failed checks'
-status: Triage
+status: To Do
 assignee: []
 created_date: '2026-10-02 20:45'
+updated_date: '2026-10-04 14:52'
 labels:
   - code-review-rust
   - deps
   - bug
 dependencies: []
+parent_task_id: 'TASK-2417'
 modified_files:
   - extensions-rust/deps/src/parse/deny.rs
   - extensions-rust/deps/src/parse/deny/tests.rs

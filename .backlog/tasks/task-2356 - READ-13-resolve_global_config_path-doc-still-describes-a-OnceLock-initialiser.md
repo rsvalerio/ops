@@ -1,13 +1,15 @@
 ---
 id: TASK-2356
 title: 'READ-13: resolve_global_config_path doc still describes a OnceLock initialiser'
-status: Triage
+status: To Do
 assignee: []
 created_date: '2026-10-04 14:09'
+updated_date: '2026-10-04 14:52'
 labels:
   - code-review-rust
   - READ
 dependencies: []
+parent_task_id: 'TASK-2423'
 modified_files:
   - crates/core/src/config/loader/global.rs
 priority: low

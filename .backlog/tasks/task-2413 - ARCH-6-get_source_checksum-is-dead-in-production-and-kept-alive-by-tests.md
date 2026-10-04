@@ -1,13 +1,15 @@
 ---
 id: TASK-2413
 title: 'ARCH-6: get_source_checksum is dead in production and kept alive by tests'
-status: Triage
+status: To Do
 assignee: []
 created_date: '2026-10-04 14:18'
+updated_date: '2026-10-04 14:52'
 labels:
   - code-review-rust
   - ARCH
 dependencies: []
+parent_task_id: 'TASK-2416'
 modified_files:
   - extensions/sqlite/src/schema.rs
 priority: low

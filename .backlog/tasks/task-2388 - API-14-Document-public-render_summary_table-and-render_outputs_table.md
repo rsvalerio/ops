@@ -1,13 +1,15 @@
 ---
 id: TASK-2388
 title: 'API-14: Document public render_summary_table and render_outputs_table'
-status: Triage
+status: To Do
 assignee: []
 created_date: '2026-10-04 14:15'
+updated_date: '2026-10-04 14:52'
 labels:
   - code-review-rust
   - api
 dependencies: []
+parent_task_id: 'TASK-2424'
 modified_files:
   - extensions-terraform/plan/src/render.rs
 priority: low

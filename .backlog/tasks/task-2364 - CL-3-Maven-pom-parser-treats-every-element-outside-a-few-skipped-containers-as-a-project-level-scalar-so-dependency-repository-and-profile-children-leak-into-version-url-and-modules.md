@@ -1,13 +1,15 @@
 ---
 id: TASK-2364
 title: 'CL-3: Maven pom parser treats every element outside a few skipped containers as a project-level scalar, so dependency, repository and profile children leak into version, url and modules'
-status: Triage
+status: To Do
 assignee: []
 created_date: '2026-10-04 14:10'
+updated_date: '2026-10-04 14:52'
 labels:
   - code-review-rust
   - CL
 dependencies: []
+parent_task_id: 'TASK-2424'
 modified_files:
   - extensions-java/about/src/maven/pom.rs
 priority: medium

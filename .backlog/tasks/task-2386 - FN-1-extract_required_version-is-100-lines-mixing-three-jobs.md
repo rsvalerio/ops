@@ -1,13 +1,15 @@
 ---
 id: TASK-2386
 title: 'FN-1: extract_required_version is ~100 lines mixing three jobs'
-status: Triage
+status: To Do
 assignee: []
 created_date: '2026-10-04 14:13'
+updated_date: '2026-10-04 14:52'
 labels:
   - code-review-rust
   - function-structure
 dependencies: []
+parent_task_id: 'TASK-2424'
 modified_files:
   - extensions-terraform/about/src/lib.rs
 priority: low

@@ -1,13 +1,15 @@
 ---
 id: TASK-2365
 title: 'CL-3: Gradle line scanner handles // comments but not /* */ block comments or triple-quoted strings, so commented-out include and braces are counted'
-status: Triage
+status: To Do
 assignee: []
 created_date: '2026-10-04 14:10'
+updated_date: '2026-10-04 14:52'
 labels:
   - code-review-rust
   - CL
 dependencies: []
+parent_task_id: 'TASK-2424'
 modified_files:
   - extensions-java/about/src/gradle/lexer.rs
   - extensions-java/about/src/gradle/mod.rs

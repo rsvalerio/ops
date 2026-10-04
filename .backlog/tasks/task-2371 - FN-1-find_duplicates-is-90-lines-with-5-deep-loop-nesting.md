@@ -1,13 +1,15 @@
 ---
 id: TASK-2371
 title: 'FN-1: find_duplicates is ~90 lines with 5-deep loop nesting'
-status: Triage
+status: To Do
 assignee: []
 created_date: '2026-10-04 14:11'
+updated_date: '2026-10-04 14:52'
 labels:
   - code-review-rust
   - FN
 dependencies: []
+parent_task_id: 'TASK-2418'
 modified_files:
   - extensions-rust/about/src/deps_provider.rs
 priority: low

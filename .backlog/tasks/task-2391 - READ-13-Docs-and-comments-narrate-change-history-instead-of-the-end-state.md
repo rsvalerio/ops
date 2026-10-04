@@ -1,13 +1,15 @@
 ---
 id: TASK-2391
 title: 'READ-13: Docs and comments narrate change history instead of the end state'
-status: Triage
+status: To Do
 assignee: []
 created_date: '2026-10-04 14:15'
+updated_date: '2026-10-04 14:52'
 labels:
   - code-review-rust
   - readability
 dependencies: []
+parent_task_id: 'TASK-2422'
 modified_files:
   - extensions/config-checkers/src/yaml.rs
   - extensions/config-checkers/src/tests.rs

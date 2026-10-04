@@ -1,13 +1,15 @@
 ---
 id: TASK-2407
 title: 'ERR-13: Filesystem errors in ops-sqlite reach callers without the path'
-status: Triage
+status: To Do
 assignee: []
 created_date: '2026-10-04 14:18'
+updated_date: '2026-10-04 14:52'
 labels:
   - code-review-rust
   - ERR
 dependencies: []
+parent_task_id: 'TASK-2416'
 modified_files:
   - extensions/sqlite/src/connection.rs
   - extensions/sqlite/src/sql/ingest/dir.rs

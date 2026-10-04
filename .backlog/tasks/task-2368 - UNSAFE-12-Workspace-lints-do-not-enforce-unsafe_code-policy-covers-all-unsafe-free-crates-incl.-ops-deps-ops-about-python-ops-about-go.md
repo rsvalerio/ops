@@ -1,14 +1,15 @@
 ---
 id: TASK-2368
 title: 'UNSAFE-12: Workspace lints do not enforce unsafe_code policy (covers all unsafe-free crates, incl. ops-deps, ops-about-python, ops-about-go)'
-status: Triage
+status: To Do
 assignee: []
 created_date: '2026-10-04 14:11'
-updated_date: '2026-10-04 14:31'
+updated_date: '2026-10-04 14:52'
 labels:
   - code-review-rust
   - unsafe
 dependencies: []
+parent_task_id: 'TASK-2417'
 modified_files:
   - Cargo.toml
 priority: low

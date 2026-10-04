@@ -1,13 +1,15 @@
 ---
 id: TASK-2412
 title: 'SEC-25: create_ingest_dir changes permissions on the database''s parent directory, which can be the workspace root'
-status: Triage
+status: To Do
 assignee: []
 created_date: '2026-10-04 14:18'
+updated_date: '2026-10-04 14:52'
 labels:
   - code-review-rust
   - SEC
 dependencies: []
+parent_task_id: 'TASK-2416'
 modified_files:
   - extensions/sqlite/src/sql/ingest/dir.rs
   - extensions/sqlite/src/connection.rs

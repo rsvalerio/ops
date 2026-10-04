@@ -1,13 +1,15 @@
 ---
 id: TASK-2375
 title: 'READ-1: Signal-kill error message in check_llvm_cov_output states ''terminated by signal'' twice'
-status: Triage
+status: To Do
 assignee: []
 created_date: '2026-10-04 14:12'
+updated_date: '2026-10-04 14:52'
 labels:
   - code-review-rust
   - READ
 dependencies: []
+parent_task_id: 'TASK-2420'
 modified_files:
   - extensions-rust/test-coverage/src/subprocess.rs
   - extensions-rust/test-coverage/src/tests/subprocess.rs

@@ -1,13 +1,15 @@
 ---
 id: TASK-2370
 title: 'DUP-3: cargo-machete install hint hardcoded in unused_row instead of derived from CARGO_MACHETE'
-status: Triage
+status: To Do
 assignee: []
 created_date: '2026-10-04 14:11'
+updated_date: '2026-10-04 14:52'
 labels:
   - code-review-rust
   - duplication
 dependencies: []
+parent_task_id: 'TASK-2417'
 modified_files:
   - extensions-rust/deps/src/format.rs
   - extensions-rust/deps/src/lib.rs

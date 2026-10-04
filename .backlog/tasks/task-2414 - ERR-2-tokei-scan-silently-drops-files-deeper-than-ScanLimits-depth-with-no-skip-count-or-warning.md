@@ -1,13 +1,15 @@
 ---
 id: TASK-2414
 title: 'ERR-2: tokei scan silently drops files deeper than ScanLimits::depth with no skip count or warning'
-status: Triage
+status: To Do
 assignee: []
 created_date: '2026-10-04 14:19'
+updated_date: '2026-10-04 14:52'
 labels:
   - code-review-rust
   - ERR
 dependencies: []
+parent_task_id: 'TASK-2420'
 modified_files:
   - extensions/tokei/src/lib.rs
   - extensions/tokei/src/tests.rs

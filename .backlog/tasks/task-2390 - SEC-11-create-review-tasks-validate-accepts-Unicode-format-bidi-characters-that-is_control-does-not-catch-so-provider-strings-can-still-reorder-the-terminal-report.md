@@ -1,13 +1,15 @@
 ---
 id: TASK-2390
 title: 'SEC-11: create-review-tasks validate() accepts Unicode format/bidi characters that is_control() does not catch, so provider strings can still reorder the terminal report'
-status: Triage
+status: To Do
 assignee: []
 created_date: '2026-10-04 14:15'
+updated_date: '2026-10-04 14:52'
 labels:
   - code-review-rust
   - SEC
 dependencies: []
+parent_task_id: 'TASK-2422'
 modified_files:
   - extensions/create-review-tasks/src/lib.rs
 priority: low

@@ -1,13 +1,15 @@
 ---
 id: TASK-2378
 title: 'ERR-14: check_file drops the TOML line/column from a does-not-parse drift message'
-status: Triage
+status: To Do
 assignee: []
 created_date: '2026-10-04 14:13'
+updated_date: '2026-10-04 14:52'
 labels:
   - code-review-rust
   - ERR
 dependencies: []
+parent_task_id: 'TASK-2419'
 modified_files:
   - extensions-rust/foundation/src/lib.rs
 priority: low

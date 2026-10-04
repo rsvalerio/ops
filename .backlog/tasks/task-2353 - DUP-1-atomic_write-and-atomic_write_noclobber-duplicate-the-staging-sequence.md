@@ -1,13 +1,15 @@
 ---
 id: TASK-2353
 title: 'DUP-1: atomic_write and atomic_write_noclobber duplicate the staging sequence'
-status: Triage
+status: To Do
 assignee: []
 created_date: '2026-10-04 14:08'
+updated_date: '2026-10-04 14:52'
 labels:
   - code-review-rust
   - DUP
 dependencies: []
+parent_task_id: 'TASK-2423'
 modified_files:
   - crates/backlog/src/cmd/mod.rs
 priority: low

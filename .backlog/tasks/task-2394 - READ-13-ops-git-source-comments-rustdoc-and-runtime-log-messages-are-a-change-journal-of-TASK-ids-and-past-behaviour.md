@@ -1,13 +1,15 @@
 ---
 id: TASK-2394
 title: 'READ-13: ops-git source comments, rustdoc and runtime log messages are a change journal of TASK ids and past behaviour'
-status: Triage
+status: To Do
 assignee: []
 created_date: '2026-10-04 14:15'
+updated_date: '2026-10-04 14:52'
 labels:
   - code-review-rust
   - READ
 dependencies: []
+parent_task_id: 'TASK-2421'
 modified_files:
   - extensions/git/src/config.rs
   - extensions/git/src/provider.rs

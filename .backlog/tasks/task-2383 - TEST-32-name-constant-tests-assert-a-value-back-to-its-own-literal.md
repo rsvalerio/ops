@@ -1,13 +1,15 @@
 ---
 id: TASK-2383
 title: 'TEST-32: name/constant tests assert a value back to its own literal'
-status: Triage
+status: To Do
 assignee: []
 created_date: '2026-10-04 14:13'
+updated_date: '2026-10-04 14:52'
 labels:
   - code-review-rust
   - test
 dependencies: []
+parent_task_id: 'TASK-2420'
 modified_files:
   - extensions-rust/loc/src/tests.rs
   - extensions-rust/loc/src/ingestor.rs

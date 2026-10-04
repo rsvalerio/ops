@@ -1,13 +1,15 @@
 ---
 id: TASK-2415
 title: 'READ-13: tokei crate/item docs narrate change history instead of the end state'
-status: Triage
+status: To Do
 assignee: []
 created_date: '2026-10-04 14:19'
+updated_date: '2026-10-04 14:52'
 labels:
   - code-review-rust
   - READ
 dependencies: []
+parent_task_id: 'TASK-2420'
 modified_files:
   - extensions/tokei/src/lib.rs
 priority: low

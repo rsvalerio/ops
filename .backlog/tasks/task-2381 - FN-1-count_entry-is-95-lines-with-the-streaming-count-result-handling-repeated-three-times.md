@@ -1,13 +1,15 @@
 ---
 id: TASK-2381
 title: 'FN-1: count_entry is ~95 lines with the streaming-count result handling repeated three times'
-status: Triage
+status: To Do
 assignee: []
 created_date: '2026-10-04 14:13'
+updated_date: '2026-10-04 14:52'
 labels:
   - code-review-rust
   - fn
 dependencies: []
+parent_task_id: 'TASK-2420'
 modified_files:
   - extensions-rust/loc/src/lib.rs
 priority: low

@@ -1,13 +1,15 @@
 ---
 id: TASK-2376
 title: 'READ-13: ops-metadata docs narrate migration history and task provenance instead of the end state'
-status: Triage
+status: To Do
 assignee: []
 created_date: '2026-10-04 14:13'
+updated_date: '2026-10-04 14:52'
 labels:
   - code-review-rust
   - READ
 dependencies: []
+parent_task_id: 'TASK-2419'
 modified_files:
   - extensions-rust/metadata/src/lib.rs
   - extensions-rust/metadata/src/views.rs

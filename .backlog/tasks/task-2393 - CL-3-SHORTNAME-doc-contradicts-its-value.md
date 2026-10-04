@@ -1,13 +1,15 @@
 ---
 id: TASK-2393
 title: 'CL-3: SHORTNAME doc contradicts its value'
-status: Triage
+status: To Do
 assignee: []
 created_date: '2026-10-04 14:15'
+updated_date: '2026-10-04 14:52'
 labels:
   - code-review-rust
   - clarity
 dependencies: []
+parent_task_id: 'TASK-2422'
 modified_files:
   - extensions/config-checkers/src/lib.rs
 priority: low

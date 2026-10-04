@@ -1,13 +1,15 @@
 ---
 id: TASK-2397
 title: 'READ-13: ops-about docs narrate change history and task journeys instead of the end state'
-status: Triage
+status: To Do
 assignee: []
 created_date: '2026-10-04 14:15'
+updated_date: '2026-10-04 14:52'
 labels:
   - code-review-rust
   - READ
 dependencies: []
+parent_task_id: 'TASK-2421'
 modified_files:
   - extensions/about/src/workspace.rs
   - extensions/about/src/manifest_cache.rs

@@ -1,13 +1,15 @@
 ---
 id: TASK-2361
 title: 'READ-13: ops-theme docs narrate change history instead of the end state'
-status: Triage
+status: To Do
 assignee: []
 created_date: '2026-10-04 14:10'
+updated_date: '2026-10-04 14:52'
 labels:
   - code-review-rust
   - READ
 dependencies: []
+parent_task_id: 'TASK-2423'
 modified_files:
   - crates/theme/src/configurable.rs
   - crates/theme/src/configurable/boxed.rs

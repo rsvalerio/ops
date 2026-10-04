@@ -1,13 +1,15 @@
 ---
 id: TASK-2403
 title: 'ARCH-12: ops-run-before-commit declares unused tracing dependency'
-status: Triage
+status: To Do
 assignee: []
 created_date: '2026-10-04 14:16'
+updated_date: '2026-10-04 14:52'
 labels:
   - code-review-rust
   - architecture
 dependencies: []
+parent_task_id: 'TASK-2422'
 modified_files:
   - extensions/run-before-commit/Cargo.toml
 priority: low

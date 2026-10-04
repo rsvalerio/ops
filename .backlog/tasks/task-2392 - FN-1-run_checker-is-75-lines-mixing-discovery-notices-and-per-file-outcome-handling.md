@@ -1,13 +1,15 @@
 ---
 id: TASK-2392
 title: 'FN-1: run_checker is ~75 lines mixing discovery, notices, and per-file outcome handling'
-status: Triage
+status: To Do
 assignee: []
 created_date: '2026-10-04 14:15'
+updated_date: '2026-10-04 14:52'
 labels:
   - code-review-rust
   - functions
 dependencies: []
+parent_task_id: 'TASK-2422'
 modified_files:
   - extensions/config-checkers/src/runner.rs
 priority: low

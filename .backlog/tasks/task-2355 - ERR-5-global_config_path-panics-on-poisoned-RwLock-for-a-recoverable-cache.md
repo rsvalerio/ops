@@ -1,13 +1,15 @@
 ---
 id: TASK-2355
 title: 'ERR-5: global_config_path panics on poisoned RwLock for a recoverable cache'
-status: Triage
+status: To Do
 assignee: []
 created_date: '2026-10-04 14:09'
+updated_date: '2026-10-04 14:52'
 labels:
   - code-review-rust
   - ERR
 dependencies: []
+parent_task_id: 'TASK-2423'
 modified_files:
   - crates/core/src/config/loader/global.rs
 priority: low

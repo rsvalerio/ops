@@ -1,13 +1,15 @@
 ---
 id: TASK-2410
 title: 'API-14: Public ops-sqlite items and fields lack doc summaries'
-status: Triage
+status: To Do
 assignee: []
 created_date: '2026-10-04 14:18'
+updated_date: '2026-10-04 14:52'
 labels:
   - code-review-rust
   - API
 dependencies: []
+parent_task_id: 'TASK-2416'
 modified_files:
   - extensions/sqlite/src/schema.rs
   - extensions/sqlite/src/ingestor.rs

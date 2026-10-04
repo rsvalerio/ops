@@ -1,13 +1,15 @@
 ---
 id: TASK-2402
 title: 'API-14: text-fixers public items lack doc summaries'
-status: Triage
+status: To Do
 assignee: []
 created_date: '2026-10-04 14:16'
+updated_date: '2026-10-04 14:52'
 labels:
   - code-review-rust
   - API
 dependencies: []
+parent_task_id: 'TASK-2422'
 modified_files:
   - extensions/text-fixers/src/eof.rs
   - extensions/text-fixers/src/lib.rs

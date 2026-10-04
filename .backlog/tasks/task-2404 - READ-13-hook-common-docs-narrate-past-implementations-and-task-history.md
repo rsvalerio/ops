@@ -1,13 +1,15 @@
 ---
 id: TASK-2404
 title: 'READ-13: hook-common docs narrate past implementations and task history'
-status: Triage
+status: To Do
 assignee: []
 created_date: '2026-10-04 14:16'
+updated_date: '2026-10-04 14:52'
 labels:
   - code-review-rust
   - READ
 dependencies: []
+parent_task_id: 'TASK-2422'
 modified_files:
   - extensions/hook-common/src/install.rs
   - extensions/hook-common/src/git.rs

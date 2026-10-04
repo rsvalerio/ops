@@ -1,13 +1,15 @@
 ---
 id: TASK-2385
 title: 'READ-10: Bare allow(clippy::option_if_let_else) without reason in strip_one_line'
-status: Triage
+status: To Do
 assignee: []
 created_date: '2026-10-04 14:13'
+updated_date: '2026-10-04 14:52'
 labels:
   - code-review-rust
   - readability
 dependencies: []
+parent_task_id: 'TASK-2424'
 modified_files:
   - extensions-terraform/about/src/lib.rs
 priority: low

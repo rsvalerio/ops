@@ -1,13 +1,15 @@
 ---
 id: TASK-2380
 title: 'TEST-6: foundation error and drift branches (unparseable file, unparseable member, unresolvable members) have no tests'
-status: Triage
+status: To Do
 assignee: []
 created_date: '2026-10-04 14:13'
+updated_date: '2026-10-04 14:52'
 labels:
   - code-review-rust
   - TEST
 dependencies: []
+parent_task_id: 'TASK-2419'
 modified_files:
   - extensions-rust/foundation/src/tests.rs
 priority: low

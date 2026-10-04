@@ -1,13 +1,15 @@
 ---
 id: TASK-2366
 title: 'FN-1: parse_action_line is ~125 lines and relies on unreachable! arms for an invariant ACTION_PREFIXES holds only by convention'
-status: Triage
+status: To Do
 assignee: []
 created_date: '2026-10-04 14:11'
+updated_date: '2026-10-04 14:52'
 labels:
   - code-review-rust
   - FN
 dependencies: []
+parent_task_id: 'TASK-2417'
 modified_files:
   - extensions-rust/cargo-update/src/lib.rs
 priority: low

@@ -1,13 +1,15 @@
 ---
 id: TASK-2362
 title: 'API-16: ConfigurableTheme, SlotLine and StepPrefixParts lack Debug'
-status: Triage
+status: To Do
 assignee: []
 created_date: '2026-10-04 14:10'
+updated_date: '2026-10-04 14:52'
 labels:
   - code-review-rust
   - API
 dependencies: []
+parent_task_id: 'TASK-2423'
 modified_files:
   - crates/theme/src/configurable.rs
   - crates/theme/src/step_line_theme.rs

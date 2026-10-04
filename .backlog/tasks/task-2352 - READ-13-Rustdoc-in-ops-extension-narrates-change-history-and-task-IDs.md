@@ -1,13 +1,15 @@
 ---
 id: TASK-2352
 title: 'READ-13: Rustdoc in ops-extension narrates change history and task IDs'
-status: Triage
+status: To Do
 assignee: []
 created_date: '2026-10-04 14:08'
+updated_date: '2026-10-04 14:52'
 labels:
   - code-review-rust
   - READ
 dependencies: []
+parent_task_id: 'TASK-2423'
 modified_files:
   - crates/extension/src/data.rs
   - crates/extension/src/extension.rs

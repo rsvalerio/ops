@@ -1,13 +1,15 @@
 ---
 id: TASK-2400
 title: 'API-14: a few public ops-about items have no doc summary'
-status: Triage
+status: To Do
 assignee: []
 created_date: '2026-10-04 14:15'
+updated_date: '2026-10-04 14:52'
 labels:
   - code-review-rust
   - API
 dependencies: []
+parent_task_id: 'TASK-2421'
 modified_files:
   - extensions/about/src/lib.rs
   - extensions/about/src/lru.rs

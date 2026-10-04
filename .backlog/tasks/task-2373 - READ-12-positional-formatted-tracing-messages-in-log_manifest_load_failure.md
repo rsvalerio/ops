@@ -1,13 +1,15 @@
 ---
 id: TASK-2373
 title: 'READ-12: positional-formatted tracing messages in log_manifest_load_failure'
-status: Triage
+status: To Do
 assignee: []
 created_date: '2026-10-04 14:11'
+updated_date: '2026-10-04 14:52'
 labels:
   - code-review-rust
   - READ
 dependencies: []
+parent_task_id: 'TASK-2418'
 modified_files:
   - extensions-rust/about/src/manifest.rs
   - extensions-rust/about/src/members.rs

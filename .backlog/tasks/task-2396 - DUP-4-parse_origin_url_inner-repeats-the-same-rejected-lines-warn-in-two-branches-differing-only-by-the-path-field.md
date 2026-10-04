@@ -1,13 +1,15 @@
 ---
 id: TASK-2396
 title: 'DUP-4: parse_origin_url_inner repeats the same rejected-lines warn in two branches differing only by the path field'
-status: Triage
+status: To Do
 assignee: []
 created_date: '2026-10-04 14:15'
+updated_date: '2026-10-04 14:52'
 labels:
   - code-review-rust
   - DUP
 dependencies: []
+parent_task_id: 'TASK-2421'
 modified_files:
   - extensions/git/src/config.rs
 priority: low

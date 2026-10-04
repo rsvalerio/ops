@@ -1,13 +1,15 @@
 ---
 id: TASK-2401
 title: 'SEC-25: text-fixers write-back re-resolves the path and ignores concurrent edits since the read'
-status: Triage
+status: To Do
 assignee: []
 created_date: '2026-10-04 14:16'
+updated_date: '2026-10-04 14:52'
 labels:
   - code-review-rust
   - SEC
 dependencies: []
+parent_task_id: 'TASK-2422'
 modified_files:
   - extensions/text-fixers/src/runner.rs
   - extensions/text-fixers/src/atomic.rs

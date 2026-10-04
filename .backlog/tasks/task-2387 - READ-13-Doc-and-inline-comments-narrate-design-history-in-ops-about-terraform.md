@@ -1,13 +1,15 @@
 ---
 id: TASK-2387
 title: 'READ-13: Doc and inline comments narrate design history in ops-about-terraform'
-status: Triage
+status: To Do
 assignee: []
 created_date: '2026-10-04 14:13'
+updated_date: '2026-10-04 14:52'
 labels:
   - code-review-rust
   - readability
 dependencies: []
+parent_task_id: 'TASK-2424'
 modified_files:
   - extensions-terraform/about/src/lib.rs
   - extensions-terraform/about/Cargo.toml

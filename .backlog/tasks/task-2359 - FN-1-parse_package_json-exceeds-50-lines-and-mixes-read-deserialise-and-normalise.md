@@ -1,13 +1,15 @@
 ---
 id: TASK-2359
 title: 'FN-1: parse_package_json exceeds 50 lines and mixes read, deserialise and normalise'
-status: Triage
+status: To Do
 assignee: []
 created_date: '2026-10-04 14:10'
+updated_date: '2026-10-04 14:52'
 labels:
   - code-review-rust
   - fn
 dependencies: []
+parent_task_id: 'TASK-2424'
 modified_files:
   - extensions-node/about/src/package_json.rs
 priority: low

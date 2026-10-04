@@ -1,13 +1,15 @@
 ---
 id: TASK-2372
 title: 'FN-1: expand_member_glob is ~97 lines with a repeated warn-and-skip ladder'
-status: Triage
+status: To Do
 assignee: []
 created_date: '2026-10-04 14:11'
+updated_date: '2026-10-04 14:52'
 labels:
   - code-review-rust
   - FN
 dependencies: []
+parent_task_id: 'TASK-2418'
 modified_files:
   - extensions-rust/about/src/members.rs
 priority: low

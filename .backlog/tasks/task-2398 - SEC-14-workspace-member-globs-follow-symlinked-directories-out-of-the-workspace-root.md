@@ -1,13 +1,15 @@
 ---
 id: TASK-2398
 title: 'SEC-14: workspace member globs follow symlinked directories out of the workspace root'
-status: Triage
+status: To Do
 assignee: []
 created_date: '2026-10-04 14:15'
+updated_date: '2026-10-04 14:52'
 labels:
   - code-review-rust
   - SEC
 dependencies: []
+parent_task_id: 'TASK-2421'
 modified_files:
   - extensions/about/src/workspace.rs
 priority: low

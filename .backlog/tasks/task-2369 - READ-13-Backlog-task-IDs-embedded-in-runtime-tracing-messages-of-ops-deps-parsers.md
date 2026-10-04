@@ -1,13 +1,15 @@
 ---
 id: TASK-2369
 title: 'READ-13: Backlog task IDs embedded in runtime tracing messages of ops-deps parsers'
-status: Triage
+status: To Do
 assignee: []
 created_date: '2026-10-04 14:11'
+updated_date: '2026-10-04 14:52'
 labels:
   - code-review-rust
   - readability
 dependencies: []
+parent_task_id: 'TASK-2417'
 modified_files:
   - extensions-rust/deps/src/parse/deny.rs
   - extensions-rust/deps/src/parse/upgrade.rs

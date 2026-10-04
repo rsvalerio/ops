@@ -1,13 +1,15 @@
 ---
 id: TASK-2367
 title: 'SEC-11: content_declares_workspace treats `"""` inside a comment as a multi-line string opener'
-status: Triage
+status: To Do
 assignee: []
 created_date: '2026-10-04 14:11'
+updated_date: '2026-10-04 14:52'
 labels:
   - code-review-rust
   - security
 dependencies: []
+parent_task_id: 'TASK-2417'
 modified_files:
   - extensions-rust/cargo-toml/src/workspace_root.rs
 priority: low

@@ -1,13 +1,15 @@
 ---
 id: TASK-2379
 title: 'ERR-4: check_member_opt_in swallows a member manifest parse error as a misleading drift'
-status: Triage
+status: To Do
 assignee: []
 created_date: '2026-10-04 14:13'
+updated_date: '2026-10-04 14:52'
 labels:
   - code-review-rust
   - ERR
 dependencies: []
+parent_task_id: 'TASK-2419'
 modified_files:
   - extensions-rust/foundation/src/lib.rs
 priority: low

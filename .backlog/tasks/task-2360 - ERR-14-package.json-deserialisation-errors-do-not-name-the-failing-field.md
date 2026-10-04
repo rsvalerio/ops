@@ -1,13 +1,15 @@
 ---
 id: TASK-2360
 title: 'ERR-14: package.json deserialisation errors do not name the failing field'
-status: Triage
+status: To Do
 assignee: []
 created_date: '2026-10-04 14:10'
+updated_date: '2026-10-04 14:52'
 labels:
   - code-review-rust
   - err
 dependencies: []
+parent_task_id: 'TASK-2424'
 modified_files:
   - extensions-node/about/src/package_json.rs
   - extensions-node/about/src/units.rs

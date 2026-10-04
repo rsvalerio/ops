@@ -1,13 +1,15 @@
 ---
 id: TASK-2389
 title: 'READ-13: create-review-tasks docs narrate refactor history and carry a stale comment about per-line writeln! calls'
-status: Triage
+status: To Do
 assignee: []
 created_date: '2026-10-04 14:15'
+updated_date: '2026-10-04 14:52'
 labels:
   - code-review-rust
   - READ
 dependencies: []
+parent_task_id: 'TASK-2422'
 modified_files:
   - extensions/create-review-tasks/src/backlog.rs
   - extensions/create-review-tasks/src/lib.rs

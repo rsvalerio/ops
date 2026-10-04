@@ -1,13 +1,15 @@
 ---
 id: TASK-2406
 title: 'ERR-9: DbError interpolates its #[from]/#[source] field into the #[error] message'
-status: Triage
+status: To Do
 assignee: []
 created_date: '2026-10-04 14:18'
+updated_date: '2026-10-04 14:52'
 labels:
   - code-review-rust
   - ERR
 dependencies: []
+parent_task_id: 'TASK-2416'
 modified_files:
   - extensions/sqlite/src/error.rs
 priority: low
