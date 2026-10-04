@@ -14,21 +14,16 @@
 //!   into SQL (table, column, view names). `quoted_ident` is preferred at call
 //!   sites because it cannot be invoked without validation.
 //! - [`validate_path_chars`] — for path-like strings used as bound
-//!   parameters. Catches dangerous shell/SQL metacharacters and control
-//!   codes.
+//!   parameters. Rejects the empty string and control characters; every
+//!   other character is legitimate in a path and is accepted.
 //! - [`validate_no_traversal`] — for path-like strings whose semantics depend
 //!   on staying inside a specific root. Reject `..` segments before relying
-//!   on `starts_with` joins or filesystem reads.
+//!   on prefix joins or filesystem reads.
 //!
-//! Bound-parameter values still benefit from `validate_path_chars` and
-//! `validate_no_traversal` for **semantic** correctness (e.g., preventing
-//! traversal-based mismatches), even though they are not at risk of
-//! injection.
-//!
-//! SQLite port note: the string-escaping helpers (`escape_sql_string`,
-//! `sanitize_path_for_sql`, `prepare_path_for_sql`) and the `ExtraOpts`
-//! gate died with `read_json_auto` — no path or option fragment is
-//! interpolated into SQL anymore, so there is nothing to escape.
+//! Bound-parameter values are not at risk of injection, so
+//! `validate_path_chars` and `validate_no_traversal` exist for **semantic**
+//! correctness only (e.g. preventing traversal-based mismatches). No path is
+//! interpolated into SQL, so this module has no string-escaping helpers.
 
 use std::path::Path;
 use thiserror::Error;
@@ -37,7 +32,7 @@ use thiserror::Error;
 #[derive(Debug, Error)]
 #[non_exhaustive]
 pub enum SqlError {
-    /// The path contains a character outside the accepted set.
+    /// The path contains a control character.
     #[error("invalid character in path: {0:?}")]
     InvalidPathChar(char),
     /// The path escapes its intended directory via `..` or an absolute
@@ -164,55 +159,32 @@ pub fn quoted_ident(name: &str) -> Result<String, SqlError> {
     Ok(format!("\"{name}\""))
 }
 
-/// READ-5 / TASK-1002: ASCII-only allowlist.
+/// Validate a path-like string that is passed to SQL as a bound parameter.
 ///
-/// Non-ASCII identifiers are rejected because the SQL-safety contract is over
-/// the byte representation of the path, not over Unicode general categories.
-/// Letting `is_alphanumeric` (which spans ~140k codepoints across L*/Nd) widen
-/// the gate admitted homoglyphs (Cyrillic `а` U+0430), bidi tricks at the
-/// rendering layer, and ligatures (`ﬀ` U+FB00). If non-ASCII path support is
-/// ever a real requirement, document the allowed scripts explicitly and reject
-/// mixed-script identifiers; the current set (`extensions/*`, project /
-/// language / file names) is ASCII by policy.
+/// A bound value cannot inject SQL, so this is a semantic check, not an
+/// allowlist: any character a filesystem path may legitimately contain
+/// (spaces, parentheses, `+`, `@`, non-ASCII text, …) is accepted. Only the
+/// empty string and control characters are rejected — neither can name a
+/// real workspace member, and a control character would corrupt the log
+/// lines and prefix matches the value later flows into.
 ///
 /// # Errors
 ///
 /// [`SqlError::EmptyPath`] if `path` is empty, or
-/// [`SqlError::InvalidPathChar`] if it contains a character outside the
-/// safe set (ASCII alphanumerics, `-`, `_`, `/`, `.`, and the platform
-/// separator).
+/// [`SqlError::InvalidPathChar`] if it contains a control character.
 pub fn validate_path_chars(path: &str) -> Result<(), SqlError> {
-    // READ-5 (TASK-0528): reject empty paths up front. The character-by-
-    // character loop below trivially returns Ok for "", which let
-    // forgotten-population bugs slip through and surfaced as opaque engine
-    // errors far from the caller. Failing fast here keeps the diagnostic
-    // close to the offending caller.
+    // An empty path would pass the loop below trivially and surface later as
+    // an opaque engine error far from the caller that forgot to populate it.
     if path.is_empty() {
         return Err(SqlError::EmptyPath);
     }
-    for ch in path.chars() {
-        let is_safe = ch.is_ascii_alphanumeric()
-            || ch == '-'
-            || ch == '_'
-            || ch == '/'
-            || ch == '.'
-            || ch == ' '
-            // SEC-14: backslash and colon are Windows path metacharacters
-            // (`C:\…`, `\\server\share`). On Unix neither has any path
-            // meaning — `:` is the PATH-list separator and `\` carries no
-            // semantics — so accepting them everywhere weakens defense in
-            // depth (e.g. `/tmp/foo:bar` survives validation and lands in
-            // logs / future shell contexts where `:` is meaningful).
-            // Gate them behind cfg(windows) so each platform sees only the
-            // metacharacters it actually needs to handle.
-            || (cfg!(windows) && (ch == '\\' || ch == ':'));
-        if !is_safe {
-            return Err(SqlError::InvalidPathChar(ch));
-        }
-    }
-    Ok(())
+    path.chars()
+        .find(|ch| ch.is_control())
+        .map_or(Ok(()), |ch| Err(SqlError::InvalidPathChar(ch)))
 }
 
+/// Reject a path that contains a parent-directory (`..`) component.
+///
 /// # Errors
 ///
 /// [`SqlError::PathTraversalNotAllowed`] if any component of `path` is `..`.
@@ -237,50 +209,33 @@ mod tests {
     }
 
     #[test]
-    #[cfg(windows)]
-    fn validate_path_chars_accepts_windows_drive_letter_and_backslash() {
-        assert!(validate_path_chars("C:\\Users\\file.json").is_ok());
-    }
-
-    /// SEC-14: on Unix, `\\` and `:` carry no path meaning — `:` is the
-    /// PATH-list separator and `\` is a shell escape — so they must be
-    /// rejected. They are still accepted on Windows where they are part of
-    /// legitimate path syntax (`C:\Users\…`, `\\server\share`).
-    #[test]
-    #[cfg(unix)]
-    fn validate_path_chars_rejects_backslash_on_unix() {
-        let err = validate_path_chars("/tmp/foo\\bar");
-        assert!(matches!(err, Err(SqlError::InvalidPathChar('\\'))));
-    }
-
-    #[test]
-    #[cfg(unix)]
-    fn validate_path_chars_rejects_colon_on_unix() {
-        let err = validate_path_chars("/tmp/foo:bar");
-        assert!(matches!(err, Err(SqlError::InvalidPathChar(':'))));
-    }
-
-    #[test]
     fn validate_path_chars_accepts_spaces() {
         assert!(validate_path_chars("/home/my user/project dir/file.json").is_ok());
     }
 
+    /// The value is a bound parameter, so shell and SQL metacharacters carry
+    /// no meaning and must not turn a real directory name into an error.
     #[test]
-    fn validate_path_chars_rejects_semicolon() {
-        let err = validate_path_chars("/path;injection");
-        assert!(matches!(err, Err(SqlError::InvalidPathChar(';'))));
+    fn validate_path_chars_accepts_punctuation_legal_in_paths() {
+        for path in [
+            "/home/u/My Project (old)",
+            "/home/u/proj+x",
+            "/home/u/@scope/ws",
+            "/home/u/a;b$c`d|e<f>g",
+            "C:\\Users\\file.json",
+            "/tmp/foo:bar",
+        ] {
+            assert!(
+                validate_path_chars(path).is_ok(),
+                "{path:?} is a legal path and must be accepted"
+            );
+        }
     }
 
     #[test]
-    fn validate_path_chars_rejects_dollar() {
-        let err = validate_path_chars("/path$var");
-        assert!(matches!(err, Err(SqlError::InvalidPathChar('$'))));
-    }
-
-    #[test]
-    fn validate_path_chars_rejects_backtick() {
-        let err = validate_path_chars("/path`cmd`");
-        assert!(matches!(err, Err(SqlError::InvalidPathChar('`'))));
+    fn validate_path_chars_accepts_non_ascii() {
+        assert!(validate_path_chars("/home/用户/file").is_ok());
+        assert!(validate_path_chars("/home/José/проект").is_ok());
     }
 
     #[test]
@@ -380,40 +335,17 @@ mod tests {
         assert!(validate_path_chars("path\x7Ffile").is_err());
     }
 
+    /// C1 controls (U+0080–U+009F) are control characters too.
     #[test]
-    fn validate_path_chars_rejects_unicode_special() {
-        // Zero-width space (U+200B)
-        assert!(validate_path_chars("path\u{200B}file").is_err());
+    fn validate_path_chars_rejects_c1_control_chars() {
+        assert!(matches!(
+            validate_path_chars("path\u{85}file"),
+            Err(SqlError::InvalidPathChar('\u{85}'))
+        ));
     }
 
-    #[test]
-    fn validate_path_chars_rejects_pipe() {
-        assert!(validate_path_chars("path|cmd").is_err());
-    }
-
-    #[test]
-    fn validate_path_chars_rejects_angle_brackets() {
-        assert!(validate_path_chars("path<cmd>").is_err());
-    }
-
-    /// READ-5 / TASK-1002: non-ASCII alphabetics (CJK, ligatures, homoglyphs)
-    /// must be rejected. The previous `is_alphanumeric()` allowlist admitted
-    /// the entire Unicode L*/Nd categories, letting Cyrillic `а` (U+0430)
-    /// flow through as a different codepoint from ASCII `a`, and ligatures
-    /// like `ﬀ` (U+FB00) survive validation.
-    #[test]
-    fn validate_path_chars_rejects_non_ascii_alphabetics() {
-        // CJK
-        assert!(validate_path_chars("/home/用户/file").is_err());
-        // Cyrillic 'а' (U+0430) homoglyph for ASCII 'a'
-        assert!(validate_path_chars("/home/\u{0430}/file").is_err());
-        // Latin small ligature ff (U+FB00)
-        assert!(validate_path_chars("/home/\u{FB00}/file").is_err());
-    }
-
-    /// READ-5 (TASK-0528): empty paths are rejected up front. The for-loop
-    /// has zero iterations and would otherwise return `Ok(())`, letting an
-    /// unpopulated path slip through and surface as a confusing engine
+    /// An empty path has no control character to find, so it needs its own
+    /// rejection; otherwise an unpopulated path surfaces as a confusing engine
     /// failure far from its caller.
     #[test]
     fn validate_path_chars_empty_is_rejected() {

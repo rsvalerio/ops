@@ -55,11 +55,11 @@ pub fn query_crate_coverage(
     member_paths: &[&str],
     workspace_root: &str,
 ) -> anyhow::Result<HashMap<String, CrateCoverage>> {
-    // workspace_root flows into a bound parameter (not interpolated) so SQL
-    // injection is structurally impossible; validation here is layered for
-    // semantic safety: reject control chars (validate_path_chars) and parent
-    // traversal segments (validate_no_traversal) that would produce nonsense
-    // starts_with matches and confuse coverage attribution.
+    // workspace_root flows into a bound parameter (not interpolated), so SQL
+    // injection is structurally impossible and any character a real directory
+    // name can hold is accepted. The checks are semantic only: control
+    // characters and parent-traversal segments would produce nonsense prefix
+    // matches and confuse coverage attribution.
     validate_path_chars(workspace_root)?;
     validate_no_traversal(std::path::Path::new(workspace_root))?;
 
@@ -220,5 +220,37 @@ mod tests {
         let result = query_crate_coverage(&db, &["crates/foo"], "/ws").expect("query ok");
         let foo = result.get("crates/foo").expect("foo present");
         assert_eq!(foo.lines_count, 0, "trailing slash boundary preserved");
+    }
+
+    /// SEC-12: paths are bound parameters, so characters that are legal in a
+    /// directory name (parentheses, `+`, `@`, spaces, non-ASCII) must not turn
+    /// the query into an error and silently drop per-crate coverage.
+    #[test]
+    fn paths_with_punctuation_and_non_ascii_are_queried_not_rejected() {
+        let db = Sqlite::open_in_memory().expect("db");
+        let root = "/home/u/My Project (old)+x/@scope/проект";
+        let member = "crates/foo (v2)+@é";
+        setup_coverage_table(
+            &db,
+            &[
+                (&format!("{root}/{member}/src/lib.rs"), 200, 100),
+                (&format!("{member}/src/util.rs"), 50, 25),
+                (&format!("{root}/crates/bar/src/lib.rs"), 10, 0),
+            ],
+        );
+        let result = query_crate_coverage(&db, &[member], root).expect("query ok");
+        let cov = result.get(member).expect("member present");
+        assert_eq!(cov.lines_count, 250);
+        assert_eq!(cov.lines_covered, 125);
+    }
+
+    /// SEC-12: control characters stay rejected in both the workspace root and
+    /// a member path.
+    #[test]
+    fn control_characters_in_paths_are_still_rejected() {
+        let db = Sqlite::open_in_memory().expect("db");
+        setup_coverage_table(&db, &[("crates/foo/src/lib.rs", 1, 1)]);
+        assert!(query_crate_coverage(&db, &["crates/foo"], "/ws\nroot").is_err());
+        assert!(query_crate_coverage(&db, &["crates/\u{1}foo"], "/ws").is_err());
     }
 }

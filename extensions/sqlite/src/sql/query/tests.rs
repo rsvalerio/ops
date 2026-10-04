@@ -134,6 +134,31 @@ fn query_crate_loc_empty_table() {
     assert_eq!(result["crates/my-cli"], 0);
 }
 
+/// SEC-12: member paths are bound parameters, so a directory name holding
+/// parentheses, `+`, `@` or non-ASCII text must be queried, not rejected.
+#[test]
+fn query_crate_loc_accepts_member_paths_with_punctuation_and_non_ascii() {
+    let db = Sqlite::open_in_memory().expect("open in-memory db");
+    init_schema(&db).expect("init_schema");
+
+    let member = "crates/my lib (old)+@scope/é";
+    let conn = db.lock().expect("lock");
+    conn.execute_batch(
+        "CREATE TABLE tokei_files (language VARCHAR, file VARCHAR, code BIGINT, \
+         comments BIGINT, blanks BIGINT, lines BIGINT);",
+    )
+    .expect("create table");
+    conn.execute(
+        "INSERT INTO tokei_files VALUES ('Rust', ?1, 120, 0, 0, 120)",
+        rusqlite::params![format!("{member}/src/lib.rs")],
+    )
+    .expect("insert test data");
+    drop(conn);
+
+    let result = query_crate_loc(&db, &[member]).expect("query should work");
+    assert_eq!(result[member], 120);
+}
+
 #[test]
 fn query_crate_loc_no_members() {
     let db = Sqlite::open_in_memory().expect("open in-memory db");
