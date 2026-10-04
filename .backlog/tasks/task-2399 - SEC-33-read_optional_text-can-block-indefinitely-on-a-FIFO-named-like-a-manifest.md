@@ -1,10 +1,10 @@
 ---
 id: TASK-2399
 title: 'SEC-33: read_optional_text can block indefinitely on a FIFO named like a manifest'
-status: To Do
+status: Done
 assignee: []
 created_date: '2026-10-04 14:15'
-updated_date: '2026-10-04 14:52'
+updated_date: '2026-10-04 15:54'
 labels:
   - code-review-rust
   - SEC
@@ -29,6 +29,7 @@ dedup_key: 'SEC-33:extensions/about/src/manifest_io.rs:read_optional_text'
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 Non-regular files are rejected without blocking (e.g. open with O_NONBLOCK or check metadata before reading), returning None with a warn
-- [ ] #2 Unix test with a FIFO named like a manifest returns promptly
+- [x] #1 Non-regular files are rejected without blocking (e.g. open with O_NONBLOCK or check metadata before reading), returning None with a warn
+- [x] #2 Unix test with a FIFO named like a manifest returns promptly
+
 <!-- AC:END -->

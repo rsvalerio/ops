@@ -1,10 +1,10 @@
 ---
 id: TASK-2396
 title: 'DUP-4: parse_origin_url_inner repeats the same rejected-lines warn in two branches differing only by the path field'
-status: To Do
+status: Done
 assignee: []
 created_date: '2026-10-04 14:15'
-updated_date: '2026-10-04 14:52'
+updated_date: '2026-10-04 15:30'
 labels:
   - code-review-rust
   - DUP
@@ -29,5 +29,6 @@ dedup_key: 'DUP-4:extensions/git/src/config.rs:parse_origin_url_inner'
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 The rejected-url warning is emitted from a single call site, including the path when known
+- [x] #1 The rejected-url warning is emitted from a single call site, including the path when known
+
 <!-- AC:END -->

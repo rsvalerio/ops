@@ -1,10 +1,10 @@
 ---
 id: TASK-2398
 title: 'SEC-14: workspace member globs follow symlinked directories out of the workspace root'
-status: To Do
+status: Done
 assignee: []
 created_date: '2026-10-04 14:15'
-updated_date: '2026-10-04 14:52'
+updated_date: '2026-10-04 15:54'
 labels:
   - code-review-rust
   - SEC
@@ -29,7 +29,8 @@ dedup_key: 'SEC-14:extensions/about/src/workspace.rs:glob_child_dir'
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 Symlinked member directories are skipped (use DirEntry::file_type, not is_dir) or verified to canonicalize inside the root
-- [ ] #2 The Literal member path gets the same containment check
-- [ ] #3 Regression test with a symlinked member pointing outside the root
+- [x] #1 Symlinked member directories are skipped (use DirEntry::file_type, not is_dir) or verified to canonicalize inside the root
+- [x] #2 The Literal member path gets the same containment check
+- [x] #3 Regression test with a symlinked member pointing outside the root
+
 <!-- AC:END -->

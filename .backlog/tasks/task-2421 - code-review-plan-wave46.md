@@ -1,10 +1,10 @@
 ---
 id: TASK-2421
 title: 'code-review-plan-wave46'
-status: To Do
+status: Done
 assignee: []
 created_date: '2026-10-04 14:52'
-updated_date: '2026-10-04 14:52'
+updated_date: '2026-10-04 15:59'
 labels:
   - code-review-wave
 dependencies:
@@ -52,4 +52,8 @@ Generic about and git providers: symlink/FIFO hardening in workspace and manifes
 
 <!-- SECTION:NOTES:BEGIN -->
 Overlaps: none
+
+Branch: code-review/TASK-2421
+Worktree: /home/rsvalerio/projects/.wave-TASK-2421
+
 <!-- SECTION:NOTES:END -->

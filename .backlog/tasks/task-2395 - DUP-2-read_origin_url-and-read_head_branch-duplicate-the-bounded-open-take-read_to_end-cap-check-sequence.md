@@ -1,10 +1,10 @@
 ---
 id: TASK-2395
 title: 'DUP-2: read_origin_url and read_head_branch duplicate the bounded open/take/read_to_end/cap-check sequence'
-status: To Do
+status: Done
 assignee: []
 created_date: '2026-10-04 14:15'
-updated_date: '2026-10-04 14:52'
+updated_date: '2026-10-04 15:30'
 labels:
   - code-review-rust
   - DUP
@@ -29,6 +29,7 @@ dedup_key: 'DUP-2:extensions/git/src/config.rs:read_origin_url'
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 A single helper (path, cap, label) -> Option<Vec<u8>> implements the capped read and both callers use it
-- [ ] #2 Existing cap/NotFound/oversize tests still pass
+- [x] #1 A single helper (path, cap, label) -> Option<Vec<u8>> implements the capped read and both callers use it
+- [x] #2 Existing cap/NotFound/oversize tests still pass
+
 <!-- AC:END -->

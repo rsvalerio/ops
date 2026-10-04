@@ -1,10 +1,10 @@
 ---
 id: TASK-2394
 title: 'READ-13: ops-git source comments, rustdoc and runtime log messages are a change journal of TASK ids and past behaviour'
-status: To Do
+status: Done
 assignee: []
 created_date: '2026-10-04 14:15'
-updated_date: '2026-10-04 14:52'
+updated_date: '2026-10-04 15:30'
 labels:
   - code-review-rust
   - READ
@@ -32,6 +32,7 @@ dedup_key: 'READ-13:extensions/git/src:ops-git crate'
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 Doc comments and inline comments in ops-git describe current behaviour and durable rationale only, with no TASK ids or past-behaviour narration
-- [ ] #2 Runtime tracing messages carry no TASK/rule IDs; tests assert on structured fields or message substance, not a ticket number
+- [x] #1 Doc comments and inline comments in ops-git describe current behaviour and durable rationale only, with no TASK ids or past-behaviour narration
+- [x] #2 Runtime tracing messages carry no TASK/rule IDs; tests assert on structured fields or message substance, not a ticket number
+
 <!-- AC:END -->
