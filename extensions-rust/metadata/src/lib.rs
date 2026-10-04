@@ -1,13 +1,13 @@
 //! Metadata extension: runs `cargo metadata` and provides workspace info as JSON.
-//! `SQLite` is the single source of truth - metadata is loaded into `metadata_raw` table.
+//!
+//! The document is stored verbatim as the single row of the `SQLite`
+//! `metadata_raw` table, which is the source every read goes through.
 //!
 //! # Consuming the metadata
 //!
-//! The crate exposes the workspace as raw JSON, not as a typed wrapper family.
-//! Everything ships through `MetadataProvider::provide` → `provide_from_db` →
-//! `query_metadata_raw`, which returns a `serde_json::Value`. The shape of that
-//! value is documented by `MetadataProvider::schema`; consumers read it with
-//! `serde_json` directly.
+//! The provider returns the raw `cargo metadata` document as a
+//! `serde_json::Value`. Its shape is documented by `MetadataProvider::schema`;
+//! consumers read it with `serde_json` directly.
 
 #![cfg_attr(
     test,
@@ -46,10 +46,9 @@ pub(crate) const CARGO_METADATA_TIMEOUT: Duration = Duration::from_mins(2);
 
 /// Default byte cap on the JSON payload read back from `metadata_raw`.
 ///
-/// `query_metadata_raw` materialises the row as a `String` (via
-/// `to_json(m)::VARCHAR`) and then parses it into a `serde_json::Value`,
-/// which keeps two full copies live during the round-trip in addition to
-/// the `SQLite` columnar buffer. A pathologically large workspace (10+ MiB
+/// `query_metadata_raw` materialises the row as a `String` and then parses
+/// it into a `serde_json::Value`, which keeps two full copies live during
+/// the round-trip. A pathologically large workspace (10+ MiB
 /// cargo-metadata output is possible) could OOM the `ops about` process at
 /// this step. Cap the payload at 64 MiB by default — well above realistic
 /// workspace sizes — and fail with a clear error when exceeded so operators
@@ -126,18 +125,16 @@ pub(crate) fn check_metadata_not_capped(output: &Output) -> Result<(), anyhow::E
 /// Hard ceiling on the resolved cap.
 ///
 /// One env knob drives both the ingest-side capped read and the post-ingest
-/// reader guard, and neither consumer has an engine-imposed domain anymore:
-/// the ingest side compares `str::len()` against a `usize`, and the read
-/// side binds the cap as an i64 SQL parameter (`i64::try_from(cap)` with a
-/// saturating fallback), so both accept any `u64` the resolver can produce.
+/// reader guard. Neither consumer imposes a domain of its own: the ingest
+/// side compares `str::len()` against a `usize`, and the read side binds the
+/// cap as an i64 SQL parameter (`i64::try_from(cap)` with a saturating
+/// fallback), so both accept any `u64` the resolver can produce.
 ///
-/// The ceiling that remains is **policy**, not an engine limit: a knob
-/// value above 4 GiB is almost certainly a typo or an attempt to disable
-/// the payload guard rather than a real metadata document size, and an
-/// unbounded knob would silently disable the SEC-33 cap (see
-/// `above_ceiling_warns_and_clamps` in `tests/payload_cap.rs`). The
-/// historical value (`u32::MAX`) is kept from the `DuckDB` era so existing
-/// deployments that reasoned about the old limit see no behavior change.
+/// The ceiling is **policy**, not an engine limit: a knob value above
+/// 4 GiB (`u32::MAX` bytes) is almost certainly a typo or an attempt to
+/// disable the payload guard rather than a real metadata document size, and
+/// an unbounded knob would silently disable the cap (see
+/// `above_ceiling_warns_and_clamps` in `tests/payload_cap.rs`).
 ///
 /// Spelled as a literal because `u64::from` is not callable in a `const`
 /// initialiser and `u32::MAX as u64` would need an `as_conversions`
@@ -292,94 +289,132 @@ impl DataProvider for MetadataProvider {
         ops_sqlite::try_provide_from_db(ctx, provide_from_db, |ctx| provide_via_cargo_metadata(ctx))
     }
 
+    /// Describes the raw `cargo metadata --format-version 1` document.
     fn schema(&self) -> DataProviderSchema {
-        use ops_extension::data_field;
         DataProviderSchema::new(
             "Cargo workspace metadata from `cargo metadata`",
-            vec![
-                data_field!(
-                    "workspace_root",
-                    "str",
-                    "Absolute path to the workspace root directory"
-                ),
-                data_field!(
-                    "target_directory",
-                    "str",
-                    "Absolute path to the build artifacts directory"
-                ),
-                data_field!(
-                    "build_directory",
-                    "Option<str>",
-                    "Build directory if specified via config"
-                ),
-                data_field!(
-                    "packages",
-                    "Iterator<Package>",
-                    "All packages in the dependency graph"
-                ),
-                data_field!(
-                    "members",
-                    "Iterator<Package>",
-                    "Workspace member packages only"
-                ),
-                data_field!(
-                    "default_members",
-                    "Iterator<Package>",
-                    "Default workspace member packages"
-                ),
-                data_field!(
-                    "root_package",
-                    "Option<Package>",
-                    "Root package (None for virtual workspaces)"
-                ),
-                data_field!(
-                    "package_by_name",
-                    "fn(&str) -> Option<Package>",
-                    "Find a package by name"
-                ),
-                data_field!("Package.name", "str", "Package name"),
-                data_field!("Package.version", "str", "Package version string"),
-                data_field!("Package.edition", "str", "Rust edition (e.g., 2021)"),
-                data_field!("Package.license", "Option<str>", "License identifier"),
-                data_field!(
-                    "Package.dependencies",
-                    "Iterator<Dependency>",
-                    "Normal dependencies"
-                ),
-                data_field!(
-                    "Package.dev_dependencies",
-                    "Iterator<Dependency>",
-                    "Dev dependencies"
-                ),
-                data_field!(
-                    "Package.build_dependencies",
-                    "Iterator<Dependency>",
-                    "Build dependencies"
-                ),
-                data_field!(
-                    "Package.targets",
-                    "Iterator<Target>",
-                    "All build targets (lib, bins, tests, examples, benches)"
-                ),
-                data_field!("Dependency.name", "str", "Dependency name"),
-                data_field!(
-                    "Dependency.version_req",
-                    "str",
-                    "Version requirement (e.g., ^1.0)"
-                ),
-                data_field!("Dependency.kind", "enum", "Normal, Dev, or Build"),
-                data_field!("Dependency.features", "Iterator<str>", "Enabled features"),
-                data_field!("Target.name", "str", "Target name"),
-                data_field!(
-                    "Target.kind",
-                    "Iterator<str>",
-                    "Target kinds (lib, bin, test, example, bench)"
-                ),
-                data_field!("Target.src_path", "str", "Source file path"),
-            ],
+            SCHEMA_FIELDS
+                .iter()
+                .map(|&(name, type_name, description)| {
+                    ops_extension::DataField::new(name, type_name, description)
+                })
+                .collect(),
         )
     }
 }
+
+/// The `(name, type, description)` of every documented key of the raw
+/// `cargo metadata` document.
+///
+/// A name is a path into the JSON: `.` descends into an object and `[]` into
+/// every element of an array.
+const SCHEMA_FIELDS: [(&str, &str, &str); 25] = [
+    (
+        "workspace_root",
+        "String",
+        "Absolute path to the workspace root directory",
+    ),
+    (
+        "target_directory",
+        "String",
+        "Absolute path to the build artifacts directory",
+    ),
+    (
+        "version",
+        "u64",
+        "Format version of the document (always 1)",
+    ),
+    (
+        "workspace_members",
+        "Vec<String>",
+        "Package ids of the workspace members",
+    ),
+    (
+        "workspace_default_members",
+        "Vec<String>",
+        "Package ids of the default workspace members",
+    ),
+    (
+        "resolve",
+        "Option<Object>",
+        "Resolved dependency graph (`nodes`, `root`)",
+    ),
+    (
+        "packages",
+        "Vec<Object>",
+        "Every package in the dependency graph, members included",
+    ),
+    (
+        "packages[].id",
+        "String",
+        "Package id, as listed in `workspace_members`",
+    ),
+    ("packages[].name", "String", "Package name"),
+    ("packages[].version", "String", "Package version string"),
+    ("packages[].edition", "String", "Rust edition (e.g., 2021)"),
+    ("packages[].license", "Option<String>", "License identifier"),
+    (
+        "packages[].manifest_path",
+        "String",
+        "Absolute path to the package's Cargo.toml",
+    ),
+    (
+        "packages[].source",
+        "Option<String>",
+        "Registry or git source; null for a path package",
+    ),
+    (
+        "packages[].dependencies",
+        "Vec<Object>",
+        "Declared dependencies of every kind",
+    ),
+    (
+        "packages[].dependencies[].name",
+        "String",
+        "Dependency name",
+    ),
+    (
+        "packages[].dependencies[].req",
+        "String",
+        "Version requirement (e.g., ^1.0)",
+    ),
+    (
+        "packages[].dependencies[].kind",
+        "Option<String>",
+        "null for a normal dependency, else `dev` or `build`",
+    ),
+    (
+        "packages[].dependencies[].optional",
+        "bool",
+        "Whether the dependency is optional",
+    ),
+    (
+        "packages[].dependencies[].features",
+        "Vec<String>",
+        "Enabled features",
+    ),
+    (
+        "packages[].dependencies[].target",
+        "Option<String>",
+        "The `cfg(...)` the dependency is declared under; null for all targets",
+    ),
+    (
+        "packages[].targets",
+        "Vec<Object>",
+        "Build targets (lib, bins, tests, examples, benches)",
+    ),
+    ("packages[].targets[].name", "String", "Target name"),
+    (
+        "packages[].targets[].kind",
+        "Vec<String>",
+        "Target kinds (lib, bin, test, example, bench)",
+    ),
+    (
+        "packages[].targets[].src_path",
+        "String",
+        "Absolute path to the target's root source file",
+    ),
+];
 
 /// Bounds the JSON payload size **before** materialising the full blob into a
 /// Rust `String`, in a single SQL round trip.
@@ -388,9 +423,9 @@ impl DataProvider for MetadataProvider {
 /// never crosses the FFI boundary into a Rust allocation, and the caller still
 /// bails with the observed byte count.
 ///
-/// SQLite port note: the blob is already JSON text in a `json TEXT NOT NULL`
-/// column, so no serialisation happens at all — the guard is a pure byte
-/// count. `length()` on TEXT counts *characters*, hence the
+/// The blob is JSON text in a `json TEXT NOT NULL` column, so the guard is
+/// a pure byte count with no serialisation step. `length()` on TEXT counts
+/// *characters*, hence the
 /// `CAST(m.json AS BLOB)`: on a BLOB, `length()` counts bytes, which is the
 /// unit `OPS_METADATA_MAX_BYTES` promises (and matches the Rust-side
 /// `str::len()` check the ingestor applies to the same payload before it is
@@ -407,7 +442,7 @@ fn query_metadata_raw(db: &Sqlite) -> Result<serde_json::Value, anyhow::Error> {
 fn query_metadata_raw_with_cap(db: &Sqlite, cap: u64) -> Result<serde_json::Value, anyhow::Error> {
     use anyhow::Context as AnyhowContext;
     let conn = db.lock().context("acquiring db lock for metadata query")?;
-    // ERR-1: `metadata_raw` is a singleton table. Counting every row and
+    // `metadata_raw` is a singleton table. Counting every row and
     // asserting exactly one surfaces a clear error if a future ingest path
     // inserts more (re-collect without truncate, a schema version row); a
     // `LIMIT 1` read would silently pick an arbitrary one instead.
@@ -430,12 +465,9 @@ fn query_metadata_raw_with_cap(db: &Sqlite, cap: u64) -> Result<serde_json::Valu
         )
         .context("reading metadata_raw payload with cap guard")?;
     drop(conn);
-    // READ-5 / TASK-1550: a negative byte length from the `length(CAST(…
-    // AS BLOB))` guard is not a real SQLite shape — treat any negative i64
-    // as zero-length so the over-cap branch cannot fire on a sentinel.
-    // Overflow on i64 → u64 is impossible after the `.try_from(len)`
-    // succeeds, so we no longer carry a `u64::MAX` arm whose policy would
-    // have been ambiguous.
+    // A negative byte length from the `length(CAST(… AS BLOB))` guard is
+    // not a real SQLite shape — treat any negative i64 as zero-length so
+    // the over-cap branch cannot fire on a sentinel.
     let len = u64::try_from(len).unwrap_or(0);
     if len > cap {
         tracing::warn!(
@@ -470,14 +502,13 @@ fn provide_via_cargo_metadata(ctx: &Context) -> Result<serde_json::Value, anyhow
     use anyhow::Context as _;
     let output = run_cargo_metadata(ctx.working_directory())?;
     check_metadata_output(&output)?;
-    // ERR-1 / TASK-2188: a capped stdout is a truncated document — refuse it
+    // A capped stdout is a truncated document — refuse it
     // here rather than letting serde fail below with a misattributed parse
     // error naming neither the cap nor its env var.
     check_metadata_not_capped(&output)?;
-    // ERR-4 (TASK-0938): attribute parse failures to the cargo-metadata
-    // pipeline so operators see "parsing cargo metadata stdout" in the
-    // chain, not a bare serde_json::Error. Sister pattern to
-    // `test-coverage::collect_coverage` (parsing llvm-cov JSON output).
+    // Attribute parse failures to the cargo-metadata pipeline so operators
+    // see "parsing cargo metadata stdout" in the chain, not a bare
+    // serde_json::Error.
     let json: serde_json::Value =
         serde_json::from_slice(&output.stdout).context("parsing cargo metadata stdout")?;
     Ok(json)
