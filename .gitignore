@@ -1,5 +1,6 @@
 # Build artifacts
 /target/
+extensions-java/about/target/
 
 # Environment
 .env
