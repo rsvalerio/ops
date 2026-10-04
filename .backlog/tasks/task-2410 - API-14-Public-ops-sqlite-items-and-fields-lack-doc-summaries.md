@@ -1,10 +1,10 @@
 ---
 id: TASK-2410
 title: 'API-14: Public ops-sqlite items and fields lack doc summaries'
-status: To Do
+status: Done
 assignee: []
 created_date: '2026-10-04 14:18'
-updated_date: '2026-10-04 14:52'
+updated_date: '2026-10-04 15:28'
 labels:
   - code-review-rust
   - API
@@ -34,6 +34,7 @@ dedup_key: 'API-14:extensions/sqlite/src/schema.rs:DataSourceMetadata'
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 Every public item and public field in the listed locations has a doc summary
-- [ ] #2 validate_no_traversal gains a summary sentence ahead of # Errors
+- [x] #1 Every public item and public field in the listed locations has a doc summary
+- [x] #2 validate_no_traversal gains a summary sentence ahead of # Errors
+
 <!-- AC:END -->

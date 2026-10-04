@@ -1,10 +1,10 @@
 ---
 id: TASK-2407
 title: 'ERR-13: Filesystem errors in ops-sqlite reach callers without the path'
-status: To Do
+status: Done
 assignee: []
 created_date: '2026-10-04 14:18'
-updated_date: '2026-10-04 14:52'
+updated_date: '2026-10-04 15:28'
 labels:
   - code-review-rust
   - ERR
@@ -33,6 +33,7 @@ dedup_key: 'ERR-13:extensions/sqlite/src/sql/ingest/dir.rs:IngestDir'
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 Every DbError::Io produced from a filesystem call names the path or staged entry
-- [ ] #2 Path context is attached without discarding the original io::Error as source
+- [x] #1 Every DbError::Io produced from a filesystem call names the path or staged entry
+- [x] #2 Path context is attached without discarding the original io::Error as source
+
 <!-- AC:END -->

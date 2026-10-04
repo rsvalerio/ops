@@ -1,10 +1,10 @@
 ---
 id: TASK-2409
 title: 'READ-4: load_with_sidecar docs say the .done rename is not implemented, but cleanup_artifacts does it'
-status: To Do
+status: Done
 assignee: []
 created_date: '2026-10-04 14:18'
-updated_date: '2026-10-04 14:52'
+updated_date: '2026-10-04 15:28'
 labels:
   - code-review-rust
   - READ
@@ -29,6 +29,7 @@ dedup_key: 'READ-4:extensions/sqlite/src/ingestor.rs:SidecarIngestorConfig::load
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 load_with_sidecar docs describe the rename-to-.done then unlink behaviour and the post-crash state it leaves
-- [ ] #2 Step numbering in the docs of load_with_sidecar and its helpers is consistent
+- [x] #1 load_with_sidecar docs describe the rename-to-.done then unlink behaviour and the post-crash state it leaves
+- [x] #2 Step numbering in the docs of load_with_sidecar and its helpers is consistent
+
 <!-- AC:END -->

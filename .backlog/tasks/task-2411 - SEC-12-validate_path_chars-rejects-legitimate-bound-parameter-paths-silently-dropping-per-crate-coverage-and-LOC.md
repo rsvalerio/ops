@@ -1,10 +1,10 @@
 ---
 id: TASK-2411
 title: 'SEC-12: validate_path_chars rejects legitimate bound-parameter paths, silently dropping per-crate coverage and LOC'
-status: To Do
+status: Done
 assignee: []
 created_date: '2026-10-04 14:18'
-updated_date: '2026-10-04 14:52'
+updated_date: '2026-10-04 15:05'
 labels:
   - code-review-rust
   - SEC
@@ -33,6 +33,7 @@ dedup_key: 'SEC-12:extensions/sqlite/src/sql/query/helpers.rs:prepare_per_crate'
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 Per-crate queries and query_crate_coverage succeed for paths containing parentheses, plus, at-sign and non-ASCII characters; control characters are still rejected
-- [ ] #2 A regression test covers a workspace root and member path with such characters
+- [x] #1 Per-crate queries and query_crate_coverage succeed for paths containing parentheses, plus, at-sign and non-ASCII characters; control characters are still rejected
+- [x] #2 A regression test covers a workspace root and member path with such characters
+
 <!-- AC:END -->

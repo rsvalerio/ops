@@ -1,10 +1,10 @@
 ---
 id: TASK-2406
 title: 'ERR-9: DbError interpolates its #[from]/#[source] field into the #[error] message'
-status: To Do
+status: Done
 assignee: []
 created_date: '2026-10-04 14:18'
-updated_date: '2026-10-04 14:52'
+updated_date: '2026-10-04 15:28'
 labels:
   - code-review-rust
   - ERR
@@ -32,6 +32,7 @@ Candidates: error.rs variants Sqlite, Io, QueryFailed, Serialization, SqlValidat
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 No #[error] format string in DbError interpolates the field marked #[from]/#[source]
-- [ ] #2 Variant messages say what the layer was doing; existing tests asserting on message text are updated
+- [x] #1 No #[error] format string in DbError interpolates the field marked #[from]/#[source]
+- [x] #2 Variant messages say what the layer was doing; existing tests asserting on message text are updated
+
 <!-- AC:END -->

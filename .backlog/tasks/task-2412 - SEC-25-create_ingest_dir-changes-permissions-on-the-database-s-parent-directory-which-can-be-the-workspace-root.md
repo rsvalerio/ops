@@ -1,10 +1,10 @@
 ---
 id: TASK-2412
 title: 'SEC-25: create_ingest_dir changes permissions on the database''s parent directory, which can be the workspace root'
-status: To Do
+status: Done
 assignee: []
 created_date: '2026-10-04 14:18'
-updated_date: '2026-10-04 14:52'
+updated_date: '2026-10-04 15:28'
 labels:
   - code-review-rust
   - SEC
@@ -34,6 +34,7 @@ dedup_key: 'SEC-25:extensions/sqlite/src/sql/ingest/dir.rs:harden_ingest_parent'
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 Ingest with a database in a user-owned, group-writable directory does not modify that directory's mode and does not fail
-- [ ] #2 A test covers a db path whose parent is group-writable
+- [x] #1 Ingest with a database in a user-owned, group-writable directory does not modify that directory's mode and does not fail
+- [x] #2 A test covers a db path whose parent is group-writable
+
 <!-- AC:END -->
