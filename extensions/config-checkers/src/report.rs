@@ -2,7 +2,7 @@
 
 use std::io::Write;
 
-// DUP-2 / TASK-2162: the per-file outcome vocabulary — failure kinds and the
+// The per-file outcome vocabulary — failure kinds and the
 // failed-file record — is shared with the text fixers through one definition
 // in `ops_core::bounded_read`, so the two file-walking extensions cannot
 // drift on what a failure means. `FailureKind::Write` is the fixers' kind;
@@ -11,7 +11,7 @@ pub use ops_core::bounded_read::{FailedFile, FailureKind};
 
 /// Outcome of a checker run.
 ///
-/// API-5 / TASK-2135: the `#[must_use]` sits on the *type*, not on the
+/// The `#[must_use]` sits on the *type*, not on the
 /// `run_check_*` functions, so it survives `?` — discarding the report after
 /// unwrapping the `Result` is still a warning, because the report (via
 /// [`CheckerReport::failed`]) is what drives the process exit code.

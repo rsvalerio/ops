@@ -17,10 +17,10 @@
 //! [`MAX_EXPANDED_NODES`], so a bomb is reported as a normal
 //! [`CheckError::Parse`] failure against the file that contains it.
 //!
-//! Parser errors are reported exactly as before: only the parser's own
-//! `ScanError`s reach the caller, with the same messages. The two limits
-//! above are new rejections, though — input past [`MAX_NESTING_DEPTH`] or
-//! [`MAX_EXPANDED_NODES`] now fails where the loader path accepted it.
+//! Three things reach the caller as a failure: the parser's own `ScanError`s,
+//! with the parser's messages, and the two limits — input past
+//! [`MAX_NESTING_DEPTH`] or [`MAX_EXPANDED_NODES`] is rejected even though it
+//! is well-formed YAML.
 
 use std::collections::HashMap;
 
@@ -30,10 +30,9 @@ use crate::error::{CheckError, LimitExceeded};
 
 /// Maximum collection nesting.
 ///
-/// DUP-2 / TASK-2132: one constant, not two documented to be equal. This is
-/// a re-export of [`crate::json::MAX_NESTING_DEPTH`] — the two checkers agree
+/// A re-export of [`crate::json::MAX_NESTING_DEPTH`]: the two checkers agree
 /// on what "too deep" means because there is a single definition, so raising
-/// one limit cannot leave the other behind with the suite still green.
+/// the limit for one raises it for both.
 pub use crate::json::MAX_NESTING_DEPTH;
 
 /// Maximum number of nodes the **stream** would hold once every alias is

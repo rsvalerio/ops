@@ -7,7 +7,7 @@
 //! each file, and reports a [`CheckerReport`] so the CLI can exit non-zero
 //! when at least one file failed to parse. Files are never modified.
 //!
-//! # Dependency note (TASK-2162)
+//! # Dependency note
 //!
 //! The bounded-read pipeline and the failure vocabulary this crate shares
 //! with the fixers live in [`ops_core::bounded_read`] — not here, not in the
@@ -24,7 +24,7 @@
 // `src/tests.rs` relies on `unwrap()`; the crate performs no numeric casts,
 // in tests or otherwise, so no cast lint is suppressed here.
 #![cfg_attr(test, allow(clippy::unwrap_used))]
-// API-14 / TASK-2138: undocumented public items are a warning, not silence.
+// Undocumented public items are a warning, not silence.
 #![warn(missing_docs)]
 
 mod error;
@@ -48,8 +48,11 @@ use ops_extension::ExtensionType;
 pub const NAME: &str = "config-checkers";
 /// One-line description shown by `ops about` for this extension.
 pub const DESCRIPTION: &str = "JSON and YAML parse-validators";
-/// CLI-facing short name — the subcommand the user types
-/// (`ops check-json`, `ops check-yaml`).
+/// Short identifier shown in the `Shortname` column of the extension
+/// listing; the same as [`NAME`].
+///
+/// It is not a subcommand: the commands this extension registers are
+/// `check-json` and `check-yaml`.
 pub const SHORTNAME: &str = "config-checkers";
 
 /// Default per-file size cap (16 MiB).
@@ -59,9 +62,8 @@ pub const SHORTNAME: &str = "config-checkers";
 /// enforced on the read itself (`Read::take`), not by a preceding
 /// `metadata()` call, so it holds even if the file changes underneath.
 ///
-/// DUP-2 / TASK-2162: defined once in [`ops_core::bounded_read`] and
-/// re-exported, so this crate and the text fixers share one value and it
-/// cannot drift between them.
+/// Defined once in [`ops_core::bounded_read`] and re-exported, so this crate
+/// and the text fixers share one value and it cannot drift between them.
 ///
 /// It bounds *input* size only, which is the wrong unit for the two `DoS`
 /// classes that do not need a large file. Those are bounded where they
@@ -74,8 +76,8 @@ pub use ops_core::bounded_read::DEFAULT_MAX_BYTES;
 /// Command extension registering the `check-json` and `check-yaml`
 /// subcommands.
 ///
-/// Both are registered as `Exec` specs resolving the current `ops` binary
-/// (SEC-13 / TASK-2122), so they run through the runner rather than as
+/// Both are registered as `Exec` specs resolving the current `ops` binary,
+/// so they run through the runner rather than as
 /// extension-local handlers; no data providers are registered.
 pub struct ConfigCheckersExtension;
 
@@ -88,7 +90,7 @@ ops_extension::impl_extension! {
     command_names: &["check-json", "check-yaml"],
     data_provider_name: None,
     register_commands: |_self, registry| {
-        // SEC-13 / TASK-2122: a bare "ops" resolves through the invoking
+        // A bare "ops" resolves through the invoking
         // environment's PATH, so a shim earlier on PATH silently becomes the
         // validator. `ops_subcommand` spawns the absolute current_exe()-resolved
         // binary, the same constructor the runner's builtin store uses for these

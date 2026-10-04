@@ -31,7 +31,7 @@ fn write(p: &Path, content: &[u8]) {
 
 /// Stage everything under `root` in a fresh git repo.
 ///
-/// TEST-26 / TASK-2126: `false` now means exactly one thing — this
+/// `false` means exactly one thing — this
 /// environment has no git binary, and the skip has already been surfaced on
 /// stderr, so a caller's `return` is visible in the test output instead of a
 /// vacuous pass. A git that *runs* and fails (spawn error, non-zero exit)
@@ -174,7 +174,7 @@ fn unreadable_file_is_reported_as_a_read_failure_not_a_parse_failure() {
 
     // Root bypasses the permission bits entirely, so the assertion below
     // would invert rather than fail — the guard is mandatory, not cosmetic.
-    // TEST-26 / TASK-2126: surfaced, so a root-container run that never
+    // The skip is surfaced, so a root-container run that never
     // executes these assertions is distinguishable from one that did.
     if ops_core::test_utils::is_root_euid() {
         ops_core::test_utils::skip_precondition(
@@ -255,7 +255,7 @@ fn tracked_but_deleted_file_is_skipped_rather_than_failing_the_hook() {
 fn tracked_symlink_to_a_character_device_is_never_a_candidate() {
     let device = Path::new("/dev/zero");
     if !device.exists() {
-        // TEST-26 / TASK-2126: surfaced, so a run without the device is
+        // The skip is surfaced, so a run without the device is
         // distinguishable from one that exercised the guard.
         ops_core::test_utils::skip_precondition(
             "/dev/zero fixture",
@@ -271,11 +271,11 @@ fn tracked_symlink_to_a_character_device_is_never_a_candidate() {
     // 0, so a size gate lets it past, and an unbounded read never reaches
     // EOF. It must be rejected on file *type*, before any read.
     //
-    // `ops_text_fixers::discovery` now applies that type test to both of its
+    // `ops_text_fixers::discovery` applies that type test in both of its
     // modes, so the symlink is dropped from the candidate set before this
     // crate sees it and never reaches the checker's own `NotRegularFile`
-    // skip. The hazard is handled one layer earlier; the property under test
-    // is unchanged — the device is not read, and the run stays clean.
+    // skip. The property under test is that the device is not read and the
+    // run stays clean.
     std::os::unix::fs::symlink(device, root.join("evil.json")).unwrap();
     if !stage_all(root) {
         return;
@@ -293,9 +293,9 @@ fn tracked_symlink_to_a_character_device_is_never_a_candidate() {
 }
 
 /// A walk error means the traversal silently omitted candidates, so the run
-/// cannot honestly report "clean". Before this, the error was printed to the
-/// writer and dropped: `failed()` stayed false and the CLI exited 0 over
-/// directories it never read.
+/// cannot honestly report "clean": printing the error is not enough, it has to
+/// make `failed()` true so the CLI does not exit 0 over directories it never
+/// read.
 #[test]
 fn walk_errors_make_the_report_fail() {
     let report = CheckerReport {
@@ -394,7 +394,7 @@ fn writer_errors_propagate() {
 
 // -- extension registration --
 
-/// SEC-13 / TASK-2122 AC#1+#2+#4: the extension-registered specs spawn an
+/// The extension-registered specs spawn an
 /// absolute program derived from `current_exe()` (not a bare, PATH-resolved
 /// `"ops"` that any earlier `ops` shim could shadow), while the rendered
 /// step line still reads `ops check-json` / `ops check-yaml`.
