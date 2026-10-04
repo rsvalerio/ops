@@ -5,6 +5,7 @@ use std::path::{Path, PathBuf};
 use std::sync::{Mutex, OnceLock, PoisonError};
 
 use ops_about::text_util::trim_nonempty;
+use serde::de::DeserializeOwned;
 use serde::Deserialize;
 
 use super::repo_url::{append_tree_directory, normalize_repo_url};
@@ -95,67 +96,84 @@ pub fn parse_package_json(project_root: &Path) -> Option<PackageJson> {
     // `workspace_member_globs` site pays no second IO on the same file; each
     // caller still deserialises its own projection.
     let content = ops_about::manifest_cache::for_filename("package.json").read(project_root)?;
-    let raw: RawPackage = match serde_json::from_str(&content) {
-        Ok(r) => r,
-        Err(e) => {
-            warn_parse_failure(&project_root.join("package.json"), &e);
-            return None;
-        }
-    };
-
-    // The bound is `1 (author) + contributors.len()`, so one allocation
-    // replaces growth through repeated `push`. `contributors` came from a
-    // deserialised in-memory `Vec`, so its length is at most `isize::MAX` and
-    // the `+ 1` cannot overflow `usize`.
-    let mut authors = Vec::with_capacity(raw.contributors.len().saturating_add(1));
-    if let Some(a) = raw.author {
-        if let Some(s) = format_person(a) {
-            authors.push(s);
-        }
-    }
-    for c in raw.contributors {
-        if let Some(s) = format_person(c) {
-            authors.push(s);
-        }
-    }
+    let raw: RawPackage = deserialize_manifest(&project_root.join("package.json"), &content)?;
 
     Some(PackageJson {
         name: trim_nonempty(raw.name),
         version: trim_nonempty(raw.version),
         description: trim_nonempty(raw.description),
-        // Trim and drop-empty for both license forms: a whitespace-only
-        // license must not render as a blank About bullet.
-        license: raw.license.and_then(|l| match l {
-            LicenseField::Text(s) => trim_nonempty(Some(s)),
-            LicenseField::Object { r#type } => trim_nonempty(r#type),
-        }),
+        license: raw.license.and_then(normalise_license),
         // `homepage` is untrusted manifest text: see [`pick_manifest_url`]
         // for the policy it must clear.
         homepage: pick_manifest_url(raw.homepage),
-        // `normalize_repo_url` returns "" for a value it rejects (control
-        // bytes, or a scheme outside the `http(s)` allowlist); surface that
-        // as a missing field rather than an empty link in the About card.
-        repository: raw.repository.and_then(|r| match r {
-            // `normalize_repo_url` yields a `Cow<str>`, so the clean-URL path
-            // stays alloc-free and only the owned field forces a copy.
-            RepositoryField::Text(s) => trim_nonempty(Some(normalize_repo_url(&s).into_owned())),
-            RepositoryField::Object { url, directory } => url.and_then(|u| {
-                let base = normalize_repo_url(&u);
-                if base.is_empty() {
-                    return None;
-                }
-                Some(match trim_nonempty(directory) {
-                    Some(dir) => append_tree_directory(&base, &dir),
-                    None => base.into_owned(),
-                })
-            }),
-        }),
-        authors,
+        repository: raw.repository.and_then(normalise_repository),
+        authors: collect_authors(raw.author, raw.contributors),
         // Trim and drop-empty so a whitespace-only `engines.node` does not
         // render as `Node    · …` in `build_stack_detail`.
         engines_node: raw.engines.and_then(|e| trim_nonempty(e.node)),
         has_packagemanager: raw.package_manager,
     })
+}
+
+/// Deserialise one typed projection of a `package.json`, or `None` (after
+/// reporting through [`warn_parse_failure`]) when the text does not fit it.
+///
+/// The deserialiser is wrapped in `serde_path_to_error`, so a wrong-typed
+/// field is reported by its JSON path (`license`, `workspaces`) and not only
+/// by the line and column serde gives for an untagged enum mismatch.
+pub fn deserialize_manifest<T: DeserializeOwned>(path: &Path, content: &str) -> Option<T> {
+    let mut deserializer = serde_json::Deserializer::from_str(content);
+    match serde_path_to_error::deserialize(&mut deserializer) {
+        Ok(value) => Some(value),
+        Err(e) => {
+            warn_parse_failure(path, &e);
+            None
+        }
+    }
+}
+
+/// Project either `license` form onto its text, trimmed and dropped when
+/// empty: a whitespace-only license must not render as a blank About bullet.
+fn normalise_license(license: LicenseField) -> Option<String> {
+    match license {
+        LicenseField::Text(s) => trim_nonempty(Some(s)),
+        LicenseField::Object { r#type } => trim_nonempty(r#type),
+    }
+}
+
+/// Project either `repository` form onto a browsable URL.
+///
+/// `normalize_repo_url` returns "" for a value it rejects (control bytes, or
+/// a scheme outside the `http(s)` allowlist); that surfaces as a missing
+/// field, not as an empty link in the About card. The object form's
+/// `directory` is appended as a `/tree/HEAD/<directory>` suffix.
+fn normalise_repository(repository: RepositoryField) -> Option<String> {
+    // `normalize_repo_url` yields a `Cow<str>`, so the clean-URL path stays
+    // alloc-free until the owned field forces a copy.
+    match repository {
+        RepositoryField::Text(url) => trim_nonempty(Some(normalize_repo_url(&url).into_owned())),
+        RepositoryField::Object { url, directory } => {
+            let url = url?;
+            let base = normalize_repo_url(&url);
+            if base.is_empty() {
+                return None;
+            }
+            Some(match trim_nonempty(directory) {
+                Some(dir) => append_tree_directory(&base, &dir),
+                None => base.into_owned(),
+            })
+        }
+    }
+}
+
+/// The `author` followed by every contributor, each rendered by
+/// [`format_person`]; a person that renders to nothing is left out.
+fn collect_authors(author: Option<PersonField>, contributors: Vec<PersonField>) -> Vec<String> {
+    author
+        .into_iter()
+        .chain(contributors)
+        .filter_map(format_person)
+        .collect()
 }
 
 /// Report a `package.json` that failed to deserialise, once per path for the
@@ -169,10 +187,12 @@ pub fn parse_package_json(project_root: &Path) -> Option<PackageJson> {
 /// and matches the process-lifetime caching of the manifest text itself in
 /// `ops_about::manifest_cache`.
 ///
-/// The path flows through the `Debug` formatter so embedded newlines or ANSI
-/// escapes in an attacker-controlled checkout path cannot forge extra log
-/// records; the serde error uses `Display`, which is the readable form.
-pub fn warn_parse_failure(path: &Path, error: &serde_json::Error) {
+/// The record's `field` is the JSON path of the value that did not fit (`.`
+/// for a syntax error with no field in scope). The path flows through the
+/// `Debug` formatter so embedded newlines or ANSI escapes in an
+/// attacker-controlled checkout path cannot forge extra log records; the
+/// serde error uses `Display`, which is the readable form.
+pub fn warn_parse_failure(path: &Path, error: &serde_path_to_error::Error<serde_json::Error>) {
     static WARNED: OnceLock<Mutex<HashSet<PathBuf>>> = OnceLock::new();
     let mut seen = WARNED
         .get_or_init(|| Mutex::new(HashSet::new()))
@@ -184,7 +204,8 @@ pub fn warn_parse_failure(path: &Path, error: &serde_json::Error) {
     drop(seen);
     tracing::warn!(
         path = ?path.display(),
-        error = %error,
+        field = %error.path(),
+        error = %error.inner(),
         recovery = "defaults",
         "failed to parse package.json"
     );
@@ -501,5 +522,57 @@ mod tests {
 
         let parsed = parse_package_json(dir.path()).expect("parsed");
         assert_eq!(parsed.homepage.as_deref(), Some("https://demo.dev"));
+    }
+
+    /// A wrong-typed field fails the whole manifest; the warn names the JSON
+    /// path of the field to fix, which serde's untagged-enum message omits.
+    #[test]
+    fn parse_failure_warn_names_the_wrong_typed_field() {
+        for (field, manifest) in [
+            ("license", r#"{ "name": "x", "license": 42 }"#),
+            ("repository", r#"{ "name": "x", "repository": [1, 2] }"#),
+            (
+                "engines.node",
+                r#"{ "name": "x", "engines": { "node": 18 } }"#,
+            ),
+        ] {
+            let dir = tempfile::tempdir().expect("tempdir");
+            std::fs::write(dir.path().join("package.json"), manifest).expect("write");
+
+            let (logs, parsed) =
+                ops_about::test_support::capture_tracing(tracing::Level::WARN, || {
+                    parse_package_json(dir.path())
+                });
+
+            assert!(parsed.is_none(), "{field}: manifest must be rejected");
+            assert!(
+                logs.contains(&format!("field={field}")),
+                "the warn must name the failing field `{field}`: {logs}"
+            );
+        }
+    }
+
+    #[test]
+    fn collect_authors_lists_author_then_contributors_dropping_blank_entries() {
+        let authors = collect_authors(
+            Some(PersonField::Text("Alice".into())),
+            vec![
+                PersonField::Text("  ".into()),
+                PersonField::Object {
+                    name: Some("Bob".into()),
+                    email: None,
+                },
+            ],
+        );
+        assert_eq!(authors, vec!["Alice".to_string(), "Bob".to_string()]);
+    }
+
+    #[test]
+    fn normalise_repository_object_without_url_is_dropped() {
+        let repository = RepositoryField::Object {
+            url: None,
+            directory: Some("packages/a".into()),
+        };
+        assert_eq!(normalise_repository(repository), None);
     }
 }
