@@ -178,10 +178,10 @@ pub enum RunnerEvent {
         line: OutputLine,
         stderr: bool,
     },
-    /// Emitted when the per-task event buffer overflowed during a noisy
-    /// command, so the display can surface
-    /// "(N output lines dropped under load)" instead of silently losing
-    /// stdout/stderr lines that explain the failure.
+    /// Emitted when a parallel step stopped forwarding its output because
+    /// the run was aborted, so the display can say that `dropped_count`
+    /// trailing stdout/stderr lines are missing instead of presenting the
+    /// lines it did receive as the end of the output.
     StepOutputDropped { id: CommandId, dropped_count: u64 },
     /// A single command finished successfully.
     StepFinished {
