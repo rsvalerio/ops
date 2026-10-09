@@ -257,10 +257,12 @@ fn validate_field(field: &str, value: &str, max_chars: usize) -> anyhow::Result<
         .chars()
         .find(|&ch| ops_core::text::is_unsafe_display_char(ch))
     {
-        let class = if rejected.is_control() {
-            "control"
-        } else {
-            "format"
+        // LINE SEPARATOR and PARAGRAPH SEPARATOR are `Zl` and `Zp`, neither
+        // control nor format, so they are named for what they are.
+        let class = match rejected {
+            '\u{2028}' | '\u{2029}' => "separator",
+            ch if ch.is_control() => "control",
+            _ => "format",
         };
         anyhow::bail!(
             "{field} contains the {class} character {rejected:?}, which cannot appear in a task \
@@ -1265,6 +1267,40 @@ mod tests {
             let rendered = format!("{err:#}");
             assert!(
                 rendered.contains("targets[1].name contains the format character"),
+                "error must name the offending field, got: {rendered}"
+            );
+            assert!(
+                !rendered.contains(hostile),
+                "the offending value must be escaped, not echoed raw: {rendered:?}"
+            );
+            assert_eq!(out, "", "a rejected payload must report nothing");
+            assert_eq!(
+                std::fs::read_dir(dir.path().join(".backlog").join("tasks"))
+                    .expect("tasks dir")
+                    .count(),
+                0,
+                "no task file may be created"
+            );
+        }
+    }
+
+    /// SEC-11: the line and paragraph separators break a line like a newline
+    /// does but belong to neither the control nor the format category, so the
+    /// rejection names them as separators.
+    #[test]
+    fn separator_characters_in_the_payload_are_rejected() {
+        // LINE SEPARATOR, PARAGRAPH SEPARATOR.
+        for hostile in ['\u{2028}', '\u{2029}'] {
+            let dir = scratch_backlog();
+            let registry = registry_with(serde_json::json!({
+                "skill": "code-review-rust",
+                "targets": [{ "name": format!("ops{hostile}core"), "path": "crates/core" }]
+            }));
+            let (out, result) = run(&dir, &registry, RunMode::Write);
+            let err = result.expect_err("a separator in a target name must fail the run");
+            let rendered = format!("{err:#}");
+            assert!(
+                rendered.contains("targets[1].name contains the separator character"),
                 "error must name the offending field, got: {rendered}"
             );
             assert!(
