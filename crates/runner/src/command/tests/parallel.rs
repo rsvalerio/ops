@@ -297,10 +297,9 @@ async fn run_parallel_composite() {
     );
 }
 
-/// TASK-0328: `exec_standalone` routes terminal events past the bounded local
-/// buffer via the awaited outer `tx.send`, specifically so the display can
-/// never orphan a progress bar when a noisy command floods the 256-slot
-/// `LOCAL_BUF`.
+/// TASK-0328: `exec_standalone` delivers the terminal event with an awaited
+/// `tx.send`, after every output line, so the display can never orphan a
+/// progress bar under a noisy command.
 #[cfg(unix)]
 #[tokio::test(flavor = "multi_thread")]
 async fn exec_standalone_delivers_terminal_event_under_high_volume_load() {
@@ -351,8 +350,8 @@ async fn exec_standalone_delivers_terminal_event_under_high_volume_load() {
     );
 }
 
-/// TASK-0335 #2: aborting the parent of `exec_standalone` must not leave the
-/// forwarder task pending in the runtime.
+/// TASK-0335 #2: aborting the parent of `exec_standalone` must not leave
+/// anything holding the outer sender in the runtime.
 #[cfg(unix)]
 #[tokio::test(flavor = "multi_thread")]
 async fn exec_standalone_aborts_forwarder_on_outer_cancellation() {
@@ -381,34 +380,36 @@ async fn exec_standalone_aborts_forwarder_on_outer_cancellation() {
     let _ = timeout(std::time::Duration::from_secs(5), rx.recv())
         .await
         .expect("first event should arrive in time")
-        .expect("forwarder should deliver at least one event");
+        .expect("at least one event should be delivered");
 
     handle.abort();
     let _ = handle.await;
 
     let outcome = timeout(std::time::Duration::from_secs(5), rx.recv())
         .await
-        .expect("rx.recv must resolve — forwarder must have dropped its `outer` clone");
+        .expect("rx.recv must resolve — every sender clone must have been dropped");
     assert!(
         outcome.is_none(),
-        "expected channel close (forwarder aborted, all senders dropped); got {outcome:?}"
+        "expected channel close (task aborted, all senders dropped); got {outcome:?}"
     );
 }
 
-/// CONC-7 / TASK-0457: a chatty producer that bursts past the 256-slot
-/// per-task buffer must either deliver every line or surface a
-/// `StepOutputDropped { id, dropped_count }` so the display can render
-/// "(N output lines dropped under load)" — silent drops are the bug
-/// this regression test pins. Stalls the receiver to make drops likely
-/// in CI without depending on timing.
+/// TASK-2437: a failing step that prints far more lines than the event
+/// channel holds must deliver every one of them, in order, so the display's
+/// stderr tail is the real end of the output. The receiver stalls first so
+/// the producer is parked on a full channel, the case where lines used to be
+/// dropped.
 #[cfg(unix)]
 #[tokio::test(flavor = "multi_thread")]
-async fn exec_standalone_emits_step_output_dropped_under_burst() {
+async fn exec_standalone_delivers_every_output_line_of_a_noisy_failed_step() {
     let (tx, mut rx) = mpsc::channel::<RunnerEvent>(8);
     let abort = Arc::new(AbortSignal::new());
     let spec = Arc::new(exec_spec(
         "sh",
-        &["-c", "for i in $(seq 1 1500); do echo line_$i; done"],
+        &[
+            "-c",
+            "for i in $(seq 1 1500); do echo line_$i >&2; done; exit 1",
+        ],
     ));
 
     let handle = tokio::spawn(exec_standalone(
@@ -417,58 +418,100 @@ async fn exec_standalone_emits_step_output_dropped_under_burst() {
         ExecTaskCtx {
             env: test_exec_env(),
             tx,
-            abort: Arc::clone(&abort),
+            abort,
         },
     ));
 
-    // Pause the receiver briefly to make backpressure likely while the
-    // producer races ahead, then drain.
     tokio::time::sleep(std::time::Duration::from_millis(50)).await;
 
     let mut events = Vec::new();
     while let Some(ev) = rx.recv().await {
         events.push(ev);
     }
-    let _ = handle.await;
-    // Re-establish the no-leak invariant so a future change cannot
-    // accidentally rely on lazy aborts.
-    assert!(
-        !abort.is_set(),
-        "abort flag must not have been tripped by the test producer"
-    );
+    let result = handle.await.expect("exec_standalone task panicked");
+    assert!(!result.success);
 
-    let stdout_lines = events
-        .iter()
-        .filter(|e| matches!(e, RunnerEvent::StepOutput { stderr: false, .. }))
-        .count();
-    let dropped: u64 = events
+    let stderr_lines: Vec<&str> = events
         .iter()
         .filter_map(|e| match e {
-            RunnerEvent::StepOutputDropped { id, dropped_count } if id.as_str() == "burst" => {
-                Some(*dropped_count)
-            }
+            RunnerEvent::StepOutput {
+                line, stderr: true, ..
+            } => Some(line.as_str()),
             _ => None,
         })
-        .sum();
-    // `usize` never exceeds u64 on a supported target, so the widening is
-    // exact; the fallback cannot be reached for a count bounded by 1500, and
-    // `u64::MAX` would fail the assertion below rather than mask a mismatch.
-    let total = u64::try_from(stdout_lines)
-        .unwrap_or(u64::MAX)
-        .saturating_add(dropped);
-    assert_eq!(
-        total, 1500,
-        "every produced line must either be delivered or counted as dropped — got {stdout_lines} delivered + {dropped} dropped"
+        .collect();
+    let expected: Vec<String> = (1..=1500).map(|i| format!("line_{i}")).collect();
+    assert_eq!(stderr_lines, expected);
+    assert!(
+        !events
+            .iter()
+            .any(|e| matches!(e, RunnerEvent::StepOutputDropped { .. })),
+        "no line may be dropped without abort"
     );
-    if dropped > 0 {
-        // If anything was dropped, the explicit event must be present.
+    assert!(
+        matches!(events.last(), Some(RunnerEvent::StepFailed { .. })),
+        "the terminal event must follow the output; got {:?}",
+        events.last()
+    );
+}
+
+/// TASK-2437 AC #2: lines abandoned because abort fired while the channel
+/// was full are counted, and the count is logged at `warn` (visible at the
+/// default log level) when the display cannot be told either.
+#[cfg(unix)]
+#[tokio::test(flavor = "multi_thread")]
+async fn exec_standalone_reports_lines_dropped_under_abort() {
+    use tokio::time::timeout;
+    use tracing::instrument::WithSubscriber;
+
+    let (dispatch, buf) = ops_core::test_utils::capture_dispatch(tracing::Level::WARN);
+    let (tx, mut rx) = mpsc::channel::<RunnerEvent>(8);
+    let abort = Arc::new(AbortSignal::new());
+    let spec = Arc::new(exec_spec(
+        "sh",
+        &["-c", "for i in $(seq 1 1500); do echo line_$i; done"],
+    ));
+
+    let handle = tokio::spawn(
+        exec_standalone(
+            "burst".into(),
+            spec,
+            ExecTaskCtx {
+                env: test_exec_env(),
+                tx,
+                abort: Arc::clone(&abort),
+            },
+        )
+        .with_subscriber(dispatch),
+    );
+
+    // `StepStarted` proves the task is past its entry abort check. Nothing
+    // more is read until the task returns, so it fills the 8 slots, parks on
+    // the ninth line, and abandons the rest once abort is set.
+    let started = rx.recv().await;
+    assert!(matches!(started, Some(RunnerEvent::StepStarted { .. })));
+    abort.set();
+    let _ = timeout(std::time::Duration::from_secs(30), handle)
+        .await
+        .expect("exec_standalone must not hang on a full channel under abort")
+        .expect("exec_standalone task panicked");
+
+    let mut delivered = 0_u64;
+    while let Some(ev) = rx.recv().await {
         assert!(
-            events
-                .iter()
-                .any(|e| matches!(e, RunnerEvent::StepOutputDropped { .. })),
-            "drops must be surfaced via StepOutputDropped"
+            matches!(ev, RunnerEvent::StepOutput { .. }),
+            "only output fits the stalled channel; got {ev:?}"
         );
+        delivered = delivered.saturating_add(1);
     }
+    assert_eq!(delivered, 8);
+    let logged = buf.captured();
+    assert!(
+        logged.contains("dropped-output count")
+            && logged.contains("burst")
+            && logged.contains("dropped_count=1492"),
+        "every undelivered line must be counted in the warning; got: {logged}"
+    );
 }
 
 /// ERR-1 / TASK-1174: when the outer receiver has been torn down (display
@@ -488,12 +531,10 @@ async fn exec_standalone_logs_dropped_count_when_outer_receiver_closed() {
     // the hand-built one here did not).
     let (dispatch, buf) = ops_core::test_utils::capture_dispatch(tracing::Level::WARN);
 
-    // Outer channel capacity 1, receiver held but never read. The forwarder
-    // can deliver at most one event before parking on `outer.send` forever,
-    // letting the chatty producer flood the local 256-slot buffer and trip
-    // the `Full` drop counter. Once `dropped_outputs > 0`, dropping the rx
-    // closes the channel: the forwarder unblocks with an error and breaks
-    // out, and exec_standalone's terminal `tx.send(StepOutputDropped)` is
+    // Outer channel capacity 1, receiver held but never read: the task
+    // delivers at most one event and then parks on `tx.send`. Dropping the
+    // rx closes the channel, the parked send fails, the remaining lines are
+    // counted as dropped, and the `StepOutputDropped` send that follows is
     // the failing send whose warning the assertion below inspects.
     let (tx, rx) = mpsc::channel::<RunnerEvent>(1);
     let abort = Arc::new(AbortSignal::new());
@@ -515,7 +556,7 @@ async fn exec_standalone_logs_dropped_count_when_outer_receiver_closed() {
         .with_subscriber(dispatch),
     );
 
-    // Give the producer enough time to flood the local buffer past 256.
+    // Give the task time to park on the full channel.
     tokio::time::sleep(std::time::Duration::from_millis(300)).await;
     drop(rx);
 

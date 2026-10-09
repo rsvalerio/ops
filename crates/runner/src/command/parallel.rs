@@ -414,7 +414,7 @@ impl CommandRunner {
         on_event: &mut impl FnMut(RunnerEvent),
     ) -> Vec<StepResult> {
         // Parallel orchestration (channel + JoinSet +
-        // AbortSignal + forwarder) only pays off when there are at least two
+        // AbortSignal) only pays off when there are at least two
         // tasks to overlap. For command_ids.len() <= 1, delegate to the
         // sequential `run_plan` path: identical observable semantics
         // (PlanStarted → step events → RunFinished), no orchestration

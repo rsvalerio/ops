@@ -299,8 +299,7 @@ async fn spawn_capped(
     // `JoinSet::abort_all` after a fail_fast trip while the child is wedged
     // and `child.wait()` is parked), `JoinSet::drop` aborts these readers so
     // they cannot keep draining the pipes after the parent has been
-    // cancelled. The `AbortOnDropHandle`-via-JoinSet pattern matches what
-    // `spawn_event_forwarder` does for the same reason.
+    // cancelled.
     let mut drains: tokio::task::JoinSet<std::io::Result<(Vec<u8>, u64)>> =
         tokio::task::JoinSet::new();
     let stdout_handle = drains.spawn(read_capped(stdout, cap));
@@ -457,49 +456,68 @@ pub fn emit_output_events(
     // `&str` and re-wrapped on every call, which (in addition to the
     // already-existing per-stream allocation) discouraged callers from
     // reusing the same Arc across multiple call sites.
-    for (buf, is_stderr) in [(stdout, false), (stderr, true)] {
-        if buf.is_empty() {
-            continue;
-        }
-        let mut start = 0usize;
-        let bytes = buf.as_bytes();
-        while start < bytes.len() {
-            // `start < bytes.len()` holds by the loop guard, so the tail
-            // slice always exists; stop scanning rather than panicking if
-            // that ever stops being true.
-            let Some(rest) = bytes.get(start..) else {
-                break;
-            };
-            let rel = rest.iter().position(|b| *b == b'\n');
-            let (line_end, next_start) = rel.map_or((bytes.len(), bytes.len()), |off| {
-                // `off` indexes into `bytes[start..]`, so `start + off` is a
-                // valid index into `bytes` and the saturating forms below are
-                // exactly equal to `+`/`-` here: the sum is `< bytes.len()`,
-                // the `end > start` guard makes `end >= 1`, and `end` is a
-                // newline index so `end + 1 <= bytes.len()`.
-                let end = start.saturating_add(off);
-                // Mirror `str::lines` and strip an optional preceding `\r`.
-                let trimmed_end = if end > start
-                    && bytes
-                        .get(end.saturating_sub(1))
-                        .is_some_and(|b| *b == b'\r')
-                {
-                    end.saturating_sub(1)
-                } else {
-                    end
-                };
-                (trimmed_end, end.saturating_add(1))
-            });
-            emit(RunnerEvent::StepOutput {
+    output_line_events(id, stdout, stderr).for_each(emit);
+}
+
+/// The `StepOutput` events for one step's captured streams, stdout first,
+/// produced lazily so a caller that awaits between events (the parallel
+/// path, see [`exec_standalone`]) holds one event at a time rather than
+/// one per captured line.
+fn output_line_events<'a>(
+    id: &'a str,
+    stdout: &'a Arc<str>,
+    stderr: &'a Arc<str>,
+) -> impl Iterator<Item = RunnerEvent> + 'a {
+    [(stdout, false), (stderr, true)]
+        .into_iter()
+        .flat_map(move |(buf, is_stderr)| {
+            LineRanges {
+                bytes: buf.as_bytes(),
+                start: 0,
+            }
+            .map(move |range| RunnerEvent::StepOutput {
                 id: id.into(),
-                line: crate::command::OutputLine::slice(
-                    std::sync::Arc::clone(buf),
-                    start..line_end,
-                ),
+                line: crate::command::OutputLine::slice(Arc::clone(buf), range),
                 stderr: is_stderr,
-            });
-            start = next_start;
-        }
+            })
+        })
+}
+
+/// Byte ranges of the lines in a capture buffer, excluding the terminator.
+/// Mirrors `str::lines`: splits on `\n` and strips an optional preceding `\r`.
+struct LineRanges<'a> {
+    bytes: &'a [u8],
+    start: usize,
+}
+
+impl Iterator for LineRanges<'_> {
+    type Item = std::ops::Range<usize>;
+
+    fn next(&mut self) -> Option<Self::Item> {
+        let start = self.start;
+        let rest = self.bytes.get(start..).filter(|rest| !rest.is_empty())?;
+        let rel = rest.iter().position(|b| *b == b'\n');
+        let (line_end, next_start) = rel.map_or((self.bytes.len(), self.bytes.len()), |off| {
+            // `off` indexes into `bytes[start..]`, so `start + off` is a
+            // valid index into `bytes` and the saturating forms below are
+            // exactly equal to `+`/`-` here: the sum is `< bytes.len()`,
+            // the `end > start` guard makes `end >= 1`, and `end` is a
+            // newline index so `end + 1 <= bytes.len()`.
+            let end = start.saturating_add(off);
+            let trimmed_end = if end > start
+                && self
+                    .bytes
+                    .get(end.saturating_sub(1))
+                    .is_some_and(|b| *b == b'\r')
+            {
+                end.saturating_sub(1)
+            } else {
+                end
+            };
+            (trimmed_end, end.saturating_add(1))
+        });
+        self.start = next_start;
+        Some(start..line_end)
     }
 }
 
@@ -543,6 +561,54 @@ pub fn build_step_result(id: &str, duration: Duration, output: CommandOutput) ->
     }
 }
 
+/// Build and run `spec`, capturing its output. On a build or spawn failure
+/// the error is the redacted user-facing message; a build failure reports a
+/// zero duration because nothing ran. Emits no events, so the sequential
+/// ([`exec_command`]) and parallel ([`exec_standalone`]) paths can each
+/// deliver them their own way.
+async fn capture(
+    spec: &Arc<ExecCommandSpec>,
+    env: &ExecEnv,
+) -> (Result<CommandOutput, String>, Duration) {
+    // CONC-5 / TASK-0330: build_command performs sync std::fs::canonicalize.
+    // Run it on the blocking pool so we don't stall a tokio worker per
+    // spawn. The clones below are cheap relative to the process spawn itself.
+    // PERF-3 / TASK-1125: spec is now `Arc<ExecCommandSpec>` end-to-end;
+    // only an atomic refcount bump per spawn, no deep clone of args/env.
+    let mut cmd = match build_command_async(
+        Arc::clone(&env.workspace_cache),
+        Arc::clone(spec),
+        Arc::clone(&env.cwd),
+        Arc::clone(&env.vars),
+        env.policy,
+    )
+    .await
+    {
+        Ok(c) => c,
+        Err(e) => {
+            // ERR-1 / TASK-0450: variable expansion or cwd-policy failure.
+            // Surface as a StepFailed so non-UTF-8 env vars and similar
+            // configuration errors are user-visible instead of materialising
+            // a literal `${VAR}` into argv / cwd.
+            let msg = log_and_redact_spawn_error(&spec.program, &e, "captured");
+            return (Err(msg), Duration::ZERO);
+        }
+    };
+    let cap = super::results::output_byte_cap();
+    let (result, duration) = run_with_timeout(spawn_capped(&mut cmd, cap), spec.timeout()).await;
+    let captured = result.map_err(|e| {
+        // SEC-22: `io::Error::to_string()` on a spawn failure embeds the
+        // resolved absolute program path and cwd (e.g. `/home/alice/…`).
+        // That surfaces in `StepFailed::message` → progress UI → TAP
+        // file, which leaks the developer's home path into CI logs.
+        // log_and_redact_spawn_error keeps the full error at debug
+        // level and returns a shorter "failed to spawn `<program>`:
+        // <kind>" for the user.
+        log_and_redact_spawn_error(&spec.program, &e, "captured")
+    });
+    (captured, duration)
+}
+
 /// ASYNC-6 / TASK-0159: no pre-spawn retries.
 ///
 /// Transient spawn failures (EAGAIN under fork load, temporary PATH
@@ -576,56 +642,17 @@ pub async fn exec_command(
         display_cmd: display_cmd.clone(),
     });
 
-    // CONC-5 / TASK-0330: build_command performs sync std::fs::canonicalize.
-    // Run it on the blocking pool so we don't stall a tokio worker per
-    // spawn. The clones below are cheap relative to the process spawn itself.
-    // PERF-3 / TASK-1125: spec is now `Arc<ExecCommandSpec>` end-to-end;
-    // only an atomic refcount bump per spawn, no deep clone of args/env.
-    let mut cmd = match build_command_async(
-        Arc::clone(&env.workspace_cache),
-        Arc::clone(spec),
-        Arc::clone(&env.cwd),
-        Arc::clone(&env.vars),
-        env.policy,
-    )
-    .await
-    {
-        Ok(c) => c,
-        Err(e) => {
-            // ERR-1 / TASK-0450: variable expansion or cwd-policy failure.
-            // Surface as a StepFailed so non-UTF-8 env vars and similar
-            // configuration errors are user-visible instead of materialising
-            // a literal `${VAR}` into argv / cwd.
-            let msg = log_and_redact_spawn_error(&spec.program, &e, "captured");
-            emit(RunnerEvent::StepFailed {
-                id: id.into(),
-                duration_secs: 0.0,
-                message: msg.clone(),
-                display_cmd,
-            });
-            return StepResult::failure(id, std::time::Duration::ZERO, msg);
-        }
-    };
-    let cap = super::results::output_byte_cap();
-    let (result, duration) = run_with_timeout(spawn_capped(&mut cmd, cap), spec.timeout()).await;
-    let output = match result {
+    let (captured, duration) = capture(spec, env).await;
+    let output = match captured {
         Ok(o) => o,
-        Err(e) => {
-            // SEC-22: `io::Error::to_string()` on a spawn failure embeds the
-            // resolved absolute program path and cwd (e.g. `/home/alice/…`).
-            // That surfaces in `StepFailed::message` → progress UI → TAP
-            // file, which leaks the developer's home path into CI logs.
-            // log_and_redact_spawn_error keeps the full error at debug
-            // level and returns a shorter "failed to spawn `<program>`:
-            // <kind>" for the user.
-            let msg = log_and_redact_spawn_error(&spec.program, &e, "captured");
+        Err(message) => {
             emit(RunnerEvent::StepFailed {
                 id: id.into(),
                 duration_secs: duration.as_secs_f64(),
-                message: msg.clone(),
+                message: message.clone(),
                 display_cmd,
             });
-            return StepResult::failure(id, duration, msg);
+            return StepResult::failure(id, duration, message);
         }
     };
 
@@ -774,35 +801,19 @@ impl ExecTaskCtx {
     }
 }
 
-/// CONC-3 / CONC-6 / CONC-9: spawn the per-task event forwarder.
-///
-/// Drains `local_rx` into the outer `RunnerEvent` channel, racing each
-/// `outer.send(..)` against `abort.cancelled()` so a stuck display pump
-/// cannot keep the forwarder alive after `fail_fast` tripped. Returned in a
-/// `JoinSet` so its Drop aborts the forwarder if the parent task is
-/// cancelled mid-flight (a bare `tokio::spawn` `JoinHandle` would not).
-fn spawn_event_forwarder(
-    mut local_rx: mpsc::Receiver<RunnerEvent>,
-    outer: mpsc::Sender<RunnerEvent>,
-    abort: Arc<AbortSignal>,
-) -> tokio::task::JoinSet<()> {
-    let mut forwarders = tokio::task::JoinSet::new();
-    forwarders.spawn(async move {
-        while let Some(ev) = local_rx.recv().await {
-            tokio::select! {
-                biased;
-                send_result = outer.send(ev) => {
-                    if send_result.is_err() {
-                        break;
-                    }
-                }
-                () = abort.cancelled() => {
-                    break;
-                }
-            }
-        }
-    });
-    forwarders
+/// Send `ev` on `tx` with backpressure, giving up if abort fires first so a
+/// stalled display pump cannot hold a task past `fail_fast`. Returns whether
+/// the event was delivered.
+async fn send_unless_aborted(
+    tx: &mpsc::Sender<RunnerEvent>,
+    ev: RunnerEvent,
+    abort: &AbortSignal,
+) -> bool {
+    tokio::select! {
+        biased;
+        sent = tx.send(ev) => sent.is_ok(),
+        () = abort.cancelled() => false,
+    }
 }
 
 /// CONC-9 / TASK-0459+0571: forward a terminal event (`StepFinished` /
@@ -852,86 +863,85 @@ pub async fn exec_standalone(
             .await;
         return StepResult::cancelled(id);
     }
-    // CONC-3: forward events through a per-task mpsc and a spawned
-    // forwarder that owns the real backpressure against the global bounded
-    // channel. The `exec_command` callback is synchronous `FnMut`, so we
-    // cannot `await tx.send(…)` directly — `try_send` into a local buffer
-    // keeps the hot path non-blocking, while the forwarder awaits on the
-    // outer sender so the runner's global capacity actually governs
-    // memory use. On pathological channel-full bursts events are dropped
-    // with a debug log instead of silently ballooning memory.
-    const LOCAL_BUF: usize = 256;
-    let (local_tx, local_rx) = mpsc::channel::<RunnerEvent>(LOCAL_BUF);
-    let mut forwarders = spawn_event_forwarder(local_rx, tx.clone(), Arc::clone(&abort));
-    // CONC-7: terminal events (StepFinished/StepFailed/StepSkipped) bypass the
-    // bounded local buffer entirely. Noisy commands (e.g. `cargo test
-    // --all-features` compiling hundreds of crates) emit a StepOutput per
-    // stderr line, easily overflowing the 256-slot buffer. When that happens
-    // try_send drops events — and if the *terminal* event lands on a full
-    // buffer the display never sees the step complete, leaving its progress
-    // bar orphaned. We capture the terminal event here and forward it via the
-    // outer channel after exec_command returns, so backpressure (await) gates
-    // delivery instead of silently discarding it.
-    let mut terminal: Option<RunnerEvent> = None;
-    // CONC-7 / TASK-0457: count buffer-full drops per task so the display
-    // can surface them instead of silently losing the stdout/stderr lines
-    // that explain a failure.
-    let mut dropped_outputs: u64 = 0;
-    // PERF-3 / TASK-1125: spec passed by &Arc; Arc::clone on the spawn path.
-    let result = exec_command(&id, &spec, &env, &mut |ev| {
-        // OWN-2 / TASK-0462: cwd/vars are already Arcs inside `env`;
-        // the `&ExecEnv` ref forwards through exec_command →
-        // build_command_async without a deep clone.
-        if matches!(
-            ev,
-            RunnerEvent::StepFinished { .. }
-                | RunnerEvent::StepFailed { .. }
-                | RunnerEvent::StepSkipped { .. }
-        ) {
-            terminal = Some(ev);
-            return;
-        }
-        if let Err(mpsc::error::TrySendError::Full(_)) = local_tx.try_send(ev) {
-            dropped_outputs = dropped_outputs.saturating_add(1);
-            tracing::debug!("per-task event buffer full; dropping event under backpressure");
-        }
-    })
+    let display_cmd = Some(spec.display_cmd().into_owned());
+    // Whether `StepStarted` lands is not checked: an undelivered one means
+    // abort fired or the receiver is gone, and the sends below meet the same
+    // condition.
+    send_unless_aborted(
+        &tx,
+        RunnerEvent::StepStarted {
+            id: id.clone(),
+            display_cmd: display_cmd.clone(),
+        },
+        &abort,
+    )
     .await;
-    drop(local_tx);
-    // Drain the forwarder. JoinSet drops the JoinHandle on completion; if we
-    // are cancelled before reaching this point, the JoinSet's own Drop will
-    // abort the forwarder so it cannot outlive the parent task.
-    while forwarders.join_next().await.is_some() {}
-    // CONC-7 / TASK-0457: surface the dropped count via the outer channel
-    // so the display renders "(N output lines dropped under load)" next
-    // to the step result. Awaited send so the count itself can never be
-    // silently dropped.
+    // PERF-3 / TASK-1125: spec passed by &Arc; Arc::clone on the spawn path.
+    let (captured, duration) = capture(&spec, &env).await;
+    let output = match captured {
+        Ok(o) => o,
+        Err(message) => {
+            let failed = RunnerEvent::StepFailed {
+                id: id.clone(),
+                duration_secs: duration.as_secs_f64(),
+                message: message.clone(),
+                display_cmd,
+            };
+            forward_terminal_event_or_drop(&tx, failed, &abort, &id).await;
+            return StepResult::failure(id, duration, message);
+        }
+    };
+    // CONC-3 / TASK-2437: every output line is sent with an awaited
+    // `tx.send`, so the runner's bounded channel back-pressures this task
+    // and no line is lost to a full buffer. The lines come from the already
+    // captured (byte-capped) streams and are produced lazily, so this holds
+    // one event at a time however many lines the step printed. The earlier
+    // design pushed them through a 256-slot `try_send` buffer from a
+    // synchronous callback; a step that printed more than that lost its
+    // tail, and the failure box showed lines from the middle of the output.
     //
-    // ERR-1 / TASK-1174: a closed receiver (display has already torn down,
-    // e.g. fail_fast shutdown race) returns `Err(SendError)`. The whole
-    // point of TASK-0457 is that this count never disappears, so log a
-    // structured warning when the outer channel rejects the event — the
+    // Lines are still abandoned once abort fires (CONC-9: a stalled display
+    // pump must not hold a task past `fail_fast`) or the receiver is gone.
+    // Those are counted and reported below.
+    let stdout_arc: Arc<str> = Arc::from(output.stdout.as_str());
+    let stderr_arc: Arc<str> = Arc::from(output.stderr.as_str());
+    let mut lines = output_line_events(id.as_str(), &stdout_arc, &stderr_arc);
+    let mut dropped_outputs: u64 = 0;
+    while let Some(ev) = lines.next() {
+        if !send_unless_aborted(&tx, ev, &abort).await {
+            let rest = u64::try_from(lines.count()).unwrap_or(u64::MAX);
+            dropped_outputs = rest.saturating_add(1);
+            break;
+        }
+    }
+    // CONC-7 / TASK-0457: surface the dropped count so the display can say
+    // the output it shows is incomplete.
+    //
+    // ERR-1 / TASK-1174: when the event cannot be delivered either (receiver
+    // closed, or abort with a full channel), log a structured warning so the
     // count survives in the log instead of being silently lost.
     if dropped_outputs > 0 {
-        if let Err(mpsc::error::SendError(_)) = tx
-            .send(RunnerEvent::StepOutputDropped {
-                id: id.clone(),
-                dropped_count: dropped_outputs,
-            })
-            .await
-        {
+        let dropped = RunnerEvent::StepOutputDropped {
+            id: id.clone(),
+            dropped_count: dropped_outputs,
+        };
+        if !send_unless_aborted(&tx, dropped, &abort).await {
             tracing::warn!(
                 step_id = ?id.as_str(),
                 dropped_count = dropped_outputs,
-                "outer event channel closed; dropped-output count cannot be sent to display \
+                "dropped-output count cannot be sent to display \
                  (recording in logs so the count survives)",
             );
         }
     }
+    let mut terminal: Option<RunnerEvent> = None;
+    emit_step_completion(id.as_str(), duration, &output, display_cmd, &mut |ev| {
+        terminal = Some(ev);
+    });
     if let Some(ev) = terminal {
         forward_terminal_event_or_drop(&tx, ev, &abort, &id).await;
     }
-    result
+    build_step_result(id.as_str(), duration, output)
 }
 
 /// Emit a zero-duration `StepFailed` event for resolution errors (unknown or composite-in-leaf).

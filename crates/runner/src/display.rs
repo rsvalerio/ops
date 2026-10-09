@@ -305,23 +305,15 @@ impl ProgressDisplay {
                 success,
             } => self.on_run_finished(duration_secs, success),
             RunnerEvent::StepOutputDropped { id, dropped_count } => {
-                // CONC-7 / TASK-0457: surface dropped lines only at DEBUG so a
-                // green run isn't visually polluted by a noisy step. The
-                // tracing event still records the count for postmortem; the
-                // user-facing stderr/tap line is gated on the tracing level
-                // so `OPS_LOG_LEVEL=debug` (or `RUST_LOG`) re-enables it.
-                tracing::debug!(
-                    target: "ops::runner",
-                    step_id = %id,
-                    dropped_count,
-                    "output line(s) dropped under load"
+                // TASK-2437: always shown. Output lines are only dropped once
+                // the run is aborting, and then the failure box's "last
+                // lines" are not the step's real last lines, which the
+                // reader needs to know without enabling debug logging.
+                let line = format!(
+                    "[ops] {id}: {dropped_count} trailing output line(s) dropped: the run was aborted"
                 );
-                if tracing::enabled!(target: "ops::runner", tracing::Level::DEBUG) {
-                    let line =
-                        format!("[ops] {id}: {dropped_count} output line(s) dropped under load");
-                    self.emit_line(&line);
-                    self.tap_line_for(&line, Some(id.as_str()));
-                }
+                self.emit_line(&line);
+                self.tap_line_for(&line, Some(id.as_str()));
             }
         }
     }
