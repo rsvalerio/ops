@@ -1,16 +1,8 @@
-//! Tests for the metadata extension.
+//! Tests for the metadata extension, one sibling module per concern:
+//! provider wiring, the subprocess output cap, and the payload cap.
 //!
-//! ARCH-1 / TASK-1545: the previous single-file `tests.rs` had grown past
-//! 1280 lines and fused four unrelated concerns (extension wiring, accessor
-//! coverage, edge-case JSON probes, `DuckDB` payload-cap behaviour, and
-//! duplicate-warning logging). Splitting into focused sibling modules keeps
-//! each file under the ARCH-1 guideline and isolates the rebuild blast
-//! radius — touching a payload-cap test no longer recompiles the accessor
-//! coverage.
-//!
-//! DUP-4 / TASK-1540: the shared fixtures moved from `tests/fixtures.rs` up to
-//! `crate::test_support`, which `ingestor.rs` also reaches — a sibling of
-//! `tests/` could not have seen them here.
+//! Shared fixtures live in `crate::test_support`, where `ingestor.rs`'s own
+//! tests can reach them too.
 
 use super::*;
 

@@ -1,19 +1,18 @@
 //! Bounded-wait `git diff --cached` probe shared by hook crates.
 //!
-//! ARCH-1 / TASK-1147: extracted from `run-before-commit/lib.rs` so future
-//! hooks needing the same shape (pre-merge-commit, prepare-commit-msg) can
-//! reuse the bounded-wait, stderr-drain, and env-driven timeout logic
-//! without copy-paste.
+//! Lives here rather than in a hook crate so any hook needing the same shape
+//! (pre-merge-commit, prepare-commit-msg) shares the bounded-wait,
+//! stderr-drain, and env-driven timeout logic.
 
 use std::path::Path;
 use std::sync::mpsc::Receiver;
 use std::time::Duration;
 
-/// ASYNC-6 / TASK-0864: grace period to drain stderr after `git diff
+/// ASYNC-6: grace period to drain stderr after `git diff
 /// --cached` exits.
 const STDERR_DRAIN_GRACE: Duration = Duration::from_millis(500);
 
-/// Typed failure for [`has_staged_files_with_timeout`]. ASYNC-6 / TASK-0589.
+/// Typed failure for [`has_staged_files_with_timeout`]. ASYNC-6.
 #[derive(Debug, thiserror::Error)]
 #[non_exhaustive]
 pub enum HasStagedFilesError {
@@ -43,7 +42,7 @@ pub enum HasStagedFilesError {
 /// `max_secs`. Returns `None` for unset, zero, or unparseable values
 /// (callers fall back to their own default).
 ///
-/// ASYNC-6 / TASK-0783: an env-driven effective disable (e.g. `u64::MAX`)
+/// ASYNC-6: an env-driven effective disable (e.g. `u64::MAX`)
 /// would revert the bounded-wait contract, so values past `max_secs` clamp
 /// down with a `tracing::warn!` breadcrumb.
 pub fn git_timeout_from_env(env_var: &str, max_secs: u64) -> Option<Duration> {
@@ -52,7 +51,7 @@ pub fn git_timeout_from_env(env_var: &str, max_secs: u64) -> Option<Duration> {
     };
     match raw.parse::<u64>() {
         Ok(0) | Err(_) => {
-            // ERR-7 (TASK-0937 / TASK-1886): `raw` is the most directly
+            // ERR-7: `raw` is the most directly
             // attacker-supplied string in the crate — it is logged precisely
             // *because* it failed to parse, and this warn lands in the
             // developer's terminal on every commit. Debug-format it so
@@ -79,7 +78,7 @@ pub fn git_timeout_from_env(env_var: &str, max_secs: u64) -> Option<Duration> {
     }
 }
 
-/// ERR-1 / TASK-0789: bounded wait on the stderr drain thread that
+/// ERR-1: bounded wait on the stderr drain thread that
 /// distinguishes `Timeout` (drain still running past deadline) from
 /// `Disconnected` (drain thread crashed before sending).
 pub fn read_stderr_bounded(
@@ -91,7 +90,7 @@ pub fn read_stderr_bounded(
         Ok(bytes) => bytes,
         Err(std::sync::mpsc::RecvTimeoutError::Timeout) => Vec::new(),
         Err(std::sync::mpsc::RecvTimeoutError::Disconnected) => {
-            // ERR-7 (TASK-0937 / TASK-1886): the program name is
+            // ERR-7: the program name is
             // caller-supplied and reaches the same operator-facing stream.
             tracing::debug!(
                 program = ?program,
@@ -107,29 +106,31 @@ pub fn read_stderr_bounded(
 ///
 /// # Every staged change kind counts
 ///
-/// SEC-31 / TASK-1903: the probe deliberately passes **no** `--diff-filter`,
-/// so additions, copies, modifications, renames, deletions (`D`), type
-/// changes (`T`) and unmerged paths (`U`) all report as staged work. It used
-/// to filter on `ACMR`, which made a delete-only or conflicted index read as
-/// "nothing staged": callers gate a pre-commit check suite on this predicate,
-/// so that combination skipped the whole gate with exit 0 on exactly the
-/// commits most likely to break a build (a removed module, a removed fixture,
-/// a half-resolved merge). A gate must fail closed; if a future caller wants
-/// a narrower question, it belongs in a separate, explicitly named predicate.
+/// The probe deliberately passes **no** `--diff-filter`, so additions,
+/// copies, modifications, renames, deletions (`D`), type changes (`T`) and
+/// unmerged paths (`U`) all report as staged work. A filter such as `ACMR`
+/// would make a delete-only or conflicted index read as "nothing staged":
+/// callers gate a pre-commit check suite on this predicate, so that
+/// combination would skip the whole gate with exit 0 on exactly the commits
+/// most likely to break a build (a removed module, a removed fixture, a
+/// half-resolved merge). A gate must fail closed; a caller that wants a
+/// narrower question needs a separate, explicitly named predicate.
 ///
-/// ASYNC-6 / TASK-0589: pre-commit hooks run on the developer's critical
-/// path. A hung `git diff --cached` (FUSE-backed worktree, network-mounted
-/// `.git`, lock contention) used to hang the commit indefinitely. The
-/// bounded wait surfaces a typed timeout error so the hook fails loudly
-/// instead of silently parking the user's shell.
+/// # Bounded wait
 ///
-/// CONC-3 / TASK-0650: stdout is routed to `/dev/null` (via `--quiet`) and
+/// Pre-commit hooks run on the developer's critical path, and an unbounded
+/// wait on a hung `git diff --cached` (FUSE-backed worktree, network-mounted
+/// `.git`, lock contention) would hang the commit indefinitely. The bounded
+/// wait surfaces a typed timeout error so the hook fails loudly instead of
+/// silently parking the user's shell.
+///
+/// CONC-3: stdout is routed to `/dev/null` (via `--quiet`) and
 /// stderr is drained in a worker thread, sidestepping pipe-buffer
 /// deadlocks for chatty git wrappers.
 ///
 /// # Single-shot-process only
 ///
-/// ERR-5 / TASK-1150: the stderr drain thread is fire-and-forget. It
+/// ERR-5: the stderr drain thread is fire-and-forget. It
 /// blocks on `read_to_end` until the kernel signals EOF on the pipe — i.e.
 /// until *every* descriptor inheriting the write end (the child and any
 /// orphan grandchild it forked) is closed. After this function returns,
@@ -146,7 +147,7 @@ pub fn read_stderr_bounded(
 ///
 /// # Stderr pipe invariant
 ///
-/// READ-4 (TASK-1894): `.stderr(Stdio::piped())` guarantees `child.stderr` is
+/// READ-4: `.stderr(Stdio::piped())` guarantees `child.stderr` is
 /// `Some`. The impossible arm drops the sender rather than panicking (see the
 /// comment on it), which also keeps `read_stderr_bounded` from waiting out its
 /// full grace period. This function has no panicking path; it reports every
@@ -199,7 +200,7 @@ pub fn has_staged_files_with_timeout(
         None => drop(stderr_tx),
     }
 
-    // CONC-5 / TASK-0725: a single `wait_timeout` syscall returns
+    // CONC-5: a single `wait_timeout` syscall returns
     // immediately on a fast `git diff --cached` rather than paying a
     // 50ms busy-poll floor.
     let status = match child.wait_timeout(timeout) {
@@ -303,7 +304,7 @@ mod tests {
         );
     }
 
-    /// ERR-7 (TASK-0937 / TASK-1886): the unparseable-value warn renders the
+    /// ERR-7: the unparseable-value warn renders the
     /// raw env value through the `?` formatter, so a value like
     /// `$'10s\nWARN forged log line'` cannot inject a second log line or
     /// rewrite the terminal around it with an ANSI escape. Mirrors

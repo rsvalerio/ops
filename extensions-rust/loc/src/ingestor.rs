@@ -29,13 +29,3 @@ impl DataIngestor for RustLocIngestor {
         PIPELINE.load_with_sidecar(db, dir, &views::RUST_LOC_FILES_LOAD, &view_sql)
     }
 }
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn rust_loc_ingestor_name() {
-        assert_eq!(RustLocIngestor.name(), "rust-loc");
-    }
-}

@@ -56,15 +56,7 @@ fn is_unused_license_config(code: &str) -> bool {
 
 /// Run `cargo deny check` and parse the JSON output.
 ///
-/// cargo-deny uses three exit codes (per its source/docs):
-///
-/// * `0` — clean: no issues found.
-/// * `1` — issues found: stderr contains the JSON diagnostics we want to parse.
-/// * `2` — configuration / usage error: e.g. an invalid `deny.toml`. In this
-///   case stderr is *not* a diagnostic stream; treating it as one yields an
-///   empty `DenyResult` and silently masks the misconfiguration. Surface the
-///   error instead so operators see "broken deny.toml" rather than a clean
-///   bill of health.
+/// See [`interpret_deny_result`] for how the exit code is read.
 ///
 /// # Errors
 ///
@@ -83,83 +75,35 @@ pub fn run_cargo_deny(working_dir: &Path) -> anyhow::Result<DenyResult> {
     interpret_deny_result(output.status.code(), &stderr)
 }
 
+/// Every bit `cargo deny check` can set in a failing exit code: advisories
+/// (`1`), bans (`2`), licenses (`4`) and sources (`8`). A licenses-only
+/// failure exits `4`, bans plus licenses exits `6`.
+const CHECK_FAILURE_MASK: i32 = 0b1111;
+
+/// Whether `code` is a non-empty set of failed checks.
+const fn is_check_failure(code: i32) -> bool {
+    code > 0 && code & !CHECK_FAILURE_MASK == 0
+}
+
 /// Map a cargo-deny `(exit_code, stderr)` pair to either a parsed
 /// `DenyResult` or a hard error.
 ///
+/// `cargo deny check` exits `0` when no check failed, and otherwise with a
+/// bitset of the checks that did ([`CHECK_FAILURE_MASK`]). Two failures that
+/// are not findings share those values: a broken `deny.toml` exits `1` after
+/// an `ERROR` log envelope, and a usage error exits `2` with plain-text
+/// stderr. The stream content tells them apart from a check failure, since
+/// neither carries a classifiable diagnostic.
+///
 /// # Errors
 ///
-/// If `cargo deny` exited 1 with empty stderr (the binary crashed before
-/// printing diagnostics), was killed by a signal, or exited with an
-/// unrecognised status.
+/// If `cargo deny` reported a failure without a decodable finding (a
+/// configuration or usage error, or a crash before any diagnostic), was
+/// killed by a signal, or exited with a status outside the check bitset.
 pub fn interpret_deny_result(exit_code: Option<i32>, stderr: &str) -> anyhow::Result<DenyResult> {
     match exit_code {
-        // Exit 0 is not the rare case — cargo-deny exits 0 whenever every
-        // finding is at `warning` level (the default for `[bans]
-        // multiple-versions`, and for `unmaintained` / `yanked` configured as
-        // `warn`). It goes through the same guarded parse as exit 1 so
-        // `check_partial_decode_loss` runs on the code path the gate normally
-        // takes. On a genuinely clean run there are no diagnostic envelopes
-        // and the guard is a no-op.
-        Some(0) => {
-            let (parsed, diag) = parse_deny_output_inner(stderr);
-            // Fail closed on a non-empty stream that decoded *nothing* —
-            // not even a `log` / `summary` envelope. A warning printed as
-            // plain text (a wrapper around cargo-deny, a future default
-            // output change) is not a clean run; scoring it green would be
-            // the same silent muting the exit-1 zero-diagnostics guard
-            // below exists to prevent. A stream whose every line decoded
-            // as an envelope stays accepted, warnings included.
-            if !stderr.trim().is_empty() && diag.envelopes_seen == 0 {
-                anyhow::bail!(
-                    "cargo deny exited with status 0 but stderr carried no decodable JSON \
-                     envelopes; refusing to score as clean — likely non-JSON (text-mode) \
-                     output. stderr (truncated): {:?}",
-                    truncate_for_log(stderr.trim())
-                );
-            }
-            check_partial_decode_loss(&diag, stderr)?;
-            Ok(parsed)
-        }
-        Some(1) => {
-            // cargo-deny's contract for exit 1 is "stderr has the JSON
-            // diagnostic stream". An empty/whitespace-only stderr at exit 1
-            // means the binary crashed before printing diagnostics — treating
-            // it as "no issues parsed" would silently mask a supply-chain
-            // pipeline failure.
-            if stderr.trim().is_empty() {
-                anyhow::bail!(
-                    "cargo deny exited with status 1 but produced no diagnostics on stderr; \
-                     treating as pipeline failure (binary may have crashed before emitting JSON)"
-                );
-            }
-            let (parsed, diag) = parse_deny_output_inner(stderr);
-            // Exit 1 also promises at least one JSON diagnostic line. Zero
-            // diagnostics decoded from a non-empty stderr means the stream is
-            // text-mode (a forgotten `--format json`, a cargo-deny default
-            // change, or a wrapper that swallowed the JSON) — every line was
-            // logged at debug by `decode_diagnostic` and the gate would
-            // otherwise score green. Fail closed so schema drift surfaces
-            // instead of silently muting the supply-chain gate.
-            if parsed.advisories.is_empty()
-                && parsed.licenses.is_empty()
-                && parsed.unused_license_allowances.is_empty()
-                && parsed.bans.is_empty()
-                && parsed.sources.is_empty()
-            {
-                anyhow::bail!(
-                    "cargo deny exited with status 1 but stderr decoded zero diagnostics; \
-                     refusing to score as clean — likely non-JSON (text-mode) output. \
-                     stderr (truncated): {:?}",
-                    truncate_for_log(stderr.trim())
-                );
-            }
-            check_partial_decode_loss(&diag, stderr)?;
-            Ok(parsed)
-        }
-        Some(2) => anyhow::bail!(
-            "cargo deny exited with status 2 (configuration error): {:?}",
-            truncate_for_log(stderr.trim())
-        ),
+        Some(0) => interpret_passing_run(stderr),
+        Some(code) if is_check_failure(code) => interpret_failing_run(code, stderr),
         None => anyhow::bail!(
             "cargo deny terminated by signal (exit_code = None); \
              refusing to treat partial diagnostics as authoritative"
@@ -171,6 +115,73 @@ pub fn interpret_deny_result(exit_code: Option<i32>, stderr: &str) -> anyhow::Re
             truncate_for_log(stderr.trim())
         ),
     }
+}
+
+/// Exit 0 is not the rare case — cargo-deny exits 0 whenever every finding is
+/// at `warning` level (the default for `[bans] multiple-versions`, and for
+/// `unmaintained` / `yanked` configured as `warn`). It goes through the same
+/// guarded parse as a failing run so `check_partial_decode_loss` runs on the
+/// code path the gate normally takes. On a genuinely clean run there are no
+/// diagnostic envelopes and the guard is a no-op.
+fn interpret_passing_run(stderr: &str) -> anyhow::Result<DenyResult> {
+    let (parsed, diag) = parse_deny_output_inner(stderr);
+    // Fail closed on a non-empty stream that decoded *nothing* — not even a
+    // `log` / `summary` envelope. A warning printed as plain text (a wrapper
+    // around cargo-deny, a future default output change) is not a clean run;
+    // scoring it green would be the same silent muting the zero-diagnostics
+    // guard of a failing run exists to prevent. A stream whose every line
+    // decoded as an envelope stays accepted, warnings included.
+    if !stderr.trim().is_empty() && diag.envelopes_seen == 0 {
+        anyhow::bail!(
+            "cargo deny exited with status 0 but stderr carried no decodable JSON \
+             envelopes; refusing to score as clean — likely non-JSON (text-mode) \
+             output. stderr (truncated): {:?}",
+            truncate_for_log(stderr.trim())
+        );
+    }
+    check_partial_decode_loss(&diag, stderr)?;
+    Ok(parsed)
+}
+
+/// A failing exit promises that stderr carries the JSON diagnostics of the
+/// checks that failed. Anything short of that is a pipeline failure, never
+/// "no issues parsed".
+fn interpret_failing_run(code: i32, stderr: &str) -> anyhow::Result<DenyResult> {
+    // An empty/whitespace-only stderr means the binary crashed before
+    // printing diagnostics.
+    if stderr.trim().is_empty() {
+        anyhow::bail!(
+            "cargo deny exited with status {code} but produced no diagnostics on stderr; \
+             treating as pipeline failure (binary may have crashed before emitting JSON)"
+        );
+    }
+    let (parsed, diag) = parse_deny_output_inner(stderr);
+    if diag.entries_emitted == 0 {
+        // cargo-deny gave up before any check reported: it logs the reason
+        // (an unreadable or invalid `deny.toml`, a missing manifest) at
+        // `ERROR` and exits non-zero.
+        if let Some(reason) = &diag.error_log {
+            anyhow::bail!(
+                "cargo deny exited with status {code} before reporting any finding \
+                 (configuration error): {:?}",
+                truncate_for_log(reason)
+            );
+        }
+        // Zero diagnostics decoded from a non-empty stderr means the stream
+        // is text-mode (a usage error, a forgotten `--format json`, a
+        // cargo-deny default change, or a wrapper that swallowed the JSON) —
+        // every line was logged at debug by `decode_diagnostic` and the gate
+        // would otherwise score green. Fail closed so drift surfaces instead
+        // of silently muting the supply-chain gate.
+        anyhow::bail!(
+            "cargo deny exited with status {code} but stderr decoded zero diagnostics; \
+             refusing to score as clean — likely a usage error or non-JSON (text-mode) \
+             output. stderr (truncated): {:?}",
+            truncate_for_log(stderr.trim())
+        );
+    }
+    check_partial_decode_loss(&diag, stderr)?;
+    Ok(parsed)
 }
 
 /// What [`parse_deny_output_inner`] saw versus what it kept. Mirrors
@@ -190,6 +201,9 @@ struct DenyParseDiagnostics {
     candidate_diagnostics: usize,
     /// Candidates that made it into one of the `DenyResult` sections.
     entries_emitted: usize,
+    /// The message of the first `log` envelope at `ERROR` level: cargo-deny
+    /// explaining why it stopped (e.g. a `deny.toml` it could not parse).
+    error_log: Option<String>,
 }
 
 impl DenyParseDiagnostics {
@@ -236,7 +250,7 @@ fn check_partial_decode_loss(diag: &DenyParseDiagnostics, stderr: &str) -> anyho
             candidate_diagnostics = diag.candidate_diagnostics,
             entries_emitted = diag.entries_emitted,
             dropped,
-            "TASK-1840: cargo-deny reported diagnostics that could not be decoded or classified; \
+            "cargo-deny reported diagnostics that could not be decoded or classified; \
              refusing to treat the surviving subset as the complete finding set"
         );
         anyhow::bail!(
@@ -298,6 +312,19 @@ struct DenyAdvisory {
     title: Option<String>,
 }
 
+/// The message of a `log` envelope at `ERROR` level, if `line` is one.
+fn error_log_message(line: &DenyLine) -> Option<String> {
+    if line.line_type != "log" {
+        return None;
+    }
+    let fields = line.fields.as_ref()?;
+    let level = fields.get("level")?.as_str()?;
+    if !level.eq_ignore_ascii_case("error") {
+        return None;
+    }
+    Some(fields.get("message")?.as_str()?.to_owned())
+}
+
 struct DecodedDiagnostic {
     code: String,
     severity: String,
@@ -326,12 +353,15 @@ fn decode_diagnostic(trimmed: &str, diag: &mut DenyParseDiagnostics) -> Option<D
             tracing::debug!(
                 error = %e,
                 line = %truncate_for_log(trimmed),
-                "ERR-1: skipping malformed cargo-deny JSON line"
+                "skipping malformed cargo-deny JSON line"
             );
             return None;
         }
     };
     if deny_line.line_type != "diagnostic" {
+        if diag.error_log.is_none() {
+            diag.error_log = error_log_message(&deny_line);
+        }
         return None;
     }
     // One increment per line of an in-memory string, whose length is bounded
@@ -348,7 +378,7 @@ fn decode_diagnostic(trimmed: &str, diag: &mut DenyParseDiagnostics) -> Option<D
     let Some(raw_fields) = deny_line.fields else {
         tracing::debug!(
             line = %truncate_for_log(trimmed),
-            "TASK-1840: skipping cargo-deny diagnostic with no `fields` object (possible schema drift)"
+            "skipping cargo-deny diagnostic with no `fields` object (possible schema drift)"
         );
         return None;
     };
@@ -358,7 +388,7 @@ fn decode_diagnostic(trimmed: &str, diag: &mut DenyParseDiagnostics) -> Option<D
             tracing::debug!(
                 error = %e,
                 line = %truncate_for_log(trimmed),
-                "TASK-1840: skipping cargo-deny diagnostic whose `fields` failed to decode (possible schema drift)"
+                "skipping cargo-deny diagnostic whose `fields` failed to decode (possible schema drift)"
             );
             return None;
         }
@@ -370,7 +400,7 @@ fn decode_diagnostic(trimmed: &str, diag: &mut DenyParseDiagnostics) -> Option<D
         tracing::debug!(
             severity = %fields.severity.as_deref().unwrap_or(MISSING_SEVERITY_SENTINEL),
             message = %truncate_for_log(fields.message.as_deref().unwrap_or("")),
-            "TASK-1840: skipping cargo-deny diagnostic with no `code` field (possible schema drift)"
+            "skipping cargo-deny diagnostic with no `code` field (possible schema drift)"
         );
         return None;
     };
@@ -380,7 +410,7 @@ fn decode_diagnostic(trimmed: &str, diag: &mut DenyParseDiagnostics) -> Option<D
         tracing::warn!(
             code = %code,
             message = %truncate_for_log(fields.message.as_deref().unwrap_or("")),
-            "TASK-0845: cargo-deny diagnostic missing severity; substituting `<missing-severity>` sentinel \
+            "cargo-deny diagnostic missing severity; substituting `<missing-severity>` sentinel \
              (treated as actionable / fail-closed by has_issues)"
         );
         MISSING_SEVERITY_SENTINEL.to_string()
@@ -436,7 +466,7 @@ fn resolve_package(diag: &DecodedDiagnostic) -> String {
                 code = %diag.code,
                 severity = %diag.severity,
                 message = %truncate_for_log(&diag.message),
-                "TASK-0597: cargo-deny diagnostic had no package name in advisory or graphs[0].krate; \
+                "cargo-deny diagnostic had no package name in advisory or graphs[0].krate; \
                  substituting <no package> sentinel"
             );
             "<no package>".to_string()
@@ -471,6 +501,7 @@ fn parse_deny_output_inner(stderr: &str) -> (DenyResult, DenyParseDiagnostics) {
         envelopes_seen: 0,
         candidate_diagnostics: 0,
         entries_emitted: 0,
+        error_log: None,
     };
     for line in stderr.lines() {
         let trimmed = line.trim();
@@ -485,7 +516,7 @@ fn parse_deny_output_inner(stderr: &str) -> (DenyResult, DenyParseDiagnostics) {
                 code = %diag.code,
                 severity = %diag.severity,
                 message = %truncate_for_log(&diag.message),
-                "TASK-0436: skipping cargo-deny diagnostic with unknown code (possible schema drift)"
+                "skipping cargo-deny diagnostic with unknown code (possible schema drift)"
             );
             continue;
         };

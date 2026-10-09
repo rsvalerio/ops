@@ -1,10 +1,10 @@
 ---
 id: TASK-2400
 title: 'API-14: a few public ops-about items have no doc summary'
-status: To Do
+status: Done
 assignee: []
 created_date: '2026-10-04 14:15'
-updated_date: '2026-10-04 14:52'
+updated_date: '2026-10-04 15:54'
 labels:
   - code-review-rust
   - API
@@ -32,5 +32,6 @@ dedup_key: 'API-14:extensions/about/src:undocumented-pub-items'
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 Every listed public item and field has a doc summary
+- [x] #1 Every listed public item and field has a doc summary
+
 <!-- AC:END -->

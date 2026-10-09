@@ -17,7 +17,7 @@ use crate::HookConfig;
 /// Otherwise, adds a composite command that runs the given `selected_commands`.
 /// If `selected_commands` is empty, skips writing the entry.
 ///
-/// # `fail_fast` policy (PATTERN-1, TASK-1114)
+/// # `fail_fast` policy (PATTERN-1)
 ///
 /// The synthesized entry hardcodes `fail_fast = true`. Rationale:
 ///
@@ -67,12 +67,12 @@ pub fn ensure_config_command(
     }
 
     // Insert an empty `[commands]` table only when the key is absent; an existing
-    // non-table `commands` is left alone and reported as an error, as before.
+    // non-table `commands` is left alone and reported as an error.
     let commands = doc
         .entry("commands")
         .or_insert_with(|| toml_edit::Item::Table(toml_edit::Table::new()))
         .as_table_mut()
-        // ERR-4 / ERR-13 (TASK-1895): name the file and the offending key.
+        // Name the file and the offending key.
         // `config_dir` is a parameter, so the `.ops.toml` that was read is not
         // necessarily the one in the operator's cwd — and `ops <hook>-install`
         // is typically their first interaction with ops in a repo.
@@ -90,7 +90,7 @@ pub fn ensure_config_command(
         arr.push(name.as_str());
     }
     cmd.insert("commands", toml_edit::value(arr));
-    // PATTERN-1 (TASK-1114): `fail_fast = true` is hardcoded by design — see
+    // PATTERN-1: `fail_fast = true` is hardcoded by design — see
     // the function-level doc for the rationale and the operator override path
     // (hand-edit `.ops.toml`; the early-exit guard above preserves the edit
     // on subsequent installs).
@@ -218,9 +218,8 @@ mod tests {
         );
     }
 
-    /// ERR-4 (TASK-1895): the one hand-written error on this path used to say
-    /// only "commands is not a table" — naming neither the `.ops.toml` it came
-    /// from (which need not be the one in the cwd) nor that `commands` is a
+    /// The non-table `commands` error names the `.ops.toml` it came from
+    /// (which need not be the one in the cwd) and says that `commands` is a
     /// top-level TOML key rather than a CLI argument.
     #[test]
     fn ensure_config_non_table_commands_error_names_path_and_key() {

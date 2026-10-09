@@ -17,6 +17,27 @@
 //! one. The parent directory is `fsync`ed afterwards so the new directory
 //! entry survives a crash.
 //!
+//! # What is re-checked before the rename
+//!
+//! The read side holds a symlink-refusing handle; the write side has only the
+//! path, which it resolves a second time. Two checks keep that second
+//! resolution honest:
+//!
+//! - **No directory component of the target is a symlink.** The read refused
+//!   a symlink at every component, so one that appears afterwards is a swap,
+//!   and staging or renaming through it would land outside the tree the run
+//!   was pointed at. It is refused before the stage file is created.
+//! - **The target is still the file that was read.** Immediately before the
+//!   rename the target is `lstat`ed and its device, inode, length and
+//!   modification time are compared with the metadata of the read handle. Any
+//!   difference — an editor saving, another step rewriting, the file replaced
+//!   by a symlink or deleted — refuses the rewrite, because the staged
+//!   content was computed from bytes that are no longer the file's.
+//!
+//! Both are path-based checks, so the instants between each check and the
+//! `rename(2)` it guards remain; they shrink the window from "the whole
+//! read-fix-write cycle" to "one syscall gap", they do not close it.
+//!
 //! # The trade this makes
 //!
 //! `rename(2)` replaces the *directory entry*, so the target gets a **new
@@ -57,19 +78,30 @@ pub const STAGE_PREFIX: &str = ".ops-text-fixers.";
 /// mode, uid and gid recorded in `original`.
 ///
 /// `original` must be the metadata of the file being replaced, taken from the
-/// handle it was read through.
+/// handle it was read through: it is both the source of the preserved
+/// attributes and the identity the target is compared against before the
+/// rename.
 ///
 /// # Errors
 ///
-/// If the temp file cannot be created in `path`'s directory, written,
-/// `fsync`ed, or renamed over `path`. On every error path the target is left
-/// exactly as it was and the temp file is unlinked.
+/// - [`io::ErrorKind::InvalidInput`] if a directory component of `path` is a
+///   symlink.
+/// - An error whose message is [`CHANGED_SINCE_READ`] if the target no longer
+///   matches `original` (different device, inode, length or modification
+///   time, or no longer a regular file); [`io::ErrorKind::NotFound`] if it is
+///   gone.
+/// - Any error from creating the temp file in `path`'s directory, writing it,
+///   `fsync`ing it, or renaming it over `path`.
+///
+/// On every error path the target is left exactly as it was and the temp file
+/// is unlinked.
 pub fn replace(path: &Path, contents: &[u8], original: &Metadata) -> io::Result<()> {
     // A bare filename has an empty parent; stage alongside it in the cwd.
     let parent = path
         .parent()
         .filter(|p| !p.as_os_str().is_empty())
         .unwrap_or_else(|| Path::new("."));
+    refuse_symlinked_directory(parent)?;
 
     // Same directory, so the rename is within one filesystem (a cross-device
     // rename fails with EXDEV) and a randomised name so two concurrent fixer
@@ -84,12 +116,71 @@ pub fn replace(path: &Path, contents: &[u8], original: &Metadata) -> io::Result<
     tmp.as_file().sync_data()?;
     preserve_attributes(tmp.as_file(), original)?;
 
+    // Last, so the gap between this comparison and the rename is as short as
+    // it can be made without a directory handle.
+    ensure_unchanged(path, original)?;
+
     // `persist` consumes the temp file and renames it over `path`. On failure
     // the inner value falls back into `Drop`, unlinking the stage; `path` is
     // untouched.
     tmp.persist(path).map_err(|e| e.error)?;
     sync_parent_dir(parent);
     Ok(())
+}
+
+/// Message of the error [`replace`] returns when the target changed after it
+/// was read.
+pub const CHANGED_SINCE_READ: &str = "changed on disk since it was read; left untouched";
+
+/// Refuse `dir` if it, or any directory above it in the path as given, is a
+/// symlink.
+///
+/// The check covers the path as spelled, the same scope the read side's
+/// component walk has, so a caller that canonicalizes its root once is not
+/// refused for a symlink above that root.
+fn refuse_symlinked_directory(dir: &Path) -> io::Result<()> {
+    for component in dir.ancestors().filter(|a| !a.as_os_str().is_empty()) {
+        if std::fs::symlink_metadata(component)?
+            .file_type()
+            .is_symlink()
+        {
+            return Err(io::Error::new(
+                io::ErrorKind::InvalidInput,
+                format!(
+                    "refusing to write through symlinked directory {:?}",
+                    component.display()
+                ),
+            ));
+        }
+    }
+    Ok(())
+}
+
+/// Fail unless `path` still names the regular file `original` was taken from.
+///
+/// `symlink_metadata` rather than `metadata`: a symlink swapped in for the
+/// file must be seen as a symlink, not as whatever it points at.
+fn ensure_unchanged(path: &Path, original: &Metadata) -> io::Result<()> {
+    let current = std::fs::symlink_metadata(path)?;
+    if current.file_type().is_file() && is_same_file(&current, original) {
+        return Ok(());
+    }
+    Err(io::Error::other(CHANGED_SINCE_READ))
+}
+
+/// Whether two metadata snapshots describe the same, unmodified file.
+///
+/// Device and inode are compared on Unix only; elsewhere length and
+/// modification time are the available evidence.
+fn is_same_file(current: &Metadata, original: &Metadata) -> bool {
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::MetadataExt;
+        if current.dev() != original.dev() || current.ino() != original.ino() {
+            return false;
+        }
+    }
+    current.len() == original.len() && current.modified().ok() == original.modified().ok()
 }
 
 /// Copy mode, uid and gid from the replaced file onto the staged one.
@@ -138,10 +229,125 @@ fn sync_parent_dir(parent: &Path) {
 mod tests {
     use super::*;
 
+    /// Tempdir path with its own symlinked prefix resolved (macOS: `/var` ->
+    /// `/private/var`), so a refusal in a test is about the fixture.
+    fn canon(dir: &tempfile::TempDir) -> std::path::PathBuf {
+        dir.path().canonicalize().unwrap()
+    }
+
+    fn entry_names(dir: &Path) -> Vec<std::ffi::OsString> {
+        let mut names: Vec<_> = std::fs::read_dir(dir)
+            .unwrap()
+            .map(|e| e.unwrap().file_name())
+            .collect();
+        names.sort();
+        names
+    }
+
+    #[test]
+    fn a_file_edited_since_the_read_is_left_untouched() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = canon(&dir).join("a.txt");
+        std::fs::write(&path, b"old  \n").unwrap();
+        let md = std::fs::metadata(&path).unwrap();
+
+        std::fs::write(&path, b"a concurrent edit\n").unwrap();
+
+        let err = replace(&path, b"old\n", &md).unwrap_err();
+        assert_eq!(err.to_string(), CHANGED_SINCE_READ);
+        assert_eq!(std::fs::read(&path).unwrap(), b"a concurrent edit\n");
+        assert_eq!(entry_names(&canon(&dir)), ["a.txt"], "stage unlinked");
+    }
+
+    /// Same inode and same length: the modification time alone gives it away.
+    #[test]
+    fn a_same_length_edit_is_detected_by_mtime() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = canon(&dir).join("a.txt");
+        std::fs::write(&path, b"aaaa\n").unwrap();
+        let md = std::fs::metadata(&path).unwrap();
+
+        std::fs::write(&path, b"bbbb\n").unwrap();
+        let later = md.modified().unwrap() + std::time::Duration::from_secs(5);
+        File::options()
+            .write(true)
+            .open(&path)
+            .unwrap()
+            .set_modified(later)
+            .unwrap();
+
+        let err = replace(&path, b"cccc\n", &md).unwrap_err();
+        assert_eq!(err.to_string(), CHANGED_SINCE_READ);
+        assert_eq!(std::fs::read(&path).unwrap(), b"bbbb\n");
+    }
+
+    #[test]
+    fn a_file_replaced_by_another_inode_is_left_untouched() {
+        let dir = tempfile::tempdir().unwrap();
+        let root = canon(&dir);
+        let path = root.join("a.txt");
+        std::fs::write(&path, b"old\n").unwrap();
+        let md = std::fs::metadata(&path).unwrap();
+
+        // An editor's save-by-rename: same name, same length, new inode.
+        std::fs::write(root.join("b.txt"), b"new\n").unwrap();
+        std::fs::rename(root.join("b.txt"), &path).unwrap();
+
+        let err = replace(&path, b"fix\n", &md).unwrap_err();
+        assert_eq!(err.to_string(), CHANGED_SINCE_READ);
+        assert_eq!(std::fs::read(&path).unwrap(), b"new\n");
+    }
+
+    #[test]
+    fn a_file_deleted_since_the_read_is_not_recreated() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = canon(&dir).join("a.txt");
+        std::fs::write(&path, b"old\n").unwrap();
+        let md = std::fs::metadata(&path).unwrap();
+        std::fs::remove_file(&path).unwrap();
+
+        let err = replace(&path, b"new\n", &md).unwrap_err();
+        assert_eq!(err.kind(), io::ErrorKind::NotFound);
+        assert!(entry_names(&canon(&dir)).is_empty());
+    }
+
+    /// The parent directory is swapped for a symlink to a directory holding
+    /// the very same inode, so the identity check alone would pass: it is the
+    /// directory check that has to refuse.
+    #[cfg(unix)]
+    #[test]
+    fn a_parent_swapped_for_a_symlink_is_refused() {
+        let dir = tempfile::tempdir().unwrap();
+        let root = canon(&dir);
+        let path = root.join("sub").join("a.txt");
+        std::fs::create_dir_all(root.join("sub")).unwrap();
+        std::fs::write(&path, b"old\n").unwrap();
+        let md = std::fs::metadata(&path).unwrap();
+
+        std::fs::rename(root.join("sub"), root.join("elsewhere")).unwrap();
+        std::os::unix::fs::symlink(root.join("elsewhere"), root.join("sub")).unwrap();
+
+        let err = replace(&path, b"new\n", &md).unwrap_err();
+        assert_eq!(err.kind(), io::ErrorKind::InvalidInput);
+        assert!(
+            err.to_string().contains("symlinked directory"),
+            "unexpected error: {err}"
+        );
+        assert_eq!(
+            std::fs::read(root.join("elsewhere").join("a.txt")).unwrap(),
+            b"old\n"
+        );
+        assert_eq!(
+            entry_names(&root.join("elsewhere")),
+            ["a.txt"],
+            "nothing may be staged through the symlink"
+        );
+    }
+
     #[test]
     fn replaces_content_in_place() {
         let dir = tempfile::tempdir().unwrap();
-        let path = dir.path().join("a.txt");
+        let path = canon(&dir).join("a.txt");
         std::fs::write(&path, b"old\n").unwrap();
         let md = std::fs::metadata(&path).unwrap();
 
@@ -153,17 +359,13 @@ mod tests {
     #[test]
     fn leaves_no_temp_files_behind() {
         let dir = tempfile::tempdir().unwrap();
-        let path = dir.path().join("a.txt");
+        let path = canon(&dir).join("a.txt");
         std::fs::write(&path, b"old\n").unwrap();
         let md = std::fs::metadata(&path).unwrap();
 
         replace(&path, b"new\n", &md).unwrap();
 
-        let entries: Vec<_> = std::fs::read_dir(dir.path())
-            .unwrap()
-            .map(|e| e.unwrap().file_name())
-            .collect();
-        assert_eq!(entries, vec![std::ffi::OsString::from("a.txt")]);
+        assert_eq!(entry_names(&canon(&dir)), ["a.txt"]);
     }
 
     #[cfg(unix)]
@@ -172,7 +374,7 @@ mod tests {
         use std::os::unix::fs::PermissionsExt;
 
         let dir = tempfile::tempdir().unwrap();
-        let path = dir.path().join("a.txt");
+        let path = canon(&dir).join("a.txt");
         std::fs::write(&path, b"old\n").unwrap();
         std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o640)).unwrap();
         let md = std::fs::metadata(&path).unwrap();
@@ -186,7 +388,7 @@ mod tests {
     #[test]
     fn a_failed_replace_leaves_the_original_intact() {
         let dir = tempfile::tempdir().unwrap();
-        let path = dir.path().join("sub").join("a.txt");
+        let path = canon(&dir).join("sub").join("a.txt");
         std::fs::create_dir_all(path.parent().unwrap()).unwrap();
         std::fs::write(&path, b"original\n").unwrap();
         let md = std::fs::metadata(&path).unwrap();

@@ -256,6 +256,10 @@ fn refused_non_regular(path: &Path) -> std::io::Error {
 /// (`config::edit::build_tmp_basename`) *is* run under Miri — see the
 /// `miri` job in `.github/workflows/ci.yml`.
 #[cfg(unix)]
+#[expect(
+    unsafe_code,
+    reason = "openat/fstat/fcntl FFI for the no-symlink open walk; each block carries its SAFETY comment"
+)]
 mod unix_open {
     use std::ffi::{CStr, CString};
     use std::io;

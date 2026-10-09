@@ -1,12 +1,11 @@
-//! ARCH-1 / TASK-1471: global-config path resolution and load-from-disk.
+//! Global-config path resolution and load-from-disk.
 //!
-//! Extracted from the historical grab-bag `loader.rs`. Owns the
-//! [`GLOBAL_CONFIG_PATH`] `OnceLock`, the `XDG_CONFIG_HOME` /
+//! Owns the [`GLOBAL_CONFIG_PATH`] cache, the `XDG_CONFIG_HOME` /
 //! `APPDATA` / `HOME` precedence matrix, and the bare-vs-`.toml`
 //! filename precedence with the silent-shadow warn.
 
 use std::path::{Path, PathBuf};
-use std::sync::RwLock;
+use std::sync::{PoisonError, RwLock, RwLockWriteGuard};
 
 use tracing::debug;
 
@@ -23,68 +22,61 @@ use super::super::{merge::merge_config, Config};
 ///   `%APPDATA%\ops\config.toml`, matching the Windows convention.
 /// - On Unix otherwise: `$HOME/.config`.
 ///
-/// PORT-5 (TASK-0696): the previous fallback unconditionally appended
-/// `.config/ops/config` to whatever `$HOME` or `$USERPROFILE` resolved to,
-/// producing `C:\Users\X\.config\ops\config.toml` on Windows — a
-/// non-idiomatic location that silently diverges from the documented
-/// platform path. The resolved path is logged at `tracing::debug` so the
-/// chosen base directory is visible when diagnosing "config not loading"
-/// reports.
+/// The base path is rejected if it is empty or relative — those shapes
+/// cannot be the right config home, and honouring them would hide the
+/// misconfiguration. `XDG_CONFIG_HOME` stays authoritative when set, so a
+/// Windows user inheriting a Unix-style value (WSL leakage, dotfile sync)
+/// bypasses `%APPDATA%\ops\config.toml`; the chosen source (XDG vs APPDATA
+/// vs HOME) and the resolved path are logged at `tracing::debug` to make
+/// that visible when diagnosing "config not loading" reports.
 ///
-/// PATTERN-1 (TASK-1222): the chosen *source* of the base directory (XDG vs
-/// APPDATA vs HOME) is logged at debug too, so a Windows user inheriting a
-/// Unix-style `XDG_CONFIG_HOME` (WSL leakage, dotfile sync) can spot why the
-/// documented `%APPDATA%\ops\config.toml` location is being silently bypassed.
-/// The base path is also rejected if it is empty or relative — those shapes
-/// cannot be the right config home and silently honouring them only hides the
-/// misconfiguration. Cross-platform tooling generally treats `XDG_CONFIG_HOME`
-/// as authoritative when set, so we keep that precedence; the WSL leakage
-/// edge case is documented rather than papered over.
-///
-/// PERF-3 / TASK-1419: cache the resolved global config path behind a
-/// `OnceLock<Option<PathBuf>>` so the env lookups (`XDG_CONFIG_HOME`,
-/// `APPDATA`, `HOME`/`USERPROFILE`) and source-of-base-dir `tracing::debug`
-/// fire at most once per process.
+/// The resolution is cached so the env lookups and the debug breadcrumb
+/// fire once per resolution rather than once per load. The outer `Option`
+/// is "have we resolved yet"; the inner `Option<PathBuf>` is the result
+/// (`None` when the base directory is empty or non-absolute and the global
+/// config is skipped).
 ///
 /// **Process-lifetime contract** (mirrors
 /// [`crate::expand::Variables::from_env`]'s `TMPDIR_DISPLAY`): the resolved
-/// path is captured on the first [`global_config_path`] call and never
-/// refreshed. Setting `XDG_CONFIG_HOME` / `APPDATA` / `HOME` via
-/// `std::env::set_var` after the first call will **not** be observed by
-/// subsequent callers. Tests that need a specific base directory MUST set
-/// the relevant env var before any code path that triggers
-/// `load_config` / `load_config_at` / `load_config_or_default*` runs.
-/// READ-1 / TASK-1475: cached resolution of the global config base path.
-/// Outer `Option` is "have we resolved yet"; inner `Option<PathBuf>` is the
-/// resolution result (`None` when the base directory is empty / non-absolute
-/// and we skip the global config). Wrapped in `RwLock` rather than
-/// `OnceLock` so the test-support reset hook
-/// `reset_global_config_path_cache` can clear the cache between scenarios
-/// in a single binary — without it the runtime contract is "tests MUST set
-/// env before any code path triggers `load_config`", enforced only by
-/// comment.
+/// path is captured on the first [`global_config_path`] call and reused.
+/// Setting `XDG_CONFIG_HOME` / `APPDATA` / `HOME` via `std::env::set_var`
+/// after the first call is **not** observed by later callers. The cache is
+/// a `RwLock` rather than a `OnceLock` so the test-support hook
+/// `reset_global_config_path_cache` can clear it between scenarios in one
+/// binary.
+static GLOBAL_CONFIG_PATH: RwLock<CachedGlobalConfigPath> = RwLock::new(None);
+
+/// The value [`GLOBAL_CONFIG_PATH`] guards.
 // The nesting is meaningful: the outer `Option` is "has the cache been
 // populated?", the inner one is "was a global config found?".
 #[allow(clippy::option_option)]
-static GLOBAL_CONFIG_PATH: RwLock<Option<Option<PathBuf>>> = RwLock::new(None);
+type CachedGlobalConfigPath = Option<Option<PathBuf>>;
 
-// A poisoned `GLOBAL_CONFIG_PATH` means another thread panicked while holding
-// the lock, leaving the cache in an unknown state. There is no `Option` value
-// that honestly represents that, and this fn's signature has no error channel,
-// so propagating the panic is the correct behaviour (docs/clippy.md layer 3).
-#[allow(clippy::expect_used)]
+/// Write-lock [`GLOBAL_CONFIG_PATH`], recovering from poisoning.
+///
+/// The guarded value is a memoised resolution: it is either unset or a
+/// fully written result, so a holder that panicked cannot have left it
+/// torn. Recovering the guard and clearing the poison flag keeps one
+/// unrelated panic from failing every later config load in the process.
+fn write_global_config_path() -> RwLockWriteGuard<'static, CachedGlobalConfigPath> {
+    GLOBAL_CONFIG_PATH.write().unwrap_or_else(|poisoned| {
+        GLOBAL_CONFIG_PATH.clear_poison();
+        poisoned.into_inner()
+    })
+}
+
 fn global_config_path() -> Option<PathBuf> {
     {
+        // A poisoned read still sees a valid cached value; see
+        // `write_global_config_path`.
         let r = GLOBAL_CONFIG_PATH
             .read()
-            .expect("GLOBAL_CONFIG_PATH lock poisoned");
+            .unwrap_or_else(PoisonError::into_inner);
         if let Some(cached) = r.as_ref() {
             return cached.clone();
         }
     }
-    let mut w = GLOBAL_CONFIG_PATH
-        .write()
-        .expect("GLOBAL_CONFIG_PATH lock poisoned");
+    let mut w = write_global_config_path();
     if let Some(cached) = w.as_ref() {
         return cached.clone();
     }
@@ -93,8 +85,7 @@ fn global_config_path() -> Option<PathBuf> {
     resolved
 }
 
-/// READ-1 / TASK-1475: zero-sized capability token for
-/// [`reset_global_config_path_cache`].
+/// Zero-sized capability token for [`reset_global_config_path_cache`].
 ///
 /// Constructable only via [`GlobalConfigPathResetToken::new`], which is
 /// itself gated to `#[cfg(any(test, feature = "test-support"))]` so an
@@ -121,42 +112,31 @@ impl Default for GlobalConfigPathResetToken {
     }
 }
 
-/// READ-1 / TASK-1475: clear the `GLOBAL_CONFIG_PATH` cache so the next
-/// [`global_config_path`] call re-resolves from the live env.
+/// Clear the `GLOBAL_CONFIG_PATH` cache so the next [`global_config_path`]
+/// call re-resolves from the live env.
 ///
-/// Test-support only — the runtime contract documented on
-/// `GLOBAL_CONFIG_PATH` ("tests MUST set env before any code path triggers
-/// `load_config`") was enforced only by comment; this hook makes the
-/// discipline mechanical.
+/// Test-support only: it lets a test change the base-directory env vars
+/// after an earlier scenario in the same binary already resolved the path.
 ///
 /// The `_token` parameter is a capability marker: see
 /// [`GlobalConfigPathResetToken`]. Production builds (no `test-support`
 /// feature) cannot construct the token and therefore cannot call the hook.
-///
-/// # Panics
-///
-/// If the `GLOBAL_CONFIG_PATH` lock is poisoned by a panic in another test.
-// Same poisoned-lock reasoning as `global_config_path`; the `# Panics` section
-// above is the documented contract (docs/clippy.md layer 3).
-#[allow(clippy::expect_used)]
+/// A lock poisoned by a panic in another test is recovered, not propagated.
 #[cfg(any(test, feature = "test-support"))]
 pub fn reset_global_config_path_cache(_token: GlobalConfigPathResetToken) {
-    let mut w = GLOBAL_CONFIG_PATH
-        .write()
-        .expect("GLOBAL_CONFIG_PATH lock poisoned");
-    *w = None;
+    *write_global_config_path() = None;
 }
 
-/// Inner resolver invoked exactly once by the [`GLOBAL_CONFIG_PATH`]
-/// `OnceLock` initialiser. Splitting the resolution out keeps the env
-/// lookups and the one-shot `tracing::debug` source breadcrumb co-located
-/// while letting the caller hand back an `Option<PathBuf>` clone on every
-/// hit.
+/// Uncached resolver behind [`global_config_path`], which calls it whenever
+/// the `RwLock`-backed [`GLOBAL_CONFIG_PATH`] cache is empty: on the first
+/// lookup, and again on the first lookup after each
+/// `reset_global_config_path_cache` call. Every invocation re-reads the
+/// env and emits the `tracing::debug` source breadcrumb, so both happen
+/// once per resolution, not once per process.
 ///
-/// Exposed `pub(crate)` so tests that need to drive the env-precedence
-/// matrix (XDG vs HOME vs APPDATA) can bypass the
-/// [`GLOBAL_CONFIG_PATH`] `OnceLock` — production callers should always go
-/// through [`global_config_path`] so the cache discipline holds.
+/// Public so tests that drive the env-precedence matrix (XDG vs HOME vs
+/// APPDATA) can bypass the cache — production callers go through
+/// [`global_config_path`] so the cache discipline holds.
 pub fn resolve_global_config_path() -> Option<PathBuf> {
     let (config_dir, source) = if let Some(xdg) = std::env::var_os("XDG_CONFIG_HOME") {
         (PathBuf::from(xdg), "XDG_CONFIG_HOME")
@@ -254,7 +234,34 @@ mod tests {
     use super::*;
     use std::fs;
 
-    /// READ-1 / TASK-1475: after the `GLOBAL_CONFIG_PATH` cache has been
+    /// A panic while holding the `GLOBAL_CONFIG_PATH` lock poisons it; the
+    /// cache has no invariant such a panic could break, so lookups and the
+    /// reset hook must recover the guard instead of propagating the panic,
+    /// and leave the lock healthy for later callers.
+    #[test]
+    #[serial_test::serial]
+    fn global_config_path_recovers_from_a_poisoned_lock() {
+        reset_global_config_path_cache(GlobalConfigPathResetToken::new());
+        let expected = resolve_global_config_path();
+
+        let poisoner = std::thread::spawn(|| {
+            let _guard = GLOBAL_CONFIG_PATH.write();
+            panic!("poison GLOBAL_CONFIG_PATH");
+        });
+        assert!(poisoner.join().is_err(), "the holder must have panicked");
+        assert!(GLOBAL_CONFIG_PATH.is_poisoned());
+
+        assert_eq!(global_config_path(), expected);
+        assert!(
+            !GLOBAL_CONFIG_PATH.is_poisoned(),
+            "the write path must clear the poison flag"
+        );
+        assert_eq!(global_config_path(), expected, "the cached hit agrees");
+
+        reset_global_config_path_cache(GlobalConfigPathResetToken::new());
+    }
+
+    /// After the `GLOBAL_CONFIG_PATH` cache has been
     /// resolved once, mutating `XDG_CONFIG_HOME` and then calling
     /// `global_config_path()` again returns the **old** value — the
     /// runtime contract is "set env before first call". The reset hook

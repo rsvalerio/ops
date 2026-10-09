@@ -18,7 +18,7 @@ const FIND_GIT_DIR_MAX_DEPTH: usize = 64;
 /// shape of a redirection attack against the hook installer, which writes
 /// into the resolved path.
 ///
-/// SEC-14 / TASK-1890: "absolute pointers are what git writes" is not a
+/// "Absolute pointers are what git writes" is not a
 /// reason to trust them — the parser cannot tell a pointer git wrote from one
 /// someone else dropped into the walk. Absolute targets are validated too;
 /// see [`resolve_absolute_gitdir`] for the rule they must satisfy.
@@ -48,7 +48,7 @@ const MAX_GITDIR_BACKREFERENCE_BYTES: u64 = 64 * 1024;
 /// first, via [`std::path::absolute`] — a pure lexical join onto the current
 /// directory with no filesystem access and no symlink resolution — because
 /// `PathBuf::pop` cannot ascend past the process working directory, so a
-/// relative walk used to stop after one probe (API-2 / TASK-2134).
+/// walk over the relative path itself would stop after one probe.
 ///
 /// Symlinked `.git` entries are deliberately skipped: callers like the hook
 /// installer write into this directory and a redirected symlink is a
@@ -60,10 +60,9 @@ const MAX_GITDIR_BACKREFERENCE_BYTES: u64 = 64 * 1024;
 /// containment requirement.
 #[must_use]
 pub fn find_git_dir(from: &Path) -> Option<PathBuf> {
-    // API-2 / TASK-2134: `pop` returns false once a relative path has no
-    // parent, so without this normalisation a relative input silently
-    // truncated the walk to one probe and answered "not a git repository"
-    // inside a real repo.
+    // `pop` returns false once a relative path has no parent, so without
+    // this normalisation a relative input would truncate the walk to one
+    // probe and answer "not a git repository" inside a real repo.
     let mut dir = if from.is_absolute() {
         from.to_path_buf()
     } else {
@@ -96,7 +95,7 @@ fn probe_git_entry(candidate: &Path) -> Option<PathBuf> {
 
 /// Resolve a `.git` pointer file (worktrees / submodules) to the real gitdir.
 ///
-/// Accepted shape (PATTERN-1 / TASK-1245): a single line of the form
+/// Accepted shape: a single line of the form
 /// `gitdir: <path>\n`, with no leading whitespace before the `gitdir:` token
 /// — exactly the format git itself writes. This installer is the path-
 /// resolution oracle for hook writes, so the parser must not be wider than
@@ -104,17 +103,17 @@ fn probe_git_entry(candidate: &Path) -> Option<PathBuf> {
 ///
 /// * Leading whitespace before `gitdir:` is rejected (an indented pointer is
 ///   not legal git output).
-/// * A file with more than one `gitdir:` line is rejected (the second line
-///   is silently shadowed by the first under the previous parser; an
-///   attacker who can append to the pointer could redirect resolution).
+/// * A file with more than one `gitdir:` line is rejected (picking one
+///   would silently ignore the other, and git never writes two; the operator
+///   has to fix the file).
 ///
 /// # Containment
 ///
-/// Both spellings of the target are held to a containment rule — SEC-14 /
-/// TASK-1890 closed the asymmetry where a *relative* target had to survive
-/// the [`MAX_GITDIR_PARENT_TRAVERSAL`] cap plus a symlink-aware anchor check
-/// while an *absolute* one was returned verbatim, straight into a write
-/// primitive that produces an executable file git runs on every commit.
+/// Both spellings of the target are held to a containment rule, because the
+/// resolved path feeds a write primitive that produces an executable file git
+/// runs on every commit: a *relative* target has to survive the
+/// [`MAX_GITDIR_PARENT_TRAVERSAL`] cap plus a symlink-aware anchor check, and
+/// an *absolute* one is never returned verbatim.
 ///
 /// * **Relative**: textual `..` cap, then the canonical result must sit under
 ///   the anchor at most [`MAX_GITDIR_PARENT_TRAVERSAL`] levels above the
@@ -133,7 +132,7 @@ fn read_gitdir_pointer(file: &Path) -> Option<PathBuf> {
             // etc.) is worth a diagnostic — the walker would otherwise fall
             // through to the parent silently. debug! keeps it out of normal
             // logs while letting `RUST_LOG=ops_hook_common=debug` surface it.
-            // ERR-7 (TASK-0937): Debug-format path/error so an
+            // ERR-7: Debug-format path/error so an
             // attacker-controlled `.git` pointer path cannot inject
             // newlines/ANSI escapes into operator-facing logs.
             tracing::debug!(
@@ -144,7 +143,7 @@ fn read_gitdir_pointer(file: &Path) -> Option<PathBuf> {
             return None;
         }
     };
-    // PATTERN-1 (TASK-1245): require the strict single-line shape git itself
+    // PATTERN-1: require the strict single-line shape git itself
     // writes — no leading whitespace, no second `gitdir:` line. Trim *trailing*
     // whitespace per line (covers `\r` from CRLF endings) but reject any line
     // whose pre-`gitdir:` portion is non-empty.
@@ -173,7 +172,7 @@ fn read_gitdir_pointer(file: &Path) -> Option<PathBuf> {
     let anchor = canonical_anchor(parent)?;
     let canonical_target = canonicalize_gitdir_target(&joined)?;
     if !canonical_target.starts_with(&anchor) {
-        // ERR-7 (TASK-0937): Debug-format paths to neutralize control
+        // ERR-7: Debug-format paths to neutralize control
         // characters and ANSI escapes in worktree-root rejection logs.
         tracing::debug!(
             anchor = ?anchor.display(),
@@ -185,7 +184,7 @@ fn read_gitdir_pointer(file: &Path) -> Option<PathBuf> {
     Some(canonical_target)
 }
 
-/// SEC-14 / TASK-0788: the textual `max_parent_escape` cap is symlink-blind.
+/// SEC-14: the textual `max_parent_escape` cap is symlink-blind.
 /// A pointer like `link/../../etc` has peak textual escape = 1 (well within
 /// the cap of 2), but if `link` is a symlink, `canonicalize` follows it and
 /// can land the resolved gitdir anywhere on disk. Anchor the canonical
@@ -193,11 +192,11 @@ fn read_gitdir_pointer(file: &Path) -> Option<PathBuf> {
 /// [`MAX_GITDIR_PARENT_TRAVERSAL`] levels above the pointer's parent — so any
 /// canonical result that escapes that anchor (via symlink redirection) is
 /// refused before downstream code writes into it.
-/// SEC-14 / TASK-2035: the ancestor is picked with [`anchor_ancestor`], which
-/// floors the walk below the filesystem root. Taking `nth` unconditionally
-/// made the anchor `/` for any pointer whose parent is two or fewer components
-/// deep (`/srv/checkout/.git`), and `starts_with("/")` holds for every path on
-/// the machine — the containment gate then cost a syscall and proved nothing.
+/// The ancestor is picked with [`anchor_ancestor`], which floors the walk
+/// below the filesystem root. An unconditional `nth` would make the anchor `/`
+/// for any pointer whose parent is two or fewer components deep
+/// (`/srv/checkout/.git`), and `starts_with("/")` holds for every path on the
+/// machine — a containment gate that proves nothing.
 /// A canonical anchor that is still rootlike (a shallow ancestor that
 /// canonicalizes to `/`) is refused outright with a breadcrumb rather than
 /// waved through as a vacuous check.
@@ -209,12 +208,12 @@ fn canonical_anchor(parent: &Path) -> Option<PathBuf> {
         );
         return None;
     };
-    // ERR-1 / TASK-1004: emit a per-site breadcrumb on canonicalize failure
+    // ERR-1: emit a per-site breadcrumb on canonicalize failure
     // so operators chasing "ops did nothing in this repo" can distinguish
     // (a) no `.git` upstream, (b) SEC-14 escape rejection, and (c) a real
     // canonicalize syscall error. Without this the three failure modes
     // collapsed to the same silent `None`. Debug-format paths/errors per
-    // the ERR-7 (TASK-0937) sweep.
+    // the ERR-7 sweep.
     match std::fs::canonicalize(anchor_raw) {
         Ok(p) if p.parent().is_none() => {
             tracing::debug!(
@@ -240,9 +239,9 @@ fn canonical_anchor(parent: &Path) -> Option<PathBuf> {
 /// [`MAX_GITDIR_PARENT_TRAVERSAL`] levels above the pointer's parent, but
 /// never the filesystem root itself.
 ///
-/// SEC-14 / TASK-2035: flooring here is what keeps the anchor discriminating
-/// for a shallow pointer. `/srv/checkout/.git` used to anchor at `/`; it now
-/// anchors at `/srv`, which still admits every layout the cap was written for
+/// Flooring here is what keeps the anchor discriminating for a shallow
+/// pointer. `/srv/checkout/.git` anchors at `/srv`, not `/`, which still
+/// admits every layout the cap was written for
 /// (a sibling gitdir, a submodule next to the repo) while refusing a symlink
 /// that jumps elsewhere on the machine. `None` means every permitted ancestor
 /// *is* the root — the caller refuses to resolve rather than applying a check
@@ -274,16 +273,16 @@ fn canonicalize_gitdir_target(target: &Path) -> Option<PathBuf> {
     }
 }
 
-/// SEC-14 / TASK-1890: validate an **absolute** `gitdir:` target.
+/// SEC-14: validate an **absolute** `gitdir:` target.
 ///
-/// Previously an absolute target was returned verbatim: no `..` cap, no
-/// canonicalization, no containment. A `.git` *file* planted anywhere in the
-/// walk `find_git_dir` performs — an unpacked archive, a vendored or
-/// generated tree, a scratch directory some tool wrote — therefore redirected
-/// the whole install, and `install_hook` writes an executable script into
-/// `<resolved>/hooks/<hook>` that git runs on every commit. The only check in
-/// the way was `paths::is_accepted_git_dir`, which any real repository on the
-/// machine satisfies; it is a shape check, not a containment boundary.
+/// An absolute target cannot be trusted verbatim. A `.git` *file* planted
+/// anywhere in the walk `find_git_dir` performs — an unpacked archive, a
+/// vendored or generated tree, a scratch directory some tool wrote — would
+/// otherwise redirect the whole install, and `install_hook` writes an
+/// executable script into `<resolved>/hooks/<hook>` that git runs on every
+/// commit. `paths::is_accepted_git_dir` does not stand in the way: any real
+/// repository on the machine satisfies it; it is a shape check, not a
+/// containment boundary.
 ///
 /// An absolute target is accepted when, after canonicalization, it satisfies
 /// **either**:
@@ -331,7 +330,7 @@ fn resolve_absolute_gitdir(pointer: &Path, parent: &Path, target: &Path) -> Opti
     if is_separate_git_dir(&canonical_target) {
         return Some(canonical_target);
     }
-    // ERR-7 (TASK-0937): Debug-format paths, matching the relative-pointer
+    // ERR-7: Debug-format paths, matching the relative-pointer
     // refusal paths.
     tracing::debug!(
         pointer = ?pointer.display(),
@@ -396,12 +395,11 @@ fn has_gitdir_backreference(gitdir: &Path, pointer: &Path) -> bool {
 /// while being walked component-by-component. `a/../../b` peaks at 1 above
 /// start, `../../etc` peaks at 2.
 ///
-/// ERR-5 / TASK-0889: track `peak` as `usize` directly so the SEC-14
-/// traversal cap cannot be silently fooled by a future refactor that
-/// breaks the "peak is non-negative" invariant. The previous shape used
-/// `i64` plus `usize::try_from(...).unwrap_or(0)`, whose unreachable
-/// fallback would have reported "no escape" for an invariant breach —
-/// the worst possible failure mode for a security gate.
+/// `peak` is tracked as a `usize` directly, so no conversion sits between
+/// the walk and the SEC-14 traversal cap: a signed peak converted with a
+/// fallback (`usize::try_from(...).unwrap_or(0)`) would report "no escape"
+/// if the "peak is non-negative" invariant were ever broken — the worst
+/// possible failure mode for a security gate.
 fn max_parent_escape(path: &Path) -> usize {
     let mut depth: i64 = 0;
     let mut peak: usize = 0;
@@ -429,7 +427,7 @@ fn max_parent_escape(path: &Path) -> usize {
 mod tests {
     use super::*;
 
-    /// ERR-7 (TASK-0937): tracing fields for git-pointer paths flow through
+    /// ERR-7: tracing fields for git-pointer paths flow through
     /// the `?` formatter so embedded newlines or ANSI escapes cannot forge
     /// log lines. Pin the value-level escape without a tracing-subscriber
     /// dev-dep — mirrors `manifest_io::path_display_debug_escapes_*`.
@@ -469,12 +467,11 @@ mod tests {
         assert!(result.is_none());
     }
 
-    /// API-2 / TASK-2134: a relative input used to stop the walk after one
-    /// probe (`PathBuf::pop` returns false once a relative path has no
-    /// parent), so `find_git_dir(Path::new("."))` answered None inside a
-    /// real repository. Relative inputs are now normalised to absolute
-    /// first, so the documented walk happens. Driven through a cwd guard
-    /// from a subdirectory several levels below the repo root.
+    /// A relative input is normalised to absolute before the walk
+    /// (`PathBuf::pop` returns false once a relative path has no parent), so
+    /// `find_git_dir(Path::new("."))` finds the repository from a
+    /// subdirectory. Driven through a cwd guard from several levels below
+    /// the repo root.
     #[test]
     #[serial_test::serial]
     fn find_git_dir_walks_up_from_a_relative_starting_path() {
@@ -592,7 +589,7 @@ mod tests {
         );
     }
 
-    /// SEC-14 / TASK-0788: a relative pointer using the Normal-then-ParentDir
+    /// SEC-14: a relative pointer using the Normal-then-ParentDir
     /// cancellation pattern (`link/../../target`) has peak textual escape = 1
     /// and slips past `MAX_GITDIR_PARENT_TRAVERSAL`. If `link` is a symlink to
     /// a sibling directory outside the worktree-root anchor, `canonicalize`
@@ -631,7 +628,7 @@ mod tests {
         assert_eq!(find_git_dir(&pointer_parent), None);
     }
 
-    /// SEC-14 / TASK-2035: the anchor must never degenerate to a path that
+    /// SEC-14: the anchor must never degenerate to a path that
     /// contains every candidate target. Pinned lexically because the
     /// degenerate layouts (`/srv/checkout`, `/repo`, `/`) are not ones a test
     /// can create on a real filesystem.
@@ -657,7 +654,7 @@ mod tests {
         assert_eq!(anchor_ancestor(Path::new("/")), None);
     }
 
-    /// SEC-14 / TASK-2035: the on-disk half of the same fix. The pointer sits
+    /// SEC-14: the on-disk half of the same fix. The pointer sits
     /// directly at the tempdir root, so its parent is shallow (`/tmp/.tmpXXXX`)
     /// and the unfloored anchor `parent.ancestors().nth(2)` was `/` — under
     /// which `canonical_target.starts_with(anchor)` holds for every path on the
@@ -699,9 +696,8 @@ mod tests {
         );
     }
 
-    /// PATTERN-1 (TASK-1245): an indented `gitdir:` line is not the shape git
-    /// writes — refuse it. Previously a leading tab/space slipped through
-    /// `strip_prefix("gitdir:")` and resolved as if the file were well-formed.
+    /// An indented `gitdir:` line is not the shape git writes, so a leading
+    /// tab or space is refused rather than trimmed away.
     #[test]
     fn read_gitdir_pointer_rejects_indented_line() {
         let dir = tempfile::tempdir().expect("tempdir");
@@ -714,12 +710,9 @@ mod tests {
         assert!(read_gitdir_pointer(&pointer2).is_none());
     }
 
-    /// PATTERN-1 (TASK-1245): a hand-edited pointer with multiple `gitdir:`
-    /// lines must be rejected — the previous shape returned the *first*
-    /// match, so an attacker who could append a second line could not
-    /// shadow a legitimate first line, but a hand-edit that left two
-    /// `gitdir:` lines in place would silently use one and ignore the
-    /// other. Refusing forces the operator to fix the file.
+    /// A pointer with multiple `gitdir:` lines must be rejected: resolving
+    /// it would silently use one line and ignore the other. Refusing forces
+    /// the operator to fix the file.
     #[test]
     fn read_gitdir_pointer_rejects_multiple_gitdir_lines() {
         let dir = tempfile::tempdir().expect("tempdir");
@@ -728,8 +721,8 @@ mod tests {
         assert!(read_gitdir_pointer(&pointer).is_none());
     }
 
-    /// PATTERN-1 (TASK-1245): single legitimate well-formed pointer still
-    /// resolves — the strict-shape contract did not regress the happy path.
+    /// A single well-formed pointer resolves: the strict-shape contract
+    /// admits the happy path.
     #[test]
     fn read_gitdir_pointer_accepts_single_well_formed_line() {
         let dir = tempfile::tempdir().expect("tempdir");
@@ -741,7 +734,7 @@ mod tests {
         assert!(resolved.ends_with("real_gitdir"));
     }
 
-    /// SEC-14 / TASK-1890: an absolute `gitdir:` target that is neither
+    /// SEC-14: an absolute `gitdir:` target that is neither
     /// anchored near the pointer nor back-referenced by git must be refused,
     /// even though the planted target is a perfectly convincing repository
     /// (named `.git`, carrying a `HEAD` regular file) that
@@ -767,10 +760,9 @@ mod tests {
         assert_eq!(find_git_dir(&worktree), None);
     }
 
-    /// SEC-14 / TASK-1890: `git init --separate-git-dir=<dir>` writes an
+    /// SEC-14: `git init --separate-git-dir=<dir>` writes an
     /// absolute pointer and **no** reverse link (verified against git 2.53),
-    /// so neither the anchor rule nor the back-reference rule accepts it and
-    /// `find_git_dir` used to return `None` for the whole checkout. The
+    /// so neither the anchor rule nor the back-reference rule accepts it. The
     /// substance of the target — `HEAD` plus `objects/` and `refs/` — is the
     /// only proof the layout offers, and it is enough to resolve.
     #[test]
@@ -820,7 +812,7 @@ mod tests {
         assert_eq!(find_git_dir(&worktree), None);
     }
 
-    /// SEC-14 / TASK-1890: the shape `git worktree add` writes for a worktree
+    /// SEC-14: the shape `git worktree add` writes for a worktree
     /// far from its repository — an absolute forward pointer plus the
     /// `<gitdir>/gitdir` back-reference — still resolves. A containment rule
     /// on its own would have broken this, which is why the back-reference is
@@ -852,7 +844,7 @@ mod tests {
         assert_eq!(find_git_dir(&worktree), Some(canonical_gitdir));
     }
 
-    /// SEC-14 / TASK-1890: a back-reference that names *someone else's*
+    /// SEC-14: a back-reference that names *someone else's*
     /// pointer proves nothing — the planted pointer must not ride another
     /// worktree's link.
     #[test]

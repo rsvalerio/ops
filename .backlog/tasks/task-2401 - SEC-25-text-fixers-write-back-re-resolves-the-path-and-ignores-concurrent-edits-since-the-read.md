@@ -1,10 +1,10 @@
 ---
 id: TASK-2401
 title: 'SEC-25: text-fixers write-back re-resolves the path and ignores concurrent edits since the read'
-status: To Do
+status: Done
 assignee: []
 created_date: '2026-10-04 14:16'
-updated_date: '2026-10-04 14:52'
+updated_date: '2026-10-04 15:59'
 labels:
   - code-review-rust
   - SEC
@@ -32,7 +32,14 @@ Scanning note: `replace` documents that `original` must come from the read handl
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 Before persist, replace re-stats the target (no-follow) and refuses/skips with a reported failure when dev/ino/mtime/len differ from the read-time Metadata
-- [ ] #2 Write-back refuses a symlinked parent component (or is performed relative to a directory handle) with a test for a swapped parent
-- [ ] #3 Tests cover a file modified between read and replace being left untouched and reported
+- [x] #1 Before persist, replace re-stats the target (no-follow) and refuses/skips with a reported failure when dev/ino/mtime/len differ from the read-time Metadata
+- [x] #2 Write-back refuses a symlinked parent component (or is performed relative to a directory handle) with a test for a swapped parent
+- [x] #3 Tests cover a file modified between read and replace being left untouched and reported
+
 <!-- AC:END -->
+
+## Implementation Notes
+
+<!-- SECTION:NOTES:BEGIN -->
+The identity check and the symlinked-directory check are path-based (lstat), so they narrow the read-to-rename window to a syscall gap rather than closing it; the handle-relative rename is filed as TASK-2434.
+<!-- SECTION:NOTES:END -->

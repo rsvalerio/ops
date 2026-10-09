@@ -1,10 +1,10 @@
 ---
 id: TASK-2368
 title: 'UNSAFE-12: Workspace lints do not enforce unsafe_code policy (covers all unsafe-free crates, incl. ops-deps, ops-about-python, ops-about-go)'
-status: To Do
+status: Done
 assignee: []
 created_date: '2026-10-04 14:11'
-updated_date: '2026-10-04 14:52'
+updated_date: '2026-10-04 15:27'
 labels:
   - code-review-rust
   - unsafe
@@ -29,8 +29,8 @@ dedup_key: 'UNSAFE-12:Cargo.toml:workspace.lints.rust'
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 Set unsafe_code = "forbid" in [workspace.lints.rust] and confirm the whole workspace builds; if crates using impl_extension! (linkme #[link_section]) fail, use deny at the workspace level instead and let crates that need it carry the scoped #[allow]/#[expect(unsafe_code, reason = ...)] that crates/extension/src/macros.rs already emits
-- [ ] #2 Any workspace crate that genuinely needs unsafe (e.g. libc kill in ops, tcgetattr in ops-runner, text.rs/config edit in ops-core) is listed explicitly with deny + scoped #[expect(unsafe_code, reason = ...)]
+- [x] #1 Set unsafe_code = "forbid" in [workspace.lints.rust] and confirm the whole workspace builds; if crates using impl_extension! (linkme #[link_section]) fail, use deny at the workspace level instead and let crates that need it carry the scoped #[allow]/#[expect(unsafe_code, reason = ...)] that crates/extension/src/macros.rs already emits
+- [x] #2 Any workspace crate that genuinely needs unsafe (e.g. libc kill in ops, tcgetattr in ops-runner, text.rs/config edit in ops-core) is listed explicitly with deny + scoped #[expect(unsafe_code, reason = ...)]
 
 <!-- AC:END -->
 
@@ -38,4 +38,7 @@ dedup_key: 'UNSAFE-12:Cargo.toml:workspace.lints.rust'
 
 <!-- SECTION:NOTES:BEGIN -->
 Consolidated 2026-10-04: absorbs TASK-2357 (ops-about-python) and TASK-2363 (ops-about-go), which asked for the same per-crate lint. Note from TASK-2363: forbid is not possible in crates using impl_extension! because linkme expands to #[link_section] statics, so deny is the likely level for those crates.
+
+Landed in wave TASK-2417. forbid at the workspace level was tried and fails (ops-core holds unsafe; impl_extension! emits #[allow(unsafe_code)]), so [workspace.lints.rust] sets unsafe_code = "deny". Crates needing unsafe: ops-core (text::unix_open, config::edit::build_tmp_basename, test_utils), ops-runner (process_group, terminal), ops (run_cmd, lock_cmd, tests/lock.rs), ops-sqlite (sql::ingest::dir); each production site carries #[expect(unsafe_code, reason = ..)] on its function or module. AC#2 substitution for test code: instead of an expect per test function (about 30 sites in crates other waves were editing), test code in ops-core, ops-runner and ops is relaxed with a crate-root #![cfg_attr(test, allow(unsafe_code))], the layer docs/clippy.md assigns to test relaxations. docs/clippy.md documents the policy. Negative probe: an unsafe block added to ops-deps fails cargo check.
+
 <!-- SECTION:NOTES:END -->

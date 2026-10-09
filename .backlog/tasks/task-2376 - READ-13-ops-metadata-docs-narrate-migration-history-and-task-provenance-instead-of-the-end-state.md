@@ -1,10 +1,10 @@
 ---
 id: TASK-2376
 title: 'READ-13: ops-metadata docs narrate migration history and task provenance instead of the end state'
-status: To Do
+status: Done
 assignee: []
 created_date: '2026-10-04 14:13'
-updated_date: '2026-10-04 14:52'
+updated_date: '2026-10-04 15:04'
 labels:
   - code-review-rust
   - READ
@@ -35,7 +35,8 @@ Candidates (grep `DuckDB|duckdb|port|used to|TASK-`): lib.rs, views.rs, ingestor
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 Docs and comments in ops-metadata describe current behaviour only: no DuckDB/port/migration narrative and no 'used to' history
-- [ ] #2 Task-ID breadcrumbs are removed from doc comments; design rationale that is still load-bearing is kept as a plain statement of the invariant
-- [ ] #3 tests.rs module doc no longer references DuckDB or the old single-file layout
+- [x] #1 Docs and comments in ops-metadata describe current behaviour only: no DuckDB/port/migration narrative and no 'used to' history
+- [x] #2 Task-ID breadcrumbs are removed from doc comments; design rationale that is still load-bearing is kept as a plain statement of the invariant
+- [x] #3 tests.rs module doc no longer references DuckDB or the old single-file layout
+
 <!-- AC:END -->

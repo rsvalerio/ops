@@ -330,10 +330,9 @@ mod tests {
         let outer = Outer(std::io::Error::other("root cause"));
         let shared = SharedError::new(outer);
 
-        // ERR-1 / TASK-2024: the first link is the *wrapped error itself*. This
-        // test previously asserted that `source()` skipped straight to "root
-        // cause", which is exactly the missing link the fix restores — the
-        // wrapped `Outer` was unreachable by any chain walk or downcast.
+        // The first link is the *wrapped error itself*, not its "root cause"
+        // source: skipping it would leave the wrapped `Outer` unreachable by
+        // any chain walk or downcast.
         let first = shared
             .source()
             .expect("the wrapped error is the first link");
@@ -410,7 +409,7 @@ mod tests {
         // Source chain survives the clone.
         assert!(std::error::Error::source(&cloned).is_some());
 
-        // EFF-002: Clone reuses the inner Arc rather than rewrapping the error.
+        // Clone reuses the inner Arc rather than rewrapping the error.
         let (
             DataProviderError::ComputationFailed(orig),
             DataProviderError::ComputationFailed(copy),

@@ -45,7 +45,7 @@ pub enum RunMode {
 /// Payload contract of the [`DATA_PROVIDER_NAME`] provider: the review skill
 /// to invoke (e.g. `code-review-rust`) plus one target per review unit.
 ///
-/// API-2 / TASK-2114: unknown fields are rejected at decode time so a
+/// Unknown fields are rejected at decode time so a
 /// provider that drifts from this contract (renamed or not-yet-learned keys)
 /// fails loudly instead of yielding a confusing "no targets" bail.
 #[derive(Debug, Clone, Deserialize)]
@@ -216,8 +216,10 @@ const MAX_PATH_CHARS: usize = 1_024;
 /// reaches — the YAML frontmatter, the on-disk filename, and the stdout
 /// report. A repository under review controls these strings (the Rust
 /// provider reads them from each member's `[package].name`), so a newline
-/// would otherwise break the frontmatter out of its scalar and an ANSI escape
-/// would rewrite the operator's terminal around the run report.
+/// would otherwise break the frontmatter out of its scalar, an ANSI escape
+/// would rewrite the operator's terminal around the run report, and a bidi
+/// override or zero-width character would make a report line read as a title
+/// other than the one written.
 fn validate(targets: &ReviewTargets) -> anyhow::Result<()> {
     validate_field("skill", &targets.skill, MAX_NAME_CHARS)?;
     for (position, target) in targets.targets.iter().enumerate() {
@@ -238,7 +240,10 @@ fn validate(targets: &ReviewTargets) -> anyhow::Result<()> {
 }
 
 /// Reject one payload string that cannot be carried safely to the sinks
-/// above. Offending values are rendered with `{:?}`, which escapes control
+/// above: empty, over `max_chars`, or holding a character
+/// [`ops_core::text::is_unsafe_display_char`] rejects — the Unicode control
+/// (`Cc`) and format (`Cf`) categories plus the line and paragraph
+/// separators. Offending values are rendered with `{:?}`, which escapes those
 /// characters, so the rejection itself cannot forge terminal output.
 fn validate_field(field: &str, value: &str, max_chars: usize) -> anyhow::Result<()> {
     if value.is_empty() {
@@ -248,9 +253,19 @@ fn validate_field(field: &str, value: &str, max_chars: usize) -> anyhow::Result<
     if chars > max_chars {
         anyhow::bail!("{field} is {chars} characters long, over the {max_chars}-character bound");
     }
-    if let Some(control) = value.chars().find(|ch| ch.is_control()) {
+    if let Some(rejected) = value
+        .chars()
+        .find(|&ch| ops_core::text::is_unsafe_display_char(ch))
+    {
+        // LINE SEPARATOR and PARAGRAPH SEPARATOR are `Zl` and `Zp`, neither
+        // control nor format, so they are named for what they are.
+        let class = match rejected {
+            '\u{2028}' | '\u{2029}' => "separator",
+            ch if ch.is_control() => "control",
+            _ => "format",
+        };
         anyhow::bail!(
-            "{field} contains the control character {control:?}, which cannot appear in a task \
+            "{field} contains the {class} character {rejected:?}, which cannot appear in a task \
              title, filename or report line: {value:?}"
         );
     }
@@ -445,11 +460,11 @@ fn stage_task_file(
         }
     };
     staged.track(path.clone());
-    // PERF-13 / TASK-2117: buffer the handle so the ~14 `writeln!` calls in
-    // `render_task_file` reach the filesystem as one write instead of one
-    // `write(2)` per line. The flush is explicit and checked — `BufWriter`'s
-    // `Drop` discards errors — and a flush failure carries the same
-    // path-naming context as the write errors above.
+    // `render_task_file` emits the document as a single `write_all`; the
+    // `BufWriter` keeps that one write whole on its way to the file. The
+    // flush is explicit and checked — `BufWriter`'s `Drop` discards errors —
+    // and a flush failure carries the same path-naming context as the write
+    // errors above.
     let mut writer = std::io::BufWriter::new(handle);
     backlog::render_task_file(&mut writer, file.id, file.title, stamp, file.subtask_of)
         .and_then(|()| writer.flush())
@@ -924,7 +939,7 @@ mod tests {
         );
     }
 
-    /// API-2 / TASK-2114: a provider payload carrying a key the engine has
+    /// A provider payload carrying a key the engine has
     /// not learned about must fail at decode time, naming the key — not
     /// surface later as a confusing "no targets" bail or silently missing
     /// information. The same strictness applies one level down: an unknown
@@ -1233,6 +1248,74 @@ mod tests {
             0,
             "no task file may be created"
         );
+    }
+
+    /// SEC-11: format characters are invisible to `char::is_control` but
+    /// reorder or hide text on a terminal, so they are rejected at the same
+    /// boundary — before any file is written or any line reported.
+    #[test]
+    fn format_characters_in_the_payload_are_rejected() {
+        // RIGHT-TO-LEFT OVERRIDE, an isolate, ZERO WIDTH SPACE, BOM.
+        for hostile in ['\u{202E}', '\u{2066}', '\u{200B}', '\u{FEFF}'] {
+            let dir = scratch_backlog();
+            let registry = registry_with(serde_json::json!({
+                "skill": "code-review-rust",
+                "targets": [{ "name": format!("ops{hostile}core"), "path": "crates/core" }]
+            }));
+            let (out, result) = run(&dir, &registry, RunMode::Write);
+            let err = result.expect_err("a format character in a target name must fail the run");
+            let rendered = format!("{err:#}");
+            assert!(
+                rendered.contains("targets[1].name contains the format character"),
+                "error must name the offending field, got: {rendered}"
+            );
+            assert!(
+                !rendered.contains(hostile),
+                "the offending value must be escaped, not echoed raw: {rendered:?}"
+            );
+            assert_eq!(out, "", "a rejected payload must report nothing");
+            assert_eq!(
+                std::fs::read_dir(dir.path().join(".backlog").join("tasks"))
+                    .expect("tasks dir")
+                    .count(),
+                0,
+                "no task file may be created"
+            );
+        }
+    }
+
+    /// SEC-11: the line and paragraph separators break a line like a newline
+    /// does but belong to neither the control nor the format category, so the
+    /// rejection names them as separators.
+    #[test]
+    fn separator_characters_in_the_payload_are_rejected() {
+        // LINE SEPARATOR, PARAGRAPH SEPARATOR.
+        for hostile in ['\u{2028}', '\u{2029}'] {
+            let dir = scratch_backlog();
+            let registry = registry_with(serde_json::json!({
+                "skill": "code-review-rust",
+                "targets": [{ "name": format!("ops{hostile}core"), "path": "crates/core" }]
+            }));
+            let (out, result) = run(&dir, &registry, RunMode::Write);
+            let err = result.expect_err("a separator in a target name must fail the run");
+            let rendered = format!("{err:#}");
+            assert!(
+                rendered.contains("targets[1].name contains the separator character"),
+                "error must name the offending field, got: {rendered}"
+            );
+            assert!(
+                !rendered.contains(hostile),
+                "the offending value must be escaped, not echoed raw: {rendered:?}"
+            );
+            assert_eq!(out, "", "a rejected payload must report nothing");
+            assert_eq!(
+                std::fs::read_dir(dir.path().join(".backlog").join("tasks"))
+                    .expect("tasks dir")
+                    .count(),
+                0,
+                "no task file may be created"
+            );
+        }
     }
 
     /// The other two boundary rules the payload validator enforces.

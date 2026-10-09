@@ -1,10 +1,10 @@
 ---
 id: TASK-2372
 title: 'FN-1: expand_member_glob is ~97 lines with a repeated warn-and-skip ladder'
-status: To Do
+status: Done
 assignee: []
 created_date: '2026-10-04 14:11'
-updated_date: '2026-10-04 14:52'
+updated_date: '2026-10-04 15:16'
 labels:
   - code-review-rust
   - FN
@@ -29,6 +29,7 @@ dedup_key: 'FN-1:extensions-rust/about/src/members.rs:expand_member_glob'
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 expand_member_glob is <= 50 lines; per-entry resolution (canonicalize + containment + manifest probe + relpath) is a named helper returning Option<String>
-- [ ] #2 Existing members tests pass unchanged
+- [x] #1 expand_member_glob is <= 50 lines; per-entry resolution (canonicalize + containment + manifest probe + relpath) is a named helper returning Option<String>
+- [x] #2 Existing members tests pass unchanged
+
 <!-- AC:END -->

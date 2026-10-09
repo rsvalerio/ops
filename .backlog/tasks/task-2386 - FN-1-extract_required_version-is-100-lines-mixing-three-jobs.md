@@ -1,10 +1,10 @@
 ---
 id: TASK-2386
 title: 'FN-1: extract_required_version is ~100 lines mixing three jobs'
-status: To Do
+status: Done
 assignee: []
 created_date: '2026-10-04 14:13'
-updated_date: '2026-10-04 14:52'
+updated_date: '2026-10-04 16:14'
 labels:
   - code-review-rust
   - function-structure
@@ -29,6 +29,7 @@ dedup_key: 'FN-1:extensions-terraform/about/src/lib.rs:extract_required_version'
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 StripEof reporting and the end-of-file checks are extracted into named helpers, with one place emitting the warn
-- [ ] #2 extract_required_version is at most 50 lines and all existing extract_required_version_* tests pass unchanged
+- [x] #1 StripEof reporting and the end-of-file checks are extracted into named helpers, with one place emitting the warn
+- [x] #2 extract_required_version is at most 50 lines and all existing extract_required_version_* tests pass unchanged
+
 <!-- AC:END -->

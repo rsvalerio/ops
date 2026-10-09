@@ -105,6 +105,9 @@ pub fn has_allowed_url_scheme(raw: &str) -> bool {
     })
 }
 
+/// Right-pad `s` with spaces to `width` display columns.
+///
+/// A string already at or beyond `width` is returned unchanged.
 #[must_use = "use the padded string; it is a new allocation, not an in-place edit"]
 pub fn pad_to_width_plain(s: &str, width: usize) -> String {
     // Delegates to `display_width` so emoji ZWJ sequences (`👨‍👩‍👧`),

@@ -1,9 +1,9 @@
 //! ANSI styling subsystem.
 //!
-//! ARCH-1 / TASK-0881: split into two cohesive submodules so the
-//! read-only ANSI grammar (used for width measurement across crate
-//! boundaries) is decoupled from the rendering-private TTY/`NO_COLOR`
-//! gating that owns the SGR application path.
+//! Two cohesive submodules, so the read-only ANSI grammar (used for width
+//! measurement across crate boundaries) is decoupled from the
+//! rendering-private TTY/`NO_COLOR` gating that owns the SGR application
+//! path.
 //!
 //! - [`sgr`]   — SGR token parsing, gated style application,
 //!   `precompute_sgr_prefix` / `apply_with_prefix_gated` (rendering crate
@@ -12,9 +12,8 @@
 //!   width-bounded truncation (cross-crate read-only API; no TTY/env
 //!   coupling).
 //!
-//! The flat `theme::style::*` re-exports below preserve the previous
-//! module-level API so consumers do not need to import the submodules
-//! directly.
+//! The flat `theme::style::*` re-exports below are the module's API, so
+//! consumers do not need to import the submodules directly.
 
 mod sgr;
 mod strip;
@@ -62,8 +61,7 @@ mod tests {
     /// `display_width(&strip_ansi(s))` across the `strip_ansi` corpus — that is
     /// the contract that lets every hot-path call site swap the allocating
     /// pair for the inline scan without a behaviour change.
-    /// DUP-1 / TASK-0978: with the ANSI grammar parser deduplicated, a
-    /// proptest over a CSI/OSC/two-byte-escape corpus locks in that
+    /// The proptest over a CSI/OSC/two-byte-escape corpus locks in that
     /// `visible_width` and `display_width(&strip_ansi(_))` agree on
     /// inputs that mix escapes with arbitrary visible text.
     #[test]
@@ -91,14 +89,11 @@ mod tests {
             Just("\x1b)0".to_string()),
             Just("\x1b#8".to_string()),
         ];
-        // SEC-11 / TASK-1967: raw C0 and C1 code points used to be excluded
-        // from this corpus because `UnicodeWidthStr` and `UnicodeWidthChar`
-        // disagree on them. They no longer survive `strip_ansi` (which drops
-        // every control character, rewriting tab to a space) nor
-        // `visible_width` (which scores the same way), so the contract now
-        // holds over them too and they are part of the corpus rather than a
-        // documented wart. CL-3 / TASK-2019 adds tab, the last code point
-        // where the two used to disagree.
+        // Raw C0 and C1 code points are part of the corpus even though
+        // `UnicodeWidthStr` and `UnicodeWidthChar` disagree on them: none
+        // survives `strip_ansi` (which drops every control character,
+        // rewriting tab to a space) nor `visible_width` (which scores the
+        // same way), so the contract holds over them too — tab included.
         let controls = prop_oneof![
             Just("\r".to_string()),
             Just("\n".to_string()),
@@ -162,11 +157,11 @@ mod tests {
         assert_eq!(visible_width("a\rb"), 2);
     }
 
-    /// CL-3 / TASK-2019 AC#1: tab used to survive stripping while measuring
-    /// as zero columns, so a tabbed line painted wider than it measured and
-    /// pushed the boxed frame's closing bar out of column. It is now
-    /// rewritten to one space by every helper that shares the grammar, so
-    /// measurement and painting agree.
+    /// Tab is rewritten to one space by every helper that shares the
+    /// grammar, so measurement and painting agree. A tab that survived
+    /// stripping while measuring as zero columns would paint a tabbed line
+    /// wider than it measured and push the boxed frame's closing bar out of
+    /// column.
     #[test]
     fn tab_is_rewritten_to_one_space_in_every_helper() {
         assert_eq!(strip_ansi("a\tb"), "a b");

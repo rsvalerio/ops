@@ -35,7 +35,9 @@ const BUILD_PROCESS_NAMES: &[&str] = &["cargo", "rustc", "cargo-nextest"];
 #[derive(Debug, Clone, PartialEq, serde::Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct MachineReport {
+    /// Version of this JSON document's schema.
     pub schema_version: u32,
+    /// Document discriminator; always `"about-machine"`.
     pub kind: &'static str,
     /// `std::env::consts::OS` of the running binary.
     pub os: &'static str,

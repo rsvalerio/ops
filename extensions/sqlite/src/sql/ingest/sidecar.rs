@@ -3,13 +3,12 @@
 use super::dir::IngestDir;
 use crate::{DbError, DbResult};
 
-/// Single source of truth for the workspace sidecar filename convention
-/// (DUP-3). All write/read/remove helpers route through here.
+/// Single source of truth for the workspace sidecar filename convention.
+/// All write/read/remove helpers route through here.
 ///
-/// SEC-25 / TASK-2054: returns the bare **entry name**, not a joined path.
-/// Every caller now feeds it to an [`IngestDir`] method that resolves it
-/// against the verified directory descriptor, so there is no path to join and
-/// nothing to re-resolve by name.
+/// Returns the bare **entry name**, not a joined path: every caller feeds it
+/// to an [`IngestDir`] method that resolves it against the verified directory
+/// descriptor.
 #[must_use]
 pub fn sidecar_name(name: &str) -> String {
     format!("{name}_workspace.txt")
@@ -33,18 +32,17 @@ pub fn write_workspace_sidecar(
     name: &str,
     working_directory: &std::path::Path,
 ) -> DbResult<()> {
-    // SEC-25 (TASK-0663): a bare `fs::write` could leave a zero-byte or torn
-    // sidecar after a crash; the write is atomic (temp + fsync + rename).
-    // SEC-25 / TASK-2054: and anchored — the temp is created and renamed
-    // through the verified directory descriptor, so swapping the ingest dir's
-    // *name* after verification cannot redirect the staged sidecar.
+    // Atomic (temp + fsync + rename), so a crash cannot leave a zero-byte or
+    // torn sidecar, and anchored: the temp is created and renamed through the
+    // verified directory descriptor, so swapping the ingest dir's *name*
+    // after verification cannot redirect the staged sidecar.
     dir.write_atomic(
         &sidecar_name(name),
         working_directory.as_os_str().as_encoded_bytes(),
     )
 }
 
-/// SEC-33 / TASK-0951: hard cap on workspace sidecar read size.
+/// Hard cap on workspace sidecar read size.
 ///
 /// A real sidecar holds a single filesystem path (kilobytes at most);
 /// an adversarial or `/dev/zero`-symlinked sidecar could otherwise OOM
@@ -53,45 +51,47 @@ pub const MAX_SIDECAR_BYTES: u64 = 4 * 1024 * 1024;
 
 /// Read a workspace root sidecar file written during collect.
 ///
-/// SEC-33 / TASK-0951: read is bounded by [`MAX_SIDECAR_BYTES`].
-/// SEC-21 / TASK-1217: rejects ASCII control bytes at the read boundary.
-/// UNSAFE-1 (TASK-1104): no `from_encoded_bytes_unchecked` — uses
-/// `OsString::from_vec` on Unix and validated UTF-8 elsewhere.
-/// SEC-25 / TASK-2054: opened through the verified directory descriptor
-/// (`openat`, `O_NOFOLLOW`), so neither the directory name nor a symlink at the
-/// sidecar's own name can redirect the read.
+/// The sidecar is opened through the verified directory descriptor (`openat`,
+/// `O_NOFOLLOW`), so neither the directory name nor a symlink at the sidecar's
+/// own name can redirect the read. The read is bounded by
+/// [`MAX_SIDECAR_BYTES`], ASCII control bytes are rejected, and the bytes
+/// become an `OsString` without `unsafe`: verbatim on Unix, as validated
+/// UTF-8 elsewhere.
 ///
 /// # Errors
 ///
-/// [`DbError::Io`] if the sidecar is missing or unreadable. Exceeding
-/// [`MAX_SIDECAR_BYTES`] also surfaces as `DbError::Io`, with
-/// [`std::io::ErrorKind::InvalidData`] — there is no dedicated oversize
-/// variant (READ-4 / TASK-1875: this section used to name a
-/// `DbError::SidecarTooLarge` that does not exist).
+/// [`DbError::Io`] if the sidecar is missing or unreadable. An oversize
+/// sidecar, one holding a control byte, and (off Unix) one that is not UTF-8
+/// also surface as `DbError::Io`, with [`std::io::ErrorKind::InvalidData`].
 pub fn read_workspace_sidecar(dir: &IngestDir, name: &str) -> DbResult<std::ffi::OsString> {
     use std::io::Read;
-    let mut file = dir.open_read(&sidecar_name(name))?;
+    let entry = sidecar_name(name);
+    let mut file = dir.open_read(&entry)?;
     let limit = MAX_SIDECAR_BYTES.saturating_add(1);
     let mut bytes = Vec::new();
     (&mut file)
         .take(limit)
         .read_to_end(&mut bytes)
-        .map_err(DbError::Io)?;
+        .map_err(|e| dir.entry_error("reading", &entry, e))?;
     // A length that does not fit in a `u64` is necessarily far above the
     // 4 MiB cap, so saturating to `u64::MAX` keeps this comparison exact for
     // every value the check can actually distinguish.
     if u64::try_from(bytes.len()).unwrap_or(u64::MAX) > MAX_SIDECAR_BYTES {
         return Err(DbError::Io(std::io::Error::new(
             std::io::ErrorKind::InvalidData,
-            format!("workspace sidecar exceeds {MAX_SIDECAR_BYTES} byte cap; refusing to load"),
+            format!(
+                "workspace sidecar {} exceeds {MAX_SIDECAR_BYTES} byte cap; refusing to load",
+                dir.entry_path(&entry).display()
+            ),
         )));
     }
     if let Some(idx) = bytes.iter().position(|b| (*b <= 0x1f) || *b == 0x7f) {
         return Err(DbError::Io(std::io::Error::new(
             std::io::ErrorKind::InvalidData,
             format!(
-                "workspace sidecar contains ASCII control byte at offset {idx}; \
-                 refusing to load (SEC-21 defense-in-depth, see TASK-1217)"
+                "workspace sidecar {} contains ASCII control byte at offset {idx}; \
+                 refusing to load",
+                dir.entry_path(&entry).display()
             ),
         )));
     }
@@ -105,7 +105,10 @@ pub fn read_workspace_sidecar(dir: &IngestDir, name: &str) -> DbResult<std::ffi:
         let s = std::str::from_utf8(&bytes).map_err(|e| {
             DbError::Io(std::io::Error::new(
                 std::io::ErrorKind::InvalidData,
-                format!("workspace sidecar contains invalid UTF-8: {e}"),
+                format!(
+                    "workspace sidecar {} contains invalid UTF-8: {e}",
+                    dir.entry_path(&entry).display()
+                ),
             ))
         })?;
         Ok(std::ffi::OsString::from(s))
@@ -114,10 +117,10 @@ pub fn read_workspace_sidecar(dir: &IngestDir, name: &str) -> DbResult<std::ffi:
 
 /// Remove a workspace root sidecar file. Best-effort: a missing file is
 /// fine, but other errors (EACCES, IO) are logged so accumulated stale
-/// sidecars do not silently mask broken cleanup (ERR-1).
+/// sidecars do not silently mask broken cleanup.
 ///
-/// SEC-25 / TASK-2054: unlinked through the verified directory descriptor
-/// (`unlinkat`), for the same reason the write is anchored.
+/// Unlinked through the verified directory descriptor (`unlinkat`), for the
+/// same reason the write is anchored.
 pub fn remove_workspace_sidecar(dir: &IngestDir, name: &str) {
     let entry = sidecar_name(name);
     match dir.remove_file(&entry) {

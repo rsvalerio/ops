@@ -1,10 +1,10 @@
 ---
 id: TASK-2387
 title: 'READ-13: Doc and inline comments narrate design history in ops-about-terraform'
-status: To Do
+status: Done
 assignee: []
 created_date: '2026-10-04 14:13'
-updated_date: '2026-10-04 14:52'
+updated_date: '2026-10-04 16:14'
 labels:
   - code-review-rust
   - readability
@@ -31,6 +31,7 @@ dedup_key: 'READ-13:extensions-terraform/about/src/lib.rs:module-docs'
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 Each listed candidate describes current behavior and invariants only, with contrast-with-alternative and history phrasing removed
-- [ ] #2 Comments with broken mid-sentence wrapping are reflowed
+- [x] #1 Each listed candidate describes current behavior and invariants only, with contrast-with-alternative and history phrasing removed
+- [x] #2 Comments with broken mid-sentence wrapping are reflowed
+
 <!-- AC:END -->

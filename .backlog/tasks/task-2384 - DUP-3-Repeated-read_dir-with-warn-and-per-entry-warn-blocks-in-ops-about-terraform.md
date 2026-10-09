@@ -1,10 +1,10 @@
 ---
 id: TASK-2384
 title: 'DUP-3: Repeated read_dir-with-warn and per-entry-warn blocks in ops-about-terraform'
-status: To Do
+status: Done
 assignee: []
 created_date: '2026-10-04 14:13'
-updated_date: '2026-10-04 14:52'
+updated_date: '2026-10-04 16:14'
 labels:
   - code-review-rust
   - duplication
@@ -32,6 +32,13 @@ The identical unterminated-string `tracing::warn!` is also emitted from two arms
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 A single helper (for example read_dir_logged(dir, what) -> Option<impl Iterator<Item = DirEntry>>) owns the NotFound-silent / other-error-warn policy and the per-entry warn, and the three call sites use it
-- [ ] #2 Existing warn-path tests (versions.tf is a directory, modules is a file) still pass and log the same fields
+- [x] #1 A single helper (for example read_dir_logged(dir, what) -> Option<impl Iterator<Item = DirEntry>>) owns the NotFound-silent / other-error-warn policy and the per-entry warn, and the three call sites use it
+- [x] #2 Existing warn-path tests (versions.tf is a directory, modules is a file) still pass and log the same fields
+
 <!-- AC:END -->
+
+## Implementation Notes
+
+<!-- SECTION:NOTES:BEGIN -->
+read_dir_logged(dir, what) owns the policy. The three sites now log the directory under one field name, dir (previously root / modules_dir / module_dir), with what naming the role in the message; error field and the asserted message text are unchanged and the existing warn-path tests pass unmodified.
+<!-- SECTION:NOTES:END -->

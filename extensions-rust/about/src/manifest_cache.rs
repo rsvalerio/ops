@@ -1,9 +1,5 @@
 //! Bounded, freshness-checked process cache of parsed workspace manifests.
 //!
-//! ARCH-1 / TASK-1791: extracted verbatim from the former `query.rs` so the
-//! concurrency contract below sits at the top of the file it governs rather
-//! than in the middle of a module that also expanded workspace globs.
-//!
 //! # Cache contract
 //!
 //! - **Key**: the resolved workspace root (`find_workspace_root_strict` output,
@@ -39,26 +35,22 @@
 //!
 //! # Why a cache at all
 //!
-//! PERF-1 / TASK-0558: identity, units, and coverage providers each call
-//! `load_workspace_manifest` during a single `ops about` invocation. The
-//! previous implementation cloned the cached `serde_json::Value` and
-//! re-deserialized it every time, even though the resolved manifest is
-//! identical across providers.
+//! PERF-1: identity, units, and coverage providers each call
+//! `load_workspace_manifest` during a single `ops about` invocation, and the
+//! resolved manifest is identical across them. The cache lets them share one
+//! parse instead of each deserializing its own copy.
 //!
-//! ARCH-2 (TASK-0795): the cache lives in a process-global `Mutex<HashMap>`
-//! rather than a `thread_local!`. The previous thread-local was invisible to
-//! providers scheduled on a different worker thread (e.g. a future tokio
-//! fan-out), silently degrading the cache to "off" with no signal. The mutex is
-//! held only for the lookup / insert and never across provider work, so
-//! contention is bounded; readers clone the `Arc<CargoToml>` so the typed
-//! manifest is shared across threads with no reparse.
+//! ARCH-2: the cache is a process-global `Mutex<HashMap>` rather than a
+//! `thread_local!`, so a provider scheduled on a different worker thread (e.g.
+//! a tokio fan-out) sees the same entries. The mutex is held only for the
+//! lookup / insert and never across provider work, so contention is bounded;
+//! readers clone the `Arc<CargoToml>` so the typed manifest is shared across
+//! threads with no reparse.
 //!
-//! ERR-1 / TASK-0844: the cache lock is acquired exclusively through
+//! ERR-1: the cache lock is acquired exclusively through
 //! [`lock_typed_manifest_cache`], which recovers from `PoisonError` via
-//! `into_inner` + `clear_poison` and warns on every recovery. Without this, a
-//! panic in a sibling provider would silently degrade the cache to
-//! "always-miss" — the same invisibility class the thread-local rewrite fought
-//! against, just routed through a different mechanism.
+//! `into_inner` + `clear_poison` and warns on every recovery, so a panic in a
+//! sibling provider cannot silently degrade the cache to "always-miss".
 //!
 //! # CONC-7 / TASK-1163: concurrency contract
 //!
@@ -76,10 +68,10 @@
 //!   separate small `parking_lot::Mutex<()>` only for the LRU eviction scan —
 //!   sharded reads, occasional global serialisation just for the cap-evict
 //!   step. Keep this comment in sync with
-//!   `extensions/about/src/manifest_cache.rs` (TASK-1144 already moved that
-//!   sibling cache to a per-key `OnceLock` shape so distinct paths progress in
-//!   parallel; the typed-manifest cache here intentionally lags because no
-//!   daemon caller exists yet).
+//!   `extensions/about/src/manifest_cache.rs`, the sibling cache, which uses a
+//!   per-key `OnceLock` shape so distinct paths progress in parallel; the
+//!   typed-manifest cache here intentionally does not, because no daemon
+//!   caller exists yet.
 //!
 //! Reviewer rule: do not add a daemon caller without first making the migration
 //! above. A new caller that opens parallel `ctx`s against distinct roots and
@@ -95,15 +87,14 @@
 //! on workspace-modification events; only then may it rely on `ops about`
 //! member data.
 //!
-//! TEST-15 / TASK-1664: **every test that reaches this cache must carry
+//! TEST-15: **every test that reaches this cache must carry
 //! `#[serial_test::serial(typed_manifest_cache)]`** — including the ones that
 //! reach it indirectly through a provider's `provide()` →
-//! `load_workspace_manifest`. `lock_typed_manifest_cache` recovers by calling
+//! `load_workspace_manifest` (the provider tests in `identity/mod.rs` and
+//! `units.rs` do). `lock_typed_manifest_cache` recovers by calling
 //! `clear_poison()`, so a poisoned lock produces exactly one warn and the first
-//! caller to recover consumes it. The poison tests in this module were
-//! serialised against each other but raced 14 unserialised tests in
-//! `identity/mod.rs` and `units.rs`, which reach the same static through their
-//! providers. That passed on a workstation and failed on a 2-core CI runner.
+//! caller to recover consumes it; an unserialised test racing a poison test
+//! can take that warn and fail the assertion that expects it.
 
 use ops_about::lru::BoundedLruCache;
 use std::path::{Path, PathBuf};
@@ -220,24 +211,20 @@ fn typed_manifest_cache() -> &'static Mutex<TypedManifestCache> {
     CACHE.get_or_init(|| Mutex::new(TypedManifestCache::new()))
 }
 
-/// ERR-1 / TASK-0844: acquire the typed-manifest cache lock, recovering
-/// from a `PoisonError` rather than silently falling through. A poisoned
-/// mutex (caused by a panic in another provider while it held the lock)
-/// would otherwise degrade the cache to "always-miss" with zero diagnostic
-/// — exactly the invisibility class CONC-2 / TASK-0795 fought against in
-/// the previous `thread_local` refactor.
+/// ERR-1: acquire the typed-manifest cache lock, recovering from a
+/// `PoisonError` rather than silently falling through. A poisoned mutex
+/// (caused by a panic in another provider while it held the lock) would
+/// otherwise degrade the cache to "always-miss" with zero diagnostic.
 ///
 /// The cache value type is plain data (`SystemTime` + `LoadedManifest`,
 /// which itself is just `Arc`s); a panic in a sibling provider cannot leave
 /// it in a torn state, so `into_inner()` recovery is safe.
 ///
-/// TASK-0962: every observed poisoning emits a warn carrying a monotonic
-/// `recovery_count`. The previous OnceLock-gated log fired only once per
-/// process, so a second panic in a different provider was invisible —
-/// defeating the "schema drift surfaces" intent. After clearing the sticky
-/// poison flag, `clear_poison()` makes subsequent callers see a healthy
-/// mutex; only an *actual* re-poisoning by a fresh panic increments the
-/// counter.
+/// Every observed poisoning emits a warn carrying a monotonic
+/// `recovery_count`, so a second panic in a different provider is as visible
+/// as the first. Recovery clears the sticky poison flag (`clear_poison()`), so
+/// subsequent callers see a healthy mutex; only an *actual* re-poisoning by a
+/// fresh panic increments the counter.
 fn lock_typed_manifest_cache(
     cache: &'static Mutex<TypedManifestCache>,
 ) -> MutexGuard<'static, TypedManifestCache> {

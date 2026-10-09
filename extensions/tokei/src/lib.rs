@@ -1,21 +1,18 @@
 //! Tokei extension: code statistics (lines of code, comments, blanks) via the tokei library.
 //! Language-agnostic -- loads for any project regardless of stack.
 //!
-//! `load_tokei` was removed in favour of the single [`TokeiIngestor`] entry
-//! point (DUP-1, TASK-0226). That invariant is enforced here rather than
-//! asserted in prose: this doctest stops compiling the day the symbol comes
-//! back, which is exactly when it should fail (TEST-1, TASK-1978).
+//! [`TokeiIngestor`] is the single entry point for loading statistics into
+//! the database: the crate exports no free `load_tokei` function. The doctest
+//! below enforces that, failing the day such a symbol exists.
 //!
 //! ```compile_fail
 //! let _ = ops_tokei::load_tokei;
 //! ```
 
-// READ-10 (TASK-1968): this crate root carries no `cfg_attr(test, allow(..))`
-// block. All four lints it used to relax suppress nothing here. The three cast
-// lints have no callsite -- the crate contains no `as` cast, and the workspace
-// denies `clippy::as_conversions` anyway -- and `unwrap_used` is already
+// The crate root needs no `cfg_attr(test, allow(..))` block: the crate
+// contains no `as` cast for a cast lint to fire on, and `unwrap_used` is
 // relaxed for test code workspace-wide by `allow-unwrap-in-tests` in
-// `clippy.toml`, so writing it as `expect` reports it as unfulfilled.
+// `clippy.toml`.
 
 mod ingestor;
 #[cfg(test)]
@@ -99,8 +96,8 @@ impl DataProvider for TokeiProvider {
 fn query_tokei_files(db: &Sqlite) -> Result<serde_json::Value, anyhow::Error> {
     ops_sqlite::sql::query_rows_to_json(
         db,
-        // CL-3 / TASK-2153: explicit ORDER BY so the queried path is ordered
-        // too, not only the ingested one — SQLite makes no row-order promise
+        // Explicit ORDER BY so the queried path is ordered too, not only the
+        // ingested one — SQLite makes no row-order promise
         // for an unordered SELECT.
         "SELECT language, file, code, comments, blanks, lines FROM tokei_files ORDER BY file, language",
         |row| {
@@ -122,13 +119,10 @@ fn provide_from_db(db: &Sqlite, ctx: &Context) -> Result<serde_json::Value, anyh
 
 /// Top-level directory names pruned from the scan.
 ///
-/// CL-3 (TASK-1974): these are matched **by exact name, against direct
-/// children of the scan root only** — see [`is_pruned_dir`]. They are not
-/// gitignore globs. An earlier revision handed this list to tokei's own
-/// walker, which turned each entry into an unanchored `!name` override: that
-/// dropped a `build/` package nested under `src/`, and dropped plain *files*
-/// named `dist` or `build`, neither of which the name suggests. The walk is
-/// now ours, so the anchoring is ours too and the doc matches the code.
+/// These are matched **by exact name, against direct children of the scan
+/// root only** — see [`is_pruned_dir`]. They are not gitignore globs: a
+/// `build/` package nested under `src/` is still counted, and so is a plain
+/// *file* named `dist` or `build`.
 ///
 /// **Redundancy is deliberate.** Inside a git repository `.gitignore` already
 /// hides most of these, and the walker honours it. The list is what keeps the
@@ -154,7 +148,7 @@ pub(crate) const TOKEI_DEFAULT_EXCLUDED: &[&str] = &[
 
 /// Bounds on a single scan.
 ///
-/// SEC-33 (TASK-1970): `working_dir` is whatever directory the operator points
+/// `working_dir` is whatever directory the operator points
 /// `ops` at, and the tree under it is arbitrary third-party content. Every
 /// dimension of the walk that could otherwise grow without bound is capped
 /// here, so a hostile or merely unusual tree degrades the statistic instead of
@@ -177,6 +171,9 @@ pub(crate) struct ScanLimits {
     /// (`read_dir` + an extension lookup), which `depth` bounds instead.
     pub files: usize,
     /// Upper bound on walk depth. `ignore` defaults to unlimited.
+    ///
+    /// A directory sitting exactly at this depth is listed but not entered;
+    /// each one is counted in [`TokeiScan::skipped_too_deep`].
     pub depth: usize,
 }
 
@@ -193,8 +190,7 @@ impl ScanLimits {
 
 /// The outcome of one scan, including what it refused to look at.
 ///
-/// ERR-2 (TASK-1972): the counts exist so a short answer is distinguishable
-/// from a correct one. `collect_tokei` folds them into a warning; callers that
+/// The counts exist so a short answer is distinguishable from a correct one. `collect_tokei` folds them into a warning; callers that
 /// want them structurally use [`scan_tokei`].
 #[derive(Debug)]
 pub(crate) struct TokeiScan {
@@ -204,9 +200,24 @@ pub(crate) struct TokeiScan {
     /// Files or subtrees that could not be read: a walk error, unreadable
     /// metadata, or a file tokei itself failed to open.
     pub skipped_unreadable: usize,
+    /// Directories at [`ScanLimits::depth`] whose contents were not walked.
+    /// Counts directories, not files: what lies below one is unknown, so a
+    /// non-zero value means the records may be missing source.
+    pub skipped_too_deep: usize,
     /// Whether [`ScanLimits::files`] cut the walk short. When true the
     /// records are a prefix of the truth, not the whole of it.
     pub truncated: bool,
+}
+
+impl TokeiScan {
+    /// Whether any bound or read failure left source out of `records`, which
+    /// is when [`collect_tokei`] warns that the statistics are incomplete.
+    pub(crate) const fn is_incomplete(&self) -> bool {
+        self.skipped_oversize > 0
+            || self.skipped_unreadable > 0
+            || self.skipped_too_deep > 0
+            || self.truncated
+    }
 }
 
 /// Walk `working_dir` and count every source file tokei recognises.
@@ -236,23 +247,20 @@ pub(crate) fn scan_tokei(
         return Ok(skips.into_empty_scan());
     }
 
-    // PERF-3 / TASK-2159: count the candidates directly with
-    // `LanguageType::parse` instead of handing them back to
-    // `Languages::get_statistics`. Tokei's `get_statistics` does not treat
-    // its slice as a file list — `utils::fs::get_all_files` (tokei 14.0.0)
-    // builds a second `WalkBuilder` with one root per candidate and re-runs
-    // the whole `ignore` pipeline on each (gitignore resolution, hidden
-    // rules, a fresh `stat`) plus a fresh `LanguageType::from_path`: the
-    // walk and classification `collect_candidates` already performed.
-    // Parsing each already-filtered candidate once removes the second walk
-    // and reports per-file open errors directly instead of inferring them
-    // from a records-vs-candidates shortfall.
+    // Count the candidates directly with `LanguageType::parse` rather than
+    // through `Languages::get_statistics`, which does not treat its slice as
+    // a file list: `utils::fs::get_all_files` (tokei 14.0.0) builds a second
+    // `WalkBuilder` with one root per path and re-runs the whole `ignore`
+    // pipeline on each (gitignore resolution, hidden rules, a fresh `stat`)
+    // plus a fresh `LanguageType::from_path` — the walk and classification
+    // `collect_candidates` already performed. Parsing each candidate once
+    // also reports a per-file open error directly.
     let config = TokeiConfig::default();
     let mut languages = Languages::new();
     for path in candidates {
-        // SEC-33 / TASK-2052: the parse loop now owns the file opens too, so
-        // the cooperative cancellation point covers it — an open() on a
-        // wedged mount blocks exactly like the `read_dir` half of the walk.
+        // The parse loop owns the file opens, so it needs its own
+        // cooperative cancellation point: an open() on a wedged mount blocks
+        // exactly like the `read_dir` half of the walk.
         if let Some(deadline) = deadline {
             deadline.check()?;
         }
@@ -280,16 +288,17 @@ pub(crate) fn scan_tokei(
     Ok(skips.into_scan(records))
 }
 
-/// What the candidate walk refused to look at, in one value — FN-1 /
-/// TASK-2161: the accounting is stated once here instead of spread across
-/// three separately mutated locals in the walk loop.
+/// What the candidate walk and the parse loop refused to look at, in one
+/// value.
 #[derive(Debug, Default)]
 struct Skips {
     /// Files skipped for exceeding [`ScanLimits::file_bytes`].
     oversize: usize,
     /// Files or subtrees that could not be read: a walk error, unreadable
-    /// metadata, or a candidate the parse loop (TASK-2159) failed to open.
+    /// metadata, or a candidate the parse loop failed to open.
     unreadable: usize,
+    /// Directories at [`ScanLimits::depth`] that the walk did not enter.
+    too_deep: usize,
     /// Whether [`ScanLimits::files`] cut the walk short. When true the
     /// records are a prefix of the truth, not the whole of it.
     truncated: bool,
@@ -303,6 +312,7 @@ impl Skips {
             records: Vec::new(),
             skipped_oversize: self.oversize,
             skipped_unreadable: self.unreadable,
+            skipped_too_deep: self.too_deep,
             truncated: self.truncated,
         }
     }
@@ -313,6 +323,7 @@ impl Skips {
             records,
             skipped_oversize: self.oversize,
             skipped_unreadable: self.unreadable,
+            skipped_too_deep: self.too_deep,
             truncated: self.truncated,
         }
     }
@@ -336,7 +347,8 @@ fn validate_scan_root(working_dir: &Path) -> anyhow::Result<()> {
 
 /// Walk `working_dir` and collect the paths tokei should count, applying the
 /// four skip policies (walk error, non-file, unrecognised language,
-/// unreadable metadata) and the two bound checks (`file_bytes`, `files`).
+/// unreadable metadata) and the three bound checks (`file_bytes`, `files`,
+/// `depth`).
 ///
 /// Failures *below* the root are not errors: an unreadable file or subtree is
 /// counted in [`Skips::unreadable`] and the walk continues, since a partial
@@ -363,10 +375,10 @@ fn collect_candidates(
         .build();
 
     for entry in walker {
-        // SEC-33 / TASK-2052: the cooperative cancellation point. `ScanLimits`
-        // caps how much of a tree is walked, but a cap is not a clock: 50k
-        // entries on a wedged network mount can outlast any budget, and the
-        // dispatch bound would otherwise only *report* that after the fact.
+        // The cooperative cancellation point. `ScanLimits` caps how much of a
+        // tree is walked, but a cap is not a clock: 50k entries on a wedged
+        // network mount can outlast any budget, and the dispatch bound would
+        // otherwise only *report* that after the fact.
         // Checked per directory entry rather than per counted file, because
         // the cheap-looking half of the walk (`read_dir`, a `stat`) is exactly
         // the half that blocks on such a mount.
@@ -400,24 +412,34 @@ fn collect_candidates(
 
 /// Apply the per-entry skip policies and return the path to count.
 ///
-/// An entry is refused three ways: non-file and unrecognised-language entries
-/// are neither candidates nor skips (nothing is warned about), while
-/// unreadable metadata and an over-[`ScanLimits::file_bytes`] size are
-/// counted in [`Skips`] with a `tracing::warn!` each. Returns `Some(path)`
-/// when the entry is a candidate the caller should account against
-/// [`ScanLimits::files`].
+/// Non-file and unrecognised-language entries are neither candidates nor
+/// skips (nothing is warned about), with one exception: a directory at
+/// [`ScanLimits::depth`] is listed by the walker but never entered, so it is
+/// counted in [`Skips::too_deep`]. Unreadable metadata and an
+/// over-[`ScanLimits::file_bytes`] size are likewise counted in [`Skips`],
+/// each with a `tracing::warn!`. Returns `Some(path)` when the entry is a
+/// candidate the caller should account against [`ScanLimits::files`].
 fn screen_entry(
     entry: &DirEntry,
     config: &TokeiConfig,
     limits: ScanLimits,
     skips: &mut Skips,
 ) -> Option<std::path::PathBuf> {
+    let path = entry.path();
+    if is_unentered_dir(entry, limits) {
+        skips.too_deep = skips.too_deep.saturating_add(1);
+        tracing::warn!(
+            path = ?path,
+            cap = limits.depth,
+            "tokei: depth cap reached; directory contents are not counted"
+        );
+        return None;
+    }
     if !entry.file_type().is_some_and(|ft| ft.is_file()) {
         return None;
     }
-    let path = entry.path();
-    // Classify before stat'ing nothing else: a file tokei has no language
-    // for is not scanned, so it is neither a candidate nor a skip.
+    // Classify before reading metadata: a file tokei has no language for is
+    // never stat'd or opened, so it is neither a candidate nor a skip.
     let _language = LanguageType::from_path(path, config)?;
     let file_len = match entry.metadata() {
         Ok(metadata) => metadata.len(),
@@ -442,6 +464,12 @@ fn screen_entry(
     Some(path.to_path_buf())
 }
 
+/// Is this a directory the walker listed but, at [`ScanLimits::depth`], will
+/// not descend into?
+fn is_unentered_dir(entry: &DirEntry, limits: ScanLimits) -> bool {
+    entry.depth() >= limits.depth && entry.file_type().is_some_and(|ft| ft.is_dir())
+}
+
 /// Should this entry be pruned from the walk?
 ///
 /// Only a directory that is a **direct child of the scan root** and whose name
@@ -460,8 +488,8 @@ fn is_pruned_dir(entry: &DirEntry) -> bool {
 
 /// Collect per-file statistics under `working_dir` as a JSON array.
 ///
-/// Files that are oversized, unreadable, or past the scan's file cap are
-/// skipped and reported through a warning; see [`ScanLimits`] and
+/// Files that are oversized, unreadable, past the scan's file cap, or below
+/// its depth cap are skipped and reported through a warning; see [`ScanLimits`] and
 /// [`TokeiScan`] for the exact accounting.
 ///
 /// # Errors
@@ -475,10 +503,11 @@ pub fn collect_tokei(
     deadline: Option<&Deadline>,
 ) -> Result<serde_json::Value, anyhow::Error> {
     let scan = scan_tokei(working_dir, ScanLimits::DEFAULT, deadline)?;
-    if scan.skipped_oversize > 0 || scan.skipped_unreadable > 0 || scan.truncated {
+    if scan.is_incomplete() {
         tracing::warn!(
             skipped_oversize = scan.skipped_oversize,
             skipped_unreadable = scan.skipped_unreadable,
+            skipped_too_deep = scan.skipped_too_deep,
             truncated = scan.truncated,
             counted = scan.records.len(),
             "tokei: statistics are incomplete"
@@ -490,20 +519,11 @@ pub fn collect_tokei(
 /// Flatten tokei's per-language report tree into one JSON record per file,
 /// sorted by [`row_key`] — file path with language as tiebreak.
 ///
-/// The public `flatten_tokei_to_json` wrapper that used to sit in front of
-/// this was left with no production caller once `collect_tokei` started
-/// counting skipped files (ERR-2, TASK-1972), so it went with the change
-/// rather than staying as unreferenced public surface.
-///
-/// CL-3 / TASK-2153: tokei fills each language's `reports` in arbitrary
-/// order — its `get_all_files` drives a crossbeam channel through
-/// `par_bridge()` and `add_report`s from whichever rayon worker finishes
-/// first (tokei 14.0.0, `src/utils/fs.rs`) — so the stored order is
-/// worker-scheduling dependent and differed run to run. Sorting here, with
-/// the same policy as `extensions-rust/loc`'s `row_key`, keeps the JSON
-/// sidecar and the `SQLite` ingest byte-stable across runs: a diff of two
-/// collections shows real changes only, and `data_sources.checksum` stays a
-/// useful change signal instead of churning on scheduler noise.
+/// Each language's `reports` hold files in the order the walk reached them,
+/// which is filesystem-dependent. Sorting here, with the same policy as
+/// `extensions-rust/loc`'s `row_key`, keeps the JSON sidecar and the `SQLite`
+/// ingest byte-stable across runs: a diff of two collections shows real
+/// changes only, and `data_sources.checksum` stays a useful change signal.
 pub(crate) fn flatten_tokei_records(
     languages: &Languages,
     workspace_root: &Path,
@@ -523,7 +543,7 @@ pub(crate) fn flatten_tokei_records(
 
 /// Sort key giving the emitted records a deterministic order: file path,
 /// with language as tiebreak, matching the `row_key` policy in
-/// `extensions-rust/loc` (CL-3 / TASK-2153).
+/// `extensions-rust/loc`.
 fn row_key(record: &serde_json::Value) -> (&str, &str) {
     (
         record["file"].as_str().unwrap_or_default(),
@@ -536,7 +556,7 @@ fn report_to_json(
     report: &tokei::Report,
     workspace_root: &Path,
 ) -> serde_json::Value {
-    // DUP-1 / TASK-2183: the shared sidecar-path policy lives in
+    // The shared sidecar-path policy lives in
     // `ops_sqlite::sql::relativize_path`, with the lossy-conversion
     // rationale documented on it once.
     let file_str = ops_sqlite::sql::relativize_path(&report.name, workspace_root);

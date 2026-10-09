@@ -1364,6 +1364,7 @@ name = "ops-about"
 version = "0.79.1"
 dependencies = [
  "anyhow",
+ "libc",
  "linkme",
  "ops-core",
  "ops-extension",
@@ -1414,6 +1415,7 @@ dependencies = [
  "ops-extension",
  "serde",
  "serde_json",
+ "serde_path_to_error",
  "tempfile",
  "tracing",
 ]
@@ -1673,7 +1675,6 @@ dependencies = [
  "ops-hook-common",
  "serial_test",
  "tempfile",
- "tracing",
 ]
 
 [[package]]

@@ -1,10 +1,10 @@
 ---
 id: TASK-2374
 title: 'READ-13: module and item docs narrate change history instead of end state'
-status: To Do
+status: Done
 assignee: []
 created_date: '2026-10-04 14:11'
-updated_date: '2026-10-04 14:52'
+updated_date: '2026-10-04 15:16'
 labels:
   - code-review-rust
   - READ
@@ -42,6 +42,13 @@ dedup_key: 'READ-13:extensions-rust/about/src:module-docs'
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 Listed docs describe current behavior and invariants only; migration/previously/pre-fix narration removed
-- [ ] #2 Cache contracts (key, value, bound, invalidation) remain documented
+- [x] #1 Listed docs describe current behavior and invariants only; migration/previously/pre-fix narration removed
+- [x] #2 Cache contracts (key, value, bound, invalidation) remain documented
+
 <!-- AC:END -->
+
+## Implementation Notes
+
+<!-- SECTION:NOTES:BEGIN -->
+Rewrote the listed //! and /// docs plus adjacent item docs in the same files (module headers, parse_manifest, crate_dep_counts, cached_query_project_coverage, member_path_is_workspace_safe_or_warn). Inline // comments and test-module docs were left as written.
+<!-- SECTION:NOTES:END -->

@@ -1,22 +1,10 @@
 //! Shared cargo-metadata JSON fixtures for this crate's tests.
 //!
-//! DUP-4 / TASK-1540: the cargo-metadata skeleton used to be open-coded as a
-//! `serde_json::json!` literal at 23 call sites across `tests/*` and
-//! `ingestor.rs`. Each one restated 15-20 boilerplate fields the test below it
-//! never exercised, so a schema-shape change meant editing every copy and a
-//! reviewer could not see which fields a given test actually cared about.
-//!
-//! ARCH-9 / TASK-1898: the *view* fixtures (`pkg`, `workspace`,
-//! `sample_metadata`) went with the unconsumed typed accessor layer they
-//! existed to feed. What remains are the **ingest fixtures**
-//! ([`ingest_metadata`], [`ingest_dep`]), which are written to disk and read
-//! back through the ingestor's parameter-bound JSON load. They are
-//! deliberately *fat*:
-//! every nullable string carries an explicit `""`, because a column that is
-//! null in every row infers as INTEGER and the view's casts then fail.
-//! Trimming these to "only what the test exercises" would break schema
-//! inference — the boilerplate is load-bearing, which is why it lives here
-//! exactly once instead of at four call sites.
+//! The **ingest fixtures** ([`ingest_metadata`], [`ingest_dep`]) are written
+//! to disk and read back through the ingestor's parameter-bound JSON load.
+//! They carry the full cargo-metadata skeleton, with every nullable string
+//! an explicit `""`, so a test names only the fields it cares about and the
+//! skeleton is stated exactly once.
 
 use ops_sqlite::IngestDir;
 use serde_json::{json, Value};
@@ -27,7 +15,7 @@ use std::path::PathBuf;
 const REGISTRY: &str = "registry+https://github.com/rust-lang/crates.io-index";
 
 /// A dependency entry for the ingest path. Every nullable string is an
-/// explicit `""` — see the module docs on `SQLite` schema inference.
+/// explicit `""` — see the module docs.
 pub struct IngestDep {
     name: String,
     req: String,
@@ -45,8 +33,7 @@ pub fn ingest_dep(name: &str, req: &str) -> IngestDep {
 }
 
 impl IngestDep {
-    /// A path dependency carries `source: null`; TASK-0982 pins that those are
-    /// not dropped from the view.
+    /// A path dependency carries `source: null`; the view must not drop it.
     pub(crate) fn path_source(mut self) -> Self {
         self.source = Value::Null;
         self
@@ -152,7 +139,7 @@ impl IngestMetadata {
 /// Write a fixture to `metadata.json` inside the ingest directory, where the
 /// loader looks for it.
 ///
-/// SEC-25 / TASK-2054: staged through the verified [`IngestDir`] anchor, the
+/// Staged through the verified [`IngestDir`] anchor, the
 /// same way `MetadataIngestor::collect` stages it in production, and returns
 /// the entry path so callers can assert on cleanup.
 pub fn write_metadata_json(dir: &IngestDir, value: &Value) -> PathBuf {

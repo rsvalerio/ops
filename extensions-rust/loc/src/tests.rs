@@ -14,7 +14,7 @@
 
 use std::path::{Path, PathBuf};
 
-use ops_extension::{Context, DataProvider, Extension, ExtensionType};
+use ops_extension::{Context, DataProvider};
 use ops_sqlite::{init_schema, DataIngestor, Sqlite};
 
 use super::{RustLocExtension, RustLocIngestor, RustLocProvider};
@@ -27,18 +27,6 @@ ops_extension::test_datasource_extension!(
     name: "rust-loc",
     data_provider: "rust-loc"
 );
-
-#[test]
-fn rust_loc_extension_type_is_datasource() {
-    assert_eq!(RustLocExtension.types(), ExtensionType::DATASOURCE);
-}
-
-/// The Rust breakdown must stay on the Rust stack; `tokei` keeps the
-/// language-agnostic slot.
-#[test]
-fn rust_loc_extension_stack_is_rust() {
-    assert_eq!(RustLocExtension.stack(), Some(ops_extension::Stack::Rust));
-}
 
 #[test]
 fn rust_loc_provider_schema_has_fields() {
@@ -600,10 +588,10 @@ fn blank_state_survives_chunk_boundaries() {
     );
 }
 
-// -- degradation policy (lib.rs:120-126, lib.rs:135-144, counter.rs syn pass) --
+// -- degradation policy (`collect_rust_loc` warn-and-skip, `count_source` fallback) --
 
 /// Pins the **unreadable-file** branch of the warn-and-skip policy: a
-/// `.rs` file holding invalid UTF-8 makes `read_to_string` fail with
+/// `.rs` file holding invalid UTF-8 makes `read_capped_source` fail with
 /// `InvalidData` for every user, root included, so the walk must warn,
 /// skip it, and still return the valid file's rows.
 #[test]
@@ -727,11 +715,6 @@ fn collect_rust_loc_returns_records_for_this_crate() {
 }
 
 // -- provider / SQLite integration --
-
-#[test]
-fn rust_loc_provider_name() {
-    assert_eq!(RustLocProvider.name(), "rust-loc");
-}
 
 #[test]
 fn rust_loc_provider_returns_json_without_a_database() {
@@ -987,8 +970,8 @@ fn an_expired_deadline_stops_the_streaming_count() {
 /// taken before it. `read_capped_source` reads `cap + 1` bytes so
 /// a file that grew past the cap after its size was checked is detected and
 /// degraded to the streaming count, never read whole; a file at or under the
-/// cap round-trips as UTF-8 source, and non-UTF-8 keeps the `InvalidData`
-/// shape `read_to_string` produced.
+/// cap round-trips as UTF-8 source, and non-UTF-8 is an `InvalidData`
+/// error, the kind `read_to_string` reports for the same bytes.
 #[test]
 fn read_capped_source_detects_growth_past_the_cap() {
     use std::io::Cursor;
@@ -1022,6 +1005,6 @@ fn read_capped_source_detects_growth_past_the_cap() {
     assert_eq!(
         err.kind(),
         std::io::ErrorKind::InvalidData,
-        "non-UTF-8 keeps read_to_string's error shape"
+        "non-UTF-8 is InvalidData, as read_to_string reports it"
     );
 }

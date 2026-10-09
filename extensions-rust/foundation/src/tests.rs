@@ -442,3 +442,137 @@ fn an_ops_pin_below_the_floor_or_unversioned_is_drift() {
         );
     }
 }
+
+#[test]
+fn a_malformed_foundation_file_is_drift_naming_the_line_and_column() {
+    let dir = workspace();
+    scaffold(dir.path(), false).expect("scaffold");
+    std::fs::write(
+        dir.path().join("deny.toml"),
+        "[graph]\nall-features = true\nbroken = = 1\n",
+    )
+    .expect("edit");
+
+    let drift = check(dir.path(), &no_waivers()).expect("check").drift;
+    let [only] = drift.as_slice() else {
+        panic!("expected one drift, got {drift:?}");
+    };
+    assert_eq!(only.location, "deny.toml");
+    assert!(
+        only.message
+            .starts_with("does not parse at line 3, column 10: "),
+        "{}",
+        only.message
+    );
+    assert!(!only.message.contains('\n'), "{}", only.message);
+}
+
+#[test]
+fn a_malformed_member_manifest_is_its_own_drift_and_a_scaffold_error() {
+    let dir = workspace();
+    scaffold(dir.path(), false).expect("scaffold");
+    std::fs::write(
+        dir.path().join("crates/b/Cargo.toml"),
+        "[package]\nname = \"b\n",
+    )
+    .expect("edit");
+
+    let drift = check(dir.path(), &no_waivers()).expect("check").drift;
+    let [only] = drift.as_slice() else {
+        panic!("expected one drift, got {drift:?}");
+    };
+    assert_eq!(only.location, "crates/b/Cargo.toml");
+    assert!(
+        only.message
+            .starts_with("does not parse at line 2, column "),
+        "{}",
+        only.message
+    );
+    assert!(
+        !only.message.contains("workspace = true"),
+        "{}",
+        only.message
+    );
+
+    let err = scaffold(dir.path(), false).expect_err("malformed member");
+    let chain = format!("{err:#}");
+    assert!(chain.contains("parsing crates/b/Cargo.toml"), "{chain}");
+    assert!(chain.contains("line 2"), "{chain}");
+}
+
+#[test]
+fn unresolvable_workspace_members_warn_and_skip_the_member_checks() {
+    let dir = workspace();
+    scaffold(dir.path(), false).expect("scaffold");
+    let manifest = read(&dir, "Cargo.toml").replace("[\"crates/*\"]", "\"crates/*\"");
+    std::fs::write(dir.path().join("Cargo.toml"), manifest).expect("edit");
+    std::fs::write(
+        dir.path().join("crates/b/Cargo.toml"),
+        "[package]\nname = \"b\"\n",
+    )
+    .expect("edit");
+
+    let (logs, report) = ops_core::test_utils::capture_tracing(tracing::Level::WARN, || {
+        check(dir.path(), &no_waivers())
+    });
+    assert!(
+        logs.contains("could not resolve workspace members"),
+        "{logs}"
+    );
+    let drift = report.expect("check").drift;
+    assert!(drift.is_empty(), "no member is checked: {drift:?}");
+}
+
+#[test]
+fn an_unreadable_foundation_file_is_an_error_naming_the_file() {
+    let dir = workspace();
+    scaffold(dir.path(), false).expect("scaffold");
+    std::fs::remove_file(dir.path().join("deny.toml")).expect("rm");
+    std::fs::create_dir(dir.path().join("deny.toml")).expect("park a dir on the file name");
+
+    let err = check(dir.path(), &no_waivers()).expect_err("a directory is not readable");
+    assert!(
+        format!("{err:#}").starts_with("reading deny.toml: "),
+        "{err:#}"
+    );
+}
+
+#[test]
+fn force_replaces_the_lint_table_of_a_single_package() {
+    let dir = tempfile::tempdir().expect("tempdir");
+    std::fs::write(
+        dir.path().join("Cargo.toml"),
+        "[package]\nname = \"solo\"\nversion = \"0.1.0\"\n",
+    )
+    .expect("manifest");
+    scaffold(dir.path(), false).expect("scaffold");
+    let manifest = read(&dir, "Cargo.toml").replace("panic = \"warn\"", "panic = \"allow\"");
+    std::fs::write(dir.path().join("Cargo.toml"), manifest).expect("edit");
+    let drift = check(dir.path(), &no_waivers()).expect("check").drift;
+    assert_eq!(
+        drift
+            .iter()
+            .map(|d| d.location.as_str())
+            .collect::<Vec<_>>(),
+        vec!["Cargo.toml:lints.clippy.panic"]
+    );
+
+    let written = scaffold(dir.path(), true).expect("force scaffold");
+    assert_eq!(
+        written.last(),
+        Some(&Written {
+            target: "Cargo.toml:lints".to_owned(),
+            outcome: Outcome::Replaced,
+        })
+    );
+    let manifest = read(&dir, "Cargo.toml");
+    assert_eq!(manifest.matches("[lints.clippy]").count(), 1);
+    assert!(
+        manifest.starts_with("[package]\nname = \"solo\"\n"),
+        "{manifest}"
+    );
+    assert!(check(dir.path(), &no_waivers())
+        .expect("check")
+        .drift
+        .is_empty());
+}

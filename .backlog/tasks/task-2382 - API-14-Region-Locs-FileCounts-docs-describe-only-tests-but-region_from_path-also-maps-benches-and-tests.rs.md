@@ -1,10 +1,10 @@
 ---
 id: TASK-2382
 title: 'API-14: Region / Locs / FileCounts docs describe only tests/ but region_from_path also maps benches/ and tests.rs'
-status: To Do
+status: Done
 assignee: []
 created_date: '2026-10-04 14:13'
-updated_date: '2026-10-04 14:52'
+updated_date: '2026-10-04 15:25'
 labels:
   - code-review-rust
   - api
@@ -32,6 +32,7 @@ dedup_key: 'API-14:extensions-rust/loc/src/counter.rs:Region'
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 Region::Main/Test/Example and FileCounts field docs name benches/, tests.rs and cfg(test) items
-- [ ] #2 Stale line-number references and the read_to_string mention in tests.rs are corrected or removed
+- [x] #1 Region::Main/Test/Example and FileCounts field docs name benches/, tests.rs and cfg(test) items
+- [x] #2 Stale line-number references and the read_to_string mention in tests.rs are corrected or removed
+
 <!-- AC:END -->

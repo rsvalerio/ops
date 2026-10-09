@@ -223,3 +223,64 @@ fn write_skip(
     writeln!(writer, "{label}: {}: skipped ({reason})", display.display())
         .with_context(|| format!("{label}: writing skip notice failed"))
 }
+
+#[cfg(test)]
+mod tests {
+    use std::cell::RefCell;
+    use std::path::PathBuf;
+
+    use super::*;
+
+    thread_local! {
+        /// The file [`edit_then_fix`] overwrites, standing in for whoever
+        /// edits a candidate while the fixer is between read and write-back.
+        static VICTIM: RefCell<Option<PathBuf>> = const { RefCell::new(None) };
+    }
+
+    const CONCURRENT_EDIT: &[u8] = b"saved by an editor mid-run\n";
+
+    /// A fix that changes the file on disk before returning its rewrite: the
+    /// exact interleaving of a concurrent edit landing after the read.
+    #[expect(
+        clippy::unnecessary_wraps,
+        reason = "the signature is the one `run_fixer` takes for `fix`"
+    )]
+    fn edit_then_fix(_input: &[u8]) -> Option<Vec<u8>> {
+        VICTIM.with_borrow(|victim| {
+            let path = victim.as_ref().expect("the test sets the victim path");
+            std::fs::write(path, CONCURRENT_EDIT).expect("the concurrent edit lands");
+        });
+        Some(b"rewritten from stale bytes\n".to_vec())
+    }
+
+    #[test]
+    fn a_file_edited_between_read_and_write_back_is_reported_and_kept() {
+        let dir = tempfile::tempdir().unwrap();
+        let root = dir.path().canonicalize().unwrap();
+        let path = root.join("a.txt");
+        std::fs::write(&path, b"original  \n").unwrap();
+        VICTIM.set(Some(path.clone()));
+
+        let mut out = Vec::new();
+        let opts = FixerOptions::new(root, false);
+        let report = run_fixer(&opts, &mut out, "test-fixer", edit_then_fix).unwrap();
+
+        assert_eq!(
+            std::fs::read(&path).unwrap(),
+            CONCURRENT_EDIT,
+            "the concurrent edit must survive the run"
+        );
+        assert!(report.failed());
+        assert!(report.files_changed.is_empty());
+        let [failure] = report.files_failed.as_slice() else {
+            panic!("expected one failure, got {:?}", report.files_failed);
+        };
+        assert_eq!(failure.path, PathBuf::from("a.txt"));
+        assert!(matches!(failure.kind, FailureKind::Write(_)));
+        let rendered = String::from_utf8(out).unwrap();
+        assert!(
+            rendered.contains(&format!("a.txt: write: {}", atomic::CHANGED_SINCE_READ)),
+            "the refusal must be named in the output: {rendered}"
+        );
+    }
+}

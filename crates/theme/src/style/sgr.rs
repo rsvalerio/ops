@@ -1,8 +1,7 @@
 //! SGR token parsing and gated style application.
 //!
-//! ARCH-1 / TASK-0881: split out of `style.rs` so the rendering-private
-//! TTY/`NO_COLOR` gating lives next to the SGR application code and stays
-//! separable from the read-only ANSI stripping concerns in
+//! The rendering-private TTY/`NO_COLOR` gating lives here, next to the SGR
+//! application code, separate from the read-only ANSI stripping concerns in
 //! [`super::strip`].
 //!
 //! Uses a minimal keyword grammar compatible with `indicatif` templates
@@ -33,19 +32,18 @@ pub fn apply_style<'a>(text: &'a str, spec: &str) -> Cow<'a, str> {
 
 /// Whether this crate may emit SGR codes.
 ///
-/// CL-3 / TASK-1976: gated on the stream this crate actually renders to.
-/// DUP-3 / TASK-1188 routed the theme onto `ops_core::style::color_enabled`,
-/// which is `(stdout_is_terminal() || stderr_is_terminal()) && !NO_COLOR` —
-/// an OR chosen for the shared, stdout-bound table renderer. For a
-/// stderr-only renderer that OR is wrong in both directions:
-/// `ops verify 2> build.log` from an interactive shell leaves stdout a TTY,
-/// so the log file fills with escape codes no terminal will render, while
-/// `ops verify > out.txt` is coloured only by accident of the OR.
+/// Gated on the stream this crate actually renders to: stderr. It
+/// deliberately does not use `ops_core::style::color_enabled`, which is
+/// `(stdout_is_terminal() || stderr_is_terminal()) && !NO_COLOR` — an OR
+/// chosen for the shared, stdout-bound table renderer. For a stderr-only
+/// renderer that OR is wrong in both directions: `ops verify 2> build.log`
+/// from an interactive shell leaves stdout a TTY, so the log file would
+/// fill with escape codes no terminal will render, while
+/// `ops verify > out.txt` would be coloured only by accident of the OR.
 ///
-/// The shared per-stream probes are still used, so both subsystems keep one
+/// The shared per-stream probes are used, so both subsystems keep one
 /// cached `is_terminal()` answer per stream and one `NO_COLOR` reading; only
-/// the stream each consults differs, which is the distinction TASK-1188's
-/// single resolver had erased.
+/// the stream each consults differs.
 #[must_use]
 pub fn color_enabled() -> bool {
     color_enabled_for(
@@ -84,8 +82,8 @@ fn parse_spec(spec: &str) -> Vec<&'static str> {
 /// Precompute the SGR prefix for `spec`.
 ///
 /// For example `"\x1b[1;32m"` for `"bold green"`. Returns `None` when the
-/// spec contains no recognized tokens. TASK-0747: callers store this once
-/// at construction and reuse per render.
+/// spec contains no recognized tokens. Callers store this once at
+/// construction and reuse it per render.
 #[must_use]
 pub fn precompute_sgr_prefix(spec: &str) -> Option<String> {
     let codes = parse_spec(spec);
@@ -99,21 +97,20 @@ pub fn precompute_sgr_prefix(spec: &str) -> Option<String> {
 /// Apply a precomputed SGR prefix to `text`.
 ///
 /// Returns `Cow::Borrowed` when `prefix` is `None` or color is disabled —
-/// i.e. stderr is not a TTY, or `NO_COLOR` is set (CL-3 / TASK-1976; see
-/// [`color_enabled`]). TASK-0747: paired with [`precompute_sgr_prefix`].
+/// i.e. stderr is not a TTY, or `NO_COLOR` is set (see [`color_enabled`]).
+/// Paired with [`precompute_sgr_prefix`].
 ///
-/// API-2 / TASK-0893: takes `Option<&str>` rather than `&Option<String>`
-/// so callers aren't locked into `String` storage and can pass borrowed
-/// slices, `Cow`s, or accessor returns via `.as_deref()`.
+/// Takes `Option<&str>` rather than `&Option<String>` so callers aren't
+/// locked into `String` storage and can pass borrowed slices, `Cow`s, or
+/// accessor returns via `.as_deref()`.
 ///
-/// PERF-3 / TASK-2082: the gate is an explicit argument — the same injection
-/// seam [`apply_style_gated`] and `render_error_block_gated` established
-/// (TEST-25 / TASK-1979) — so a render entry point resolves
-/// [`color_enabled`] once and threads the boolean through its private
-/// helpers instead of re-reading `NO_COLOR` per styled segment. The eager
-/// convenience form that resolved the gate per call was removed with its
-/// last caller (TASK-2256): every entry point styles several segments per
-/// invocation and must resolve the gate once.
+/// The gate is an explicit argument — the same injection seam as
+/// [`apply_style_gated`] and `render_error_block_gated` — so a render entry
+/// point resolves [`color_enabled`] once and threads the boolean through
+/// its private helpers instead of re-reading `NO_COLOR` per styled segment.
+/// There is deliberately no convenience form that resolves the gate per
+/// call: every entry point styles several segments per invocation and must
+/// resolve the gate once.
 #[must_use]
 pub fn apply_with_prefix_gated<'a>(
     text: &'a str,

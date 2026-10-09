@@ -540,6 +540,70 @@ fn content_declares_workspace_ignores_literal_multiline_string() {
     assert!(!content_declares_workspace(content));
 }
 
+/// Triple quotes in comment text open no string: an odd number of them in a
+/// full-line or trailing comment must not hide the `[workspace]` header that
+/// follows.
+#[test]
+fn content_declares_workspace_ignores_triple_quotes_in_comments() {
+    for content in [
+        "# see \"\"\"docs\n[workspace]\n",
+        "# see '''docs\n[workspace]\n",
+        "[package]\nname = \"x\" # \"\"\"\n[workspace]\n",
+        "[package]\na = 1 # '''\n[workspace]\n",
+        "[package]\nname = 'x' # \"\"\" and ''' and \"\"\"\n[workspace]\n",
+    ] {
+        assert!(
+            content_declares_workspace(content),
+            "should detect workspace in: {content:?}"
+        );
+    }
+}
+
+/// Inside a single-line string `#` is not a comment and a triple quote is not
+/// an opener, so neither hides nor fakes a header.
+#[test]
+fn content_declares_workspace_tracks_single_line_strings() {
+    for content in [
+        "[package]\ndescription = \"a # b\"\n[workspace]\n",
+        "[package]\ndescription = \"say \\\"\\\"\\\" twice\"\n[workspace]\n",
+        "[package]\ndescription = \"it's\" # it's '''\n[workspace]\n",
+    ] {
+        assert!(
+            content_declares_workspace(content),
+            "should detect workspace in: {content:?}"
+        );
+    }
+    // `#` inside a string does not end the scan, so the multi-line string
+    // opened after it still hides its body.
+    let content = "[package]\na = [\"#\", \"\"\"\n[workspace]\n\"\"\"]\n";
+    assert!(!content_declares_workspace(content), "{content:?}");
+}
+
+/// A multi-line string closed on the line that opened it leaves nothing
+/// open, one reopened on its closing line stays open, and an escaped
+/// delimiter does not close a basic one.
+#[test]
+fn content_declares_workspace_tracks_multiline_string_state_across_lines() {
+    for content in [
+        "[package]\na = \"\"\"x\"\"\" # done\n[workspace]\n",
+        "[package]\na = \"\"\"\nx\n\"\"\" # '''\n[workspace]\n",
+    ] {
+        assert!(
+            content_declares_workspace(content),
+            "should detect workspace in: {content:?}"
+        );
+    }
+    for content in [
+        "[package]\na = \"\"\"\nx \\\"\"\"\n[workspace]\n\"\"\"\n",
+        "[package]\na = [\"\"\"x\"\"\", \"\"\"\n[workspace]\n\"\"\"]\n",
+    ] {
+        assert!(
+            !content_declares_workspace(content),
+            "should not detect workspace in: {content:?}"
+        );
+    }
+}
+
 /// PERF-3 / TASK-1512: a real `[workspace]` header is detected.
 #[test]
 fn content_declares_workspace_detects_bare_workspace() {

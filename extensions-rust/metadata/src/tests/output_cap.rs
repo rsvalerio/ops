@@ -1,17 +1,16 @@
-//! ERR-1 / TASK-2188: the subprocess capture cap must not be mistaken for a
-//! complete document.
+//! The subprocess capture cap must not be mistaken for a complete document.
 //!
 //! `run_with_timeout`'s drain threads bound each stream at
 //! `OPS_OUTPUT_BYTE_CAP` (4 MiB default) and treat truncation as a warn-level
 //! breadcrumb, not an error. Both consumers of `cargo metadata` stdout — the
 //! ingest path (`MetadataIngestor::collect`, which stages `metadata.json`)
 //! and the fallback path (`provide_via_cargo_metadata`, which serde-parses
-//! the buffer) — used to treat the capped buffer as authoritative. These
+//! the buffer) — must not treat a capped buffer as authoritative. These
 //! tests pin the guard that refuses it.
 
 use super::*;
 
-/// AC#1+#4: a stdout at the capture cap is refused, with the cap value and
+/// A stdout at the capture cap is refused, with the cap value and
 /// its env var named — not parsed into a truncated document whose failure
 /// would otherwise surface as a misattributed serde error.
 ///
@@ -54,7 +53,7 @@ fn capped_cargo_metadata_stdout_is_refused_with_the_cap_named() {
     check_metadata_not_capped(&under).expect("just under the cap must pass");
 }
 
-/// AC#3: the metadata crate resolves the same cap the subprocess layer
+/// The metadata crate resolves the same cap the subprocess layer
 /// enforces — same env var, same default — so the guard's comparison basis
 /// cannot drift from the drain's.
 ///

@@ -1,10 +1,10 @@
 ---
 id: TASK-2414
 title: 'ERR-2: tokei scan silently drops files deeper than ScanLimits::depth with no skip count or warning'
-status: To Do
+status: Done
 assignee: []
 created_date: '2026-10-04 14:19'
-updated_date: '2026-10-04 14:52'
+updated_date: '2026-10-04 15:28'
 labels:
   - code-review-rust
   - ERR
@@ -30,6 +30,13 @@ dedup_key: 'ERR-2:extensions/tokei/src/lib.rs:collect_candidates'
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 A walk that hits the depth cap is surfaced (for example a Skips/TokeiScan depth_truncated flag) and included in the incomplete-statistics warning
-- [ ] #2 The depth-cap test asserts the new signal
+- [x] #1 A walk that hits the depth cap is surfaced (for example a Skips/TokeiScan depth_truncated flag) and included in the incomplete-statistics warning
+- [x] #2 The depth-cap test asserts the new signal
+
 <!-- AC:END -->
+
+## Implementation Notes
+
+<!-- SECTION:NOTES:BEGIN -->
+Signal is TokeiScan::skipped_too_deep (count of directories at ScanLimits::depth that the walker listed but did not enter), folded into TokeiScan::is_incomplete() which gates the 'statistics are incomplete' warning; each such directory also warns with its path. It counts directories, not files, so an empty directory exactly at the cap is reported too.
+<!-- SECTION:NOTES:END -->

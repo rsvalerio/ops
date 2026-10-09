@@ -1,18 +1,15 @@
 //! Ingest directory layout, hardening, checksums, and external-error helpers.
 
+use crate::error::io_context;
 use crate::{DbError, DbResult, Sqlite};
 use std::path::{Path, PathBuf};
 
 /// Compute the ingest data directory from a DB path (appends `.ingest`).
 ///
-/// READ-5 / TASK-1867: `Sqlite::open_in_memory` stores the `SQLite`
-/// connection string `:memory:` as its path. Appending `.ingest` to that
-/// sentinel yielded the *relative* path `:memory:.ingest`, which the ingest
-/// pipeline then created — with staged JSON inside it — in whatever the
-/// process working directory happened to be: the user's project root under
-/// `ops`, or the crate directory under `cargo test` (where the debris was
-/// once committed to this repository). An in-memory handle has no staging
-/// area, so it is rejected instead of silently redirected.
+/// An in-memory handle has no staging area: its path is the `SQLite`
+/// connection string `:memory:`, not a filesystem path, and appending
+/// `.ingest` to it would name a relative directory inside the process working
+/// directory. It is rejected rather than redirected.
 ///
 /// # Errors
 ///
@@ -28,78 +25,48 @@ pub fn data_dir_for_db(db_path: &Path) -> DbResult<PathBuf> {
 
 /// Create the ingest data directory with restrictive permissions.
 ///
-/// SEC-25 / TASK-0787: the ingest dir holds workspace-root sidecars and
-/// JSON staging files that the database trusts on load. On Unix we create
-/// it with mode 0o700 (and re-stamp the mode when the dir pre-exists with
-/// a more permissive default umask) so a co-tenant on a multi-user system
-/// cannot tamper with staged data between collect and load. Non-Unix
-/// platforms have no portable mode to stamp, so they get the rejection half
-/// only: a pre-existing symlink or reparse point at `data_dir` is refused
-/// there too (see [`reject_untrusted_ingest_dir`]), and a fresh dir is
-/// created with `create_dir_all` at the platform default.
+/// The ingest dir holds workspace-root sidecars and JSON staging files that
+/// the database trusts on load, so on Unix the leaf is created with mode
+/// `0o700` — and re-stamped to it when it already exists — keeping other
+/// local users from tampering with staged data between collect and load.
 ///
-/// SEC-25 / TASK-1000: only the **leaf** ingest dir is hardened to 0o700.
-/// `DirBuilder::recursive(true).mode(0o700)` would also stamp every
-/// intermediate parent created during the call (e.g. `target/`,
-/// `target/ops/`) with 0o700, breaking cargo / build-system convention
-/// (target/ is canonically 0o755) and producing an asymmetry between
-/// fresh workspaces and ones where `target/` already exists. Create the
-/// parents first at the platform-default umask, then build the leaf
-/// alone with the restrictive mode.
+/// Only the leaf belongs to ops. Its parent is the database's own directory,
+/// which may be the workspace root or any directory the user configured, so
+/// the parent chain is created at the platform default when missing and its
+/// mode is never changed nor used as a reason to refuse staging. The defence
+/// against a principal who can create names in that parent is [`IngestDir`],
+/// which verifies and anchors the leaf itself.
 ///
-/// SEC-25 / TASK-1857: a pre-existing `data_dir` is *not* trusted. `mkdir`
-/// reporting `AlreadyExists` says only that the name is taken — it may be a
-/// symlink an attacker planted, in which case a path-based `chmod` would
-/// follow it and stamp 0o700 on the attacker's chosen target while every
-/// subsequent staged write landed inside it. We therefore `lstat` the path,
-/// reject anything that is not a real directory, and then do the mode stamp
-/// through an **open handle** whose `(dev, ino)` is checked against the
-/// `lstat` result, so the check and the act refer to the same inode. The
-/// intermediate parents are created with `create_dir_all` at the platform
-/// default umask (TASK-1000) and are deliberately *not* hardened; the
-/// co-tenant guarantee this function makes is about the leaf ingest dir
-/// only.
+/// A pre-existing `data_dir` is not trusted: `mkdir` reporting
+/// `AlreadyExists` says only that the name is taken. The path is `lstat`ed,
+/// anything that is not a real directory is refused, and the mode is stamped
+/// through an open handle whose `(dev, ino)` matches the `lstat`, so a planted
+/// symlink cannot have its target chmodded. A symlink at the immediate parent
+/// is refused the same way, before the leaf is created inside its target.
 ///
-/// # SEC / TASK-2039 + TASK-2054: closing the verify-then-write TOCTOU window
+/// Non-Unix platforms have no portable mode to stamp, so they keep the
+/// rejection half only: a symlink or reparse point at `data_dir` is refused
+/// (see [`reject_untrusted_ingest_dir`]) and a fresh dir is created at the
+/// platform default.
 ///
-/// Everything above verifies the ingest dir through an **open handle** and
-/// then drops it, so on its own it leaves a window: a principal who can create
-/// names in the ingest dir's **parent** could swap the verified directory for
-/// a symlink between the check and each staged write, and the JSON the
-/// database later trusts on load would land wherever they point.
+/// # Errors
 ///
-/// TASK-2039 weighed two answers and took the cheaper one: [`harden_ingest_parent`]
-/// removes the swap *capability*, making the staging parent unwritable to
-/// every principal but its owner. TASK-2054 then added the structural half it
-/// deferred — [`IngestDir`] keeps the verified descriptor open and every
-/// staged write, read, rename and unlink resolves against it via `*at(2)`, so
-/// the pipeline no longer re-resolves the directory by name at all.
-///
-/// The two are complementary, not redundant. Parent hardening is what stops an
-/// attacker planting a name *before* [`IngestDir::open`] takes the handle; the
-/// anchor is what covers the cases hardening cannot — a shared-writable but
-/// sticky staging parent, and an attacker running as the same uid, whom no
-/// directory mode binds.
-///
-/// The parent is tightened by clearing the group/other **write** bits only
-/// (`0o775` → `0o755`), not stamped to `0o700`: `target/ops` is conventionally
-/// readable, and TASK-1000's rule that intermediate parents keep the platform
-/// default still holds for everything above the immediate parent. A parent
-/// that is shared-writable but **sticky** (`/tmp`-style) is accepted as is —
-/// the sticky bit already forbids other principals renaming or deleting a
-/// name they do not own, which is exactly the swap being defended against.
-/// If the write bits cannot be cleared (we do not own the directory), staging
-/// is refused rather than performed into a directory another principal
-/// controls.
-///
-/// Non-Unix keeps the rejection half only, as above: there is no portable
-/// mode to inspect or stamp.
+/// If a directory cannot be created, inspected or restricted, or if
+/// `data_dir` or its immediate parent is a symlink or not a directory. Every
+/// error names the path it concerns.
 pub(super) fn create_ingest_dir(data_dir: &Path) -> std::io::Result<()> {
     if let Some(parent) = data_dir.parent() {
         if !parent.as_os_str().is_empty() {
-            std::fs::create_dir_all(parent)?;
+            std::fs::create_dir_all(parent).map_err(|e| {
+                io_context(
+                    format!("creating ingest dir parent {}", parent.display()),
+                    e,
+                )
+            })?;
             #[cfg(unix)]
-            harden_ingest_parent(parent)?;
+            if reject_untrusted_ingest_dir(parent)?.is_none() {
+                return Err(vanished(parent));
+            }
         }
     }
     #[cfg(unix)]
@@ -112,25 +79,52 @@ pub(super) fn create_ingest_dir(data_dir: &Path) -> std::io::Result<()> {
         {
             Ok(()) => {}
             Err(e) if e.kind() == std::io::ErrorKind::AlreadyExists => {}
-            Err(e) => return Err(e),
+            Err(e) => {
+                return Err(io_context(
+                    format!("creating ingest dir {}", data_dir.display()),
+                    e,
+                ))
+            }
         }
         harden_existing_ingest_dir(data_dir)
     }
     #[cfg(not(unix))]
     {
-        // SEC-25 / TASK-1857: the "a pre-existing `data_dir` is not trusted"
-        // rule is not Unix-specific. `create_dir_all` succeeds silently when
-        // the name is already taken by a symlink or a directory junction, so
-        // without this check every staged write would land wherever the
-        // reparse point points. There is no portable mode to stamp, so this
-        // branch keeps the *rejection* half of the Unix behaviour and drops
-        // only the `fchmod`.
+        // `create_dir_all` succeeds silently when the name is already taken
+        // by a symlink or a directory junction, so the pre-existing path is
+        // inspected first; otherwise every staged write would land wherever
+        // the reparse point points.
         match reject_untrusted_ingest_dir(data_dir) {
             Ok(Some(_)) => Ok(()),
-            Ok(None) => std::fs::create_dir_all(data_dir),
+            Ok(None) => std::fs::create_dir_all(data_dir)
+                .map_err(|e| io_context(format!("creating ingest dir {}", data_dir.display()), e)),
             Err(e) => Err(e),
         }
     }
+}
+
+/// The error for a directory that disappeared between two steps.
+#[cfg(unix)]
+fn vanished(dir: &Path) -> std::io::Error {
+    std::io::Error::new(
+        std::io::ErrorKind::NotFound,
+        format!(
+            "ingest dir {} vanished before it could be verified",
+            dir.display()
+        ),
+    )
+}
+
+/// The error for a directory whose inode changed between `lstat` and open.
+#[cfg(unix)]
+fn changed_identity(dir: &Path) -> std::io::Error {
+    std::io::Error::new(
+        std::io::ErrorKind::InvalidInput,
+        format!(
+            "ingest dir {} changed identity between inspection and open",
+            dir.display()
+        ),
+    )
 }
 
 /// `lstat` `data_dir` and refuse anything that is not a real directory.
@@ -138,17 +132,20 @@ pub(super) fn create_ingest_dir(data_dir: &Path) -> std::io::Result<()> {
 /// Returns `Ok(Some(lstat))` when the path exists and is a plain directory,
 /// `Ok(None)` when nothing is there, and an error when the name is taken by
 /// a symlink (or, on Windows, any other reparse point — `FileType::is_symlink`
-/// covers junctions too), or by a non-directory.
-///
-/// SEC-25 / TASK-1857: `mkdir` reporting `AlreadyExists` says only that the
-/// name is taken. Following whatever is there is the whole attack.
+/// covers junctions too), or by a non-directory. Following whatever already
+/// holds the name is the whole attack this refuses.
 fn reject_untrusted_ingest_dir(data_dir: &Path) -> std::io::Result<Option<std::fs::Metadata>> {
     use std::io::{Error, ErrorKind};
 
     let lstat = match std::fs::symlink_metadata(data_dir) {
         Ok(m) => m,
         Err(e) if e.kind() == ErrorKind::NotFound => return Ok(None),
-        Err(e) => return Err(e),
+        Err(e) => {
+            return Err(io_context(
+                format!("inspecting ingest dir {}", data_dir.display()),
+                e,
+            ))
+        }
     };
     let file_type = lstat.file_type();
     if file_type.is_symlink() {
@@ -172,206 +169,90 @@ fn reject_untrusted_ingest_dir(data_dir: &Path) -> std::io::Result<Option<std::f
     Ok(Some(lstat))
 }
 
-/// SEC / TASK-2039: remove the *capability* to swap the verified ingest dir
-/// for a symlink, by making its parent directory writable only by its owner.
-///
-/// See the TASK-2039 section on [`create_ingest_dir`] for why this is done
-/// instead of threading a directory handle through the [`crate::DataIngestor`]
-/// trait. Returns:
-///
-/// * `Ok(())` when no other principal can create names in `parent` — either
-///   the group/other write bits were already clear, or the directory is
-///   sticky (a name there cannot be renamed or unlinked by anyone but its
-///   owner), or we cleared the bits ourselves.
-/// * `Err` when the bits are set, the directory is not sticky, and the
-///   `fchmod` fails — typically because the directory belongs to someone
-///   else, which is precisely the situation in which staging into it is
-///   unsafe.
-///
-/// A symlink or non-directory at `parent` is refused through the same
-/// [`reject_untrusted_ingest_dir`] gate [`harden_existing_ingest_dir`] uses,
-/// and the mode is applied only through a handle whose `(dev, ino)` matches
-/// the `lstat` taken during that rejection — the same discipline, so a
-/// symlink at `parent` cannot have its target chmodded.
+/// The effective uid of this process.
 #[cfg(unix)]
-fn harden_ingest_parent(parent: &Path) -> std::io::Result<()> {
-    use std::io::{Error, ErrorKind};
-    use std::os::unix::fs::{MetadataExt, PermissionsExt};
-
-    /// Write permission for group and other: the ability to create, rename,
-    /// or unlink names inside the directory.
-    const SHARED_WRITE: u32 = 0o022;
-    /// The sticky bit (`S_ISVTX`), which restricts renaming and unlinking
-    /// inside a shared-writable directory to the entry's own owner.
-    const STICKY: u32 = 0o1000;
-
-    // `File::open` follows symlinks, so the parent is `lstat`ed and refused
-    // when it is one (or not a directory) before any handle exists, and the
-    // handle is then confirmed to be the very inode that was inspected —
-    // otherwise the fchmod below could land on a planted symlink's target.
-    let Some(lstat) = reject_untrusted_ingest_dir(parent)? else {
-        return Err(Error::new(
-            ErrorKind::NotFound,
-            format!(
-                "ingest staging parent {} vanished before it could be hardened",
-                parent.display()
-            ),
-        ));
-    };
-    let handle = std::fs::File::open(parent)?;
-    let meta = handle.metadata()?;
-    if !meta.is_dir() || meta.dev() != lstat.dev() || meta.ino() != lstat.ino() {
-        return Err(Error::new(
-            ErrorKind::InvalidInput,
-            format!(
-                "ingest staging parent {} changed identity between inspection and open",
-                parent.display()
-            ),
-        ));
-    }
-    // `PermissionsExt::mode` returns the raw `st_mode`, file-type bits and
-    // all; keep only the permission + set-id/sticky bits `fchmod` accepts.
-    let mode = meta.permissions().mode() & 0o7777;
-    if mode & SHARED_WRITE == 0 {
-        return Ok(());
-    }
-    if mode & STICKY != 0 {
-        // The sticky bit binds every principal *except* the directory's own
-        // owner, who can clear it, chmod the directory, or replace it
-        // wholesale. Accepting on the bit alone would therefore trust an
-        // attacker-owned `0o1777` directory exactly as much as `/tmp`.
-        let owner = meta.uid();
-        if !is_trusted_parent_owner(owner) {
-            return Err(Error::new(
-                ErrorKind::PermissionDenied,
-                format!(
-                    "ingest staging parent {} is shared-writable and sticky but owned by uid {owner}, which can clear the sticky bit or replace the directory",
-                    parent.display(),
-                ),
-            ));
-        }
-        tracing::debug!(
-            parent = ?parent.display(),
-            mode = format!("{mode:o}"),
-            owner,
-            "SEC / TASK-2039: ingest staging parent is shared-writable but sticky and trusted-owned; names cannot be swapped by other principals"
-        );
-        return Ok(());
-    }
-    handle
-        .set_permissions(std::fs::Permissions::from_mode(mode & !SHARED_WRITE))
-        .map_err(|e| {
-            Error::new(
-                e.kind(),
-                format!(
-                    "ingest staging parent {} is writable by other local principals (mode {mode:o}) and its permissions could not be tightened: {e}",
-                    parent.display(),
-                ),
-            )
-        })
-}
-
-/// May `owner` be trusted to hold a shared-writable staging parent?
-///
-/// Only the superuser and ourselves. `/tmp` — root-owned and sticky — is the
-/// shape this accepts; a co-tenant's own `0o1777` directory is the shape it
-/// must not, because its owner is not bound by the sticky bit they set.
-#[cfg(unix)]
-fn is_trusted_parent_owner(owner: u32) -> bool {
+#[expect(unsafe_code, reason = "libc::geteuid FFI; see the SAFETY comment")]
+fn effective_uid() -> u32 {
     // SAFETY: `geteuid` takes no arguments, dereferences nothing, and is
     // defined to always succeed, so there are no preconditions to uphold and
     // no error case to handle.
-    let euid = unsafe { libc::geteuid() };
-    owner == 0 || owner == euid
+    unsafe { libc::geteuid() }
 }
 
 /// Stamp `0o700` on an ingest dir that already exists on disk, refusing to
 /// act on anything that is not a real directory.
 ///
-/// SEC-25 / TASK-1857: `std::fs::set_permissions` is path-based and follows
-/// symlinks, so it cannot be used here — a planted symlink would have its
-/// *target* chmodded. Instead we `lstat` the path, reject symlinks and
-/// non-directories outright, then open a handle and confirm it resolves to
-/// the very inode we inspected before applying the mode through that handle
+/// `std::fs::set_permissions` is path-based and follows symlinks, so a planted
+/// symlink would have its *target* chmodded. Instead the path is `lstat`ed,
+/// symlinks and non-directories are rejected outright, and the mode is applied
+/// through a handle confirmed to be the very inode that was inspected
 /// (`File::set_permissions` is `fchmod`, not `chmod`).
 #[cfg(unix)]
 fn harden_existing_ingest_dir(data_dir: &Path) -> std::io::Result<()> {
-    use std::io::{Error, ErrorKind};
     use std::os::unix::fs::{MetadataExt, PermissionsExt};
 
     // Shared with the non-Unix branch so the two platforms cannot drift on
     // what counts as an untrusted pre-existing ingest dir.
     let Some(lstat) = reject_untrusted_ingest_dir(data_dir)? else {
-        return Err(Error::new(
-            ErrorKind::NotFound,
-            format!(
-                "ingest dir {} vanished before it could be hardened",
-                data_dir.display()
-            ),
-        ));
+        return Err(vanished(data_dir));
     };
 
-    let handle = std::fs::File::open(data_dir)?;
-    let opened = handle.metadata()?;
+    let handle = std::fs::File::open(data_dir)
+        .map_err(|e| io_context(format!("opening ingest dir {}", data_dir.display()), e))?;
+    let opened = handle
+        .metadata()
+        .map_err(|e| io_context(format!("inspecting ingest dir {}", data_dir.display()), e))?;
     if !opened.is_dir() || opened.dev() != lstat.dev() || opened.ino() != lstat.ino() {
-        return Err(Error::new(
-            ErrorKind::InvalidInput,
-            format!(
-                "ingest dir {} changed identity between inspection and open",
-                data_dir.display()
-            ),
-        ));
+        return Err(changed_identity(data_dir));
     }
 
-    handle.set_permissions(std::fs::Permissions::from_mode(0o700))
+    handle
+        .set_permissions(std::fs::Permissions::from_mode(0o700))
+        .map_err(|e| {
+            io_context(
+                format!("restricting ingest dir {} to mode 0700", data_dir.display()),
+                e,
+            )
+        })
 }
 
-/// SEC-25 / TASK-2054: a **verified, anchored handle** on the ingest staging
-/// directory.
+/// A verified, anchored handle on the ingest staging directory.
 ///
-/// # Why this type exists
-///
-/// [`create_ingest_dir`] verifies the staging directory through an open handle
-/// and then drops it. Before this type existed, `provide_via_ingestor` handed
-/// the plain `&Path` on to [`crate::DataIngestor::collect`] /
-/// [`crate::DataIngestor::load`] and `sidecar.rs` joined onto it by name, so
-/// **every staged write re-resolved the directory by path**. TASK-2039 shrank
-/// that window by removing the swap *capability* (see
-/// [`harden_ingest_parent`]), but two cases stayed open: a shared-writable but
-/// *sticky* staging parent, where the reopen is still by name, and an attacker
-/// running as the **same uid**, whom no directory mode binds.
-///
-/// `IngestDir` closes the structural half. It owns a directory descriptor that
-/// was confirmed — by `(dev, ino)` against the `lstat` taken during
-/// verification — to be the directory that was hardened, and every staged
+/// Owns a directory descriptor that was confirmed to be the private directory
+/// [`create_ingest_dir`] hardened: the same `(dev, ino)` as an `lstat` of the
+/// path, owned by this user, and closed to group and other. Every staged
 /// write, read, rename and unlink goes through `*at(2)` syscalls anchored on
-/// that descriptor. Replacing the *name* after the handle is open redirects
-/// nothing: the kernel resolves the staged entry relative to the inode we hold,
-/// not to the path we were given.
+/// that descriptor, so replacing the directory's *name* after the handle is
+/// open redirects nothing — the kernel resolves each staged entry relative to
+/// the inode held here, not to the path the handle was opened from.
 ///
-/// # What is still resolved by path, and why that is sound
+/// The owner and mode check is what makes the anchor independent of the
+/// permissions of the directory the database lives in. Another principal who
+/// can create names there can swap in a directory of their own before the
+/// handle is taken, but cannot make it owned by this user, so the swap is
+/// refused instead of staged into. A process running as the same uid is not
+/// bound by any directory mode; against it the anchor guarantees only that a
+/// swap *after* [`IngestDir::open`] changes nothing.
 ///
-/// [`IngestDir::path`] still exists and still hands out a `&Path`, for exactly
-/// one use: the `data_sources` provenance row and log breadcrumbs, which record
-/// a name for a human to find later.
+/// # Paths are labels
 ///
-/// That is not a *write*, and since the SQLite port it is not a *read* either
-/// — staged JSON is read through the anchored [`IngestDir::open_read`] and
-/// handed to the engine as a bound parameter, so no code path opens a staged
-/// entry by name.
+/// [`IngestDir::path`] and [`IngestDir::entry_path`] hand out paths for the
+/// `data_sources` provenance row and log breadcrumbs, which record a name for
+/// a human to find later. No staged entry is opened by name: staged JSON is
+/// read through [`IngestDir::open_read`] and reaches the engine as a bound
+/// parameter.
 ///
 /// # Platform
 ///
-/// The anchoring is Unix-only, matching the split the rest of this module
-/// already makes: there is no portable `*at` family, so non-Unix targets keep
-/// the by-name behaviour together with the symlink/reparse-point rejection in
-/// [`reject_untrusted_ingest_dir`].
+/// The anchoring is Unix-only: there is no portable `*at` family, so non-Unix
+/// targets resolve entries by name and keep the symlink / reparse-point
+/// rejection in [`reject_untrusted_ingest_dir`].
 #[derive(Debug)]
 pub struct IngestDir {
     path: PathBuf,
     /// The verified directory descriptor every anchored operation resolves
-    /// against. Held open for the whole staging lifetime on purpose — dropping
-    /// it is what reopened the window in the first place.
+    /// against. Held open for the whole staging lifetime: the guarantee lasts
+    /// only as long as the descriptor does.
     #[cfg(unix)]
     handle: std::fs::File,
 }
@@ -382,34 +263,50 @@ impl IngestDir {
     ///
     /// The directory is created and hardened by [`create_ingest_dir`], opened
     /// with `O_DIRECTORY | O_NOFOLLOW`, and the opened inode is checked against
-    /// a fresh `lstat` so the descriptor is provably the directory that was
-    /// just hardened rather than a name that changed underneath us.
+    /// a fresh `lstat`, its owner and its mode, so the descriptor is provably
+    /// the private directory that was just hardened rather than a name that
+    /// changed in between.
     ///
     /// # Errors
     ///
     /// [`DbError::Io`] if the directory cannot be created, hardened, or opened,
     /// or if the name no longer refers to the directory that was verified.
     pub fn open(data_dir: &Path) -> DbResult<Self> {
-        create_ingest_dir(data_dir).map_err(DbError::Io)?;
-        Self::open_verified(data_dir).map_err(DbError::Io)
+        create_ingest_dir(data_dir)?;
+        Ok(Self::open_verified(data_dir)?)
     }
 
     #[cfg(unix)]
     fn open_verified(data_dir: &Path) -> std::io::Result<Self> {
         use std::io::{Error, ErrorKind};
-        use std::os::unix::fs::{MetadataExt, OpenOptionsExt};
+        use std::os::unix::fs::{MetadataExt, OpenOptionsExt, PermissionsExt};
 
-        let lstat = std::fs::symlink_metadata(data_dir)?;
+        /// Any access for group or other.
+        const SHARED_ACCESS: u32 = 0o077;
+
+        let lstat = std::fs::symlink_metadata(data_dir)
+            .map_err(|e| io_context(format!("inspecting ingest dir {}", data_dir.display()), e))?;
         let handle = std::fs::OpenOptions::new()
             .read(true)
             .custom_flags(libc::O_DIRECTORY | libc::O_NOFOLLOW | libc::O_CLOEXEC)
-            .open(data_dir)?;
-        let opened = handle.metadata()?;
+            .open(data_dir)
+            .map_err(|e| io_context(format!("opening ingest dir {}", data_dir.display()), e))?;
+        let opened = handle
+            .metadata()
+            .map_err(|e| io_context(format!("inspecting ingest dir {}", data_dir.display()), e))?;
         if !opened.is_dir() || opened.dev() != lstat.dev() || opened.ino() != lstat.ino() {
+            return Err(changed_identity(data_dir));
+        }
+        // A directory another principal swapped in after hardening passes the
+        // identity check above (it is self-consistent), but it cannot be owned
+        // by us, and one of ours that was never hardened is not private.
+        let owner = opened.uid();
+        let mode = opened.permissions().mode() & 0o7777;
+        if owner != effective_uid() || mode & SHARED_ACCESS != 0 {
             return Err(Error::new(
-                ErrorKind::InvalidInput,
+                ErrorKind::PermissionDenied,
                 format!(
-                    "ingest dir {} changed identity between inspection and open",
+                    "ingest dir {} is not a private directory of this user (owner uid {owner}, mode {mode:o}); refusing to stage data into it",
                     data_dir.display()
                 ),
             ));
@@ -444,8 +341,8 @@ impl IngestDir {
     /// The directory's path, for the `data_sources` provenance row and log
     /// breadcrumbs.
     ///
-    /// Never use this to open a file for writing — that is precisely the
-    /// re-resolution this type exists to remove. Use [`IngestDir::write_atomic`],
+    /// Never use this to open a file: resolving the directory by name again is
+    /// exactly what the anchor avoids. Use [`IngestDir::write_atomic`],
     /// [`IngestDir::open_read`], [`IngestDir::rename`], or
     /// [`IngestDir::remove_file`].
     #[must_use]
@@ -459,6 +356,15 @@ impl IngestDir {
     #[must_use]
     pub fn entry_path(&self, name: &str) -> PathBuf {
         self.path.join(name)
+    }
+
+    /// Wrap `source` as a [`DbError::Io`] naming the operation `op` and the
+    /// staged entry `name` it acted on.
+    pub(crate) fn entry_error(&self, op: &str, name: &str, source: std::io::Error) -> DbError {
+        DbError::Io(io_context(
+            format!("{op} staged entry {}", self.entry_path(name).display()),
+            source,
+        ))
     }
 
     /// Reject a staged entry name that is not a single path component.
@@ -496,7 +402,8 @@ impl IngestDir {
     /// [`DbError::Io`] if `name` is not a single path component, or if any of
     /// the create / write / fsync / rename steps fails.
     pub fn write_atomic(&self, name: &str, bytes: &[u8]) -> DbResult<()> {
-        self.write_atomic_io(name, bytes).map_err(DbError::Io)
+        self.write_atomic_io(name, bytes)
+            .map_err(|e| self.entry_error("writing", name, e))
     }
 
     #[cfg(unix)]
@@ -571,7 +478,8 @@ impl IngestDir {
     /// [`DbError::Io`] if `name` is not a single path component or the entry
     /// cannot be opened.
     pub fn open_read(&self, name: &str) -> DbResult<std::fs::File> {
-        self.open_read_io(name).map_err(DbError::Io)
+        self.open_read_io(name)
+            .map_err(|e| self.entry_error("opening", name, e))
     }
 
     #[cfg(unix)]
@@ -587,6 +495,10 @@ impl IngestDir {
     }
 
     #[cfg(unix)]
+    #[expect(
+        unsafe_code,
+        reason = "libc::openat FFI and fd ownership transfer; each block carries its SAFETY comment"
+    )]
     fn openat(
         &self,
         name: &str,
@@ -618,10 +530,19 @@ impl IngestDir {
     /// [`DbError::Io`] if either name is not a single path component or the
     /// rename fails.
     pub fn rename(&self, from: &str, to: &str) -> DbResult<()> {
-        self.rename_io(from, to).map_err(DbError::Io)
+        self.rename_io(from, to).map_err(|e| {
+            DbError::Io(io_context(
+                format!(
+                    "renaming staged entry {} to {to:?}",
+                    self.entry_path(from).display()
+                ),
+                e,
+            ))
+        })
     }
 
     #[cfg(unix)]
+    #[expect(unsafe_code, reason = "libc::renameat FFI; see the SAFETY comment")]
     fn rename_io(&self, from: &str, to: &str) -> std::io::Result<()> {
         use std::os::unix::io::AsRawFd;
 
@@ -655,10 +576,12 @@ impl IngestDir {
     /// fails (a missing entry surfaces as [`std::io::ErrorKind::NotFound`], as
     /// with `std::fs::remove_file`).
     pub fn remove_file(&self, name: &str) -> DbResult<()> {
-        self.remove_file_io(name).map_err(DbError::Io)
+        self.remove_file_io(name)
+            .map_err(|e| self.entry_error("removing", name, e))
     }
 
     #[cfg(unix)]
+    #[expect(unsafe_code, reason = "libc::unlinkat FFI; see the SAFETY comment")]
     fn remove_file_io(&self, name: &str) -> std::io::Result<()> {
         use std::os::unix::io::AsRawFd;
 
@@ -686,14 +609,8 @@ impl IngestDir {
     ///
     /// [`DbError::Io`] if the entry cannot be opened or read.
     pub fn checksum(&self, name: &str) -> DbResult<String> {
-        checksum_reader(self.open_read(name)?)
+        checksum_reader(self.open_read(name)?).map_err(|e| self.entry_error("reading", name, e))
     }
-
-    // SEC-25 / TASK-2067 residual closed by the SQLite port: the former
-    // `verify_entry_identity` pre-check existed because `read_json_auto` took
-    // an interpolated path; staged bytes are now read through `open_read` in
-    // Rust and bound as a parameter, so there is no by-name engine read left
-    // to defend against.
 }
 
 /// Default DB path for a workspace root (using default `DataConfig`).
@@ -704,57 +621,43 @@ pub fn default_db_path(workspace_root: &Path) -> PathBuf {
 
 /// Convert a non-IO external error into [`DbError::External`].
 ///
-/// Callers that return `anyhow::Error` (`collect_tokei`, `collect_coverage`,
-/// `check_metadata_output`, etc.) should use this instead of the old `io_err`
-/// which misleadingly wrapped them as `DbError::Io`.
+/// For callers that return `anyhow::Error` (`collect_tokei`,
+/// `collect_coverage`, `check_metadata_output`, …): their failures are parse
+/// errors, missing tools or timeouts, so reporting them as [`DbError::Io`]
+/// would send an operator looking for a filesystem problem.
 ///
-/// SEC-21 (TASK-0862): Display renders via the alternate `{:#}` flag so
-/// `anyhow::Context` chains continue to surface end-to-end.
-///
-/// ERR-2 / TASK-1209: passes the underlying `anyhow::Error` through as
-/// `#[source]` instead of flattening it via `format!`, so consumers walking
-/// `Error::source()` recover the cause graph (e.g. typed retry decisions).
+/// The `anyhow::Error` becomes the variant's source, so its whole context
+/// chain stays reachable — for chain-walking printers and for callers that
+/// downcast to a typed cause.
 #[must_use]
 pub const fn external_err(e: anyhow::Error) -> DbError {
     DbError::External(e)
 }
 
-/// Streaming SHA-256 core behind [`IngestDir::checksum`].
+/// Streaming SHA-256 of `source`, as lowercase hex.
 ///
-/// DEAD-1 / TASK-2066: the path-based `checksum_file` that used to share this
-/// core is gone. TASK-2054 moved the pipeline's only two checksum call sites
-/// (`SidecarIngestorConfig::persist_record` and `MetadataIngestor::load`) onto
-/// the anchored [`IngestDir::checksum`], leaving a public helper whose whole
-/// job was the by-path resolution the anchor exists to remove — a standing
-/// invitation for a future ingestor to reach for
-/// `checksum_file(&dir.entry_path(name))` and silently get the pre-TASK-2054
-/// behaviour. The streaming implementation is kept here, reachable only
-/// through the anchor.
+/// Private on purpose: [`IngestDir::checksum`] is the only entry point, so a
+/// checksum is always taken over a file opened through the anchor and never
+/// over a path resolved by name.
 ///
-/// Streams in 64 KiB chunks so multi-megabyte ingests (coverage, tokei) do not
-/// allocate a full file-sized buffer (PERF-1).
-///
-/// PERF-2 / TASK-2120: reads go directly from `source` into `buf` — no
-/// `BufReader` wrapper. `BufReader::read` bypasses its own buffer whenever
-/// the caller's slice is at least the internal buffer's size, so an
-/// equally-sized wrapper never buffered anything here; its only effect was
-/// a second 64 KiB allocation per checksum call plus indirection on every
-/// read.
-fn checksum_reader<R: std::io::Read>(mut source: R) -> DbResult<String> {
+/// Reads straight into one 64 KiB buffer, so a multi-megabyte ingest
+/// (coverage, tokei) is hashed without a file-sized allocation. There is no
+/// `BufReader`: it bypasses its own buffer whenever the caller's slice is at
+/// least as large, so wrapping `source` would only add a second allocation.
+fn checksum_reader<R: std::io::Read>(mut source: R) -> std::io::Result<String> {
     use sha2::{Digest, Sha256};
     let mut hasher = Sha256::new();
     let mut buf = vec![0u8; 64 * 1024];
     loop {
-        let n = source.read(&mut buf).map_err(DbError::Io)?;
+        let n = source.read(&mut buf)?;
         if n == 0 {
             break;
         }
         // A `Read` impl never reports more bytes than the buffer holds; surface a
         // violation as an I/O error instead of panicking on the slice.
-        let chunk = buf
-            .get(..n)
-            .ok_or_else(|| std::io::Error::other("read reported more bytes than the buffer holds"))
-            .map_err(DbError::Io)?;
+        let chunk = buf.get(..n).ok_or_else(|| {
+            std::io::Error::other("read reported more bytes than the buffer holds")
+        })?;
         hasher.update(chunk);
     }
     let digest = hasher.finalize();
@@ -824,45 +727,60 @@ mod tests {
         }
     }
 
-    /// SEC / TASK-2039: the swap this defends against needs the ability to
-    /// create or rename names in the ingest dir's parent. After
-    /// `create_ingest_dir`, a shared-writable parent must no longer grant it,
-    /// so a symlink cannot be swapped in after verification and no staged
-    /// write can be redirected. Starting the parent at 0o777 is the closest
-    /// on-disk stand-in for a co-tenant-writable staging area.
+    /// SEC-25: the ingest dir's parent is the database's own directory —
+    /// possibly the workspace root — so staging must neither change its mode
+    /// nor refuse it for being group- or world-writable.
     #[cfg(unix)]
     #[test]
-    fn create_ingest_dir_removes_swap_capability_from_the_staging_parent() {
+    fn ingest_leaves_a_group_writable_database_directory_untouched() {
+        use std::os::unix::fs::PermissionsExt;
+        for shared_mode in [0o775, 0o777] {
+            let tmp = tempfile::tempdir().expect("tempdir");
+            let parent = tmp.path().join("project");
+            std::fs::create_dir(&parent).expect("parent");
+            std::fs::set_permissions(&parent, std::fs::Permissions::from_mode(shared_mode))
+                .expect("make parent shared-writable");
+
+            let dir = IngestDir::open(&parent.join("data.db.ingest"))
+                .expect("ingest must not fail under a shared-writable parent");
+            dir.write_atomic("staged.json", b"{}").expect("stage");
+
+            let mode = std::fs::metadata(&parent)
+                .expect("meta")
+                .permissions()
+                .mode()
+                & 0o7777;
+            assert_eq!(
+                mode, shared_mode,
+                "the database directory must keep its mode; got {mode:o}"
+            );
+        }
+    }
+
+    /// SEC-25: the anchor does not lean on the parent's mode, so it must
+    /// itself refuse a directory that is not private — the shape another
+    /// principal's swapped-in directory, or one of ours that was never
+    /// hardened, would have.
+    #[cfg(unix)]
+    #[test]
+    fn the_anchor_refuses_a_directory_that_is_not_private() {
         use std::os::unix::fs::PermissionsExt;
         let tmp = tempfile::tempdir().expect("tempdir");
-        let parent = tmp.path().join("shared");
-        std::fs::create_dir(&parent).expect("parent");
-        std::fs::set_permissions(&parent, std::fs::Permissions::from_mode(0o777))
-            .expect("make parent shared-writable");
+        let staging = tmp.path().join("data.db.ingest");
+        std::fs::create_dir(&staging).expect("create");
+        std::fs::set_permissions(&staging, std::fs::Permissions::from_mode(0o755)).expect("loosen");
 
-        create_ingest_dir(&parent.join("data.db.ingest")).expect("create");
-
-        let mode = std::fs::metadata(&parent)
-            .expect("meta")
-            .permissions()
-            .mode()
-            & 0o7777;
-        assert_eq!(
-            mode & 0o022,
-            0,
-            "no other principal may create or rename names in the staging parent; got {mode:o}"
-        );
-        assert_eq!(
-            mode & 0o700,
-            0o700,
-            "the owner must keep full access to the staging parent; got {mode:o}"
+        let err = IngestDir::open_verified(&staging)
+            .expect_err("a group/other-accessible ingest dir must be refused");
+        assert_eq!(err.kind(), std::io::ErrorKind::PermissionDenied);
+        assert!(
+            err.to_string().contains(&staging.display().to_string()),
+            "error should name the directory: {err}"
         );
     }
 
-    /// SEC / TASK-2039: a parent that is shared-writable but sticky already
-    /// forbids other principals renaming or unlinking a name they do not own,
-    /// so its mode is left alone rather than tightened — `ops` must not chmod
-    /// a `/tmp`-style directory it happens to stage under.
+    /// SEC-25: `ops` must not chmod a `/tmp`-style sticky directory it
+    /// happens to stage under.
     #[cfg(unix)]
     #[test]
     fn create_ingest_dir_leaves_a_sticky_shared_parent_alone() {
@@ -886,37 +804,8 @@ mod tests {
         );
     }
 
-    /// SEC / TASK-2039: the sticky bit is only worth trusting when the
-    /// directory's *owner* is. An owner who is neither root nor us can clear
-    /// the bit at will, so the exemption must not extend to them.
-    #[cfg(unix)]
-    #[test]
-    fn only_root_and_ourselves_are_trusted_with_a_sticky_shared_parent() {
-        use std::os::unix::fs::MetadataExt;
-        let tmp = tempfile::tempdir().expect("tempdir");
-        let ours = std::fs::metadata(tmp.path()).expect("meta").uid();
-
-        assert!(
-            is_trusted_parent_owner(0),
-            "root-owned /tmp must be accepted"
-        );
-        assert!(
-            is_trusted_parent_owner(ours),
-            "a parent we own ourselves must be accepted"
-        );
-
-        // Any uid that is neither root nor ours. `u32::MAX` is `nobody` on
-        // most systems and is never the caller here.
-        let stranger = if ours == u32::MAX { 12345 } else { u32::MAX };
-        assert!(
-            !is_trusted_parent_owner(stranger),
-            "a sticky parent owned by uid {stranger} must be refused"
-        );
-    }
-
-    /// SEC-25 / TASK-1857: a symlink planted at the ingest-dir path must be
-    /// rejected, and the symlink's target must keep the mode it had — the
-    /// old path-based `set_permissions` chmodded the target to 0o700.
+    /// SEC-25: a symlink planted at the ingest-dir path must be rejected, and
+    /// the symlink's target must keep the mode it had.
     #[cfg(unix)]
     #[test]
     fn create_ingest_dir_rejects_a_planted_symlink_and_leaves_target_mode() {
@@ -954,11 +843,9 @@ mod tests {
         );
     }
 
-    /// SEC-25 / TASK-2109: a symlink planted at the staging *parent* must be
-    /// rejected before the parent is opened, not discovered through the
-    /// followed handle. The old `File::open`-then-`is_dir` sequence chmodded
-    /// the symlink's target, created the leaf ingest dir inside it, and
-    /// reported success — relocating the whole staging area.
+    /// SEC-25: a symlink planted at the staging *parent* must be rejected
+    /// before the leaf is created, so the staging area cannot be relocated
+    /// into the symlink's target.
     #[cfg(unix)]
     #[test]
     fn create_ingest_dir_rejects_a_symlinked_staging_parent() {
@@ -1070,9 +957,9 @@ mod tests {
         );
     }
 
-    /// READ-5 / TASK-1867: the `:memory:` sentinel is a connection string,
-    /// not a path. Deriving `:memory:.ingest` from it created a junk
-    /// directory in the process working directory.
+    /// The `:memory:` sentinel is a connection string, not a path; deriving
+    /// `:memory:.ingest` from it would name a junk directory in the process
+    /// working directory.
     #[test]
     fn data_dir_for_db_rejects_the_in_memory_sentinel() {
         let err = data_dir_for_db(Path::new(":memory:")).expect_err("sentinel must be rejected");
@@ -1090,14 +977,13 @@ mod tests {
     }
 
     #[test]
-    fn external_err_wraps_display_error() {
+    fn external_err_keeps_the_cause_in_the_chain() {
         let err = external_err(anyhow::anyhow!("test error message"));
-        let msg = err.to_string();
-        assert!(msg.contains("test error message"));
+        let msg = format!("{:#}", anyhow::Error::new(err));
+        assert!(msg.contains("test error message"), "got: {msg}");
     }
 
-    /// SEC-21 (TASK-0862): the alternate-format wrapper must preserve the
-    /// full anyhow context chain.
+    /// The whole anyhow context chain survives the wrap, each link once.
     #[test]
     fn external_err_preserves_anyhow_context_chain() {
         use anyhow::Context;
@@ -1107,15 +993,18 @@ mod tests {
             .context("wrap two")
             .unwrap_err();
         let err = external_err(chained);
-        let msg = err.to_string();
-        assert!(msg.contains("wrap two"), "missing outer wrap: {msg}");
-        assert!(msg.contains("wrap one"), "missing middle wrap: {msg}");
-        assert!(msg.contains("leaf cause"), "missing leaf cause: {msg}");
+        let msg = format!("{:#}", anyhow::Error::new(err));
+        for link in ["wrap two", "wrap one", "leaf cause"] {
+            assert_eq!(
+                msg.matches(link).count(),
+                1,
+                "`{link}` must appear exactly once: {msg}"
+            );
+        }
     }
 
-    /// ERR-2 / TASK-1209: walking `std::error::Error::source()` on the
-    /// resulting `DbError::External` recovers the wrapped `anyhow::Error`
-    /// chain rather than the previous flattened-string leaf.
+    /// Walking `std::error::Error::source()` on the resulting
+    /// `DbError::External` recovers the wrapped `anyhow::Error` chain.
     #[test]
     fn external_err_preserves_error_source_chain() {
         use anyhow::Context;
@@ -1142,10 +1031,8 @@ mod tests {
         );
     }
 
-    /// DEAD-1 / TASK-2066: the checksum tests below drive the anchored
-    /// [`IngestDir::checksum`], which is the only surface the streaming
-    /// implementation is reachable through now that the path-based
-    /// `checksum_file` is gone.
+    /// The checksum tests below drive the anchored [`IngestDir::checksum`],
+    /// the only surface the streaming implementation is reachable through.
     fn staged_dir(tmp: &tempfile::TempDir) -> IngestDir {
         IngestDir::open(&tmp.path().join("data.db.ingest")).expect("open")
     }
@@ -1178,9 +1065,7 @@ mod tests {
     /// (a compromised build script, another tool in the same session): the test
     /// process itself performs the swap, renaming the verified dir aside and
     /// putting an attacker-controlled directory at the very path the pipeline
-    /// was given. The parent stays writable throughout, so the pre-existing
-    /// `harden_ingest_parent` defence is deliberately not what is being
-    /// exercised.
+    /// was given. The parent stays writable throughout.
     #[cfg(unix)]
     #[test]
     fn staged_write_is_not_redirected_by_swapping_the_ingest_dir_name() {
@@ -1321,5 +1206,57 @@ mod tests {
         let c1 = dir.checksum("test.json").expect("checksum1");
         let c2 = dir.checksum("test.json").expect("checksum2");
         assert_eq!(c1, c2, "checksum should be deterministic");
+    }
+
+    /// ERR-13: an IO failure on a staged entry names the entry's path and
+    /// keeps the OS error as its source.
+    #[test]
+    fn staged_entry_io_errors_name_the_path_and_keep_the_os_error() {
+        use std::error::Error as _;
+
+        let tmp = tempfile::tempdir().expect("tempdir");
+        let dir = staged_dir(&tmp);
+        let missing = dir.entry_path("absent.json").display().to_string();
+
+        for err in [
+            dir.open_read("absent.json").map(drop),
+            dir.checksum("absent.json").map(drop),
+            dir.remove_file("absent.json"),
+            dir.rename("absent.json", "absent.json.done"),
+        ] {
+            let DbError::Io(io) = err.expect_err("a missing entry must fail") else {
+                panic!("expected DbError::Io");
+            };
+            assert_eq!(io.kind(), std::io::ErrorKind::NotFound);
+            assert!(
+                io.to_string().contains(&missing),
+                "error must name the staged entry: {io}"
+            );
+            assert!(
+                io.source()
+                    .and_then(|s| s.downcast_ref::<std::io::Error>())
+                    .is_some(),
+                "the OS error must stay reachable as the source: {io:?}"
+            );
+        }
+    }
+
+    /// ERR-13: a failure creating the ingest dir names the directory.
+    #[test]
+    fn create_ingest_dir_errors_name_the_directory() {
+        let tmp = tempfile::tempdir().expect("tempdir");
+        let blocker = tmp.path().join("not-a-dir");
+        std::fs::write(&blocker, b"x").expect("write");
+        let data_dir = blocker.join("nested").join("data.db.ingest");
+
+        let err = create_ingest_dir(&data_dir).expect_err("a file in the parent chain must fail");
+        assert!(
+            err.to_string().contains(&blocker.display().to_string()),
+            "error must name the directory it could not create: {err}"
+        );
+        assert!(
+            std::error::Error::source(&err).is_some(),
+            "the OS error must stay reachable as the source: {err:?}"
+        );
     }
 }

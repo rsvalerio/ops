@@ -1,10 +1,10 @@
 ---
 id: TASK-2415
 title: 'READ-13: tokei crate/item docs narrate change history instead of the end state'
-status: To Do
+status: Done
 assignee: []
 created_date: '2026-10-04 14:19'
-updated_date: '2026-10-04 14:52'
+updated_date: '2026-10-04 15:28'
 labels:
   - code-review-rust
   - READ
@@ -29,6 +29,7 @@ dedup_key: 'READ-13:extensions/tokei/src/lib.rs:crate-docs'
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 Docs state current behaviour only; references to removed items/earlier revisions are dropped or moved to the commit history
-- [ ] #2 The garbled screen_entry comment is reworded
+- [x] #1 Docs state current behaviour only; references to removed items/earlier revisions are dropped or moved to the commit history
+- [x] #2 The garbled screen_entry comment is reworded
+
 <!-- AC:END -->

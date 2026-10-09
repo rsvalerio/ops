@@ -353,7 +353,7 @@ where
                 warned_unknown = true;
                 tracing::warn!(
                     severity = %extract(e).severity,
-                    "TASK-0602: unknown cargo-deny severity rendered with fallback style"
+                    "unknown cargo-deny severity rendered with fallback style"
                 );
             }
             class
@@ -430,19 +430,18 @@ fn bans_row(bans: &[BanEntry]) -> ReportRow {
 /// the install hint rather than as `None`.
 fn unused_row(unused: &UnusedDepsResult) -> ReportRow {
     const TITLE: &str = "Unused Dependencies";
-    let entries: &[UnusedDepEntry] =
-        match unused {
-            UnusedDepsResult::Checked { entries } => entries,
-            UnusedDepsResult::NotInstalled => {
-                return ReportRow::new(ReportStatus::Info, TITLE, "Skipped").with_details(vec![
-                    format!(
+    let entries: &[UnusedDepEntry] = match unused {
+        UnusedDepsResult::Checked { entries } => entries,
+        UnusedDepsResult::NotInstalled => {
+            return ReportRow::new(ReportStatus::Info, TITLE, "Skipped").with_details(vec![
+                format!(
                     "{DETAIL_INDENT}{} {}",
                     dim("\u{1f4a1}"),
-                    dim("cargo-machete is not installed. Install with: cargo install cargo-machete")
+                    dim(&crate::CARGO_MACHETE.not_installed_hint())
                 ),
-                ]);
-            }
-        };
+            ]);
+        }
+    };
     if entries.is_empty() {
         return ReportRow::new(ReportStatus::Ok, TITLE, "None");
     }

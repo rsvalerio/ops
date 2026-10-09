@@ -1,10 +1,10 @@
 ---
 id: TASK-2371
 title: 'FN-1: find_duplicates is ~90 lines with 5-deep loop nesting'
-status: To Do
+status: Done
 assignee: []
 created_date: '2026-10-04 14:11'
-updated_date: '2026-10-04 14:52'
+updated_date: '2026-10-04 15:16'
 labels:
   - code-review-rust
   - FN
@@ -29,7 +29,8 @@ dedup_key: 'FN-1:extensions-rust/about/src/deps_provider.rs:find_duplicates'
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 find_duplicates is <= 50 lines, delegating to named helpers (e.g. versions_by_name, direct_closures, pullers_of)
-- [ ] #2 No loop nest deeper than 4 levels
-- [ ] #3 Existing deps_provider tests pass unchanged
+- [x] #1 find_duplicates is <= 50 lines, delegating to named helpers (e.g. versions_by_name, direct_closures, pullers_of)
+- [x] #2 No loop nest deeper than 4 levels
+- [x] #3 Existing deps_provider tests pass unchanged
+
 <!-- AC:END -->

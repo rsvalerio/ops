@@ -97,29 +97,8 @@ pub(crate) fn confirm<W: Write>(
 /// destination fails — each error names the destination path.
 pub(crate) fn atomic_write(path: &std::path::Path, contents: &str) -> anyhow::Result<()> {
     use anyhow::Context as _;
-    use std::io::Write as _;
 
-    let Some(name) = path.file_name() else {
-        anyhow::bail!("{} has no file name to stage a write under", path.display());
-    };
-    let staging = path.with_file_name(format!(
-        ".{}.{}.tmp",
-        name.to_string_lossy(),
-        std::process::id()
-    ));
-    let mut handle = std::fs::OpenOptions::new()
-        .write(true)
-        .create_new(true)
-        .open(&staging)
-        .with_context(|| format!("staging {}", path.display()))?;
-    if let Err(err) = handle
-        .write_all(contents.as_bytes())
-        .and_then(|()| handle.sync_all())
-    {
-        std::fs::remove_file(&staging).ok();
-        return Err(err).with_context(|| format!("staging {}", path.display()));
-    }
-    drop(handle);
+    let staging = stage_contents(path, contents)?;
     if let Err(err) = std::fs::rename(&staging, path) {
         std::fs::remove_file(&staging).ok();
         return Err(err).with_context(|| format!("replacing {}", path.display()));
@@ -127,24 +106,16 @@ pub(crate) fn atomic_write(path: &std::path::Path, contents: &str) -> anyhow::Re
     Ok(())
 }
 
-/// [`atomic_write`] for a destination that must not already exist — the
-/// config-creation path (`backlog.config.yml`).
-///
-/// `rename` replaces an existing destination, so a check-then-write
-/// sequence races a concurrent creator and silently clobbers it. The
-/// committed name is therefore claimed with a hard link instead:
-/// `link(2)` fails with `EEXIST` when the name is taken — no window in
-/// between — and only then is the staging name dropped. The staging file
-/// is fully written and synced before the claim, so the destination is
-/// either absent or complete, never half-written; a crash before the
-/// staging name is removed leaves one recoverable copy (the same
-/// post-state as `move_to_completed` in `cleanup`).
+/// Write `contents` to a fully synced staging file next to `path` and
+/// return the staging path, ready to be published under the destination
+/// name. The staging name is `.{name}.{pid}.tmp`, created exclusively; a
+/// failed write removes it again.
 ///
 /// # Errors
 ///
-/// The destination already exists (the error names it), or staging failed
-/// — as [`atomic_write`].
-pub(crate) fn atomic_write_noclobber(path: &std::path::Path, contents: &str) -> anyhow::Result<()> {
+/// `path` has no file name, or the staging file cannot be created, written
+/// or synced — each error names the destination path.
+fn stage_contents(path: &std::path::Path, contents: &str) -> anyhow::Result<std::path::PathBuf> {
     use anyhow::Context as _;
     use std::io::Write as _;
 
@@ -168,7 +139,30 @@ pub(crate) fn atomic_write_noclobber(path: &std::path::Path, contents: &str) -> 
         std::fs::remove_file(&staging).ok();
         return Err(err).with_context(|| format!("staging {}", path.display()));
     }
-    drop(handle);
+    Ok(staging)
+}
+
+/// [`atomic_write`] for a destination that must not already exist — the
+/// config-creation path (`backlog.config.yml`).
+///
+/// `rename` replaces an existing destination, so a check-then-write
+/// sequence races a concurrent creator and silently clobbers it. The
+/// committed name is therefore claimed with a hard link instead:
+/// `link(2)` fails with `EEXIST` when the name is taken — no window in
+/// between — and only then is the staging name dropped. The staging file
+/// is fully written and synced before the claim, so the destination is
+/// either absent or complete, never half-written; a crash before the
+/// staging name is removed leaves one recoverable copy (the same
+/// post-state as `move_to_completed` in `cleanup`).
+///
+/// # Errors
+///
+/// The destination already exists (the error names it), or staging failed
+/// — as [`atomic_write`].
+pub(crate) fn atomic_write_noclobber(path: &std::path::Path, contents: &str) -> anyhow::Result<()> {
+    use anyhow::Context as _;
+
+    let staging = stage_contents(path, contents)?;
     if let Err(err) = std::fs::hard_link(&staging, path) {
         std::fs::remove_file(&staging).ok();
         if err.kind() == std::io::ErrorKind::AlreadyExists {

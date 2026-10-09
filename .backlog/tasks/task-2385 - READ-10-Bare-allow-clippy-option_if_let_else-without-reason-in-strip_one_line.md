@@ -1,10 +1,10 @@
 ---
 id: TASK-2385
 title: 'READ-10: Bare allow(clippy::option_if_let_else) without reason in strip_one_line'
-status: To Do
+status: Done
 assignee: []
 created_date: '2026-10-04 14:13'
-updated_date: '2026-10-04 14:52'
+updated_date: '2026-10-04 16:14'
 labels:
   - code-review-rust
   - readability
@@ -29,6 +29,7 @@ dedup_key: 'READ-10:extensions-terraform/about/src/lib.rs:strip_one_line'
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 The suppression is removed by restructuring the split, or converted to expect with a reason
-- [ ] #2 cargo clippy --workspace --all-targets reports no new warnings
+- [x] #1 The suppression is removed by restructuring the split, or converted to expect with a reason
+- [x] #2 cargo clippy --workspace --all-targets reports no new warnings
+
 <!-- AC:END -->

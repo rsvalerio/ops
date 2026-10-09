@@ -95,6 +95,7 @@ pub struct BoxSnapshot<'a> {
 /// `[report]` block, trailing = the result string). Keeping the right-hand slot
 /// a plain string + precomputed SGR is what lets a single render path serve
 /// both — see `ConfigurableTheme::render_slot`.
+#[derive(Debug, Clone, Copy)]
 pub struct SlotLine<'a> {
     /// Glyph for the icon column (theme step icon OR report status icon).
     pub icon: &'a str,
@@ -114,6 +115,7 @@ pub struct SlotLine<'a> {
 ///
 /// Returned by `ConfigurableTheme::step_prefix_parts` so `render` and
 /// `render_prefix` cannot drift in width or composition.
+#[derive(Debug, Clone)]
 pub struct StepPrefixParts<'a> {
     /// Leading indent (empty for running rows; spinner template emits its own indent).
     pub indent: &'a str,

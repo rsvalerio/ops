@@ -1,7 +1,7 @@
 //! Data provider surface: the [`DataProvider`] trait, the [`DataRegistry`],
 //! and the schema descriptor types providers publish.
 //!
-//! ARCH-1 / TASK-2095: the per-invocation state ([`crate::context::Context`])
+//! The per-invocation state ([`crate::context::Context`])
 //! lives in `context.rs`, the dispatch budget ([`crate::deadline::Deadline`])
 //! in `deadline.rs`, and the feature-gated database erasure trait
 //! ([`crate::db_handle::SqliteHandle`]) in `db_handle.rs`; this module keeps
@@ -20,7 +20,7 @@ use ops_core::project_identity::AboutFieldDef;
 ///
 /// # Why `&'static str`?
 ///
-/// API-2 / TASK-1135: `name`, `type_name`, and `description` are intentionally
+/// `name`, `type_name`, and `description` are intentionally
 /// `&'static str` rather than `String` or `Cow<'static, str>`. Field
 /// descriptors are part of an extension's *compile-time identity* — they
 /// describe a stable schema surface that tooling (`cargo ops data info`,
@@ -73,7 +73,7 @@ impl DataField {
 /// [`DataProviderSchema::new`] / [`DataProviderSchema::default`] so new
 /// schema fields (e.g. examples, units) stay a non-breaking change.
 ///
-/// API-2 / TASK-1135: `description` is `&'static str` for the same reason
+/// `description` is `&'static str` for the same reason
 /// described on [`DataField`] — schema text is a compile-time identity for
 /// the provider. See [`DataField`]'s type-level docs for guidance when a
 /// caller needs runtime-generated text.
@@ -208,19 +208,15 @@ pub trait DataProvider: Send + Sync {
 
 /// Registry of provider name → `DataProvider`.
 ///
-/// API-9 / TASK-1179: backed by [`IndexMap`] so iteration (including the
-/// public [`IntoIterator`] impl) yields entries in registration order. The
-/// previous `HashMap` exposed hashbrown's randomised iteration order to
-/// downstream consumers, which silently surfaced as non-deterministic
-/// warning ordering for the `take_duplicate_inserts` audit trail and
-/// non-reproducible CLI output. `provider_names` continues to return a
-/// sorted view for surfaces that prefer alphabetical ordering; the
-/// untyped iteration order is now stable and matches the
-/// insertion-order policy of [`crate::CommandRegistry`].
+/// Backed by [`IndexMap`] so iteration (including the public
+/// [`IntoIterator`] impl) yields entries in registration order, matching
+/// the insertion-order policy of [`crate::CommandRegistry`] and keeping
+/// warning order and CLI output reproducible. [`DataRegistry::provider_names`]
+/// returns a sorted view for surfaces that prefer alphabetical ordering.
 #[derive(Default)]
 pub struct DataRegistry {
     providers: IndexMap<String, Box<dyn DataProvider>>,
-    /// CL-5 / TASK-0756: per-instance audit trail of names that were
+    /// Per-instance audit trail of names that were
     /// rejected by [`DataRegistry::register`] because the registry was
     /// already first-write-wins owned. The CLI wiring layer drains this via
     /// [`DataRegistry::take_duplicate_inserts`] after each extension's
@@ -238,12 +234,9 @@ impl DataRegistry {
 
     /// Register a data provider under `name`.
     ///
-    /// SEC-31 / TASK-0350: previously the implementation called `HashMap::insert`
-    /// and silently discarded the returned `Option`, so a second registration
-    /// for the same name would replace a trusted built-in (identity, metadata)
-    /// with whatever extension loaded later. Duplicate registrations are now
-    /// refused: the first provider wins and the second is recorded for the
-    /// CLI wiring layer to surface as a `tracing::warn!`.
+    /// Duplicate registrations are refused: the first provider wins, so a
+    /// later extension cannot replace a trusted built-in (identity,
+    /// metadata) by registering the same name.
     ///
     /// Duplicate-registration policy for the two registries in this crate:
     ///
@@ -260,36 +253,19 @@ impl DataRegistry {
     /// later as an unrelated `NotFound`, whereas a shadowed command at
     /// least still runs something.
     ///
-    /// CL-5 / TASK-0756: the previous implementation also fired a
-    /// `debug_assert!(false)` on collision, which weaponised tests against
-    /// any in-extension duplicate (the wiring layer's per-extension scratch
-    /// registry would panic instead of letting the wiring code aggregate
-    /// the warning). The audit-trail mechanism replaces that panic so
-    /// in-extension duplicates surface as a single warning emitted from one
-    /// place rather than as a bespoke panic.
-    ///
-    /// API-9 / TASK-1067: when a duplicate is detected, the first
-    /// registration wins and the incoming `Box<dyn DataProvider>` is handed
-    /// back to the caller as `Some(provider)` rather than dropped here — it
-    /// is dropped only if the caller discards the return value. A
-    /// `tracing::debug!` breadcrumb is emitted at the rejection site naming
-    /// the rejected provider so that any constructor side effects (DB
-    /// handles, file descriptors) opened by a provider the caller then drops
-    /// are at least observable in logs. The aggregated
-    /// `tracing::warn!` emitted by the CLI wiring layer via
-    /// [`take_duplicate_inserts`](Self::take_duplicate_inserts) remains the
-    /// aggregated user-facing signal; the debug breadcrumb here is the
-    /// finer-grained drop-site trace.
-    ///
-    /// CL-3 / TASK-1872: the outcome is also returned. Previously `register`
-    /// returned `()`, so from the call site a rejected registration was
-    /// indistinguishable from an accepted one and the *only* failure channel
-    /// was an audit `Vec` some later, unrelated caller had to remember to
-    /// drain — a precondition the compiler cannot check, and one that had
-    /// already been missed once on the sibling registry (DUP-3 / TASK-1225).
-    /// Returning the rejected provider mirrors
+    /// A rejected `Box<dyn DataProvider>` is handed back to the caller as
+    /// `Some(provider)` rather than dropped here — it is dropped only if the
+    /// caller discards the return value, which mirrors
     /// [`crate::CommandRegistry::insert`]'s shape and makes ignoring the
-    /// outcome an explicit `let _ = …` rather than the invisible default.
+    /// outcome an explicit `let _ = …`. A `tracing::debug!` breadcrumb at
+    /// the rejection site names the rejected provider, so constructor side
+    /// effects (DB handles, file descriptors) opened by a provider the
+    /// caller then drops are observable in logs; the `tracing::warn!` the
+    /// CLI wiring layer emits from
+    /// [`take_duplicate_inserts`](Self::take_duplicate_inserts) is the
+    /// aggregated user-facing signal. A collision never panics, so an
+    /// extension registering the same name twice surfaces as that one
+    /// warning.
     ///
     /// Returns `None` when `name` was free and the provider was installed,
     /// or `Some(provider)` handing back the rejected value when a provider
@@ -302,16 +278,13 @@ impl DataRegistry {
         provider: Box<dyn DataProvider>,
     ) -> Option<Box<dyn DataProvider>> {
         let name = name.into();
-        // PATTERN-3 / TASK-1489: route through `IndexMap::entry` so the happy
-        // path consults the inner map exactly once, mirroring the sibling
-        // `CommandRegistry::insert` (CL-5 / TASK-0756) which was previously
-        // migrated under PATTERN-3 / TASK-0753. READ-4 / TASK-1881: the cost
-        // profile that buys is one hash probe instead of two on the happy
-        // path; the duplicate path pays a clone of the key already stored in
-        // the map, because `entry` consumed the incoming `name`.
+        // `IndexMap::entry` consults the inner map exactly once on the happy
+        // path, as the sibling `CommandRegistry::insert` does; the duplicate
+        // path pays a clone of the key already stored in the map, because
+        // `entry` consumed the incoming `name`.
         match self.providers.entry(name) {
             indexmap::map::Entry::Occupied(occupied) => {
-                // SEC-21 / TASK-1226: `name` is `impl Into<String>` and may be
+                // `name` is `impl Into<String>` and may be
                 // runtime-generated by an extension reading external data
                 // (e.g. a name pulled from a manifest). Format via Debug so
                 // newlines / ANSI sequences cannot forge log entries. The
@@ -335,7 +308,7 @@ impl DataRegistry {
     }
 
     /// Drain provider names that were rejected as duplicates since the last
-    /// drain. CL-5 / TASK-0756: parallel to
+    /// drain. Parallel to
     /// [`crate::CommandRegistry::take_duplicate_inserts`]. The CLI wiring
     /// layer calls this after each extension's `register_data_providers`
     /// invocation and emits one `tracing::warn!` per entry.
@@ -354,13 +327,8 @@ impl DataRegistry {
 
     /// Returns the registered provider names in sorted order.
     ///
-    /// API-3 / TASK-0996: previously paired with a `provider_names_iter`
-    /// method whose name promised zero-allocation streaming but whose body
-    /// collected into an intermediate `Vec` to perform the sort. The two
-    /// shapes paid the same cost while misleading callers about the
-    /// allocation profile. Collapsed to a single `Vec`-returning accessor
-    /// — sorting registered provider names *requires* materialising them,
-    /// so the type signature now matches the cost.
+    /// Returns a `Vec` rather than an iterator because sorting the names
+    /// requires materialising them; the signature matches the cost.
     pub fn provider_names(&self) -> Vec<&str> {
         let mut names: Vec<&str> = self.providers.keys().map(String::as_str).collect();
         names.sort_unstable();
@@ -388,21 +356,19 @@ impl DataRegistry {
 
     /// Dispatch to the provider registered under `name`.
     ///
-    /// SEC-38 / TASK-1865: the re-entrancy guard lives **here**, at the single
-    /// dispatch point, rather than in the caching wrapper
-    /// [`Context::get_or_provide`]. Previously the `in_flight` marker was set
-    /// only by `get_or_provide`, so a provider composing others through this
-    /// method (or through a `&dyn DataProvider` obtained from
-    /// [`DataRegistry::get`]) re-entered the provider graph unguarded and an
-    /// A -> B -> A cycle recursed until stack overflow — an abort, not a
-    /// catchable error. Both public entry points now cross this function, so
-    /// the guard cannot be bypassed by picking the other one.
+    /// The re-entrancy guard lives **here**, at the single dispatch point,
+    /// rather than in the caching wrapper [`Context::get_or_provide`]. Both
+    /// public entry points cross this function, so a provider composing
+    /// others through either one is guarded: an A -> B -> A cycle returns
+    /// [`DataProviderError::Cycle`] instead of recursing until stack
+    /// overflow, and the guard cannot be bypassed by picking the other
+    /// entry point.
     ///
-    /// The marker is cleared on every exit path — success, error return, and
-    /// panic (via the dispatch Drop guard, TASK-2084) — so a provider that
+    /// The in-flight marker is cleared on every exit path — success, error
+    /// return, and panic (via the dispatch `Drop` guard) — so a provider that
     /// fails or panics does not poison later requests for the same key.
     ///
-    /// SEC-33 / TASK-2017: the wall-clock bound lives here too, for the same
+    /// The wall-clock bound lives here too, for the same
     /// reason the re-entrancy guard does — it is the one place both public
     /// entry points cross, so no provider can acquire an unbounded dispatch
     /// by being reached through the other one, and no new provider has to
@@ -416,7 +382,7 @@ impl DataRegistry {
     /// an over-budget `Ok` becomes [`DataProviderError::TimedOut`] rather
     /// than a silent late success, which is what keeps the overrun visible in
     /// an operator log instead of only in the wall clock. What it cannot do
-    /// is shorten the stall itself — see TASK-2052.
+    /// is shorten the stall itself — see the [`DataProvider`] trait docs.
     ///
     /// # Errors
     ///
@@ -436,7 +402,7 @@ impl DataRegistry {
             .ok_or_else(|| DataProviderError::not_found(name))?;
         ctx.enter_provider(name)?;
         let owns_deadline = ctx.begin_deadline(name);
-        // PATTERN-9 / TASK-2084: teardown lives in the DispatchGuard's Drop,
+        // Teardown lives in the DispatchGuard's Drop,
         // not in fall-through code below — a panicking provider unwinds
         // through this frame, and statements after the call would never run.
         let dispatch = DispatchGuard {
@@ -464,7 +430,7 @@ impl DataRegistry {
     }
 }
 
-/// PATTERN-9 / TASK-2084: unwind-safe teardown for one provider dispatch.
+/// Unwind-safe teardown for one provider dispatch.
 /// [`DataRegistry::provide`] sets up in-flight and deadline state before the
 /// provider runs and must tear it down afterwards; holding that teardown in
 /// `Drop` rather than in statements after the call means a panicking provider
@@ -485,11 +451,10 @@ impl Drop for DispatchGuard<'_> {
     }
 }
 
-/// TRAIT-4 / TASK-1879: hand-written because `Box<dyn DataProvider>` is not
-/// `Debug`, which is a reason to write the impl rather than to have none —
-/// without it no downstream type holding a `DataRegistry` can derive `Debug`,
-/// and the omission propagates outward. Prints the provider names in
-/// registration order plus any audit-trail entries not yet drained.
+/// Hand-written because `Box<dyn DataProvider>` is not `Debug`; having the
+/// impl lets downstream types holding a `DataRegistry` derive `Debug`.
+/// Prints the provider names in registration order plus any audit-trail
+/// entries not yet drained.
 impl std::fmt::Debug for DataRegistry {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("DataRegistry")
@@ -502,10 +467,9 @@ impl std::fmt::Debug for DataRegistry {
 impl IntoIterator for DataRegistry {
     type Item = (String, Box<dyn DataProvider>);
     type IntoIter = indexmap::map::IntoIter<String, Box<dyn DataProvider>>;
-    /// API-9 / TASK-1179: yields entries in registration order, matching
-    /// the documented expectations of [`DataRegistry::take_duplicate_inserts`]
-    /// audit-trail consumers and aligning with the insertion-order
-    /// policy of [`crate::CommandRegistry`].
+    /// Yields entries in registration order, matching the audit trail
+    /// drained by [`DataRegistry::take_duplicate_inserts`] and the
+    /// insertion-order policy of [`crate::CommandRegistry`].
     fn into_iter(self) -> Self::IntoIter {
         self.providers.into_iter()
     }

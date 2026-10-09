@@ -1,10 +1,10 @@
 ---
 id: TASK-2373
 title: 'READ-12: positional-formatted tracing messages in log_manifest_load_failure'
-status: To Do
+status: Done
 assignee: []
 created_date: '2026-10-04 14:11'
-updated_date: '2026-10-04 14:52'
+updated_date: '2026-10-04 15:16'
 labels:
   - code-review-rust
   - READ
@@ -31,6 +31,13 @@ dedup_key: 'READ-12:extensions-rust/about/src/manifest.rs:log_manifest_load_fail
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 log_manifest_load_failure records the error as a field (error = %err / ?err) with a constant message
-- [ ] #2 Log messages no longer carry rule/task ID prefixes; IDs remain in code comments if wanted
+- [x] #1 log_manifest_load_failure records the error as a field (error = %err / ?err) with a constant message
+- [x] #2 Log messages no longer carry rule/task ID prefixes; IDs remain in code comments if wanted
+
 <!-- AC:END -->
+
+## Implementation Notes
+
+<!-- SECTION:NOTES:BEGIN -->
+The units.rs test member_safety_breadcrumbs_debug_escape_control_characters pinned the removed 'SEC-14 / TASK-1246' prefix; its assertion now matches the stable message text. Error chain kept via error = %format_args!("{err:#}").
+<!-- SECTION:NOTES:END -->

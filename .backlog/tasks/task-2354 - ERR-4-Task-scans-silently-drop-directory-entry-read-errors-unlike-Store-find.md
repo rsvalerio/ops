@@ -1,10 +1,10 @@
 ---
 id: TASK-2354
 title: 'ERR-4: Task scans silently drop directory-entry read errors, unlike Store::find'
-status: To Do
+status: Done
 assignee: []
 created_date: '2026-10-04 14:08'
-updated_date: '2026-10-04 14:52'
+updated_date: '2026-10-04 15:49'
 labels:
   - code-review-rust
   - ERR
@@ -29,6 +29,13 @@ dedup_key: 'ERR-4:crates/backlog/src/store.rs:scan_tasks'
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 scan_tasks and scan_all_tasks return an error naming the directory when an entry read fails, matching Store::find
-- [ ] #2 Id allocation surfaces (or explicitly tests the documented decision for) an unreadable task directory instead of silently skipping it
+- [x] #1 scan_tasks and scan_all_tasks return an error naming the directory when an entry read fails, matching Store::find
+- [x] #2 Id allocation surfaces (or explicitly tests the documented decision for) an unreadable task directory instead of silently skipping it
+
 <!-- AC:END -->
+
+## Implementation Notes
+
+<!-- SECTION:NOTES:BEGIN -->
+ops backlog's own allocator (Store::next_task_number) now returns an error naming the unreadable directory. The public free walkers for_each_task_file / find_task_file keep their tolerant no-error-channel contract (now documented and pinned by a test) because their only callers live in extensions/create-review-tasks, outside this wave's file scope; migrating that allocator is filed as a separate Triage task.
+<!-- SECTION:NOTES:END -->

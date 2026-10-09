@@ -1,10 +1,10 @@
 ---
 id: TASK-2349
 title: 'ops deps misreads cargo-deny 0.20 exit codes, which are a bitset of failed checks'
-status: To Do
+status: Done
 assignee: []
 created_date: '2026-10-02 20:45'
-updated_date: '2026-10-04 14:52'
+updated_date: '2026-10-04 15:27'
 labels:
   - code-review-rust
   - deps
@@ -32,7 +32,14 @@ ordinal: 1000
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 interpret_deny_result decodes and renders findings for every cargo-deny 0.20 failure exit code (bitset of failed checks)
-- [ ] #2 A real configuration error is still told apart from a check failure
-- [ ] #3 Tests cover the licenses-only and bans-only exit codes
+- [x] #1 interpret_deny_result decodes and renders findings for every cargo-deny 0.20 failure exit code (bitset of failed checks)
+- [x] #2 A real configuration error is still told apart from a check failure
+- [x] #3 Tests cover the licenses-only and bans-only exit codes
+
 <!-- AC:END -->
+
+## Implementation Notes
+
+<!-- SECTION:NOTES:BEGIN -->
+Landed in wave TASK-2417. Exit codes probed against cargo-deny 0.20.2 in a scratch crate: bans-only exits 2, licenses-only 4, bans+licenses 6; a broken deny.toml exits 1 after a JSON log envelope at ERROR level; a clap usage error exits 2 with plain-text stderr. interpret_deny_result now treats any non-empty subset of the four check bits (1..=15) as a check failure and decodes its findings; a failing run with no classifiable finding reports a configuration error when an ERROR log envelope is present, otherwise the zero-diagnostics error. Not probed directly: the advisories (1) and sources (8) bit values, taken from the bitset layout.
+<!-- SECTION:NOTES:END -->

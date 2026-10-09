@@ -2,48 +2,35 @@
 
 use std::path::Path;
 
-// API-13 / TASK-2112: crate-private alias — `provider.rs` shares the import
-// without the foreign ops-hook-common item gaining a second public path.
+// Crate-private alias: `provider.rs` shares the import without the foreign
+// ops-hook-common item gaining a second public path.
 pub(crate) use ops_hook_common::find_git_dir;
 
-/// ARCH-2 / SEC-13 / TASK-0894: type-system-enforced "this URL has been
-/// scrubbed of `user[:password]@` userinfo".
+/// A URL that has been scrubbed of `user[:password]@` userinfo.
 ///
-/// The only ways to construct one are [`RedactedUrl::redact`] (runs
-/// `redact_userinfo`) and the `From<&str>` impl that delegates to it.
-/// Carrying a `RedactedUrl` through the call chain means a future
-/// refactor cannot accidentally route a raw URL into
-/// [`crate::provider::GitInfo::remote_url`] / about cards / JSON output without a
-/// visible `RedactedUrl::redact` call.
+/// The only way to construct one is [`RedactedUrl::redact`], which runs
+/// `redact_userinfo`. Carrying a `RedactedUrl` through the call chain means
+/// a raw URL cannot reach [`crate::provider::GitInfo::remote_url`], about
+/// cards or JSON output without a visible `RedactedUrl::redact` call.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct RedactedUrl(String);
 
 impl RedactedUrl {
     /// Construct from a raw URL by stripping `user[:password]@` userinfo.
-    /// `redact_userinfo` is idempotent so calling this on an already-clean
+    ///
+    /// `redact_userinfo` is idempotent, so calling this on an already-clean
     /// value is a no-op.
     ///
-    /// SEC-2 / TASK-1102: returns `None` when `raw` contains any ASCII
-    /// control byte (`\x00..=\x1f` or `\x7f`). A `.git/config` line with an
-    /// embedded ANSI escape, raw newline, or NUL must not flow through to
-    /// JSON / about cards / logs — the redacted form is treated as "no
-    /// remote" instead. Mirrors the control-char hardening already applied
-    /// to other log-bound fields (TASK-0937, TASK-0974).
-    ///
-    /// SEC-2 / TASK-1238: the policy is broadened to reject Unicode
-    /// formatting / separator / control characters too. The bare ASCII
-    /// filter let multibyte sequences for RIGHT-TO-LEFT OVERRIDE
-    /// (U+202E), zero-width joiners (U+200B / U+200D), BOM (U+FEFF),
-    /// other directional / formatting overrides (U+2066..U+2069), and
-    /// Unicode line separators (U+2028 / U+2029) survive into operator-
-    /// facing surfaces — bidi/homograph spoofing of remote host or owner
-    /// in About cards / JSON / logs. Whole-codepoint policy:
-    /// reject any char whose Unicode general category is Cc / Cf / Cs /
-    /// Zl / Zp, matched via the shared predicate
-    /// `ops_core::text::is_unsafe_display_char` (DUP-2 / TASK-2116
-    /// promoted it out of this crate so ops-git, ops-about, and every
-    /// About provider reject the same set), then redact
-    /// userinfo on the cleaned value.
+    /// Returns `None` when `raw` contains any character that is unsafe to
+    /// display: a control character (ANSI escape, raw newline, NUL) or a
+    /// Unicode formatting / separator character (bidi overrides and isolates,
+    /// zero-width characters, BOM, line and paragraph separators). Such a
+    /// value could repaint a terminal or spoof the remote host or owner in
+    /// about cards, JSON and logs, so it is treated as "no remote" instead.
+    /// The policy is whole-codepoint — any char whose Unicode general
+    /// category is Cc / Cf / Cs / Zl / Zp — and is the shared predicate
+    /// `ops_core::text::is_unsafe_display_char`, so every About provider
+    /// rejects the same set.
     ///
     /// ```
     /// use ops_git::config::RedactedUrl;
@@ -61,12 +48,6 @@ impl RedactedUrl {
     /// ```
     #[must_use]
     pub fn redact(raw: &str) -> Option<Self> {
-        // DUP-2 / TASK-2116: single shared whole-codepoint predicate
-        // (`ops_core::text::is_unsafe_display_char`). `char::is_control`
-        // inside it covers C0 / DEL / C1, which subsumes the previous
-        // separate ASCII byte pass — every ASCII control byte is a
-        // single-byte char and multi-byte sequences never contain bytes
-        // below `0x80`.
         if ops_core::text::contains_unsafe_display_chars(raw) {
             return None;
         }
@@ -99,94 +80,96 @@ impl std::fmt::Display for RedactedUrl {
     }
 }
 
-/// SEC-33 / TASK-0910: hard cap on `.git/config` read size.
+/// Hard cap on the `.git/config` read size.
 ///
-/// A real-world git config is well under 64 KiB; an adversarial repo
-/// (cloned for inspection) could otherwise OOM the CLI through a
+/// A real-world git config is well under 64 KiB; without a cap an
+/// adversarial repo (cloned for inspection) could exhaust memory through a
 /// multi-GB file or a symlink to `/dev/zero`. Mirrors the
 /// `ops_about::manifest_io::MAX_MANIFEST_BYTES` posture for project
 /// manifests.
 pub const MAX_GIT_CONFIG_BYTES: u64 = 4 * 1024 * 1024;
 
-/// Read the URL of the `origin` remote from `<git_dir>/config`.
+/// Hard cap on the `.git/HEAD` read size.
 ///
-/// `NotFound` is silent (no remotes configured is normal). Other IO errors
-/// (`PermissionDenied`, `IsADirectory`, etc.) log at `tracing::warn!` before
-/// returning None, matching the policy of `try_read_manifest` (TASK-0548)
-/// and `resolve_member_globs` (TASK-0517).
+/// A real `HEAD` is ~30 bytes (`ref: refs/heads/<name>\n`); 4 KiB is ample
+/// for any refname git will accept and still bounds the allocation an
+/// adversarial repository can force. Mirrors the
+/// [`MAX_GIT_CONFIG_BYTES`] posture for `.git/config`.
+pub const MAX_HEAD_BYTES: u64 = 4 * 1024;
+
+/// Read at most `cap` bytes of the git metadata file at `path`.
 ///
-/// SEC-33 / TASK-0910: the read is capped at [`MAX_GIT_CONFIG_BYTES`]
-/// via `File::open` + `Read::take`. An oversized config returns `None`
-/// with a `tracing::warn!` rather than slurping the whole file.
-///
-/// READ-4 / TASK-1878: this function carried a `# Panics` section describing
-/// a `String::from_utf8` invariant violation. ERR-1 / TASK-1244 replaced that
-/// fallible decode with an explicit `Err` arm that falls back to
-/// `String::from_utf8_lossy`, so the panic it documented became unreachable.
-/// The section is removed rather than left to mislead callers deciding
-/// whether a call needs isolating.
-#[must_use]
-pub fn read_origin_url(git_dir: &Path) -> Option<RedactedUrl> {
+/// `label` names the file in log events (`.git/config`, `.git/HEAD`).
+/// Returns `None` when the file is absent (silently — both files are
+/// legitimately missing in some repository states), when it cannot be opened
+/// or read, or when it is larger than `cap`; every case but absence logs one
+/// `tracing::warn!`. The path is Debug-formatted so a hostile checkout path
+/// with newlines or ANSI escapes cannot forge log records.
+fn read_capped(path: &Path, cap: u64, label: &str) -> Option<Vec<u8>> {
     use std::io::Read;
-    let path = git_dir.join("config");
-    let mut file = match std::fs::File::open(&path) {
+    let file = match std::fs::File::open(path) {
         Ok(f) => f,
         Err(e) if e.kind() == std::io::ErrorKind::NotFound => return None,
         Err(e) => {
-            // ERR-7 / TASK-1206: Debug-format the path so a hostile checkout
-            // path with newlines / ANSI cannot forge log records. Mirrors
-            // read_workspace_sidecar / manifest_io::read_optional_text policy.
             tracing::warn!(
+                file = label,
                 path = ?path.display(),
                 error = %e,
-                "failed to open .git/config; treating as no remote"
+                "failed to open git metadata file; treating it as absent"
             );
             return None;
         }
     };
-    // ERR-1 / TASK-1244: read raw bytes and lossy-decode so a single non-UTF-8
-    // byte (BOM, latin-1 commit-template, hostile injection) anywhere in
-    // .git/config does not poison remote detection. The previous
-    // `read_to_string` required the whole file to be valid UTF-8 and
-    // surfaced any failure as a generic IO warn, even when the
-    // [remote "origin"] section was well-formed.
     let mut bytes = Vec::new();
-    let limit = MAX_GIT_CONFIG_BYTES.saturating_add(1);
-    if let Err(e) = (&mut file).take(limit).read_to_end(&mut bytes) {
-        // ERR-7 / TASK-1206: Debug-format path; see comment above.
+    // Read one byte past the cap so an over-cap file is distinguishable from
+    // one exactly at it.
+    let limit = cap.saturating_add(1);
+    if let Err(e) = file.take(limit).read_to_end(&mut bytes) {
         tracing::warn!(
+            file = label,
             path = ?path.display(),
             error = %e,
-            "failed to read .git/config (within byte cap); treating as no remote"
+            "failed to read git metadata file (within byte cap); treating it as absent"
         );
         return None;
     }
-    // SEC-33 / TASK-1620: enforce the byte cap on the raw bytes, *before*
-    // lossy UTF-8 decoding. `String::from_utf8_lossy` replaces each invalid
-    // byte with U+FFFD (3 UTF-8 bytes), so checking `content.len()` after
-    // decoding can spuriously exceed the cap for in-cap files containing
-    // non-UTF-8 bytes — false-rejecting exactly the scenario
-    // `read_origin_url_survives_non_utf8_byte_in_unrelated_section` exists
-    // to support. `take(limit)` already returned ≤ limit bytes, so the file
-    // is in-cap iff `bytes.len() <= MAX_GIT_CONFIG_BYTES`.
-    // A length that does not fit in a `u64` is necessarily far above the
-    // 4 MiB cap, so saturating to `u64::MAX` keeps this comparison exact for
-    // every value the check can actually distinguish.
-    if u64::try_from(bytes.len()).unwrap_or(u64::MAX) > MAX_GIT_CONFIG_BYTES {
-        // ERR-7 / TASK-1206: Debug-format path; see comment above.
+    // The cap is enforced on the raw bytes, before any decoding: lossy UTF-8
+    // decoding expands each invalid byte to U+FFFD (3 bytes), so a decoded
+    // length can exceed the cap for a file that is within it. A length that
+    // does not fit in a `u64` is necessarily far above the cap, so saturating
+    // keeps the comparison exact for every value it can distinguish.
+    if u64::try_from(bytes.len()).unwrap_or(u64::MAX) > cap {
         tracing::warn!(
+            file = label,
             path = ?path.display(),
-            cap = MAX_GIT_CONFIG_BYTES,
-            "SEC-33: .git/config exceeds byte cap; refusing to parse and treating as no remote"
+            cap,
+            "git metadata file exceeds byte cap; refusing to parse and treating it as absent"
         );
         return None;
     }
+    Some(bytes)
+}
+
+/// Read the URL of the `origin` remote from `<git_dir>/config`.
+///
+/// `NotFound` is silent (no remotes configured is normal). Other IO errors
+/// (`PermissionDenied`, `IsADirectory`, etc.) log at `tracing::warn!` before
+/// returning `None`.
+///
+/// The read is capped at [`MAX_GIT_CONFIG_BYTES`]; an oversized config
+/// returns `None` with a `tracing::warn!` rather than being read in full.
+///
+/// The file is decoded lossily, so a non-UTF-8 byte anywhere in it (a BOM, a
+/// latin-1 value in an unrelated section) does not prevent remote detection.
+#[must_use]
+pub fn read_origin_url(git_dir: &Path) -> Option<RedactedUrl> {
+    let path = git_dir.join("config");
+    let bytes = read_capped(&path, MAX_GIT_CONFIG_BYTES, ".git/config")?;
     let content = match String::from_utf8(bytes) {
         Ok(text) => text,
         Err(err) => {
-            // ERR-1 / TASK-1244: typed debug breadcrumb so operators chasing
-            // "remote_url is None" can tell a non-UTF-8 config apart from a
-            // generic IO error or a missing file.
+            // Lets an operator chasing "remote_url is None" tell a non-UTF-8
+            // config apart from an IO error or a missing file.
             tracing::debug!(
                 path = ?path.display(),
                 "git-config: non-UTF-8 bytes detected; decoding lossily so remote detection survives"
@@ -201,40 +184,37 @@ pub fn read_origin_url(git_dir: &Path) -> Option<RedactedUrl> {
 ///
 /// Limitations: this is a minimal line scanner, not a conformant git-config
 /// parser. It does **not** honour `[url "<base>"] insteadOf = ...` rewrites,
-/// continuation lines, escaped quotes, or `include.path` directives. Comments
+/// continuation lines, or `include.path` directives. Comments
 /// (`#` / `;`) starting a line are skipped; everything else falls through.
 /// Section headers and the `url` key are matched case-insensitively, since
 /// git-config keys are case-insensitive.
 ///
-/// ERR-4 (TASK-0594): git-config keys are multi-valued and the *last*
-/// assignment wins (templated includes routinely rewrite `url` after an
-/// initial value). Returning the first match silently disagreed with what
-/// `git config --get remote.origin.url` reports. The scanner now collects
-/// every `url` line inside the `origin` section across the file and returns
-/// the final one so the parser matches git-config last-wins semantics.
+/// git-config keys are multi-valued and the *last* assignment wins
+/// (templated includes routinely rewrite `url` after an initial value), so
+/// the scanner collects every `url` line inside the `origin` section across
+/// the file and returns the final valid one, matching
+/// `git config --get remote.origin.url`.
 ///
-/// READ-2 (TASK-0726): inline trailing comments (`url = … ; old`) are
-/// stripped from unquoted values, matching `git config --get`. Quoted
-/// values are not yet honoured by this minimal scanner.
+/// Inline trailing comments (`url = … ; old`) are stripped from unquoted
+/// values, matching `git config --get`. A quoted value (`url = "…"`) is
+/// decoded with the `\\` / `\"` escapes and keeps any `#` / `;` inside it.
 ///
-/// READ-5 (TASK-1876): trailing comments on a *section header*
-/// (`[remote "origin"] # primary`) are stripped too — see
-/// [`strip_header_comment`]. The other looseness git allows on a header
-/// line, a key sharing it (`[remote "origin"] url = https://…`), is
-/// **not** supported: the trimmed line does not end in `]`, so the header
-/// itself fails to parse and the section is skipped. Documented as a
-/// limitation rather than implemented, since no tool writes that form in
-/// practice; `is_origin_header` logs the rejection at debug so the absence
-/// is discoverable under `RUST_LOG=ops_git=debug`.
+/// Trailing comments on a *section header* (`[remote "origin"] # primary`)
+/// are stripped too — see [`strip_header_comment`]. The other looseness git
+/// allows on a header line, a key sharing it
+/// (`[remote "origin"] url = https://…`), is **not** supported: the trimmed
+/// line does not end in `]`, so the header itself fails to parse and the
+/// section is skipped. No tool writes that form in practice;
+/// `is_origin_header` logs the rejection at debug so the absence is
+/// discoverable under `RUST_LOG=ops_git=debug`.
 ///
-/// # Userinfo redaction (SEC-13 / TASK-0894)
+/// # Userinfo redaction
 ///
 /// Returns a [`RedactedUrl`] — the type system enforces that any
 /// `user[:password]@` userinfo is stripped before the value reaches a
 /// caller. Callers cannot route the inner string into about-cards / JSON
-/// without an explicit `into_string()` / `as_str()` call, which makes a
-/// future credential-leak refactor visible at the call site instead of
-/// silent.
+/// without an explicit `into_string()` / `as_str()` call, which keeps a
+/// credential leak visible at the call site.
 #[must_use]
 pub fn read_origin_url_from(content: &str) -> Option<RedactedUrl> {
     parse_origin_url_inner(content, None)
@@ -251,15 +231,11 @@ fn parse_origin_url_inner(content: &str, path: Option<&Path>) -> Option<Redacted
             continue;
         }
         if trimmed.starts_with('[') {
-            // READ-5 / TASK-1876: git treats `#` / `;` as starting a comment
-            // anywhere outside a quoted value, so `[remote "origin"] # primary`
-            // is an ordinary header git resolves `remote.origin.url` from.
-            // `parse_section_header` requires the trimmed line to end in `]`,
-            // so without this strip the header failed to parse, `in_origin`
-            // went false, and *every* `url =` line in the section was
-            // dropped — total loss of repository identity for a config shape
-            // git accepts. The READ-2 / TASK-0726 comment stripping covers
-            // value lines only; header lines never saw it.
+            // git treats `#` / `;` as starting a comment anywhere outside a
+            // quoted value, so `[remote "origin"] # primary` is an ordinary
+            // header git resolves `remote.origin.url` from.
+            // `parse_section_header` requires the line to end in `]`, so the
+            // comment is stripped first.
             in_origin = is_origin_header(strip_header_comment(trimmed));
             if in_origin {
                 origin_seen = true;
@@ -271,10 +247,10 @@ fn parse_origin_url_inner(content: &str, path: Option<&Path>) -> Option<Redacted
                 match RedactedUrl::redact(value.as_ref()) {
                     Some(r) => last = Some(r),
                     None => {
-                        // SEC-2 / TASK-1102: a `url = ...` line with an
-                        // embedded control or Unicode formatting codepoint
-                        // (raw newline, ANSI escape, NUL, bidi override,
-                        // zero-width space) is dropped rather than propagated.
+                        // A `url = ...` line with an embedded control or
+                        // Unicode formatting codepoint (raw newline, ANSI
+                        // escape, NUL, bidi override, zero-width space) is
+                        // dropped rather than propagated.
                         // One increment per line of `content`; cannot saturate a `usize`.
                         rejected_count = rejected_count.saturating_add(1);
                     }
@@ -282,31 +258,20 @@ fn parse_origin_url_inner(content: &str, path: Option<&Path>) -> Option<Redacted
             }
         }
     }
-    // ERR-1 / TASK-1215: rejecting a control-byte url= line used to log only
-    // at debug. Combined with the last-wins policy, a trailing control-byte
-    // url= line was silently masked by an earlier valid value. Surface every
-    // rejected origin url= line at warn so operators chasing "branch shows
-    // but remote_url is stale" see one event per parse, with a count and
-    // (when available) the originating path so a malformed config that drops
-    // every value differs from one that drops only the latest.
+    // Under last-wins, a rejected trailing `url =` line is masked by an
+    // earlier valid value. One warn per parse, with a count and (when known)
+    // the originating path, lets an operator chasing a stale remote_url tell
+    // a config that drops only the latest value from one that drops them all.
     if rejected_count > 0 {
-        if let Some(p) = path {
-            tracing::warn!(
-                path = ?p,
-                rejected = rejected_count,
-                "SEC-2 / TASK-1215: dropped origin url= line(s) containing a control or Unicode formatting codepoint"
-            );
-        } else {
-            tracing::warn!(
-                rejected = rejected_count,
-                "SEC-2 / TASK-1215: dropped origin url= line(s) containing a control or Unicode formatting codepoint"
-            );
-        }
+        tracing::warn!(
+            path = ?path,
+            rejected = rejected_count,
+            "dropped origin url= line(s) containing a control or Unicode formatting codepoint"
+        );
     }
-    // TASK-0966: distinguish "no [remote \"origin\"] section" (silent) from
-    // "section present but every url= line was malformed / empty" (one-line
-    // breadcrumb). Operators chasing "branch shows but remote_url is None"
-    // otherwise get no signal pointing at the corrupted config.
+    // Distinguish "no [remote \"origin\"] section" (silent) from "section
+    // present but every url= line was malformed / empty" (one breadcrumb),
+    // so "branch shows but remote_url is None" points at the config.
     if origin_seen && last.is_none() {
         tracing::debug!(
             section = "remote \"origin\"",
@@ -356,27 +321,24 @@ fn strip_url_key(line: &str) -> Option<std::borrow::Cow<'_, str>> {
         return None;
     }
     let value = value.trim_start();
-    // READ-2 / TASK-1213, DUP-1 / TASK-1622: a leading `"` puts the value
-    // in git-config's quoted form. Delegate decoding to the shared
-    // [`decode_quoted_body`] helper so the `\\` / `\"` escape grammar is
-    // single-source with [`parse_section_header`]. Any malformed quoted
-    // value (unterminated, unbalanced, unknown escape) collapses to None
-    // — caller's downstream redaction step sees no candidate.
+    // A leading `"` puts the value in git-config's quoted form. Decoding is
+    // delegated to [`decode_quoted_body`] so the `\\` / `\"` escape grammar
+    // is single-source with [`parse_section_header`]. Any malformed quoted
+    // value (unterminated, unbalanced, unknown escape) collapses to None, so
+    // the caller's redaction step sees no candidate.
     if let Some(body) = value.strip_prefix('"') {
         let (decoded, _rest) = decode_quoted_body(body).ok()?;
         return Some(std::borrow::Cow::Owned(decoded));
     }
-    // READ-2 (TASK-0726): unquoted form — drop trailing inline comments
-    // (`#`, `;`) so the returned value matches `git config --get
-    // remote.origin.url`.
+    // Unquoted form: drop trailing inline comments (`#`, `;`) so the
+    // returned value matches `git config --get remote.origin.url`.
     let uncommented = value
         .split_once(['#', ';'])
         .map_or(value, |(before, _comment)| before);
     Some(std::borrow::Cow::Borrowed(uncommented.trim()))
 }
 
-/// READ-5 / TASK-1876: drop a trailing `#` / `;` comment from a section
-/// header line.
+/// Drop a trailing `#` / `;` comment from a section header line.
 ///
 /// git-config(1) starts a comment at an unquoted `#` or `;` anywhere on the
 /// line, so `[remote "origin"] # primary` and `[remote "origin"] ; mirror`
@@ -423,24 +385,19 @@ fn is_origin_header(line: &str) -> bool {
             section.eq_ignore_ascii_case("remote") && subsection.as_deref() == Some("origin")
         }
         Err(reason) => {
-            // READ-5 / TASK-1006: a malformed header for a section we
-            // would otherwise care about (e.g. an attacker-shaped
-            // subsection escape, an unbalanced quote) used to drop the
-            // entire section silently — operators saw "remote URL not
-            // detected" and no log entry. Surface the specific failure
-            // category at debug so a `RUST_LOG=ops_git=debug` rerun
-            // explains the absence.
+            // A malformed header for a section that looks like `remote.*`
+            // (an attacker-shaped subsection escape, an unbalanced quote)
+            // drops the whole section. Log the failure category at debug so
+            // a `RUST_LOG=ops_git=debug` rerun explains the missing remote.
             if line
                 .trim_start_matches('[')
                 .starts_with(|c: char| c.eq_ignore_ascii_case(&'r'))
             {
-                // SEC-21 / ERR-7 / TASK-1871: Debug-format the raw header
-                // line. Unlike a `url = …` value it never passes through
-                // `RedactedUrl::redact`, so a `.git/config` section header
-                // carrying ANSI escapes or an interior `\r` would otherwise
-                // reach the log sink verbatim and repaint the operator's
-                // terminal — the same forging risk TASK-1206 closed for the
-                // config path.
+                // Debug-format the raw header line. Unlike a `url = …` value
+                // it never passes through `RedactedUrl::redact`, so a section
+                // header carrying ANSI escapes or an interior `\r` would
+                // otherwise reach the log sink verbatim and repaint the
+                // operator's terminal.
                 tracing::debug!(
                     line = ?line,
                     reason = ?reason,
@@ -452,9 +409,9 @@ fn is_origin_header(line: &str) -> bool {
     }
 }
 
-/// READ-5 / TASK-1006: typed reason for a [`parse_section_header`] reject so
-/// callers can surface the specific failure category in their logs instead
-/// of collapsing every malformed header into a silent `None`.
+/// Typed reason for a [`parse_section_header`] reject, so callers can log
+/// the specific failure category instead of collapsing every malformed
+/// header into a silent `None`.
 #[derive(Debug)]
 enum SectionHeaderError {
     NotASectionHeader,
@@ -463,10 +420,10 @@ enum SectionHeaderError {
     UnterminatedEscape,
 }
 
-/// DUP-1 / TASK-1622: typed reason for [`decode_quoted_body`] failures.
+/// Typed reason for [`decode_quoted_body`] failures.
+///
 /// Maps onto [`SectionHeaderError`] at the section-header call site and is
-/// collapsed to `None` at the `url = "..."` call site — keeping the
-/// git-config quoted-string escape grammar single-source between both.
+/// collapsed to `None` at the `url = "..."` call site.
 #[derive(Debug)]
 enum QuotedBodyError {
     Unterminated,
@@ -474,7 +431,7 @@ enum QuotedBodyError {
     UnterminatedEscape,
 }
 
-/// DUP-1 / TASK-1622: shared decoder for git-config quoted-string bodies.
+/// Shared decoder for git-config quoted-string bodies.
 ///
 /// Input is the substring *after* an opening `"` (the opening quote is
 /// already stripped by the caller). The decoder consumes characters,
@@ -484,12 +441,10 @@ enum QuotedBodyError {
 /// caller can decide whether to tolerate trailing content (`strip_url_key`)
 /// or require an empty tail (`parse_section_header`).
 ///
-/// Errors are typed so the section-header path can preserve its existing
-/// `SectionHeaderError::{UnknownEscape, UnterminatedEscape, UnbalancedQuotes}`
-/// surface; the url= path collapses every error to `None`. Keeping both
-/// behaviours wrapped around a single decoder means future tightening of
-/// the escape grammar (or hardening against an attacker-shaped value) only
-/// has to land in one place.
+/// Errors are typed so the section-header path can report
+/// `SectionHeaderError::{UnknownEscape, UnterminatedEscape, UnbalancedQuotes}`;
+/// the url= path collapses every error to `None`. Both callers share this
+/// one decoder so the escape grammar has a single definition.
 fn decode_quoted_body(body: &str) -> Result<(String, &str), QuotedBodyError> {
     let mut decoded = String::with_capacity(body.len());
     let mut chars = body.chars();
@@ -532,11 +487,9 @@ fn parse_section_header(line: &str) -> Result<(&str, Option<String>), SectionHea
     let body = rest
         .strip_prefix('"')
         .ok_or(SectionHeaderError::UnbalancedQuotes)?;
-    // DUP-1 / TASK-1622: share the quoted-body decoder with `strip_url_key`.
-    // The closing `"` must terminate the body — any trailing content after
-    // it is a malformed header (e.g. `[remote "origin"trailing]`), and a
-    // body that never closes is treated the same as the pre-refactor
-    // `strip_suffix('"')` failure.
+    // The closing `"` must terminate the body: trailing content after it
+    // (e.g. `[remote "origin"trailing]`) is a malformed header, and so is a
+    // body that never closes.
     let (decoded, rest) = decode_quoted_body(body).map_err(|e| match e {
         QuotedBodyError::Unterminated => SectionHeaderError::UnbalancedQuotes,
         QuotedBodyError::UnknownEscape => SectionHeaderError::UnknownEscape,
@@ -550,82 +503,35 @@ fn parse_section_header(line: &str) -> Result<(&str, Option<String>), SectionHea
 
 /// Read the current branch from `<git_dir>/HEAD`. Returns `None` on detached HEAD.
 ///
-/// ERR-1 / TASK-0887: mirrors the policy already applied to
-/// [`read_origin_url`] — silent on `NotFound` (legitimately absent for some
-/// repository states), `tracing::warn!` on every other IO error so an
-/// operator chasing "branch keeps showing as detached" sees the underlying
-/// permission/EIO problem instead of a `None` that pretends HEAD is detached.
+/// A missing `HEAD` is silent (legitimately absent for some repository
+/// states); every other IO error logs a `tracing::warn!`, so an operator
+/// chasing "branch keeps showing as detached" sees the underlying
+/// permission or IO problem.
 ///
-/// SEC-33 / TASK-1866 (superseding the falsely-closed TASK-0927, which was
-/// marked Done with every acceptance criterion ticked while no code landed):
-/// the read is capped at [`MAX_HEAD_BYTES`] with the same `File::open` +
-/// `Read::take` shape [`read_origin_url`] uses, and the cap is enforced on
-/// raw bytes *before* decoding, matching the TASK-1620 ordering fix. A
-/// multi-gigabyte `HEAD`, or one symlinked to `/dev/zero`, previously forced
-/// an unbounded allocation on every `ops about` invocation.
+/// The read is capped at [`MAX_HEAD_BYTES`], enforced on the raw bytes
+/// before decoding, so a multi-gigabyte `HEAD` or one symlinked to
+/// `/dev/zero` cannot force an unbounded allocation.
 ///
-/// SEC-2 / SEC-11 / TASK-1863: the returned branch is subjected to the same
-/// whole-codepoint policy [`RedactedUrl::redact`] applies to the remote URL
-/// (`ops_core::text::is_unsafe_display_char`), plus the
-/// dot-only-segment rejection `remote::is_valid_path_segment` applies to
-/// owner/repo (SEC-13 / TASK-0929). `git_info.branch` is rendered on About
-/// cards and emitted in provider JSON exactly like `remote_url`, but only
-/// the URL reader was hardened: a `.git/HEAD` of
-/// `ref: refs/heads/main\x1b[2J\x1b[31mFAKE` — writable by any tarball,
-/// mounted volume, submodule, or third-party checkout — repainted the
-/// operator's terminal, and a U+202E ref spoofed the branch name outright.
-/// A rejected ref returns `None` (never a partially-sanitised branch) and
-/// emits one `tracing::warn!` naming the reason, mirroring the
-/// `read_origin_url` rejected-line breadcrumb (TASK-1215).
+/// `.git/HEAD` is writable by any tarball, mounted volume, submodule or
+/// third-party checkout, and the branch is rendered on About cards and
+/// emitted in provider JSON exactly like the remote URL. The ref is
+/// therefore held to the same whole-codepoint policy
+/// [`RedactedUrl::redact`] applies
+/// (`ops_core::text::is_unsafe_display_char`), and a ref with a dot-only
+/// path segment (`refs/heads/../../../etc`) is rejected as
+/// `remote::is_valid_path_segment` does for owner and repo. A rejected ref
+/// returns `None` (never a partially-sanitised branch) and emits one
+/// `tracing::warn!` naming the reason.
 #[must_use]
 pub fn read_head_branch(git_dir: &Path) -> Option<String> {
-    use std::io::Read;
     let head_path = git_dir.join("HEAD");
-    let mut file = match std::fs::File::open(&head_path) {
-        Ok(f) => f,
-        Err(e) if e.kind() == std::io::ErrorKind::NotFound => return None,
-        Err(e) => {
-            // ERR-7 / TASK-1206, TASK-1871: Debug-format the path so a
-            // hostile checkout path with newlines / ANSI cannot forge log
-            // records. This arm logged with `%` (Display) while the three
-            // `read_origin_url` arms in this file already used `?`.
-            tracing::warn!(
-                path = ?head_path.display(),
-                error = %e,
-                "failed to open .git/HEAD; reporting branch as None"
-            );
-            return None;
-        }
-    };
-    let mut bytes = Vec::new();
-    let limit = MAX_HEAD_BYTES.saturating_add(1);
-    if let Err(e) = (&mut file).take(limit).read_to_end(&mut bytes) {
-        tracing::warn!(
-            path = ?head_path.display(),
-            error = %e,
-            "failed to read .git/HEAD (within byte cap); reporting branch as None"
-        );
-        return None;
-    }
-    // SEC-33 / TASK-1866: enforce the cap on raw bytes before any decoding.
-    // `take(limit)` returned at most `limit` bytes, so the file is in-cap iff
-    // `bytes.len() <= MAX_HEAD_BYTES`. A length that does not fit in a `u64`
-    // is necessarily far above the cap, so saturating keeps the comparison
-    // exact for every value it can distinguish.
-    if u64::try_from(bytes.len()).unwrap_or(u64::MAX) > MAX_HEAD_BYTES {
-        tracing::warn!(
-            path = ?head_path.display(),
-            cap = MAX_HEAD_BYTES,
-            "SEC-33: .git/HEAD exceeds byte cap; refusing to parse and reporting branch as None"
-        );
-        return None;
-    }
+    let bytes = read_capped(&head_path, MAX_HEAD_BYTES, ".git/HEAD")?;
     let Ok(content) = String::from_utf8(bytes) else {
         // A refname is ASCII in practice; non-UTF-8 here is corruption or
         // injection, and there is no lossy form worth surfacing as a branch.
         tracing::warn!(
             path = ?head_path.display(),
-            "SEC-2: .git/HEAD is not valid UTF-8; reporting branch as None"
+            ".git/HEAD is not valid UTF-8; reporting branch as None"
         );
         return None;
     };
@@ -635,42 +541,27 @@ pub fn read_head_branch(git_dir: &Path) -> Option<String> {
     if branch.is_empty() {
         return None;
     }
-    // SEC-2 / TASK-1863: reuse the same whole-codepoint policy
-    // `RedactedUrl::redact` applies (DUP-2 / TASK-2116 promoted it to
-    // `ops_core::text::is_unsafe_display_char`) rather than growing a
-    // third copy here.
     if ops_core::text::contains_unsafe_display_chars(branch) {
         tracing::warn!(
             path = ?head_path.display(),
-            "SEC-2 / TASK-1863: .git/HEAD ref contains a control or Unicode formatting codepoint; reporting branch as None"
+            ".git/HEAD ref contains a control or Unicode formatting codepoint; reporting branch as None"
         );
         return None;
     }
-    // SEC-13 / TASK-1863: a ref that resolves to a traversal shape
-    // (`refs/heads/../../../etc`) must not reach operator-facing surfaces —
-    // the same rejection `remote::is_valid_path_segment` applies to
-    // owner/repo (TASK-0929).
+    // A ref that resolves to a traversal shape (`refs/heads/../../../etc`)
+    // must not reach operator-facing surfaces.
     if branch
         .split('/')
         .any(|seg| !seg.is_empty() && seg.bytes().all(|b| b == b'.'))
     {
         tracing::warn!(
             path = ?head_path.display(),
-            "SEC-13 / TASK-1863: .git/HEAD ref contains a dot-only path segment; reporting branch as None"
+            ".git/HEAD ref contains a dot-only path segment; reporting branch as None"
         );
         return None;
     }
     Some(branch.to_string())
 }
-
-/// SEC-33 / TASK-1866 (supersedes the falsely-closed TASK-0927): hard cap on
-/// the `.git/HEAD` read size.
-///
-/// A real `HEAD` is ~30 bytes (`ref: refs/heads/<name>\n`); 4 KiB is ample
-/// for any refname git will accept and still bounds the allocation an
-/// adversarial repository can force. Mirrors the
-/// [`MAX_GIT_CONFIG_BYTES`] posture for `.git/config`.
-pub const MAX_HEAD_BYTES: u64 = 4 * 1024;
 
 #[cfg(test)]
 mod tests {
@@ -733,19 +624,19 @@ mod tests {
 [remote \"origin\"]
 \turl = git@github.com:openbao/openbao.git
 ";
-        // SEC-13 (TASK-0664): redact_userinfo now strips the `user@` prefix
-        // from scp-style URLs as well. The conventional `git@` is treated as
-        // userinfo for redaction purposes; downstream `parse_remote_url`
-        // accepts the trimmed scp form.
+        // `redact_userinfo` strips the `user@` prefix from scp-style URLs
+        // too. The conventional `git@` is treated as userinfo for redaction
+        // purposes; downstream `parse_remote_url` accepts the trimmed scp
+        // form.
         assert_eq!(
             read_origin_url_from(cfg).map(RedactedUrl::into_string),
             Some("github.com:openbao/openbao.git".to_string())
         );
     }
 
-    /// SEC-13 (TASK-0664): scp-style remotes that fall through unparseable
-    /// must not surface embedded credentials. `read_origin_url_from` now
-    /// redacts the `user[:tok]@` prefix on non-`://` values too.
+    /// Scp-style remotes that fall through unparseable must not surface
+    /// embedded credentials: `read_origin_url_from` redacts the
+    /// `user[:tok]@` prefix on non-`://` values too.
     #[test]
     fn scp_style_credentials_are_redacted() {
         let cfg = "[remote \"origin\"]\n\turl = user:tok@host:weird/garbage\n";
@@ -757,7 +648,7 @@ mod tests {
         assert_eq!(url, "host:weird/garbage");
     }
 
-    /// READ-5 / TASK-1006: a malformed escape in a `[remote "…"]` header
+    /// A malformed escape in a `[remote "…"]` header
     /// returns a typed `SectionHeaderError` rather than collapsing the
     /// whole section silently. The behaviour-pinning assertion is that
     /// `parse_section_header` reports a typed error so `is_origin_header`
@@ -789,7 +680,7 @@ mod tests {
         assert_eq!(sub.as_deref(), Some("origin"));
     }
 
-    /// TASK-0966: a `[remote "origin"]` section that exists but has no valid
+    /// A `[remote "origin"]` section that exists but has no valid
     /// `url = ...` line returns None and emits one `tracing::debug` breadcrumb.
     /// A genuinely-missing origin section stays silent. The breadcrumb itself
     /// is verified via `tracing-test`-free assertion: we only pin the return
@@ -868,39 +759,35 @@ mod tests {
             .is_none());
     }
 
-    /// ERR-1 / TASK-1215: when last-wins picks up a trailing `url = ...`
-    /// line that gets dropped for embedded ASCII control bytes (e.g. an
-    /// ANSI escape), the previous valid URL must still be returned AND the
-    /// drop must surface as a warn-level event with a rejected-line count
-    /// so the operator can tell "stale URL" from "all URLs malformed".
+    /// When last-wins picks up a trailing `url = ...` line that gets dropped
+    /// for embedded ASCII control bytes (e.g. an ANSI escape), the earlier
+    /// valid URL must still be returned AND the drop must surface as a
+    /// warn-level event with a rejected-line count so the operator can tell
+    /// "stale URL" from "all URLs malformed".
     #[test]
     fn read_origin_url_warns_on_control_byte_drop_keeping_prior_valid() {
         // Two `url = ...` lines: a valid one, then a trailing line with an
-        // embedded ANSI escape. Pre-fix: silent debug-only breadcrumb, the
-        // valid earlier URL is returned (last-wins is *masked*). Post-fix:
-        // the valid URL is still returned (we have no later valid value)
-        // AND a warn fires with the rejected count.
+        // embedded ANSI escape. The valid URL is returned (there is no later
+        // valid value) and a warn fires with the rejected count.
         let cfg = "\
 [remote \"origin\"]
 \turl = https://github.com/real/repo.git
 \turl = https://example.com/\u{001b}[31mrogue\u{001b}[0m
 ";
-        // DUP-3 / TASK-2014: the shared harness pins a global dispatcher for
-        // us. TEST-15 / TASK-1664: this test open-coded the capture scaffold
-        // without that pin and failed 1 run in 30 under 16-core load,
-        // reporting an empty buffer while the parser assertion below passed.
+        // The shared harness pins a global dispatcher; capturing without
+        // that pin is flaky under parallel test load.
         let (logged, url) = ops_core::test_utils::capture_tracing(tracing::Level::WARN, || {
             read_origin_url_from(cfg).map(RedactedUrl::into_string)
         });
         assert_eq!(
             url,
             Some("https://github.com/real/repo.git".to_string()),
-            "must fall back to the previous valid url= line"
+            "must fall back to the earlier valid url= line"
         );
 
         assert!(
-            logged.contains("WARN") && logged.contains("TASK-1215"),
-            "expected one TASK-1215 warn-level event; got: {logged}"
+            logged.contains("WARN") && logged.contains("dropped origin url= line"),
+            "expected one warn-level rejected-url event; got: {logged}"
         );
         assert!(
             logged.contains("rejected=1"),
@@ -908,7 +795,7 @@ mod tests {
         );
     }
 
-    /// READ-2 / TASK-1213: a quoted `url = "..."` value containing an
+    /// A quoted `url = "..."` value containing an
     /// embedded `;` (legal per git-config) must round-trip without being
     /// truncated by the inline-comment stripper that applies to unquoted
     /// values.
@@ -924,7 +811,7 @@ mod tests {
         );
     }
 
-    /// READ-2 / TASK-1213: quoted form decodes the same `\\\\` / `\\"` escapes
+    /// Quoted form decodes the same `\\\\` / `\\"` escapes
     /// that `parse_section_header` honours. Unbalanced quotes return None
     /// rather than silently shipping a leading-quote string.
     #[test]
@@ -972,13 +859,10 @@ mod tests {
         );
     }
 
-    /// ERR-1 / TASK-1244: a single non-UTF-8 byte anywhere in `.git/config`
-    /// (BOM, latin-1 commit-template, hostile injection in an unrelated
-    /// section) used to fail the whole-file `read_to_string` decode and
-    /// surface as a generic IO warn — remote detection silently zeroed out
-    /// even when the `[remote "origin"]` block was well-formed UTF-8. The
-    /// helper now lossy-decodes per-byte so the well-formed url= line
-    /// survives.
+    /// A single non-UTF-8 byte anywhere in `.git/config` (BOM, latin-1
+    /// commit-template, hostile injection in an unrelated section) must not
+    /// zero out remote detection: the file is decoded lossily, so a
+    /// well-formed `[remote "origin"]` url= line survives.
     #[test]
     fn read_origin_url_survives_non_utf8_byte_in_unrelated_section() {
         let dir = tempfile::tempdir().unwrap();
@@ -999,8 +883,7 @@ mod tests {
         );
     }
 
-    /// ERR-1 / TASK-1620: the SEC-33 size cap is checked on raw bytes
-    /// *before* lossy UTF-8 decoding. A `.git/config` whose raw size is at
+    /// The size cap is checked on raw bytes *before* lossy UTF-8 decoding. A `.git/config` whose raw size is at
     /// or under `MAX_GIT_CONFIG_BYTES` but contains an invalid UTF-8 byte
     /// (each replaced by U+FFFD = 3 bytes on the lossy path) must still
     /// surface the `[remote "origin"]` URL — checking `content.len()` after
@@ -1028,7 +911,7 @@ mod tests {
         bytes.extend_from_slice(trailer);
         assert!(
             u64::try_from(bytes.len()).unwrap_or(u64::MAX) <= MAX_GIT_CONFIG_BYTES,
-            "test payload must be within the SEC-33 cap"
+            "test payload must be within the byte cap"
         );
         std::fs::write(git_dir.join("config"), &bytes).unwrap();
 
@@ -1039,7 +922,7 @@ mod tests {
         );
     }
 
-    /// SEC-33 / TASK-0910: a `.git/config` larger than `MAX_GIT_CONFIG_BYTES`
+    /// A `.git/config` larger than `MAX_GIT_CONFIG_BYTES`
     /// must NOT be parsed; the helper bails with a `tracing::warn`! and
     /// returns None instead of slurping the whole file into memory.
     #[test]
@@ -1066,7 +949,7 @@ mod tests {
         );
     }
 
-    /// SEC-2 / TASK-1102: a `.git/config` `url = ...` value containing
+    /// A `.git/config` `url = ...` value containing
     /// ASCII control bytes (raw newline, ANSI escape, NUL) must be dropped
     /// rather than propagated through `RedactedUrl` into JSON / about cards
     /// / logs. The directly-affected helpers are covered here; the
@@ -1086,10 +969,10 @@ mod tests {
         );
     }
 
-    /// SEC-2 / TASK-1238: bidi / zero-width / line-separator codepoints
+    /// Bidi / zero-width / line-separator codepoints
     /// must also be rejected before reaching About cards / JSON / logs
-    /// through `RedactedUrl`. The ASCII gate alone (TASK-1102) was bypassed
-    /// by multibyte sequences for U+202E (RTL OVERRIDE), U+200B / U+200D
+    /// through `RedactedUrl`. An ASCII-only gate would be bypassed
+    /// by the multibyte sequences for U+202E (RTL OVERRIDE), U+200B / U+200D
     /// (zero-width joiners), U+FEFF (BOM), the bidi isolates U+2066..U+2069,
     /// and U+2028 / U+2029 (line / paragraph separators).
     #[test]
@@ -1154,7 +1037,7 @@ mod tests {
         );
     }
 
-    /// ERR-4 (TASK-0594): git-config returns the *last* value when a key is
+    /// Git-config returns the *last* value when a key is
     /// set multiple times. A config that rewrites `url` after an initial
     /// value (templated includes do this) must report the rewritten URL,
     /// matching `git config --get remote.origin.url`.
@@ -1190,7 +1073,7 @@ mod tests {
         );
     }
 
-    /// READ-2 (TASK-0726): git-config also supports trailing inline
+    /// Git-config also supports trailing inline
     /// comments. The scanner must strip them so the returned value matches
     /// `git config --get remote.origin.url`.
     #[test]
@@ -1276,7 +1159,7 @@ mod tests {
         std::fs::set_permissions(&config, restore).unwrap();
     }
 
-    /// ERR-1 / TASK-0887: an unreadable HEAD must return `None` (matching
+    /// An unreadable HEAD must return `None` (matching
     /// detached-HEAD behaviour) rather than panicking. The warn-log emission
     /// itself is verified by the `tracing::warn!` shape — covering it
     /// requires a subscriber and is out of scope for this regression test;
@@ -1303,7 +1186,7 @@ mod tests {
         std::fs::set_permissions(&head, restore).unwrap();
     }
 
-    /// ERR-7 / TASK-1206: `read_origin_url` logs the .git/config path through
+    /// `read_origin_url` logs the .git/config path through
     /// the `?` (Debug) formatter so a hostile checkout path containing
     /// newlines or ANSI escapes cannot forge log entries or repaint the
     /// operator terminal. Pin the value-level escape contract directly,
@@ -1317,7 +1200,7 @@ mod tests {
         assert!(rendered.contains("\\n"));
     }
 
-    /// SEC-21 / ERR-7 / TASK-1871: `is_origin_header` logs the raw
+    /// `is_origin_header` logs the raw
     /// `.git/config` section-header line, which — unlike a `url = …` value —
     /// never passes through `RedactedUrl::redact`. Debug-formatting it is
     /// what keeps ANSI escapes and an interior `\r` from reaching the log
@@ -1333,8 +1216,8 @@ mod tests {
         assert!(rendered.contains("\\u{1b}"));
     }
 
-    /// SEC-21 / ERR-7 / TASK-1871: the HEAD path takes the same Debug
-    /// formatter as the `.git/config` path — this arm logged with `%`.
+    /// The HEAD path takes the same Debug formatter as the `.git/config`
+    /// path.
     #[test]
     fn read_head_branch_path_debug_escapes_control_characters() {
         let p = std::path::Path::new("/tmp/dir\n\u{1b}[31m/.git/HEAD");
@@ -1344,7 +1227,7 @@ mod tests {
         assert!(rendered.contains("\\n"));
     }
 
-    /// TASK-1871 AC#4: no `tracing` call in this crate may Display-format a
+    /// No `tracing` call in this crate may Display-format a
     /// path or a raw `.git/config` line. Grep the sources so a future call
     /// site cannot quietly reintroduce the forging surface.
     #[test]
@@ -1377,24 +1260,23 @@ mod tests {
         (dir, git_dir)
     }
 
-    /// SEC-2 / TASK-1863: an ANSI escape in the ref repaints the operator's
-    /// terminal wherever `git_info.branch` is rendered. `read_origin_url`
-    /// dropped such values from day one; this reader shipped them raw.
+    /// An ANSI escape in the ref would repaint the operator's terminal
+    /// wherever `git_info.branch` is rendered, so the ref is rejected.
     #[test]
     fn head_branch_with_ansi_escape_is_rejected() {
         let (_d, git_dir) = write_head("ref: refs/heads/main\u{1b}[2J\u{1b}[31mFAKE\n");
         assert_eq!(read_head_branch(&git_dir), None);
     }
 
-    /// SEC-2 / TASK-1863: U+202E RIGHT-TO-LEFT OVERRIDE is the homograph
-    /// surface TASK-1238 closed for the remote URL.
+    /// U+202E RIGHT-TO-LEFT OVERRIDE is a homograph surface, rejected here
+    /// as it is for the remote URL.
     #[test]
     fn head_branch_with_bidi_override_is_rejected() {
         let (_d, git_dir) = write_head("ref: refs/heads/ma\u{202e}in\n");
         assert_eq!(read_head_branch(&git_dir), None);
     }
 
-    /// SEC-2 / TASK-1863: `trim` only removes leading / trailing whitespace,
+    /// `trim` only removes leading / trailing whitespace,
     /// so an interior CR survives into the branch string.
     #[test]
     fn head_branch_with_interior_carriage_return_is_rejected() {
@@ -1402,9 +1284,9 @@ mod tests {
         assert_eq!(read_head_branch(&git_dir), None);
     }
 
-    /// SEC-13 / TASK-1863: a traversal-shaped ref must not reach
+    /// A traversal-shaped ref must not reach
     /// `git_info.branch` — the shape `remote::is_valid_path_segment`
-    /// rejects on the remote side (TASK-0929).
+    /// rejects on the remote side.
     #[test]
     fn head_branch_with_dot_only_segment_is_rejected() {
         let (_d, git_dir) = write_head("ref: refs/heads/../../../etc\n");
@@ -1413,7 +1295,7 @@ mod tests {
         assert_eq!(read_head_branch(&git_dir2), None);
     }
 
-    /// SEC-2 / TASK-1863: the hardening must not cost ordinary branches —
+    /// The hardening must not cost ordinary branches —
     /// including the `.`-containing and slash-containing names git allows.
     #[test]
     fn head_branch_normal_names_still_round_trip() {
@@ -1426,9 +1308,8 @@ mod tests {
         );
     }
 
-    /// SEC-33 / TASK-1866 (supersedes the falsely-closed TASK-0927): a HEAD
-    /// one byte over the cap must return `None` rather than allocating the
-    /// file. `read_origin_url` has had this bound since TASK-0910.
+    /// A HEAD one byte over the cap must return `None` rather than
+    /// allocating the file.
     #[test]
     fn head_branch_over_byte_cap_is_rejected() {
         let cap = usize::try_from(MAX_HEAD_BYTES).unwrap_or(usize::MAX);
@@ -1439,7 +1320,7 @@ mod tests {
         assert_eq!(read_head_branch(&git_dir), None);
     }
 
-    /// SEC-33 / TASK-1866: exactly at the cap still parses, so the bound is
+    /// Exactly at the cap still parses, so the bound is
     /// a cap and not an off-by-one rejection of large-but-legal refs.
     #[test]
     fn head_branch_exactly_at_byte_cap_is_accepted() {
@@ -1452,10 +1333,9 @@ mod tests {
         assert_eq!(read_head_branch(&git_dir), Some(name));
     }
 
-    /// READ-5 / TASK-1876: git starts a comment at an unquoted `#` / `;`
-    /// anywhere on the line, so these are ordinary headers. Before the fix
-    /// `strip_suffix(']')` failed, `in_origin` went false, and every
-    /// `url =` line in the section was silently dropped.
+    /// Git starts a comment at an unquoted `#` / `;`
+    /// anywhere on the line, so these are ordinary headers and the section's
+    /// `url =` lines must be read.
     #[test]
     fn section_header_with_trailing_hash_comment_is_recognised() {
         let cfg = "[remote \"origin\"] # primary\n\turl = https://github.com/o/r.git\n";
@@ -1474,7 +1354,7 @@ mod tests {
         );
     }
 
-    /// READ-5 / TASK-1876 AC#2: a `;` or `#` *inside* the quoted subsection
+    /// A `;` or `#` *inside* the quoted subsection
     /// name is part of the name, not a comment — stripping must not cut it.
     #[test]
     fn quoted_subsection_containing_comment_chars_survives() {
@@ -1491,7 +1371,7 @@ mod tests {
         assert!(!is_origin_header("[remote \"a;b\"]"));
     }
 
-    /// READ-5 / TASK-1876: an origin section whose *name* carries the
+    /// An origin section whose *name* carries the
     /// comment marker inside quotes still resolves.
     #[test]
     fn quoted_origin_subsection_with_trailing_comment() {
@@ -1504,7 +1384,7 @@ mod tests {
         )));
     }
 
-    /// READ-5 / TASK-1876 AC#3: the header-line key form stays unsupported
+    /// The header-line key form stays unsupported
     /// and documented — pin the behaviour so the limitation list stays true.
     #[test]
     fn header_line_key_form_remains_unsupported() {

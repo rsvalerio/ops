@@ -98,6 +98,22 @@ pub(crate) struct CargoTool {
     pub(crate) strip_env: &'static [&'static str],
 }
 
+impl CargoTool {
+    /// The command that installs this tool, e.g. `cargo install cargo-edit`.
+    pub(crate) fn install_command(&self) -> String {
+        format!("cargo install {}", self.install_crate)
+    }
+
+    /// The operator-facing "not installed" message with its install hint.
+    pub(crate) fn not_installed_hint(&self) -> String {
+        format!(
+            "cargo {} is not installed. Install with: {}",
+            self.subcommand,
+            self.install_command()
+        )
+    }
+}
+
 /// Run `cargo <args...>` like [`ops_core::subprocess::run_cargo`], minus
 /// `strip_env` in the child's environment. With an empty `strip_env` this is
 /// exactly `run_cargo`.
@@ -168,11 +184,7 @@ const CARGO_TOOL_PROBE_TIMEOUT: Duration = Duration::from_secs(30);
 /// actually operates on only by coincidence — see [`ensure_tools`].
 pub(crate) fn check_tool_in(tool: &CargoTool, working_dir: &std::path::Path) -> anyhow::Result<()> {
     if !probe_tool_in(tool, working_dir)? {
-        anyhow::bail!(
-            "cargo {} is not installed. Install with: cargo install {}",
-            tool.subcommand,
-            tool.install_crate
-        );
+        anyhow::bail!(tool.not_installed_hint());
     }
     Ok(())
 }
@@ -251,7 +263,7 @@ pub struct ExternalTool {
 pub fn external_tools() -> Vec<ExternalTool> {
     let cargo_tool = |tool: &CargoTool, optional| ExternalTool {
         binary: format!("cargo-{}", tool.subcommand),
-        install: format!("cargo install {}", tool.install_crate),
+        install: tool.install_command(),
         optional,
     };
     std::iter::once(ExternalTool {

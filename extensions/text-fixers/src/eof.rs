@@ -22,6 +22,16 @@
 //! rewritten. Converting it to LF (`b"abc\r"` -> `b"abc\n"`) would be the
 //! same unrequested line-ending conversion this module refuses for CRLF.
 
+/// Returns `input` ending in exactly one line terminator, or `None` if it
+/// already does.
+///
+/// `None` means "leave the file alone": the input is empty or already ends in
+/// a single terminator. Otherwise the trailing run of `\r` / `\n` bytes is
+/// replaced by one terminator, chosen from the input as received:
+///
+/// - `\r` when the trailing run holds only `\r` bytes (a lone-CR terminator),
+/// - `\r\n` when CRLF line endings outnumber bare LF ones,
+/// - `\n` otherwise, including when the input has no terminator at all.
 #[must_use]
 pub fn fix_eof(input: &[u8]) -> Option<Vec<u8>> {
     if input.is_empty() {

@@ -4,7 +4,7 @@
 //! both via `super::*` (lexer items are `pub(super)`, so they stay visible
 //! here).
 
-use super::lexer::{extract_quoted, extract_quoted_list};
+use super::lexer::{extract_quoted, extract_quoted_list, MultilineStripper};
 use super::*;
 
 /// Resolve the tempdir root through macOS's symlinked `/var` prefix so the
@@ -728,4 +728,161 @@ fn gradle_provider_provide_settings_without_root_project_name_falls_back_to_dir_
     assert_eq!(result["name"], expected);
     assert_eq!(result["stack_detail"], "Gradle");
     assert!(result["version"].is_null());
+}
+
+/// Feed `lines` through one [`MultilineStripper`], returning each stripped
+/// line and the construct left open at the end.
+fn strip_all(lines: &[&str]) -> (Vec<String>, Option<&'static str>) {
+    let mut stripper = MultilineStripper::default();
+    let stripped = lines
+        .iter()
+        .map(|line| stripper.strip(line).into_owned())
+        .collect();
+    (stripped, stripper.unterminated())
+}
+
+#[test]
+fn multiline_stripper_removes_block_comments_within_and_across_lines() {
+    let (stripped, open) = strip_all(&["a /* one */ b /* two", "include 'dead' {", "three */ c"]);
+    assert_eq!(stripped, vec!["a   b  ", "", " c"]);
+    assert_eq!(open, None);
+}
+
+/// Comment and triple-quote markers inside a `//` comment or a single-line
+/// string literal are text, not openers.
+#[test]
+fn multiline_stripper_ignores_markers_inside_line_comments_and_strings() {
+    let lines = [
+        "include 'a/*b' // not /* a block",
+        r#"x = "glob/**/*.kt" + 'it\'s /* quoted'"#,
+        r#"// """ not a string"#,
+    ];
+    let (stripped, open) = strip_all(&lines);
+    assert_eq!(stripped, lines);
+    assert_eq!(open, None);
+}
+
+#[test]
+fn multiline_stripper_empties_triple_quoted_strings() {
+    let (stripped, open) = strip_all(&[
+        r#"a = """one { line""" + '''two''' "#,
+        r#"b = """open {"#,
+        "it's inside }} /* still inside",
+        r#"end""" }"#,
+    ]);
+    assert_eq!(stripped, vec![r#"a = "" + '' "#, r#"b = """#, "", " }"]);
+    assert_eq!(open, None);
+}
+
+#[test]
+fn multiline_stripper_reports_the_construct_left_open() {
+    assert_eq!(strip_all(&["a /* never closed"]).1, Some("block comment"));
+    assert_eq!(
+        strip_all(&[r#"a = """never closed"#]).1,
+        Some("triple-quoted string")
+    );
+}
+
+/// A block-commented `include` and `rootProject.name` are dead code: neither
+/// is counted, and the live directives around the comment still are.
+#[test]
+fn parse_gradle_settings_ignores_block_commented_directives() {
+    let dir = tempfile::tempdir().unwrap();
+    std::fs::write(
+        dir.path().join("settings.gradle"),
+        "/*\n\
+         rootProject.name = 'old'\n\
+         include 'legacy'\n\
+         */\n\
+         rootProject.name = 'real'\n\
+         /* include 'inline-dead' */ include 'core'\n\
+         include 'web' /* trailing */\n",
+    )
+    .unwrap();
+
+    let s = parse_gradle_settings(&canon(&dir)).unwrap();
+    assert_eq!(s.root_project_name, Some("real".to_string()));
+    assert_eq!(s.includes, vec!["core".to_string(), "web".to_string()]);
+}
+
+/// Braces inside a block comment do not move brace depth: an unbalanced `{`
+/// there must not hide the top-level `include` after it, and an unbalanced
+/// `}` must not surface an `include` nested in a real block.
+#[test]
+fn parse_gradle_settings_block_commented_braces_do_not_move_depth() {
+    let dir = tempfile::tempdir().unwrap();
+    std::fs::write(
+        dir.path().join("settings.gradle"),
+        "/*\n\
+         gradle.beforeSettings {\n\
+         */\n\
+         include 'app'\n\
+         gradle.beforeSettings {\n\
+         /* } */\n\
+         include 'nested'\n\
+         }\n\
+         include 'lib'\n",
+    )
+    .unwrap();
+
+    let s = parse_gradle_settings(&canon(&dir)).unwrap();
+    assert_eq!(s.includes, vec!["app".to_string(), "lib".to_string()]);
+}
+
+/// A block-commented `description`, and a `{` inside the comment, leave the
+/// real top-level assignment in place.
+#[test]
+fn parse_gradle_build_ignores_block_commented_description_and_braces() {
+    let dir = tempfile::tempdir().unwrap();
+    std::fs::write(
+        dir.path().join("build.gradle"),
+        "/*\n\
+         description = 'old'\n\
+         tasks.register('x') {\n\
+         */\n\
+         description = 'real'\n",
+    )
+    .unwrap();
+
+    let b = parse_gradle_build(&canon(&dir)).unwrap();
+    assert_eq!(b.description, Some("real".to_string()));
+}
+
+/// Lines inside a multi-line triple-quoted string are string content: their
+/// braces, quotes and directive-shaped text do not reach the parser.
+#[test]
+fn parse_gradle_build_multiline_triple_quoted_string_is_inert() {
+    let dir = tempfile::tempdir().unwrap();
+    std::fs::write(
+        dir.path().join("build.gradle.kts"),
+        r#"val banner = """
+it's { unbalanced
+description = "inside the string"
+"""
+description = "real"
+"#,
+    )
+    .unwrap();
+
+    let b = parse_gradle_build(&canon(&dir)).unwrap();
+    assert_eq!(b.description, Some("real".to_string()));
+}
+
+/// A block comment left open at end of file drops the rest of the script; the
+/// fields before it are kept and the truncation is reported once.
+#[test]
+fn parse_gradle_settings_unterminated_block_comment_warns() {
+    let dir = tempfile::tempdir().unwrap();
+    std::fs::write(
+        dir.path().join("settings.gradle"),
+        "include 'app'\n/* never closed\ninclude 'lost'\n",
+    )
+    .unwrap();
+    let root = canon(&dir);
+
+    let (settings, warn_count) =
+        ops_about::test_support::count_warnings(|| parse_gradle_settings(&root));
+
+    assert_eq!(settings.unwrap().includes, vec!["app".to_string()]);
+    assert_eq!(warn_count, 1);
 }

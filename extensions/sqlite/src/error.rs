@@ -21,15 +21,18 @@ pub enum DbError {
     MutexPoisoned(String),
 
     /// An error raised by the underlying `rusqlite` library.
-    #[error("database error: {0}")]
+    #[error("database operation failed")]
     Sqlite(#[from] rusqlite::Error),
 
     /// A filesystem error while opening or reading database artifacts.
-    #[error("IO error: {0}")]
+    ///
+    /// The wrapped error's own message names the operation and the path it
+    /// acted on; the underlying OS error is its source.
+    #[error("filesystem operation failed")]
     Io(#[from] std::io::Error),
 
     /// A query failed; `context` names what was being run.
-    #[error("{context}: {source}")]
+    #[error("query failed: {context}")]
     QueryFailed {
         /// What the failing query was doing, for the operator message.
         context: String,
@@ -39,7 +42,7 @@ pub enum DbError {
     },
 
     /// A JSON payload failed to (de)serialize.
-    #[error("serialization error: {0}")]
+    #[error("JSON serialization failed")]
     Serialization(#[from] serde_json::Error),
 
     /// A row count exceeded the `i64` column range.
@@ -69,7 +72,7 @@ pub enum DbError {
     NotFileBacked(std::path::PathBuf),
 
     /// A generated SQL statement failed shared validation.
-    #[error("SQL validation failed: {0}")]
+    #[error("SQL validation failed")]
     SqlValidation(#[from] crate::sql::SqlError),
 
     /// Subprocess exceeded its bounded-wait deadline.
@@ -79,7 +82,12 @@ pub enum DbError {
     /// policies and operator messages can branch on a real timeout vs.
     /// a generic IO failure.
     #[error("{label} timed out after {timeout_secs}s")]
-    Timeout { label: String, timeout_secs: u64 },
+    Timeout {
+        /// Name of the subprocess or operation that was being awaited.
+        label: String,
+        /// The deadline that elapsed, in whole seconds.
+        timeout_secs: u64,
+    },
 
     /// External collection/validation error that is not IO or serialization.
     ///
@@ -88,11 +96,10 @@ pub enum DbError {
     /// `DbError::Io` misleads operators into investigating filesystem problems
     /// when the real cause may be a parse failure, missing tool, or timeout.
     ///
-    /// ERR-2 / TASK-1209: carries the wrapped `anyhow::Error` via `#[source]`
-    /// so consumers walking `Error::source()` recover the cause graph.
-    /// Display renders the alternate-format chain via `{0:#}` so log output
-    /// remains identical to the previous flattened-string variant.
-    #[error("external error: {0:#}")]
+    /// The wrapped `anyhow::Error` is the `#[source]`, so the cause graph is
+    /// reached by walking `Error::source()` (or anyhow's `{:#}`); the message
+    /// itself names only this layer.
+    #[error("external data collection failed")]
     External(#[source] anyhow::Error),
 }
 
@@ -106,6 +113,44 @@ impl DbError {
             source,
         }
     }
+}
+
+/// An [`std::io::Error`] paired with the operation and path it acted on.
+///
+/// Displays as the context alone; the original error is the `source`, so a
+/// chain-walking printer shows the path first and the OS cause after it,
+/// each exactly once.
+#[derive(Debug)]
+struct IoContext {
+    context: String,
+    source: std::io::Error,
+}
+
+impl std::fmt::Display for IoContext {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str(&self.context)
+    }
+}
+
+impl std::error::Error for IoContext {
+    fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
+        Some(&self.source)
+    }
+}
+
+/// Attach `context` (the operation and the path it acted on) to `source`.
+///
+/// The returned error keeps `source`'s [`std::io::ErrorKind`], so callers
+/// that branch on `NotFound` and friends still can, and exposes `source`
+/// itself through [`std::error::Error::source`].
+pub fn io_context(context: impl Into<String>, source: std::io::Error) -> std::io::Error {
+    std::io::Error::new(
+        source.kind(),
+        IoContext {
+            context: context.into(),
+            source,
+        },
+    )
 }
 
 /// Result alias for database operations.
@@ -152,12 +197,64 @@ mod tests {
         );
     }
 
+    /// Render `err` the way anyhow's `{:#}` does: every link of the source
+    /// chain, joined by `: `.
+    fn chain(err: DbError) -> String {
+        format!("{:#}", anyhow::Error::new(err))
+    }
+
     #[test]
     fn db_error_serialization_message() {
         let json = serde_json::from_str::<serde_json::Value>("not valid json");
         let err = json.unwrap_err();
+        let cause = err.to_string();
         let db_err = DbError::Serialization(err);
-        assert!(db_err.to_string().contains("serialization error"));
+        assert_eq!(db_err.to_string(), "JSON serialization failed");
+        assert_eq!(chain(db_err), format!("JSON serialization failed: {cause}"));
+    }
+
+    /// ERR-9: a variant's message names its own layer and leaves the cause to
+    /// the source chain, so a chain-walking printer says each thing once.
+    #[test]
+    fn db_error_chain_names_each_cause_exactly_once() {
+        let sqlite = || rusqlite::Error::InvalidParameterName("needle".into());
+        let rendered = [
+            chain(DbError::Sqlite(sqlite())),
+            chain(DbError::query_failed("test_op", sqlite())),
+            chain(DbError::Io(std::io::Error::other("needle"))),
+            chain(DbError::SqlValidation(
+                crate::sql::SqlError::InvalidIdentifier("needle".into()),
+            )),
+            chain(DbError::External(anyhow::anyhow!("needle"))),
+        ];
+        for line in rendered {
+            assert_eq!(
+                line.matches("needle").count(),
+                1,
+                "cause must appear exactly once: {line}"
+            );
+        }
+    }
+
+    /// ERR-13: `io_context` names the path, keeps the kind, and keeps the
+    /// original error reachable as the source.
+    #[test]
+    fn io_context_names_the_path_and_keeps_the_original_error_as_source() {
+        use std::error::Error as _;
+
+        let original = std::io::Error::from(std::io::ErrorKind::PermissionDenied);
+        let cause = original.to_string();
+        let wrapped = io_context("creating /some/dir", original);
+        assert_eq!(wrapped.kind(), std::io::ErrorKind::PermissionDenied);
+        assert_eq!(wrapped.to_string(), "creating /some/dir");
+        assert_eq!(
+            wrapped.source().map(ToString::to_string).as_deref(),
+            Some(cause.as_str())
+        );
+        assert_eq!(
+            chain(DbError::Io(wrapped)),
+            format!("filesystem operation failed: creating /some/dir: {cause}")
+        );
     }
 
     #[test]

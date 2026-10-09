@@ -1,14 +1,11 @@
 //! SQL builders and table-state probes for ingestor pipelines.
 //!
-//! # SEC-25 / TASK-2067 residual: closed by the SQLite port
+//! # No path reaches SQL
 //!
-//! The `DuckDB` builder interpolated the staged JSON path into
-//! `read_json_auto('<path>')` — the one staged read that could not go through
-//! the verified [`crate::IngestDir`] anchor, narrowed only by an inode
-//! re-check immediately before execution. SQLite's parameter binding removes
-//! the residual entirely: the staged bytes are read through
-//! [`crate::IngestDir::open_read`] in Rust and handed to the engine as a
-//! bound `?1` parameter. No path reaches SQL, so there is no name to swap.
+//! Staged bytes are read through [`crate::IngestDir::open_read`] in Rust and
+//! handed to the engine as a bound `?1` parameter. The engine never opens a
+//! staged file by name, so every staged read goes through the verified
+//! [`crate::IngestDir`] anchor and there is no path to interpolate or swap.
 
 use crate::error::{DbError, DbResult};
 use crate::sql::validation::{quoted_ident, TableName};
@@ -18,17 +15,16 @@ use std::io::Read;
 /// A table-shape DDL batch (`DROP TABLE IF EXISTS …; CREATE TABLE …`)
 /// produced by a validated builder.
 ///
-/// SEC-12 / TASK-1864: `load_with_sidecar` and the metadata ingestor execute
-/// caller-supplied DDL, so the statement must be a gated newtype rather than
-/// a bare `&str`. There is deliberately **no** public constructor taking a
-/// `String` or `&str`: the only way to obtain this type is
-/// [`JsonTableLoad::create_table_sql`], which builds the statement from
-/// const-validated [`TableName`] / [`JsonColumn`] parts.
+/// `load_with_sidecar` and the metadata ingestor execute caller-supplied
+/// DDL, so the statement is a gated newtype rather than a bare `&str`. There
+/// is deliberately **no** public constructor taking a `String` or `&str`: the
+/// only way to obtain this type is [`JsonTableLoad::create_table_sql`], which
+/// builds the statement from const-validated [`TableName`] / [`JsonColumn`]
+/// parts.
 ///
-/// READ-8 / SQLite port note: the value is a *batch* (two statements)
-/// because SQLite has no `CREATE OR REPLACE` — callers must execute it via
-/// `Connection::execute_batch`, not `Connection::execute` (which rejects
-/// multiple statements).
+/// The value is a *batch* (two statements) because SQLite has no `CREATE OR
+/// REPLACE` — callers must execute it via `Connection::execute_batch`, not
+/// `Connection::execute` (which rejects multiple statements).
 #[derive(Debug, Clone)]
 #[must_use = "SEC-12: the built statement is the only gated form; discarding it means nothing is executed"]
 pub struct CreateTableSql(String);
@@ -51,9 +47,9 @@ impl std::fmt::Display for CreateTableSql {
 /// A view DDL batch (`DROP VIEW IF EXISTS …; CREATE VIEW …`) produced by a
 /// validated builder.
 ///
-/// SEC-12 / TASK-1864: the companion of [`CreateTableSql`]. Being a distinct
-/// type is load-bearing — the two statements are positional arguments of
-/// `load_with_sidecar`, and swapping them must be a type error (API-2), not a
+/// The companion of [`CreateTableSql`]. Being a distinct type is
+/// load-bearing — the two statements are positional arguments of
+/// `load_with_sidecar`, and swapping them must be a type error, not a
 /// confusing `"{name} create"` error label at runtime.
 ///
 /// SQLite has no `CREATE OR REPLACE VIEW`, so the builder emits DROP-then-
@@ -107,10 +103,9 @@ impl std::fmt::Display for CreateViewSql {
 /// The SQL column type a JSON value is cast to on insert.
 ///
 /// SQLite columns are dynamically typed; declaring the affinity in the DDL
-/// *and* casting in the `INSERT … SELECT` keeps the table's contents as
-/// typed as `DuckDB`'s inferred columns were, so downstream queries decode
-/// `row.get::<_, i64>` / `f64` / `String` without per-row flexibility
-/// surprises.
+/// *and* casting in the `INSERT … SELECT` keeps every row of a column the
+/// same type, so downstream queries decode `row.get::<_, i64>` / `f64` /
+/// `String` without per-row flexibility surprises.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum JsonColumnType {
     /// UTF-8 text.
@@ -279,12 +274,9 @@ pub enum JsonLoadShape {
 
 /// Declarative description of one table load from a staged JSON file.
 ///
-/// Replaces the `DuckDB` `read_json_auto('<path>')` builder: instead of
-/// handing the engine a path and letting it infer the shape, the collector
-/// declares its record shape as a `const` spec and the engine receives the
-/// file's *bytes* as a bound parameter. The SEC-12 contract shifts from
-/// "validate the path before interpolating it" to "never interpolate a path
-/// at all".
+/// The collector declares its record shape as a `const` spec and the engine
+/// receives the file's *bytes* as a bound parameter; nothing is inferred from
+/// the file and no path is ever interpolated into a statement.
 #[derive(Debug, Clone, Copy)]
 #[must_use = "the load spec describes a table to create; discarding it loads nothing"]
 pub struct JsonTableLoad {
@@ -409,24 +401,9 @@ pub fn execute_json_load(
     json_filename: &str,
 ) -> DbResult<()> {
     let mut json = String::new();
-    // ERR-13: the anchored `open_read` reports the raw syscall error, which
-    // names no file — wrap it so the operator sees which staged entry failed
-    // (a missing `coverage_files.json` must say so).
-    dir.open_read(json_filename)
-        .map_err(|e| match e {
-            DbError::Io(io) => DbError::Io(std::io::Error::new(
-                io.kind(),
-                format!("opening staged {json_filename} through the ingest anchor: {io}"),
-            )),
-            other => other,
-        })?
+    dir.open_read(json_filename)?
         .read_to_string(&mut json)
-        .map_err(|e| {
-            DbError::Io(std::io::Error::new(
-                e.kind(),
-                format!("reading staged {json_filename}: {e}"),
-            ))
-        })?;
+        .map_err(|e| dir.entry_error("reading", json_filename, e))?;
     load_json_string(conn, load, &json)
 }
 
@@ -435,12 +412,11 @@ pub fn execute_json_load(
 /// The DDL-batch + bound-`?1`-insert half of [`execute_json_load`], exposed
 /// for callers that must inspect the payload **before** it reaches the engine
 /// — the metadata ingestor reads the staged bytes once so the
-/// `OPS_METADATA_MAX_BYTES` cap is enforced in Rust (the SQLite port's
-/// successor to the engine-side `maximum_object_size` option), then hands the
-/// same string here rather than reading the file a second time.
+/// `OPS_METADATA_MAX_BYTES` cap is enforced in Rust, then hands the same
+/// string here rather than reading the file a second time.
 ///
-/// SEC-12 note: `json` is a *parameter value*, never statement text — this
-/// adds no SQL-assembly surface.
+/// `json` is a *parameter value*, never statement text, so this adds no
+/// SQL-assembly surface.
 ///
 /// # Errors
 ///

@@ -1,10 +1,10 @@
 ---
 id: TASK-2355
 title: 'ERR-5: global_config_path panics on poisoned RwLock for a recoverable cache'
-status: To Do
+status: Done
 assignee: []
 created_date: '2026-10-04 14:09'
-updated_date: '2026-10-04 14:52'
+updated_date: '2026-10-04 15:51'
 labels:
   - code-review-rust
   - ERR
@@ -29,6 +29,7 @@ dedup_key: 'ERR-5:crates/core/src/config/loader/global.rs:global_config_path'
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 global_config_path no longer panics when GLOBAL_CONFIG_PATH is poisoned; it recovers the guard (into_inner) and re-resolves or reuses the cached value
-- [ ] #2 A test poisons the lock and asserts global_config_path still returns
+- [x] #1 global_config_path no longer panics when GLOBAL_CONFIG_PATH is poisoned; it recovers the guard (into_inner) and re-resolves or reuses the cached value
+- [x] #2 A test poisons the lock and asserts global_config_path still returns
+
 <!-- AC:END -->

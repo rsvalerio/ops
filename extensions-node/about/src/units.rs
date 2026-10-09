@@ -58,13 +58,16 @@ fn collect_units(cwd: &Path) -> Vec<ProjectUnit> {
             // rather than behind a parallel shim.
             let meta =
                 ops_about::workspace::parse_package_metadata(&manifest_path, &manifest, |c| {
-                    serde_json::from_str::<PackageProbe>(c).map(|p| {
-                        ops_about::workspace::PackageMetadata {
+                    // Path-tracking deserialiser: a wrong-typed field is
+                    // reported by name in the shared parse-failure warn.
+                    let mut deserializer = serde_json::Deserializer::from_str(c);
+                    serde_path_to_error::deserialize::<_, PackageProbe>(&mut deserializer).map(
+                        |p| ops_about::workspace::PackageMetadata {
                             name: p.name,
                             version: p.version,
                             description: p.description,
-                        }
-                    })
+                        },
+                    )
                 });
             // Trim and drop whitespace-only fields before constructing the
             // ProjectUnit, matching the policy the identity provider applies:
@@ -111,24 +114,22 @@ fn workspace_member_globs(root: &Path) -> (Vec<String>, Vec<String>) {
     // per-process manifest cache. Each consumer still parses its own typed
     // projection (`RawRoot` here, `RawPackage` for identity) — only the IO
     // and UTF-8 validation are deduplicated, with no `Value` tree clone.
-    if let Some(content) = ops_about::manifest_cache::for_filename("package.json").read(root) {
-        match serde_json::from_str::<RawRoot>(&content) {
-            Ok(raw) => {
-                if let Some(ws) = raw.workspaces {
-                    let items = match ws {
-                        WorkspacesField::List(items) => items,
-                        WorkspacesField::Object { packages } => packages,
-                    };
-                    split_include_exclude(items, &mut includes, &mut excludes);
-                }
-            }
-            Err(e) => {
-                // The identity provider parses its own projection of this
-                // same text, so the diagnostic is owned by one shared
-                // reporter that emits a single record per manifest path.
-                super::package_json::warn_parse_failure(&root.join("package.json"), &e);
-            }
-        }
+    // A parse failure is reported by the shared `deserialize_manifest`, which
+    // the identity provider also uses, so the two projections of this text
+    // emit a single record per manifest path.
+    let workspaces = ops_about::manifest_cache::for_filename("package.json")
+        .read(root)
+        .and_then(|content| {
+            let path = root.join("package.json");
+            super::package_json::deserialize_manifest::<RawRoot>(&path, &content)
+        })
+        .and_then(|raw| raw.workspaces);
+    if let Some(ws) = workspaces {
+        let items = match ws {
+            WorkspacesField::List(items) => items,
+            WorkspacesField::Object { packages } => packages,
+        };
+        split_include_exclude(items, &mut includes, &mut excludes);
     }
 
     if includes.is_empty() {
@@ -424,6 +425,52 @@ mod tests {
     fn workspace_member_globs_path_debug_escapes_control_characters() {
         let p = Path::new("a\nb\u{1b}[31mc/package.json");
         ops_about::test_support::assert_debug_escapes_control_chars(p.display());
+    }
+
+    /// A wrong-typed `workspaces` falls back to "no workspaces", and the
+    /// warn names the field so the operator knows which one to fix.
+    #[test]
+    fn wrong_typed_workspaces_warn_names_the_field() {
+        let dir = tempfile::tempdir().unwrap();
+        write(
+            &dir.path().join("package.json"),
+            r#"{ "name": "x", "workspaces": 7 }"#,
+        );
+
+        let (logs, units) = ops_about::test_support::capture_tracing(tracing::Level::WARN, || {
+            collect_units(dir.path())
+        });
+
+        assert!(units.is_empty());
+        assert!(
+            logs.contains("field=workspaces"),
+            "the warn must name the failing field: {logs}"
+        );
+    }
+
+    /// A member manifest with a wrong-typed field keeps its unit (named
+    /// after the directory) and the warn names the field.
+    #[test]
+    fn wrong_typed_member_field_warn_names_the_field() {
+        let dir = tempfile::tempdir().unwrap();
+        write(
+            &dir.path().join("package.json"),
+            r#"{ "name": "root", "workspaces": ["packages/*"] }"#,
+        );
+        write(
+            &dir.path().join("packages/a/package.json"),
+            r#"{ "name": "a", "version": 3 }"#,
+        );
+
+        let (logs, units) = ops_about::test_support::capture_tracing(tracing::Level::WARN, || {
+            collect_units(dir.path())
+        });
+
+        assert_eq!(units.len(), 1);
+        assert!(
+            logs.contains("failed to parse package manifest") && logs.contains("version"),
+            "the warn must name the failing field: {logs}"
+        );
     }
 
     #[test]

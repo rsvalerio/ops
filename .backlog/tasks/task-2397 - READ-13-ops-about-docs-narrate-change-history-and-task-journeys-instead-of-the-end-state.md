@@ -1,10 +1,10 @@
 ---
 id: TASK-2397
 title: 'READ-13: ops-about docs narrate change history and task journeys instead of the end state'
-status: To Do
+status: Done
 assignee: []
 created_date: '2026-10-04 14:15'
-updated_date: '2026-10-04 14:52'
+updated_date: '2026-10-04 15:54'
 labels:
   - code-review-rust
   - READ
@@ -35,6 +35,7 @@ dedup_key: 'READ-13:extensions/about/src:module-docs'
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 Docs in the listed files state current behaviour and invariants only; 'previously/used to/now' narration and TASK ids are removed
-- [ ] #2 Enduring design properties (fail-closed exclude, containment invariant, no-TTL cache policy) are kept in present tense
+- [x] #1 Docs in the listed files state current behaviour and invariants only; 'previously/used to/now' narration and TASK ids are removed
+- [x] #2 Enduring design properties (fail-closed exclude, containment invariant, no-TTL cache policy) are kept in present tense
+
 <!-- AC:END -->

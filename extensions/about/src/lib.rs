@@ -63,6 +63,7 @@ const NAME: &str = "about";
 const DESCRIPTION: &str = "Project identity card";
 const SHORTNAME: &str = "about";
 
+/// Command extension that registers the `about` command.
 pub struct AboutExtension;
 
 ops_extension::impl_extension! {
@@ -74,9 +75,9 @@ ops_extension::impl_extension! {
     command_names: &["about"],
     data_provider_name: None,
     register_commands: |_self, registry| {
-        // SEC-13 / TASK-2255: a bare "ops" resolves through the invoking
-        // environment's PATH, so a shim earlier on PATH silently becomes the
-        // binary that renders the card. `ops_subcommand` spawns the absolute
+        // A bare "ops" would resolve through the invoking environment's
+        // PATH, where a shim earlier on PATH silently becomes the binary
+        // that renders the card. `ops_subcommand` spawns the absolute
         // current_exe()-resolved binary and renders as `ops about`. The
         // command only reads (providers, manifests, the db), so it opts out
         // of exclusivity.
@@ -94,18 +95,21 @@ ops_extension::impl_extension! {
 }
 
 /// Options for the about command.
-///
-/// `is_tty` reflects the `writer` the caller hands in (READ-5/TASK-0411):
-/// set `true` when writing to a real terminal, `false` for buffers/files,
-/// regardless of whether `stdout` happens to be a TTY.
 #[non_exhaustive]
 pub struct AboutOptions {
+    /// Re-collect provider data instead of serving cached results.
     pub refresh: bool,
+    /// Card fields to render; `None` renders every field.
     pub visible_fields: Option<Vec<String>>,
+    /// Whether the `writer` handed to [`run_about`] is a real terminal.
+    ///
+    /// Set `true` when writing to a terminal, `false` for buffers/files,
+    /// regardless of whether `stdout` happens to be a TTY.
     pub is_tty: bool,
 }
 
 impl AboutOptions {
+    /// Build the options from `refresh`, `visible_fields` and `is_tty`.
     #[must_use = "pass the options to `run_about`; a discarded one renders nothing"]
     pub const fn new(refresh: bool, visible_fields: Option<Vec<String>>, is_tty: bool) -> Self {
         Self {
@@ -133,9 +137,9 @@ pub fn run_about(
     writer: &mut dyn Write,
 ) -> anyhow::Result<()> {
     let config = std::sync::Arc::new(ops_core::config::Config::empty());
-    // ARCH-9 / TASK-1874: `refresh` is fixed at construction time. It changes
-    // cache semantics for every provider that runs on this context, so it is
-    // not something a provider mid-traversal may reassign.
+    // `refresh` is fixed at construction time. It changes cache semantics
+    // for every provider that runs on this context, so it is not something
+    // a provider mid-traversal may reassign.
     let mut ctx = ops_extension::Context::new(config, cwd.to_path_buf());
     if opts.refresh {
         ctx = ctx.with_refresh();
@@ -163,9 +167,9 @@ fn warm_generic_providers(
     data_registry: &ops_extension::DataRegistry,
     refresh: bool,
 ) {
-    // ERR-1 (TASK-0516): sqlite/tokei warm-up failures are now warn-logged
-    // for parity with the coverage branch. Previously a real provider
-    // error (permissions, disk full) silently rendered as zeros.
+    // Sqlite/tokei warm-up failures are warn-logged, like the coverage
+    // branch below, so a real provider error (permissions, disk full) is
+    // not silently rendered as zeros.
     crate::providers::warm_providers(ctx, data_registry, &["sqlite", "tokei"], "main");
     if refresh {
         match ctx.get_or_provide("coverage", data_registry) {
@@ -181,13 +185,12 @@ fn resolve_identity(
     cwd: &Path,
 ) -> anyhow::Result<ProjectIdentity> {
     match ctx.get_or_provide("project_identity", data_registry) {
-        // ERR-4 / ERR-14 (TASK-1734): share the diagnosable deserialization
-        // path with `load_or_default` so the failure names the
-        // `project_identity` provider, the target type, and the failing field
-        // path — rather than a bare `invalid type: ...` that could have come
-        // from any of ProjectIdentity's fields or its nested `languages`.
-        // PERF-3 (TASK-1117) is preserved: the helper still borrows the Arc
-        // payload rather than deep-cloning the JSON tree for `from_value`.
+        // Share the diagnosable deserialization path with `load_or_default`
+        // so a failure names the `project_identity` provider, the target
+        // type, and the failing field path — rather than a bare
+        // `invalid type: ...` that could have come from any of
+        // ProjectIdentity's fields or its nested `languages`. The helper
+        // borrows the Arc payload rather than deep-cloning the JSON tree.
         Ok(value) => crate::providers::deserialize_payload("project_identity", value.as_ref()),
         Err(DataProviderError::NotFound(_)) => Ok(build_fallback_identity(cwd)),
         Err(e) => Err(e.into()),
@@ -196,15 +199,15 @@ fn resolve_identity(
 
 /// Enrich identity with LOC/file count from `SQLite` if available.
 ///
-/// ERR-1 (TASK-1148, mirrors TASK-0431 in `units::enrich_from_db`): each of
-/// the five underlying queries acquires `db.lock()` independently, so a
-/// concurrent ingestion that runs between samples can produce an identity
-/// whose `loc`, `file_count`, `dependency_count`, `coverage_percent`, and
-/// `languages` describe different snapshots. This is accepted as a
-/// render-time visual artefact for the same reasons as the units variant:
-/// holding a single lock across all five queries would require reshaping
-/// the helper layer to take an already-held `&Connection`, and the about
-/// card re-renders on every invocation, so a stale frame is self-correcting.
+/// Each of the five underlying queries acquires `db.lock()` independently,
+/// so a concurrent ingestion that runs between samples can produce an
+/// identity whose `loc`, `file_count`, `dependency_count`,
+/// `coverage_percent`, and `languages` describe different snapshots. This is
+/// accepted as a render-time visual artefact, as in
+/// `units::enrich_from_db`: holding a single lock across all five queries
+/// would require the helper layer to take an already-held `&Connection`,
+/// and the about card re-renders on every invocation, so a stale frame is
+/// self-correcting.
 #[cfg(feature = "sqlite")]
 fn enrich_from_db(ctx: &ops_extension::Context, identity: &mut ProjectIdentity) {
     let Some(db) = ops_sqlite::get_db(ctx) else {
@@ -250,7 +253,7 @@ fn enrich_from_db(ctx: &ops_extension::Context, identity: &mut ProjectIdentity) 
 }
 
 #[cfg(not(feature = "sqlite"))]
-// CLIPPY (TASK-2027): `const` keeps `cargo clippy -p ops-about` green with the
+// CLIPPY: `const` keeps `cargo clippy -p ops-about` green with the
 // `sqlite` feature off, where `missing_const_for_fn` fires on this empty stub.
 const fn enrich_from_db(_ctx: &ops_extension::Context, _identity: &mut ProjectIdentity) {}
 
@@ -270,7 +273,7 @@ fn build_fallback_identity(cwd: &std::path::Path) -> ProjectIdentity {
 mod tests {
     use super::*;
 
-    /// SEC-13 / TASK-2255: the registered command spawns an absolute
+    /// The registered command spawns an absolute
     /// `current_exe()`-derived program, never a bare PATH-resolved `"ops"`,
     /// and renders as `ops about`. It only reads (providers, manifests, the
     /// db), so it may overlap other steps in a parallel plan.
@@ -301,7 +304,7 @@ mod tests {
         );
     }
 
-    /// TEST-5 / TASK-1739: `run_about` composes `resolve_identity`, the
+    /// `run_about` composes `resolve_identity`, the
     /// `NotFound` fallback, the four-condition `enrich_from_db` guard and the
     /// card render, and no test drove it. With an empty registry
     /// `project_identity` is `NotFound`, so the rendered card must reflect
@@ -326,7 +329,7 @@ mod tests {
             expected.name
         );
         assert_eq!(expected.name, "my-fallback-project");
-        // READ-5 / TASK-0411: is_tty = false must mean no ANSI escapes,
+        // Is_tty = false must mean no ANSI escapes,
         // asserted through the runner rather than the card formatter.
         assert!(
             !rendered.contains('\u{1b}'),

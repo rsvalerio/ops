@@ -99,6 +99,11 @@ quote = "1"
 # `[lints] workspace = true`; no crate may set its own lint levels in Cargo.toml.
 [workspace.lints.rust]
 elided_lifetimes_in_paths = "warn"
+# `deny`, not `forbid`: `impl_extension!` puts `#[allow(unsafe_code)]` on the
+# linkme static it generates, which `forbid` rejects. Unsafe-free crates that
+# do not invoke it add `#![forbid(unsafe_code)]` at their root; a production
+# unsafe site carries a scoped `#[expect(unsafe_code, reason = "..")]`.
+unsafe_code = "deny"
 unsafe_op_in_unsafe_fn = "warn"
 unused_lifetimes = "warn"
 # NOT `rust_2018_idioms`: it implies `unused_extern_crates`, which flags the

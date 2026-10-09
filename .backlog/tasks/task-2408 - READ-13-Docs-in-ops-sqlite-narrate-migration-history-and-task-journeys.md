@@ -1,10 +1,10 @@
 ---
 id: TASK-2408
 title: 'READ-13: Docs in ops-sqlite narrate migration history and task journeys'
-status: To Do
+status: Done
 assignee: []
 created_date: '2026-10-04 14:18'
-updated_date: '2026-10-04 14:52'
+updated_date: '2026-10-04 15:28'
 labels:
   - code-review-rust
   - READ
@@ -36,6 +36,7 @@ dedup_key: 'READ-13:extensions/sqlite/src/sql/ingest/dir.rs:module docs'
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 Item and module docs describe current behaviour and invariants only; migration narrative, 'used to'/'old'/'previously' passages and design-decision essays are removed
-- [ ] #2 Rule/TASK ids are not required in doc text
+- [x] #1 Item and module docs describe current behaviour and invariants only; migration narrative, 'used to'/'old'/'previously' passages and design-decision essays are removed
+- [x] #2 Rule/TASK ids are not required in doc text
+
 <!-- AC:END -->

@@ -1,10 +1,10 @@
 ---
 id: TASK-2364
 title: 'CL-3: Maven pom parser treats every element outside a few skipped containers as a project-level scalar, so dependency, repository and profile children leak into version, url and modules'
-status: To Do
+status: Done
 assignee: []
 created_date: '2026-10-04 14:10'
-updated_date: '2026-10-04 14:52'
+updated_date: '2026-10-04 16:14'
 labels:
   - code-review-rust
   - CL
@@ -35,8 +35,9 @@ Candidates to verify: add the container tags above to `SKIP_SECTIONS` (or track 
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 A POM with a <parent> and no own <version> reports no version (or the parent's by explicit policy), never a dependency or plugin version
-- [ ] #2 A <repository><url> never populates the project homepage
-- [ ] #3 <modules> inside <profiles> is not counted in module_count or project_units
-- [ ] #4 Regression tests cover dependencies, dependencyManagement, build/plugins, repositories and profiles
+- [x] #1 A POM with a <parent> and no own <version> reports no version (or the parent's by explicit policy), never a dependency or plugin version
+- [x] #2 A <repository><url> never populates the project homepage
+- [x] #3 <modules> inside <profiles> is not counted in module_count or project_units
+- [x] #4 Regression tests cover dependencies, dependencyManagement, build/plugins, repositories and profiles
+
 <!-- AC:END -->

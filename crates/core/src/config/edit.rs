@@ -266,6 +266,10 @@ pub const ATOMIC_WRITE_MODE_MASK: u32 = 0o7777;
 // their tmp names through this function. (The other unsafe site,
 // `text::unix_open`, cannot run under Miri; its module docs record why and
 // what substitutes for it.)
+#[expect(
+    unsafe_code,
+    reason = "from_encoded_bytes_unchecked on bytes taken from an OsStr; see the SAFETY comment"
+)]
 fn build_tmp_basename(file_name: &OsStr) -> OsString {
     use std::fmt::Write as _;
     use std::sync::atomic::{AtomicU64, Ordering};

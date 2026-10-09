@@ -1,10 +1,10 @@
 ---
 id: TASK-2356
 title: 'READ-13: resolve_global_config_path doc still describes a OnceLock initialiser'
-status: To Do
+status: Done
 assignee: []
 created_date: '2026-10-04 14:09'
-updated_date: '2026-10-04 14:52'
+updated_date: '2026-10-04 15:51'
 labels:
   - code-review-rust
   - READ
@@ -29,5 +29,6 @@ dedup_key: 'READ-13:crates/core/src/config/loader/global.rs:resolve_global_confi
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 resolve_global_config_path docs describe the RwLock-backed cache, including that the reset hook re-invokes it
+- [x] #1 resolve_global_config_path docs describe the RwLock-backed cache, including that the reset hook re-invokes it
+
 <!-- AC:END -->

@@ -1,8 +1,8 @@
 //! Workspace-member glob resolution and member-path safety.
 //!
-//! ARCH-1 / TASK-1791: extracted from the former `query.rs`. Everything here is
-//! a pure function over a parsed [`CargoToml`] and a workspace-root path — no
-//! cache, no `Context`, no IO beyond the `read_dir` the glob expander needs.
+//! Everything here is a pure function over a parsed [`CargoToml`] and a
+//! workspace-root path — no cache, no `Context`, no IO beyond the `read_dir`
+//! the glob expander needs.
 //!
 //! ## Why not `MetadataProvider`?
 //!
@@ -96,16 +96,13 @@ pub fn resolved_workspace_members(manifest: &CargoToml, workspace_root: &Path) -
     resolved
 }
 
-/// FEAT / TASK-2040: `[workspace].exclude` entries, matched with the same
-/// single-`*` semantics `[workspace].members` entries get.
+/// `[workspace].exclude` entries, matched with the same single-`*` semantics
+/// `[workspace].members` entries get.
 ///
-/// Cargo accepts glob shapes in `exclude` exactly as it does in `members`, but
-/// this module used to apply `exclude` as an exact string-set membership test
-/// against the *resolved* member list. A glob exclude therefore matched no
-/// resolved member and every directory the user meant to drop was still
-/// counted — silently, and biased toward over-counting: `module_count`
-/// (identity provider) and the `ProjectUnit` list (units / coverage providers)
-/// diverged from `cargo metadata` with no warn to explain it.
+/// Cargo accepts glob shapes in `exclude` exactly as it does in `members`, so
+/// a glob exclude must drop every resolved member it names; otherwise
+/// `module_count` (identity provider) and the `ProjectUnit` list (units /
+/// coverage providers) over-count and diverge from `cargo metadata`.
 ///
 /// Patterns are matched against the already-resolved member strings rather
 /// than expanded on disk. An excluded path is by definition *not* a workspace
@@ -113,16 +110,15 @@ pub fn resolved_workspace_members(manifest: &CargoToml, workspace_root: &Path) -
 /// unreadable-path failure modes without telling us anything the resolved list
 /// does not already say.
 ///
-/// FEAT / TASK-2055: literal entries match by *path segment*, not by string
-/// equality, and a leading `./` on either side is ignored. Cargo excludes a
-/// path together with everything under it — `exclude = ["crates/foo"]` also
-/// drops a member listed as `crates/foo/bar` — and accepts a `./` prefix in
-/// both lists.
+/// Literal entries match by *path segment*, not by string equality, and a
+/// leading `./` on either side is ignored. Cargo excludes a path together with
+/// everything under it — `exclude = ["crates/foo"]` also drops a member listed
+/// as `crates/foo/bar` — and accepts a `./` prefix in both lists.
 struct ExcludeSet<'a> {
     /// Entries with no expandable `*`: matched as a path prefix, so the entry
     /// excludes itself and every member nested beneath it. Stored as a `Vec`
-    /// rather than a set because matching is no longer an equality test and
-    /// exclude lists are a handful of entries.
+    /// rather than a set because matching is not an equality test and exclude
+    /// lists are a handful of entries.
     literals: Vec<&'a str>,
     /// The text before the `*` of a single-`*` pattern. A member matches when
     /// it extends the prefix by exactly one path segment, which is what the
@@ -132,14 +128,13 @@ struct ExcludeSet<'a> {
     /// supported here: matching is string work, so it needs no directory to
     /// `read_dir`.
     ///
-    /// PATTERN-1 / TASK-2065: owned, because this arm matches by *string*
-    /// prefix and so is the one place that has to spell separators the same
-    /// way the resolved members do. Members are now emitted in one canonical
-    /// spelling (see [`normalize_member`]), so the prefixes are canonicalised
-    /// to meet them — otherwise `crates//*` (or, on a platform whose
-    /// separator is not `/`, any `/`-spelled exclude) would stop matching the
-    /// members it names. The literal arm above needs none of this: it compares
-    /// segment by segment already.
+    /// PATTERN-1: owned, because this arm matches by *string* prefix and so
+    /// is the one place that has to spell separators the same way the resolved
+    /// members do. Members are emitted in one canonical spelling (see
+    /// [`normalize_member`]), so the prefixes are canonicalised to meet them —
+    /// otherwise `crates//*` (or, on a platform whose separator is not `/`,
+    /// any `/`-spelled exclude) would not match the members it names. The
+    /// literal arm above needs none of this: it compares segment by segment.
     prefixes: Vec<String>,
 }
 
@@ -198,11 +193,10 @@ impl<'a> ExcludeSet<'a> {
     }
 }
 
-/// FEAT / TASK-2055: drop any leading `./` segments so `./crates/foo` and
-/// `crates/foo` compare equal. Cargo accepts either spelling in both
-/// `[workspace].members` and `[workspace].exclude`, and this module compares
-/// the two lists as strings, so an unnormalised `./` on one side alone used to
-/// silently defeat the match.
+/// Drop any leading `./` segments so `./crates/foo` and `crates/foo` compare
+/// equal. Cargo accepts either spelling in both `[workspace].members` and
+/// `[workspace].exclude`, and this module compares the two lists as strings,
+/// so an unnormalised `./` on one side alone would defeat the match.
 fn strip_dot_prefix(path: &str) -> &str {
     let mut rest = path;
     while let Some(after_dot) = rest.strip_prefix('.') {
@@ -215,18 +209,18 @@ fn strip_dot_prefix(path: &str) -> &str {
     rest
 }
 
-/// PATTERN-1 / TASK-2065: the [`normalize_member`] spelling for the text
-/// before the `*` of an exclude glob, which [`ExcludeSet::excludes`] matches
-/// as a raw string prefix against already-normalised members.
+/// PATTERN-1: the [`normalize_member`] spelling for the text before the `*` of
+/// an exclude glob, which [`ExcludeSet::excludes`] matches as a raw string
+/// prefix against already-normalised members.
 ///
 /// Only the directory part goes through [`path_segments`]. The text after the
 /// last separator is a **partial** segment — the `gen-` of `crates/gen-*` — and
 /// must survive verbatim, including when it is a bare `.` (`exclude = [".*"]`,
-/// a hidden-directory glob). `path_segments` filters `.` segments out, so
-/// running the whole prefix through it turned `.` into the empty prefix, which
-/// [`ExcludeSet::excludes`] reads as the bare-`*` wildcard and which therefore
-/// dropped *every* single-segment member. The empty prefix has to keep meaning
-/// exactly one thing: the `*` that legitimately produced it.
+/// a hidden-directory glob). `path_segments` filters `.` segments out, so the
+/// partial segment must stay clear of it: a `.` collapsed to the empty prefix
+/// would be read by [`ExcludeSet::excludes`] as the bare-`*` wildcard and drop
+/// *every* single-segment member. The empty prefix means exactly one thing:
+/// the `*` that legitimately produced it.
 ///
 /// A trailing separator is load-bearing too and survives as the empty partial
 /// segment: `crates/` must stay `crates/` so `strip_prefix` leaves `foo`, the
@@ -245,16 +239,16 @@ fn normalize_exclude_prefix(prefix: &str) -> String {
     normalized
 }
 
-/// PATTERN-1 / TASK-2065: one canonical spelling for a resolved member path.
+/// PATTERN-1: one canonical spelling for a resolved member path.
 ///
 /// Cargo accepts `crates/foo`, `./crates/foo` and `crates//foo` as the same
-/// member, and the glob expander already emits the canonical form (it derives
-/// its strings from a `canonicalize`d path). Literal and unsupported-shape
-/// entries were passed through exactly as written, so the `sort` + `dedup` in
-/// [`resolved_workspace_members`] compared spellings rather than paths.
+/// member, and the glob expander emits the canonical form (it derives its
+/// strings from a `canonicalize`d path). Literal entries are normalised to the
+/// same form here, so the `sort` + `dedup` in [`resolved_workspace_members`]
+/// compares paths rather than spellings.
 ///
 /// Rebuilds the path from [`path_segments`], which is where the `./`, `.` and
-/// repeated-separator handling already lives, joined with the platform
+/// repeated-separator handling lives, joined with the platform
 /// separator so the output matches what the glob expander produces. An entry
 /// with no meaningful segments at all (`"."`, `""`) has no canonical form to
 /// emit, so it is passed through unchanged rather than collapsed to the empty
@@ -343,17 +337,12 @@ fn classify_member(member: &str) -> MemberShape<'_> {
 
 /// Expand a `prefix/*` glob by walking `parent` and returning UTF-8
 /// workspace-relative paths to each subdirectory containing a `Cargo.toml`.
-/// FN-1 / TASK-1156: extracted from [`resolved_workspace_members`] so the
-/// orchestrator stays at the dispatch level and the `read_dir` + per-entry
-/// boundary handling sits in one place.
+///
+/// An unresolvable root, an unreadable `parent` and an unreadable entry are
+/// each warned about and skipped rather than failing the expansion.
 pub fn expand_member_glob(member: &str, parent: &Path, workspace_root: &Path) -> Vec<String> {
-    let mut out = Vec::new();
-    // SEC-14 / TASK-1246 (extended): resolve the workspace root once so each
-    // directory entry can be tested for containment against a fully resolved
-    // anchor. Unlike the ancestor walk in `find_workspace_root_strict` (see
-    // TASK-2026), this check is *not* vacuous: `read_dir` hands back entries
-    // that may themselves be symlinks pointing anywhere on the filesystem, so
-    // `canonicalize` genuinely moves the path before it is compared.
+    // SEC-14: resolve the workspace root once so each directory entry can be
+    // tested for containment against a fully resolved anchor.
     let canonical_root = match std::fs::canonicalize(workspace_root) {
         Ok(root) => root,
         Err(e) => {
@@ -363,14 +352,14 @@ pub fn expand_member_glob(member: &str, parent: &Path, workspace_root: &Path) ->
                 error = ?e,
                 "workspace root could not be resolved; glob member skipped"
             );
-            return out;
+            return Vec::new();
         }
     };
     let entries = match std::fs::read_dir(parent) {
         Ok(entries) => entries,
         Err(e) => {
-            // ERR-7 (TASK-0941): Debug-format pattern / parent / error so
-            // embedded newlines / ANSI escapes in attacker-controlled
+            // ERR-7: Debug-format pattern / parent / error so embedded
+            // newlines / ANSI escapes in attacker-controlled
             // `[workspace].members` entries cannot forge log records.
             tracing::warn!(
                 pattern = ?member,
@@ -378,69 +367,70 @@ pub fn expand_member_glob(member: &str, parent: &Path, workspace_root: &Path) ->
                 error = ?e,
                 "workspace glob prefix unreadable; member skipped"
             );
-            return out;
+            return Vec::new();
         }
     };
-    for entry in entries {
-        let entry = match entry {
-            Ok(e) => e,
+    entries
+        .filter_map(|entry| match entry {
+            Ok(entry) => resolve_glob_entry(&entry.path(), parent, &canonical_root),
             Err(e) => {
                 tracing::warn!(
                     parent = ?parent.display(),
                     error = ?e,
                     "workspace glob entry unreadable; skipped"
                 );
-                continue;
+                None
             }
-        };
-        let path = entry.path();
-        // SEC-14: a workspace member reached through a symlink must still
-        // live inside the workspace. Resolve the entry, require containment
-        // in the canonical root, and then keep using the *resolved* path for
-        // the directory / `Cargo.toml` probes and the relative member string,
-        // so every downstream manifest read follows the path we validated
-        // rather than the symlink we were handed.
-        let canonical = match std::fs::canonicalize(&path) {
-            Ok(c) => c,
-            Err(e) => {
-                tracing::warn!(
-                    parent = ?parent.display(),
-                    entry = ?path.display(),
-                    error = ?e,
-                    "workspace glob entry could not be resolved; skipped"
-                );
-                continue;
-            }
-        };
-        if !canonical.starts_with(&canonical_root) {
+        })
+        .collect()
+}
+
+/// The member path one `read_dir(parent)` entry stands for: `path` resolved,
+/// relative to `canonical_root`, when it is a directory inside the workspace
+/// holding a `Cargo.toml`. `None` — with a warn unless the entry simply is not
+/// a crate directory — otherwise.
+///
+/// SEC-14: `read_dir` hands back entries that may be symlinks pointing
+/// anywhere on the filesystem, so a member reached through one must still
+/// resolve inside `canonical_root`. The directory / `Cargo.toml` probes and
+/// the returned string all use the *resolved* path, so every downstream
+/// manifest read follows the path that was validated rather than the symlink.
+fn resolve_glob_entry(path: &Path, parent: &Path, canonical_root: &Path) -> Option<String> {
+    let canonical = match std::fs::canonicalize(path) {
+        Ok(c) => c,
+        Err(e) => {
             tracing::warn!(
                 parent = ?parent.display(),
                 entry = ?path.display(),
-                resolved = ?canonical.display(),
-                "workspace glob entry resolves outside the workspace root; skipped"
+                error = ?e,
+                "workspace glob entry could not be resolved; skipped"
             );
-            continue;
+            return None;
         }
-        if !(canonical.is_dir() && canonical.join("Cargo.toml").exists()) {
-            continue;
-        }
-        let Ok(rel) = canonical.strip_prefix(&canonical_root) else {
-            continue;
-        };
-        // READ-5 (TASK-0946): non-UTF-8 member paths must not be lossily
-        // collapsed to U+FFFD.
-        match rel.to_str() {
-            Some(s) => out.push(s.to_string()),
-            None => {
-                tracing::warn!(
-                    parent = ?parent.display(),
-                    relpath = ?rel,
-                    "workspace glob member relpath is not valid UTF-8; skipping"
-                );
-            }
-        }
+    };
+    if !canonical.starts_with(canonical_root) {
+        tracing::warn!(
+            parent = ?parent.display(),
+            entry = ?path.display(),
+            resolved = ?canonical.display(),
+            "workspace glob entry resolves outside the workspace root; skipped"
+        );
+        return None;
     }
-    out
+    if !(canonical.is_dir() && canonical.join("Cargo.toml").exists()) {
+        return None;
+    }
+    let rel = canonical.strip_prefix(canonical_root).ok()?;
+    // READ-5: a non-UTF-8 member path must not be lossily collapsed to U+FFFD.
+    let Some(relpath) = rel.to_str() else {
+        tracing::warn!(
+            parent = ?parent.display(),
+            relpath = ?rel,
+            "workspace glob member relpath is not valid UTF-8; skipping"
+        );
+        return None;
+    };
+    Some(relpath.to_string())
 }
 
 /// Returns true if the glob shape goes beyond a single trailing `*` after
@@ -486,16 +476,14 @@ pub fn member_path_is_workspace_safe(member: &str) -> bool {
     !p.components().any(|c| matches!(c, Component::ParentDir))
 }
 
-/// DUP-1 / TASK-2160: shared reject-and-warn wrapper around
+/// DUP-1: shared reject-and-warn wrapper around
 /// [`member_path_is_workspace_safe`].
 ///
-/// The check-and-drop policy was previously copied at three call sites with
-/// three different warn messages, so a change to what rejection means had
-/// three places to land and no compiler signal when one was missed. Every
-/// site now routes through this helper, which emits one breadcrumb shape:
-/// `site` names the caller (so an operator can tell which surface dropped
-/// the member) and `member` is **Debug-formatted**, per the ERR-7 /
-/// TASK-0941 policy the sibling breadcrumbs in these files already follow —
+/// Every call site that drops an unsafe member routes through this helper,
+/// so what rejection means and how it is reported is defined once. It emits
+/// one breadcrumb shape: `site` names the caller (so an operator can tell
+/// which surface dropped the member) and `member` is **Debug-formatted**, per
+/// the ERR-7 policy the sibling breadcrumbs in these files follow —
 /// a `[workspace].members` entry is the same attacker-controlled surface as
 /// an `[workspace].exclude` pattern, and it is precisely the rejected
 /// (hostile-shaped) entries that reach this warn.
@@ -510,7 +498,7 @@ pub fn member_path_is_workspace_safe_or_warn(member: &str, site: &'static str) -
     tracing::warn!(
         member = ?member,
         site = site,
-        "SEC-14 / TASK-1246: rejecting absolute or `..` workspace member"
+        "rejecting absolute or `..` workspace member"
     );
     false
 }

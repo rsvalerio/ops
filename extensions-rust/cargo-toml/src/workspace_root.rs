@@ -466,32 +466,15 @@ fn manifest_declares_workspace(path: &Path) -> bool {
 /// into attacker-plantable ancestors (see the threat model on
 /// [`find_workspace_root`]).
 pub fn content_declares_workspace(content: &str) -> bool {
-    let mut in_multiline_string = false;
-    let mut multiline_delim: &str = "\"\"\"";
+    // The delimiter of the multi-line string still open at the start of the
+    // current line, if any.
+    let mut open_multiline: Option<&'static str> = None;
 
     for line in content.lines() {
         let trimmed = line.trim();
 
-        if in_multiline_string {
-            if trimmed.contains(multiline_delim) {
-                in_multiline_string = false;
-            }
-            continue;
-        }
-
-        if !trimmed.starts_with('[') {
-            let basic_count = trimmed.matches("\"\"\"").count();
-            let literal_count = trimmed.matches("'''").count();
-            if basic_count % 2 == 1 {
-                in_multiline_string = true;
-                multiline_delim = "\"\"\"";
-                continue;
-            }
-            if literal_count % 2 == 1 {
-                in_multiline_string = true;
-                multiline_delim = "'''";
-                continue;
-            }
+        if open_multiline.is_some() || !trimmed.starts_with('[') {
+            open_multiline = multiline_string_open_after(trimmed, open_multiline);
             continue;
         }
 
@@ -506,6 +489,67 @@ pub fn content_declares_workspace(content: &str) -> bool {
         }
     }
     false
+}
+
+/// Scan one line and report which multi-line string, if any, is still open at
+/// its end, as that string's delimiter (`"""` or `'''`).
+///
+/// `open` is the multi-line string already open at the start of the line.
+/// Outside a string a `#` starts a comment and ends the scan, so triple quotes
+/// in comment text (`# see """docs`, `a = 1 # '''`) open nothing; inside a
+/// single-line string neither `#` nor a triple quote means anything. Counting
+/// delimiter occurrences instead would let such a comment hide every
+/// following line, a real `[workspace]` header included.
+fn multiline_string_open_after(line: &str, open: Option<&'static str>) -> Option<&'static str> {
+    const BASIC: &str = "\"\"\"";
+    const LITERAL: &str = "'''";
+
+    let mut open = open;
+    let mut rest = line;
+    loop {
+        if let Some(delim) = open {
+            // Only a basic string has escapes: `\"""` does not close it.
+            let Some(after) = text_after_string_end(rest, delim, delim == BASIC) else {
+                return Some(delim);
+            };
+            rest = after;
+            open = None;
+        }
+        // Outside any string: find what comes first — a comment, a
+        // multi-line opener, or a single-line string to step over.
+        let start = rest.find(['#', '"', '\''])?;
+        let tail = rest.get(start..)?;
+        if tail.starts_with('#') {
+            return None;
+        }
+        if let Some(after) = tail.strip_prefix(BASIC) {
+            open = Some(BASIC);
+            rest = after;
+        } else if let Some(after) = tail.strip_prefix(LITERAL) {
+            open = Some(LITERAL);
+            rest = after;
+        } else {
+            // A single-line string. One left unterminated is invalid TOML and
+            // cannot span lines, so the scan ends with nothing open.
+            let quote = if tail.starts_with('"') { "\"" } else { "'" };
+            rest = text_after_string_end(tail.get(1..)?, quote, quote == "\"")?;
+        }
+    }
+}
+
+/// The text after the first `delim` in `s`, or `None` when `s` ends before
+/// the string closes. With `escapes`, a backslash consumes the character
+/// after it.
+fn text_after_string_end<'a>(s: &'a str, delim: &str, escapes: bool) -> Option<&'a str> {
+    let mut chars = s.char_indices();
+    while let Some((i, c)) = chars.next() {
+        if escapes && c == '\\' {
+            chars.next();
+        } else if let Some(after) = s.get(i..).and_then(|t| t.strip_prefix(delim)) {
+            return Some(after);
+        }
+    }
+    None
 }
 
 /// Given a trimmed line that starts with `[`, return the text between that

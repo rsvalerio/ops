@@ -50,6 +50,15 @@ Inspect the rows marked `unknown` before applying.\n"
     )
 }
 
+/// Renders the per-action count table and the closing `Plan: …` line.
+///
+/// The table has one `Action` / `Count` row for each action present in
+/// `changes`, followed by `Plan: N to add, N to change, N to destroy.`, where
+/// "change" counts updates and replacements together. `use_color` decides
+/// whether the action cells are coloured.
+///
+/// An empty `changes` returns the `No changes. Infrastructure is up-to-date.`
+/// line, never an empty string.
 #[must_use]
 pub fn render_summary_table(changes: &[ClassifiedChange], use_color: bool) -> String {
     let mut counts: HashMap<Action, usize> = HashMap::new();
@@ -191,6 +200,14 @@ fn summarize_changed(changed: &[String]) -> String {
     }
 }
 
+/// Renders the `Output` / `Action` table for a plan's output changes.
+///
+/// `outputs` maps each output name to its change object, whose `actions`
+/// array decides the row's action. When any output's action cannot be read,
+/// a `WARNING:` banner naming the count precedes the table. `use_color`
+/// decides whether the action cells are coloured.
+///
+/// An empty `outputs` returns an empty string, so the caller prints nothing.
 #[must_use]
 pub fn render_outputs_table(
     outputs: &serde_json::Map<String, serde_json::Value>,

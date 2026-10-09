@@ -1,10 +1,10 @@
 ---
 id: TASK-2366
 title: 'FN-1: parse_action_line is ~125 lines and relies on unreachable! arms for an invariant ACTION_PREFIXES holds only by convention'
-status: To Do
+status: Done
 assignee: []
 created_date: '2026-10-04 14:11'
-updated_date: '2026-10-04 14:52'
+updated_date: '2026-10-04 15:27'
 labels:
   - code-review-rust
   - FN
@@ -31,7 +31,14 @@ dedup_key: 'FN-1:extensions-rust/cargo-update/src/lib.rs:parse_action_line'
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 parse_action_line is split into helpers each under 50 lines
-- [ ] #2 No unreachable! arms remain; Arrow-vs-single-version pairing cannot be expressed incorrectly
-- [ ] #3 Name and version validation exists in one place
+- [x] #1 parse_action_line is split into helpers each under 50 lines
+- [x] #2 No unreachable! arms remain; Arrow-vs-single-version pairing cannot be expressed incorrectly
+- [x] #3 Name and version validation exists in one place
+
 <!-- AC:END -->
+
+## Implementation Notes
+
+<!-- SECTION:NOTES:BEGIN -->
+Landed in wave TASK-2417. VersionShape removed: ACTION_PREFIXES maps verb to UpdateAction only, and parse_action_line matches exhaustively on the action to pick parse_arrow_line or parse_single_version_line plus the entry variant, so no unreachable! arm remains. Name and version validation lives in validate_fields.
+<!-- SECTION:NOTES:END -->

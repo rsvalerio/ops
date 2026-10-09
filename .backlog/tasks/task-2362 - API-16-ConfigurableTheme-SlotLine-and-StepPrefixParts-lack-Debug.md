@@ -1,10 +1,10 @@
 ---
 id: TASK-2362
 title: 'API-16: ConfigurableTheme, SlotLine and StepPrefixParts lack Debug'
-status: To Do
+status: Done
 assignee: []
 created_date: '2026-10-04 14:10'
-updated_date: '2026-10-04 14:52'
+updated_date: '2026-10-04 15:52'
 labels:
   - code-review-rust
   - API
@@ -30,6 +30,7 @@ dedup_key: 'API-16:crates/theme/src/configurable.rs:ConfigurableTheme'
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 ConfigurableTheme, SlotLine and StepPrefixParts derive Debug (and Clone where cheap and sensible)
-- [ ] #2 cargo clippy --workspace passes
+- [x] #1 ConfigurableTheme, SlotLine and StepPrefixParts derive Debug (and Clone where cheap and sensible)
+- [x] #2 cargo clippy --workspace passes
+
 <!-- AC:END -->

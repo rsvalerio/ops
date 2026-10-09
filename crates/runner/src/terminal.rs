@@ -63,6 +63,10 @@ pub struct EchoGuard {
 
 impl EchoGuard {
     /// Disable echo on stderr's terminal. Returns a guard that restores echo on drop.
+    #[expect(
+        unsafe_code,
+        reason = "tcgetattr/tcsetattr FFI; each block carries its SAFETY comment"
+    )]
     pub fn disable_echo() -> Self {
         #[cfg(unix)]
         {
@@ -139,6 +143,10 @@ impl EchoGuard {
 }
 
 impl Drop for EchoGuard {
+    #[expect(
+        unsafe_code,
+        reason = "tcsetattr FFI restoring the saved termios; see the SAFETY comment"
+    )]
     fn drop(&mut self) {
         #[cfg(unix)]
         {

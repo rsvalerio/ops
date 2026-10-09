@@ -31,78 +31,43 @@ pub fn init_schema(db: &Sqlite) -> DbResult<()> {
     Ok(())
 }
 
-/// Get stored checksum for a source and workspace, if any.
+/// The `source_name` half of the `data_sources` primary key.
 ///
-/// API-5 / TASK-1626: the returned `Option<String>` is the signal callers
-/// consult to decide whether to skip reloading a data source. Dropping it
-/// silently treats "never ingested" identically to "already current".
-// READ-10 / TASK-1873: `schema` is a private module and this helper is not
-// re-exported, so outside `cfg(test)` it genuinely has no caller. The
-// suppression is scoped to exactly that case and states why, and `expect`
-// makes it delete itself the moment a production caller appears.
-#[cfg_attr(
-    not(test),
-    expect(
-        dead_code,
-        reason = "API-5 contract helper with no production caller yet; exercised by the crate's own tests"
-    )
-)]
-#[must_use = "the Some/None distinguishes 'already ingested' from 'never ingested'; discarding it skips reload checks"]
-pub fn get_source_checksum(
-    db: &Sqlite,
-    source_name: &str,
-    workspace_root: &str,
-) -> DbResult<Option<String>> {
-    let conn = db.lock()?;
-    let mut stmt = conn
-        .prepare("SELECT checksum FROM data_sources WHERE source_name = ? AND workspace_root = ?")
-        .map_err(|e| DbError::query_failed("get_source_checksum", e))?;
-    let row = stmt.query_row(rusqlite::params![source_name, workspace_root], |r| {
-        r.get::<_, String>(0)
-    });
-    // CONC-1: release the connection guard before mapping the row outcome.
-    // `stmt` borrows `conn`, so it has to go first.
-    drop(stmt);
-    drop(conn);
-    match row {
-        Ok(s) => Ok(Some(s)),
-        Err(rusqlite::Error::QueryReturnedNoRows) => Ok(None),
-        Err(e) => Err(DbError::Sqlite(e)),
-    }
-}
-
-/// API-2 / TASK-0912: distinct newtypes for the two adjacent `&str`
-/// parameters of [`DataSourceMetadata::new`].
-///
-/// Both halves of the `(source_name, workspace_root)` primary key were
-/// silently swappable before; a swap silently wrote rows under the
-/// wrong key, producing duplicate ingest records and divergent
-/// checksums no future run could reconcile. Swap is now a compile
-/// error.
+/// A distinct type from [`WorkspaceRoot`] so the two adjacent key arguments
+/// of [`DataSourceMetadata::new`] cannot be swapped: a swap would write the
+/// row under the wrong key, and it is a compile error instead.
 #[derive(Debug, Clone, Copy)]
 pub struct SourceName<'a>(&'a str);
 
 impl<'a> SourceName<'a> {
+    /// Wraps `name` as a data-source name.
     #[must_use]
     pub const fn new(name: &'a str) -> Self {
         Self(name)
     }
 
+    /// The wrapped source name.
     #[must_use]
     pub const fn as_str(&self) -> &'a str {
         self.0
     }
 }
 
+/// The `workspace_root` half of the `data_sources` primary key.
+///
+/// Holds the root's raw OS string; see [`SourceName`] for why the two key
+/// halves are distinct types.
 #[derive(Debug, Clone, Copy)]
 pub struct WorkspaceRoot<'a>(&'a std::ffi::OsStr);
 
 impl<'a> WorkspaceRoot<'a> {
+    /// Wraps `root` as a workspace root.
     #[must_use]
     pub const fn new(root: &'a std::ffi::OsStr) -> Self {
         Self(root)
     }
 
+    /// The wrapped workspace root.
     #[must_use]
     pub const fn as_os_str(&self) -> &'a std::ffi::OsStr {
         self.0
@@ -112,14 +77,20 @@ impl<'a> WorkspaceRoot<'a> {
 /// Metadata describing a loaded data source row.
 #[non_exhaustive]
 pub struct DataSourceMetadata<'a> {
+    /// Name of the source that was loaded; first half of the primary key.
     pub source_name: &'a str,
+    /// Workspace the data was collected from; second half of the primary key.
     pub workspace_root: &'a std::ffi::OsStr,
+    /// Path of the staged file the rows were loaded from, as a label.
     pub source_path: &'a Path,
+    /// Rows the load landed in the database.
     pub record_count: u64,
+    /// SHA-256 of the staged file, as lowercase hex.
     pub checksum: &'a str,
 }
 
 impl<'a> DataSourceMetadata<'a> {
+    /// Builds the row for `source_name` in `workspace_root`.
     #[must_use]
     pub const fn new(
         source_name: SourceName<'a>,
@@ -140,18 +111,11 @@ impl<'a> DataSourceMetadata<'a> {
 
 /// Upsert a `data_sources` row after a load.
 ///
-/// Fails fast with [`DbError::NonUtf8Path`] when `source_path` is not valid
-/// UTF-8 — the previous lossy conversion silently stored a string that
-/// could not be mapped back to the actual file (ERR-4).
-///
-/// ERR-1 / TASK-1103: the same fail-fast contract is mirrored in
-/// `ops_about::identity::build_identity_value`, which rejects a non-UTF-8
-/// `cwd` with a typed [`ops_extension::DataProviderError`] instead of
-/// shipping `U+FFFD`-mangled bytes into the `project_root` JSON field.
-/// Any path persisted into a downstream consumer (this SQLite row, the
-/// `ProjectIdentity` JSON, audit logs) must round-trip faithfully — so
-/// the two callsites share one policy: typed error on non-UTF-8, no
-/// lossy `Path::display` / `to_string_lossy` shortcut.
+/// A path persisted here must map back to the actual file, so a `source_path`
+/// or workspace root that is not valid UTF-8 is rejected with
+/// [`DbError::NonUtf8Path`] rather than stored through a lossy conversion.
+/// `ops_about::identity::build_identity_value` applies the same policy to the
+/// `project_root` it serializes.
 ///
 /// # Errors
 ///
@@ -162,11 +126,9 @@ pub fn upsert_data_source(db: &Sqlite, meta: &DataSourceMetadata<'_>) -> DbResul
         .source_path
         .to_str()
         .ok_or_else(|| DbError::NonUtf8Path(meta.source_path.as_os_str().to_os_string()))?;
-    // ERR-4 / TASK-0928: now that `read_workspace_sidecar` preserves raw
-    // OS bytes verbatim (matching the writer's `as_encoded_bytes`), reject
-    // a non-UTF-8 workspace_root with the same typed error used for
-    // `source_path` rather than letting a lossy `to_string_lossy` ship a
-    // garbled key into the `(source_name, workspace_root)` PK.
+    // `read_workspace_sidecar` preserves raw OS bytes verbatim, so the root
+    // may not be UTF-8; a lossy conversion would ship a garbled key into the
+    // `(source_name, workspace_root)` primary key.
     let workspace_root_str = meta
         .workspace_root
         .to_str()
@@ -212,12 +174,27 @@ mod tests {
             .unwrap();
     }
 
+    /// The checksum stored for `(source_name, workspace_root)`, if any.
+    fn stored_checksum(db: &Sqlite, source_name: &str, workspace_root: &str) -> Option<String> {
+        use rusqlite::OptionalExtension as _;
+        let conn = db.lock().unwrap();
+        let checksum = conn
+            .query_row(
+                "SELECT checksum FROM data_sources WHERE source_name = ? AND workspace_root = ?",
+                rusqlite::params![source_name, workspace_root],
+                |r| r.get::<_, String>(0),
+            )
+            .optional()
+            .unwrap();
+        drop(conn);
+        checksum
+    }
+
     #[test]
-    fn get_source_checksum_none_when_empty() {
+    fn data_sources_is_empty_after_init() {
         let db = Sqlite::open_in_memory().unwrap();
         init_schema(&db).unwrap();
-        let c = get_source_checksum(&db, "metadata", "/ws").unwrap();
-        assert!(c.is_none());
+        assert!(stored_checksum(&db, "metadata", "/ws").is_none());
     }
 
     #[test]
@@ -278,7 +255,7 @@ mod tests {
     }
 
     #[test]
-    fn upsert_and_get_source_checksum() {
+    fn upsert_stores_and_replaces_the_checksum() {
         let db = Sqlite::open_in_memory().unwrap();
         init_schema(&db).unwrap();
         upsert_data_source(
@@ -292,7 +269,25 @@ mod tests {
             ),
         )
         .unwrap();
-        let c = get_source_checksum(&db, "metadata", "/ws").unwrap();
-        assert_eq!(c.as_deref(), Some("abc123"));
+        assert_eq!(
+            stored_checksum(&db, "metadata", "/ws").as_deref(),
+            Some("abc123")
+        );
+
+        upsert_data_source(
+            &db,
+            &DataSourceMetadata::new(
+                SourceName::new("metadata"),
+                WorkspaceRoot::new(std::ffi::OsStr::new("/ws")),
+                Path::new("/ws/target/ops/metadata.json"),
+                2,
+                "def456",
+            ),
+        )
+        .unwrap();
+        assert_eq!(
+            stored_checksum(&db, "metadata", "/ws").as_deref(),
+            Some("def456")
+        );
     }
 }

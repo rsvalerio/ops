@@ -1,10 +1,10 @@
 ---
 id: TASK-2377
 title: 'API-14: MetadataProvider::schema documents a typed accessor API the provider does not return'
-status: To Do
+status: Done
 assignee: []
 created_date: '2026-10-04 14:13'
-updated_date: '2026-10-04 14:52'
+updated_date: '2026-10-04 15:02'
 labels:
   - code-review-rust
   - API
@@ -29,6 +29,7 @@ dedup_key: 'API-14:extensions-rust/metadata/src/lib.rs:MetadataProvider::schema'
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 schema() lists only keys present in the returned JSON, using cargo metadata's real names (workspace_members, workspace_default_members, packages[].dependencies[].req, ...)
-- [ ] #2 A test compares schema field names against the keys of a real or fixture cargo metadata document
+- [x] #1 schema() lists only keys present in the returned JSON, using cargo metadata's real names (workspace_members, workspace_default_members, packages[].dependencies[].req, ...)
+- [x] #2 A test compares schema field names against the keys of a real or fixture cargo metadata document
+
 <!-- AC:END -->

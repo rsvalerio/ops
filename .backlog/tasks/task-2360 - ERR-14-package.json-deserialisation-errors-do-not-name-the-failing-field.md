@@ -1,10 +1,10 @@
 ---
 id: TASK-2360
 title: 'ERR-14: package.json deserialisation errors do not name the failing field'
-status: To Do
+status: Done
 assignee: []
 created_date: '2026-10-04 14:10'
-updated_date: '2026-10-04 14:52'
+updated_date: '2026-10-04 16:14'
 labels:
   - code-review-rust
   - err
@@ -32,6 +32,13 @@ dedup_key: 'ERR-14:extensions-node/about/src/package_json.rs:parse_package_json'
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 Parse-failure warn records include the JSON field path of the failure
-- [ ] #2 A test with a wrong-typed license/repository/workspaces field asserts the path appears in the warn
+- [x] #1 Parse-failure warn records include the JSON field path of the failure
+- [x] #2 A test with a wrong-typed license/repository/workspaces field asserts the path appears in the warn
+
 <!-- AC:END -->
+
+## Implementation Notes
+
+<!-- SECTION:NOTES:BEGIN -->
+Also routed the per-member PackageProbe parse in collect_units through serde_path_to_error so member manifests name the failing field too.
+<!-- SECTION:NOTES:END -->

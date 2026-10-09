@@ -107,7 +107,7 @@ pub(crate) fn create_task(
     let mut attempts_left = CREATE_ATTEMPTS;
     loop {
         attempts_left = attempts_left.saturating_sub(1);
-        let number = store.next_task_number();
+        let number = store.next_task_number()?;
         let id = format_task_id(&cfg.task_prefix, number, cfg.zero_padded_ids);
         let file_name = main_task_file_name(number, cfg.zero_padded_ids, &opts.title);
         let path = store.task_path(&file_name);

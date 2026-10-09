@@ -1,10 +1,9 @@
 //! Config passthrough accessors.
 //!
-//! ARCH-1 / TASK-1981: these one- and two-line forwarders exist because the
-//! `ThemeConfig` fields went private in TASK-0748. They carry no logic but
-//! dominated the public surface of `configurable.rs`, interleaved with the
-//! column arithmetic that most needs careful reading. They are the same
-//! methods on the same type — only their file changed.
+//! One- and two-line forwarders over the private `ThemeConfig` held by
+//! [`ConfigurableTheme`]. They carry no logic and live in their own file so
+//! they do not interleave with the column arithmetic in `configurable.rs`,
+//! which most needs careful reading.
 
 use ops_core::output::StepStatus;
 

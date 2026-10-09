@@ -1,10 +1,10 @@
 ---
 id: TASK-2393
 title: 'CL-3: SHORTNAME doc contradicts its value'
-status: To Do
+status: Done
 assignee: []
 created_date: '2026-10-04 14:15'
-updated_date: '2026-10-04 14:52'
+updated_date: '2026-10-04 15:59'
 labels:
   - code-review-rust
   - clarity
@@ -29,6 +29,13 @@ dedup_key: 'CL-3:extensions/config-checkers/src/lib.rs:SHORTNAME'
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 SHORTNAME doc accurately describes how the value is used
-- [ ] #2 If the value was meant to be a subcommand, it is corrected and covered by a test
+- [x] #1 SHORTNAME doc accurately describes how the value is used
+- [x] #2 If the value was meant to be a subcommand, it is corrected and covered by a test
+
 <!-- AC:END -->
+
+## Implementation Notes
+
+<!-- SECTION:NOTES:BEGIN -->
+AC#2 is conditional and its condition does not hold: SHORTNAME is the extension-listing identifier, not a subcommand (the subcommands are check-json and check-yaml), so the value is unchanged and only the doc was corrected.
+<!-- SECTION:NOTES:END -->

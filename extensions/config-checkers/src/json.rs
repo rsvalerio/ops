@@ -70,8 +70,7 @@ enum Scan {
 /// JSON5 ends a `//` comment at LF, CR, U+2028 or U+2029 — not LF alone.
 /// Recognising only LF strands the scanner inside the comment for the rest
 /// of the input, so it measures depth 0 for a document the real parser still
-/// nests, and the guard this scan exists to arm waves it through
-/// (SEC-33 / TASK-1809).
+/// nests, and the guard this scan exists to arm waves it through.
 ///
 /// U+2028 and U+2029 encode as `E2 80 A8` / `E2 80 A9`; every byte is
 /// non-ASCII, so matching them cannot collide with the ASCII structure bytes

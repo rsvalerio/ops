@@ -41,6 +41,9 @@
 //! - Rewrites go through [`atomic::replace`]: temp file in the same directory,
 //!   `fsync`, then `rename(2)`. There is no window in which the target is
 //!   short. See that module for the hard-link trade this makes.
+//! - A rewrite is refused when the file changed on disk after it was read, or
+//!   when a directory above it has become a symlink; the file is reported as
+//!   failed and left as it is.
 //! - Symlinks are never followed; see [`discovery`]'s symlink policy.
 //! - Reads are bounded by [`FixerOptions::max_bytes`], enforced on the read
 //!   itself rather than by a preceding `metadata()` call.
@@ -66,10 +69,15 @@ pub use options::{FixerOptions, DEFAULT_MAX_BYTES};
 pub use report::{write_summary, FailedFile, FailureKind, FixerReport, SkipReason};
 pub use runner::{run_end_of_file_fixer, run_trailing_whitespace};
 
+/// Extension name, as registered with the extension registry.
 pub const NAME: &str = "text-fixers";
+/// One-line description shown in extension listings.
 pub const DESCRIPTION: &str = "Trailing whitespace and end-of-file fixers";
+/// Short identifier shown in the `Shortname` column of the extension
+/// listing; the same as [`NAME`].
 pub const SHORTNAME: &str = "text-fixers";
 
+/// The `text-fixers` extension: registers both fixers and their `-check` twins.
 pub struct TextFixersExtension;
 
 ops_extension::impl_extension! {
@@ -86,7 +94,7 @@ ops_extension::impl_extension! {
     ],
     data_provider_name: None,
     register_commands: |_self, registry| {
-        // SEC-13 / TASK-2122: `ops_subcommand` spawns the absolute
+        // `ops_subcommand` spawns the absolute
         // current_exe()-resolved binary (a bare "ops" resolves through PATH,
         // where a shim could shadow it). Both fixers rewrite files other steps
         // read, so they keep its exclusive default.
@@ -97,7 +105,7 @@ ops_extension::impl_extension! {
                     ops_core::config::ExecCommandSpec::ops_subcommand(subcommand),
                 ),
             );
-            // TASK-2322: the `--check` twin every stack's `verify` runs.
+            // The `--check` twin every stack's `verify` runs.
             // It never writes, so it may overlap the other readers.
             registry.insert(
                 format!("{subcommand}-check").into(),

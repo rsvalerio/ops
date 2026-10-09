@@ -1,61 +1,53 @@
-//! Shared process-local cache for raw manifest text (DUP-1 / TASK-0973).
+//! Shared process-local cache for raw manifest text.
 //!
 //! Node's `package.json` and Python's `pyproject.toml` providers both need
 //! the same primitive: read a manifest once per process per project root,
 //! hand subsequent callers a shared `Arc<str>` so they parse-without-clone
-//! into their typed projection (PERF-3 / TASK-0854).
+//! into their typed projection.
 //!
 //! This module owns the policy — cap, poison recovery, log wording — so the
-//! per-stack wrappers reduce to a one-liner naming a filename. Without this
-//! consolidation each future fix (cap policy, LRU swap, one-shot poison
-//! signal) had to be made N times and was already drifting between copies.
+//! per-stack wrappers reduce to a one-liner naming a filename.
 //!
 //! # Tests
+//!
 //! Tests must construct a local [`ArcTextCache`] rather than reuse a static,
 //! otherwise the `OnceLock<Mutex<...>>` is shared across the entire test
-//! binary and ordering / poisoning bleeds between tests
-//! (TEST-18 / TASK-0956). Production code keeps its `static
-//! ArcTextCache::new(...)` and benefits from the cross-call dedup.
+//! binary and ordering / poisoning bleeds between tests. Production code
+//! keeps its `static ArcTextCache::new(...)` and benefits from the
+//! cross-call dedup.
 //!
-//! ARCH-1 / TASK-0867 + TASK-1106: residency is hard-capped at
-//! [`CACHE_MAX_ENTRIES`]. When the cap is hit and a new key arrives, the
-//! least-recently-used entry is evicted. The previous policy cleared the
-//! entire map on overflow — long-running embedders (LSP-style hosts,
-//! watchers) re-entering paths at a steady rate paid the full re-read cost
-//! in unison after each eviction storm.
+//! # Eviction policy
 //!
-//! DUP-1 / TASK-1145: the LRU bookkeeping (monotonic tick + min-heap victim
-//! queue with lazy invalidation) is shared with the sibling
-//! `typed_manifest_cache` in `extensions-rust/about/src/query.rs` via
-//! [`crate::lru`]. Both caches still own their own value type and cap, but
-//! the eviction *policy shape* lives in one source location so a future
-//! tweak cannot drift between them.
+//! Residency is hard-capped at [`CACHE_MAX_ENTRIES`]. When the cap is hit
+//! and a new key arrives, only the least-recently-used entry is evicted, so
+//! long-running embedders (LSP-style hosts, watchers) re-entering paths at
+//! a steady rate do not pay a full re-read of every manifest at once.
 //!
-//! DUP-1 / TASK-2257: the entry map itself is now
-//! [`crate::lru::BoundedLruCache`] — this module used to hand-roll the same
-//! record/evict scaffold on the raw [`crate::lru`] primitives the shared
-//! type had already lifted. The one policy the shared type did not model,
-//! in-flight-entry pinning (CONC-1 / TASK-1144), rides the shared type's
-//! eviction-candidate filter instead of a local eviction loop.
+//! The entry map is [`crate::lru::BoundedLruCache`], shared with the sibling
+//! `typed_manifest_cache` in `extensions-rust/about/src/manifest_cache.rs`. Both
+//! caches own their own value type and cap, but the eviction policy
+//! (monotonic tick + min-heap victim queue with lazy invalidation) has a
+//! single definition. The one policy specific to this cache, in-flight-entry
+//! pinning, is expressed as the shared type's eviction-candidate filter
+//! (see [`is_evictable`]).
 //!
 //! # Freshness policy
 //!
-//! PERF-16 / TASK-1723: the cache has **no TTL and no automatic
-//! invalidation**, by design. An entry is read once and its `Arc<str>` is
-//! pinned until the entry is evicted at the cap or the process exits; no
-//! mtime is recorded and none is re-checked. That is correct for the CLI,
-//! where a process is one command and a manifest cannot change underneath
-//! it, and it is what makes the `Arc::ptr_eq` dedup contract (PERF-3 /
-//! TASK-0854) hold.
+//! The cache has **no TTL and no automatic invalidation**, by design. An
+//! entry is read once and its `Arc<str>` is pinned until the entry is
+//! evicted at the cap or the process exits; no mtime is recorded and none
+//! is re-checked. That is correct for the CLI, where a process is one
+//! command and a manifest cannot change underneath it, and it is what makes
+//! the `Arc::ptr_eq` dedup contract hold.
 //!
-//! The consequence falls on the long-running embedders named above: an
-//! LSP-style host or watcher that keeps one process alive across edits to a
-//! `package.json` keeps being handed the pre-edit text indefinitely.
+//! The consequence falls on long-running embedders: an LSP-style host or
+//! watcher that keeps one process alive across edits to a `package.json`
+//! keeps being handed the pre-edit text indefinitely.
 //! [`ArcTextCache::invalidate`] is the remedy — such a host should call it
-//! for a root when it observes a write to that root's manifest. Adding an
-//! mtime check to `read` instead was rejected deliberately: it puts a `stat`
-//! on the hot path of every cache hit for a staleness window only daemon
-//! hosts can observe, and only they know when their own edits land.
+//! for a root when it observes a write to that root's manifest. `read` does
+//! not check the mtime itself: that would put a `stat` on the hot path of
+//! every cache hit for a staleness window only daemon hosts can observe,
+//! and only they know when their own edits land.
 
 use crate::lru::BoundedLruCache;
 use std::path::{Path, PathBuf};
@@ -63,23 +55,21 @@ use std::sync::{Arc, Mutex, OnceLock};
 
 /// Per-key cache value: a shared slot whose `OnceLock` holds the read text.
 ///
-/// CONC-1 / TASK-1144: the per-key `OnceLock` lets distinct paths run their
+/// The per-key `OnceLock` lets distinct paths run their
 /// `read_optional_text` IO in parallel — only same-path readers serialise on
 /// the inner once-init while the outer cache mutex is released across the
-/// (potentially multi-megabyte) read. The previous shape held the outer
-/// mutex across the file read so unrelated readers stalled on disk IO of
-/// each other's manifests, collapsing concurrent reads to single-threaded
-/// under daemon hosts (LSP/watchers).
+/// (potentially multi-megabyte) read, so unrelated readers never stall on
+/// the disk IO of each other's manifests.
 ///
-/// A `None` payload inside the `OnceLock` marks a previously-attempted read
+/// A `None` payload inside the `OnceLock` marks an already-attempted read
 /// of a missing/unreadable manifest so the negative result is also
 /// amortised across calls.
 type CacheSlot = Arc<OnceLock<Option<Arc<str>>>>;
 
 /// Entry map plus the LRU victim queue that bounds it — the shared
-/// [`BoundedLruCache`] scaffold (DUP-1 / TASK-2257).
+/// [`BoundedLruCache`] scaffold.
 ///
-/// PERF-1 / TASK-1240: the victim queue is a min-heap of
+/// The victim queue is a min-heap of
 /// `(last_accessed, path)` pairs, so cap-bound eviction picks the
 /// least-recently-used entry in `O(log n)` (heap pop with lazy
 /// invalidation) instead of an `O(n)` `min_by_key` scan over the whole map.
@@ -92,18 +82,20 @@ type CacheSlot = Arc<OnceLock<Option<Arc<str>>>>;
 /// [`is_evictable`] below.
 type CacheMap = BoundedLruCache<PathBuf, CacheSlot>;
 
-/// CONC-1 / TASK-1144: an entry whose `OnceLock` has not been initialised
-/// yet is *in flight* — another thread inserted it, released the outer
-/// mutex, and is currently reading the file. Evicting it there breaks the
-/// per-process Arc dedup contract: the next reader for the same root finds
-/// no entry, inserts a second slot, and re-reads the file, so the two
-/// callers get `Arc`s that are equal but not `ptr_eq`.
+/// Whether `slot` may be evicted: only once its read has completed.
+///
+/// An entry whose `OnceLock` has not been initialised yet is *in flight* —
+/// another thread inserted it, released the outer mutex, and is currently
+/// reading the file. Evicting it there would break the per-process Arc
+/// dedup contract: the next reader for the same root finds no entry,
+/// inserts a second slot, and re-reads the file, so the two callers get
+/// `Arc`s that are equal but not `ptr_eq`.
 ///
 /// In-flight entries are therefore pinned — not eviction candidates until
 /// initialisation completes. The cache may sit transiently above its cap
 /// rather than duplicate a read; the overshoot is bounded by the number of
-/// concurrent first-time readers. DUP-1 / TASK-2257: the pin rides
-/// [`BoundedLruCache::insert_filtered`] as an eviction-candidate filter.
+/// concurrent first-time readers. The pin is passed to
+/// [`BoundedLruCache::insert_filtered`] as its eviction-candidate filter.
 fn is_evictable(slot: &CacheSlot) -> bool {
     slot.get().is_some()
 }
@@ -149,19 +141,17 @@ impl ArcTextCache {
             .cache
             .get_or_init(|| Mutex::new(BoundedLruCache::new(CACHE_MAX_ENTRIES)));
         let path = root.join(self.filename);
-        // CONC-1 / TASK-1144: take the outer mutex only long enough to
-        // get-or-insert a per-key OnceLock and bump the LRU tick. The
-        // file read happens *outside* this lock so distinct paths run
-        // their `read_optional_text` IO in parallel — only same-path
-        // readers serialise on the inner OnceLock and observe a single
-        // Arc, preserving the PERF-3 / TASK-0854 dedup contract.
+        // Take the outer mutex only long enough to get-or-insert a per-key
+        // OnceLock and bump the LRU tick. The file read happens *outside*
+        // this lock so distinct paths run their `read_optional_text` IO in
+        // parallel — only same-path readers serialise on the inner OnceLock
+        // and observe a single Arc, preserving the dedup contract.
         //
-        // ERR-5 / TASK-0878: recover from poisoning by inheriting the
-        // inner map. The cache value is the raw file text, not
-        // authoritative state, so a panic in a previous holder cannot
-        // leave a torn invariant; treating poison as fatal would let one
-        // panic permanently brick the cache for every other provider in
-        // the process.
+        // Recover from poisoning by inheriting the inner map. The cache
+        // value is the raw file text, not authoritative state, so a panic
+        // in an earlier holder cannot leave a torn invariant; treating
+        // poison as fatal would let one panic permanently brick the cache
+        // for every other provider in the process.
         let entry_slot: CacheSlot = {
             let mut guard = ops_core::sync::lock_recover_with(cache, || {
                 tracing::warn!(
@@ -175,25 +165,19 @@ impl ArcTextCache {
             // does not borrow-check. The if/else is load-bearing.
             #[allow(clippy::option_if_let_else)]
             if let Some(slot) = guard.touch(&path) {
-                // ARCH-1 / TASK-1106: `touch` bumps the LRU tick on hit so
-                // frequently accessed manifests survive eviction in a daemon
-                // visiting many roots (mirroring TASK-1023's
-                // typed-manifest-cache policy). PERF-1 / TASK-1240: it also
-                // pushes the fresh tick onto the victim heap, the older
-                // `(prev_tick, path)` entry staying behind as stale; and
-                // PERF-16 / TASK-1723: it compacts the queue on the growth
-                // threshold, so stamping cannot leak one queue entry per hit
-                // while the map sits below the cap.
+                // `touch` bumps the LRU tick on hit so frequently accessed
+                // manifests survive eviction in a daemon visiting many
+                // roots. It also pushes the fresh tick onto the victim heap
+                // (the older `(prev_tick, path)` entry stays behind as
+                // stale) and compacts the queue on the growth threshold, so
+                // stamping cannot leak one queue entry per hit while the map
+                // sits below the cap.
                 Arc::clone(slot)
             } else {
-                // ARCH-1 / TASK-1106 + PERF-1 / TASK-1240: the shared
-                // insert preamble cap-evicts by the smallest
-                // `last_accessed` tick (LRU, O(log n) via the min-heap
-                // with lazy invalidation) instead of clearing the whole
-                // map — the previous full-flush caused eviction storms
-                // for long-running hosts. CONC-1 / TASK-1144: entries
-                // whose read is still in flight are pinned by the
-                // `is_evictable` filter, never evicted.
+                // The insert cap-evicts the entry with the smallest
+                // `last_accessed` tick (LRU, O(log n) via the min-heap with
+                // lazy invalidation). Entries whose read is still in flight
+                // are pinned by the `is_evictable` filter, never evicted.
                 let slot: CacheSlot = Arc::new(OnceLock::new());
                 if let Some(victim) =
                     guard.insert_filtered(path.clone(), Arc::clone(&slot), is_evictable)
@@ -210,7 +194,7 @@ impl ArcTextCache {
                         || guard.values().any(|slot| slot.get().is_none()),
                     "manifest cache exceeded cap of {CACHE_MAX_ENTRIES} with no in-flight entry pinning it"
                 );
-                // CONC-1: release the outer mutex before the file read
+                // Release the outer mutex before the file read
                 // below — the whole point of the per-key `OnceLock`
                 // design. The guard leaves the hit branch the same way,
                 // at the end of this block.
@@ -231,8 +215,8 @@ impl ArcTextCache {
     /// Drop any cached text for `<root>/<self.filename>`, so the next
     /// [`Self::read`] re-reads the file.
     ///
-    /// PERF-16 / TASK-1723: the explicit half of the "no TTL" policy
-    /// documented at the module level. A long-running embedder that watches
+    /// The explicit half of the "no TTL" policy documented at the module
+    /// level. A long-running embedder that watches
     /// the filesystem calls this when it sees the manifest change; nothing
     /// else invalidates an entry short of cap eviction. Returns `true` when
     /// an entry was actually removed, so a caller can tell a real
@@ -242,7 +226,7 @@ impl ArcTextCache {
     /// as stale by the next eviction sweep or compaction, exactly like the
     /// superseded stamps a re-read leaves behind.
     ///
-    /// Callers already holding an `Arc<str>` from a previous read keep it —
+    /// Callers already holding an `Arc<str>` from an earlier read keep it —
     /// invalidation affects future reads only, and the next reader gets a
     /// fresh `Arc` that is deliberately *not* `ptr_eq` with the old one.
     pub fn invalidate(&self, root: &Path) -> bool {
@@ -250,8 +234,8 @@ impl ArcTextCache {
             return false;
         };
         let path = root.join(self.filename);
-        // DUP-1 / TASK-2258: recovery (and its filename-tagged breadcrumb)
-        // is `ops_core::sync`'s policy, not this module's.
+        // Recovery (and its filename-tagged breadcrumb) is
+        // `ops_core::sync`'s policy, not this module's.
         let mut guard = ops_core::sync::lock_recover_warn(cache, self.filename);
         guard.remove(&path).is_some()
     }
@@ -264,26 +248,24 @@ impl ArcTextCache {
     }
 }
 
-/// DUP-3 / TASK-1166: per-process accessor returning the cached text for
+/// Per-process accessor returning the cached text for
 /// `<root>/<filename>`.
 ///
-/// Lifts the per-stack `manifest_cache.rs` wrappers (`package_json_text`,
-/// `pyproject_text`) onto a single entry point so a future stack (e.g.
-/// `go.mod`) doesn't grow a third byte-equivalent shim. The static
-/// `OnceLock` map is keyed by `&'static str` filename, so every consumer
-/// naming the same filename shares the same `ArcTextCache` — preserving
-/// the per-process Arc dedup contract that PERF-3 / TASK-0854 relies on.
+/// The single entry point for per-stack manifest text (`package.json`,
+/// `pyproject.toml`, ...). The registry is keyed by `&'static str`
+/// filename, so every consumer naming the same filename shares the same
+/// `ArcTextCache`, preserving the per-process Arc dedup contract.
 ///
-/// The two extant filenames (`package.json`, `pyproject.toml`) bind eagerly
-/// at first call; subsequent calls reuse the same `ArcTextCache` instance.
+/// A filename's cache is created on its first call; subsequent calls reuse
+/// the same `ArcTextCache` instance.
 #[must_use = "read through the returned cache handle; it is the process-wide instance"]
 pub fn for_filename(filename: &'static str) -> &'static ArcTextCache {
     use std::collections::HashMap as StdHashMap;
     static REGISTRY: OnceLock<Mutex<StdHashMap<&'static str, &'static ArcTextCache>>> =
         OnceLock::new();
     let registry = REGISTRY.get_or_init(|| Mutex::new(StdHashMap::new()));
-    // DUP-1 / TASK-2258: silent poison recovery via the shared policy; the
-    // registry is plain data, so a panic in another registrant cannot tear
+    // Silent poison recovery via the shared policy; the registry is plain
+    // data, so a panic in another registrant cannot tear
     // it. `clear_poison` additionally leaves later callers a healthy lock.
     let mut guard = ops_core::sync::lock_recover(registry);
     if let Some(cache) = guard.get(filename) {
@@ -312,11 +294,11 @@ mod tests {
         assert!(Arc::ptr_eq(&a, &b));
     }
 
-    /// CONC-1 / TASK-1144 follow-up: eviction must not reclaim a slot whose
-    /// `OnceLock` is still being initialised. Before the pin, the in-flight
-    /// entry was the LRU and got evicted while its reader held no lock, so the
-    /// next reader for the same root allocated a *second* slot and re-read the
-    /// file — two live `Arc`s for one path, breaking `Arc::ptr_eq` dedup.
+    /// Eviction must not reclaim a slot whose `OnceLock` is still being
+    /// initialised. Were an in-flight LRU entry evicted while its reader
+    /// held no lock, the next reader for the same root would allocate a
+    /// *second* slot and re-read the file — two live `Arc`s for one path,
+    /// breaking `Arc::ptr_eq` dedup.
     ///
     /// Driven through `CacheMap` directly rather than through threads: the
     /// window only exists between "slot inserted" and "read finished", and
@@ -357,9 +339,9 @@ mod tests {
         assert_eq!(cache.len(), 0);
     }
 
-    /// PERF-16 / TASK-1723: below the cap the eviction sweep never runs, so
-    /// nothing used to drain the victim queue — it grew by one stamp per
-    /// read for the process lifetime. Hammer a handful of roots well below
+    /// Below the cap the eviction sweep never runs, so only compaction
+    /// drains the victim queue; without it the queue would grow by one stamp
+    /// per read for the process lifetime. Hammer a handful of roots well below
     /// `CACHE_MAX_ENTRIES` and pin that the queue stays proportional to the
     /// live entry count rather than to the read count.
     #[test]
@@ -390,7 +372,7 @@ mod tests {
             .unwrap_or_else(std::sync::PoisonError::into_inner);
         let map_len = guard.len();
         let queue_len = guard.victim_queue_len();
-        // CONC-1: release the cache mutex before asserting so a failing
+        // Release the cache mutex before asserting so a failing
         // assert panics without holding it.
         drop(guard);
 
@@ -410,7 +392,7 @@ mod tests {
         );
     }
 
-    /// PERF-16 / TASK-1723: the cache has no TTL, so `invalidate` is the only
+    /// The cache has no TTL, so `invalidate` is the only
     /// way a long-running host can pick up an edited manifest. Pin that it
     /// forces a re-read and that it reports whether anything was dropped.
     #[test]
@@ -459,9 +441,9 @@ mod tests {
         assert!(cache.read(dir.path()).is_none());
     }
 
-    /// CONC-1 / TASK-1051: concurrent readers for the same uncached path
+    /// Concurrent readers for the same uncached path
     /// must observe the same Arc — `Arc::ptr_eq` is the dedup contract
-    /// that PERF-3 / TASK-0854 relies on. Spawn many threads that all hit
+    /// callers rely on. Spawn many threads that all hit
     /// `read` with no warmup and verify every returned Arc is pointer-
     /// equal.
     #[test]
@@ -496,7 +478,7 @@ mod tests {
         }
     }
 
-    /// ARCH-1 / TASK-1106: when the cap is hit, eviction must pick the LRU
+    /// When the cap is hit, eviction must pick the LRU
     /// entry, not full-flush the map. Warm `CACHE_MAX_ENTRIES` distinct paths,
     /// touch one of the early entries to make it most-recently-used, then
     /// trigger eviction by reading a fresh path. The recently-touched entry
@@ -543,7 +525,7 @@ mod tests {
             .lock()
             .unwrap_or_else(std::sync::PoisonError::into_inner);
         let cached_len = guard.len();
-        // CONC-1: release the cache mutex before asserting so a failing
+        // Release the cache mutex before asserting so a failing
         // assert panics without holding it.
         drop(guard);
         assert!(
@@ -552,22 +534,14 @@ mod tests {
         );
     }
 
-    /// CONC-1 / TASK-1144: distinct uncached paths must NOT serialise on
-    /// the outer cache mutex. The previous shape held the lock across
-    /// `read_optional_text`, collapsing concurrent reads of unrelated
-    /// manifests to single-threaded. With the per-key `OnceLock` design
-    /// the outer lock only spans the get-or-insert; the file IO runs
-    /// outside it.
+    /// Distinct uncached paths must NOT serialise on the outer cache mutex:
+    /// with the per-key `OnceLock` design the outer lock only spans the
+    /// get-or-insert, and the file IO runs outside it.
     ///
-    /// TEST-15 / TASK-1664: the timing half is gone. It bounded both threads'
-    /// warm loops at 5 seconds, which its own comment conceded was "a smoke
-    /// check that we didn't introduce a deadlock" — and a deadlock does not
+    /// There is deliberately no wall-clock assertion: a deadlock does not
     /// present as slow elapsed time, it presents as `join` never returning.
     /// The threads completing is the deadlock evidence; the `Arc::ptr_eq`
-    /// assertions below are what pin the dedup contract. Same call as the
-    /// wall-clock half of `emit_output_events_shares_buffer_across_lines` in
-    /// ops-runner: delete it rather than convert it, because it detected
-    /// nothing while being load-sensitive.
+    /// assertions below are what pin the dedup contract.
     #[test]
     fn concurrent_distinct_path_reads_do_not_block_each_other() {
         // Two distinct uncached paths under the same cache instance.
@@ -633,9 +607,9 @@ mod tests {
         assert!(!Arc::ptr_eq(&a1, &b1));
     }
 
-    /// ERR-5 / TASK-0878: a panic while holding the cache lock must not
+    /// A panic while holding the cache lock must not
     /// permanently brick the cache. Uses a local instance so poisoning
-    /// cannot bleed into other tests in the binary (TEST-18 / TASK-0956).
+    /// cannot bleed into other tests in the binary.
     #[test]
     fn poison_recovery_keeps_cache_usable() {
         // Use Arc to share the cache across the panicking thread while

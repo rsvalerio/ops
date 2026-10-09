@@ -12,24 +12,20 @@
 /// tests: `std::env::set_var`/`remove_var` mutate process-wide state and race
 /// with concurrent `getenv` calls.
 ///
-/// DRY-1 / TASK-2059: re-exported from `ops_core::test_utils` rather than
-/// redefined, so the workspace carries one env guard instead of four. The
-/// shared guard keeps both the `remove` spelling this copy used and the
-/// `unset` spelling the `EnvVarGuard` copies used, and it redacts the captured
-/// original value in its `Debug` output.
+/// Re-exported from `ops_core::test_utils` rather than redefined, so the
+/// workspace carries a single env guard. It offers both the `remove` and the
+/// `unset` spelling, and redacts the captured original value in its `Debug`
+/// output.
 pub use ops_core::test_utils::EnvGuard;
 
-/// DRY-1 / TASK-2034: the working-directory guard hook tests use is the
-/// workspace's single [`ops_core::test_utils::CwdGuard`], re-exported here so
-/// existing `ops_hook_common::test_helpers::CwdGuard` imports keep working.
+/// The working-directory guard for hook tests: the workspace's single
+/// [`ops_core::test_utils::CwdGuard`], re-exported under
+/// `ops_hook_common::test_helpers`.
 ///
-/// This crate's own copy relied on each call site remembering
-/// `#[serial_test::serial]` — the convention `EnvGuard` above still follows —
-/// while the cli copy serialised on a process-wide mutex. Two guards with the
-/// same name and different safety contracts meant a new hook test could reach
-/// for the weaker one and get a silent cwd race. The shared guard takes the
-/// mutex itself, so that is no longer reachable. It still exists so hook
-/// crates can exercise the *production* entry points that read
+/// Unlike `EnvGuard` above, which relies on each call site carrying
+/// `#[serial_test::serial]`, this guard serialises on a process-wide mutex
+/// itself, so a test cannot get a cwd race by forgetting the attribute. It
+/// lets hook crates exercise the *production* entry points that read
 /// `std::env::current_dir()` rather than only their `dir`-parameterised inner
-/// helpers (TEST-5 / TASK-1908).
+/// helpers.
 pub use ops_core::test_utils::CwdGuard;

@@ -1,10 +1,10 @@
 ---
 id: TASK-2413
 title: 'ARCH-6: get_source_checksum is dead in production and kept alive by tests'
-status: To Do
+status: Done
 assignee: []
 created_date: '2026-10-04 14:18'
-updated_date: '2026-10-04 14:52'
+updated_date: '2026-10-04 15:28'
 labels:
   - code-review-rust
   - ARCH
@@ -29,5 +29,6 @@ dedup_key: 'ARCH-6:extensions/sqlite/src/schema.rs:get_source_checksum'
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 get_source_checksum and its dead_code expect are removed, or a production caller uses it
+- [x] #1 get_source_checksum and its dead_code expect are removed, or a production caller uses it
+
 <!-- AC:END -->
