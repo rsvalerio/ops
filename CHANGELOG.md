@@ -2,6 +2,15 @@
 All notable changes to this project will be documented in this file. See [conventional commits](https://www.conventionalcommits.org/) for commit guidelines.
 
 - - -
+## [v0.79.3](https://github.com/rsvalerio/ops/compare/a81dd14546eaaa57f68a9a3bf67e42169e3a98af..v0.79.3) - 2026-10-09
+#### 🐛 Bug Fixes
+- (**runner**) show a failed parallel step's real last output lines (TASK-2437) - ([a81dd14](https://github.com/rsvalerio/ops/commit/a81dd14546eaaa57f68a9a3bf67e42169e3a98af)) - [@rsvalerio](https://github.com/rsvalerio), Claude Opus 5.5 (1M context)
+#### ⚙️ Miscellaneous
+- (**backlog**) file TASK-2437 - ([ba57e6d](https://github.com/rsvalerio/ops/commit/ba57e6ddfd2edef6740d5b0b8d80bded89f22ba1)) - [@rsvalerio](https://github.com/rsvalerio), Claude Opus 5.5 (1M context)
+- update backlogs tasks - ([4b733af](https://github.com/rsvalerio/ops/commit/4b733afc6083c0f29b648521ad7196f128da414e)) - [@rsvalerio](https://github.com/rsvalerio)
+
+- - -
+
 ## [v0.79.2](https://github.com/rsvalerio/ops/compare/6f818ffed4c0fa194af4d6bddc25d04763459e82..v0.79.2) - 2026-10-09
 #### 🐛 Bug Fixes
 - (**about**) keep workspace members inside the root and never block on a FIFO manifest (TASK-2398, TASK-2399) - ([6154069](https://github.com/rsvalerio/ops/commit/61540697a3c616f499e53377216d9cfd40870c51)) - [@rsvalerio](https://github.com/rsvalerio), Claude Opus 5.5
