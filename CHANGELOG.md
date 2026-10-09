@@ -2,6 +2,64 @@
 All notable changes to this project will be documented in this file. See [conventional commits](https://www.conventionalcommits.org/) for commit guidelines.
 
 - - -
+## [v0.79.2](https://github.com/rsvalerio/ops/compare/6f818ffed4c0fa194af4d6bddc25d04763459e82..v0.79.2) - 2026-10-09
+#### 🐛 Bug Fixes
+- (**about**) keep workspace members inside the root and never block on a FIFO manifest (TASK-2398, TASK-2399) - ([6154069](https://github.com/rsvalerio/ops/commit/61540697a3c616f499e53377216d9cfd40870c51)) - [@rsvalerio](https://github.com/rsvalerio), Claude Opus 5.5
+- (**about-java**) ignore Gradle block comments and triple-quoted strings across lines (TASK-2365) - ([ed1ba7c](https://github.com/rsvalerio/ops/commit/ed1ba7c151f74a60b04e26edf6920d45aa963ce4)) - [@rsvalerio](https://github.com/rsvalerio), Claude Opus 5.5
+- (**about-java**) skip nested pom containers so their children never fill project fields (TASK-2364) - ([89d26bd](https://github.com/rsvalerio/ops/commit/89d26bd7f747e03e0a5361d32ba93931244bcc29)) - [@rsvalerio](https://github.com/rsvalerio), Claude Opus 5.5
+- (**about-node**) name the failing field in package.json parse warnings and split parse_package_json (TASK-2360, TASK-2359) - ([4a91c44](https://github.com/rsvalerio/ops/commit/4a91c4421b59bdbbcae2a3ee376f3a588d339467)) - [@rsvalerio](https://github.com/rsvalerio), Claude Opus 5.5
+- (**backlog**) surface unreadable task directories in scans and id allocation (TASK-2354) - ([6ff9d52](https://github.com/rsvalerio/ops/commit/6ff9d525ae21937d30096436096192d23fe23a25)) - [@rsvalerio](https://github.com/rsvalerio), Claude Opus 5.5
+- (**cargo-toml**) ignore triple quotes in comments when finding [workspace] (TASK-2367) - ([c2ec14a](https://github.com/rsvalerio/ops/commit/c2ec14a4e352c9adedac9adb32516a96b269b1dc)) - [@rsvalerio](https://github.com/rsvalerio), Claude Opus 5.5
+- (**core**) recover the global config path cache from a poisoned lock (TASK-2355, TASK-2356) - ([6b9c543](https://github.com/rsvalerio/ops/commit/6b9c543d19fd79fed1cb4995c7717e108efc14f9)) - [@rsvalerio](https://github.com/rsvalerio), Claude Opus 5.5
+- (**create-review-tasks**) label U+2028 and U+2029 as separators in payload rejections - ([6ab13d1](https://github.com/rsvalerio/ops/commit/6ab13d11183e6b687fbee521dd26794c26258917)) - [@rsvalerio](https://github.com/rsvalerio), Claude Opus 5.5 (1M context)
+- (**create-review-tasks**) reject Unicode format characters in provider strings (TASK-2389, TASK-2390) - ([715944d](https://github.com/rsvalerio/ops/commit/715944d05985d493009ece0770c3966d893ba2eb)) - [@rsvalerio](https://github.com/rsvalerio), Claude Opus 5.5
+- (**deps**) decode cargo-deny's bitset exit codes (TASK-2349) - ([79f7de7](https://github.com/rsvalerio/ops/commit/79f7de7451c63d88f6050e8b3be0aa67b07c8c7f)) - [@rsvalerio](https://github.com/rsvalerio), Claude Opus 5.5
+- (**foundation**) report unparseable files and member manifests with line and column (TASK-2378, TASK-2379, TASK-2380) - ([b4bc346](https://github.com/rsvalerio/ops/commit/b4bc3461d3fb555dbd0b76bc340908412f26831a)) - [@rsvalerio](https://github.com/rsvalerio), Claude Opus 5.5
+- (**metadata**) list the real cargo metadata keys in the provider schema (TASK-2377) - ([cbf9f5c](https://github.com/rsvalerio/ops/commit/cbf9f5cac0d570ead17c9c6cdc779b7199f84582)) - [@rsvalerio](https://github.com/rsvalerio), Claude Opus 5.5
+- (**sqlite**) leave the database directory's mode alone and name paths in IO errors (TASK-2412, TASK-2406, TASK-2407) - ([c0f47ad](https://github.com/rsvalerio/ops/commit/c0f47ad46a41f073e8eb1a0c7212551419917d09)) - [@rsvalerio](https://github.com/rsvalerio), Claude Opus 5.5
+- (**sqlite**) accept any path character in bound-parameter paths (TASK-2411) - ([e45315f](https://github.com/rsvalerio/ops/commit/e45315fd472f2abfc328bd5896a765b5dad7b7c8)) - [@rsvalerio](https://github.com/rsvalerio), Claude Opus 5.5
+- (**test-coverage**) name a signal kill once in the llvm-cov exit error (TASK-2375) - ([8711bba](https://github.com/rsvalerio/ops/commit/8711bba0e0bc7dd14b6fd774074d2a3ecff3fba5)) - [@rsvalerio](https://github.com/rsvalerio), Claude Opus 5.5
+- (**text-fixers**) refuse write-back when the file changed or its directory became a symlink (TASK-2401) - ([a1813cc](https://github.com/rsvalerio/ops/commit/a1813cc7ed95e98da0ce56bcca80c1bd426620c7)) - [@rsvalerio](https://github.com/rsvalerio), Claude Opus 5.5
+- (**tokei**) report directories skipped at the depth cap and describe the end state in docs (TASK-2414, TASK-2415) - ([23b6365](https://github.com/rsvalerio/ops/commit/23b6365c62e8615a8679c8f1103a1999eec7bed9)) - [@rsvalerio](https://github.com/rsvalerio), Claude Opus 5.5
+#### 📚 Documentation
+- (**about**) point the typed manifest cache reference at its current file - ([9586f9d](https://github.com/rsvalerio/ops/commit/9586f9df59f70f3b509887dbdcbfd1b26389fa6e)) - [@rsvalerio](https://github.com/rsvalerio), Claude Opus 5.5
+- (**about**) describe current behaviour and document public items (TASK-2397, TASK-2400) - ([4252654](https://github.com/rsvalerio/ops/commit/42526540388abc98ef0ef6ecfaed9a0c89bab533)) - [@rsvalerio](https://github.com/rsvalerio), Claude Opus 5.5
+- (**about-rust**) describe cache contracts as they are, not how they got here (TASK-2374) - ([8ca023b](https://github.com/rsvalerio/ops/commit/8ca023b6967d49296db92087e0aaaedaaacbeef6)) - [@rsvalerio](https://github.com/rsvalerio), Claude Opus 5.5
+- (**extension**) describe the current contract instead of change history (TASK-2352) - ([e1ce175](https://github.com/rsvalerio/ops/commit/e1ce175547015eed1a92693340103e14d8ba15fd)) - [@rsvalerio](https://github.com/rsvalerio), Claude Opus 5.5
+- (**hook-common**) drop the task-id reference from the git-dir probe comment - ([8ae273c](https://github.com/rsvalerio/ops/commit/8ae273c559979fe3c48f56347300bf0e2337f26e)) - [@rsvalerio](https://github.com/rsvalerio), Claude Opus 5.5
+- (**metadata**) describe current behaviour instead of migration history (TASK-2376) - ([7e907cb](https://github.com/rsvalerio/ops/commit/7e907cb1e7c2c356a9d5c48215bfa0b64fac40b7)) - [@rsvalerio](https://github.com/rsvalerio), Claude Opus 5.5
+- (**text-fixers**) document fix_eof and the crate-root public items (TASK-2402) - ([040ab7a](https://github.com/rsvalerio/ops/commit/040ab7a67f64c521f32aee3bcdad51f04f199321)) - [@rsvalerio](https://github.com/rsvalerio), Claude Opus 5.5
+- (**tfplan**) document render_summary_table and render_outputs_table (TASK-2388) - ([405f02f](https://github.com/rsvalerio/ops/commit/405f02f519761b3be512722bc086854d023335bb)) - [@rsvalerio](https://github.com/rsvalerio), Claude Opus 5.5
+#### 🧪 Testing
+- (**loc**) document what each region holds and drop tautological tests (TASK-2382, TASK-2383) - ([185a156](https://github.com/rsvalerio/ops/commit/185a156c6f15440bf631805d3e8ccfe9682ff111)) - [@rsvalerio](https://github.com/rsvalerio), Claude Opus 5.5
+#### 🔧 Build System
+- (**lints**) deny unsafe_code across the workspace (TASK-2368) - ([b10b808](https://github.com/rsvalerio/ops/commit/b10b8085d989b3689a0d820ef39834b031d91f51)) - [@rsvalerio](https://github.com/rsvalerio), Claude Opus 5.5
+- (**run-before-commit**) drop the unused tracing dependency (TASK-2403) - ([61945bc](https://github.com/rsvalerio/ops/commit/61945bc504584a5bb78ff2caff4b7caf52a868c2)) - [@rsvalerio](https://github.com/rsvalerio), Claude Opus 5.5
+#### 🚜 Refactoring
+- (**about-rust**) extract glob entry resolution and log errors as fields (TASK-2372, TASK-2373) - ([6a5a1d6](https://github.com/rsvalerio/ops/commit/6a5a1d6f09cd0966109256f6f50dc3c428c658e6)) - [@rsvalerio](https://github.com/rsvalerio), Claude Opus 5.5
+- (**about-rust**) split find_duplicates into named helpers (TASK-2371) - ([6f818ff](https://github.com/rsvalerio/ops/commit/6f818ffed4c0fa194af4d6bddc25d04763459e82)) - [@rsvalerio](https://github.com/rsvalerio), Claude Opus 5.5
+- (**about-terraform**) share the read_dir policy, split extract_required_version and describe the end state (TASK-2384, TASK-2385, TASK-2386, TASK-2387) - ([4131129](https://github.com/rsvalerio/ops/commit/41311296c260f8e2173896a895dd86b7925005c4)) - [@rsvalerio](https://github.com/rsvalerio), Claude Opus 5.5
+- (**backlog**) stage atomic writes through one helper (TASK-2353) - ([e2e3097](https://github.com/rsvalerio/ops/commit/e2e30979ab89698e8f97996ede013c6d476ecc1a)) - [@rsvalerio](https://github.com/rsvalerio), Claude Opus 5.5
+- (**cargo-update**) split parse_action_line by action (TASK-2366) - ([72b01cb](https://github.com/rsvalerio/ops/commit/72b01cbef0cb536f5229c7e56db33f0c653f5595)) - [@rsvalerio](https://github.com/rsvalerio), Claude Opus 5.5
+- (**config-checkers**) split run_checker into named steps and state docs as current behaviour (TASK-2391, TASK-2392, TASK-2393) - ([fd79cb3](https://github.com/rsvalerio/ops/commit/fd79cb3b94104df6dd679470a18519db9959fd26)) - [@rsvalerio](https://github.com/rsvalerio), Claude Opus 5.5
+- (**git**) share the capped .git read and describe current behaviour (TASK-2394, TASK-2395, TASK-2396) - ([01e0950](https://github.com/rsvalerio/ops/commit/01e095096e5690ee3a6aa09edf8692f79a7bc051)) - [@rsvalerio](https://github.com/rsvalerio), Claude Opus 5.5
+- (**hook-common**) derive common traits on HookConfig and describe current behaviour in docs (TASK-2404, TASK-2405) - ([3d4c816](https://github.com/rsvalerio/ops/commit/3d4c81605882a28e3279edb6be9d150301218ec2)) - [@rsvalerio](https://github.com/rsvalerio), Claude Opus 5.5
+- (**loc**) split count_entry and map the streaming outcome in one helper (TASK-2381) - ([66abcf4](https://github.com/rsvalerio/ops/commit/66abcf4fedcd4b353caaed95e9dff71b281edfe9)) - [@rsvalerio](https://github.com/rsvalerio), Claude Opus 5.5
+- (**sqlite**) drop the unused get_source_checksum and document schema types (TASK-2413, TASK-2410) - ([f3e8584](https://github.com/rsvalerio/ops/commit/f3e8584a84f055a64f62db3b922c3080f7491a24)) - [@rsvalerio](https://github.com/rsvalerio), Claude Opus 5.5
+- (**theme**) derive Debug on public theme types and describe the end state in docs (TASK-2361, TASK-2362) - ([c851164](https://github.com/rsvalerio/ops/commit/c8511641619d13f43117285a0ce4c082f6a85ea6)) - [@rsvalerio](https://github.com/rsvalerio), Claude Opus 5.5
+#### ⚙️ Miscellaneous
+- (**backlog**) close code-review wave 49 - ([f5353db](https://github.com/rsvalerio/ops/commit/f5353dbeae347460696a8f8568be3718bf4969e4)) - [@rsvalerio](https://github.com/rsvalerio)
+- (**backlog**) close code-review wave 48 - ([0922840](https://github.com/rsvalerio/ops/commit/092284096f25ea8e3fe7a10cfb426be9b369e113)) - [@rsvalerio](https://github.com/rsvalerio)
+- (**backlog**) close code-review wave 47 - ([0f05b39](https://github.com/rsvalerio/ops/commit/0f05b3982d0a67518e65005b70deb0b805579dc2)) - [@rsvalerio](https://github.com/rsvalerio), Claude Opus 5.5
+- (**backlog**) close code-review wave 46 - ([f7c3332](https://github.com/rsvalerio/ops/commit/f7c33328cad3cf02ff8ebfccdfc13c57674d369c)) - [@rsvalerio](https://github.com/rsvalerio)
+- (**backlog**) close code-review wave 41 - ([3edbec4](https://github.com/rsvalerio/ops/commit/3edbec409731adbbf6bbc941aab8a3095a4e3c68)) - [@rsvalerio](https://github.com/rsvalerio), Claude Opus 5.5
+- (**backlog**) close code-review wave 45 - ([0236a1c](https://github.com/rsvalerio/ops/commit/0236a1c9b19908edf55c5ebe72224ba2ee944b0a)) - [@rsvalerio](https://github.com/rsvalerio), Claude Opus 5.5
+- (**backlog**) close code-review wave 42 - ([8dcb280](https://github.com/rsvalerio/ops/commit/8dcb280463ca2f19c6558aaee9f2823327355d45)) - [@rsvalerio](https://github.com/rsvalerio)
+- (**backlog**) close code-review wave 44 - ([7377478](https://github.com/rsvalerio/ops/commit/7377478214ea53d45b7672c0ab56133c20525091)) - [@rsvalerio](https://github.com/rsvalerio), Claude Opus 5.5
+- (**backlog**) close code-review wave 43 - ([ed35407](https://github.com/rsvalerio/ops/commit/ed35407a163495c968e9509234edb96b2b9d483e)) - [@rsvalerio](https://github.com/rsvalerio), Claude Opus 5.5
+
+- - -
+
 ## [v0.79.1](https://github.com/rsvalerio/ops/compare/a8c7d8d48f12114956e9b07fe7ad1cf7e973e524..v0.79.1) - 2026-10-04
 #### 🐛 Bug Fixes
 - (**foundation**) require a three-part version for the ops pin - ([33be55f](https://github.com/rsvalerio/ops/commit/33be55feb689059e2d3b36b78f4d34a637c92674)) - [@rsvalerio](https://github.com/rsvalerio), Claude Opus 5.5
