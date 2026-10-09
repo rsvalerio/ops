@@ -1,9 +1,10 @@
 ---
 id: TASK-2437
 title: 'ops verify shows about the first 256 lines of a failed step''s output in a parallel plan, not its last five'
-status: Triage
+status: Done
 assignee: []
 created_date: '2026-10-09 19:38'
+updated_date: '2026-10-09 20:28'
 labels:
   - runner
   - bug
@@ -30,6 +31,13 @@ ordinal: 1000
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 A failed step in a parallel plan shows the real last lines of its stderr, however many lines it printed
-- [ ] #2 Dropped output lines, if any remain possible, are reported at a level a user sees without debug logging
+- [x] #1 A failed step in a parallel plan shows the real last lines of its stderr, however many lines it printed
+- [x] #2 Dropped output lines, if any remain possible, are reported at a level a user sees without debug logging
+
 <!-- AC:END -->
+
+## Implementation Notes
+
+<!-- SECTION:NOTES:BEGIN -->
+Fixed in PR #89 (a81dd145): exec_standalone awaits each output line on the runner channel instead of try_send into a 256-slot buffer. Lines abandoned under fail-fast abort or a closed receiver are counted and reported at the default log level.
+<!-- SECTION:NOTES:END -->
