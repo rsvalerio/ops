@@ -1,10 +1,10 @@
 ---
 id: TASK-2503
 title: 'READ-13: subprocess.rs docs narrate TASK history and rejected alternatives'
-status: To Do
+status: Done
 assignee: []
 created_date: '2026-10-10 15:31'
-updated_date: '2026-10-10 21:12'
+updated_date: '2026-10-10 21:51'
 labels:
   - code-review
   - read
@@ -29,5 +29,6 @@ dedup_key: 'READ-13:extensions-rust/test-coverage/src/subprocess.rs:mod subproce
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 No doc comment in subprocess.rs opens with a RULE-ID / TASK-XXXX tag, and none narrate prior implementations or rejected alternatives
+- [x] #1 No doc comment in subprocess.rs opens with a RULE-ID / TASK-XXXX tag, and none narrate prior implementations or rejected alternatives
+
 <!-- AC:END -->

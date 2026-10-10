@@ -1,10 +1,10 @@
 ---
 id: TASK-2509
 title: 'READ-13: tests/mod.rs docs narrate TASK reorganization history'
-status: To Do
+status: Done
 assignee: []
 created_date: '2026-10-10 15:32'
-updated_date: '2026-10-10 21:12'
+updated_date: '2026-10-10 21:51'
 labels:
   - code-review
   - read
@@ -29,5 +29,6 @@ dedup_key: 'READ-13:extensions-rust/test-coverage/src/tests/mod.rs:mod tests'
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 tests/mod.rs docs state the module map and placement rule without TASK-XXXX tags or narration of the 940-line prior shape
+- [x] #1 tests/mod.rs docs state the module map and placement rule without TASK-XXXX tags or narration of the 940-line prior shape
+
 <!-- AC:END -->

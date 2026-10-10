@@ -1,10 +1,10 @@
 ---
 id: TASK-2521
 title: 'READ-13: tests/provider.rs docs carry TASK tags and reference the deleted DuckDB backend'
-status: To Do
+status: Done
 assignee: []
 created_date: '2026-10-10 15:33'
-updated_date: '2026-10-10 21:12'
+updated_date: '2026-10-10 21:51'
 labels:
   - code-review
   - read
@@ -29,6 +29,7 @@ dedup_key: 'READ-13:extensions-rust/test-coverage/src/tests/provider.rs:mod prov
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 Module and test docs in tests/provider.rs name SQLite (the actual backend) and contain no reference to DuckDB or extensions/duckdb
-- [ ] #2 No test doc opens with a RULE-ID / TASK-XXXX tag or 'AC #N' finding narration
+- [x] #1 Module and test docs in tests/provider.rs name SQLite (the actual backend) and contain no reference to DuckDB or extensions/duckdb
+- [x] #2 No test doc opens with a RULE-ID / TASK-XXXX tag or 'AC #N' finding narration
+
 <!-- AC:END -->

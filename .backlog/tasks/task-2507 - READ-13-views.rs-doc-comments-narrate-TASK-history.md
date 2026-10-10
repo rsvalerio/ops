@@ -1,10 +1,10 @@
 ---
 id: TASK-2507
 title: 'READ-13: views.rs doc comments narrate TASK history'
-status: To Do
+status: Done
 assignee: []
 created_date: '2026-10-10 15:32'
-updated_date: '2026-10-10 21:12'
+updated_date: '2026-10-10 21:51'
 labels:
   - code-review
   - read
@@ -29,5 +29,6 @@ dedup_key: 'READ-13:extensions-rust/test-coverage/src/views.rs:mod views'
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 coverage_summary_view_sql's doc states the COALESCE and const-validation contracts without RULE-ID / TASK-XXXX tags or prior-shape narration
+- [x] #1 coverage_summary_view_sql's doc states the COALESCE and const-validation contracts without RULE-ID / TASK-XXXX tags or prior-shape narration
+
 <!-- AC:END -->

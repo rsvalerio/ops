@@ -1,10 +1,10 @@
 ---
 id: TASK-2508
 title: 'READ-13: ingestor.rs inline test comments carry TASK provenance'
-status: To Do
+status: Done
 assignee: []
 created_date: '2026-10-10 15:32'
-updated_date: '2026-10-10 21:12'
+updated_date: '2026-10-10 21:51'
 labels:
   - code-review
   - read
@@ -29,5 +29,6 @@ dedup_key: 'READ-13:extensions-rust/test-coverage/src/ingestor.rs:mod tests'
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 No comment in ingestor.rs's test module opens with a RULE-ID / TASK-XXXX tag
+- [x] #1 No comment in ingestor.rs's test module opens with a RULE-ID / TASK-XXXX tag
+
 <!-- AC:END -->

@@ -1,10 +1,10 @@
 ---
 id: TASK-2526
 title: 'FN-1: collect_coverage_with is a ~76-line function mixing four policy arms'
-status: To Do
+status: Done
 assignee: []
 created_date: '2026-10-10 15:34'
-updated_date: '2026-10-10 21:12'
+updated_date: '2026-10-10 21:44'
 labels:
   - code-review
   - fn
@@ -31,5 +31,6 @@ dedup_key: 'FN-1:extensions-rust/test-coverage/src/parse.rs:collect_coverage_wit
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 collect_coverage_with's body is <=50 lines with the non-zero-exit soft-fail recovery extracted into a named helper, without changing behaviour
+- [x] #1 collect_coverage_with's body is <=50 lines with the non-zero-exit soft-fail recovery extracted into a named helper, without changing behaviour
+
 <!-- AC:END -->

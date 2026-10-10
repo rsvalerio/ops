@@ -1,10 +1,10 @@
 ---
 id: TASK-2522
 title: 'READ-13: tests/views.rs docs carry TASK provenance tags'
-status: To Do
+status: Done
 assignee: []
 created_date: '2026-10-10 15:33'
-updated_date: '2026-10-10 21:12'
+updated_date: '2026-10-10 21:51'
 labels:
   - code-review
   - read
@@ -29,5 +29,6 @@ dedup_key: 'READ-13:extensions-rust/test-coverage/src/tests/views.rs:mod views'
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 No test doc in tests/views.rs opens with a RULE-ID / TASK-XXXX tag or narrates deleted macros/builders
+- [x] #1 No test doc in tests/views.rs opens with a RULE-ID / TASK-XXXX tag or narrates deleted macros/builders
+
 <!-- AC:END -->

@@ -1,10 +1,10 @@
 ---
 id: TASK-2528
 title: 'FN-1: flatten_coverage_json is a ~69-line function still above the 50-line threshold'
-status: To Do
+status: Done
 assignee: []
 created_date: '2026-10-10 15:34'
-updated_date: '2026-10-10 21:12'
+updated_date: '2026-10-10 21:44'
 labels:
   - code-review
   - fn
@@ -31,5 +31,6 @@ dedup_key: 'FN-1:extensions-rust/test-coverage/src/parse.rs:flatten_coverage_jso
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 flatten_coverage_json's body is <=50 lines with helpers at a single abstraction level (e.g. records-loop extraction), without changing behaviour
+- [x] #1 flatten_coverage_json's body is <=50 lines with helpers at a single abstraction level (e.g. records-loop extraction), without changing behaviour
+
 <!-- AC:END -->

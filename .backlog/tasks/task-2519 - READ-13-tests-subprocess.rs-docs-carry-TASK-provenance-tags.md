@@ -1,10 +1,10 @@
 ---
 id: TASK-2519
 title: 'READ-13: tests/subprocess.rs docs carry TASK provenance tags'
-status: To Do
+status: Done
 assignee: []
 created_date: '2026-10-10 15:33'
-updated_date: '2026-10-10 21:12'
+updated_date: '2026-10-10 21:51'
 labels:
   - code-review
   - read
@@ -29,5 +29,6 @@ dedup_key: 'READ-13:extensions-rust/test-coverage/src/tests/subprocess.rs:mod su
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 No test doc in tests/subprocess.rs opens with a RULE-ID / TASK-XXXX tag, and none narrate the pre-fix behaviour or reference 'the finding'
+- [x] #1 No test doc in tests/subprocess.rs opens with a RULE-ID / TASK-XXXX tag, and none narrate the pre-fix behaviour or reference 'the finding'
+
 <!-- AC:END -->

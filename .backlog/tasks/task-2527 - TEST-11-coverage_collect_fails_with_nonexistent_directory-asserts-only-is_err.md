@@ -1,10 +1,10 @@
 ---
 id: TASK-2527
 title: 'TEST-11: coverage_collect_fails_with_nonexistent_directory asserts only is_err()'
-status: To Do
+status: Done
 assignee: []
 created_date: '2026-10-10 15:34'
-updated_date: '2026-10-10 21:12'
+updated_date: '2026-10-10 21:51'
 labels:
   - code-review
   - test
@@ -31,5 +31,6 @@ dedup_key: 'TEST-11:extensions-rust/test-coverage/src/ingestor.rs:coverage_colle
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 The test asserts on the error's content (e.g. the rendered error names the nonexistent working directory or the failing collect step), not only result.is_err()
+- [x] #1 The test asserts on the error's content (e.g. the rendered error names the nonexistent working directory or the failing collect step), not only result.is_err()
+
 <!-- AC:END -->

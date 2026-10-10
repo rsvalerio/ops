@@ -1,10 +1,10 @@
 ---
 id: TASK-2524
 title: 'READ-13: tests/wiring.rs docs carry TASK provenance tags'
-status: To Do
+status: Done
 assignee: []
 created_date: '2026-10-10 15:33'
-updated_date: '2026-10-10 21:12'
+updated_date: '2026-10-10 21:51'
 labels:
   - code-review
   - read
@@ -29,5 +29,6 @@ dedup_key: 'READ-13:extensions-rust/test-coverage/src/tests/wiring.rs:mod wiring
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 No comment in tests/wiring.rs opens with a RULE-ID / TASK-XXXX tag
+- [x] #1 No comment in tests/wiring.rs opens with a RULE-ID / TASK-XXXX tag
+
 <!-- AC:END -->

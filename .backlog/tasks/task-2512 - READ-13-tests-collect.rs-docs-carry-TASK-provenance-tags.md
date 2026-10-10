@@ -1,10 +1,10 @@
 ---
 id: TASK-2512
 title: 'READ-13: tests/collect.rs docs carry TASK provenance tags'
-status: To Do
+status: Done
 assignee: []
 created_date: '2026-10-10 15:32'
-updated_date: '2026-10-10 21:12'
+updated_date: '2026-10-10 21:51'
 labels:
   - code-review
   - read
@@ -29,5 +29,6 @@ dedup_key: 'READ-13:extensions-rust/test-coverage/src/tests/collect.rs:mod colle
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 No test doc in tests/collect.rs opens with a RULE-ID / TASK-XXXX tag or narrates a prior test shape
+- [x] #1 No test doc in tests/collect.rs opens with a RULE-ID / TASK-XXXX tag or narrates a prior test shape
+
 <!-- AC:END -->

@@ -1,10 +1,10 @@
 ---
 id: TASK-2497
 title: 'READ-13: lib.rs crate docs narrate TASK history and prior-implementation shapes'
-status: To Do
+status: Done
 assignee: []
 created_date: '2026-10-10 15:31'
-updated_date: '2026-10-10 21:12'
+updated_date: '2026-10-10 21:51'
 labels:
   - code-review
   - read
@@ -31,5 +31,6 @@ dedup_key: 'READ-13:extensions-rust/test-coverage/src/lib.rs:crate root'
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 Module and item docs in lib.rs describe the current structure and contract with no TASK-XXXX references and no narration of prior shapes (no 'the previous monolithic', 'used to', 'no longer' history)
+- [x] #1 Module and item docs in lib.rs describe the current structure and contract with no TASK-XXXX references and no narration of prior shapes (no 'the previous monolithic', 'used to', 'no longer' history)
+
 <!-- AC:END -->

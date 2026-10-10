@@ -1,10 +1,10 @@
 ---
 id: TASK-2502
 title: 'READ-13: parse.rs docs and log messages carry TASK provenance tags'
-status: To Do
+status: Done
 assignee: []
 created_date: '2026-10-10 15:31'
-updated_date: '2026-10-10 21:12'
+updated_date: '2026-10-10 21:44'
 labels:
   - code-review
   - read
@@ -29,6 +29,7 @@ dedup_key: 'READ-13:extensions-rust/test-coverage/src/parse.rs:mod parse'
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 No doc comment in parse.rs opens with a RULE-ID / TASK-XXXX tag or narrates a prior implementation
-- [ ] #2 The three tracing::warn! message strings at the flatten/dedup/skip sites and the soft-fail site contain no TASK-XXXX reference while keeping their operational content
+- [x] #1 No doc comment in parse.rs opens with a RULE-ID / TASK-XXXX tag or narrates a prior implementation
+- [x] #2 The three tracing::warn! message strings at the flatten/dedup/skip sites and the soft-fail site contain no TASK-XXXX reference while keeping their operational content
+
 <!-- AC:END -->
