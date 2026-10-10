@@ -8,7 +8,7 @@ license.workspace = true
 [dependencies]
 anyhow = { workspace = true }
 ops-core = { workspace = true }
-# SEC-25 / TASK-1210: randomised temp-file paths for atomic-rename hook
+# Randomised temp-file paths for atomic-rename hook
 # upgrades — concurrent installs against shared worktrees must not collide
 # on a fixed sibling name (`.<hook>.ops-tmp`) and clobber each other's
 # mid-write payload.
@@ -19,7 +19,7 @@ tracing = { workspace = true }
 wait-timeout = { workspace = true }
 
 [dev-dependencies]
-# TEST-19: `ops_core::test_utils::is_root_euid` gates the DAC-permission
+# `ops_core::test_utils::is_root_euid` gates the DAC-permission
 # tests, which are silent no-ops under root.
 ops-core = { workspace = true, features = ["test-support"] }
 serial_test = { workspace = true }
@@ -28,7 +28,7 @@ tracing-subscriber = { workspace = true }
 [features]
 # Exposes `test_helpers` (e.g. `EnvGuard`) so wrapper crates can reuse the
 # same env-mutation guard from their own #[cfg(test)] modules without
-# duplicating the implementation. DRY-1 / TASK-2034: `CwdGuard` is re-exported
+# duplicating the implementation. `CwdGuard` is re-exported
 # from `ops_core::test_utils`, so the feature has to turn that surface on.
 test-helpers = ["ops-core/test-support"]
 
