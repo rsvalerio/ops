@@ -32,6 +32,8 @@ const DESCRIPTION: &str = "Python project identity";
 const SHORTNAME: &str = "about-python";
 const DATA_PROVIDER_NAME: &str = "project_identity";
 
+/// Python about extension: registers the `project_identity` and
+/// `project_units` providers over `pyproject.toml`.
 #[non_exhaustive]
 pub struct AboutPythonExtension;
 
@@ -265,41 +267,47 @@ fn parse_pyproject(project_root: &Path) -> Option<Pyproject> {
         has_tool_uv: raw.tool.as_ref().and_then(|t| t.uv.as_ref()).is_some(),
         ..Pyproject::default()
     };
-
     if let Some(project) = raw.project {
-        let manifest_path = project_root.join("pyproject.toml");
-        out.name = trim_nonempty(project_field::<String>(&project, "name", &manifest_path));
-        out.version = trim_nonempty(project_field::<String>(&project, "version", &manifest_path));
-        out.description = trim_nonempty(project_field::<String>(
-            &project,
-            "description",
-            &manifest_path,
-        ));
-        out.requires_python = trim_nonempty(project_field::<String>(
-            &project,
-            "requires-python",
-            &manifest_path,
-        ));
-        out.license = project_field::<LicenseField>(&project, "license", &manifest_path)
-            .and_then(normalize_license);
-        out.authors = format_authors(
-            project_field::<Vec<RawAuthorEntry>>(&project, "authors", &manifest_path)
-                .unwrap_or_default(),
-            &manifest_path,
-        );
-        if let Some(urls) = project_field::<std::collections::BTreeMap<String, RawUrlEntry>>(
-            &project,
-            "urls",
-            &manifest_path,
-        ) {
-            let urls = filter_url_entries(urls, &manifest_path);
-            let (homepage, repository) = extract_urls(&urls);
-            out.homepage = homepage;
-            out.repository = repository;
-        }
+        apply_project_table(&project, &project_root.join("pyproject.toml"), &mut out);
     }
 
     Some(out)
+}
+
+/// Project the `[project]` table onto `out`, one key at a time.
+///
+/// Each key degrades independently through [`project_field`]: a type
+/// mismatch on one key warns and yields `None` for that field alone, so the
+/// remaining keys still populate the identity.
+fn apply_project_table(project: &toml::Table, manifest_path: &Path, out: &mut Pyproject) {
+    out.name = trim_nonempty(project_field::<String>(project, "name", manifest_path));
+    out.version = trim_nonempty(project_field::<String>(project, "version", manifest_path));
+    out.description = trim_nonempty(project_field::<String>(
+        project,
+        "description",
+        manifest_path,
+    ));
+    out.requires_python = trim_nonempty(project_field::<String>(
+        project,
+        "requires-python",
+        manifest_path,
+    ));
+    out.license = project_field::<LicenseField>(project, "license", manifest_path)
+        .and_then(normalize_license);
+    out.authors = format_authors(
+        project_field::<Vec<RawAuthorEntry>>(project, "authors", manifest_path).unwrap_or_default(),
+        manifest_path,
+    );
+    if let Some(urls) = project_field::<std::collections::BTreeMap<String, RawUrlEntry>>(
+        project,
+        "urls",
+        manifest_path,
+    ) {
+        let urls = filter_url_entries(urls, manifest_path);
+        let (homepage, repository) = extract_urls(&urls);
+        out.homepage = homepage;
+        out.repository = repository;
+    }
 }
 
 /// PEP 621 license can be a string, `{ text = "..." }`, or `{ file = "LICENSE" }`.
