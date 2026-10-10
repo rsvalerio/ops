@@ -1,10 +1,10 @@
 ---
 id: TASK-2500
 title: 'API-14: crate-local pub fns across crates/cli lack doc summaries'
-status: To Do
+status: Done
 assignee: []
 created_date: '2026-10-10 15:31'
-updated_date: '2026-10-10 21:12'
+updated_date: '2026-10-10 21:30'
 labels:
   - code-review-rust
   - api
@@ -43,6 +43,7 @@ dedup_key: 'API-14:crates/cli:crate-local pub fns'
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 Every listed pub fn carries a /// summary (one line naming the subcommand and the documented callee is acceptable)
-- [ ] #2 Items demoted to pub(crate) instead of documented also satisfy the finding
+- [x] #1 Every listed pub fn carries a /// summary (one line naming the subcommand and the documented callee is acceptable)
+- [x] #2 Items demoted to pub(crate) instead of documented also satisfy the finding
+
 <!-- AC:END -->

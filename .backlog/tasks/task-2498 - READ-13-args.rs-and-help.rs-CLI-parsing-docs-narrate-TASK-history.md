@@ -1,10 +1,10 @@
 ---
 id: TASK-2498
 title: 'READ-13: args.rs and help.rs CLI-parsing docs narrate TASK history'
-status: To Do
+status: Done
 assignee: []
 created_date: '2026-10-10 15:31'
-updated_date: '2026-10-10 21:12'
+updated_date: '2026-10-10 21:25'
 labels:
   - code-review-rust
   - readability
@@ -30,6 +30,7 @@ dedup_key: 'READ-13:crates/cli/src/args.rs:cli parsing docs'
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 No /// line in args.rs or help.rs references a TASK id or a past implementation
-- [ ] #2 The value-taking-global rule is stated as present-tense behaviour
+- [x] #1 No /// line in args.rs or help.rs references a TASK id or a past implementation
+- [x] #2 The value-taking-global rule is stated as present-tense behaviour
+
 <!-- AC:END -->

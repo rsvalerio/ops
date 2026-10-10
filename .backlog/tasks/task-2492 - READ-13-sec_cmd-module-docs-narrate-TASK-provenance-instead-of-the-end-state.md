@@ -1,10 +1,10 @@
 ---
 id: TASK-2492
 title: 'READ-13: sec_cmd module docs narrate TASK provenance instead of the end state'
-status: To Do
+status: Done
 assignee: []
 created_date: '2026-10-10 15:30'
-updated_date: '2026-10-10 21:12'
+updated_date: '2026-10-10 21:22'
 labels:
   - code-review-rust
   - readability
@@ -29,6 +29,7 @@ dedup_key: 'READ-13:crates/cli/src/sec_cmd.rs:module docs'
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 No /// or //! line in sec_cmd.rs references a TASK id or narrates how a change came to be
-- [ ] #2 The durable why (skip policy, fail-closed exit code) is kept as end-state prose
+- [x] #1 No /// or //! line in sec_cmd.rs references a TASK id or narrates how a change came to be
+- [x] #2 The durable why (skip policy, fail-closed exit code) is kept as end-state prose
+
 <!-- AC:END -->

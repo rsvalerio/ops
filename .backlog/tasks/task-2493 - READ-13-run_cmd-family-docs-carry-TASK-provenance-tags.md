@@ -1,10 +1,10 @@
 ---
 id: TASK-2493
 title: 'READ-13: run_cmd family docs carry TASK provenance tags'
-status: To Do
+status: Done
 assignee: []
 created_date: '2026-10-10 15:30'
-updated_date: '2026-10-10 21:12'
+updated_date: '2026-10-10 21:24'
 labels:
   - code-review-rust
   - readability
@@ -32,6 +32,7 @@ dedup_key: 'READ-13:crates/cli/src/run_cmd:module docs'
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 No /// or //! line in the run_cmd family references a TASK id
-- [ ] #2 Doc summaries describe the end state (what the plan/explain output is), not the change that introduced it
+- [x] #1 No /// or //! line in the run_cmd family references a TASK id
+- [x] #2 Doc summaries describe the end state (what the plan/explain output is), not the change that introduced it
+
 <!-- AC:END -->

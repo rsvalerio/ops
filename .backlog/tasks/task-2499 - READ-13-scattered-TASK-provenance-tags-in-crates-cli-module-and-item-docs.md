@@ -1,10 +1,10 @@
 ---
 id: TASK-2499
 title: 'READ-13: scattered TASK provenance tags in crates/cli module and item docs'
-status: To Do
+status: Done
 assignee: []
 created_date: '2026-10-10 15:31'
-updated_date: '2026-10-10 21:12'
+updated_date: '2026-10-10 21:28'
 labels:
   - code-review-rust
   - readability
@@ -37,6 +37,7 @@ dedup_key: 'READ-13:crates/cli/src:scattered module docs'
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 Each listed doc line states the end state with the TASK/RULE tag removed
-- [ ] #2 Backlog-domain TASK-id examples in args.rs are left untouched
+- [x] #1 Each listed doc line states the end state with the TASK/RULE tag removed
+- [x] #2 Backlog-domain TASK-id examples in args.rs are left untouched
+
 <!-- AC:END -->
