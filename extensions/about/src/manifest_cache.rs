@@ -207,7 +207,8 @@ impl ArcTextCache {
         // `Option<Arc<str>>` (so `Arc::ptr_eq` still holds).
         entry_slot
             .get_or_init(|| {
-                crate::manifest_io::read_optional_text(&path, self.filename).map(Arc::<str>::from)
+                crate::manifest_io::read_optional_text(&path, root, self.filename)
+                    .map(Arc::<str>::from)
             })
             .clone()
     }

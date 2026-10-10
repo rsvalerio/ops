@@ -1,13 +1,15 @@
 ---
 id: TASK-2435
 title: 'ERR-4: create-review-tasks id allocation still walks task directories through the tolerant for_each_task_file / find_task_file'
-status: Triage
+status: Done
 assignee: []
 created_date: '2026-10-04 15:56'
+updated_date: '2026-10-10 14:54'
 labels:
   - code-review-rust
   - ERR
 dependencies: []
+parent_task_id: 'TASK-2441'
 modified_files:
   - extensions/create-review-tasks/src/backlog.rs
   - extensions/create-review-tasks/src/lib.rs
@@ -30,6 +32,7 @@ ordinal: 1000
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 next_ids and conflicting_claim surface an unreadable task directory or entry as an error naming the directory instead of allocating from a partial listing
-- [ ] #2 for_each_task_file and find_task_file either return a Result or are removed in favour of a fallible walker shared with Store::next_task_number
+- [x] #1 next_ids and conflicting_claim surface an unreadable task directory or entry as an error naming the directory instead of allocating from a partial listing
+- [x] #2 for_each_task_file and find_task_file either return a Result or are removed in favour of a fallible walker shared with Store::next_task_number
+
 <!-- AC:END -->

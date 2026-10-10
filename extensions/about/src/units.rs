@@ -441,7 +441,7 @@ mod tests {
         );
     }
 
-    /// TASK-2282: pins the `ops about crates --json` shape — envelope,
+    /// Pins the `ops about crates --json` shape — envelope,
     /// field names and order, the package-name preference, root and
     /// out-of-tree path handling.
     #[test]

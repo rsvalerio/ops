@@ -126,8 +126,8 @@ pub struct ManifestFreshness {
 /// The cached value for one workspace root: the parsed manifest plus the
 /// freshness key it was parsed under.
 struct CachedManifest {
-    /// `None` means we couldn't stat the file at parse time; the legacy
-    /// "always trust the cache until ctx.refresh" behaviour applies.
+    /// `None` means we couldn't stat the file at parse time; the entry is
+    /// then trusted unconditionally until `ctx.refresh` evicts it.
     freshness: Option<ManifestFreshness>,
     loaded: LoadedManifest,
 }
@@ -164,8 +164,8 @@ impl TypedManifestCache {
         // (HFS+, FAT, NFS with old `actimeo`): two writes inside the
         // same second can produce identical mtimes, so mtime alone
         // happily served the pre-edit manifest until the next tick.
-        // If we couldn't stat at all, fall back to the legacy "trust
-        // until refresh" behaviour.
+        // If we couldn't stat at all, fall back to trusting the entry
+        // until `ctx.refresh` evicts it.
         //
         // CONC-2 / TASK-1023: the accepted hit restamps the entry inside
         // `touch_if`, so frequently accessed entries survive eviction in a
@@ -384,11 +384,10 @@ mod tests {
     }
 
     /// ARCH-2 (TASK-0795): the cache must be visible to callers on other
-    /// threads. The previous `thread_local!` keyed each entry to the
-    /// inserting thread, so a parallel-provider refactor would have
-    /// silently re-parsed the manifest per worker. Drive a load on one
-    /// thread, then assert a sibling `Context` on another thread sees the
-    /// same `Arc` allocation.
+    /// threads — a `thread_local!` would key each entry to the inserting
+    /// thread and silently re-parse the manifest once per worker. Drive a
+    /// load on one thread, then assert a sibling `Context` on another
+    /// thread sees the same `Arc` allocation.
     #[serial_test::serial(typed_manifest_cache)]
     #[test]
     fn typed_manifest_cache_is_shared_across_threads() {
@@ -530,9 +529,9 @@ mod tests {
     #[serial_test::serial(typed_manifest_cache)]
     #[test]
     fn typed_manifest_cache_recovers_from_poison_with_warn() {
-        // TASK-0962: poison-recovery now logs every cycle (with a monotonic
-        // recovery_count) instead of one-shot via OnceLock, so the warn is
-        // always observable here regardless of sibling-test ordering.
+        // TASK-0962: poison-recovery logs every cycle (with a monotonic
+        // recovery_count), so the warn is always observable here regardless
+        // of sibling-test ordering.
         let logs = assert_poison_warn_after(1, "poisoned");
         assert!(
             logs.contains("poisoned"),
@@ -545,9 +544,8 @@ mod tests {
     }
 
     /// TASK-0962: a *second* poison cycle (panic in a different provider
-    /// after the first recovery) must still produce an observable signal.
-    /// The previous OnceLock-gated warn fired only on the first poisoning,
-    /// silently swallowing every subsequent one.
+    /// after the first recovery) must still produce an observable signal —
+    /// every cycle emits the warn, not just the first.
     #[serial_test::serial(typed_manifest_cache)]
     #[test]
     fn typed_manifest_cache_second_poison_still_logs() {
@@ -560,7 +558,7 @@ mod tests {
 
     /// CONC-2 / TASK-1198: two writes inside the same mtime tick (HFS+,
     /// FAT, NFS with old `actimeo` all expose second-resolution mtime)
-    /// must NOT serve the pre-edit manifest. The freshness key now
+    /// must NOT serve the pre-edit manifest. The freshness key
     /// includes the file byte length, so a write that changes the
     /// content size invalidates the cache even when mtime is unchanged.
     ///
@@ -586,7 +584,7 @@ mod tests {
         // same-tick second write: rewrite the file with a *different*
         // byte length, then patch the cached entry's freshness.mtime to
         // match what we expect the new write to produce. The test fails
-        // if the cache pre-fix relies on mtime alone — len differs, so
+        // if the cache relies on mtime alone — len differs, so
         // the freshness comparison must reject the cached entry.
         let new_body = "[package]\nname=\"x\"\nversion=\"0.1.0\"\n# trailing comment that bumps len significantly so the freshness comparison can detect the change\n";
         std::fs::write(&manifest_path, new_body).unwrap();
@@ -719,9 +717,9 @@ mod tests {
         assert_eq!(cache_len(), MAX_TYPED_MANIFEST_CACHE_ENTRIES);
 
         // Touch the FIRST inserted key to mark it "hot" (highest LRU tick).
-        // Under the buggy `HashMap::keys().next()` policy this hot key was
-        // a plausible eviction victim because hash-bucket order has no
-        // recency signal; under LRU it is now the most-recent.
+        // Hash-bucket order carries no recency signal, so an eviction policy
+        // that is not tick-driven cannot distinguish this key from any other;
+        // the touch must make it the most-recent entry.
         let hot = keys[0].clone();
         let mut hot_ctx = Context::test_context(hot.clone());
         let _ = load_workspace_manifest(&mut hot_ctx).expect("hot reload");

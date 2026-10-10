@@ -77,11 +77,10 @@ impl std::fmt::Display for SharedError {
         // the root cause (e.g. "cargo llvm-cov exited with status 101: …")
         // reaches operator logs. Plain `{}` keeps the top-level message only.
         // Without this, callers formatting `DataProviderError` with `{e:#}`
-        // saw just the outermost context — thiserror's nested `{0}` does not
-        // propagate the alternate flag. Note the chain may repeat a link whose
-        // Display already embeds its own sources (e.g. `DbError::External`
-        // renders via `{0:#}`); duplication is cosmetic, lost root causes are
-        // not.
+        // would see just the outermost context — thiserror's nested `{0}` does
+        // not propagate the alternate flag. Note the chain may repeat a link
+        // whose own Display already embeds its sources; duplication is
+        // cosmetic, lost root causes are not.
         if f.alternate() {
             let mut source = inner.source();
             while let Some(err) = source {

@@ -368,10 +368,8 @@ mod tests {
     /// ANSI escapes cannot forge log records.
     ///
     /// This drives the crate's own function and asserts on the *captured* log
-    /// lines — swapping either `path = ?…` for `path = %…` makes it fail. The
-    /// previous shape asserted only that `std`'s `Debug for Path::Display`
-    /// escapes control characters, which stayed green through exactly that
-    /// regression. Both breadcrumbs are covered: the debug line on a
+    /// lines — swapping either `path = ?…` for `path = %…` makes it fail.
+    /// Both breadcrumbs are covered: the debug line on a
     /// non-`NotFound` read error and the warn line on a TOML parse error.
     #[cfg(unix)]
     #[test]
@@ -684,11 +682,10 @@ mod tests {
     /// live inside this test's own tempdir (`tmp/ws` and `tmp/escape`), so
     /// `../escape` from the workspace root still resolves to the planted
     /// manifest while nothing is created — or `remove_dir_all`'d — outside the
-    /// tempdir's random path. The previous shape anchored `escape` to
-    /// `tempdir.parent()` (i.e. `/tmp/escape`), a fixed absolute path shared by
-    /// every concurrent run and every developer on the box: two runs raced on
-    /// creating and deleting it, and a loser could observe an empty unit list
-    /// for the wrong reason — a silently false-green SEC-14 regression test.
+    /// tempdir's random path. Anchoring `escape` to a fixed absolute path
+    /// outside the tempdir (e.g. `/tmp/escape`) would make concurrent runs
+    /// race on creating and deleting it, and a loser could observe an empty
+    /// unit list for the wrong reason — a silently false-green result.
     #[test]
     #[serial_test::serial(typed_manifest_cache)]
     fn provide_drops_absolute_and_traversal_members() {
@@ -770,8 +767,8 @@ mod tests {
 
     /// ERR-2 / TASK-1253: two workspace members both named `lib` (legal in
     /// cargo when the parent paths differ) must each resolve to a
-    /// `ProjectUnit` rather than colliding on the bare `package.name` key
-    /// the previous code used. The provider doesn't fail loudly on a
+    /// `ProjectUnit` keyed by its path rather than colliding on the bare
+    /// `package.name`. The provider doesn't fail loudly on a
     /// missing `dep_count` map (`SQLite` is optional in this provider's
     /// contract), so the assertion here is structural — both units appear
     /// with their correct path metadata even when the names duplicate.
@@ -813,9 +810,10 @@ mod tests {
 
     /// CL-3 / TASK-1762 AC #4: running the providers from a *subdirectory* of a
     /// glob workspace must produce the same view as running them from the root.
-    /// Before the fix the ancestor walk found the root, then every member join
-    /// used `ctx.working_directory`, so `crates/*` expanded to nothing and the
-    /// units list, `module_count` and per-crate coverage all silently emptied.
+    /// Every member join and glob expansion keys off the *resolved* workspace
+    /// root, never `ctx.working_directory`: joining onto the cwd would expand
+    /// `crates/*` to nothing from a member crate, silently emptying the units
+    /// list, `module_count` and per-crate coverage.
     ///
     /// The cache is cleared between the two runs so the equality is produced by
     /// the root-relative resolution rather than by the subdirectory run hitting

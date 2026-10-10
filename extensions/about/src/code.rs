@@ -12,7 +12,7 @@ use ops_extension::{Context, DataRegistry};
 
 use crate::providers::warm_providers;
 
-/// ARCH-2 / TASK-0370: delegate to the shared `query_project_languages`
+/// Delegate to the shared `query_project_languages`
 /// helper so the `about code` page and any other LOC consumer share one
 /// implementation.
 ///
@@ -53,7 +53,7 @@ pub fn format_language_stats_section(stats: Option<&[LanguageStat]>) -> Vec<Stri
         let loc_str = format!("{} ({:.1}%)", format_number(stat.loc), stat.loc_pct);
         let files_str = format!("{} ({:.1}%)", format_number(stat.files), stat.files_pct);
         table.add_row(vec![
-            // SEC-11 / TASK-2032: language names come from the tooling's
+            // Language names come from the tooling's
             // output, so they go through the sanitising constructor.
             OpsTable::text_cell(&stat.name),
             Cell::new(&loc_str),
@@ -94,7 +94,7 @@ pub fn run_about_code_with(
 mod tests {
     use super::*;
 
-    /// TEST-5 / TASK-1739: `run_about_code_with` is the one runner with no
+    /// `run_about_code_with` is the one runner with no
     /// worded empty state — with no `SQLite` handle `query_language_stats`
     /// returns `None`, `format_language_stats_section` returns no lines, and
     /// the runner emits a single bare newline. Pinned so the silence is a
@@ -136,7 +136,7 @@ mod tests {
     /// `None` (not a panic) and exercise the warn-and-continue path. We
     /// verify behavior; tracing assertion would require pulling in
     /// `tracing-subscriber` as a dev-dep, which we deliberately avoid for a
-    /// single test (see also TASK-0154).
+    /// single test.
     #[test]
     fn query_language_stats_returns_none_when_db_lock_poisoned() {
         use ops_core::config::Config;
@@ -174,7 +174,7 @@ mod tests {
         assert!(output.contains("25.0%"));
     }
 
-    /// DUP-1 regression (TASK-0549): when the upstream `loc_pct` reflects a
+    /// When the upstream `loc_pct` reflects a
     /// full-project denominator that includes languages elided from the
     /// rendered slice (e.g. sub-0.1% languages dropped before display), the
     /// renderer must surface the stored `loc_pct` rather than re-deriving it

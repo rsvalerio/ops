@@ -135,7 +135,7 @@ fn workspace_member_globs(root: &Path) -> (Vec<String>, Vec<String>) {
     if includes.is_empty() {
         let pnpm_path = root.join("pnpm-workspace.yaml");
         if let Some(content) =
-            ops_about::manifest_io::read_optional_text(&pnpm_path, "pnpm-workspace.yaml")
+            ops_about::manifest_io::read_optional_text(&pnpm_path, root, "pnpm-workspace.yaml")
         {
             let PnpmParse {
                 items,

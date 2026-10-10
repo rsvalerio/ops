@@ -1,20 +1,18 @@
 //! ANSI escape stripping, visible-width measurement and width-bounded
 //! truncation.
 //!
-//! ARCH-1 / TASK-0881: split out of `style.rs` so this concern (read-only
-//! ANSI grammar handling) is reusable without dragging in the rendering
-//! crate's TTY/`NO_COLOR` gating logic.
+//! This concern (read-only ANSI grammar handling) is kept
+//! separate from the rendering crate's TTY/`NO_COLOR` gating logic so it
+//! stays reusable on its own.
 //!
-//! DUP-1 / TASK-0978: the ANSI grammar lives in a single iterator
+//! The ANSI grammar lives in a single iterator
 //! [`AnsiPieces`]; [`visible_width`], [`strip_ansi`],
 //! [`strip_ansi_preserving_raw`] and [`truncate_to_width`] all consume it so
 //! any future grammar fix lands in one place.
 //!
-//! DUP-3 / TASK-2148: this is the workspace's *only* ANSI grammar. The
-//! private ~150-line copy `ops-cargo-update` used to carry — which handled
-//! only `ESC [`/`ESC ]`/nF and had already missed the C1 families — was
-//! removed in favour of [`strip_ansi_preserving_raw`], the policy that
-//! parser needs over the same iterator.
+//! This is the workspace's *only* ANSI grammar: `ops-cargo-update`
+//! consumes [`strip_ansi_preserving_raw`] — the policy that parser needs —
+//! over the same iterator rather than carrying its own copy.
 //!
 //! The grammar covers:
 //!
@@ -29,18 +27,18 @@
 //!   select, `ESC # 8` DECALN, … `0x20` (space) is excluded from the
 //!   intermediate range even though ECMA-48 allows it: `ESC` + space is
 //!   exactly the shape a stray `ESC` in captured text takes, and consuming
-//!   it would swallow the following visible word (the reconciliation kept
-//!   cargo-update's PATTERN-1 / TASK-1790 defensive choice).
+//!   it would swallow the following visible word (the same defensive
+//!   choice cargo-update's own parser makes).
 //! - **Two-byte escapes** (`ESC` + a final byte in `0x30..=0x7E`):
 //!   `ESC c` RIS, `ESC 7`, `ESC =`, …
-//! - **8-bit C1 introducers** (SEC-11 / TASK-1967): `U+009B` (CSI),
+//! - **8-bit C1 introducers**: `U+009B` (CSI),
 //!   `U+009D` (OSC), `U+0090` (DCS), `U+0098` (SOS), `U+009E` (PM) and
 //!   `U+009F` (APC) are the single-code-point equivalents of the two-byte
 //!   `ESC` forms above; a terminal in 8-bit mode acts on them identically.
 //!   They are consumed with the same payload rules, and `U+009C` (ST)
 //!   terminates a string sequence just like `ESC \`.
-//! - **Unterminated escapes** (PATTERN-1 / TASK-1028, reconciled from
-//!   cargo-update): a sequence cut off by end of input, a scan that hits its
+//! - **Unterminated escapes**: a sequence cut off by end of input, a scan
+//!   that hits its
 //!   cap ([`CSI_SCAN_CAP`] / [`STRING_SCAN_CAP`]), or a stray introducer
 //!   that begins nothing recognised yields its consumed bytes as a
 //!   [`Raw`](AnsiPiece::Raw) piece instead of draining the iterator to
@@ -53,7 +51,7 @@
 //! [`Char`](AnsiPiece::Char) pieces and each policy function applies its own
 //! rule:
 //!
-//! - **Bare control characters** (SEC-11 / TASK-1967): every remaining C0
+//! - **Bare control characters**: every remaining C0
 //!   code point (`\r`, `\n`, `\x08`, `\x07`, …), `DEL` (`\x7f`) and every
 //!   non-introducer C1 code point is dropped by [`strip_ansi`] and
 //!   [`truncate_to_width`]. They measure as zero columns but the terminal
@@ -62,11 +60,11 @@
 //!   [`strip_ansi_preserving_raw`] keeps them: the parser it serves has its
 //!   own field validator that rejects any control-carrying field, and
 //!   dropping them here would mask a malformed line from that check.
-//! - **Tab** (CL-3 / TASK-2019): the one control character that used to be
-//!   passed through. It measures as zero columns
+//! - **Tab**: the one control character the display policies rewrite rather
+//!   than drop. It measures as zero columns
 //!   (`UnicodeWidthChar::width('\t')` is `None`) while a terminal advances
-//!   the cursor to the next 8-column stop, so a tab in captured stderr made
-//!   every boxed frame under-pad and the closing bar land short.
+//!   the cursor to the next 8-column stop, so a tab in captured stderr
+//!   would make every boxed frame under-pad and the closing bar land short.
 //!   [`strip_ansi`] and [`truncate_to_width`] rewrite it to a single space
 //!   ([`TAB_REPLACEMENT`]), where the painted string is produced, so
 //!   measurement and painting agree. A fixed tab stop cannot be honoured
@@ -120,7 +118,7 @@ const fn is_escape_introducer(c: char) -> bool {
     )
 }
 
-/// CL-3 / TASK-2019: what a tab is rewritten to by the display policies.
+/// What a tab is rewritten to by the display policies.
 /// One space, not an 8-column stop — see the module docs.
 pub const TAB_REPLACEMENT: char = ' ';
 
@@ -130,8 +128,7 @@ const fn is_rewritten(c: char) -> bool {
     c == '\t' || is_droppable_control(c)
 }
 
-/// PATTERN-1 / TASK-1028 (reconciled from cargo-update, DUP-3 / TASK-2148):
-/// bound each CSI/nF scan so a truncated input (`...\x1b[3` with no final
+/// Bound each CSI/nF scan so a truncated input (`...\x1b[3` with no final
 /// byte before EOF) or a runaway parameter run cannot drain the iterator to
 /// end-of-string and silently swallow trailing visible text. Real CSI
 /// sequences are short (~10 bytes); 64 is generous.
@@ -264,7 +261,7 @@ fn ansi_pieces(s: &str) -> AnsiPieces<'_> {
 /// Visible terminal width of `s` after stripping ANSI escapes, computed
 /// without allocating an intermediate `String`.
 ///
-/// PERF-3 / TASK-0746: equivalent to `display_width(&strip_ansi(s))` but
+/// Equivalent to `display_width(&strip_ansi(s))` but
 /// scans the same ANSI grammar inline and accumulates per-character widths
 /// (`UnicodeWidthChar`). The boxed-layout step renderer calls this per row,
 /// so removing the intermediate `String` allocation pays off on every step
@@ -275,7 +272,7 @@ pub fn visible_width(s: &str) -> usize {
     ansi_pieces(s)
         .filter_map(|p| match p {
             // Tab is measured as its replacement's one column so the boxed
-            // frame's right pad stays exact (CL-3 / TASK-2019).
+            // frame's right pad stays exact.
             AnsiPiece::Char('\t') => Some(1),
             AnsiPiece::Char(c) if is_droppable_control(c) => None,
             AnsiPiece::Char(c) => Some(c.width().unwrap_or(0)),
@@ -287,7 +284,7 @@ pub fn visible_width(s: &str) -> usize {
 /// Remove every ANSI escape sequence and every control character from `s`,
 /// rewriting tab to [`TAB_REPLACEMENT`].
 ///
-/// SEC-11 / TASK-1967, CL-3 / TASK-2019: the result is guaranteed to contain
+/// The result is guaranteed to contain
 /// no C0 code point, no `DEL`, and no C1 code point — so callers may treat it
 /// as safe to print *and* safe to measure with a width helper.
 #[must_use]
@@ -306,15 +303,15 @@ pub fn strip_ansi(s: &str) -> String {
 /// else verbatim — the bytes of truncated, runaway or stray escapes, and
 /// every control character.
 ///
-/// DUP-3 / TASK-2148: the policy `ops-cargo-update` needs for untrusted
-/// subprocess output (PATTERN-1 / TASK-1028). Dropping truncated-escape
+/// The policy `ops-cargo-update` needs for untrusted
+/// subprocess output. Dropping truncated-escape
 /// bytes would silently swallow trailing visible text, and dropping control
 /// characters would mask a malformed line from the downstream field
 /// validator that rejects any field still carrying one. Callers that want
 /// display-safe output should use [`strip_ansi`] instead.
 #[must_use]
 pub fn strip_ansi_preserving_raw(s: &str) -> Cow<'_, str> {
-    // PERF-3 / TASK-0970: fast-path the typical case (no escape introducer
+    // Fast-path the typical case (no escape introducer
     // in the line — terminals without colour, redirected CI output) by
     // returning a borrow; only allocate when a sequence must be removed.
     if !s.chars().any(is_escape_introducer) {
@@ -340,7 +337,7 @@ const RESET: &str = "\x1b[0m";
 
 /// Truncate `s` so its visible width is at most `max_cols`.
 ///
-/// CL-3 / TASK-1969: this is the layout pipeline's documented truncation
+/// This is the layout pipeline's documented truncation
 /// policy.
 ///
 /// - Escape sequences are preserved (they cost no columns, and dropping them

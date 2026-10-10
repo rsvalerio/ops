@@ -7,11 +7,12 @@
 //! here is everything specific to the `review-request-<date>-<n>` scheme.
 
 use std::io::Write;
+use std::ops::ControlFlow;
 use std::path::Path;
 
 use ops_backlog::clock::UtcStamp;
 use ops_backlog::model::{Body, FmValue, Frontmatter, TaskDoc};
-use ops_backlog::store::{find_task_file, for_each_task_file, TaskFileName};
+use ops_backlog::store::{walk_task_files, TaskFileName};
 
 /// Main-task frontmatter labels, in order.
 const MAIN_LABELS: &[&str] = &["code-review-request", "code-review", "qa"];
@@ -56,6 +57,7 @@ pub fn require_backlog_tasks_dir(workspace_root: &Path) -> anyhow::Result<()> {
 
 /// The identifiers one allocation attempt claims, both read from a single
 /// scan of the backlog tree.
+#[derive(Debug)]
 pub struct NextIds {
     /// Next free main-task number; 1 for an empty backlog.
     pub number: u32,
@@ -73,14 +75,22 @@ pub struct NextIds {
 /// Deriving both maxima from one listing makes them consistent with each
 /// other by construction — no concurrent writer can land between them — and
 /// costs one directory walk per attempt rather than two.
-pub fn next_ids(workspace_root: &Path, date: &str) -> NextIds {
+///
+/// # Errors
+///
+/// A task directory exists but cannot be listed, or one of its entries
+/// cannot be read (see [`ops_backlog::store::walk_task_files`]); the error
+/// names the directory. Allocating from a partial listing could hand out a
+/// number or sequence that lives only in the unreadable directory.
+pub fn next_ids(workspace_root: &Path, date: &str) -> anyhow::Result<NextIds> {
     let prefix = format!("review-request-{date}-");
     let backlog_root = workspace_root.join(".backlog");
     let mut max_number = 0u32;
     let mut max_sequence = 0u32;
-    for_each_task_file(&backlog_root, |_dir, file_name| {
+    // A full walk: the closure never breaks, hence the `()` break type.
+    walk_task_files::<()>(&backlog_root, |_dir, file_name| {
         let Some(parsed) = TaskFileName::parse(file_name) else {
-            return;
+            return ControlFlow::Continue(());
         };
         if let Some(number) = parsed.number {
             max_number = max_number.max(number);
@@ -88,11 +98,12 @@ pub fn next_ids(workspace_root: &Path, date: &str) -> NextIds {
         if let Some(sequence) = review_request_sequence(parsed.slug, &prefix) {
             max_sequence = max_sequence.max(sequence);
         }
-    });
-    NextIds {
+        ControlFlow::Continue(())
+    })?;
+    Ok(NextIds {
         number: max_number.saturating_add(1),
         sequence: max_sequence.saturating_add(1),
-    }
+    })
 }
 
 /// The `<n>` of a `review-request-<date>-<n>` slug, where `prefix` is
@@ -133,22 +144,36 @@ pub struct MainTaskClaim<'a> {
 /// file is a reservation every other run can see, so whichever run observes a
 /// conflict stands down. At most one run can miss the conflict, because
 /// whoever checks last necessarily sees both files.
-pub fn conflicting_claim(workspace_root: &Path, claim: &MainTaskClaim<'_>) -> Option<String> {
+///
+/// # Errors
+///
+/// A task directory exists but cannot be listed, or one of its entries
+/// cannot be read (see [`ops_backlog::store::walk_task_files`]); the error
+/// names the directory. A re-check made against a partial listing could miss
+/// a conflicting file that lives only in the unreadable directory.
+pub fn conflicting_claim(
+    workspace_root: &Path,
+    claim: &MainTaskClaim<'_>,
+) -> anyhow::Result<Option<String>> {
     let backlog_root = workspace_root.join(".backlog");
     let own_slug = ops_backlog::model::slugify(claim.title);
     // Early-exit traversal: the walk stops at the first conflicting file
     // instead of flag-checking every remaining entry.
-    find_task_file(&backlog_root, |dir, file_name| {
+    walk_task_files(&backlog_root, |dir, file_name| {
         // The claimant's own reservation lives in `tasks`; an identically
         // named file in `completed` or an archive is somebody else's.
         if dir == "tasks" && file_name == claim.file_name {
-            return None;
+            return ControlFlow::Continue(());
         }
-        let parsed = TaskFileName::parse(file_name)?;
+        let Some(parsed) = TaskFileName::parse(file_name) else {
+            return ControlFlow::Continue(());
+        };
         // A dotted subtask counts too: it means another run owns the number.
         let claims_number = parsed.number == Some(claim.number);
         let claims_title = parsed.slug == own_slug;
-        (claims_number || claims_title).then(|| file_name.to_string())
+        (claims_number || claims_title)
+            .then(|| file_name.to_string())
+            .map_or(ControlFlow::Continue(()), ControlFlow::Break)
     })
 }
 
@@ -268,13 +293,13 @@ mod tests {
     #[test]
     fn next_number_starts_at_one_for_empty_backlog() {
         let dir = scratch_backlog(&[]);
-        assert_eq!(next_ids(dir.path(), ANY_DATE).number, 1);
+        assert_eq!(next_ids(dir.path(), ANY_DATE).expect("allocate").number, 1);
     }
 
     #[test]
     fn next_number_ignores_dotted_subtask_fraction() {
         let dir = scratch_backlog(&[("tasks", "task-0007.09 - child.md")]);
-        assert_eq!(next_ids(dir.path(), ANY_DATE).number, 8);
+        assert_eq!(next_ids(dir.path(), ANY_DATE).expect("allocate").number, 8);
     }
 
     /// Id allocation must never reuse a number that lives in `completed`
@@ -288,7 +313,10 @@ mod tests {
             ("archive/tasks", "task-1670 - archived.md"),
             ("archive/completed", "task-0003 - old.md"),
         ]);
-        assert_eq!(next_ids(dir.path(), ANY_DATE).number, 1671);
+        assert_eq!(
+            next_ids(dir.path(), ANY_DATE).expect("allocate").number,
+            1671
+        );
     }
 
     #[test]
@@ -301,18 +329,23 @@ mod tests {
         // A slugless name still reserves its number: allocation must never
         // hand out an id some file already carries.
         assert_eq!(
-            next_ids(dir.path(), ANY_DATE).number,
+            next_ids(dir.path(), ANY_DATE).expect("allocate").number,
             21,
             "sanity: the fixture's highest slugged id is 20"
         );
         let dir = scratch_backlog(&[("tasks", "task-0030.md"), ("tasks", "task-0020 - real.md")]);
-        assert_eq!(next_ids(dir.path(), ANY_DATE).number, 31);
+        assert_eq!(next_ids(dir.path(), ANY_DATE).expect("allocate").number, 31);
     }
 
     #[test]
     fn daily_sequence_starts_at_one() {
         let dir = scratch_backlog(&[]);
-        assert_eq!(next_ids(dir.path(), "2026-08-20").sequence, 1);
+        assert_eq!(
+            next_ids(dir.path(), "2026-08-20")
+                .expect("allocate")
+                .sequence,
+            1
+        );
     }
 
     #[test]
@@ -322,7 +355,12 @@ mod tests {
             ("tasks", "task-1671.01 - REVIEW-Run-skill.md"),
             ("completed", "task-1600 - review-request-2026-08-20-2.md"),
         ]);
-        assert_eq!(next_ids(dir.path(), "2026-08-20").sequence, 3);
+        assert_eq!(
+            next_ids(dir.path(), "2026-08-20")
+                .expect("allocate")
+                .sequence,
+            3
+        );
     }
 
     /// A request from another day must not inflate today's sequence, and a
@@ -335,13 +373,23 @@ mod tests {
             ("tasks", "task-1600 - review-request-2026-08-19-4.md"),
             ("tasks", "task-1601 - review-request-2026-08-2-9.md"),
         ]);
-        assert_eq!(next_ids(dir.path(), "2026-08-20").sequence, 1);
+        assert_eq!(
+            next_ids(dir.path(), "2026-08-20")
+                .expect("allocate")
+                .sequence,
+            1
+        );
     }
 
     #[test]
     fn daily_sequence_skips_non_numeric_suffix() {
         let dir = scratch_backlog(&[("tasks", "task-1600 - review-request-2026-08-20-notes.md")]);
-        assert_eq!(next_ids(dir.path(), "2026-08-20").sequence, 1);
+        assert_eq!(
+            next_ids(dir.path(), "2026-08-20")
+                .expect("allocate")
+                .sequence,
+            1
+        );
     }
 
     /// The claim helper the concurrent commit path relies on. The
@@ -360,6 +408,7 @@ mod tests {
                     title: "review-request-2026-08-20-1",
                 },
             )
+            .expect("re-check")
         };
 
         // Uncontested: only the claimant's own reservation is present.
@@ -535,7 +584,12 @@ mod tests {
             ),
             ("tasks", "task-1901 - review-request-2026-08-27-1.md"),
         ]);
-        assert_eq!(next_ids(dir.path(), "2026-08-27").sequence, 2);
+        assert_eq!(
+            next_ids(dir.path(), "2026-08-27")
+                .expect("allocate")
+                .sequence,
+            2
+        );
     }
 
     /// Both ids come from the same listing: one call answers for the task
@@ -546,9 +600,48 @@ mod tests {
             ("tasks", "task-0010 - review-request-2026-08-20-1.md"),
             ("completed", "task-0020 - review-request-2026-08-20-4.md"),
         ]);
-        let ids = next_ids(dir.path(), "2026-08-20");
+        let ids = next_ids(dir.path(), "2026-08-20").expect("allocate");
         assert_eq!(ids.number, 21);
         assert_eq!(ids.sequence, 5);
+    }
+
+    /// TASK-2435 AC #1: an unreadable task directory must surface from id
+    /// allocation as an error naming the directory — here, a file squatting
+    /// where `completed/` belongs — instead of allocating from the partial
+    /// listing of the remaining directories.
+    #[test]
+    fn next_ids_read_failure_names_the_directory() {
+        let dir = scratch_backlog(&[("tasks", "task-0001 - live.md")]);
+        std::fs::write(dir.path().join(".backlog/completed"), "not a dir").expect("write file");
+        let err = next_ids(dir.path(), ANY_DATE).expect_err("must fail");
+        let rendered = format!("{err:#}");
+        assert!(
+            rendered.contains("completed"),
+            "error must name the unreadable directory, got: {rendered}"
+        );
+    }
+
+    /// TASK-2435 AC #1: the claim re-check must fail the same way, not
+    /// report "uncontested" off a partial listing that never saw the
+    /// conflicting file.
+    #[test]
+    fn conflicting_claim_read_failure_names_the_directory() {
+        let dir = scratch_backlog(&[("tasks", "task-0001 - live.md")]);
+        std::fs::write(dir.path().join(".backlog/completed"), "not a dir").expect("write file");
+        let err = conflicting_claim(
+            dir.path(),
+            &MainTaskClaim {
+                file_name: "task-0001 - live.md",
+                number: 1,
+                title: "anything",
+            },
+        )
+        .expect_err("must fail");
+        let rendered = format!("{err:#}");
+        assert!(
+            rendered.contains("completed"),
+            "error must name the unreadable directory, got: {rendered}"
+        );
     }
 
     /// TEST-8 boundary: a backlog whose highest id is `u32::MAX` cannot
@@ -556,7 +649,10 @@ mod tests {
     #[test]
     fn next_number_saturates_at_u32_max() {
         let dir = scratch_backlog(&[("tasks", "task-4294967295 - highest.md")]);
-        assert_eq!(next_ids(dir.path(), ANY_DATE).number, u32::MAX);
+        assert_eq!(
+            next_ids(dir.path(), ANY_DATE).expect("allocate").number,
+            u32::MAX
+        );
     }
 
     /// SEC-11 boundary: non-ASCII letters are outside the slug alphabet, and

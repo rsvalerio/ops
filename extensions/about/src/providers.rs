@@ -1,6 +1,6 @@
 //! Shared `about` subpage scaffolding: warm-up + load-with-default helpers.
 //!
-//! DUP-1 (TASK-0464): every subpage repeats the same `for provider in [...]
+//! Every subpage repeats the same `for provider in [...]
 //! { match get_or_provide ... }` warm-up loop and the same triadic
 //! `match get_or_provide(<provider>, registry)` deserialise-or-default
 //! sequence. Centralising both here keeps the four subpages aligned and
@@ -12,8 +12,7 @@ use ops_extension::{Context, DataProviderError, DataRegistry};
 
 /// Build the [`Context`] an `about` subpage runs its providers against.
 ///
-/// DUP-3 / TASK-1745: all five `run_about_*_with` runners opened with the
-/// same three lines, byte for byte —
+/// Every `run_about_*_with` runner needs the same three lines —
 ///
 /// ```text
 /// let cwd = std::env::current_dir()?;
@@ -21,12 +20,9 @@ use ops_extension::{Context, DataProviderError, DataRegistry};
 /// let mut ctx = Context::new(config, cwd);
 /// ```
 ///
-/// This module exists to collapse exactly that class of repetition (DUP-1 /
-/// TASK-0464), and it had stopped one step short of the context construction
-/// preceding its own helpers. Five copies is past DUP-3's threshold and left
-/// two drift surfaces open: the `Config::empty()` decision was made in five
-/// places with no comment in any of them, and `current_dir()?` was propagated
-/// bare from five sites.
+/// Centralising them here keeps the context-construction decisions made and
+/// commented once instead of per subpage: the `Config::empty()` choice and
+/// the bare `current_dir()?` propagation each have exactly one drift surface.
 ///
 /// **Why `Config::empty()` and not the loaded project config**: the about
 /// subpages only ever read *data providers*, never configured commands, and
@@ -108,15 +104,15 @@ where
 /// Deserialize a provider payload into `T`, naming the provider, the target
 /// type and the failing field path when it does not fit.
 ///
-/// ERR-4 / TASK-1734: both deserialization call sites in this crate —
+/// Both deserialization call sites in this crate —
 /// [`load_or_default`], the single funnel for `project_coverage`,
 /// `project_dependencies` and `project_units`, and `lib.rs::resolve_identity`
-/// for `project_identity` — used to propagate the raw `serde_json` error with
-/// a bare `?`. A stack-extension author whose payload shape had drifted saw
-/// only `invalid type: string, expected i64`, with no indication of which
-/// provider produced it or which type it was being read into — in a crate
-/// that is otherwise meticulous about attaching `path` / `kind` / `subpage`
-/// to every warn. Both facts are in scope here, so both are attached.
+/// for `project_identity` — must not propagate the raw `serde_json` error
+/// with a bare `?`: a stack-extension author whose payload shape has drifted
+/// would see only `invalid type: string, expected i64`, with no indication
+/// of which provider produced it or which type it was being read into — in
+/// a crate that is otherwise meticulous about attaching `path` / `kind` /
+/// `subpage` to every warn. Both facts are in scope here, so both are attached.
 ///
 /// ERR-14: these payloads are nested (`ProjectIdentity` carries
 /// `languages: Vec<LanguageStat>`, `ProjectCoverage` carries
@@ -125,7 +121,7 @@ where
 /// `units[3].lines_percent` — which is the difference between a fixable bug
 /// report and a bisect.
 ///
-/// PERF-3 (TASK-1117): still borrows the payload. `serde_path_to_error`
+/// Still borrows the payload. `serde_path_to_error`
 /// wraps the `&Value` deserializer, so the JSON tree is not deep-cloned to
 /// feed `from_value` (which takes `Value` by value).
 ///
@@ -169,9 +165,8 @@ mod tests {
         Context::new(config, std::path::PathBuf::from("/tmp"))
     }
 
-    /// DUP-3 / TASK-1745: the shared subpage context is built against the
-    /// process cwd and an empty `Config` — the decision the five runners each
-    /// used to make silently.
+    /// The shared subpage context is built against the
+    /// process cwd and an empty `Config`.
     #[test]
     fn subpage_context_uses_the_cwd_and_an_empty_config() {
         let ctx = subpage_context("units").expect("cwd is readable in the test harness");
@@ -187,7 +182,7 @@ mod tests {
         );
     }
 
-    /// ERR-1 (TASK-0516): a non-NotFound provider error during warm-up
+    /// A non-NotFound provider error during warm-up
     /// must not propagate (warm-up is best-effort) and must not panic. The
     /// warn fires through tracing; pinning the value-level contract here
     /// avoids the tracing-subscriber dev-dep cost (matches the pattern in
@@ -203,7 +198,7 @@ mod tests {
         // failing-provider error and an unregistered (NotFound) provider.
     }
 
-    /// ERR-1 (TASK-0516): `load_or_default` surfaces non-NotFound errors so a
+    /// `load_or_default` surfaces non-NotFound errors so a
     /// failing provider doesn't render zeros over a real failure.
     #[test]
     fn load_or_default_propagates_real_failures() {
@@ -246,11 +241,10 @@ mod tests {
         units: Vec<UnitCoverageStub>,
     }
 
-    /// ERR-4 + ERR-14 (TASK-1734): a payload-shape failure must name the
+    /// ERR-4 + ERR-14: a payload-shape failure must name the
     /// provider that produced it, the type it was being read into, and the
-    /// concrete field path. Previously the whole message was
-    /// `invalid type: string, expected f64` — unattributable across four
-    /// subpages and a hundred fields.
+    /// concrete field path. A bare `invalid type: string, expected f64` is
+    /// unattributable across four subpages and a hundred fields.
     #[test]
     fn load_or_default_error_names_provider_and_field_path() {
         let mut registry = DataRegistry::new();

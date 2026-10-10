@@ -21,7 +21,7 @@ use crate::go_syntax::{
 
 pub fn parse_use_dirs(root: &Path) -> Option<Vec<String>> {
     let path = root.join("go.work");
-    let content = ops_about::manifest_io::read_optional_text(&path, "go.work")?;
+    let content = ops_about::manifest_io::read_optional_text(&path, root, "go.work")?;
     let mut dirs = Vec::new();
     let mut in_use_block = false;
     // Where the currently open block started, as an index into `dirs`. A

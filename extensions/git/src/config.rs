@@ -85,8 +85,7 @@ impl std::fmt::Display for RedactedUrl {
 /// A real-world git config is well under 64 KiB; without a cap an
 /// adversarial repo (cloned for inspection) could exhaust memory through a
 /// multi-GB file or a symlink to `/dev/zero`. Mirrors the
-/// `ops_about::manifest_io::MAX_MANIFEST_BYTES` posture for project
-/// manifests.
+/// `ops_core::text::manifest_max_bytes` posture for project manifests.
 pub const MAX_GIT_CONFIG_BYTES: u64 = 4 * 1024 * 1024;
 
 /// Hard cap on the `.git/HEAD` read size.

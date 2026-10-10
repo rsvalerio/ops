@@ -1,13 +1,15 @@
 ---
 id: TASK-2426
 title: 'READ-13: ops-about-rust inline comments and test docs still narrate past bugs and prior shapes'
-status: Triage
+status: Done
 assignee: []
 created_date: '2026-10-04 15:16'
+updated_date: '2026-10-10 14:47'
 labels:
   - code-review-rust
   - READ
 dependencies: []
+parent_task_id: 'TASK-2439'
 modified_files:
   - extensions-rust/about/src/manifest.rs
   - extensions-rust/about/src/manifest_cache.rs
@@ -32,5 +34,6 @@ ordinal: 1000
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 Inline comments and test docs in the listed files state the current invariant or what the test pins, without previous/pre-fix/legacy narration
+- [x] #1 Inline comments and test docs in the listed files state the current invariant or what the test pins, without previous/pre-fix/legacy narration
+
 <!-- AC:END -->

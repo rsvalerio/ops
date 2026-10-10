@@ -1,13 +1,15 @@
 ---
 id: TASK-2436
 title: 'READ-13: remaining ops-theme and ops-extension files narrate change history and carry rule/TASK tags'
-status: Triage
+status: Done
 assignee: []
 created_date: '2026-10-04 15:56'
+updated_date: '2026-10-10 15:02'
 labels:
   - code-review-rust
   - READ
 dependencies: []
+parent_task_id: 'TASK-2439'
 modified_files:
   - crates/theme/src/style/strip.rs
   - crates/theme/src/configurable/report.rs
@@ -34,6 +36,7 @@ ordinal: 1000
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 No 'used to', 'previously', 'split out of' or other migration narration remains in the listed files
-- [ ] #2 Rule-ID / TASK-NNNN tags are removed from doc and inline comments unless the comment explains a non-obvious current invariant
+- [x] #1 No 'used to', 'previously', 'split out of' or other migration narration remains in the listed files
+- [x] #2 Rule-ID / TASK-NNNN tags are removed from doc and inline comments unless the comment explains a non-obvious current invariant
+
 <!-- AC:END -->

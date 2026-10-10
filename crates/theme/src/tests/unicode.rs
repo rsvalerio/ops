@@ -1,6 +1,6 @@
 //! Rendering with Unicode labels (CJK, emoji, RTL, mixed-width).
 //!
-//! TEST-11 / TASK-1980: `assert!(line.contains(<the input>))` is true for any
+//! `assert!(line.contains(<the input>))` is true for any
 //! function that echoes its argument, so these tests said nothing about the
 //! layout they exist to cover. Each now also pins the rendered width against
 //! the budget it was rendered at.
@@ -61,9 +61,10 @@ fn render_handles_mixed_width_unicode() {
     assert!(line.contains("🚀"));
 }
 
-/// TEST-11 / TASK-1980 AC#2: 200 display columns of CJK rendered at
-/// `columns = 80` used to pass on a containment check alone, while the
-/// produced line was two and a half times the requested width.
+/// 200 display columns of CJK rendered at
+/// `columns = 80` must be truncated to the budget, not merely contained —
+/// a containment check alone would accept a line two and a half times the
+/// requested width.
 #[test]
 fn render_handles_very_long_unicode_label() {
     let theme = ConfigurableTheme::new(ThemeConfig::compact());
@@ -87,7 +88,7 @@ fn render_handles_right_to_left_text() {
     assert!(line.contains("مرحبا"));
 }
 
-/// TEST-11 / TASK-1980 AC#4: a wide (CJK / emoji) label at a narrow width in
+/// A wide (CJK / emoji) label at a narrow width in
 /// boxed layout must produce a line exactly as wide as the frame border — the
 /// case where a half-truncated wide glyph would otherwise leave the closing
 /// bar one column off.

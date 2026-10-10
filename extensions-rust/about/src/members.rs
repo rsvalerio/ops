@@ -63,10 +63,10 @@ pub fn resolved_workspace_members(manifest: &CargoToml, workspace_root: &Path) -
         match classify_member(member) {
             // PATTERN-1 / TASK-2065: canonicalise the *output* spelling.
             // `ExcludeSet::excludes` normalises a leading `./` on both sides
-            // (TASK-2055), but the resolved list itself was emitted verbatim,
-            // so a workspace listing both `./crates/foo` and `crates/foo` (or
-            // a glob that also expands to one of them) survived the `dedup`
-            // below as two distinct strings and double-counted the crate.
+            // (TASK-2055), but the `dedup` below compares the resolved list
+            // as raw strings, so a workspace listing both `./crates/foo` and
+            // `crates/foo` (or a glob that also expands to one of them) must
+            // see both collapse to one spelling or the crate double-counts.
             // Glob expansion already emits the canonical form — it derives its
             // strings from a `canonicalize`d path — so only literals need this.
             MemberShape::Literal => resolved.push(normalize_member(member)),
@@ -148,9 +148,9 @@ impl<'a> ExcludeSet<'a> {
                     prefixes.push(normalize_exclude_prefix(prefix));
                 }
                 // A shape we cannot expand (`**`, `?`, `[…]`, `{…}`) is kept
-                // as a literal — the pre-TASK-2040 behaviour — and announced,
-                // mirroring the `MemberShape::Unsupported` passthrough rather
-                // than dropping the entry on the floor. ERR-7 (TASK-0941):
+                // as a literal and announced, mirroring the
+                // `MemberShape::Unsupported` passthrough rather than dropping
+                // the entry on the floor. ERR-7 (TASK-0941):
                 // Debug-format the manifest-controlled pattern so embedded
                 // newlines / ANSI escapes cannot forge log records.
                 Some(_) => {
@@ -514,9 +514,7 @@ mod tests {
     ///
     /// This drives `expand_member_glob` itself and asserts on the *captured*
     /// log line: swapping `pattern = ?member` for `pattern = %member` makes it
-    /// fail. The previous shape asserted only that `std`'s
-    /// `Debug for Path::Display` escapes control characters, which stayed green
-    /// through exactly that regression.
+    /// fail.
     #[test]
     fn glob_prefix_warn_debug_escapes_control_characters() {
         let dir = tempfile::tempdir().expect("tempdir");
@@ -623,12 +621,12 @@ mod tests {
     }
 
     /// A `*` that stands for only part of a path segment (`crates/f*`) is not
-    /// the `prefix/*` shape `expand_member_glob` implements: it used to be
-    /// classified as a glob and `read_dir` the non-existent directory
-    /// `crates/f`, reporting an "unreadable prefix" that misnamed the problem
-    /// and dropped the entry. It must be classified as an unsupported shape
-    /// and pass through unchanged instead — while the whole-segment shapes
-    /// `crates/*` and `*` stay globs.
+    /// the `prefix/*` shape `expand_member_glob` implements: treated as a glob
+    /// it would `read_dir` the non-existent directory `crates/f` and report
+    /// an "unreadable prefix" that misnames the problem and drops the entry.
+    /// It must be classified as an unsupported shape and pass through
+    /// unchanged instead — while the whole-segment shapes `crates/*` and `*`
+    /// stay globs.
     #[test]
     fn partial_segment_glob_is_unsupported_and_passes_through() {
         let dir = tempfile::tempdir().expect("tempdir");
@@ -723,11 +721,11 @@ mod tests {
         );
     }
 
-    /// FEAT / TASK-2040: a glob `exclude` used to match nothing, because
-    /// exclusion was an exact string-set test against the resolved member
-    /// list. `crates/generated-*` must drop exactly the members it names —
-    /// whole-segment (`vendor/*`) and partial-segment (`crates/generated-*`)
-    /// prefixes alike — and leave everything else in place.
+    /// FEAT / TASK-2040: a glob `exclude` must drop exactly the members it
+    /// names — whole-segment (`vendor/*`) and partial-segment
+    /// (`crates/generated-*`) prefixes alike — and leave everything else in
+    /// place; matching only literal entries would silently keep the members
+    /// the manifest asked to exclude.
     #[test]
     fn exclude_globs_drop_the_members_they_match() {
         let dir = tempfile::tempdir().expect("tempdir");
@@ -812,10 +810,9 @@ mod tests {
 
     /// PATTERN-1 / TASK-2065 AC #1: Cargo treats `./crates/foo` and
     /// `crates/foo` as the same member, so the resolved list must contain it
-    /// once. Before normalisation the two spellings sorted apart and `dedup`
-    /// — which only collapses *adjacent* equal elements — kept both, so
-    /// `module_count` counted the crate twice and the units / coverage
-    /// providers emitted two `ProjectUnit`s for it.
+    /// once. Both spellings must normalise to the same string before the
+    /// `sort` + `dedup`, or the crate double-counts in `module_count` and
+    /// the units / coverage providers emit two `ProjectUnit`s for it.
     #[test]
     fn dot_slash_and_plain_spellings_of_one_member_resolve_once() {
         let manifest = manifest_with_members(&["./crates/foo", "crates/foo"]);
@@ -872,12 +869,13 @@ mod tests {
         );
     }
 
-    /// PATTERN-1 / TASK-2065 regression: `exclude = [".*"]` is a
-    /// hidden-directory glob whose prefix is a bare `.`. Canonicalising the
-    /// prefix through `path_segments` — which drops `.` segments — collapsed it
-    /// to the empty string, and `ExcludeSet::excludes` reads an empty prefix as
-    /// the bare-`*` wildcard: every single-segment member was silently
-    /// excluded. The empty prefix must stay unique to the `*` that earns it.
+    /// PATTERN-1 / TASK-2065: `exclude = [".*"]` is a hidden-directory glob
+    /// whose prefix is a bare `.` — a *partial* segment, not a path segment.
+    /// Canonicalising it through `path_segments` — which drops `.` segments —
+    /// would collapse it to the empty string, and `ExcludeSet::excludes`
+    /// reads an empty prefix as the bare-`*` wildcard: every single-segment
+    /// member silently excluded. The empty prefix must stay unique to the `*`
+    /// that earns it.
     #[test]
     fn a_dot_exclude_glob_does_not_become_the_bare_wildcard() {
         let exclude = vec![".*".to_string()];
@@ -1022,8 +1020,8 @@ mod tests {
     }
 
     /// An exclude shape the expander cannot interpret (`**`, `?`, `[…]`,
-    /// `{…}`) keeps the pre-TASK-2040 literal behaviour and says so, instead
-    /// of being silently reinterpreted as a prefix that would over-exclude.
+    /// `{…}`) is matched literally and says so, instead of being silently
+    /// reinterpreted as a prefix that would over-exclude.
     #[test]
     fn unsupported_exclude_shapes_stay_literal_and_warn() {
         let exclude = vec![

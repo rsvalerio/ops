@@ -1,9 +1,9 @@
-//! The `running_template_overhead` mis-budget diagnostic (READ-5 /
-//! TASK-1971) as an observable value (TEST-33 / TASK-2096).
+//! The `running_template_overhead` mis-budget diagnostic as an
+//! observable value.
 
 use super::*;
 
-/// TEST-33 / TASK-2096 AC#2: constructing a misconfigured theme must expose
+/// Constructing a misconfigured theme must expose
 /// the diagnostic programmatically — `ConfigurableTheme::new` performs no
 /// I/O, so the warning is a value, not a stderr side effect the test has to
 /// capture.

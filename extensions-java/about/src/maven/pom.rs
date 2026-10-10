@@ -148,7 +148,7 @@ pub(super) fn parse_pom_xml(project_root: &Path) -> Option<PomData> {
     // parsers (go_mod, go_work, package_json, pyproject) rather than drifting
     // from them when that policy changes.
     let path = project_root.join("pom.xml");
-    let content = ops_about::manifest_io::read_optional_text(&path, "pom.xml")?;
+    let content = ops_about::manifest_io::read_optional_text(&path, project_root, "pom.xml")?;
 
     let mut data = PomData::default();
     let mut started = false;

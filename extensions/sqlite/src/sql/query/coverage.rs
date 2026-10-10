@@ -14,7 +14,7 @@ use super::helpers::{
 /// DUP-1 / TASK-1629: shares the lock + `table_exists` + `query_row` + `with_context`
 /// prologue with `query_project_scalar` via the generalised
 /// `query_project_row` helper. Both project-scalar (LOC, deps) and
-/// project-row (coverage) callers now flow through the same scaffolding.
+/// project-row (coverage) callers flow through the same scaffolding.
 ///
 /// # Errors
 ///

@@ -51,7 +51,7 @@ fn large_duration() {
 
 #[test]
 fn nan_input_renders_marker() {
-    // SEC-15 / TASK-0358: NaN must not propagate through `as u64`.
+    // NaN must not propagate through `as u64`.
     assert_eq!(format_duration(f64::NAN), "--");
 }
 
@@ -74,7 +74,7 @@ fn enormous_finite_input_does_not_panic() {
     assert!(out.contains('h'), "got: {out}");
 }
 
-/// ERR-5 / TASK-0857: an enormous f64 (above the f64-representable u64
+/// An enormous f64 (above the f64-representable u64
 /// range) must clamp to the `u64::MAX-derived` hours/minutes/seconds form
 /// without panicking under the new explicit clamp.
 #[test]
@@ -92,14 +92,14 @@ fn enormous_finite_input_saturates_to_u64_max_form() {
     assert!(out.contains('h'), "expected hours form, got: {out}");
 }
 
-/// ERR-5 / TASK-0857: an exact-fit large value (one second past the
+/// An exact-fit large value (one second past the
 /// 1-hour boundary, well within u64) round-trips through the same path.
 #[test]
 fn one_second_past_one_hour_is_one_hour() {
     assert_eq!(format_duration(3601.0), "1h0m1s");
 }
 
-/// ERR-5 / TASK-0857: an f64 between `u64::MAX` and infinity must still
+/// An f64 between `u64::MAX` and infinity must still
 /// clamp (no UB from out-of-range `as u64` cast).
 #[test]
 fn above_u64_max_finite_does_not_overflow() {

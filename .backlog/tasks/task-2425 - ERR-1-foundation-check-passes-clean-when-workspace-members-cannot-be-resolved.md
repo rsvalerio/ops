@@ -1,13 +1,15 @@
 ---
 id: TASK-2425
 title: 'ERR-1: foundation check passes clean when workspace members cannot be resolved'
-status: Triage
+status: Done
 assignee: []
 created_date: '2026-10-04 15:07'
+updated_date: '2026-10-10 14:47'
 labels:
   - code-review-rust
   - ERR
 dependencies: []
+parent_task_id: 'TASK-2438'
 modified_files:
   - extensions-rust/foundation/src/lib.rs
   - extensions-rust/foundation/src/tests.rs
@@ -29,6 +31,7 @@ ordinal: 1000
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 A root manifest whose workspace members cannot be resolved makes check report a drift (or return an error) naming Cargo.toml and the parse reason, instead of passing clean
-- [ ] #2 scaffold returns an error for the same manifest instead of silently adding no member opt-ins
+- [x] #1 A root manifest whose workspace members cannot be resolved makes check report a drift (or return an error) naming Cargo.toml and the parse reason, instead of passing clean
+- [x] #2 scaffold returns an error for the same manifest instead of silently adding no member opt-ins
+
 <!-- AC:END -->

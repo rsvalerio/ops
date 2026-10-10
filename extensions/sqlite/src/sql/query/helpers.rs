@@ -153,9 +153,8 @@ where
 /// fetch a single row. Acquires the DB lock, returns `default` when the
 /// table is missing, otherwise runs `sql` with no parameters and maps the
 /// resulting row via `row_mapper`. Centralises the lock + `table_exists` +
-/// `query_row` + `with_context` prologue that `query_project_scalar` and the
-/// former hand-rolled `query_project_coverage` each implemented
-/// independently.
+/// `query_row` + `with_context` prologue shared by `query_project_scalar`
+/// and `query_project_coverage`.
 pub(super) fn query_project_row<T, F>(
     db: &Sqlite,
     spec: &QuerySpec<'_>,
@@ -233,10 +232,10 @@ pub(super) fn prepare_per_crate<'a>(
         return Ok(PerCrateSetup::NoTable);
     }
 
-    // PERF-3 / TASK-0968: build the placeholder string in place. The previous
-    // `iter().map(...).collect::<Vec<_>>().join(", ")` allocated an
-    // intermediate `Vec<&'static str>` per call, which is hit once per
-    // per-crate query and multiple times per about-units render.
+    // PERF-3 / TASK-0968: build the placeholder string in place. A
+    // `iter().map(...).collect::<Vec<_>>().join(", ")` shape would allocate
+    // an intermediate `Vec<&'static str>` per call, and this path is hit
+    // once per per-crate query and multiple times per about-units render.
     let n = member_paths.len();
     let mut placeholders = String::with_capacity(n.saturating_mul(5)); // "(?), " is 5 bytes
     for i in 0..n {
@@ -316,7 +315,7 @@ where
         // (workspace glob bug, dropped GROUP BY). The map still takes the
         // later value — `HashMap::insert` overwrites — so this warns *and*
         // overwrites; it does not prevent the overwrite (READ-4 /
-        // TASK-1875: the comment used to claim otherwise).
+        // TASK-1875).
         if result.insert(path.clone(), val).is_some() {
             tracing::warn!(
                 label,
@@ -499,10 +498,6 @@ mod tests {
     /// SQL because `ColumnAlias::new` rejects non-identifier strings before
     /// a value can be passed in. This is the regression guard the typed
     /// signature is meant to provide.
-    ///
-    /// READ-4 / TASK-1875: this paragraph previously sat on
-    /// `collect_per_crate_map_keeps_one_entry_for_duplicate_keys`, a test
-    /// about duplicate map keys that makes no SEC-12 claim at all.
     #[test]
     fn column_alias_rejects_non_identifier_prefix() {
         assert!(ColumnAlias::new("c.").is_err());

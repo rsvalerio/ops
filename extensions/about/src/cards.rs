@@ -14,7 +14,7 @@ use ops_core::text::format_number;
 
 /// Layout constants for about pages.
 ///
-/// READ-4 (TASK-0527): kept crate-private. Out-of-crate consumers do not
+/// Kept crate-private. Out-of-crate consumers do not
 /// need to compose card layouts; the struct exists only as a namespace for
 /// the constants below.
 struct CardLayoutConfig;
@@ -22,7 +22,7 @@ struct CardLayoutConfig;
 impl CardLayoutConfig {
     /// Width of each unit card in characters.
     ///
-    /// READ-5 (TASK-0470): minimum supported value is 4 — `render_card`
+    /// Minimum supported value is 4 — `render_card`
     /// passes `CARD_WIDTH - 2` to `truncate_to_width`, which uses
     /// `max_width.saturating_sub(1)` and produces a single-ellipsis card
     /// when `inner_width < 2`. The compile-time assertion below pins this.
@@ -162,7 +162,7 @@ pub fn render_card(unit: &ProjectUnit, is_tty: bool) -> Vec<String> {
 /// Lay out cards using a width probed from stdout (TTY size, then `COLUMNS`,
 /// then a hard-coded 120-column fallback).
 ///
-/// ERR-1 (TASK-0784): the 120-column fallback fires silently when stdout is
+/// The 120-column fallback fires silently when stdout is
 /// not a TTY and `COLUMNS` is unset — piped invocations get layout sized for
 /// a wide terminal regardless of caller intent. Reserve this entry point for
 /// direct stdout renders. Buffer-writing callers must use
@@ -175,7 +175,7 @@ pub(crate) fn layout_cards_in_grid(cards: &[Vec<String>]) -> Vec<String> {
 
 /// Lay out a slice of pre-rendered cards into a grid sized for `term_width`.
 ///
-/// READ-5 (TASK-0590) — Render contract:
+/// Render contract:
 ///
 /// The grid switches between 3, 2, and 1 cards per row at the
 /// [`CardLayoutConfig::MIN_WIDTH_3_CARDS`] and
@@ -193,11 +193,10 @@ pub(crate) fn layout_cards_in_grid(cards: &[Vec<String>]) -> Vec<String> {
 /// The cells of one grid row, borrowed from the cards rather than cloned; the
 /// caller's `[&str].join(&str)` then allocates once for the whole row.
 ///
-/// PERF-3 / TASK-0722: the pre-fix layout cloned every card line into an owned
-/// `String` per cell. TASK-1664 extracted this so that contract can be pinned
-/// by pointer identity in a test, rather than inferred from a wall-clock ratio
-/// that never had the resolution to see a per-cell clone (cloning is still
-/// linear — it only moves the constant).
+/// Cloning every card line into an owned `String` per cell would stay
+/// linear but move a larger constant; borrowing keeps the contract pinnable
+/// by pointer identity in a test, rather than inferred from a wall-clock
+/// ratio that cannot see a per-cell clone.
 fn row_parts(chunk: &[Vec<String>], line_idx: usize) -> Vec<&str> {
     chunk
         .iter()
@@ -219,9 +218,9 @@ pub fn layout_cards_in_grid_with_width(cards: &[Vec<String>], term_width: usize)
     };
 
     let mut result = Vec::new();
-    // TASK-0790: CARD_SPACING is a compile-time constant (2); avoid per-call
+    // CARD_SPACING is a compile-time constant (2); avoid per-call
     // allocation from `str::repeat`.
-    // TASK-0790: avoid per-call `" ".repeat(CARD_SPACING)` allocation.
+    // Avoid per-call `" ".repeat(CARD_SPACING)` allocation.
     const SPACING: &str = {
         const { assert!(CardLayoutConfig::CARD_SPACING == 2) };
         "  "
@@ -354,7 +353,7 @@ mod tests {
         assert!(result.iter().any(|l| l.contains("line1")));
     }
 
-    /// READ-5 (TASK-0590): below the minimum supported terminal width the
+    /// Below the minimum supported terminal width the
     /// grid stays in single-card mode and renders each card at the fixed
     /// `CARD_WIDTH`. Pin this so a future "responsive" refactor that picks
     /// 0-cards-per-row or panics on small terminals fails the test rather
@@ -388,17 +387,15 @@ mod tests {
             .collect()
     }
 
-    /// PERF-3 (TASK-0722) + TEST-15 (TASK-1664): row cells must borrow the
-    /// card lines, not copy them.
+    /// Row cells must borrow the card lines, not copy them.
     ///
-    /// This is the assertion that actually guards the regression. It replaces
-    /// the wall-clock half of `layout_cards_handles_large_workspace`, which
-    /// compared a 50-card and a 500-card run against a 20x bound: a per-cell
-    /// clone is still linear, so it moved the constant and never came near
-    /// that bound, while the timing itself was the most reliable failure in
-    /// the suite once tests ran in parallel. Pointer identity sees the clone
-    /// immediately and cannot flake — the same reasoning as
-    /// `emit_output_events_shares_buffer_across_lines` in ops-runner.
+    /// The check is pointer identity rather than a wall-clock bound: a
+    /// per-cell clone is still linear, so a timing comparison against a
+    /// large workspace only moves the constant, and timing itself is the
+    /// least reliable failure signal once tests run in parallel. Pointer
+    /// identity sees the clone immediately and cannot flake — the same
+    /// reasoning as `emit_output_events_shares_buffer_across_lines` in
+    /// ops-runner.
     #[test]
     fn layout_row_parts_borrow_card_lines_instead_of_cloning() {
         let cards = build_cards(3);
@@ -416,7 +413,7 @@ mod tests {
         }
     }
 
-    /// PERF-3 (TASK-0722) + TEST-15 (TASK-1664): a large workspace lays out
+    /// A large workspace lays out
     /// into the documented grid shape — 3 cards per row at 120 columns, one
     /// blank line between rows and none trailing — and the row count grows
     /// with the number of card rows, not faster.

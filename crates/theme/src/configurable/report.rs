@@ -1,6 +1,6 @@
 //! Report rendering.
 //!
-//! ARCH-1 / TASK-1981: split out of `configurable.rs`. A [`Report`] is
+//! A [`Report`] is
 //! rendered through the same `render_slot` seam the runner's step line uses,
 //! so "command output" commands match the runner's themed look; this module
 //! holds only the report-specific mapping (icons and colours from the
@@ -45,7 +45,7 @@ impl ConfigurableTheme {
     /// summary; boxed themes draw the same enclosing frame the runner uses,
     /// with the report title in the top border and the footer in the bottom.
     ///
-    /// PERF-3 / TASK-2082: resolves the colour gate once for the whole
+    /// Resolves the colour gate once for the whole
     /// report — title, borders, every row and the footer — instead of once
     /// per styled segment.
     #[must_use]
@@ -73,7 +73,7 @@ impl ConfigurableTheme {
                 color,
             ));
             for detail in &row.details {
-                // SEC-21 / TASK-1965: report details are producer-supplied
+                // Report details are producer-supplied
                 // text (often captured tool output) rendered verbatim.
                 // CL-3: carry the same left margin the title and rows use —
                 // an unpadded detail line hangs one column left of the row it
@@ -117,7 +117,7 @@ impl ConfigurableTheme {
             // left progress column reads as a solid bar.
             out.push(self.wrap_step_line(&inner, "█", columns));
             for detail in &row.details {
-                // SEC-21 / TASK-1965: same untrusted-input class as the flat
+                // Same untrusted-input class as the flat
                 // path above.
                 out.push(self.wrap_box_content(&sanitise(detail), columns));
             }
@@ -157,7 +157,7 @@ impl ConfigurableTheme {
     }
 }
 
-/// SEC-21 / TASK-1965: report rows are producer-supplied text (often captured
+/// Report rows are producer-supplied text (often captured
 /// tool output). Neutralise control bytes and ESC in both slots *before* the
 /// width measurement and truncation in `render_slot`, so the two agree.
 fn sanitised_row_text(row: &ops_core::report::ReportRow) -> (String, String) {

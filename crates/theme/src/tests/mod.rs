@@ -1,6 +1,6 @@
 //! Tests for theme types and rendering.
 //!
-//! Tests are split by concern into submodules — see TASK-0353. Shared
+//! Tests are split by concern into submodules. Shared
 //! imports, the [`render_line`] helper, and the [`MINIMAL_THEME_TOML`]
 //! fixture live here so each submodule can pick them up via `use super::*;`.
 

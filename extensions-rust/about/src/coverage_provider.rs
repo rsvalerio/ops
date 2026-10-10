@@ -160,7 +160,7 @@ impl DataProvider for RustCoverageProvider {
         // deps_provider). Wrapping the return in `Option` preserves the
         // early-return-on-failure semantics — if the project_coverage query
         // fails we return a fully-default `ProjectCoverage` rather than
-        // partial data, matching the prior behaviour.
+        // partial data.
         // DUP-1 / TASK-1079: dispatched via `cached_query_project_coverage`
         // so the parallel call from `identity::metrics` reuses this result
         // (and any warn it already logged) instead of re-querying SQLite
@@ -338,9 +338,9 @@ mod cache_tests {
 
     /// CONC-2 / TASK-1193: the AC #1 contract is that
     /// `cached_query_project_coverage` runs the underlying query exactly
-    /// once even when two threads enter concurrently. Pre-fix the outer
-    /// mutex was dropped around the query — both threads observed a miss,
-    /// both dispatched, and `query_or_warn` fired its warn N times. We
+    /// once even when two threads enter concurrently. The outer mutex must
+    /// be held across the query: dropping it would let both threads observe
+    /// a miss, both dispatch, and `query_or_warn` fire its warn N times. We
     /// pin AC #2 by running the two call sites from two threads (rather
     /// than sequentially) and asserting the warn count is still 1.
     #[test]
@@ -416,9 +416,9 @@ mod cache_tests {
 
     /// ARCH-9 / TASK-1155: two distinct `Sqlite` instances must receive
     /// distinct cache keys even when one is dropped and the next is
-    /// allocated at the same memory address (the ABA hazard the prior
-    /// pointer-address scheme had). With the id-keyed scheme each instance
-    /// gets a fresh monotonic id, so a re-allocated address cannot
+    /// allocated at the same memory address — an ABA hazard for any
+    /// pointer-address keying. The id-keyed scheme gives each instance a
+    /// fresh monotonic id, so a re-allocated address cannot
     /// silently surface a previous instance's cached value.
     ///
     /// TEST-1 / TASK-1571: drive the contract through
@@ -478,10 +478,11 @@ mod cache_tests {
         );
     }
 
-    /// PERF-16 / TASK-1723: the *map* was bounded by the test above, but the
-    /// LRU victim queue was not. Its only drain runs at the cap, so a process
-    /// staying below the cap — every CLI run, which memoizes exactly one
-    /// project — pushed one stamp per `slot_for` call and never dropped any.
+    /// PERF-16 / TASK-1723: the *map* bound is pinned by the test above;
+    /// this one pins the LRU victim queue. The queue's only drain runs at
+    /// the cap, so a process staying below the cap — every CLI run, which
+    /// memoizes exactly one project — must not accumulate one stamp per
+    /// `slot_for` call without ever dropping any.
     /// Drive the cache directly (no global, no `Sqlite`) and pin that the queue
     /// stays proportional to the live entry count, not to the call count.
     #[test]
@@ -523,10 +524,7 @@ mod tests {
     /// This drives `RustCoverageProvider::provide` itself and asserts on the
     /// provider's observable behaviour (project total present, per-crate table
     /// blank, warn emitted). Replacing the `to_str()` short-circuit with
-    /// `to_string_lossy()` removes the warn and makes this fail. The previous
-    /// shape asserted only that `Path::to_str()` returns `None` for invalid
-    /// UTF-8 — a `std` guarantee that stays green through exactly that
-    /// regression.
+    /// `to_string_lossy()` removes the warn and makes this fail.
     #[test]
     // macOS-impossible: APFS refuses to create directory names that are not
     // valid UTF-8 (`create_dir` fails with `Illegal byte sequence`), so the

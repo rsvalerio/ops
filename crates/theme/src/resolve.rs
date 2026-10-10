@@ -21,8 +21,8 @@ pub enum ThemeError {
 ///
 /// Looks up the theme in the provided `IndexMap` (includes built-in themes from default config).
 ///
-/// TEST-33 / TASK-2096: the `running_template_overhead` mis-budget
-/// diagnostic (READ-5 / TASK-1971) is emitted here, at resolution time —
+/// The `running_template_overhead` mis-budget
+/// diagnostic is emitted here, at resolution time —
 /// the constructor itself performs no I/O.
 ///
 /// # Errors
@@ -40,7 +40,7 @@ pub fn resolve_theme(
     Ok(theme)
 }
 
-/// TEST-33 / TASK-2096: the single render site for the resolution-time
+/// The single render site for the resolution-time
 /// template-overhead diagnostic shared by both resolve entry points.
 fn warn_on_template_overhead(theme: &ConfigurableTheme) {
     if let Some(message) = theme.template_overhead_diagnostic() {
@@ -51,7 +51,7 @@ fn warn_on_template_overhead(theme: &ConfigurableTheme) {
 /// Owning sibling of [`resolve_theme`]: take the named entry out of `themes`
 /// via `IndexMap::swap_remove`, avoiding the per-call `ThemeConfig::clone`.
 ///
-/// OWN-4 / TASK-0836: `ThemeConfig` is ~13 `String` fields plus an
+/// `ThemeConfig` is ~13 `String` fields plus an
 /// `ErrorBlockChars` (5 strings), so the unconditional clone in
 /// [`resolve_theme`] is non-trivial on every CLI run. Use this variant when
 /// the caller owns the theme map and does not need to look the entry up

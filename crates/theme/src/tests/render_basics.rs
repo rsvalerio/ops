@@ -3,8 +3,7 @@
 
 use super::*;
 
-/// TASK-0354: `render_prefix` and `render` compute the same indent/icon/pad
-/// triple. With a multi-character icon (like "OK"), the displayed width of
+/// /// triple. With a multi-character icon (like "OK"), the displayed width of
 /// the rendered prefix must equal the sum of indent + icon + pad widths
 /// (plus the trailing label and space). Catches drift between the two
 /// callers of `step_prefix_parts`.
@@ -112,7 +111,7 @@ fn plain_header_with_prefix_emits_prefix() {
     assert_eq!(lines[1], " 🚀 Running: build, test");
 }
 
-/// CL-3 / TASK-1976 AC#3: with stderr redirected and stdout a TTY —
+/// With stderr redirected and stdout a TTY —
 /// `ops verify 2> build.log` from an interactive shell — the theme must emit
 /// no SGR, because everything it renders goes to the redirected stream.
 ///
@@ -121,7 +120,7 @@ fn plain_header_with_prefix_emits_prefix() {
 /// about exactly that stream combination, and a step line is rendered with
 /// the stderr-bound gate forced off and asserted to be plain.
 ///
-/// TEST-9: the rendered half used to depend on *this process's* stderr being
+/// The rendered half must not depend on *this process's* stderr being
 /// redirected. `ops_core::style::stderr_is_terminal()` caches its
 /// `is_terminal()` answer in a `OnceLock`, so no amount of `#[serial]` can
 /// make that true — run the suite from an interactive shell (`cargo nextest
@@ -249,7 +248,7 @@ fn compact_summary_separator_is_empty() {
     assert!(sep.is_empty());
 }
 
-/// API-18 / TASK-2090: the column budget the signature promises is real —
+/// The column budget the signature promises is real —
 /// a configured separator longer than the terminal is clamped instead of
 /// wrapping past the last column.
 #[test]
@@ -270,10 +269,9 @@ fn error_detail_empty_returns_nothing() {
     assert!(lines.is_empty());
 }
 
-/// TEST-11 / TASK-1980: these two used to assert only that the label was
-/// echoed back. At these widths the label does not fit — the chrome, the
+/// At these widths the label does not fit — the chrome, the
 /// duration and the minimum separator run already consume the whole budget —
-/// so under the CL-3 / TASK-1969 truncation policy the label is cut. What is
+/// so the truncation policy cuts the label. What is
 /// worth pinning is that the line still renders and still fits its budget.
 #[test]
 fn classic_theme_very_small_columns() {

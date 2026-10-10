@@ -5,7 +5,8 @@ use crate::{check_metadata_not_capped, check_metadata_output, run_cargo_metadata
 use ops_extension::Context;
 use ops_sqlite::sql::external_err;
 use ops_sqlite::{
-    init_schema, upsert_data_source, DataIngestor, DbError, DbResult, IngestDir, LoadResult, Sqlite,
+    init_schema, io_context, upsert_data_source, DataIngestor, DbError, DbResult, IngestDir,
+    LoadResult, Sqlite,
 };
 use std::path::Path;
 
@@ -32,7 +33,7 @@ impl DataIngestor for MetadataIngestor {
             ops_core::subprocess::RunError::Io(io) => io_at(
                 "running `cargo metadata` in working directory",
                 working_dir,
-                &io,
+                io,
             ),
             ops_core::subprocess::RunError::Timeout(t) => DbError::Timeout {
                 label: t.label,
@@ -166,9 +167,11 @@ fn validate_published(conn: &rusqlite::Connection) -> DbResult<(u64, String)> {
 ///
 /// # Errors
 ///
-/// [`DbError::Io`] if the staged file cannot be read through the anchor, or
-/// [`DbError::External`] if the payload exceeds the cap (naming the byte
-/// count the capped read stopped at, the cap, and the override env var).
+/// [`DbError::Io`] — naming the staged entry it acted on, with the OS error
+/// as source — if the staged file cannot be opened or read through the
+/// anchor, or [`DbError::External`] if the payload exceeds the cap (naming
+/// the byte count the capped read stopped at, the cap, and the override env
+/// var).
 fn read_staged_payload(dir: &IngestDir) -> DbResult<String> {
     use std::io::Read as _;
     let cap = crate::metadata_max_bytes();
@@ -176,7 +179,7 @@ fn read_staged_payload(dir: &IngestDir) -> DbResult<String> {
     dir.open_read(METADATA_JSON)?
         .take(cap.saturating_add(1))
         .read_to_string(&mut payload)
-        .map_err(DbError::Io)?;
+        .map_err(|e| dir.entry_error("reading", METADATA_JSON, e))?;
     if payload.len() > usize::try_from(cap).unwrap_or(usize::MAX) {
         return Err(external_err(anyhow::anyhow!(
             "staged metadata payload exceeds the {cap}-byte cap (override via \
@@ -207,16 +210,15 @@ fn build_views(conn: &rusqlite::Connection, payload: &str) -> DbResult<()> {
 ///
 /// A bare `std::io::Error` names no path, so an ENOSPC/EACCES on the working
 /// directory would otherwise render as `Permission denied (os error 13)`,
-/// with nothing telling the operator which directory failed. `ErrorKind` is preserved so callers
-/// that branch on `NotFound` / `PermissionDenied` still can, and the variant
-/// stays `DbError::Io` so a genuine filesystem failure is not laundered into
-/// `DbError::External` (which `collect`'s tests use to mean "cargo ran and
-/// failed").
-fn io_at(op: &str, path: &Path, e: &std::io::Error) -> DbError {
-    DbError::Io(std::io::Error::new(
-        e.kind(),
-        format!("{op} {}: {e}", path.display()),
-    ))
+/// with nothing telling the operator which directory failed. `io_context`
+/// carries the operation and path as the message and the original error as
+/// the `source`, so chain walkers and typed downcasts still see the OS cause.
+/// `ErrorKind` is preserved so callers that branch on `NotFound` /
+/// `PermissionDenied` still can, and the variant stays `DbError::Io` so a
+/// genuine filesystem failure is not laundered into `DbError::External`
+/// (which `collect`'s tests use to mean "cargo ran and failed").
+fn io_at(op: &str, path: &Path, e: std::io::Error) -> DbError {
+    DbError::Io(io_context(format!("{op} {}", path.display()), e))
 }
 
 /// Rejects a `metadata_raw` table that does not hold exactly one row, dropping
@@ -396,6 +398,70 @@ mod tests {
     fn metadata_ingestor_name() {
         let ingestor = MetadataIngestor;
         assert_eq!(ingestor.name(), "metadata");
+    }
+
+    /// TASK-2428 AC #1: `io_at` must keep the original `io::Error` reachable
+    /// through `Error::source()` — the cause survives as a chain link, not as
+    /// text flattened into the message — while still naming the operation and
+    /// the path, and preserving `ErrorKind` for kind-branching callers.
+    #[test]
+    fn io_at_keeps_the_original_io_error_as_source() {
+        use std::error::Error as _;
+
+        let original = std::io::Error::from(std::io::ErrorKind::PermissionDenied);
+        let cause = original.to_string();
+        let err = io_at(
+            "running `cargo metadata` in working directory",
+            Path::new("/some/dir"),
+            original,
+        );
+        let DbError::Io(wrapped) = &err else {
+            panic!("io_at must return DbError::Io, got: {err:?}");
+        };
+        assert_eq!(
+            wrapped.kind(),
+            std::io::ErrorKind::PermissionDenied,
+            "ErrorKind must survive the wrap"
+        );
+        assert_eq!(
+            wrapped.source().map(ToString::to_string).as_deref(),
+            Some(cause.as_str()),
+            "the original io::Error must be the source of the wrapped error"
+        );
+        let rendered = format!("{:#}", anyhow::Error::new(err));
+        assert!(
+            rendered.contains("/some/dir") && rendered.contains("cargo metadata"),
+            "message must name the operation and the path, got: {rendered}"
+        );
+        assert_eq!(
+            rendered.matches(&cause).count(),
+            1,
+            "the cause must appear exactly once in the chain (ERR-9), got: {rendered}"
+        );
+    }
+
+    /// TASK-2428 AC #2: a staged-payload read failure must name the staged
+    /// entry. Driven with invalid UTF-8 so the *read* fails (the open through
+    /// the anchor succeeds; only `read_to_string` refuses the bytes), pinning
+    /// the `entry_error` wrap rather than `open_read`'s own.
+    #[test]
+    fn read_staged_payload_failure_names_the_staged_entry() {
+        let data_dir = tempfile::tempdir().unwrap();
+        let dir = ingest_anchor(&data_dir);
+        dir.write_atomic(METADATA_JSON, &[0xff, 0xfe, 0xfd, 0x00])
+            .expect("stage invalid-UTF-8 payload");
+
+        let err = read_staged_payload(&dir).expect_err("invalid UTF-8 must fail the read");
+        let rendered = format!("{:#}", anyhow::Error::new(err));
+        assert!(
+            rendered.contains("reading staged entry")
+                && rendered.contains(&dir.entry_path(METADATA_JSON).display().to_string()),
+            "the read failure must name the staged entry, got: {rendered}"
+        );
+        assert!(
+            rendered.contains("valid UTF-8"),
+            "the OS-level cause must stay reachable in the chain, got: {rendered}"
+        );
     }
 
     /// Pins the failure mode to "cargo ran but couldn't locate a

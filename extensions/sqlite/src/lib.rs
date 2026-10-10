@@ -23,7 +23,7 @@ pub mod sql;
 // library crate is a re-export and is never "unused", so the four
 // suppressions this block used to carry silenced nothing.
 pub use connection::Sqlite;
-pub use error::{DbError, DbResult};
+pub use error::{io_context, DbError, DbResult};
 pub use ingestor::{DataIngestor, LoadResult, SidecarIngestorConfig};
 // SEC-25 / TASK-2054: `IngestDir` is in `DataIngestor`'s signature, so it must
 // be reachable wherever the trait is implemented.

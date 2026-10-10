@@ -1,13 +1,15 @@
 ---
 id: TASK-2427
 title: 'UNSAFE-12: foundation lint template does not carry the unsafe_code policy this workspace now enforces'
-status: Triage
+status: Done
 assignee: []
 created_date: '2026-10-04 15:28'
+updated_date: '2026-10-10 14:49'
 labels:
   - code-review-rust
   - unsafe
 dependencies: []
+parent_task_id: 'TASK-2438'
 modified_files:
   - extensions-rust/foundation/templates/lints.toml
   - docs/foundation.md
@@ -29,5 +31,6 @@ ordinal: 1000
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 Decide whether the foundation template sets unsafe_code (and at which level); either add it with the drift check and docs updated, or record in docs/foundation.md why it is left to each repository
+- [x] #1 Decide whether the foundation template sets unsafe_code (and at which level); either add it with the drift check and docs updated, or record in docs/foundation.md why it is left to each repository
+
 <!-- AC:END -->

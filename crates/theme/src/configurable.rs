@@ -73,12 +73,12 @@ pub struct ConfigurableTheme {
     /// for the theme's lifetime and measured once at construction, like the
     /// SGR prefixes, rather than per rendered row.
     icon_column_width: usize,
-    /// READ-5 / TASK-1971: columns the spinner cell occupies on a running
+    /// Columns the spinner cell occupies on a running
     /// row — the widest glyph in `config.tick_chars`, not a literal `1`.
     /// An emoji tick set is two columns wide and would otherwise push the
     /// running row's icon column one cell right of every completed row.
     spinner_reserve_cols: usize,
-    /// READ-5 / TASK-1971: display columns of `config.separator_char`. The
+    /// Display columns of `config.separator_char`. The
     /// separator budget is computed in columns, so a full-width separator
     /// glyph must yield half as many repetitions rather than a line twice
     /// as wide as its budget.
@@ -156,7 +156,7 @@ impl ConfigurableTheme {
 
     /// Width of the icon column: the widest [`ALL_STATUSES`] glyph.
     ///
-    /// PERF-3 / TASK-1975: computed once in [`Self::new`] and stored, like
+    /// Computed once in [`Self::new`] and stored, like
     /// the SGR prefixes and `left_pad_str` beside it. The signature is
     /// unchanged, so callers on the per-row render path are unaffected.
     #[must_use]
@@ -166,7 +166,7 @@ impl ConfigurableTheme {
 
     #[must_use]
     pub fn render_plan_header(&self, command_ids: &[String]) -> Vec<String> {
-        // PERF-3 / TASK-2082: resolve the colour gate (which reads
+        // Resolve the colour gate (which reads
         // `NO_COLOR`) once per entry point, not once per styled segment.
         let color = color_enabled();
         let pad = self.left_pad_str();
@@ -196,7 +196,7 @@ impl ConfigurableTheme {
             String::new()
         } else {
             let line = format!("{}{}", self.left_pad_str(), self.config.summary_separator);
-            // API-18 / TASK-2090: honour the column budget like every other
+            // Honour the column budget like every other
             // render path in this crate — a user-configured separator wider
             // than the terminal must not wrap past the last column. A
             // `columns` of 0 means "no budget known"; leave the line alone.
@@ -208,7 +208,7 @@ impl ConfigurableTheme {
         }
     }
 
-    /// DUP-5 / TASK-0354: shared layout for the left portion of a step line.
+    /// Shared layout for the left portion of a step line.
     /// Both [`render`](Self::render) and [`render_prefix`](Self::render_prefix)
     /// need exactly the same indent / icon / padding triple, and the two
     /// outputs must remain byte-identical in their prefix bytes —
@@ -229,7 +229,7 @@ impl ConfigurableTheme {
     pub fn icon_prefix_parts<'a>(&'a self, icon: &'a str, is_running: bool) -> StepPrefixParts<'a> {
         let icon_width = visible_width(icon);
         let max_icon_width = self.icon_column_width();
-        // READ-5 / TASK-1971: the running row's spinner cell is as wide as
+        // The running row's spinner cell is as wide as
         // the widest configured tick glyph, not a hardcoded single column.
         let (indent, spinner_cols) = if is_running {
             ("", self.spinner_reserve_cols)
@@ -286,11 +286,11 @@ impl ConfigurableTheme {
         let sep_cols = space_for_sep.max(MIN_SEP_GLYPHS);
         let sep = self.separator_char();
 
-        // PERF-3 / TASK-1130: build the leading-space + repeated-sep + optional
+        // Build the leading-space + repeated-sep + optional
         // trailing-space directly into a single String, avoiding the intermediate
         // `sep.to_string().repeat(n)` allocation per step render.
         //
-        // READ-5 / TASK-1971: `sep_cols` is a column budget, so the number of
+        // `sep_cols` is a column budget, so the number of
         // glyphs is that budget divided by the glyph's *display width*. A
         // full-width separator (U+FF0E, U+3002, …) configured in `.ops.toml`
         // therefore yields half as many repetitions and the same total width,
@@ -347,7 +347,7 @@ impl ConfigurableTheme {
     /// here so the prefix layout, dotted separator, and color application have a
     /// single source of truth.
     ///
-    /// PERF-3 / TASK-2082: the colour gate is resolved once here — not once
+    /// The colour gate is resolved once here — not once
     /// per styled segment — and threaded through [`Self::render_slot_gated`],
     /// the same injection pattern `render_error_block_gated` established.
     #[must_use]
@@ -364,7 +364,7 @@ impl ConfigurableTheme {
         } else {
             0
         };
-        // CL-3 / TASK-1969: spend the budget on chrome, the trailing slot and
+        // Spend the budget on chrome, the trailing slot and
         // the minimum separator run first; the label gets the remainder and is
         // truncated to it. See the module-level truncation policy.
         let label = truncate_to_width(slot.label, self.label_budget(&parts, slot, budget));
@@ -449,7 +449,7 @@ impl ConfigurableTheme {
     /// (left pad + summary glyph/separator + colored body). The runner passes
     /// `"Done in 1.20s"`; reports pass their `footer_text()`.
     ///
-    /// PERF-3 / TASK-2082: resolves the colour gate once per call via
+    /// Resolves the colour gate once per call via
     /// [`Self::render_summary_text_gated`].
     #[must_use]
     pub fn render_summary_text(&self, body: &str) -> String {
@@ -473,7 +473,7 @@ impl ConfigurableTheme {
 /// everything outside a `{…}` placeholder.
 ///
 /// Feeds the lower-bound check behind
-/// [`ConfigurableTheme::template_overhead_diagnostic`] (READ-5 / TASK-1971).
+/// [`ConfigurableTheme::template_overhead_diagnostic`].
 fn template_literal_width(template: &str) -> usize {
     let mut literal = String::with_capacity(template.len());
     let mut depth = 0usize;

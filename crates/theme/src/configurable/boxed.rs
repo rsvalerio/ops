@@ -32,7 +32,7 @@ const BOX_STEP_RESERVE: u16 = 7;
 /// indent that aligns error-block glyphs under the step label column.
 const BOX_FRAME_BARS: usize = 2;
 
-/// FN-1 / TASK-1192: columns the rail prefix occupies *after* the rail
+/// Columns the rail prefix occupies *after* the rail
 /// glyph itself when computing the boxed error-block gutter offset.
 ///
 /// The rail glyph (`config.error_block.rail`) is rendered immediately
@@ -70,7 +70,7 @@ impl ConfigurableTheme {
             .collect()
     }
 
-    /// FN-1 / TASK-1192: columns of extra indent to inject after the rail
+    /// Columns of extra indent to inject after the rail
     /// glyph so boxed-layout `top`/`mid`/`bottom` lines align under the
     /// step icon column.
     ///
@@ -112,7 +112,7 @@ impl ConfigurableTheme {
             columns: snap.columns,
             left_pad: self.left_pad(),
             title_prefix: self.header_prefix.as_deref(),
-            // PERF-3 / TASK-2082: one gate resolution per border render.
+            // One gate resolution per border render.
             color: color_enabled(),
         }))
     }
@@ -122,9 +122,10 @@ impl ConfigurableTheme {
         if !matches!(self.config.layout_kind, LayoutKind::Boxed) {
             return None;
         }
-        // CL-3 / TASK-0771: when a run did not fully succeed, surface the
-        // failed/skipped breakdown rather than a single "Done N/M" line — the
-        // legacy label conflated terminal-step count with success count.
+        // When a run did not fully succeed, surface the
+        // failed/skipped breakdown rather than a single "Done N/M" line —
+        // terminal-step count and success count are different numbers, and
+        // the single label cannot tell a skip from a success.
         let elapsed = format_duration(snap.elapsed_secs);
         let title = if snap.success {
             format!(" Done {}/{} in {} ", snap.completed, snap.total, elapsed)
@@ -145,7 +146,7 @@ impl ConfigurableTheme {
             columns: snap.columns,
             left_pad: self.left_pad(),
             title_prefix: self.summary_prefix.as_deref(),
-            // PERF-3 / TASK-2082: one gate resolution per border render.
+            // One gate resolution per border render.
             color: color_enabled(),
         }))
     }
@@ -166,13 +167,13 @@ impl ConfigurableTheme {
             .saturating_mul(2)
             .saturating_add(usize::from(BOX_STEP_RESERVE));
         let inner_budget = outer.saturating_sub(frame_overhead);
-        // CL-3 / TASK-1969: clamp the content to the interior budget so the
+        // Clamp the content to the interior budget so the
         // closing bar lands in the same column as the borders even when the
         // caller hands us a line wider than the frame.
         let inner = truncate_to_width(inner, inner_budget);
         let inner_visible = visible_width(&inner);
         let right_pad = inner_budget.saturating_sub(inner_visible);
-        // PERF-3 / TASK-1130: push directly into the result buffer instead of
+        // Push directly into the result buffer instead of
         // allocating an intermediate `" ".repeat(right_pad)` String per step.
         let mut out = String::with_capacity(
             pad.len()
@@ -208,7 +209,7 @@ impl ConfigurableTheme {
         let content_area = usize::from(columns)
             .saturating_sub(self.left_pad().saturating_mul(2))
             .saturating_sub(4);
-        // CL-3 / TASK-1969: report detail lines are arbitrary-length strings
+        // Report detail lines are arbitrary-length strings
         // the report producer supplies; clamp them to the content area so the
         // closing bar aligns with `wrap_step_line`'s.
         let inner = truncate_to_width(inner, content_area);
@@ -232,7 +233,7 @@ fn inject_gutter_indent(line: &str, rail_prefix: &str, indent: &str) -> String {
 /// Right-pad `line` with spaces up to `right_target` visible columns and
 /// append the closing ` │` frame border.
 fn right_pad_with_border(line: &str, right_target: usize) -> String {
-    // CL-3 / TASK-1969 + SEC-21 / TASK-1965: the error block carries
+    // The error block carries
     // sanitised subprocess stderr, which is both arbitrary-length and wider
     // than its source once escapes are rendered as `\xNN`. Clamp before
     // padding so the closing bar always lands at `right_target`.
@@ -254,7 +255,7 @@ pub(super) struct BorderArgs<'a> {
     pub(super) columns: u16,
     pub(super) left_pad: usize,
     pub(super) title_prefix: Option<&'a str>,
-    /// PERF-3 / TASK-2082: resolved once by the caller so a multi-border
+    /// Resolved once by the caller so a multi-border
     /// render (a boxed report draws two) reads `NO_COLOR` once, not per
     /// styled segment.
     pub(super) color: bool,
@@ -280,7 +281,7 @@ pub(super) fn build_horizontal_border(args: BorderArgs<'_>) -> String {
     let pad = " ".repeat(left_pad);
     let outer = usize::from(columns);
     let inner = outer.saturating_sub(left_pad.saturating_mul(2));
-    // READ-6 / TASK-1973: measured with the ANSI-aware helper, like every
+    // Measured with the ANSI-aware helper, like every
     // other width in this module — `title` can carry an SGR sequence from a
     // report producer or a themed `plan_header_prefix`.
     let corner_l_w = visible_width(left_corner);

@@ -108,7 +108,7 @@ fn find_required_version(root: &Path) -> Option<String> {
         let path = root.join(candidate);
         // The shared helper warns on a permission-denied / EIO / "is a
         // directory" failure; only a missing file is silent.
-        if let Some(content) = ops_about::manifest_io::read_optional_text(&path, candidate) {
+        if let Some(content) = ops_about::manifest_io::read_optional_text(&path, root, candidate) {
             if let Some(v) = extract_required_version(&content, candidate) {
                 return Some(v);
             }
@@ -119,7 +119,7 @@ fn find_required_version(root: &Path) -> Option<String> {
             || "<unnamed>.tf".to_string(),
             |n| n.to_string_lossy().into_owned(),
         );
-        if let Some(content) = ops_about::manifest_io::read_optional_text(&path, &kind) {
+        if let Some(content) = ops_about::manifest_io::read_optional_text(&path, root, &kind) {
             if let Some(v) = extract_required_version(&content, &kind) {
                 return Some(v);
             }

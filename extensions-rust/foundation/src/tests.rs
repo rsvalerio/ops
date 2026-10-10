@@ -36,6 +36,17 @@ fn every_template_parses() {
 }
 
 #[test]
+fn the_lints_template_polices_unsafe_code_at_a_warn_floor() {
+    let lints = template_value(LINTS_TEMPLATE).expect("lints template");
+    let level = lints
+        .get("lints")
+        .and_then(|l| l.get("rust"))
+        .and_then(|r| r.get("unsafe_code"))
+        .and_then(Value::as_str);
+    assert_eq!(level, Some("warn"));
+}
+
+#[test]
 fn scaffold_then_check_is_clean() {
     let dir = workspace();
     let written = scaffold(dir.path(), false).expect("scaffold");
@@ -501,7 +512,7 @@ fn a_malformed_member_manifest_is_its_own_drift_and_a_scaffold_error() {
 }
 
 #[test]
-fn unresolvable_workspace_members_warn_and_skip_the_member_checks() {
+fn unresolvable_workspace_members_fail_check_and_scaffold() {
     let dir = workspace();
     scaffold(dir.path(), false).expect("scaffold");
     let manifest = read(&dir, "Cargo.toml").replace("[\"crates/*\"]", "\"crates/*\"");
@@ -512,15 +523,19 @@ fn unresolvable_workspace_members_warn_and_skip_the_member_checks() {
     )
     .expect("edit");
 
-    let (logs, report) = ops_core::test_utils::capture_tracing(tracing::Level::WARN, || {
-        check(dir.path(), &no_waivers())
-    });
-    assert!(
-        logs.contains("could not resolve workspace members"),
-        "{logs}"
-    );
-    let drift = report.expect("check").drift;
-    assert!(drift.is_empty(), "no member is checked: {drift:?}");
+    let err = check(dir.path(), &no_waivers())
+        .expect_err("check must not pass clean on unresolvable members");
+    let chain = format!("{err:#}");
+    assert!(chain.contains("Cargo.toml"), "{chain}");
+    assert!(chain.contains("workspace members"), "{chain}");
+    assert!(chain.contains("TOML parse error"), "{chain}");
+
+    let err =
+        scaffold(dir.path(), false).expect_err("scaffold must not silently skip member opt-ins");
+    let chain = format!("{err:#}");
+    assert!(chain.contains("Cargo.toml"), "{chain}");
+    assert!(chain.contains("workspace members"), "{chain}");
+    assert!(chain.contains("TOML parse error"), "{chain}");
 }
 
 #[test]
