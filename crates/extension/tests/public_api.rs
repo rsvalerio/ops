@@ -1,4 +1,4 @@
-//! TEST-3 / TASK-2091: the crate's public-API suite, as an integration test.
+//! The crate's public-API suite, as an integration test.
 //! Everything here drives `ops-extension` the way a downstream extension
 //! crate does — through its exported items only. Tests that need private
 //! access (`SharedError::new`, `SharedError::shares_allocation_with`) live
@@ -36,11 +36,11 @@ fn data_registry_provide_unknown_returns_error() {
     assert!(result.unwrap_err().to_string().contains("not found"));
 }
 
-/// API-9 / TASK-1179: `DataRegistry::IntoIterator` must yield entries in
+/// `DataRegistry::IntoIterator` must yield entries in
 /// registration order so audit-trail consumers (and any CLI wiring code
 /// that walks the registry directly) see deterministic ordering. Two
 /// registries built from the same insertion sequence iterate identically;
-/// pre-fix, hashbrown's randomised iteration order broke that pin.
+/// hashbrown's randomised iteration order would break that pin.
 #[test]
 fn data_registry_into_iter_yields_insertion_order_and_is_stable() {
     let names = [
@@ -70,7 +70,7 @@ fn data_registry_register_and_get() {
     assert!(registry.get("other").is_none());
 }
 
-/// SEC-31 / TASK-0350 + CL-5 / TASK-0756: registering two providers under
+/// Registering two providers under
 /// the same name must (1) be rejected first-write-wins and (2) record the
 /// rejected name in the audit trail so the CLI wiring layer can emit a
 /// single `tracing::warn` from one place. The earlier
@@ -107,7 +107,7 @@ fn data_registry_provide_returns_value() {
     assert_eq!(value, serde_json::json!({"key": "value"}));
 }
 
-/// PATTERN-9 / TASK-2084: teardown around a provider dispatch must run on
+/// Teardown around a provider dispatch must run on
 /// the panic path too, not only on return. Pre-fix, a panicking provider
 /// unwound past the `exit_provider` / `clear_deadline_if_owned` statements,
 /// so the leaked in-flight marker made every later request for the key read
@@ -164,7 +164,7 @@ fn provider_panic_does_not_poison_the_context() {
     assert_eq!(value, serde_json::json!({ "ok": true }));
 }
 
-/// ERR-1 / TASK-1170: a Context built with `with_refresh()` (or any caller
+/// A Context built with `with_refresh()` (or any caller
 /// flipping `refresh = true`) must bypass the `data_cache` fast path so the
 /// provider is re-invoked. Pre-fix, `get_or_provide` returned the cached
 /// value regardless of the refresh flag, making `--refresh` a no-op for any
@@ -234,7 +234,7 @@ fn context_get_or_provide_caches() {
     assert!(ctx.cached("stub").is_some());
 }
 
-/// SEC-38 / TASK-0744: two providers that mutually request each other must
+/// Two providers that mutually request each other must
 /// surface as `DataProviderError::Cycle` rather than recursing until stack
 /// overflow. The `provide` impls below model the documented composition
 /// pattern (a provider calling `ctx.get_or_provide(other, registry)`) so the
@@ -314,7 +314,7 @@ fn context_get_or_provide_unknown_errors() {
     assert!(result.is_err());
 }
 
-/// ERR-2 / TASK-1887: `computation_failed` now produces the message-carrying
+/// `computation_failed` now produces the message-carrying
 /// `ComputationMessage` variant. The rendered string is unchanged, which is
 /// the part log readers depend on.
 #[test]
@@ -414,9 +414,8 @@ fn computation_failed_alternate_display_surfaces_root_cause() {
 }
 
 /// Plain display also flattens the chain: the `{0:#}` in the variant's
-/// format string applies the flag unconditionally (parity with
-/// `DbError::External`), so `to_string()` keeps the root cause visible on
-/// every display path, not just `{:#}`.
+/// format string applies the flag unconditionally, so `to_string()` keeps
+/// the root cause visible on every display path, not just `{:#}`.
 #[test]
 fn computation_failed_plain_display_flattens_chain() {
     let inner = anyhow::anyhow!("root cause").context("outer context");
@@ -749,12 +748,11 @@ fn data_registry_default() {
     assert!(registry.provider_names().is_empty());
 }
 
-/// DUP-3 / TASK-1225: building a `CommandRegistry` via `collect()` /
+/// Building a `CommandRegistry` via `collect()` /
 /// `from_iter()` must NOT silently drop the duplicate-insert audit
 /// trail. The implementation drains `duplicate_inserts` and surfaces
-/// each duplicate via `tracing::warn!`, so the audit signal that
-/// ERR-2 / TASK-0579 hardened the `.insert()` path to preserve also
-/// reaches `collect()` consumers.
+/// each duplicate via `tracing::warn!`, so the audit signal reaches
+/// `collect()` consumers too.
 #[test]
 fn command_registry_from_iter_drains_duplicate_audit_trail() {
     let id = CommandId::new("dup");
@@ -788,7 +786,7 @@ fn command_registry_from_iter_drains_duplicate_audit_trail() {
     );
 }
 
-/// SEC-21 / TASK-1226: `DataRegistry::register` formats the runtime-
+/// `DataRegistry::register` formats the runtime-
 /// generated `provider_name` field via the `?` (Debug) formatter so an
 /// extension that builds a provider name from external data containing
 /// newlines or ANSI sequences cannot forge log entries through the
@@ -797,7 +795,7 @@ fn command_registry_from_iter_drains_duplicate_audit_trail() {
 /// capturing the emitted tracing event — flipping the format specifier
 /// from `?name` (Debug) to `%name` (Display) in `data.rs` would let raw
 /// newline / ESC bytes through and fail this test, mirroring
-/// `program_field_debug_escapes_control_characters` (TASK-1127) and the
+/// `program_field_debug_escapes_control_characters` and the
 /// broader workspace policy.
 #[test]
 fn provider_name_field_debug_escapes_control_characters() {
@@ -837,11 +835,11 @@ fn provider_name_field_debug_escapes_control_characters() {
 }
 
 // ---------------------------------------------------------------------------
-// SEC-38 / TASK-1865 — the cycle guard sits at the dispatch point
+// The cycle guard sits at the dispatch point
 // ---------------------------------------------------------------------------
 
 /// A provider that composes a peer through `registry.provide(...)` — the
-/// *unguarded* entry point before TASK-1865 — and surfaces the error verbatim.
+/// *unguarded* entry point — and surfaces the error verbatim.
 struct RegistryChainProvider {
     name: &'static str,
     other: &'static str,
@@ -897,7 +895,7 @@ fn cyclic_registry() -> Arc<DataRegistry> {
     registry
 }
 
-/// SEC-38 / TASK-1865: driving the cycle through `DataRegistry::provide`
+/// Driving the cycle through `DataRegistry::provide`
 /// directly — never touching `Context::get_or_provide` — must terminate with
 /// `Cycle`. Before the fix the guard lived only in the caching wrapper, so
 /// this path recursed until the stack overflowed (an abort, not an error).
@@ -914,7 +912,7 @@ fn data_registry_provide_detects_cycle_without_the_cache_wrapper() {
     }
 }
 
-/// SEC-38 / TASK-1865: the other public route to a provider —
+/// The other public route to a provider —
 /// `DataRegistry::get` handing out a `&dyn DataProvider` — is also bounded.
 /// The first hop is unmarked (nothing dispatched it), but every hop it makes
 /// crosses `DataRegistry::provide`, so the cycle closes one step later on
@@ -975,7 +973,7 @@ fn failed_provider_clears_its_in_flight_marker() {
 }
 
 // ---------------------------------------------------------------------------
-// CL-3 / TASK-1872 — register communicates rejection through its return type
+// Register communicates rejection through its return type
 // ---------------------------------------------------------------------------
 
 /// A provider whose `name()` identifies which instance came back, so the test
@@ -1017,10 +1015,10 @@ fn register_returns_none_on_fresh_insert_and_the_rejected_provider_on_duplicate(
 }
 
 // ---------------------------------------------------------------------------
-// ARCH-9 / TASK-1874 — a provider cannot re-point its siblings' context
+// A provider cannot re-point its siblings' context
 // ---------------------------------------------------------------------------
 
-/// ARCH-9 / TASK-1874: `refresh` and `working_directory` are private, so a
+/// `refresh` and `working_directory` are private, so a
 /// provider has no way to change what a sibling observes. This pins the
 /// resulting behaviour: a provider reached transitively through
 /// `get_or_provide` sees exactly the values the *caller* configured. Before
@@ -1119,7 +1117,7 @@ fn context_accessors_report_the_constructed_values() {
 
     assert_eq!(ctx.working_directory(), cwd.as_path());
     assert!(!ctx.is_refreshing());
-    // PERF-3 / TASK-0890: `from_cwd_arc` shares the allocation instead of
+    // `from_cwd_arc` shares the allocation instead of
     // deep-cloning the inner PathBuf.
     assert!(Arc::ptr_eq(ctx.working_directory_arc(), &cwd));
     assert!(Arc::ptr_eq(ctx.config_arc(), &config));
@@ -1128,7 +1126,7 @@ fn context_accessors_report_the_constructed_values() {
 }
 
 // ---------------------------------------------------------------------------
-// TRAIT-4 / TASK-1879 — Debug impls
+// Debug impls
 // ---------------------------------------------------------------------------
 
 #[test]
@@ -1180,8 +1178,7 @@ fn context_debug_lists_keys_but_never_cached_values() {
     );
 }
 
-/// TASK-2310: `with_arg` hands a provider a request argument, and drops
-/// cached results computed before the argument existed.
+/// /// cached results computed before the argument existed.
 #[test]
 fn context_with_arg_is_readable_and_invalidates_the_cache() {
     let mut registry = DataRegistry::new();
@@ -1198,7 +1195,7 @@ fn context_with_arg_is_readable_and_invalidates_the_cache() {
 }
 
 // ---------------------------------------------------------------------------
-// ARCH-9 / TASK-1868 — deterministic config_name collision resolution
+// Deterministic config_name collision resolution
 // ---------------------------------------------------------------------------
 
 struct NamedExtension(&'static str);
@@ -1215,9 +1212,9 @@ fn boxed_named_extension(name: &'static str) -> Box<dyn Extension> {
     Box::new(NamedExtension(name))
 }
 
-/// ARCH-9 / TASK-1868: `EXTENSION_REGISTRY` publishes no ordering contract, so
-/// the winner of a `config_name` collision used to be decided by whatever
-/// order the linker emitted the slots in. `sort_compiled_extensions` imposes a
+/// `EXTENSION_REGISTRY` publishes no ordering contract, so
+/// the winner of a `config_name` collision must not depend on whatever
+/// order the linker emits the slots in. `sort_compiled_extensions` imposes a
 /// total order on `(config_name, Extension::name())`, so the same pairs
 /// resolve to the same winner no matter what order they arrive in.
 #[test]
@@ -1259,7 +1256,7 @@ fn sort_compiled_extensions_orders_distinct_config_names() {
 }
 
 // ---------------------------------------------------------------------------
-// TEST-5 / TASK-1877 — the factory arms and the rest of the untested surface
+// The factory arms and the rest of the untested surface
 // ---------------------------------------------------------------------------
 
 /// A real factory declines (returns `None`) when its prerequisites are not
@@ -1325,7 +1322,7 @@ impl_extension! {
     factory: FACTORY_SHORT_EXT = factory_short_ext,
 }
 
-/// TEST-5 / TASK-1877: both `factory:` arms of `impl_extension!` — the crate's
+/// Both `factory:` arms of `impl_extension!` — the crate's
 /// entire compiled-in auto-discovery mechanism — are expanded above and walked
 /// here. Nothing expanded them before, so a change to `ExtensionFactory`'s
 /// signature or to `EXTENSION_REGISTRY`'s type compiled fine in
@@ -1362,7 +1359,7 @@ fn factory_arms_decline_when_prerequisites_are_unmet() {
     assert!(factory_short_ext(&config, missing).is_none());
 }
 
-/// TEST-5 / TASK-1877 AC#2: `test_datasource_extension!` is the macro every
+/// `test_datasource_extension!` is the macro every
 /// downstream extension crate uses for its registration tests. Invoking it
 /// here means a syntax or path regression in it fails at its source instead of
 /// in N downstream crates at once.
@@ -1382,10 +1379,9 @@ mod test_datasource_extension_macro {
     }
 }
 
-/// TRAIT-4 / TASK-0653: `CommandRegistry`'s hand-written `Clone` exists only to
+/// `CommandRegistry`'s hand-written `Clone` exists only to
 /// differ from `derive(Clone)` — it copies the data but resets the audit trail,
-/// so a clone does not replay warnings its original already reported. Nothing
-/// pinned that until now (TEST-5 / TASK-1877 AC#3).
+/// so a clone does not replay warnings its original already reported.
 #[test]
 fn command_registry_clone_copies_data_and_resets_the_audit_trail() {
     let id = CommandId::new("dup");
@@ -1449,7 +1445,7 @@ fn extension_info_new_defaults_every_optional_field() {
     assert!(info.stack.is_none());
 }
 
-/// ARCH-9 / TASK-1128: the runner calls this when swapping in a new
+/// The runner calls this when swapping in a new
 /// `DataRegistry`, so callers cannot read values produced by the previous
 /// registry's providers.
 #[test]
@@ -1470,7 +1466,7 @@ fn clear_provider_results_drops_cached_values() {
 }
 
 // ---------------------------------------------------------------------------
-// TEST-5 / TASK-1877 AC#5 — the sqlite-feature surface
+// The sqlite-feature surface
 // ---------------------------------------------------------------------------
 
 #[cfg(feature = "sqlite")]
@@ -1482,7 +1478,7 @@ mod sqlite_feature {
     #[derive(Debug, PartialEq, Eq)]
     struct FakeDb(u32);
 
-    /// TRAIT-9 / TASK-1227: the blanket impl supplies `as_any` for every
+    /// The blanket impl supplies `as_any` for every
     /// `'static + Send + Sync` type, so an implementer cannot return a wrong
     /// reference and silently break the documented downcast.
     #[test]
@@ -1503,7 +1499,7 @@ mod sqlite_feature {
         );
     }
 
-    /// TEST-5 / TASK-1877: the blanket impl covers **every** `'static + Send +
+    /// The blanket impl covers **every** `'static + Send +
     /// Sync` type — including `Arc<dyn SqliteHandle>` itself. Method
     /// resolution on an `Arc` receiver therefore matches the blanket impl for
     /// the smart pointer before it ever derefs to the inner value, and
@@ -1511,7 +1507,7 @@ mod sqlite_feature {
     /// because the trait's own "Downcast contract" example reads
     /// `handle.as_any()` and callers copy it verbatim.
     ///
-    /// SEC-38 / TASK-2018: this holds *because this module imports
+    /// This holds *because this module imports
     /// `SqliteHandle`*. The blanket impl is only a method-resolution candidate
     /// where the trait is in scope, so a module that never names it sees
     /// `handle.as_any()` fall through the deref chain to the trait object's own
@@ -1560,13 +1556,14 @@ mod sqlite_feature {
 }
 
 // ---------------------------------------------------------------------------
-// ERR-2 / TASK-1887 + ERR-9 / TASK-1889 — error identity and rendering
+// Error identity and rendering
 // ---------------------------------------------------------------------------
 
-/// ERR-2 / TASK-1887: `computation_failed` used to fabricate a
-/// `std::io::Error` as a container for its message, so a caller recovering an
-/// I/O cause the normal way got a hit for an error that never touched a file
-/// descriptor — and `ErrorKind::Other` gave it no way to tell the difference.
+/// `computation_failed` must not fabricate a
+/// `std::io::Error` as a container for its message: a caller recovering an
+/// I/O cause the normal way would get a hit for an error that never touched
+/// a file descriptor — and `ErrorKind::Other` would give it no way to tell
+/// the difference.
 #[test]
 fn computation_failed_has_no_fabricated_io_source() {
     use std::error::Error;
@@ -1596,7 +1593,7 @@ fn computation_failed_has_no_fabricated_io_source() {
     );
 }
 
-/// ERR-9 / TASK-1889: the `{0:#}` self-interpolation on `ComputationFailed` and
+/// The `{0:#}` self-interpolation on `ComputationFailed` and
 /// `Serialization` is a deliberate, documented trade-off. Pin the rendering of
 /// every display path the workspace actually uses so a future format-string
 /// change cannot silently drop a root cause — nor reintroduce duplication on a
@@ -1647,7 +1644,7 @@ fn serialization_rendering_flattens_its_chain() {
 }
 
 // ---------------------------------------------------------------------------
-// SEC-33 / TASK-2017 — provider dispatch is bounded in wall-clock time
+// Provider dispatch is bounded in wall-clock time
 // ---------------------------------------------------------------------------
 
 /// A provider that burns wall-clock time in `steps` chunks, optionally polling
@@ -1736,7 +1733,7 @@ impl DataProvider for DeadlineProbe {
     }
 }
 
-/// AC #2: a provider that runs past the budget without ever polling must be
+/// A provider that runs past the budget without ever polling must be
 /// reported as a failure naming it — never as the late value it produced.
 #[test]
 fn over_budget_provider_without_polling_is_reported_as_a_named_failure() {
@@ -1787,7 +1784,7 @@ fn an_over_budget_provider_keeps_its_own_error() {
     );
 }
 
-/// AC #1/#3: a provider that honours `check_deadline` stops early, so the
+/// A provider that honours `check_deadline` stops early, so the
 /// bound shortens the stall rather than merely labelling it afterwards.
 #[test]
 fn polling_provider_aborts_at_the_deadline_instead_of_running_to_completion() {
@@ -1966,7 +1963,7 @@ fn an_unbounded_context_does_not_time_a_provider_out() {
 }
 
 // ---------------------------------------------------------------------------
-// ERR-1 / TASK-2024 — typed errors survive the DataProviderError chain
+// Typed errors survive the DataProviderError chain
 // ---------------------------------------------------------------------------
 
 /// Stands in for `FindWorkspaceRootError`: a typed marker a consumer wants to
@@ -1997,9 +1994,9 @@ fn find_typed_marker<'a>(err: &'a (dyn std::error::Error + 'static)) -> Option<&
     None
 }
 
-/// AC #2: the defect this pins is a *false negative* — before the fix the
-/// wrapped error was skipped, so the marker was unreachable and every
-/// consumer's classification silently degraded to "unknown failure".
+/// The defect this pins is a *false negative*: when the wrapped error is
+/// skipped, the marker is unreachable and every consumer's classification
+/// silently degrades to "unknown failure".
 #[test]
 fn typed_error_is_reachable_through_data_provider_error_source_chain() {
     let err = DataProviderError::from(anyhow::Error::from(TypedMarker::NotFound));
@@ -2019,7 +2016,7 @@ fn typed_error_from_computation_error_is_reachable_too() {
 }
 
 // ---------------------------------------------------------------------------
-// CONC-9 / TASK-2056 — the dispatch budget is operator-configurable
+// The dispatch budget is operator-configurable
 // ---------------------------------------------------------------------------
 
 fn context_with_budget_secs(secs: Option<u64>) -> Context {
@@ -2028,7 +2025,7 @@ fn context_with_budget_secs(secs: Option<u64>) -> Context {
     Context::new(Arc::new(config), PathBuf::from("."))
 }
 
-/// AC #2: the constructor every wiring path goes through resolves the budget
+/// The constructor every wiring path goes through resolves the budget
 /// from config, so no call site has to remember to apply it.
 #[test]
 fn an_unconfigured_context_gets_the_compiled_in_default_budget() {
@@ -2076,7 +2073,7 @@ fn with_provider_budget_overrides_the_configured_value() {
 }
 
 // ---------------------------------------------------------------------------
-// SEC-33 / TASK-2052 — a detached deadline, and a typed timeout through anyhow
+// A detached deadline, and a typed timeout through anyhow
 // ---------------------------------------------------------------------------
 
 /// The walkers poll through a detached [`Deadline`] because their work happens
