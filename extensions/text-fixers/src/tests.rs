@@ -10,7 +10,7 @@ use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
 
 use super::*;
-use crate::test_support::{git_add, git_init, skip_precondition, ReadOnlyDir, UnreadableFile};
+use crate::test_support::{ReadOnlyDir, UnreadableFile, git_add, git_init, skip_precondition};
 
 /// Resolve a tempdir root through its symlinked prefix (macOS: `/var` →
 /// `/private/var`), per the caller-canonicalizes-once rule

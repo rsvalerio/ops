@@ -2,8 +2,9 @@
 name = "ops-text-fixers"
 publish = false
 version.workspace = true
-edition.workspace = true
+edition = "2024"
 license.workspace = true
+rust-version.workspace = true
 
 [dependencies]
 ops-core = { workspace = true }

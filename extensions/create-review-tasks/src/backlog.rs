@@ -12,7 +12,7 @@ use std::path::Path;
 
 use ops_backlog::clock::UtcStamp;
 use ops_backlog::model::{Body, FmValue, Frontmatter, TaskDoc};
-use ops_backlog::store::{walk_task_files, TaskFileName};
+use ops_backlog::store::{TaskFileName, walk_task_files};
 
 /// Main-task frontmatter labels, in order.
 const MAIN_LABELS: &[&str] = &["code-review-request", "code-review", "qa"];

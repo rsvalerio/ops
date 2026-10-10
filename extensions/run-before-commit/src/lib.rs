@@ -137,7 +137,7 @@ mod tests {
     // Import the shared probe from its own crate rather than through a
     // re-export from this one — these tests exercise `ops_hook_common`'s
     // bounded wait, not this crate's contribution to it.
-    use ops_hook_common::git_state::{has_staged_files_with_timeout, HasStagedFilesError};
+    use ops_hook_common::git_state::{HasStagedFilesError, has_staged_files_with_timeout};
     use ops_hook_common::test_helpers::{CwdGuard, EnvGuard};
     use std::path::Path;
 
@@ -353,9 +353,11 @@ mod tests {
                 HOOK_SCRIPT,
                 "the hook carrying {marker:?} must be replaced with HOOK_SCRIPT"
             );
-            assert!(String::from_utf8(buf)
-                .unwrap()
-                .contains("Updating outdated"));
+            assert!(
+                String::from_utf8(buf)
+                    .unwrap()
+                    .contains("Updating outdated")
+            );
         }
     }
 

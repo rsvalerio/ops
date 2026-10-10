@@ -9,8 +9,8 @@
 
 use ops_hook_common::test_helpers::EnvGuard;
 use ops_run_before_push::{
-    classify_ref_updates, push_refs, should_skip, skip_reason, PushRefs, REFS_TRUNCATED_ENV_VAR,
-    REF_UPDATES_ENV_VAR, SKIP_ENV_VAR,
+    PushRefs, REF_UPDATES_ENV_VAR, REFS_TRUNCATED_ENV_VAR, SKIP_ENV_VAR, classify_ref_updates,
+    push_refs, should_skip, skip_reason,
 };
 
 const SHA1_A: &str = "1111111111111111111111111111111111111111";

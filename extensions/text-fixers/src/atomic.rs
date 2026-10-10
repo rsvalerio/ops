@@ -204,10 +204,9 @@ fn preserve_attributes(staged: &File, original: &Metadata) -> io::Result<()> {
         // `fs::write` did too.
         if let Err(e) =
             std::os::unix::fs::fchown(staged, Some(original.uid()), Some(original.gid()))
+            && e.kind() != io::ErrorKind::PermissionDenied
         {
-            if e.kind() != io::ErrorKind::PermissionDenied {
-                return Err(e);
-            }
+            return Err(e);
         }
     }
     Ok(())

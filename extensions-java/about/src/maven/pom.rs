@@ -168,12 +168,10 @@ pub(super) fn parse_pom_xml(project_root: &Path) -> Option<PomData> {
 
         if !started {
             if let Some(remainder) = accept_project_opener(line, &mut started, &mut opener_pending)
+                && !remainder.is_empty()
+                && dispatch_started_line(remainder, &mut section, &mut data)
             {
-                if !remainder.is_empty()
-                    && dispatch_started_line(remainder, &mut section, &mut data)
-                {
-                    break;
-                }
+                break;
             }
             continue;
         }
@@ -338,10 +336,8 @@ fn handle_developers(line: &str, in_developer: &mut bool, data: &mut PomData) ->
         "<developer>" => *in_developer = true,
         "</developer>" => *in_developer = false,
         _ => {
-            if *in_developer {
-                if let Some(val) = extract_xml_value(line, "<name>", "</name>") {
-                    data.developers.push(val.to_string());
-                }
+            if *in_developer && let Some(val) = extract_xml_value(line, "<name>", "</name>") {
+                data.developers.push(val.to_string());
             }
         }
     }
@@ -364,10 +360,10 @@ fn extract_collapsed_developers(line: &str, data: &mut PomData) {
         let Some(end) = after.find("</developer>") else {
             break;
         };
-        if let Some(entry) = after.get(..end) {
-            if let Some(val) = extract_xml_value(entry, "<name>", "</name>") {
-                data.developers.push(val.to_string());
-            }
+        if let Some(entry) = after.get(..end)
+            && let Some(val) = extract_xml_value(entry, "<name>", "</name>")
+        {
+            data.developers.push(val.to_string());
         }
         let Some(next) = after.get(end.saturating_add("</developer>".len())..) else {
             break;
@@ -391,10 +387,10 @@ fn handle_scm(line: &str, data: &mut PomData) -> bool {
 /// top-level `<url>` and `<scm><url>` write *distinct* fields (`project_url`
 /// vs `scm_url`), so neither can clobber the other whatever the source order.
 fn try_set_once(field: &mut Option<String>, line: &str, open: &str, close: &str) {
-    if field.is_none() {
-        if let Some(val) = extract_xml_value(line, open, close) {
-            *field = Some(val.to_string());
-        }
+    if field.is_none()
+        && let Some(val) = extract_xml_value(line, open, close)
+    {
+        *field = Some(val.to_string());
     }
 }
 

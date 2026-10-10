@@ -13,7 +13,7 @@
 
 use super::*;
 use ops_extension::{Extension, ExtensionType};
-use ops_sqlite::{init_schema, DataIngestor, Sqlite};
+use ops_sqlite::{DataIngestor, Sqlite, init_schema};
 
 // -- fixtures --
 

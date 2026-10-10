@@ -349,14 +349,14 @@ fn warn_if_unsupported_pnpm_scalar(s: &str) {
         }
         return;
     }
-    if let Some(inner) = s.strip_prefix('\'').and_then(|t| t.strip_suffix('\'')) {
-        if inner.contains("''") {
-            tracing::debug!(
-                scalar = %s,
-                "pnpm-workspace.yaml: single-quoted scalar contains a doubled apostrophe; \
-                 the hand-rolled parser does not interpret YAML 1.2 quote escapes"
-            );
-        }
+    if let Some(inner) = s.strip_prefix('\'').and_then(|t| t.strip_suffix('\''))
+        && inner.contains("''")
+    {
+        tracing::debug!(
+            scalar = %s,
+            "pnpm-workspace.yaml: single-quoted scalar contains a doubled apostrophe; \
+             the hand-rolled parser does not interpret YAML 1.2 quote escapes"
+        );
     }
 }
 

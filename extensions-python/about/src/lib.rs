@@ -18,12 +18,12 @@ mod units;
 
 use std::path::Path;
 
-use ops_about::identity::{provide_identity_from_manifest, ParsedManifest};
+use ops_about::identity::{ParsedManifest, provide_identity_from_manifest};
 // The trim, control-character and URL-scheme policies are shared with the
 // Node provider through `ops_about::text_util`, so both stacks are pinned to
 // one definition of each rather than to copies that can drift.
 use ops_about::text_util::{contains_control_chars, has_allowed_url_scheme, trim_nonempty};
-use ops_core::project_identity::{base_about_fields, insert_homepage_field, AboutFieldDef};
+use ops_core::project_identity::{AboutFieldDef, base_about_fields, insert_homepage_field};
 use ops_extension::{Context, DataProvider, DataProviderError, ExtensionType};
 use serde::Deserialize;
 

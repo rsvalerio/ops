@@ -190,12 +190,11 @@ fn normalize_module_path(dir: &str) -> String {
 pub fn last_segment(module: Option<&str>) -> Option<String> {
     let m = module?;
     let mut segments: Vec<&str> = m.split('/').collect();
-    if segments.len() >= 2 {
-        if let Some(last) = segments.last() {
-            if is_go_major_version_suffix(last) {
-                segments.pop();
-            }
-        }
+    if segments.len() >= 2
+        && let Some(last) = segments.last()
+        && is_go_major_version_suffix(last)
+    {
+        segments.pop();
     }
     segments.last().map(|s| (*s).to_string())
 }
@@ -395,11 +394,13 @@ mod tests {
             units[0].description.as_deref(),
             Some("example.com/staging/api")
         );
-        assert!(!units[0]
-            .description
-            .as_deref()
-            .unwrap_or("")
-            .contains("(outside project root)"));
+        assert!(
+            !units[0]
+                .description
+                .as_deref()
+                .unwrap_or("")
+                .contains("(outside project root)")
+        );
         assert_eq!(warn_count, 0);
     }
 

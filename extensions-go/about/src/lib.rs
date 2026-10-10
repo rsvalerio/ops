@@ -28,8 +28,8 @@ mod go_syntax;
 mod go_work;
 mod modules;
 
-use ops_about::identity::{provide_identity_from_manifest, ParsedManifest};
-use ops_core::project_identity::{base_about_fields, AboutFieldDef};
+use ops_about::identity::{ParsedManifest, provide_identity_from_manifest};
+use ops_core::project_identity::{AboutFieldDef, base_about_fields};
 use ops_extension::{Context, DataProvider, DataProviderError, ExtensionType};
 
 const NAME: &str = "about-go";

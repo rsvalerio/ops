@@ -92,11 +92,7 @@ pub fn fix_eof(input: &[u8]) -> Option<Vec<u8>> {
     out.extend_from_slice(body);
     out.extend_from_slice(terminator);
 
-    if out == input {
-        None
-    } else {
-        Some(out)
-    }
+    if out == input { None } else { Some(out) }
 }
 
 fn detect_crlf(input: &[u8]) -> bool {

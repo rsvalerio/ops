@@ -31,7 +31,7 @@ use ops_extension::{
 };
 use ops_sqlite::Sqlite;
 
-use counter::{count_source, region_from_path, FileCounts, Region};
+use counter::{FileCounts, Region, count_source, region_from_path};
 
 /// Extension identifier used to register this crate in the engine's
 /// extension registry.

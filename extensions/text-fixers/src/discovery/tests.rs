@@ -1,7 +1,7 @@
 use std::collections::BTreeSet;
 use std::path::Path;
 
-use super::{discover, walk, Fallback};
+use super::{Fallback, discover, walk};
 use crate::test_support::{git_add, git_available, git_init, is_inside_repo};
 
 fn names(paths: &[std::path::PathBuf]) -> Vec<String> {

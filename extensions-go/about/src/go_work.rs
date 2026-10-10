@@ -92,11 +92,7 @@ pub fn parse_use_dirs(root: &Path) -> Option<Vec<String>> {
         dirs.truncate(block_start_mark);
     }
 
-    if dirs.is_empty() {
-        None
-    } else {
-        Some(dirs)
-    }
+    if dirs.is_empty() { None } else { Some(dirs) }
 }
 
 #[cfg(test)]

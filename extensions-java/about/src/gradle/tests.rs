@@ -4,7 +4,7 @@
 //! both via `super::*` (lexer items are `pub(super)`, so they stay visible
 //! here).
 
-use super::lexer::{extract_quoted, extract_quoted_list, MultilineStripper};
+use super::lexer::{MultilineStripper, extract_quoted, extract_quoted_list};
 use super::*;
 
 /// Resolve the tempdir root through macOS's symlinked `/var` prefix so the

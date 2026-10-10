@@ -9,8 +9,8 @@ use std::io::Write;
 use std::path::{Path, PathBuf};
 
 use super::{
-    run_check_json, run_check_yaml, write_summary, CheckerOptions, CheckerReport, FailedFile,
-    FailureKind, NAME, SHORTNAME,
+    CheckerOptions, CheckerReport, FailedFile, FailureKind, NAME, SHORTNAME, run_check_json,
+    run_check_yaml, write_summary,
 };
 
 /// Resolve a tempdir root through its symlinked prefix (macOS: `/var` →

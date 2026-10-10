@@ -27,11 +27,11 @@ mod package_manager;
 mod repo_url;
 mod units;
 
-use ops_about::identity::{provide_identity_from_manifest, ParsedManifest};
-use ops_core::project_identity::{base_about_fields, insert_homepage_field, AboutFieldDef};
+use ops_about::identity::{ParsedManifest, provide_identity_from_manifest};
+use ops_core::project_identity::{AboutFieldDef, base_about_fields, insert_homepage_field};
 use ops_extension::{Context, DataProvider, DataProviderError, ExtensionType};
 
-use package_json::{parse_package_json, PackageJson};
+use package_json::{PackageJson, parse_package_json};
 use package_manager::detect_package_manager;
 
 const NAME: &str = "about-node";

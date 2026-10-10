@@ -25,7 +25,7 @@
 mod gradle;
 mod maven;
 
-use ops_core::project_identity::{base_about_fields, insert_homepage_field, AboutFieldDef};
+use ops_core::project_identity::{AboutFieldDef, base_about_fields, insert_homepage_field};
 use ops_extension::ExtensionType;
 
 use gradle::GradleIdentityProvider;

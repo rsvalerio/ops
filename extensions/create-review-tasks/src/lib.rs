@@ -464,7 +464,7 @@ fn stage_task_file(
         Err(err) if err.kind() == std::io::ErrorKind::AlreadyExists => return Ok(false),
         Err(err) => {
             return Err(anyhow::Error::new(err))
-                .with_context(|| format!("creating {}", path.display()))
+                .with_context(|| format!("creating {}", path.display()));
         }
     };
     staged.track(path.clone());
@@ -683,14 +683,16 @@ mod tests {
             out2.starts_with("created TASK-0002 review-request-2026-08-20-2 (2 subtasks)\n"),
             "got: {out2}"
         );
-        assert!(dir
-            .path()
-            .join(".backlog/tasks/task-0002 - review-request-2026-08-20-2.md")
-            .exists());
-        assert!(dir
-            .path()
-            .join(".backlog/tasks/task-0001 - review-request-2026-08-20-1.md")
-            .exists());
+        assert!(
+            dir.path()
+                .join(".backlog/tasks/task-0002 - review-request-2026-08-20-2.md")
+                .exists()
+        );
+        assert!(
+            dir.path()
+                .join(".backlog/tasks/task-0001 - review-request-2026-08-20-1.md")
+                .exists()
+        );
     }
 
     /// A `Write` sink whose every operation fails, standing in for a closed
@@ -729,15 +731,21 @@ mod tests {
         );
         result.expect("run must succeed once the set is committed");
         let tasks_dir = dir.path().join(".backlog").join("tasks");
-        assert!(tasks_dir
-            .join("task-0001 - review-request-2026-08-20-1.md")
-            .is_file());
-        assert!(tasks_dir
-            .join("task-0001.01 - REVIEW-Run-skill-code-review-rust-against-ops-core.md")
-            .is_file());
-        assert!(tasks_dir
-            .join("task-0001.02 - REVIEW-Run-skill-code-review-rust-against-ops-cli.md")
-            .is_file());
+        assert!(
+            tasks_dir
+                .join("task-0001 - review-request-2026-08-20-1.md")
+                .is_file()
+        );
+        assert!(
+            tasks_dir
+                .join("task-0001.01 - REVIEW-Run-skill-code-review-rust-against-ops-core.md")
+                .is_file()
+        );
+        assert!(
+            tasks_dir
+                .join("task-0001.02 - REVIEW-Run-skill-code-review-rust-against-ops-cli.md")
+                .is_file()
+        );
     }
 
     /// In a dry run nothing is on disk, so a report write failure is an

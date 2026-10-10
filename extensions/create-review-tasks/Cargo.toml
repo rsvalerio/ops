@@ -2,7 +2,7 @@
 name = "ops-create-review-tasks"
 publish = false
 version.workspace = true
-edition.workspace = true
+edition = "2024"
 license.workspace = true
 
 [dependencies]

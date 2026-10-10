@@ -5,8 +5,8 @@ use std::path::{Path, PathBuf};
 use std::sync::{Mutex, OnceLock, PoisonError};
 
 use ops_about::text_util::trim_nonempty;
-use serde::de::DeserializeOwned;
 use serde::Deserialize;
+use serde::de::DeserializeOwned;
 
 use super::repo_url::{append_tree_directory, normalize_repo_url};
 

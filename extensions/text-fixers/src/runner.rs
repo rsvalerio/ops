@@ -8,7 +8,7 @@ use std::path::Path;
 use anyhow::Context;
 
 use ops_core::bounded_read::{
-    read_candidate, record_failure, relative_to, report_walk_errors, Rejected,
+    Rejected, read_candidate, record_failure, relative_to, report_walk_errors,
 };
 
 use crate::options::FixerOptions;
