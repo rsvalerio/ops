@@ -3,15 +3,15 @@
 //! `home_dir` is the canonical "user home directory" probe used across the
 //! crate. Resolution order is platform-gated:
 //!
-//! - **Unix (`cfg(unix)`):** `HOME` only. ARCH-2 / TASK-0891: a polluted
-//!   `USERPROFILE` (attacker- or shell-rc-supplied) must NOT be honored
-//!   as `$HOME` — `home_dir` is now the single source of truth for `~`
+//! - **Unix (`cfg(unix)`):** `HOME` only. A polluted `USERPROFILE`
+//!   (attacker- or shell-rc-supplied) must NOT be honored as `$HOME` —
+//!   `home_dir` is the single source of truth for `~`
 //!   expansion in argv / cwd / env values, so a fallback there would
 //!   redirect every tilde-resolved path.
 //! - **Windows / non-Unix:** `HOME` first (set by Git Bash / WSL / MSYS),
 //!   then `USERPROFILE` (`C:\Users\X`) as the Windows-native fallback.
 //!
-//! READ-1 / TASK-1434: the **HOME-first precedence on non-Unix is
+//! The **HOME-first precedence on non-Unix is
 //! deliberate**. Cross-platform tooling that ops users typically already
 //! have installed (Git Bash, WSL, MSYS, Cygwin) sets `HOME` to a Unix-style
 //! path that points at the user's *intended* home for tooling — e.g.
@@ -32,7 +32,7 @@
 //! conventions on top of `home_dir` — so the HOME-vs-USERPROFILE precedence
 //! defined here is the single source of truth shared by both surfaces.
 //!
-//! CL-3 (TASK-0752): consolidates two divergent inline implementations that
+//! Consolidates two divergent inline implementations that
 //! lived in `expand.rs` (HOME → USERPROFILE) and `config/loader.rs` (HOME-only
 //! on Unix, USERPROFILE-only on Windows). Future Windows-native polish should
 //! only need to update this single function.

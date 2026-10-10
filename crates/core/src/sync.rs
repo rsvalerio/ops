@@ -1,4 +1,4 @@
-//! DUP-3 / TASK-1477 + CONC-9: shared `Mutex` poison-recover policy.
+//! Shared `Mutex` poison-recover policy.
 //!
 //! Every `Mutex` this module serves protects a cache or deduplication set
 //! whose every possible state is a valid map / set — no invariant the
@@ -8,7 +8,7 @@
 //! `clear_poison()` and continue with the recovered guard. This module
 //! factors that pattern into a single helper so the callsites cannot drift.
 //!
-//! DUP-1 / TASK-2258: this is the workspace's *only* statement of that
+//! This is the workspace's *only* statement of that
 //! policy. It is public so extension crates reach the helpers directly
 //! instead of growing per-crate copies (`ops_about::lru::lock_recovering`
 //! was one such copy, since deleted).

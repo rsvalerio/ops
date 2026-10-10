@@ -1,4 +1,4 @@
-//! ARCH-1 / TASK-1471: env-knob parsers extracted from
+//! Env-knob parsers extracted from
 //! [`super`][`crate::subprocess`].
 //!
 //! Houses the timeout and per-stream byte-cap env knobs so the parsing /
@@ -12,11 +12,11 @@ use std::time::Duration;
 /// Environment variable used to override the per-operation default timeout.
 pub const TIMEOUT_ENV: &str = "OPS_SUBPROCESS_TIMEOUT_SECS";
 
-/// SEC-33 / TASK-1050: environment variable used to override the per-stream
+/// Environment variable used to override the per-stream
 /// byte cap applied by [`super::run_with_timeout`]'s drain threads.
 ///
-/// Mirrors the runner's `command::exec::read_capped` shape (PERF-1 /
-/// TASK-0764) so a runaway cargo subprocess cannot grow the in-memory
+/// Mirrors the runner's `command::exec::read_capped` shape so a runaway
+/// cargo subprocess cannot grow the in-memory
 /// capture buffer without bound. Reuses the same env var name the runner
 /// already documents — `ops` users only have one knob to tune.
 pub const OUTPUT_CAP_ENV: &str = "OPS_OUTPUT_BYTE_CAP";
@@ -36,7 +36,7 @@ pub const DEFAULT_OUTPUT_BYTE_CAP: usize = 4 * 1024 * 1024;
 /// and `OPS_SUBPROCESS_TIMEOUT_SECS` is unset or unparseable.
 pub const FALLBACK_TIMEOUT: Duration = Duration::from_mins(3);
 
-/// ASYNC-6 / TASK-0304: upper bound on `OPS_SUBPROCESS_TIMEOUT_SECS`.
+/// Upper bound on `OPS_SUBPROCESS_TIMEOUT_SECS`.
 ///
 /// The whole point of [`super::run_with_timeout`] is bounded execution;
 /// allowing an env-driven `u64::MAX` effectively disables the timeout and
@@ -45,7 +45,7 @@ pub const FALLBACK_TIMEOUT: Duration = Duration::from_mins(3);
 /// preventing an unbounded hang.
 pub const MAX_TIMEOUT_SECS: u64 = 3600;
 
-/// SEC-33 / TASK-1050 + ARCH-11 / TASK-1463: resolve the per-stream byte cap
+/// Resolve the per-stream byte cap
 /// once per process. Routes through the shared
 /// [`crate::text::cached_byte_cap_env`] helper so the unset / zero /
 /// unparseable / `> BYTE_CAP_ENV_MAX` matrix and the one-shot
@@ -72,7 +72,7 @@ pub(super) fn output_byte_cap() -> usize {
     usize::try_from(resolved).unwrap_or(DEFAULT_OUTPUT_BYTE_CAP)
 }
 
-/// PERF-3 / TASK-1218: pure parser for the `OPS_SUBPROCESS_TIMEOUT_SECS`
+/// Pure parser for the `OPS_SUBPROCESS_TIMEOUT_SECS`
 /// raw value. Returns `Some(secs)` (clamped to [`MAX_TIMEOUT_SECS`]) when
 /// the input is a positive `u64`, `None` otherwise so the caller falls
 /// back to the operation-specific default. Factored out so the
@@ -93,7 +93,7 @@ pub(super) fn parse_subprocess_timeout(raw: Option<&str>) -> Option<u64> {
     }
 }
 
-/// PERF-3 / TASK-1218: cache the resolved `OPS_SUBPROCESS_TIMEOUT_SECS`
+/// Cache the resolved `OPS_SUBPROCESS_TIMEOUT_SECS`
 /// value behind a `OnceLock<Option<u64>>` so each subprocess spawn does
 /// not re-acquire the global env lock and re-allocate the raw `String`.
 /// `None` means "env unset / zero / unparseable — fall back to
@@ -111,12 +111,12 @@ fn cached_subprocess_timeout() -> Option<u64> {
 /// present and parses to a non-zero u64; otherwise the operation-specific
 /// default is returned unchanged.
 ///
-/// ASYNC-6 / TASK-0304: the override is clamped to [`MAX_TIMEOUT_SECS`] and
+/// The override is clamped to [`MAX_TIMEOUT_SECS`] and
 /// emits a warning when it had to be clamped, so an accidental
 /// `OPS_SUBPROCESS_TIMEOUT_SECS=18446744073709551615` does not silently
 /// disable the helper's bounded-wait contract.
 ///
-/// PERF-3 / TASK-1218: the env knob is resolved at most once per process
+/// The env knob is resolved at most once per process
 /// via [`cached_subprocess_timeout`]. Tests that exercise the parse/clamp
 /// matrix should call [`parse_subprocess_timeout`] directly to bypass the
 /// cache.

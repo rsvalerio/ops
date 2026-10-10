@@ -12,7 +12,7 @@ pub fn display_width(s: &str) -> usize {
 
 /// Append spaces to `name` until its display width reaches `target_cols`.
 ///
-/// DUP-3 / TASK-1235: `help.rs::render_grouped_sections` and
+/// `help.rs::render_grouped_sections` and
 /// `theme_cmd.rs::run_theme_list_to` each implemented the same
 /// `display_width` measure + manual space-pad loop. Centralising here
 /// ensures any future tightening (e.g. tab expansion, ZWJ-emoji handling)
@@ -30,7 +30,7 @@ pub fn pad_to_display_width(name: &str, target_cols: usize) -> String {
     }
     // Guarded above by `cols >= target_cols`, so this subtraction is exact.
     let pad = target_cols.saturating_sub(cols);
-    // PERF-1 / TASK-1396: bulk extend replaces the per-char push loop;
+    // Bulk extend replaces the per-char push loop;
     // `String::extend` over `repeat(' ').take(pad)` lowers to a single
     // reserve + memset rather than `pad` separate push branches.
     let mut out = String::with_capacity(name.len().saturating_add(pad));
@@ -42,7 +42,7 @@ pub fn pad_to_display_width(name: &str, target_cols: usize) -> String {
 /// Live terminal width in columns reported by the OS (`ioctl(TIOCGWINSZ)` or
 /// the Windows console handle), or `None` when no terminal is attached.
 ///
-/// ARCH-2 / TASK-0667: prefer this over reading the `COLUMNS` environment
+/// Prefer this over reading the `COLUMNS` environment
 /// variable, which is set on demand by interactive shells but is unset under
 /// most non-interactive parents (CI, `cargo run`, IDE terminals before the
 /// first resize). Callers should fall back to `COLUMNS` only when stdout is
@@ -56,13 +56,13 @@ pub fn detect_terminal_width() -> Option<usize> {
     })
 }
 
-/// PERF-3 / TASK-1440: per-process counter for `terminal_size` ioctl
+/// Per-process counter for `terminal_size` ioctl
 /// invocations issued by [`detect_terminal_width`]. Incremented exactly
 /// once inside the `OnceLock::get_or_init` closure. The cached width is
-/// stable across a single command run: callers (step-line, about-card,
-/// table-sizing) used to fire a fresh `ioctl(TIOCGWINSZ)` per emitted row,
-/// which is wasteful when existing column-resolution paths already assume
-/// a stable width per command. Interactive resize during a single command
+/// stable across a single command run: firing a fresh `ioctl(TIOCGWINSZ)`
+/// per emitted row (step-line, about-card, table-sizing) would be wasteful
+/// when existing column-resolution paths already assume a stable width per
+/// command. Interactive resize during a single command
 /// is intentionally not observed mid-render.
 static TERMINAL_WIDTH_PROBES: std::sync::atomic::AtomicUsize =
     std::sync::atomic::AtomicUsize::new(0);
@@ -81,12 +81,12 @@ pub fn tail_lines<T>(lines: &[T], n: usize) -> &[T] {
 
 /// Format the last `n` lines of stderr for error display.
 ///
-/// PERF-1 (TASK-0733): scans the buffer from the end via byte-wise newline
+/// Scans the buffer from the end via byte-wise newline
 /// search, decoding only the tail segments instead of decoding the entire
 /// `stderr` (which can be megabytes under a failed `cargo test`). Memory and
 /// CPU cost are O(n * average-line-length) regardless of input size.
 ///
-/// CR/LF normalisation contract (PATTERN-1 / TASK-1094):
+/// CR/LF normalisation contract:
 /// - A single trailing `\n` (optionally preceded by `\r`) is treated as a
 ///   line terminator and dropped, so a buffer ending in `"...\n"` does not
 ///   surface a phantom empty last line.
@@ -103,14 +103,14 @@ pub fn format_error_tail(stderr: &[u8], n: usize) -> String {
 
 /// Internal: returns `(rendered_tail, line_scans)` where `line_scans` is the
 /// number of backwards newline searches performed. Used by structural
-/// PERF-1 regression tests to assert that the byte-walk is bounded by `n`
+/// regression tests to assert that the byte-walk is bounded by `n`
 /// (and therefore independent of total buffer size) without resorting to
-/// flaky wall-clock timing assertions (TEST-15 / TASK-1029).
+/// flaky wall-clock timing assertions.
 fn format_error_tail_with_stats(stderr: &[u8], n: usize) -> (String, usize) {
     if n == 0 || stderr.is_empty() {
         return (String::new(), 0);
     }
-    // FN-1 / TASK-1405: each phase (trim, collect, decode) is now an
+    // Each phase (trim, collect, decode) is now an
     // isolated helper so its byte/line invariants can be read in isolation.
     let trimmed_end = trim_trailing_terminator(stderr);
     let buf = stderr.get(..trimmed_end).unwrap_or(stderr);
@@ -123,7 +123,7 @@ fn format_error_tail_with_stats(stderr: &[u8], n: usize) -> (String, usize) {
     (out, line_scans)
 }
 
-/// PATTERN-1 / TASK-1094: trim a single trailing line terminator (CRLF, LF,
+/// Trim a single trailing line terminator (CRLF, LF,
 /// or bare CR). Returns the new logical end index of `stderr`. A stray `\r`
 /// at end-of-buffer would otherwise survive into the rendered tail and
 /// render as a cursor-control byte in operator terminals.
@@ -139,7 +139,7 @@ const fn trim_trailing_terminator(stderr: &[u8]) -> usize {
     }
 }
 
-/// PERF-3 / TASK-1428: collect up to `n` tail line ranges, walking backwards
+/// Collect up to `n` tail line ranges, walking backwards
 /// from the end of `buf`. Returns the number of backwards line scans
 /// performed (asserted by the structural PERF-1 regression test).
 fn collect_tail_ranges(buf: &[u8], n: usize, ranges: &mut TailRanges) -> usize {
@@ -168,7 +168,7 @@ fn collect_tail_ranges(buf: &[u8], n: usize, ranges: &mut TailRanges) -> usize {
     line_scans
 }
 
-/// PATTERN-1 / TASK-1094 + PERF-3 / TASK-1441: decode the collected ranges
+/// Decode the collected ranges
 /// into a single `String`, substituting embedded bare CR with `\n` inline so
 /// progress-bar-style stderr cannot move the cursor in operator terminals.
 /// The inline substitution replaces the previous
@@ -197,7 +197,7 @@ fn decode_with_cr_normalisation(buf: &[u8], ranges: &TailRanges) -> String {
     out
 }
 
-/// PERF-3 / TASK-1428: stack-backed ring for tail line ranges. The error-tail
+/// Stack-backed ring for tail line ranges. The error-tail
 /// formatter is invoked per failed step with `n` config-bounded to a small
 /// value (5 by default; the largest external caller passes 10). A
 /// `[(usize, usize); STACK_CAP]` inline buffer covers the dominant path
@@ -242,7 +242,7 @@ impl TailRanges {
     /// most-recent line first, so each successive push is older than every
     /// range collected so far.
     ///
-    /// PATTERN-1 / TASK-1825: the ordering invariant [`Self::iter`] depends
+    /// The ordering invariant [`Self::iter`] depends
     /// on is
     ///
     /// > `spill` reversed, then `stack[0..stack_len]`, is buffer order
@@ -280,7 +280,7 @@ impl TailRanges {
 
 /// Logical status of a step for step-line rendering.
 ///
-/// API-9 / TASK-0454: marked `#[non_exhaustive]` so adding a new variant
+/// Marked `#[non_exhaustive]` so adding a new variant
 /// (e.g. `Cancelled`) is not a breaking change for downstream consumers
 /// (themes, runner, extensions). Out-of-crate `match` sites must include a
 /// wildcard arm.
@@ -296,7 +296,7 @@ pub enum StepStatus {
 
 /// Data for one step line: status, command label, and optional elapsed time.
 ///
-/// API-9 / TASK-0454: marked `#[non_exhaustive]` so adding fields is not a
+/// Marked `#[non_exhaustive]` so adding fields is not a
 /// breaking change for downstream consumers. Construct via [`StepLine::new`]
 /// rather than struct-literal syntax.
 #[derive(Debug, Clone)]
@@ -324,7 +324,7 @@ impl StepLine {
 ///
 /// Contains the exit message and an optional tail of stderr output.
 ///
-/// API-9 / TASK-0454: marked `#[non_exhaustive]` so adding fields is not a
+/// Marked `#[non_exhaustive]` so adding fields is not a
 /// breaking change. Construct via [`ErrorDetail::new`].
 #[derive(Debug, Clone)]
 #[non_exhaustive]

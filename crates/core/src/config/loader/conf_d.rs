@@ -1,4 +1,4 @@
-//! ARCH-1 / TASK-1471: `.ops.d/*.toml` overlay walking and merging.
+//! `.ops.d/*.toml` overlay walking and merging.
 //!
 //! Extracted from the historical grab-bag `loader.rs`. Owns the directory
 //! walk ([`read_conf_d_files`]) and the per-file merge loop
@@ -20,10 +20,10 @@ use super::super::{merge::merge_config, Config};
 /// load fails loudly. See [`merge_conf_d`] for the "loud failure"
 /// contract.
 ///
-/// ERR-7 / TASK-1400: a `DirEntry` whose `?` access fails used to be
-/// dropped with a warn-and-skip; this asymmetry meant a permission flip
-/// or racing rename on a single overlay file made it disappear while
-/// the rest of the merge proceeded, producing a config that differed
+/// A `DirEntry` whose `?` access fails is a hard
+/// error, not a warn-and-skip: a permission flip or racing rename on a
+/// single overlay file must not make it disappear while the rest of the
+/// merge proceeds, producing a config that differs
 /// from what the operator authored.
 fn read_conf_d_files(dir: &Path) -> anyhow::Result<Option<Vec<PathBuf>>> {
     let entries = match std::fs::read_dir(dir) {
@@ -53,32 +53,32 @@ fn read_conf_d_files(dir: &Path) -> anyhow::Result<Option<Vec<PathBuf>>> {
 
 /// Merge every `.ops.d/*.toml` overlay, in sorted order.
 ///
-/// ERR-1: a parse or IO error on any single overlay file surfaces as a hard
+/// A parse or IO error on any single overlay file surfaces as a hard
 /// error with the offending path in context rather than being silently
 /// dropped. Users whose overlay "mysteriously does nothing" in CI should see
 /// a loud failure instead of a tracing warning that gets swallowed.
 ///
-/// ERR-4 / TASK-1448 + TEST-1 / TASK-1852: the `Ok(None)` arm below is a hard
+/// The `Ok(None)` arm below is a hard
 /// error rather than benign absence. `read_dir` already proved the entry
 /// existed, so an entry that then reads as "missing" means the tree changed
 /// under us — the "loud failure" contract, not absence.
 ///
-/// **What actually reaches that arm today.** The original ERR-4 wording named
-/// the broken-symlink case, but SEC-25 / TASK-1468 put `O_NOFOLLOW` on the
-/// config open, and a dangling symlink under `O_NOFOLLOW` returns `ELOOP`
-/// (which `text::open_refusing_symlinks` maps to `InvalidInput`), not
-/// `NotFound` — so a broken symlink now takes the `Err(e)` arm carrying the
-/// symlink-refusal message. The only remaining route into `Ok(None)` is a
+/// **What actually reaches that arm.** A broken symlink does not: the
+/// config open uses `O_NOFOLLOW`, a dangling symlink under `O_NOFOLLOW`
+/// returns `ELOOP` (which `text::open_refusing_symlinks` maps to
+/// `InvalidInput`), not `NotFound` — so a broken symlink takes the `Err(e)`
+/// arm carrying the symlink-refusal message. The only remaining route into
+/// `Ok(None)` is a
 /// **delete or rename between `read_dir` and `open`**: a genuine TOCTOU race,
 /// kept as defence in depth. It has no unit test because reproducing it needs
 /// a scheduler-timed unlink inside the loop; `merge_conf_d_rejects_broken_\
 /// symlink` pins the symlink route instead and asserts the *specific* message,
 /// so deleting either branch fails the suite.
 ///
-/// **Symlinks in `.ops.d` stay refused** — recorded decision, TASK-1852.
-/// `.ops.d` is workspace-relative and therefore repo-supplied: the same
-/// attacker-controlled trust boundary as `.ops.toml`. The SEC-14 / TASK-1847
-/// relaxation applies only to the user's own `~/.config/ops/config.toml`; see
+/// **Symlinks in `.ops.d` stay refused.** `.ops.d` is workspace-relative
+/// and therefore repo-supplied: the same attacker-controlled trust boundary
+/// as `.ops.toml`. The symlink relaxation applies only to the user's own
+/// `~/.config/ops/config.toml`; see
 /// [`super::SymlinkPolicy`] for why the two differ. A repo that wants to share
 /// config fragments should commit the fragment, not a link out of the
 /// workspace.
