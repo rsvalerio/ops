@@ -65,7 +65,7 @@ pub fn fix_eof(input: &[u8]) -> Option<Vec<u8>> {
     // path, and one that can never reach a fixed point under
     // `* text eol=crlf` checkouts.
     //
-    // READ-5 / TASK-2253: a run made only of `\r` bytes (no `\n` anywhere
+    // A run made only of `\r` bytes (no `\n` anywhere
     // in it) is a lone-CR terminator, preserved as `\r` — converting it to
     // LF would be the same unrequested line-ending conversion this module
     // refuses for CRLF. Every byte of the run is `\r` or `\n` by
@@ -174,7 +174,7 @@ mod tests {
         assert_eq!(fix_eof(b"abc").unwrap(), b"abc\n");
     }
 
-    /// READ-5 / TASK-2253: a lone trailing CR is a terminator to preserve,
+    /// A lone trailing CR is a terminator to preserve,
     /// not convertible payload — `fix_eof(b"abc\r")` must not rewrite the
     /// file to `b"abc\n"` (see the module header's lone-CR section).
     #[test]

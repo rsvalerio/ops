@@ -1,21 +1,11 @@
 //! Replace a file's contents without ever leaving it short.
 //!
-//! # Why not `fs::write`
-//!
-//! `std::fs::write` is `File::create` — `O_WRONLY|O_CREAT|O_TRUNC` — followed
-//! by `write_all`. Between the truncate and the completed write the file on
-//! disk is empty or partial, and the only copy of the original is a `Vec` in
-//! this process. Ctrl-C on a pre-commit hook, an `ENOSPC`, an `EIO`, or a
-//! quota refusal in that window leaves the user's source file truncated with
-//! no backup and no rollback. On a tool wired into `ops verify` and a commit
-//! hook, over the whole worktree, that is silent data loss.
-//!
-//! [`replace`] instead stages the new content in a temp file created in the
-//! *same directory*, `fsync`s it, copies the original's ownership and mode
-//! onto it, and `rename(2)`s it over the target. `rename` is atomic on POSIX:
-//! a reader sees either the whole old file or the whole new one, never a short
-//! one. The parent directory is `fsync`ed afterwards so the new directory
-//! entry survives a crash.
+//! [`replace`] stages the new content in a temp file created in the *same
+//! directory*, `fsync`s it, copies the original's ownership and mode onto it,
+//! and `rename(2)`s it over the target. `rename` is atomic on POSIX: a reader
+//! sees either the whole old file or the whole new one, never a short one.
+//! The parent directory is `fsync`ed afterwards so the new directory entry
+//! survives a crash.
 //!
 //! # What is re-checked before the rename
 //!
@@ -44,11 +34,10 @@
 //! window is an accepted limit recorded in
 //! `.backlog/decisions/0001-text-fixers-write-back-residual-toctou-window.md`.
 //!
-//! # The trade this makes
+//! # Observable consequences of the rename
 //!
 //! `rename(2)` replaces the *directory entry*, so the target gets a **new
-//! inode**. Two properties that truncate-in-place got for free are therefore
-//! given up deliberately:
+//! inode**:
 //!
 //! - **Hard links are broken.** If the file had other names, they keep the old
 //!   inode and the old content; only the path passed here sees the fix.
@@ -57,17 +46,14 @@
 //! - **A killed run leaves stage files behind.** `NamedTempFile`'s `Drop`
 //!   unlinks the stage on every ordinary error path, but `Drop` does not run
 //!   when the process is killed — SIGKILL, or a SIGINT/SIGTERM with no
-//!   handler, which is precisely the pre-commit-hook interruption this module
-//!   exists for. Each file that was mid-write then keeps one
+//!   handler. Each file that was mid-write then keeps one
 //!   [`STAGE_PREFIX`]-named sibling in the worktree (visible in `git status`
 //!   until deleted). The residue is inert: discovery rejects the prefix in
 //!   both walk and tracked modes, so a leftover is
 //!   never walked, read, or rewritten as a candidate by a later run.
 //!
-//! All three are accepted. A whitespace fixer's failure mode has to be "did
-//! nothing", never "emptied a source file", and hard-linked source files are
-//! rare where interrupted hook runs are not. Mode, uid and gid *are*
-//! preserved, so the visible attributes of the file do not change.
+//! Mode, uid and gid *are* preserved, so the visible attributes of the file
+//! do not change.
 
 use std::fs::{File, Metadata};
 use std::io::{self, Write};
@@ -300,7 +286,7 @@ mod tests {
 
     /// Same inode, same length, and the modification time restored to the
     /// original: only `ctime` — kernel-maintained, not restorable from
-    /// userspace — gives it away (TASK-2434).
+    /// userspace — gives it away.
     #[cfg(unix)]
     #[test]
     fn a_same_length_edit_with_mtime_restored_is_detected_by_ctime() {
