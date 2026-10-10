@@ -2,6 +2,16 @@
 All notable changes to this project will be documented in this file. See [conventional commits](https://www.conventionalcommits.org/) for commit guidelines.
 
 - - -
+## [v0.80.0](https://github.com/rsvalerio/ops/compare/109a27240ea6472fe7e41e8a51b2b1a882bc863e..v0.80.0) - 2026-10-10
+#### 🚀 Features
+- (**backlog**) collapse done waves to a total in wave list - ([2ff00fd](https://github.com/rsvalerio/ops/commit/2ff00fd4548a156eb3759665c4f72e4e9635019a)) - [@rsvalerio](https://github.com/rsvalerio)
+#### 📚 Documentation
+- (**backlog**) describe the done-wave collapse in wave list - ([4bda31e](https://github.com/rsvalerio/ops/commit/4bda31e5e62684f54dfc79aae54d25b1616f45b4)) - [@rsvalerio](https://github.com/rsvalerio)
+#### 🧪 Testing
+- (**runner**) prove matrix overlap with an O_EXCL lock, not mkdir - ([109a272](https://github.com/rsvalerio/ops/commit/109a27240ea6472fe7e41e8a51b2b1a882bc863e)) - [@rsvalerio](https://github.com/rsvalerio)
+
+- - -
+
 ## [v0.79.3](https://github.com/rsvalerio/ops/compare/a81dd14546eaaa57f68a9a3bf67e42169e3a98af..v0.79.3) - 2026-10-09
 #### 🐛 Bug Fixes
 - (**runner**) show a failed parallel step's real last output lines (TASK-2437) - ([a81dd14](https://github.com/rsvalerio/ops/commit/a81dd14546eaaa57f68a9a3bf67e42169e3a98af)) - [@rsvalerio](https://github.com/rsvalerio), Claude Opus 5.5 (1M context)
