@@ -1,10 +1,10 @@
 ---
 id: TASK-2441
 title: 'code-review-plan-wave53'
-status: To Do
+status: Done
 assignee: []
 created_date: '2026-10-10 14:31'
-updated_date: '2026-10-10 14:32'
+updated_date: '2026-10-10 14:57'
 labels:
   - code-review-wave
 dependencies:
@@ -41,4 +41,8 @@ Both are error-fidelity fixes: io_at/read_staged_payload flattening or dropping 
 
 <!-- SECTION:NOTES:BEGIN -->
 Overlaps: TASK-2439 (extensions/sqlite/src/error.rs)
+
+Branch: code-review/TASK-2441
+Worktree: /home/rsvalerio/projects/.wave-TASK-2441
+
 <!-- SECTION:NOTES:END -->

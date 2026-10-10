@@ -1,10 +1,10 @@
 ---
 id: TASK-2428
 title: 'ERR-13: metadata ingestor IO errors flatten or omit the path and drop the source'
-status: To Do
+status: Done
 assignee: []
 created_date: '2026-10-04 15:28'
-updated_date: '2026-10-10 14:31'
+updated_date: '2026-10-10 14:48'
 labels:
   - code-review-rust
   - ERR
@@ -31,6 +31,7 @@ ordinal: 1000
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 io_at keeps the original io::Error reachable through Error::source()
-- [ ] #2 The staged-payload read failure names the staged entry
+- [x] #1 io_at keeps the original io::Error reachable through Error::source()
+- [x] #2 The staged-payload read failure names the staged entry
+
 <!-- AC:END -->
