@@ -28,8 +28,7 @@ fn load_coverage_missing_json_file_errors() {
     // JSON read on the failing path. We only assert the load fails; the exact
     // error message is implementation detail.
     let data_dir = tempfile::tempdir().expect("tempdir");
-    // SEC-25 / TASK-2054: stage through the same verified anchor
-    // `provide_via_ingestor` builds.
+    // Stage through the same verified anchor `provide_via_ingestor` builds.
     let dir = ops_sqlite::IngestDir::open(&data_dir.path().join("ingest")).expect("anchor");
     dir.write_atomic("coverage_workspace.txt", b"/test/workspace")
         .expect("write workspace sidecar");
@@ -47,14 +46,12 @@ fn load_coverage_missing_json_file_errors() {
     );
 }
 
-/// READ-5 (TASK-0808): the public `load_coverage` returns the structured
-/// `LoadResult` so callers can act on `record_count` instead of treating the
-/// load as opaque.
+/// The public `load_coverage` returns the structured `LoadResult` so callers
+/// can act on `record_count` instead of treating the load as opaque.
 #[test]
 fn load_coverage_returns_record_count() {
     let data_dir = tempfile::tempdir().expect("tempdir");
-    // SEC-25 / TASK-2054: stage through the same verified anchor
-    // `provide_via_ingestor` builds.
+    // Stage through the same verified anchor `provide_via_ingestor` builds.
     let dir = ops_sqlite::IngestDir::open(&data_dir.path().join("ingest")).expect("anchor");
     let db = Sqlite::open_in_memory().expect("open in-memory db");
     write_coverage_fixture(&dir);
