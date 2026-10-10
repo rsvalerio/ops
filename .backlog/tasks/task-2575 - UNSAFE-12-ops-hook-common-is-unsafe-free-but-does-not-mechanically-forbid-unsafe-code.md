@@ -1,10 +1,10 @@
 ---
 id: TASK-2575
 title: 'UNSAFE-12: ops-hook-common is unsafe-free but does not mechanically forbid unsafe code'
-status: To Do
+status: Done
 assignee: []
 created_date: '2026-10-10 15:43'
-updated_date: '2026-10-10 21:12'
+updated_date: '2026-10-10 22:15'
 labels:
   - code-review-rust
   - unsafe
@@ -29,6 +29,7 @@ dedup_key: 'UNSAFE-12:extensions/hook-common/src/lib.rs:lib'
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 lib.rs carries #![forbid(unsafe_code)] at the crate root
-- [ ] #2 cargo check and cargo test for ops-hook-common pass with the forbid in place
+- [x] #1 lib.rs carries #![forbid(unsafe_code)] at the crate root
+- [x] #2 cargo check and cargo test for ops-hook-common pass with the forbid in place
+
 <!-- AC:END -->

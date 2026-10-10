@@ -1,10 +1,10 @@
 ---
 id: TASK-2569
 title: 'READ-13: git.rs docs narrate fix history and carry rule-ID self-report prefixes'
-status: To Do
+status: Done
 assignee: []
 created_date: '2026-10-10 15:42'
-updated_date: '2026-10-10 21:12'
+updated_date: '2026-10-10 22:13'
 labels:
   - code-review-rust
   - read
@@ -29,7 +29,8 @@ dedup_key: 'READ-13:extensions/hook-common/src/git.rs:git module docs'
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 History narration (before-the-fix sentences, old-shape impact, what-made-it-a-finding) is removed; the end-state containment rules stay
-- [ ] #2 No doc comment in the file opens with a rule-ID prefix
-- [ ] #3 cargo test -p ops-hook-common passes
+- [x] #1 History narration (before-the-fix sentences, old-shape impact, what-made-it-a-finding) is removed; the end-state containment rules stay
+- [x] #2 No doc comment in the file opens with a rule-ID prefix
+- [x] #3 cargo test -p ops-hook-common passes
+
 <!-- AC:END -->

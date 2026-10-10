@@ -1,10 +1,10 @@
 ---
 id: TASK-2559
 title: 'READ-13: config-checkers error docs cite code-review rule IDs instead of stating the behavior'
-status: To Do
+status: Done
 assignee: []
 created_date: '2026-10-10 15:40'
-updated_date: '2026-10-10 21:12'
+updated_date: '2026-10-10 22:12'
 labels:
   - code-review-rust
   - readability
@@ -29,6 +29,7 @@ dedup_key: 'READ-13:extensions/config-checkers/src/error.rs:CheckError'
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 No code-review rule IDs (SEC-33, ERR-9, etc.) remain in production docs or comments of extensions/config-checkers/src
-- [ ] #2 Each rewritten comment states the property it guards in substance (resource bound, message/source duplication) without referencing the review rulebook
+- [x] #1 No code-review rule IDs (SEC-33, ERR-9, etc.) remain in production docs or comments of extensions/config-checkers/src
+- [x] #2 Each rewritten comment states the property it guards in substance (resource bound, message/source duplication) without referencing the review rulebook
+
 <!-- AC:END -->

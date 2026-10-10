@@ -1,10 +1,10 @@
 ---
 id: TASK-2574
 title: 'FN-1: has_staged_files_with_timeout runs 61 code lines, over the 50-line threshold'
-status: To Do
+status: Done
 assignee: []
 created_date: '2026-10-10 15:43'
-updated_date: '2026-10-10 21:12'
+updated_date: '2026-10-10 22:15'
 labels:
   - code-review-rust
   - fn
@@ -29,7 +29,8 @@ dedup_key: 'FN-1:extensions/hook-common/src/git_state.rs:has_staged_files_with_t
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 has_staged_files_with_timeout is at most 50 non-comment code lines, or carries a comment justifying the exception
-- [ ] #2 Extracted helpers (e.g. spawn-drain-thread, classify-diff-exit-status) keep the existing behaviour and typed errors
-- [ ] #3 cargo test -p ops-hook-common passes
+- [x] #1 has_staged_files_with_timeout is at most 50 non-comment code lines, or carries a comment justifying the exception
+- [x] #2 Extracted helpers (e.g. spawn-drain-thread, classify-diff-exit-status) keep the existing behaviour and typed errors
+- [x] #3 cargo test -p ops-hook-common passes
+
 <!-- AC:END -->

@@ -1,10 +1,10 @@
 ---
 id: TASK-2571
 title: 'READ-13: config.rs fail_fast doc is a why-we-picked-X essay with a rule-ID heading'
-status: To Do
+status: Done
 assignee: []
 created_date: '2026-10-10 15:42'
-updated_date: '2026-10-10 21:12'
+updated_date: '2026-10-10 22:14'
 labels:
   - code-review-rust
   - read
@@ -29,6 +29,7 @@ dedup_key: 'READ-13:extensions/hook-common/src/config.rs:ensure_config_command d
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 The fail_fast section states the end-state contract (hardcoded true, how to override, override preserved across reinstalls) without the design-rationale essay or rule-ID heading
-- [ ] #2 cargo test -p ops-hook-common passes
+- [x] #1 The fail_fast section states the end-state contract (hardcoded true, how to override, override preserved across reinstalls) without the design-rationale essay or rule-ID heading
+- [x] #2 cargo test -p ops-hook-common passes
+
 <!-- AC:END -->

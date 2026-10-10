@@ -1,10 +1,10 @@
 ---
 id: TASK-2558
 title: 'TEST-12: three install_hook_updates_* tests are copy-paste differing only in the legacy marker literal'
-status: To Do
+status: Done
 assignee: []
 created_date: '2026-10-10 15:40'
-updated_date: '2026-10-10 21:12'
+updated_date: '2026-10-10 22:12'
 labels:
   - code-review-rust
   - test-quality
@@ -29,6 +29,7 @@ dedup_key: 'TEST-12:extensions/run-before-commit/src/lib.rs:mod tests'
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 A single test (or shared helper) covers all three legacy markers, iterating the pinned marker list so a new marker is covered automatically
-- [ ] #2 cargo test -p ops-run-before-commit passes with equivalent per-marker coverage (upgrade message, hook path, script content)
+- [x] #1 A single test (or shared helper) covers all three legacy markers, iterating the pinned marker list so a new marker is covered automatically
+- [x] #2 cargo test -p ops-run-before-commit passes with equivalent per-marker coverage (upgrade message, hook path, script content)
+
 <!-- AC:END -->

@@ -1,10 +1,10 @@
 ---
 id: TASK-2561
 title: 'API-13: hook entry points reachable by two public paths (pub mod plus root pub use)'
-status: To Do
+status: Done
 assignee: []
 created_date: '2026-10-10 15:40'
-updated_date: '2026-10-10 21:12'
+updated_date: '2026-10-10 22:10'
 labels:
   - code-review-rust
   - api
@@ -29,7 +29,8 @@ dedup_key: 'API-13:extensions/hook-common/src/lib.rs:crate-root pub use re-expor
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 Each of ensure_config_command, find_git_dir, install_hook is reachable by exactly one public path (modules demoted to pub(crate) with the root re-exports kept, or the re-exports removed)
-- [ ] #2 Genuine root re-exports carry #[doc(inline)] so they render with their siblings
-- [ ] #3 Workspace crates referencing the module-qualified paths are updated; cargo check/test -p ops-hook-common and dependent hook crates pass
+- [x] #1 Each of ensure_config_command, find_git_dir, install_hook is reachable by exactly one public path (modules demoted to pub(crate) with the root re-exports kept, or the re-exports removed)
+- [x] #2 Genuine root re-exports carry #[doc(inline)] so they render with their siblings
+- [x] #3 Workspace crates referencing the module-qualified paths are updated; cargo check/test -p ops-hook-common and dependent hook crates pass
+
 <!-- AC:END -->

@@ -1,10 +1,10 @@
 ---
 id: TASK-2556
 title: 'READ-13: test comments in run-before-commit still carry TASK provenance tags'
-status: To Do
+status: Done
 assignee: []
 created_date: '2026-10-10 15:40'
-updated_date: '2026-10-10 21:12'
+updated_date: '2026-10-10 22:11'
 labels:
   - code-review-rust
   - readability
@@ -29,6 +29,7 @@ dedup_key: 'READ-13:extensions/run-before-commit/src/lib.rs:mod tests'
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 No comment in the tests module opens with a RULE-ID / TASK-XXXX tag
-- [ ] #2 The enduring rationale at each of the six sites survives the tag removal (serial-attr justification, PATH isolation, returned-path assertion, hang-detector bound)
+- [x] #1 No comment in the tests module opens with a RULE-ID / TASK-XXXX tag
+- [x] #2 The enduring rationale at each of the six sites survives the tag removal (serial-attr justification, PATH isolation, returned-path assertion, hang-detector bound)
+
 <!-- AC:END -->

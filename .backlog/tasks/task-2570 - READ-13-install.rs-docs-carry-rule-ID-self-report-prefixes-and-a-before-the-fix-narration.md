@@ -1,10 +1,10 @@
 ---
 id: TASK-2570
 title: 'READ-13: install.rs docs carry rule-ID self-report prefixes and a before-the-fix narration'
-status: To Do
+status: Done
 assignee: []
 created_date: '2026-10-10 15:42'
-updated_date: '2026-10-10 21:12'
+updated_date: '2026-10-10 22:14'
 labels:
   - code-review-rust
   - read
@@ -29,7 +29,8 @@ dedup_key: 'READ-13:extensions/hook-common/src/install.rs:install module docs'
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 The before-the-fix narration is removed; the truncated-artefact classification contract stays
-- [ ] #2 No doc comment in the file opens with a rule-ID prefix
-- [ ] #3 cargo test -p ops-hook-common passes
+- [x] #1 The before-the-fix narration is removed; the truncated-artefact classification contract stays
+- [x] #2 No doc comment in the file opens with a rule-ID prefix
+- [x] #3 cargo test -p ops-hook-common passes
+
 <!-- AC:END -->

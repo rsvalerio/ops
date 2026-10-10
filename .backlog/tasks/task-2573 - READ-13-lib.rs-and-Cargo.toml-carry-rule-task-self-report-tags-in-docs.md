@@ -1,10 +1,10 @@
 ---
 id: TASK-2573
 title: 'READ-13: lib.rs and Cargo.toml carry rule/task self-report tags in docs'
-status: To Do
+status: Done
 assignee: []
 created_date: '2026-10-10 15:43'
-updated_date: '2026-10-10 21:12'
+updated_date: '2026-10-10 22:14'
 labels:
   - code-review-rust
   - read
@@ -31,7 +31,8 @@ dedup_key: 'READ-13:extensions/hook-common/src/lib.rs:lib module docs'
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 Doc comments in lib.rs no longer open with rule-ID prefixes
-- [ ] #2 Cargo.toml comments state the dependency rationale without SEC-/TEST-/DRY-/TASK- tags
-- [ ] #3 cargo test -p ops-hook-common passes
+- [x] #1 Doc comments in lib.rs no longer open with rule-ID prefixes
+- [x] #2 Cargo.toml comments state the dependency rationale without SEC-/TEST-/DRY-/TASK- tags
+- [x] #3 cargo test -p ops-hook-common passes
+
 <!-- AC:END -->

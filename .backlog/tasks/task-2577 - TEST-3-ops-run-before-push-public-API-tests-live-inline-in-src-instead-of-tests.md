@@ -1,10 +1,10 @@
 ---
 id: TASK-2577
 title: 'TEST-3: ops-run-before-push public-API tests live inline in src/ instead of tests/'
-status: To Do
+status: Done
 assignee: []
 created_date: '2026-10-10 15:43'
-updated_date: '2026-10-10 21:12'
+updated_date: '2026-10-10 22:10'
 labels:
   - code-review-rust
   - tests
@@ -42,6 +42,7 @@ Only the tests that genuinely need private access (`HOOK_SCRIPT`, `HOOK_CONFIG`,
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 Public-API-only tests moved to a tests/ integration test; private-access tests remain in #[cfg(test)]
-- [ ] #2 cargo test -p ops-run-before-push passes; serial_test key coverage preserved for tests that spawn children or mutate the environment
+- [x] #1 Public-API-only tests moved to a tests/ integration test; private-access tests remain in #[cfg(test)]
+- [x] #2 cargo test -p ops-run-before-push passes; serial_test key coverage preserved for tests that spawn children or mutate the environment
+
 <!-- AC:END -->

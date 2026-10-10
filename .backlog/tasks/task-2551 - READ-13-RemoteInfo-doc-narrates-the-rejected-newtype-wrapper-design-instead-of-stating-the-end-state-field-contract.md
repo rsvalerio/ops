@@ -1,10 +1,10 @@
 ---
 id: TASK-2551
 title: 'READ-13: RemoteInfo doc narrates the rejected newtype-wrapper design instead of stating the end-state field contract'
-status: To Do
+status: Done
 assignee: []
 created_date: '2026-10-10 15:39'
-updated_date: '2026-10-10 21:12'
+updated_date: '2026-10-10 22:11'
 labels:
   - code-review-rust
   - readability
@@ -29,6 +29,7 @@ dedup_key: 'READ-13:extensions/git/src/remote.rs:RemoteInfo'
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 RemoteInfo doc states the enduring contract (bare String fields, constructed only by parse_remote_url, consumed by name, serialized flat) in one sentence without the considered-alternatives essay or the 'Revisit if...' trigger
-- [ ] #2 No behavior change; cargo test -p ops-git still passes
+- [x] #1 RemoteInfo doc states the enduring contract (bare String fields, constructed only by parse_remote_url, consumed by name, serialized flat) in one sentence without the considered-alternatives essay or the 'Revisit if...' trigger
+- [x] #2 No behavior change; cargo test -p ops-git still passes
+
 <!-- AC:END -->

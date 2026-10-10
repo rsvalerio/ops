@@ -1,10 +1,10 @@
 ---
 id: TASK-2572
 title: 'READ-13: git_state.rs docs open with rule-ID self-report prefixes'
-status: To Do
+status: Done
 assignee: []
 created_date: '2026-10-10 15:43'
-updated_date: '2026-10-10 21:12'
+updated_date: '2026-10-10 22:14'
 labels:
   - code-review-rust
   - read
@@ -29,6 +29,7 @@ dedup_key: 'READ-13:extensions/hook-common/src/git_state.rs:git_state module doc
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 No doc comment in the file opens with a rule-ID prefix; the contract prose under each doc is kept
-- [ ] #2 cargo test -p ops-hook-common passes
+- [x] #1 No doc comment in the file opens with a rule-ID prefix; the contract prose under each doc is kept
+- [x] #2 cargo test -p ops-hook-common passes
+
 <!-- AC:END -->

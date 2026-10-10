@@ -1,10 +1,10 @@
 ---
 id: TASK-2553
 title: 'READ-13: ops-git Cargo.toml comment carries DUP-3 / TASK-2014 provenance tags on the dev-dependency rationale'
-status: To Do
+status: Done
 assignee: []
 created_date: '2026-10-10 15:39'
-updated_date: '2026-10-10 21:12'
+updated_date: '2026-10-10 22:11'
 labels:
   - code-review-rust
   - readability
@@ -29,6 +29,7 @@ dedup_key: 'READ-13:extensions/git/Cargo.toml:[dev-dependencies]'
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 Comment states the end-state fact (config tests use the ops_core::test_utils tracing-capture harness behind test-support) with no DUP-/TASK- identifier prefix
-- [ ] #2 cargo check -p ops-git --all-targets still resolves dev-dependencies unchanged
+- [x] #1 Comment states the end-state fact (config tests use the ops_core::test_utils tracing-capture harness behind test-support) with no DUP-/TASK- identifier prefix
+- [x] #2 cargo check -p ops-git --all-targets still resolves dev-dependencies unchanged
+
 <!-- AC:END -->
