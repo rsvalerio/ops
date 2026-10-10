@@ -6,8 +6,8 @@
 /// - `≥ 60s` → `"2m14s"`, `"4m38s"` (minutes + whole seconds)
 /// - `≥ 3600s` → `"1h2m3s"` (hours + minutes + seconds)
 ///
-/// SEC-15 / TASK-0358: NaN, negative, and infinite inputs render as `"--"`
-/// rather than silently saturating through `as u64` casts.
+/// NaN, negative, and infinite inputs render as `"--"` rather than
+/// silently saturating through `as u64` casts.
 #[must_use]
 pub fn format_duration(secs: f64) -> String {
     if !secs.is_finite() || secs < 0.0 {
@@ -16,10 +16,9 @@ pub fn format_duration(secs: f64) -> String {
     if secs < 60.0 {
         return format!("{secs:.2}s");
     }
-    // ERR-5 / TASK-0857: explicit clamp into the f64-representable u64 range
-    // before the lossy `as u64` cast — replaces the prior `try_from(_ as i128)`
-    // indirection whose intent (saturate huge f64 to u64::MAX) was hidden in
-    // the cast chain. NaN was already rejected above; only finite, ≥ 0
+    // Explicit clamp into the f64-representable u64 range before the lossy
+    // `as u64` cast, so huge values saturate to `u64::MAX` visibly rather
+    // than by accident. NaN was already rejected above; only finite, ≥ 0
     // values reach here.
     // The casts are the point: `u64::MAX as f64` rounds up to the nearest
     // representable f64 (the clamp bound), and `clamped as u64` saturates
@@ -57,9 +56,9 @@ pub fn format_duration(secs: f64) -> String {
 /// (clippy `too_many_arguments`) and lets the caller compute each value once.
 #[derive(Debug, Clone, Copy)]
 pub struct BoxSnapshot<'a> {
-    /// Number of steps in a terminal state so far (CL-3 / TASK-0771: this
-    /// includes failed and skipped, not only successful — the "completed"
-    /// label is retained for backwards compatibility).
+    /// Number of steps in a terminal state so far: failed and skipped
+    /// included, not only successful. The `completed` field name is
+    /// retained for backwards compatibility.
     pub completed: usize,
     /// Steps that ended in `StepStatus::Failed`. Used by the bottom border
     /// to surface "F failed of T" rather than the legacy "Done N/M" line.

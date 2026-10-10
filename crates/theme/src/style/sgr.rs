@@ -194,7 +194,7 @@ mod tests {
         assert!(matches!(out, Cow::Borrowed(_)));
     }
 
-    /// CL-3 / TASK-1976: the theme renders to stderr only, so the gate must
+    /// The theme renders to stderr only, so the gate must
     /// ignore stdout. The scenario that motivated the finding —
     /// `ops verify 2> build.log` from an interactive shell, i.e. stdout a
     /// TTY and stderr redirected — must resolve to "no colour" here even
@@ -210,10 +210,10 @@ mod tests {
         assert!(!color_enabled_for(false, true));
     }
 
-    /// DUP-3 / TASK-1188: both color subsystems must agree on the *styled
+    /// Both color subsystems must agree on the *styled
     /// output* for the same `enabled` boolean (they resolve that boolean
-    /// against different streams — see [`color_enabled`] and CL-3 /
-    /// TASK-1976). Pinning equivalence directly via `apply_style_gated` and
+    /// against different streams — see [`color_enabled`]).
+    /// Pinning equivalence directly via `apply_style_gated` and
     /// `cyan_gated` (the explicit-override variants) ensures neither
     /// subsystem silently emits codes the other skips.
     #[test]
