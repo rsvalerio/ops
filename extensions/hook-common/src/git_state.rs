@@ -8,15 +8,15 @@ use std::path::Path;
 use std::sync::mpsc::Receiver;
 use std::time::Duration;
 
-/// ASYNC-6: grace period to drain stderr after `git diff
+/// Grace period to drain stderr after `git diff
 /// --cached` exits.
 const STDERR_DRAIN_GRACE: Duration = Duration::from_millis(500);
 
-/// Typed failure for [`has_staged_files_with_timeout`]. ASYNC-6.
+/// Typed failure for [`has_staged_files_with_timeout`].
 #[derive(Debug, thiserror::Error)]
 #[non_exhaustive]
 pub enum HasStagedFilesError {
-    #[error("failed to run `{program} diff --cached`: {source}")]
+    #[error("failed to run `{program} diff --cached`")]
     Spawn {
         program: String,
         #[source]
@@ -30,7 +30,7 @@ pub enum HasStagedFilesError {
         exit_code: Option<i32>,
         stderr: String,
     },
-    #[error("failed to read output from `{program} diff --cached`: {source}")]
+    #[error("failed to read output from `{program} diff --cached`")]
     Io {
         program: String,
         #[source]
@@ -42,7 +42,7 @@ pub enum HasStagedFilesError {
 /// `max_secs`. Returns `None` for unset, zero, or unparseable values
 /// (callers fall back to their own default).
 ///
-/// ASYNC-6: an env-driven effective disable (e.g. `u64::MAX`)
+/// An env-driven effective disable (e.g. `u64::MAX`)
 /// would revert the bounded-wait contract, so values past `max_secs` clamp
 /// down with a `tracing::warn!` breadcrumb.
 pub fn git_timeout_from_env(env_var: &str, max_secs: u64) -> Option<Duration> {
@@ -78,7 +78,7 @@ pub fn git_timeout_from_env(env_var: &str, max_secs: u64) -> Option<Duration> {
     }
 }
 
-/// ERR-1: bounded wait on the stderr drain thread that
+/// Bounded wait on the stderr drain thread that
 /// distinguishes `Timeout` (drain still running past deadline) from
 /// `Disconnected` (drain thread crashed before sending).
 pub fn read_stderr_bounded(
@@ -124,13 +124,13 @@ pub fn read_stderr_bounded(
 /// wait surfaces a typed timeout error so the hook fails loudly instead of
 /// silently parking the user's shell.
 ///
-/// CONC-3: stdout is routed to `/dev/null` (via `--quiet`) and
+/// Stdout is routed to `/dev/null` (via `--quiet`) and
 /// stderr is drained in a worker thread, sidestepping pipe-buffer
 /// deadlocks for chatty git wrappers.
 ///
 /// # Single-shot-process only
 ///
-/// ERR-5: the stderr drain thread is fire-and-forget. It
+/// The stderr drain thread is fire-and-forget. It
 /// blocks on `read_to_end` until the kernel signals EOF on the pipe — i.e.
 /// until *every* descriptor inheriting the write end (the child and any
 /// orphan grandchild it forked) is closed. After this function returns,
@@ -147,12 +147,13 @@ pub fn read_stderr_bounded(
 ///
 /// # Stderr pipe invariant
 ///
-/// READ-4: `.stderr(Stdio::piped())` guarantees `child.stderr` is
-/// `Some`. The impossible arm drops the sender rather than panicking (see the
-/// comment on it), which also keeps `read_stderr_bounded` from waiting out its
-/// full grace period. This function has no panicking path; it reports every
-/// failure as a [`HasStagedFilesError`], per the crate's typed-error policy
-/// for hooks. Do not "restore" an `unwrap` here.
+/// `.stderr(Stdio::piped())` guarantees `child.stderr` is
+/// `Some`. The impossible arm drops the sender rather than panicking (see
+/// the comment on `spawn_stderr_drain`), which also keeps
+/// `read_stderr_bounded` from waiting out its full grace period. This
+/// function has no panicking path; it reports every failure as a
+/// [`HasStagedFilesError`], per the crate's typed-error policy for hooks.
+/// Do not "restore" an `unwrap` here.
 ///
 /// # Errors
 ///
@@ -164,13 +165,27 @@ pub fn has_staged_files_with_timeout(
     dir: &Path,
     timeout: Duration,
 ) -> Result<bool, HasStagedFilesError> {
-    use std::io::Read;
-    use std::process::{Command, Stdio};
-    use wait_timeout::ChildExt;
+    let mut child = spawn_diff_cached(program, dir)?;
+    let stderr_rx = spawn_stderr_drain(&mut child);
+    let status = wait_bounded(&mut child, timeout, program)?;
+    let stderr_bytes = read_stderr_bounded(&stderr_rx, STDERR_DRAIN_GRACE, program);
+    classify_diff_exit(status, &stderr_bytes, program)
+}
 
-    let mut child = Command::new(program)
+/// Spawn `git diff --cached --quiet` in `dir` with the probe's stdio
+/// wiring: stdin and stdout to `/dev/null`, stderr piped for the drain
+/// thread.
+///
+/// No `--diff-filter`: see "Every staged change kind counts" on
+/// [`has_staged_files_with_timeout`].
+fn spawn_diff_cached(
+    program: &str,
+    dir: &Path,
+) -> Result<std::process::Child, HasStagedFilesError> {
+    use std::process::{Command, Stdio};
+
+    Command::new(program)
         .current_dir(dir)
-        // No `--diff-filter`: see "Every staged change kind counts" above.
         .args(["diff", "--cached", "--quiet"])
         .stdin(Stdio::null())
         .stdout(Stdio::null())
@@ -179,12 +194,21 @@ pub fn has_staged_files_with_timeout(
         .map_err(|e| HasStagedFilesError::Spawn {
             program: program.to_string(),
             source: e,
-        })?;
+        })
+}
 
-    // Drain stderr concurrently so a chatty git cannot fill the pipe
-    // buffer and deadlock the wait below. Use a channel rather than a
-    // JoinHandle so an orphaned grandchild keeping the pipe open does not
-    // stall a blocking `join()`.
+/// Take the child's piped stderr and drain it concurrently, returning the
+/// receiver the wait side reads after exit.
+///
+/// A channel rather than a `JoinHandle` so an orphaned grandchild keeping
+/// the pipe open does not stall a blocking `join()`.
+///
+/// `.stderr(Stdio::piped())` at spawn guarantees `Some`. Dropping the
+/// sender in the impossible arm keeps `read_stderr_bounded` from waiting
+/// out its full grace period instead of panicking.
+fn spawn_stderr_drain(child: &mut std::process::Child) -> Receiver<Vec<u8>> {
+    use std::io::Read;
+
     let (stderr_tx, stderr_rx) = std::sync::mpsc::channel::<Vec<u8>>();
     match child.stderr.take() {
         Some(mut stderr_pipe) => {
@@ -194,43 +218,52 @@ pub fn has_staged_files_with_timeout(
                 let _ = stderr_tx.send(buf);
             });
         }
-        // `.stderr(Stdio::piped())` above guarantees `Some`. Dropping the
-        // sender in the impossible arm keeps `read_stderr_bounded` from
-        // waiting out its full grace period instead of panicking.
         None => drop(stderr_tx),
     }
+    stderr_rx
+}
 
-    // CONC-5: a single `wait_timeout` syscall returns
-    // immediately on a fast `git diff --cached` rather than paying a
-    // 50ms busy-poll floor.
-    let status = match child.wait_timeout(timeout) {
-        Ok(Some(s)) => s,
+/// Wait for the child with a hard deadline, killing it on timeout.
+///
+/// A single `wait_timeout` syscall returns immediately on a fast
+/// `git diff --cached` rather than paying a 50ms busy-poll floor.
+fn wait_bounded(
+    child: &mut std::process::Child,
+    timeout: Duration,
+    program: &str,
+) -> Result<std::process::ExitStatus, HasStagedFilesError> {
+    use wait_timeout::ChildExt;
+
+    match child.wait_timeout(timeout) {
+        Ok(Some(status)) => Ok(status),
         Ok(None) => {
             let _ = child.kill();
             let _ = child.wait();
-            return Err(HasStagedFilesError::Timeout {
+            Err(HasStagedFilesError::Timeout {
                 program: program.to_string(),
                 timeout,
-            });
+            })
         }
-        Err(e) => {
-            return Err(HasStagedFilesError::Io {
-                program: program.to_string(),
-                source: e,
-            });
-        }
-    };
+        Err(source) => Err(HasStagedFilesError::Io {
+            program: program.to_string(),
+            source,
+        }),
+    }
+}
 
-    let stderr_bytes = read_stderr_bounded(&stderr_rx, STDERR_DRAIN_GRACE, program);
-
-    // `git diff --quiet`: exit 0 = no staged diff, exit 1 = staged diff
-    // present (not an error), other codes = real failure (e.g. not a git
-    // repo, which exits 128).
+/// Classify `git diff --quiet`'s exit status: exit 0 = no staged diff,
+/// exit 1 = staged diff present (not an error), other codes = real
+/// failure (e.g. not a git repo, which exits 128).
+fn classify_diff_exit(
+    status: std::process::ExitStatus,
+    stderr_bytes: &[u8],
+    program: &str,
+) -> Result<bool, HasStagedFilesError> {
     match status.code() {
         Some(0) => Ok(false),
         Some(1) => Ok(true),
         _ => {
-            let stderr = String::from_utf8_lossy(&stderr_bytes).trim().to_string();
+            let stderr = String::from_utf8_lossy(stderr_bytes).trim().to_string();
             Err(HasStagedFilesError::NonZeroExit {
                 program: program.to_string(),
                 exit_code: status.code(),
@@ -304,7 +337,7 @@ mod tests {
         );
     }
 
-    /// ERR-7: the unparseable-value warn renders the
+    /// The unparseable-value warn renders the
     /// raw env value through the `?` formatter, so a value like
     /// `$'10s\nWARN forged log line'` cannot inject a second log line or
     /// rewrite the terminal around it with an ANSI escape. Mirrors
