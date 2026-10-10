@@ -1,14 +1,14 @@
 //! Command specs and command identifiers.
 //!
-//! Extracted from `config/mod.rs` (ARCH-1 / TASK-0343) so that adding a
-//! field to `ExecCommandSpec` or `CompositeCommandSpec` does not require
-//! editing the same 600-line file as `Config` and the overlay structs.
+//! Adding a field to `ExecCommandSpec` or `CompositeCommandSpec` does not
+//! require editing the same file as `Config` and the overlay structs.
 
 use std::borrow::Cow;
 use std::collections::HashMap;
 use std::path::PathBuf;
 use std::time::Duration;
 
+use anyhow::Context;
 use serde::{Deserialize, Serialize};
 
 use super::strategy::{substitute, MatrixCell, MatrixRefError, Strategy};
@@ -16,7 +16,7 @@ use crate::serde_defaults;
 
 /// Command definition: either a single exec or a composite of multiple commands.
 ///
-/// Custom `Deserialize` (ERR-1 / TASK-1430): picks the variant from the
+/// Custom `Deserialize`: picks the variant from the
 /// presence of `program` (Exec) or `commands` (Composite) before delegating,
 /// so a typo like `progam = "echo"` surfaces as the *Exec* error
 /// ("unknown field `progam`") instead of the misleading Composite
@@ -26,7 +26,7 @@ use crate::serde_defaults;
 pub enum CommandSpec {
     Exec(ExecCommandSpec),
     Composite(CompositeCommandSpec),
-    /// TASK-2273: a `[commands.<name>] clone = "<source>"` declaration. A
+    /// A `[commands.<name>] clone = "<source>"` declaration. A
     /// load-time placeholder only — `config::clone::apply` materializes it
     /// into a concrete Exec/Composite copy of the source before anything
     /// downstream runs, so consumers only meet this variant through direct
@@ -46,7 +46,7 @@ impl<'de> Deserialize<'de> for CommandSpec {
             .ok_or_else(|| D::Error::custom("command spec must be a table"))?;
         let has_program = table.contains_key("program");
         let has_commands = table.contains_key("commands");
-        // TASK-2273: `clone` is a third discriminator. It is mutually
+        // `clone` is a third discriminator. It is mutually
         // exclusive with the copied payload fields — `program`/`args` come
         // from the source, and extras belong in `[extend.<name>]` — so the
         // combination is a named error rather than a serde "unknown field"
@@ -104,7 +104,7 @@ pub trait CommandMeta {
 }
 /// Resolve the program every `ops`-re-invoking registration should spawn.
 ///
-/// SEC-13 / TASK-2122: a bare `"ops"` is resolved through the invoking
+/// A bare `"ops"` is resolved through the invoking
 /// environment's `PATH`, so an `ops` shim earlier on `PATH` (a stale
 /// `~/.cargo/bin` entry, a direnv-injected dir, a vendored CI copy)
 /// silently becomes the binary that runs — and `PATH` is not cleared on the
@@ -116,8 +116,8 @@ pub trait CommandMeta {
 /// (e.g. unusual sandboxing), where `PATH` resolves it. The single shared
 /// helper is deliberate: the runner's builtin store and the extensions
 /// register the same command ids, and two private copies of this resolution
-/// are exactly how the extension half previously shipped the unsafe bare
-/// name while the builtin half did not. Set
+/// are how the unsafe bare name reaches argv while the builtin half
+/// resolves safely. Set
 /// [`ExecCommandSpec::display_program`] to `"ops"` alongside it so the
 /// rendered step line stays `ops <subcommand>`.
 #[must_use]
@@ -212,7 +212,7 @@ pub struct ExecCommandSpec {
     /// is exactly the misleading-render hazard SEC-21 guards against.
     #[serde(skip)]
     pub display_program: Option<String>,
-    /// Run the command once per matrix cell (TASK-2277); see
+    /// Run the command once per matrix cell; see
     /// [`crate::config::Strategy`]. The matrix is still one step to the
     /// enclosing plan — [`Self::exclusive`] covers every cell.
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -269,7 +269,7 @@ impl ExecCommandSpec {
     /// extensions), so they cannot drift on:
     ///
     /// - **program**: [`current_ops_program`], never a bare `"ops"` resolved
-    ///   through `PATH`, where a shim could shadow it (SEC-13 / TASK-2122);
+    ///   through `PATH`, where a shim could shadow it;
     /// - **display**: rendered as `ops <subcommand>`, not the absolute path;
     /// - **scheduling**: [`Self::exclusive`] defaults to `true`. An ops
     ///   subcommand may rewrite the worktree, so it opts in to overlapping
@@ -290,7 +290,7 @@ impl ExecCommandSpec {
     ///
     /// Shared by the runner builtins and the text-fixers extension, so the
     /// twin every stack's `verify` names is the same spec wherever it
-    /// resolves (TASK-2322).
+    /// resolves.
     #[must_use]
     pub fn ops_subcommand_check(subcommand: &str) -> Self {
         let mut spec = Self::ops_subcommand(subcommand);
@@ -304,16 +304,16 @@ impl ExecCommandSpec {
 
     /// Validate fields that would cause confusing errors at execution time.
     ///
-    /// ERR-1 (TASK-1445): rejects NUL and other control characters
+    /// Rejects NUL and other control characters
     /// (`< 0x20` except `\t`) in `program`, every `args` element, and `cwd`
     /// so a bad config fails at load with a named error instead of a
     /// cryptic `EINVAL` at spawn time.
     ///
-    /// ERR-1 / SEC (TASK-1431): rejects relative `cwd` containing `..`
-    /// components — the symmetric SEC-25 hardening for `ops run <cmd>`
-    /// under a hostile workspace config.
+    /// Rejects relative `cwd` containing `..` components — the
+    /// symlink-refusal hardening applied symmetrically for
+    /// `ops run <cmd>` under a hostile workspace config.
     ///
-    /// SEC-11 (TASK-1826): the `env` map is screened too — see
+    /// The `env` map is screened too — see
     /// [`Self::validate_env`]. Every string this spec hands to
     /// `std::process::Command` now passes through this function.
     ///
@@ -349,7 +349,7 @@ impl ExecCommandSpec {
         self.validate_matrix(name)
     }
 
-    /// TASK-2277: `${matrix.<key>}` references must resolve in every cell,
+    /// `${matrix.<key>}` references must resolve in every cell,
     /// and a command without a strategy must not use them — neither falls
     /// back to the environment, so both fail the load naming the command.
     /// `program` and `env` keys are never substituted, so a reference there
@@ -407,7 +407,7 @@ impl ExecCommandSpec {
         fields
     }
 
-    /// Expand a matrix command into one spec per cell (TASK-2277), in cell
+    /// Expand a matrix command into one spec per cell, in cell
     /// order. Each cell spec has every `${matrix.<key>}` substituted in
     /// `args`, `env` values and `cwd`, and no strategy. Empty for a command
     /// without a strategy.
@@ -430,7 +430,7 @@ impl ExecCommandSpec {
         let cells = strategy
             .matrix
             .cells()
-            .map_err(|e| anyhow::anyhow!("command '{name}': strategy.matrix: {e}"))?;
+            .with_context(|| format!("command '{name}': strategy.matrix"))?;
         let mut out = Vec::with_capacity(cells.len());
         for cell in cells {
             let fill = |field: &str, value: &str| -> anyhow::Result<String> {
@@ -471,7 +471,7 @@ impl ExecCommandSpec {
         Ok(out)
     }
 
-    /// SEC-11 / TASK-1826: screen the `env` map with the same
+    /// Screen the `env` map with the same
     /// control-character policy the rest of [`Self::validate`] applies.
     ///
     /// `crates/runner/src/command/build.rs` hands `env` straight to
@@ -505,6 +505,8 @@ impl ExecCommandSpec {
         Ok(())
     }
 
+    /// The configured timeout as a `Duration`, or `None` when
+    /// `timeout_secs` is unset.
     pub fn timeout(&self) -> Option<Duration> {
         self.timeout_secs.map(Duration::from_secs)
     }
@@ -516,7 +518,7 @@ impl ExecCommandSpec {
     /// `current_exe()`-spawned command displays as `ops sec`, matching the
     /// extension-registered `ops check-json` style.
     ///
-    /// SEC-21: each argument is shell-quoted so an arg containing whitespace,
+    /// Each argument is shell-quoted so an arg containing whitespace,
     /// quotes, `;`, newlines, or backticks renders unambiguously. The actual
     /// exec uses argv directly via `tokio::process::Command::args` (no shell
     /// involved), but this string is what users see in dry-run output, step
@@ -537,11 +539,11 @@ impl ExecCommandSpec {
     }
 
     /// Expand and join args for display; returns None when args is empty.
-    /// SEC-21: see `display_cmd`. Each expanded argument is shell-quoted so
+    /// See `display_cmd`. Each expanded argument is shell-quoted so
     /// values containing whitespace or metacharacters cannot be confused
     /// with multiple separate arguments.
     ///
-    /// ERR-7 (TASK-0576): uses the strict [`crate::expand::Variables::try_expand`] so a
+    /// Uses the strict [`crate::expand::Variables::try_expand`] so a
     /// non-UTF-8 / unparsable env var produces a visible diagnostic in the
     /// dry-run preview rather than silently rendering the literal `${VAR}`
     /// while a `tracing` event hides in the log buffer.
@@ -565,7 +567,7 @@ impl ExecCommandSpec {
     }
 }
 
-/// SEC-21: render `value` for display so the result is an unambiguous
+/// Render `value` for display so the result is an unambiguous
 /// single shell word.
 ///
 /// - Strings of the safe set `[A-Za-z0-9_/.:=@%+,-]` (no whitespace, no
@@ -600,7 +602,7 @@ pub fn shell_quote(value: &str) -> Cow<'_, str> {
     }
 }
 
-/// ERR-1 (TASK-1445): reject embedded NUL or any C0 control byte
+/// Reject embedded NUL or any C0 control byte
 /// (`< 0x20`) other than horizontal tab. Catches typos like
 /// `program = "\u{0}"`, embedded newlines, and CR/LF smuggling at load
 /// time with a named field rather than a `EINVAL` at spawn.
@@ -618,7 +620,7 @@ fn check_control_chars(name: &str, field: &str, value: &str) -> anyhow::Result<(
     Ok(())
 }
 
-/// PERF-3 / TASK-1412: render each arg via [`shell_quote`] and join with
+/// Render each arg via [`shell_quote`] and join with
 /// spaces directly into a single pre-sized `String`, so the safe-arg fast
 /// path can stay borrowed from [`shell_quote`]'s `Cow::Borrowed` instead
 /// of paying for an intermediate `Vec<String>` plus per-arg
@@ -653,7 +655,7 @@ pub struct CompositeCommandSpec {
     /// A `parallel = true` group flattens its whole subtree into one leaf
     /// plan that the runner schedules as a single unit (split into stages at
     /// exclusive steps). A `parallel = false` group runs each entry as its
-    /// own plan with that entry's own schedule (TASK-2275). A parallel group
+    /// own plan with that entry's own schedule. A parallel group
     /// containing a `parallel = false` group is rejected at expansion time
     /// with `ExpandError::ConflictingSchedule`. Inside a parallel plan, keep
     /// a step from overlapping the others with [`ExecCommandSpec::exclusive`].
@@ -662,11 +664,11 @@ pub struct CompositeCommandSpec {
     pub parallel: bool,
     /// When true (default), stop remaining steps on first failure. When false, run all steps.
     ///
-    /// Within one parallel plan every group must declare the same value
-    /// (TASK-1657: the plan is scheduled as one unit). Across a sequential
+    /// Within one parallel plan every group must declare the same value,
+    /// because the plan is scheduled as one unit. Across a sequential
     /// group's entries the values may differ: each entry's own value governs
     /// its steps, and the group's own value governs whether the sequence
-    /// stops after a failing entry (TASK-2275).
+    /// stops after a failing entry.
     #[serde(default = "serde_defaults::default_true")]
     pub fail_fast: bool,
     /// Short help text shown in `ops --help`.
@@ -711,7 +713,7 @@ impl CompositeCommandSpec {
     }
 }
 
-/// TASK-2273: a `[commands.<name>] clone = "<source>"` declaration — define
+/// A `[commands.<name>] clone = "<source>"` declaration — define
 /// `name` as a copy of an existing command (typically a stack default) under
 /// a new name, at load time.
 ///

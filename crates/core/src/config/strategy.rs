@@ -1,5 +1,5 @@
 //! `[commands.<name>.strategy]`: run one exec command once per matrix cell
-//! (TASK-2277), modelled on GitHub Actions `strategy`.
+//! , modelled on GitHub Actions `strategy`.
 //!
 //! ```toml
 //! [commands.doc-default]
@@ -125,11 +125,14 @@ impl Matrix {
     ///
     /// # Errors
     ///
-    /// If an axis is empty or badly named, an `exclude` entry is empty or
-    /// names a key that is not an axis, a key or value contains a control
-    /// character, or the matrix yields no cells or more than
-    /// [`MAX_MATRIX_CELLS`].
-    pub fn cells(&self) -> Result<Vec<MatrixCell>, String> {
+    /// Returns a [`MatrixExpandError`] naming the offending part: the matrix
+    /// declares no axes and no `include` entries ([`NoAxes`](MatrixExpandError::NoAxes));
+    /// an axis has no values, lists a value twice, or its product exceeds
+    /// [`MAX_MATRIX_CELLS`]; a key or value fails validation, directly or
+    /// inside an `include` entry; an `exclude` entry is empty or names a key
+    /// that is not an axis; or every combination is excluded
+    /// ([`NoCells`](MatrixExpandError::NoCells)).
+    pub fn cells(&self) -> Result<Vec<MatrixCell>, MatrixExpandError> {
         let product = self.product()?;
         let mut cells: Vec<MatrixCell> = Vec::with_capacity(product.len());
         for cell in product {
@@ -141,7 +144,7 @@ impl Matrix {
         // earlier include created (GitHub Actions semantics).
         let product_len = cells.len();
         for entry in &self.include {
-            check_entry(entry, "include")?;
+            check_entry(entry)?;
             let mut merged = false;
             for cell in cells.iter_mut().take(product_len) {
                 if self.fits(cell, entry) {
@@ -161,23 +164,20 @@ impl Matrix {
             }
         }
         if cells.is_empty() {
-            return Err("matrix produces no cells (every combination is excluded)".to_string());
+            return Err(MatrixExpandError::NoCells);
         }
         if cells.len() > MAX_MATRIX_CELLS {
-            return Err(format!(
-                "matrix produces {} cells, more than the {MAX_MATRIX_CELLS} allowed",
-                cells.len()
-            ));
+            return Err(MatrixExpandError::TooManyCells { count: cells.len() });
         }
         Ok(cells)
     }
 
     /// The Cartesian product of the axes, with `exclude` entries checked for
     /// keys that name no axis (a typo would otherwise exclude nothing).
-    fn product(&self) -> Result<Vec<MatrixCell>, String> {
+    fn product(&self) -> Result<Vec<MatrixCell>, MatrixExpandError> {
         if self.axes.is_empty() {
             if self.include.is_empty() {
-                return Err("matrix declares no axes and no `include` entries".to_string());
+                return Err(MatrixExpandError::NoAxes);
             }
             return Ok(Vec::new());
         }
@@ -185,32 +185,37 @@ impl Matrix {
         for (key, values) in &self.axes {
             check_key(key)?;
             if values.is_empty() {
-                return Err(format!("matrix axis `{key}` has no values"));
+                return Err(MatrixExpandError::EmptyAxis { key: key.clone() });
             }
             for (i, value) in values.iter().enumerate() {
                 check_value(key, value)?;
                 // Two equal values make two identical cells: one id, one
                 // label, two runs — never what the list meant.
                 if values.iter().take(i).any(|v| v == value) {
-                    return Err(format!("matrix axis `{key}` lists {value:?} twice"));
+                    return Err(MatrixExpandError::DuplicateValue {
+                        key: key.clone(),
+                        value: value.clone(),
+                    });
                 }
             }
-            total = total
-                .checked_mul(values.len())
-                .filter(|n| *n <= MAX_MATRIX_CELLS)
-                .ok_or_else(|| {
-                    format!("matrix has more than the {MAX_MATRIX_CELLS} cells allowed")
-                })?;
+            total = match total.checked_mul(values.len()) {
+                Some(product) if product <= MAX_MATRIX_CELLS => product,
+                // `saturating_mul` names a lower bound when the product
+                // overflows `usize`; both cases are over the cap either way.
+                _ => {
+                    return Err(MatrixExpandError::TooManyCells {
+                        count: total.saturating_mul(values.len()),
+                    })
+                }
+            };
         }
         for entry in &self.exclude {
             if entry.is_empty() {
-                return Err("an `exclude` entry is empty and would exclude every cell".to_string());
+                return Err(MatrixExpandError::EmptyExcludeEntry);
             }
             for key in entry.keys() {
                 if !self.axes.contains_key(key) {
-                    return Err(format!(
-                        "`exclude` names `{key}`, which is not a matrix axis"
-                    ));
+                    return Err(MatrixExpandError::UnknownExcludeKey { key: key.clone() });
                 }
             }
         }
@@ -294,32 +299,35 @@ impl MatrixCell {
     }
 }
 
-fn check_key(key: &str) -> Result<(), String> {
+fn check_key(key: &str) -> Result<(), MatrixExpandError> {
     if key.is_empty()
         || !key
             .chars()
             .all(|c| c.is_ascii_alphanumeric() || c == '_' || c == '-')
     {
-        return Err(format!(
-            "matrix key {key:?} must be non-empty ASCII letters, digits, `_` or `-`"
-        ));
+        return Err(MatrixExpandError::InvalidKey {
+            key: key.to_string(),
+        });
     }
     Ok(())
 }
 
-fn check_value(key: &str, value: &str) -> Result<(), String> {
+fn check_value(key: &str, value: &str) -> Result<(), MatrixExpandError> {
     if value.chars().any(char::is_control) {
-        return Err(format!(
-            "matrix value {value:?} of `{key}` contains a control character"
-        ));
+        return Err(MatrixExpandError::ControlCharInValue {
+            key: key.to_string(),
+            value: value.to_string(),
+        });
     }
     Ok(())
 }
 
-fn check_entry(entry: &MatrixEntry, list: &str) -> Result<(), String> {
+fn check_entry(entry: &MatrixEntry) -> Result<(), MatrixExpandError> {
     for (key, value) in entry {
-        check_key(key).map_err(|e| format!("`{list}` entry: {e}"))?;
-        check_value(key, value)?;
+        let checked = check_key(key).and_then(|()| check_value(key, value));
+        checked.map_err(|e| MatrixExpandError::IncludeEntry {
+            source: Box::new(e),
+        })?;
     }
     Ok(())
 }
@@ -338,6 +346,108 @@ impl std::fmt::Display for MatrixRefError {
         match self {
             Self::Unknown(key) => write!(f, "${{matrix.{key}}}"),
             Self::Unterminated => f.write_str("an unterminated `${matrix.` reference"),
+        }
+    }
+}
+
+/// A matrix that could not be expanded into cells by [`Matrix::cells`]:
+/// an axis, key, value, `include` / `exclude` entry or the cell count
+/// violates the rules above.
+///
+/// Carries the offending key / value so callers can report (or match on)
+/// the exact defect instead of parsing the message.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum MatrixExpandError {
+    /// The matrix declares no axes and no `include` entries.
+    NoAxes,
+    /// The axis `key` lists no values.
+    EmptyAxis {
+        /// The axis name.
+        key: String,
+    },
+    /// The axis `key` lists `value` twice; two equal values would make two
+    /// identical cells.
+    DuplicateValue {
+        /// The axis name.
+        key: String,
+        /// The value appearing more than once.
+        value: String,
+    },
+    /// The matrix yields `count` cells, over [`MAX_MATRIX_CELLS`]. When the
+    /// product overflows `usize`, `count` saturates.
+    TooManyCells {
+        /// The cell count (saturating when it overflows).
+        count: usize,
+    },
+    /// An `exclude` entry is empty, which would exclude every cell.
+    EmptyExcludeEntry,
+    /// An `exclude` entry names `key`, which is not a matrix axis.
+    UnknownExcludeKey {
+        /// The name that matches no axis.
+        key: String,
+    },
+    /// Every product cell was excluded and no `include` entry added one back.
+    NoCells,
+    /// A key is empty or holds a character outside ASCII letters, digits,
+    /// `_` and `-`.
+    InvalidKey {
+        /// The offending key.
+        key: String,
+    },
+    /// The value of axis or entry `key` holds a control character.
+    ControlCharInValue {
+        /// The key the value belongs to.
+        key: String,
+        /// The offending value.
+        value: String,
+    },
+    /// A key or value inside an `include` entry failed validation; the
+    /// cause names the defect.
+    IncludeEntry {
+        /// The validation failure.
+        source: Box<Self>,
+    },
+}
+
+impl std::fmt::Display for MatrixExpandError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::NoAxes => f.write_str("matrix declares no axes and no `include` entries"),
+            Self::EmptyAxis { key } => write!(f, "matrix axis `{key}` has no values"),
+            Self::DuplicateValue { key, value } => {
+                write!(f, "matrix axis `{key}` lists {value:?} twice")
+            }
+            Self::TooManyCells { count } => write!(
+                f,
+                "matrix produces {count} cells, more than the {MAX_MATRIX_CELLS} allowed"
+            ),
+            Self::EmptyExcludeEntry => {
+                f.write_str("an `exclude` entry is empty and would exclude every cell")
+            }
+            Self::UnknownExcludeKey { key } => {
+                write!(f, "`exclude` names `{key}`, which is not a matrix axis")
+            }
+            Self::NoCells => {
+                f.write_str("matrix produces no cells (every combination is excluded)")
+            }
+            Self::InvalidKey { key } => write!(
+                f,
+                "matrix key {key:?} must be non-empty ASCII letters, digits, `_` or `-`"
+            ),
+            Self::ControlCharInValue { key, value } => write!(
+                f,
+                "matrix value {value:?} of `{key}` contains a control character"
+            ),
+            Self::IncludeEntry { .. } => f.write_str("`include` entry is invalid"),
+        }
+    }
+}
+
+impl std::error::Error for MatrixExpandError {
+    fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
+        match self {
+            Self::IncludeEntry { source } => Some(source.as_ref()),
+            _ => None,
         }
     }
 }
@@ -428,8 +538,10 @@ exclude = [{ os = "mac", crate = "b" }]"#,
             r#"crate = ["a"]
 exclude = [{ crat = "a" }]"#,
         );
-        let err = m.cells().unwrap_err();
-        assert!(err.contains("`crat`"), "{err}");
+        assert_eq!(
+            m.cells().unwrap_err(),
+            MatrixExpandError::UnknownExcludeKey { key: "crat".into() }
+        );
     }
 
     /// The GitHub Actions documentation example for `include`: entries
@@ -481,26 +593,36 @@ include = [{ crate = "b", features = "x" }]"#,
 
     #[test]
     fn empty_and_oversized_matrices_are_errors() {
-        assert!(matrix("").cells().unwrap_err().contains("no axes"));
-        assert!(matrix("crate = []")
-            .cells()
-            .unwrap_err()
-            .contains("no values"));
-        assert!(matrix(r#"crate = ["a", "a"]"#)
-            .cells()
-            .unwrap_err()
-            .contains("twice"));
-        assert!(matrix(
-            r#"crate = ["a"]
+        assert_eq!(matrix("").cells().unwrap_err(), MatrixExpandError::NoAxes);
+        assert_eq!(
+            matrix("crate = []").cells().unwrap_err(),
+            MatrixExpandError::EmptyAxis {
+                key: "crate".into()
+            }
+        );
+        assert_eq!(
+            matrix(r#"crate = ["a", "a"]"#).cells().unwrap_err(),
+            MatrixExpandError::DuplicateValue {
+                key: "crate".into(),
+                value: "a".into()
+            }
+        );
+        assert_eq!(
+            matrix(
+                r#"crate = ["a"]
 exclude = [{ crate = "a" }]"#
-        )
-        .cells()
-        .unwrap_err()
-        .contains("no cells"));
+            )
+            .cells()
+            .unwrap_err(),
+            MatrixExpandError::NoCells
+        );
         let values: Vec<String> = (0..17).map(|i| format!("\"v{i}\"")).collect();
         let list = values.join(", ");
         let big = matrix(&format!("a = [{list}]\nb = [{list}]"));
-        assert!(big.cells().unwrap_err().contains("256"));
+        assert_eq!(
+            big.cells().unwrap_err(),
+            MatrixExpandError::TooManyCells { count: 289 }
+        );
     }
 
     #[test]
