@@ -352,15 +352,20 @@ pub fn run_backlog(
             query,
             modified_file,
             exclude_status,
-            plain,
+            plain: _,
             json,
         } => {
             let opts = cmd::SearchOptions {
                 query,
                 modified_file,
                 exclude_status,
-                plain: plain || !json,
-                json,
+                // `--plain` and the default render identically, so only
+                // `--json` selects the format.
+                format: if json {
+                    cmd::OutputFormat::Json
+                } else {
+                    cmd::OutputFormat::Plain
+                },
             };
             cmd::run_search(&store, &opts, &mut std::io::stdout())
         }
