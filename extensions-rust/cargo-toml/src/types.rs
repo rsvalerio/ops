@@ -49,19 +49,19 @@ pub struct CargoToml {
 
     /// Dev dependencies from `[dev-dependencies]`.
     ///
-    /// READ-6 / TASK-1798: `rename`, not `alias`, so the *serialised* key is
-    /// `dev-dependencies` too — the spelling Cargo uses and the one
+    /// `rename`, not `alias`, so the *serialised* key is `dev-dependencies`
+    /// too — the spelling Cargo uses and the one
     /// `CargoTomlProvider::schema` publishes. With `alias` the JSON emitted
-    /// by `DataProvider::provide` carried the Rust name, so a consumer
-    /// reading the documented key silently got nothing. The `snake_case`
-    /// spelling stays accepted on the read side via `alias`.
+    /// by `DataProvider::provide` would carry the Rust name, so a consumer
+    /// reading the documented key would silently get nothing. The
+    /// `snake_case` spelling stays accepted on the read side via `alias`.
     #[serde(default, rename = "dev-dependencies", alias = "dev_dependencies")]
     pub dev_dependencies: BTreeMap<String, DepSpec>,
 
     /// Build dependencies from `[build-dependencies]`.
     ///
     /// See [`CargoToml::dev_dependencies`] for why this is `rename` rather
-    /// than `alias` (READ-6 / TASK-1798).
+    /// than `alias`.
     #[serde(default, rename = "build-dependencies", alias = "build_dependencies")]
     pub build_dependencies: BTreeMap<String, DepSpec>,
 
@@ -180,21 +180,19 @@ pub struct Package {
 
 /// A field that can be inherited from workspace.
 ///
-/// # Absence is a state, not a sentinel (ERR-6 / TASK-1793)
+/// # Absence is a state, not a sentinel
 ///
 /// The `Default` for this type is [`InheritableField::Absent`], **not**
 /// `Value(T::default())`. Every `#[serde(default)]` field on [`Package`]
 /// therefore parses to `Absent` when the key is missing, which keeps
 /// "the manifest omitted `version`" distinguishable from `version = ""`.
-///
-/// Before TASK-1793 the default was `Value(T::default())`, so
-/// [`CargoToml::package_version`] returned `Some("")` for an absent key and
-/// `as_str()` returned `Some("")` for every unset string field. That is
+/// The distinction is load-bearing: an empty-string default would make
+/// `as_str()` return `Some("")` for every unset string field, which is
 /// truthy in an `Option`-based fallback chain, so consumers resolving
 /// `[package]` first and `[workspace.package]` second (notably
-/// `extensions-rust/about`'s identity resolver) never reached the
+/// `extensions-rust/about`'s identity resolver) would never reach the
 /// workspace fallback for a field the member omitted entirely — they
-/// reported an empty value instead of the inherited one.
+/// would report an empty value instead of the inherited one.
 ///
 /// `Absent` serialises as `null` and deserialises back from it, so the
 /// provider's JSON round-trip preserves the distinction.
@@ -289,17 +287,10 @@ impl PublishSpec {
     /// inheritance request) and `workspace = false` (no-op declaration
     /// that Cargo rejects) map to `None`. Callers should resolve
     /// workspace inheritance before querying publishability, or treat
-    /// `None` as "do not publish".
-    ///
-    /// API / TASK-1196: previously returned `bool` and matched
-    /// `Inherited { .. }` as `true`, silently flipping the safe default
-    /// for any caller that gated `cargo publish` on this method without
-    /// first running `resolve_package_inheritance`. The unresolved case
-    /// now surfaces as `None` so callers must explicitly handle the
-    /// pre-resolution shape (e.g. by treating it as "do not publish"
-    /// or by routing through the resolver first). The
-    /// [`PublishSpec::None`] variant — *no* `publish` field at all —
-    /// continues to map to `Some(true)` because that is Cargo's
+    /// `None` as "do not publish" — gating `cargo publish` on the
+    /// unresolved shape without handling `None` would silently flip the
+    /// safe default. The [`PublishSpec::None`] variant — *no* `publish`
+    /// field at all — maps to `Some(true)` because that is Cargo's
     /// documented default and requires no resolution.
     #[must_use]
     pub const fn is_publishable(&self) -> Option<bool> {

@@ -72,26 +72,26 @@ mod types;
 mod workspace_root;
 
 pub use inheritance::InheritanceError;
-// ARCH-4 / TASK-1795: this block is the crate's whole public surface, and
-// every item below is here by an explicit decision.
+// This block is the crate's whole public surface.
 //
-// `InheritableField` / `InheritableString` / `InheritableVec` are new here:
-// they are the declared types of eleven public `Package` fields, so without a
-// re-export a consumer could read `p.version.as_str()` but could not write the
-// type in a signature or match on `Value` vs `Inherited`. (Constructing a
-// `Package` is not possible for a downstream crate either way: the struct is
-// `#[non_exhaustive]`.) That is the `unnameable_types` shape, and it is why
-// `extensions-rust/about` expresses the Value/Inherited distinction through
-// accessors rather than a match.
+// `InheritableField` / `InheritableString` / `InheritableVec` are
+// re-exported because they are the declared types of eleven public
+// `Package` fields: without a re-export a consumer could read
+// `p.version.as_str()` but could not write the type in a signature or
+// match on `Value` vs `Inherited`. (Constructing a `Package` is not
+// possible for a downstream crate either way: the struct is
+// `#[non_exhaustive]`.) That is the `unnameable_types` shape, and it is
+// why `extensions-rust/about` expresses the Value/Inherited distinction
+// through accessors rather than a match.
 //
-// The items deliberately *not* re-exported are the inheritance resolvers
-// (`resolve_string_field`, `resolve_vec_field`, `resolve_optional_string`,
-// `resolve_readme`, `resolve_publish`), and `workspace_root`'s
-// `content_declares_workspace`, `strict_candidate_action` and
-// `CandidateAction`. They live in private modules, so `pub` there means
-// crate-internal; the absence of a line below is the decision, and
-// `clippy::redundant_pub_crate` (nursery, enabled workspace-wide) is what
-// keeps them spelled `pub` rather than `pub(crate)`.
+// The inheritance resolvers (`resolve_string_field`, `resolve_vec_field`,
+// `resolve_optional_string`, `resolve_readme`, `resolve_publish`) and
+// `workspace_root`'s `content_declares_workspace`,
+// `strict_candidate_action` and `CandidateAction` are not part of the
+// public surface. They live in private modules, so `pub` there means
+// crate-internal, and `clippy::redundant_pub_crate` (nursery, enabled
+// workspace-wide) is what keeps them spelled `pub` rather than
+// `pub(crate)`.
 pub use types::{
     CargoToml, DepSpec, DetailedDepSpec, InheritableField, InheritableString, InheritableVec,
     Package, ParseError, PublishSpec, ReadmeSpec, Workspace, WorkspacePackage,
@@ -210,17 +210,16 @@ impl CargoTomlProvider {
         Self { root: Some(root) }
     }
 
-    /// SEC-25 / TASK-2143: the data-provider path resolves its root with the
-    /// **strict** ancestor walk — the same [`find_workspace_root_strict`]
-    /// every in-repo consumer that resolves a root itself calls
-    /// (`about`'s manifest loading and `create-review-tasks`' provider) — so
-    /// a `cargo_toml` query and those consumers target the same workspace
-    /// root for the identical working directory. The lenient
-    /// [`find_workspace_root`] differs exactly on attacker-plantable
-    /// candidates: a `Cargo.toml` that resolves outside its own directory is
-    /// recorded as the lenient walk's first-seen fallback instead of being
-    /// skipped, and a chain with no other manifest returns that fallback as
-    /// the root.
+    /// The data-provider path resolves its root with the **strict** ancestor
+    /// walk — the same [`find_workspace_root_strict`] every in-repo
+    /// consumer that resolves a root itself calls (`about`'s manifest
+    /// loading and `create-review-tasks`' provider) — so a `cargo_toml`
+    /// query and those consumers target the same workspace root for the
+    /// identical working directory. The lenient [`find_workspace_root`]
+    /// differs exactly on attacker-plantable candidates: a `Cargo.toml`
+    /// that resolves outside its own directory is recorded as the lenient
+    /// walk's first-seen fallback instead of being skipped, and a chain
+    /// with no other manifest returns that fallback as the root.
     fn resolve_root(&self, working_dir: &Path) -> Result<PathBuf, anyhow::Error> {
         if let Some(root) = &self.root {
             return Ok(root.clone());
@@ -241,13 +240,13 @@ impl Default for CargoTomlProvider {
 }
 
 impl CargoTomlProvider {
-    /// PERF-1 / TASK-1195: produce the typed `CargoToml` directly, skipping
-    /// the [`DataProvider::provide`] serialisation through `serde_json::Value`.
-    /// In-process consumers that hold a typed cache (e.g. about's
-    /// `typed_manifest_cache` via `load_workspace_manifest`) can call this
-    /// to avoid the TOML→typed → JSON-Value → typed round-trip on every
-    /// cache miss. The `provide()` JSON path remains for cross-extension
-    /// consumers that read via `Context::cached` / `query_data`.
+    /// Produce the typed `CargoToml` directly, skipping the
+    /// [`DataProvider::provide`] serialisation through `serde_json::Value`:
+    /// in-process consumers that hold a typed cache (e.g. about's
+    /// `typed_manifest_cache` via `load_workspace_manifest`) avoid the
+    /// TOML→typed → JSON-Value → typed round-trip on every cache miss. The
+    /// `provide()` JSON path remains for cross-extension consumers that
+    /// read via `Context::cached` / `query_data`.
     ///
     /// # Errors
     ///
@@ -258,8 +257,8 @@ impl CargoTomlProvider {
         let root = self.resolve_root(ctx.working_directory())?;
         let cargo_toml = root.join("Cargo.toml");
 
-        // SEC-33 (TASK-0926): byte-cap the manifest read so an adversarial
-        // workspace cannot OOM `ops` via an oversized or `/dev/zero` Cargo.toml.
+        // Byte-cap the manifest read so an adversarial workspace cannot OOM
+        // `ops` via an oversized or `/dev/zero` Cargo.toml.
         let content = read_capped_to_string(&cargo_toml)
             .with_context(|| format!("reading {}", cargo_toml.display()))?;
 
@@ -286,13 +285,11 @@ impl DataProvider for CargoTomlProvider {
         Ok(serde_json::to_value(&manifest)?)
     }
 
-    /// READ-6 / TASK-1798: every name below is a key that actually appears in
-    /// the JSON [`DataProvider::provide`] returns — dotted names denote the
-    /// path into that JSON (`Package.version` → `["package"]["version"]`).
-    /// `provider_schema_names_match_serialized_manifest` holds the two sides
-    /// together; before it, the schema advertised `dev-dependencies` while
-    /// serde emitted `dev_dependencies`, and typed the untagged
-    /// [`InheritableField`] fields as bare strings.
+    /// Every name below is a key that actually appears in the JSON
+    /// [`DataProvider::provide`] returns — dotted names denote the path
+    /// into that JSON (`Package.version` → `["package"]["version"]`).
+    /// `provider_schema_names_match_serialized_manifest` holds the two
+    /// sides together.
     fn schema(&self) -> DataProviderSchema {
         use ops_extension::data_field;
         DataProviderSchema::new(
