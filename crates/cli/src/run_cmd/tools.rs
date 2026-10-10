@@ -1,5 +1,5 @@
 //! External binaries a resolved step needs on `PATH`, for the `tools` list
-//! of `ops explain --json` (TASK-2326).
+//! of `ops explain --json`.
 //!
 //! Derived statically from each step's expanded program and args — nothing
 //! is spawned or probed, so the list says what a plan *needs*, not what is
@@ -18,7 +18,7 @@
 //!
 //! What a shell script runs (`sh -c "…"`) is opaque: only `sh` is reported.
 //!
-//! Versions (TASK-2335): ops pins no minimum version for any of these tools,
+//! Versions: ops pins no minimum version for any of these tools,
 //! so none is declared. `ops explain --json --tool-versions` opts in to
 //! [`installed_version`], which runs each tool's `--version` — the only path
 //! here that spawns anything, and never taken by plain `ops explain`.
@@ -142,7 +142,7 @@ fn cargo_plugin(args: &[String]) -> Option<Tool> {
 fn ops_subcommand_tools(sub: &str) -> Vec<Tool> {
     match sub {
         "sec" => vec![Tool::required("trivy", Some(crate::sec_cmd::TRIVY_INSTALL))],
-        // `rustup run <rust-version> cargo check …` (TASK-2327).
+        // `rustup run <rust-version> cargo check …`.
         "msrv" => vec![Tool::required("rustup", Some("https://rustup.rs"))],
         #[cfg(feature = "stack-rust")]
         "deps" => ops_deps::external_tools()
@@ -262,7 +262,7 @@ mod tests {
         assert!(tools("ops", &[]).is_empty());
     }
 
-    /// TASK-2335: the opt-in probe reports the first line `--version`
+    /// The opt-in probe reports the first line `--version`
     /// prints, and `None` for a tool that is not installed. Serial: other
     /// tests in this binary swap the process cwd into temp dirs they then
     /// delete, and cargo fails to start from a vanished cwd.
@@ -299,7 +299,7 @@ mod tests {
     #[cfg(feature = "stack-rust")]
     #[test]
     fn deps_reports_its_cargo_plugins_with_machete_optional() {
-        // The spec the deps extension registers (TASK-2336): an absolute
+        // The spec the deps extension registers: an absolute
         // program recognised through its `ops` display name.
         let spec = ExecCommandSpec::ops_subcommand("deps");
         let got = exec_tools(&spec, &spec.program, &spec.args);
