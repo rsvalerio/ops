@@ -1,10 +1,10 @@
 ---
 id: TASK-2531
 title: 'FN-1: run_wave_claim spans ~104 lines, mixing claim, undo, and edit-failure recovery inline'
-status: To Do
+status: Done
 assignee: []
 created_date: '2026-10-10 15:34'
-updated_date: '2026-10-10 21:12'
+updated_date: '2026-10-10 21:31'
 labels:
   - code-review-rust
   - functions
@@ -31,6 +31,7 @@ dedup_key: 'FN-1:crates/backlog/src/cmd/wave_claim.rs:run_wave_claim'
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 run_wave_claim delegates worktree-path derivation, preflight refusals, and undo-recovery to named helpers and stays under ~50 lines
-- [ ] #2 Claim exclusivity and undo-on-edit-failure behaviour is unchanged (existing tests pass)
+- [x] #1 run_wave_claim delegates worktree-path derivation, preflight refusals, and undo-recovery to named helpers and stays under ~50 lines
+- [x] #2 Claim exclusivity and undo-on-edit-failure behaviour is unchanged (existing tests pass)
+
 <!-- AC:END -->

@@ -1,10 +1,10 @@
 ---
 id: TASK-2537
 title: 'READ-13: wave_create module docs narrate the N+1 workflow this command replaced'
-status: To Do
+status: Done
 assignee: []
 created_date: '2026-10-10 15:36'
-updated_date: '2026-10-10 21:12'
+updated_date: '2026-10-10 21:35'
 labels:
   - code-review-rust
   - readability
@@ -29,6 +29,7 @@ dedup_key: 'READ-13:crates/backlog/src/cmd/wave_create.rs:wave_create'
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 Module docs state only what the command writes and its failure ordering; no pre-command workflow narration
-- [ ] #2 The writes-every-link-at-once semantics remain documented on the command itself
+- [x] #1 Module docs state only what the command writes and its failure ordering; no pre-command workflow narration
+- [x] #2 The writes-every-link-at-once semantics remain documented on the command itself
+
 <!-- AC:END -->

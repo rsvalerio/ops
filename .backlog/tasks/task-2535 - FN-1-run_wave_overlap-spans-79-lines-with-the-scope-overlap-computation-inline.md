@@ -1,10 +1,10 @@
 ---
 id: TASK-2535
 title: 'FN-1: run_wave_overlap spans ~79 lines with the scope/overlap computation inline'
-status: To Do
+status: Done
 assignee: []
 created_date: '2026-10-10 15:34'
-updated_date: '2026-10-10 21:12'
+updated_date: '2026-10-10 21:33'
 labels:
   - code-review-rust
   - functions
@@ -31,6 +31,7 @@ dedup_key: 'FN-1:crates/backlog/src/cmd/wave.rs:run_wave_overlap'
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 The scope/overlap/weight row computation is a named helper; run_wave_overlap stays under ~50 lines
-- [ ] #2 Row ordering (weight ascending, then numeric id) is unchanged (existing tests pass)
+- [x] #1 The scope/overlap/weight row computation is a named helper; run_wave_overlap stays under ~50 lines
+- [x] #2 Row ordering (weight ascending, then numeric id) is unchanged (existing tests pass)
+
 <!-- AC:END -->

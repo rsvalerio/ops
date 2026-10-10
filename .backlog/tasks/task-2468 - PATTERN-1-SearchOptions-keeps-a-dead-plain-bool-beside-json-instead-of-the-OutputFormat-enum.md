@@ -1,10 +1,10 @@
 ---
 id: TASK-2468
 title: 'PATTERN-1: SearchOptions keeps a dead plain bool beside json instead of the OutputFormat enum'
-status: To Do
+status: Done
 assignee: []
 created_date: '2026-10-10 15:27'
-updated_date: '2026-10-10 21:12'
+updated_date: '2026-10-10 21:34'
 labels:
   - code-review-rust
   - pattern
@@ -29,6 +29,7 @@ dedup_key: 'PATTERN-1:crates/backlog/src/cmd/search.rs:SearchOptions'
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 SearchOptions has no dead output-mode bool; the output mode is selected by an OutputFormat field
-- [ ] #2 No caller-visible behaviour change: search --plain and --json render exactly as before
+- [x] #1 SearchOptions has no dead output-mode bool; the output mode is selected by an OutputFormat field
+- [x] #2 No caller-visible behaviour change: search --plain and --json render exactly as before
+
 <!-- AC:END -->

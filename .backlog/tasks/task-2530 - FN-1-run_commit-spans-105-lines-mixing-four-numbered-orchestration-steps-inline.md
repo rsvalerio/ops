@@ -1,10 +1,10 @@
 ---
 id: TASK-2530
 title: 'FN-1: run_commit spans ~105 lines, mixing four numbered orchestration steps inline'
-status: To Do
+status: Done
 assignee: []
 created_date: '2026-10-10 15:34'
-updated_date: '2026-10-10 21:12'
+updated_date: '2026-10-10 21:31'
 labels:
   - code-review-rust
   - functions
@@ -31,6 +31,7 @@ dedup_key: 'FN-1:crates/backlog/src/cmd/commit.rs:run_commit'
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 run_commit orchestrates named helpers, one per documented step, and itself stays under ~50 lines
-- [ ] #2 Refusal-on-foreign-index and rollback-on-failed-commit behaviour is unchanged (existing tests pass)
+- [x] #1 run_commit orchestrates named helpers, one per documented step, and itself stays under ~50 lines
+- [x] #2 Refusal-on-foreign-index and rollback-on-failed-commit behaviour is unchanged (existing tests pass)
+
 <!-- AC:END -->

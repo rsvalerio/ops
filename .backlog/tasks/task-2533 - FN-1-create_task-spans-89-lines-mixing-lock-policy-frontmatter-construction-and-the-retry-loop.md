@@ -1,10 +1,10 @@
 ---
 id: TASK-2533
 title: 'FN-1: create_task spans ~89 lines mixing lock policy, frontmatter construction, and the retry loop'
-status: To Do
+status: Done
 assignee: []
 created_date: '2026-10-10 15:34'
-updated_date: '2026-10-10 21:12'
+updated_date: '2026-10-10 21:33'
 labels:
   - code-review-rust
   - functions
@@ -31,6 +31,7 @@ dedup_key: 'FN-1:crates/backlog/src/cmd/create.rs:create_task'
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 create_task's frontmatter/body construction is a named helper; the function stays under ~50 lines
-- [ ] #2 Lock scope, retry-on-AlreadyExists, and unless-exists short-circuit behaviour is unchanged (existing tests pass)
+- [x] #1 create_task's frontmatter/body construction is a named helper; the function stays under ~50 lines
+- [x] #2 Lock scope, retry-on-AlreadyExists, and unless-exists short-circuit behaviour is unchanged (existing tests pass)
+
 <!-- AC:END -->

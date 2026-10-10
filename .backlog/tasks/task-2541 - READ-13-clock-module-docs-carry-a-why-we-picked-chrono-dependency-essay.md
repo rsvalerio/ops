@@ -1,10 +1,10 @@
 ---
 id: TASK-2541
 title: 'READ-13: clock module docs carry a why-we-picked-chrono dependency essay'
-status: To Do
+status: Done
 assignee: []
 created_date: '2026-10-10 15:37'
-updated_date: '2026-10-10 21:12'
+updated_date: '2026-10-10 21:35'
 labels:
   - code-review-rust
   - readability
@@ -29,5 +29,6 @@ dedup_key: 'READ-13:crates/backlog/src/clock.rs:clock'
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 Module docs state the chrono delegation and error semantics without the build-graph dependency justification
+- [x] #1 Module docs state the chrono delegation and error semantics without the build-graph dependency justification
+
 <!-- AC:END -->

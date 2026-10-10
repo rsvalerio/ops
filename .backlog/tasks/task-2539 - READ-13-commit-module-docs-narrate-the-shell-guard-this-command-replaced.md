@@ -1,10 +1,10 @@
 ---
 id: TASK-2539
 title: 'READ-13: commit module docs narrate the shell guard this command replaced'
-status: To Do
+status: Done
 assignee: []
 created_date: '2026-10-10 15:37'
-updated_date: '2026-10-10 21:12'
+updated_date: '2026-10-10 21:35'
 labels:
   - code-review-rust
   - readability
@@ -29,5 +29,6 @@ dedup_key: 'READ-13:crates/backlog/src/cmd/commit.rs:commit'
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 Module docs keep the 4-step contract and the --only concurrency property, drop the replaced-shell narration
+- [x] #1 Module docs keep the 4-step contract and the --only concurrency property, drop the replaced-shell narration
+
 <!-- AC:END -->

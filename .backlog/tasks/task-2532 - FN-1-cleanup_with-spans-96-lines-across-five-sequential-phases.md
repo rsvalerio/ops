@@ -1,10 +1,10 @@
 ---
 id: TASK-2532
 title: 'FN-1: cleanup_with spans ~96 lines across five sequential phases'
-status: To Do
+status: Done
 assignee: []
 created_date: '2026-10-10 15:34'
-updated_date: '2026-10-10 21:12'
+updated_date: '2026-10-10 21:32'
 labels:
   - code-review-rust
   - functions
@@ -31,6 +31,7 @@ dedup_key: 'FN-1:crates/backlog/src/cmd/cleanup.rs:cleanup_with'
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 cleanup_with's phases (selection, preview, confirm, move) are named helpers; the function stays under ~50 lines
-- [ ] #2 Preflight-then-move ordering and confirmation behaviour is unchanged (existing tests pass)
+- [x] #1 cleanup_with's phases (selection, preview, confirm, move) are named helpers; the function stays under ~50 lines
+- [x] #2 Preflight-then-move ordering and confirmation behaviour is unchanged (existing tests pass)
+
 <!-- AC:END -->
