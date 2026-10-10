@@ -25,7 +25,7 @@ const MAIN_ORDINAL: u32 = 1_000;
 const SUBTASK_ORDINAL_BASE: u32 = 2_000;
 
 /// Id prefix and zero-padding width for every id and filename this module
-/// writes (READ-11: one named pair, not four repeated literals).
+/// writes: one named pair, not four repeated literals.
 ///
 /// These deliberately do not follow `BacklogConfig::task_prefix` /
 /// `zero_padded_ids` per run: the `review-request-<date>-<n>` scheme
@@ -40,7 +40,7 @@ const SUBTASK_ORDINAL_BASE: u32 = 2_000;
 const TASK_PREFIX: &str = "TASK";
 const ID_WIDTH: usize = 4;
 
-/// Ensure the backlog tree this writer targets actually exists. ERR-13: the
+/// Ensure the backlog tree this writer targets actually exists. The
 /// error names the missing directory so the operator knows what to create.
 pub fn require_backlog_tasks_dir(workspace_root: &Path) -> anyhow::Result<()> {
     let tasks_dir = workspace_root.join(".backlog").join("tasks");
@@ -122,7 +122,7 @@ fn review_request_sequence(slug: &str, prefix: &str) -> Option<u32> {
 
 /// Identifiers one run has reserved by creating its main task file: the file
 /// itself, its main-task number, and its `review-request-<date>-<n>` title.
-/// FN-3: grouped rather than passed as four positional parameters.
+/// Grouped rather than passed as four positional parameters.
 pub struct MainTaskClaim<'a> {
     /// Name of the main task file this run created, inside `tasks`.
     pub(crate) file_name: &'a str,
@@ -181,7 +181,7 @@ pub fn conflicting_claim(
 /// `w`. `subtask_of` is the parent's zero-padded id (`"TASK-1671"`) plus the
 /// 1-based subtask position for a subtask, or `None` for the main task.
 ///
-/// DUP-2: the bytes come from the shared `ops_backlog` task-document
+/// The bytes come from the shared `ops_backlog` task-document
 /// renderer — the same encoder `ops backlog task create` uses — so the two
 /// writers cannot drift. Everything specific to review requests (label
 /// sets, ordinals, `parent_task_id`) enters as a [`Frontmatter`] field
@@ -572,7 +572,7 @@ mod tests {
         );
     }
 
-    /// READ-6: a task whose *title* embeds a review-request id must not
+    /// A task whose *title* embeds a review-request id must not
     /// inflate that day's sequence — the prefix has to start the slug and the
     /// digits have to be all that follows it.
     #[test]
@@ -605,7 +605,7 @@ mod tests {
         assert_eq!(ids.sequence, 5);
     }
 
-    /// TASK-2435 AC #1: an unreadable task directory must surface from id
+    /// An unreadable task directory must surface from id
     /// allocation as an error naming the directory — here, a file squatting
     /// where `completed/` belongs — instead of allocating from the partial
     /// listing of the remaining directories.
@@ -621,7 +621,7 @@ mod tests {
         );
     }
 
-    /// TASK-2435 AC #1: the claim re-check must fail the same way, not
+    /// The claim re-check must fail the same way, not
     /// report "uncontested" off a partial listing that never saw the
     /// conflicting file.
     #[test]
@@ -644,7 +644,7 @@ mod tests {
         );
     }
 
-    /// TEST-8 boundary: a backlog whose highest id is `u32::MAX` cannot
+    /// At the boundary, a backlog whose highest id is `u32::MAX` cannot
     /// advance, so allocation returns the same number rather than wrapping.
     #[test]
     fn next_number_saturates_at_u32_max() {
@@ -655,7 +655,7 @@ mod tests {
         );
     }
 
-    /// SEC-11 boundary: non-ASCII letters are outside the slug alphabet, and
+    /// At the boundary, non-ASCII letters are outside the slug alphabet, and
     /// a wholly non-ASCII title must not produce `task-NNNN.MM - .md`.
     #[test]
     fn slugify_and_file_names_pin_non_ascii_titles() {
@@ -672,7 +672,7 @@ mod tests {
         );
     }
 
-    /// SEC-11: a title carrying a newline must still render as a single YAML
+    /// A title carrying a newline must still render as a single YAML
     /// document — a single-quoted scalar cannot encode one.
     #[test]
     fn control_characters_render_as_a_double_quoted_scalar() {

@@ -10,6 +10,13 @@
 //! <skill> against <target>` subtask per review target) are rendered by
 //! [`backlog`] to be byte-compatible with the backlog.md CLI.
 
+// This crate holds no `unsafe` and must stay that way. `forbid` rather than
+// the workspace's inherited `deny` so a later scoped `#[allow(unsafe_code)]`
+// cannot lift it; a crate-root attribute because this crate inherits
+// `[workspace.lints]` and Cargo cannot merge a per-crate lints table with
+// `workspace = true`.
+#![forbid(unsafe_code)]
+
 mod backlog;
 
 use std::io::Write;
@@ -29,7 +36,7 @@ pub const DATA_PROVIDER_NAME: &str = "review_targets";
 
 /// Whether a run writes task files or only reports what it would create.
 ///
-/// PATTERN-1: the mode is a type, not a bool, so call sites read
+/// The mode is a type, not a bool, so call sites read
 /// `RunMode::DryRun` instead of decoding a bare `true`. Both modes share
 /// every step except the file writes — a dry run validates the backlog tree,
 /// queries the provider, and allocates ids exactly like a real run, so a
@@ -116,7 +123,7 @@ pub fn run_create_review_tasks(
 
 /// [`run_create_review_tasks`] against an explicit clock.
 ///
-/// ERR-6: the clock is read first and its failure aborts the run, in both
+/// The clock is read first and its failure aborts the run, in both
 /// modes, before any id is allocated or any file created — an unreadable
 /// clock must never date a whole task set `1970-01-01`.
 fn run_create_review_tasks_with_clock(
@@ -211,7 +218,7 @@ const MAX_NAME_CHARS: usize = 200;
 /// real workspace-relative member path.
 const MAX_PATH_CHARS: usize = 1_024;
 
-/// SEC-11 layer 3 (format): validate the decoded payload at the one boundary
+/// Validate the decoded payload at the one boundary
 /// it enters through, rather than hardening each of the three sinks it
 /// reaches — the YAML frontmatter, the on-disk filename, and the stdout
 /// report. A repository under review controls these strings (the Rust
@@ -285,7 +292,7 @@ struct TaskPlan<'a> {
     subtasks: Vec<PlannedSubtask<'a>>,
 }
 
-/// One planned subtask. FN-3: the identity fields travel as one struct rather
+/// One planned subtask. The identity fields travel as one struct rather
 /// than as positional parameters.
 struct PlannedSubtask<'a> {
     /// 1-based position among the sibling subtasks.
@@ -340,7 +347,7 @@ fn plan_task_set<'a>(
 
 /// Allocate and write the whole task set, returning the plan that committed.
 ///
-/// SEC-25: both ids come from one directory scan, so they are consistent with
+/// Both ids come from one directory scan, so they are consistent with
 /// each other by construction, but that scan is still not atomic with the
 /// write that follows it — the remaining race is purely time-of-check to
 /// time-of-use. Two guards close it. Every file is created
@@ -425,7 +432,7 @@ fn write_task_set(
     Ok(true)
 }
 
-/// One task file to create. FN-3: grouped rather than passed as five
+/// One task file to create: grouped rather than passed as five
 /// positional parameters.
 struct TaskFile<'a> {
     /// Filename inside `.backlog/tasks/`.
@@ -442,7 +449,7 @@ struct TaskFile<'a> {
 /// failure part-way through the render still rolls it back. `Ok(false)` means
 /// the name was taken between the id scan and the create.
 ///
-/// ERR-13: both the create and the write errors name the exact file path.
+/// Both the create and the write errors name the exact file path.
 fn stage_task_file(
     staged: &mut StagedTasks,
     tasks_dir: &Path,
@@ -450,7 +457,7 @@ fn stage_task_file(
     stamp: &UtcStamp,
 ) -> anyhow::Result<bool> {
     let path = tasks_dir.join(&file.name);
-    // SEC-25: `create_new` is the atomic check-and-create. `File::create`
+    // `create_new` is the atomic check-and-create. `File::create`
     // would silently truncate a task file another run just wrote.
     let handle = match std::fs::File::create_new(&path) {
         Ok(handle) => handle,
@@ -529,7 +536,7 @@ impl Drop for StagedTasks {
 
 /// Print the run report for a committed (or, in a dry run, planned) set.
 ///
-/// SEC-11: every provider string reaching this sink passed [`validate`], so
+/// Every provider string reaching this sink passed [`validate`], so
 /// no title or path can carry a newline or an ANSI escape that would forge or
 /// rewrite report lines.
 fn report(out: &mut dyn Write, plan: &TaskPlan<'_>, mode: RunMode) -> anyhow::Result<()> {
@@ -1115,7 +1122,7 @@ mod tests {
         );
     }
 
-    /// ERR-6: an unreadable clock aborts the run in both modes, naming the
+    /// An unreadable clock aborts the run in both modes, naming the
     /// clock and leaving the backlog untouched — never a task set dated
     /// 1970-01-01. The failure is driven through the real `UtcStamp` path,
     /// not a stubbed error.
@@ -1149,7 +1156,7 @@ mod tests {
         }
     }
 
-    /// TEST-5: the public entry point — and with it `UtcStamp::now` — is
+    /// The public entry point — and with it `UtcStamp::now` — is
     /// exercised, not only its clock-injecting core.
     #[test]
     fn public_entry_point_writes_a_set_dated_by_the_host_clock() {
@@ -1181,7 +1188,7 @@ mod tests {
         );
     }
 
-    /// TEST-6: the give-up bail, driven deterministically. A backlog whose
+    /// The give-up bail, driven deterministically. A backlog whose
     /// highest main number *and* highest daily sequence are both `u32::MAX`
     /// saturates every allocation, so each attempt re-derives the same
     /// filename — the one the fixture already occupies — and loses the
@@ -1221,7 +1228,7 @@ mod tests {
         );
     }
 
-    /// SEC-11: a control character in a provider-supplied string is rejected
+    /// A control character in a provider-supplied string is rejected
     /// at the boundary, before any file is written or any line reported.
     #[test]
     fn control_characters_in_the_payload_are_rejected() {
@@ -1251,7 +1258,7 @@ mod tests {
         );
     }
 
-    /// SEC-11: format characters are invisible to `char::is_control` but
+    /// Format characters are invisible to `char::is_control` but
     /// reorder or hide text on a terminal, so they are rejected at the same
     /// boundary — before any file is written or any line reported.
     #[test]
@@ -1285,7 +1292,7 @@ mod tests {
         }
     }
 
-    /// SEC-11: the line and paragraph separators break a line like a newline
+    /// The line and paragraph separators break a line like a newline
     /// does but belong to neither the control nor the format category, so the
     /// rejection names them as separators.
     #[test]
