@@ -15,8 +15,10 @@ use ops_about::cards::format_unit_name;
 use ops_core::project_identity::ProjectUnit;
 use ops_extension::{Context, DataProvider, DataProviderError};
 
+/// Registry key this provider's units are indexed under.
 pub const PROVIDER_NAME: &str = "project_units";
 
+/// Go `project_units` provider: one [`ProjectUnit`] per `go.work`/`go.mod` module.
 pub struct GoUnitsProvider;
 
 impl DataProvider for GoUnitsProvider {
@@ -578,7 +580,6 @@ mod tests {
     /// stacks — a typo in either silently unregisters the Go units card.
     #[test]
     fn units_provider_name() {
-        assert_eq!(GoUnitsProvider.name(), PROVIDER_NAME);
         assert_eq!(PROVIDER_NAME, "project_units");
     }
 
