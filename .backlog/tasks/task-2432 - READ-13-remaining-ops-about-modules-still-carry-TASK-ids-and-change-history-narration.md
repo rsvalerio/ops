@@ -1,10 +1,10 @@
 ---
 id: TASK-2432
 title: 'READ-13: remaining ops-about modules still carry TASK ids and change-history narration'
-status: To Do
+status: Done
 assignee: []
 created_date: '2026-10-04 15:51'
-updated_date: '2026-10-10 14:31'
+updated_date: '2026-10-10 14:53'
 labels:
   - code-review-rust
   - READ
@@ -40,5 +40,6 @@ ordinal: 1000
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 Docs and comments in the listed ops-about files state current behaviour and durable rationale only, with no TASK ids or past-behaviour narration
+- [x] #1 Docs and comments in the listed ops-about files state current behaviour and durable rationale only, with no TASK ids or past-behaviour narration
+
 <!-- AC:END -->

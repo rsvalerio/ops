@@ -1,10 +1,10 @@
 ---
 id: TASK-2431
 title: 'READ-13: remaining ops-sqlite docs narrate history outside the files TASK-2408 covered'
-status: To Do
+status: Done
 assignee: []
 created_date: '2026-10-04 15:28'
-updated_date: '2026-10-10 14:31'
+updated_date: '2026-10-10 14:49'
 labels:
   - code-review-rust
   - READ
@@ -34,5 +34,6 @@ ordinal: 1000
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 Docs in the listed files describe current behaviour and invariants only
+- [x] #1 Docs in the listed files describe current behaviour and invariants only
+
 <!-- AC:END -->
