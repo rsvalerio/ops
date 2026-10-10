@@ -101,7 +101,7 @@ impl ProjectIdentity {
 
 /// Per-language breakdown entry derived from tokei data.
 ///
-/// API-9 / TASK-0858: `#[non_exhaustive]` mirrors `ProjectIdentity` so a
+/// `#[non_exhaustive]` mirrors `ProjectIdentity` so a
 /// future field (e.g. `comments`) is additive across the extension
 /// boundary. Construct via [`LanguageStat::new`].
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
@@ -147,7 +147,7 @@ impl LanguageStat {
 /// Stack-specific extensions provide a `"project_units"` data provider returning
 /// `Vec<ProjectUnit>` as JSON. The generic `about units` subpage renders these
 /// as a grid of cards.
-/// API-9 / TASK-0858: `#[non_exhaustive]` for the same reason as
+/// `#[non_exhaustive]` for the same reason as
 /// [`ProjectIdentity`]. Construct via [`ProjectUnit::new`] (required
 /// `name` + `path`); set optional fields directly on the returned value.
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
@@ -200,6 +200,7 @@ pub struct UnitTarget {
 }
 
 impl UnitTarget {
+    /// A target with the build tool's `kind` list and target `name`.
     #[must_use]
     pub fn new(kind: Vec<String>, name: impl Into<String>) -> Self {
         Self {
@@ -210,7 +211,7 @@ impl UnitTarget {
 }
 
 impl ProjectUnit {
-    /// API-9 / TASK-0858: required-only constructor. Optional fields stay
+    /// Required-only constructor. Optional fields stay
     /// at their `Option::None` / numeric defaults; assign them on the
     /// returned value (`u.version = Some(...)`) since field access is
     /// not affected by `#[non_exhaustive]`.
@@ -226,7 +227,7 @@ impl ProjectUnit {
 
 /// Lines-covered / total for a coverage report.
 ///
-/// API-9 / TASK-0858: `#[non_exhaustive]` to keep future field additions
+/// `#[non_exhaustive]` to keep future field additions
 /// (e.g. branch coverage) source-compatible across the extension boundary.
 #[derive(Debug, Clone, Copy, Default, Serialize, Deserialize)]
 #[non_exhaustive]
@@ -237,6 +238,7 @@ pub struct CoverageStats {
 }
 
 impl CoverageStats {
+    /// Coverage figures from a report: percent, lines covered, total lines.
     #[must_use]
     pub const fn new(lines_percent: f64, lines_covered: i64, lines_count: i64) -> Self {
         Self {
@@ -259,6 +261,8 @@ pub struct UnitCoverage {
 }
 
 impl UnitCoverage {
+    /// Coverage for one unit: display name, path from the project root,
+    /// and its stats.
     #[must_use]
     pub fn new(
         unit_name: impl Into<String>,
@@ -285,6 +289,7 @@ pub struct ProjectCoverage {
 }
 
 impl ProjectCoverage {
+    /// Project-wide coverage with its per-unit breakdown.
     #[must_use]
     pub const fn new(total: CoverageStats, units: Vec<UnitCoverage>) -> Self {
         Self { total, units }
@@ -301,6 +306,8 @@ pub struct UnitDeps {
 }
 
 impl UnitDeps {
+    /// Direct dependencies of `unit_name` as (name, version requirement)
+    /// pairs.
     #[must_use]
     pub fn new(unit_name: impl Into<String>, deps: Vec<(String, String)>) -> Self {
         Self {
@@ -320,6 +327,7 @@ pub struct ProjectDependencies {
 }
 
 impl ProjectDependencies {
+    /// The project's dependency tree, one entry per unit.
     #[must_use]
     pub const fn new(units: Vec<UnitDeps>) -> Self {
         Self { units }
@@ -328,7 +336,7 @@ impl ProjectDependencies {
 
 /// Metadata for a field that can appear on the about card.
 ///
-/// TRAIT-1 / TASK-1437: derives `Debug` alongside `Clone` so extension authors
+/// Derives `Debug` alongside `Clone` so extension authors
 /// can `tracing::debug!(?defs)` over a `Vec<AboutFieldDef>` without hand-rolling
 /// a formatter (C-DEBUG).
 #[derive(Debug, Clone)]
@@ -344,7 +352,7 @@ pub struct AboutFieldDef {
 impl AboutFieldDef {
     /// Const constructor so [`BASE_ABOUT_FIELDS`] can be expressed as a named
     /// slice of `AboutFieldDef` rather than a positional `(&str, &str, &str)`
-    /// tuple (API-1 / TASK-1408).
+    /// tuple.
     #[must_use]
     pub const fn new(id: &'static str, label: &'static str, description: &'static str) -> Self {
         Self {
@@ -357,7 +365,7 @@ impl AboutFieldDef {
 
 /// Common about-field definitions shared by all stack identity providers.
 ///
-/// API-1 / TASK-1408: exposed as `&[AboutFieldDef]` so consumers read named
+/// Exposed as `&[AboutFieldDef]` so consumers read named
 /// fields instead of remembering positional `(id, label, description)` slot
 /// order. Stack-specific providers can call [`base_about_fields`] to get an
 /// owned `Vec<AboutFieldDef>` and append any extras (e.g. Rust adds

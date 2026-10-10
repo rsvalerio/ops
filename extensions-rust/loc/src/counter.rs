@@ -275,10 +275,10 @@ pub(crate) fn count_source(src: &str, base: Region) -> FileCounts {
     }
 
     let mut regions = vec![base; line_count];
-    if base == Region::Main {
-        if let Ok(file) = parse_file(src, stream) {
-            mark_test_items(&file.items, &mut regions);
-        }
+    if base == Region::Main
+        && let Ok(file) = parse_file(src, stream)
+    {
+        mark_test_items(&file.items, &mut regions);
     }
 
     let mut counts = FileCounts::default();
@@ -350,16 +350,17 @@ fn mark_tokens(stream: &TokenStream, lines: &[&str], kinds: &mut [LineKind], dep
         // a leading `!` for inner docs). Every synthesised token carries
         // the span of the original comment, so we detect it by looking
         // at what the source actually says at the `#`.
-        if let TokenTree::Punct(ref punct) = tt {
-            if punct.as_char() == '#' && starts_comment(punct.span(), lines) {
-                let start = punct.span().start().line;
-                if let Some(end) = consume_doc_attr(&mut iter) {
-                    mark_range(start, end, kinds, LineKind::Doc);
-                } else {
-                    mark_span_line_range(punct.span(), kinds, LineKind::Code);
-                }
-                continue;
+        if let TokenTree::Punct(ref punct) = tt
+            && punct.as_char() == '#'
+            && starts_comment(punct.span(), lines)
+        {
+            let start = punct.span().start().line;
+            if let Some(end) = consume_doc_attr(&mut iter) {
+                mark_range(start, end, kinds, LineKind::Doc);
+            } else {
+                mark_span_line_range(punct.span(), kinds, LineKind::Code);
             }
+            continue;
         }
 
         match tt {
@@ -401,10 +402,10 @@ fn starts_comment(span: proc_macro2::Span, lines: &[&str]) -> bool {
 fn consume_doc_attr(
     iter: &mut std::iter::Peekable<proc_macro2::token_stream::IntoIter>,
 ) -> Option<usize> {
-    if let Some(TokenTree::Punct(punct)) = iter.peek() {
-        if punct.as_char() == '!' {
-            iter.next();
-        }
+    if let Some(TokenTree::Punct(punct)) = iter.peek()
+        && punct.as_char() == '!'
+    {
+        iter.next();
     }
     match iter.peek() {
         Some(TokenTree::Group(group)) if group.delimiter() == proc_macro2::Delimiter::Bracket => {
@@ -449,10 +450,10 @@ fn mark_test_items(items: &[syn::Item], regions: &mut [Region]) {
             continue;
         }
         // Not gated: an inner module may still hold gated items.
-        if let syn::Item::Mod(module) = item {
-            if let Some((_, nested)) = &module.content {
-                mark_test_items(nested, regions);
-            }
+        if let syn::Item::Mod(module) = item
+            && let Some((_, nested)) = &module.content
+        {
+            mark_test_items(nested, regions);
         }
     }
 }
@@ -520,7 +521,7 @@ fn stream_has_test_ident(stream: &TokenStream, depth: usize) -> bool {
             TokenTree::Group(group)
                 if stream_has_test_ident(&group.stream(), depth.saturating_add(1)) =>
             {
-                return true
+                return true;
             }
             _ => {}
         }

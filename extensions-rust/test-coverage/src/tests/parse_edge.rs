@@ -75,8 +75,8 @@ fn flatten_coverage_json_missing_summary_entirely() {
     assert_eq!(record["branches_count"], 0);
 }
 
-/// TASK-1599: when multiple files have the same wrong-shape field (e.g. count
-/// is a string), the `DriftTracker` ensures the warn fires only once per
+/// When multiple files have the same wrong-shape field (e.g. count is a
+/// string), the `DriftTracker` ensures the warn fires only once per
 /// (section, field) pair. Two inserts of the same key → set grows by 1, not 2.
 #[test]
 fn drift_tracker_deduplicates_warnings_per_section_field_pair() {
@@ -96,8 +96,8 @@ fn drift_tracker_deduplicates_warnings_per_section_field_pair() {
     );
 }
 
-/// TASK-1599: `flatten_coverage_json` still produces correct output when fields
-/// are wrong-shape across many files (drift-tracked, not spammed).
+/// `flatten_coverage_json` still produces correct output when fields are
+/// wrong-shape across many files (drift-tracked, not spammed).
 #[test]
 fn flatten_coverage_json_wrong_shape_fields_still_flattens() {
     let raw = serde_json::json!({
@@ -118,10 +118,9 @@ fn flatten_coverage_json_wrong_shape_fields_still_flattens() {
     }
 }
 
-/// TASK-1600: when all file records are malformed (missing/non-string
-/// filename), the output has zero rows. The skipped-count summary warn
-/// fires once (not per-record). We verify the output is empty; the warn
-/// volume is covered by the `DriftTracker` pattern.
+/// When all file records are malformed (missing/non-string filename), the
+/// output has zero rows and the skipped-count summary warn fires once (not
+/// per-record); the warn volume follows the `DriftTracker` pattern.
 #[test]
 fn flatten_coverage_json_all_malformed_records_produces_empty_output() {
     let raw = serde_json::json!({
@@ -142,11 +141,10 @@ fn flatten_coverage_json_all_malformed_records_produces_empty_output() {
     );
 }
 
-/// ERR-1 / TASK-0984: a missing or non-string `filename` used to coerce to ""
-/// and still get pushed into `coverage_files` — the empty-key row matched no
-/// member but still inflated project-total `lines_count`/`lines_covered`. The
-/// fix skips such records (with a `tracing::warn` breadcrumb mirroring how
-/// sister fields handle schema drift) so the project total stays clean.
+/// A record whose `filename` is missing, non-string, or empty is skipped
+/// (with a `tracing::warn` breadcrumb, mirroring how sister fields handle
+/// schema drift) — an empty-key row would match no member but still inflate
+/// project-total `lines_count`/`lines_covered`.
 #[test]
 fn flatten_coverage_json_missing_filename_skips_record() {
     let raw = serde_json::json!({

@@ -157,7 +157,7 @@ mod max_bytes_env {
         resolve_metadata_max_bytes, METADATA_MAX_BYTES_CEILING, METADATA_MAX_BYTES_DEFAULT,
         METADATA_MAX_BYTES_ENV,
     };
-    use ops_about::test_support::capture_tracing;
+    use ops_core::test_utils::capture_tracing;
 
     /// Resolve `raw` while capturing WARN-level output, so each rejected
     /// value can be checked for its diagnostic.

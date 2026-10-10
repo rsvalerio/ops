@@ -1,10 +1,10 @@
 //! `collect_coverage`'s soft-fail / hard-fail policy.
 //!
-//! TEST-6 / TASK-1938: a real `collect_coverage` run executes the whole
-//! workspace suite under instrumentation with a 15-minute timeout, so these
-//! tests drive [`collect_coverage_with`] and inject a cargo runner that
-//! writes a synthetic report to the `--output-path` file and returns a
-//! synthetic [`Output`], exactly as cargo would.
+//! A real `collect_coverage` run executes the whole workspace suite under
+//! instrumentation with a 15-minute timeout, so these tests drive
+//! [`collect_coverage_with`] and inject a cargo runner that writes a
+//! synthetic report to the `--output-path` file and returns a synthetic
+//! [`Output`], exactly as cargo would.
 
 use crate::parse::has_parseable_coverage_data;
 
@@ -44,8 +44,8 @@ const GOOD_REPORT: &str = r#"{"data":[{"files":[
     {"filename":"src/main.rs","summary":{"lines":{"count":10,"covered":5,"percent":50.0}}}
 ]}]}"#;
 
-/// TEST-6 / TASK-1938: the success path — cargo exits 0, the report file is
-/// read, parsed, and flattened into per-file rows.
+/// The success path — cargo exits 0, the report file is read, parsed, and
+/// flattened into per-file rows.
 #[cfg(unix)]
 #[test]
 fn collect_coverage_success_flattens_report_file() {
@@ -58,10 +58,9 @@ fn collect_coverage_success_flattens_report_file() {
     assert_eq!(arr[0]["lines_count"], 10);
 }
 
-/// ERR-1 / TASK-1057, TEST-6 / TASK-1938: the soft-fail demotion — cargo
-/// exits non-zero (a failing test under `--no-fail-fast`) but the report
-/// holds a complete document, so the partial rows are returned rather than
-/// an error.
+/// The soft-fail demotion — cargo exits non-zero (a failing test under
+/// `--no-fail-fast`) but the report holds a complete document, so the
+/// partial rows are returned rather than an error.
 #[cfg(unix)]
 #[test]
 fn collect_coverage_demotes_non_zero_exit_with_parseable_report() {
@@ -79,9 +78,9 @@ fn collect_coverage_demotes_non_zero_exit_with_parseable_report() {
     );
 }
 
-/// ERR-1 / TASK-1557 + TASK-1597, TEST-6 / TASK-1938: the hard-fail
-/// fall-through — the predicate rejects the report, so the surfaced error
-/// names the cargo exit rather than a schema-shape parse failure.
+/// The hard-fail fall-through — the predicate rejects the report, so the
+/// surfaced error names the cargo exit rather than a schema-shape parse
+/// failure.
 #[cfg(unix)]
 #[test]
 fn collect_coverage_non_zero_exit_with_rejected_report_surfaces_cargo_error() {
@@ -106,10 +105,9 @@ fn collect_coverage_non_zero_exit_with_rejected_report_surfaces_cargo_error() {
     );
 }
 
-/// ERR-13 / TASK-1949 + TEST-6 / TASK-1938: an unreadable (here: removed)
-/// report on the non-zero path falls through to the cargo error, not to a
-/// JSON problem. The breadcrumb naming the path is emitted at `warn`; the
-/// cargo exit stays the headline.
+/// An unreadable (here: removed) report on the non-zero path falls through
+/// to the cargo error, not to a JSON problem. The breadcrumb naming the
+/// path is emitted at `warn`; the cargo exit stays the headline.
 #[cfg(unix)]
 #[test]
 fn collect_coverage_missing_report_falls_through_to_cargo_error() {
@@ -135,9 +133,8 @@ fn collect_coverage_missing_report_falls_through_to_cargo_error() {
     );
 }
 
-/// ERR-13 / TASK-1949: on the success path the report-read and parse errors
-/// name the file, so an operator hitting a TMPDIR problem has something to
-/// inspect.
+/// On the success path the report-read and parse errors name the file, so
+/// an operator hitting a TMPDIR problem has something to inspect.
 #[cfg(unix)]
 #[test]
 fn collect_coverage_success_path_parse_error_names_the_report_file() {
@@ -151,16 +148,14 @@ fn collect_coverage_success_path_parse_error_names_the_report_file() {
     );
 }
 
-/// DUP-1 / TASK-1929: the soft-fail predicate has one home in `parse.rs`,
-/// and this guard binds to it. Previously the test declared its own copy of
-/// the predicate body and asserted against that, so any mutation of the
-/// production predicate left the suite green.
+/// The soft-fail predicate has one home in `parse.rs`, and this guard binds
+/// to it, so a mutation of the production predicate fails here instead of
+/// leaving the suite green.
 ///
-/// ERR-1 / TASK-1557: an empty `data[]` must fall through to the cargo error
-/// path — otherwise `flatten_coverage_json` reports "'data' array is empty",
-/// hiding the real cause (compile error, missing toolchain, OOM kill).
-/// ERR-1 / TASK-1597: a `data[]` entry without a `files` array must fall
-/// through for the same reason.
+/// An empty `data[]` must fall through to the cargo error path — otherwise
+/// `flatten_coverage_json` reports "'data' array is empty", hiding the real
+/// cause (compile error, missing toolchain, OOM kill). A `data[]` entry
+/// without a `files` array must fall through for the same reason.
 #[test]
 fn soft_fail_predicate_rejects_empty_data_array() {
     let empty = serde_json::json!({"data": []});
@@ -180,13 +175,13 @@ fn soft_fail_predicate_rejects_empty_data_array() {
     );
 }
 
-/// ERR-1 / TASK-1597: when the predicate rejects (e.g. data entry lacks
-/// files), `check_llvm_cov_output` surfaces the cargo exit + stderr tail,
-/// not a schema-shape parse error from `flatten_coverage_json`.
+/// When the predicate rejects (e.g. data entry lacks files),
+/// `check_llvm_cov_output` surfaces the cargo exit + stderr tail, not a
+/// schema-shape parse error from `flatten_coverage_json`.
 ///
-/// READ-4 / TASK-1941: the synthetic `Output` carries no stdout on purpose.
-/// Production reads the llvm-cov report from the `--output-path` file, never
-/// from stdout, and this helper only inspects `status` and `stderr`.
+/// The synthetic `Output` carries no stdout on purpose: production reads
+/// the llvm-cov report from the `--output-path` file, never from stdout,
+/// and this helper only inspects `status` and `stderr`.
 #[cfg(unix)]
 #[test]
 fn non_zero_exit_without_files_surfaces_cargo_error() {

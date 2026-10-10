@@ -7,7 +7,7 @@ mod pom;
 use std::path::{Component, Path};
 
 use ops_about::cards::format_unit_name;
-use ops_about::identity::{provide_identity_from_manifest, ParsedManifest};
+use ops_about::identity::{ParsedManifest, provide_identity_from_manifest};
 use ops_core::project_identity::{AboutFieldDef, ProjectUnit};
 use ops_extension::{Context, DataProvider, DataProviderError};
 

@@ -1,7 +1,7 @@
 //! `[commands.<name>] clone = "<source>"`: define a command as a copy of an
 //! existing one (typically a stack default) at load time.
 //!
-//! TASK-2273: the motivating case is a workspace with a `fuzz/` root that
+//! The motivating case is a workspace with a `fuzz/` root that
 //! needs `fuzz-clippy`, `fuzz-build`, `fuzz-fmt` — the stack `clippy`/`build`
 //! /`fmt` plus `--manifest-path fuzz/Cargo.toml`. Hand-writing each exec spec
 //! silently diverges when the stack default's flags change; a clone tracks
@@ -214,7 +214,7 @@ fn materialize(
             if let Some(exclusive) = decl.exclusive {
                 copy.exclusive = exclusive;
             }
-            // TASK-2277: a strategy beside `clone` replaces the copied one
+            // A strategy beside `clone` replaces the copied one
             // wholesale, like `env`; without one the source's is copied.
             if decl.strategy.is_some() {
                 copy.strategy.clone_from(&decl.strategy);

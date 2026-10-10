@@ -338,12 +338,9 @@ fn extract_workspace_root(conn: &rusqlite::Connection) -> DbResult<String> {
 }
 
 /// Owns the staged `metadata.json` for the whole of
-/// [`MetadataIngestor::load`] and unlinks it on `Drop`.
-///
-/// Success, `?` and the explicit `reject_non_singleton` rejection therefore all
-/// clean up through one code path. Mirrors the terraform pipeline's
-/// `with_artifact_cleanup`, using `Drop` rather than a wrapper because `load`'s
-/// early exits are `?` rather than a single fallible expression.
+/// [`MetadataIngestor::load`] and unlinks it on `Drop`, so success, `?` and
+/// the explicit `reject_non_singleton` rejection all clean up through one
+/// code path.
 ///
 /// Cleanup is unconditional: the file is a staging artifact that `collect`
 /// rewrites from scratch on the next run, so there is no failure mode in
@@ -400,7 +397,7 @@ mod tests {
         assert_eq!(ingestor.name(), "metadata");
     }
 
-    /// TASK-2428 AC #1: `io_at` must keep the original `io::Error` reachable
+    /// `io_at` must keep the original `io::Error` reachable
     /// through `Error::source()` — the cause survives as a chain link, not as
     /// text flattened into the message — while still naming the operation and
     /// the path, and preserving `ErrorKind` for kind-branching callers.
@@ -440,7 +437,7 @@ mod tests {
         );
     }
 
-    /// TASK-2428 AC #2: a staged-payload read failure must name the staged
+    /// A staged-payload read failure must name the staged
     /// entry. Driven with invalid UTF-8 so the *read* fails (the open through
     /// the anchor succeeds; only `read_to_string` refuses the bytes), pinning
     /// the `entry_error` wrap rather than `open_read`'s own.
@@ -634,7 +631,7 @@ mod tests {
     /// Asserts both the warn and the error.
     #[test]
     fn metadata_load_rejects_metadata_raw_with_multiple_rows() {
-        use ops_about::test_support::capture_tracing;
+        use ops_core::test_utils::capture_tracing;
 
         let data_dir = tempfile::tempdir().unwrap();
         let dir = ingest_anchor(&data_dir);

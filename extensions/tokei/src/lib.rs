@@ -244,7 +244,7 @@ pub(crate) fn scan_tokei(
     // Nothing left to count: skip the dispatch loop entirely and pass the
     // skip accounting through untouched.
     if candidates.is_empty() {
-        return Ok(skips.into_empty_scan());
+        return Ok(skips.into_scan(Vec::new()));
     }
 
     // Count the candidates directly with `LanguageType::parse` rather than
@@ -305,18 +305,6 @@ struct Skips {
 }
 
 impl Skips {
-    /// The scan outcome for an empty candidate set — counting is skipped
-    /// entirely, so the skip counts pass through untouched.
-    const fn into_empty_scan(self) -> TokeiScan {
-        TokeiScan {
-            records: Vec::new(),
-            skipped_oversize: self.oversize,
-            skipped_unreadable: self.unreadable,
-            skipped_too_deep: self.too_deep,
-            truncated: self.truncated,
-        }
-    }
-
     /// The scan outcome once tokei has produced `records`.
     const fn into_scan(self, records: Vec<serde_json::Value>) -> TokeiScan {
         TokeiScan {

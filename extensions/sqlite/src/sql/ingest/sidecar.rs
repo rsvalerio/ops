@@ -292,7 +292,18 @@ mod tests {
     fn workspace_sidecar_remove_is_best_effort() {
         let tmp = tempfile::tempdir().expect("tempdir");
         let dir = anchor(&tmp);
+        // An unrelated entry must survive a removal that targets a sidecar
+        // which was never written.
+        std::fs::write(dir.entry_path("unrelated.json"), b"{}").expect("stage unrelated entry");
         remove_workspace_sidecar(&dir, "missing_name");
+        assert!(
+            !dir.entry_path("missing_name_workspace.txt").exists(),
+            "a missing sidecar stays absent after best-effort removal"
+        );
+        assert!(
+            dir.entry_path("unrelated.json").exists(),
+            "best-effort removal must not touch unrelated entries"
+        );
     }
 
     #[test]

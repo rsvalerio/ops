@@ -112,7 +112,7 @@ mod command_path_tests {
         run_deps(&registry, &DepsOptions::new(false)).expect("clean report must return Ok");
     }
 
-    /// TASK-2324: `ops deps --check` needs neither cargo-edit nor the data
+    /// `ops deps --check` needs neither cargo-edit nor the data
     /// provider. The fake cargo reports `upgrade` as not installed and logs
     /// every subcommand it is asked for; the registry carries a payload with
     /// an actionable advisory, so a check that went through the (cacheable)
@@ -413,7 +413,7 @@ esac"#,
     }
 }
 
-/// TASK-2326: the reported tools are the probed ones — edit and deny
+/// The reported tools are the probed ones — edit and deny
 /// required, machete optional — plus cargo itself.
 #[test]
 fn external_tools_mirror_the_probed_tool_table() {
@@ -439,7 +439,7 @@ fn external_tools_mirror_the_probed_tool_table() {
 mod extension_tests {
     use super::*;
 
-    /// SEC-13 / TASK-2336: the registered command spawns an absolute
+    /// SEC-13: the registered command spawns an absolute
     /// `current_exe()`-derived program, never a bare PATH-resolved `"ops"`,
     /// and renders as `ops deps`. It only reads, so it stays non-exclusive.
     #[test]

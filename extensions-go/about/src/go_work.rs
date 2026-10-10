@@ -19,6 +19,10 @@ use crate::go_syntax::{
     is_block_opener, is_block_terminator, strip_line_comment, strip_verb, unquote_token,
 };
 
+/// Parse the `go.work` in `root`, returning its `use` directive directories.
+///
+/// Returns `None` when the file is absent or unreadable, or when no `use`
+/// entries are found; block and single-line forms are both accepted.
 pub fn parse_use_dirs(root: &Path) -> Option<Vec<String>> {
     let path = root.join("go.work");
     let content = ops_about::manifest_io::read_optional_text(&path, root, "go.work")?;
@@ -88,11 +92,7 @@ pub fn parse_use_dirs(root: &Path) -> Option<Vec<String>> {
         dirs.truncate(block_start_mark);
     }
 
-    if dirs.is_empty() {
-        None
-    } else {
-        Some(dirs)
-    }
+    if dirs.is_empty() { None } else { Some(dirs) }
 }
 
 #[cfg(test)]
@@ -315,7 +315,7 @@ mod tests {
         .unwrap();
 
         let (dirs, warn_count) =
-            ops_about::test_support::count_warnings(|| parse_use_dirs(dir.path()));
+            ops_core::test_utils::count_warnings(|| parse_use_dirs(dir.path()));
 
         // The whole unterminated block — including the legitimate-looking
         // `./api` — is dropped rather than half-trusted: with no terminator
@@ -330,7 +330,7 @@ mod tests {
     fn unterminated_use_block_warn_names_manifest_and_directive() {
         let dir = tempfile::tempdir().unwrap();
         std::fs::write(dir.path().join("go.work"), "go 1.21\n\nuse (\n\t./api\n").unwrap();
-        let rendered = ops_about::test_support::capture_warn(|| {
+        let rendered = ops_core::test_utils::capture_warn(|| {
             parse_use_dirs(dir.path());
         });
         assert!(
@@ -359,7 +359,7 @@ mod tests {
         .unwrap();
 
         let (dirs, warn_count) =
-            ops_about::test_support::count_warnings(|| parse_use_dirs(dir.path()));
+            ops_core::test_utils::count_warnings(|| parse_use_dirs(dir.path()));
 
         assert_eq!(dirs, Some(vec!["./api".to_string()]));
         assert_eq!(warn_count, 1);

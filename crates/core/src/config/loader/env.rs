@@ -1,4 +1,4 @@
-//! ARCH-1 / TASK-1471: `OPS__` environment-variable overlay merge.
+//! `OPS__` environment-variable overlay merge.
 //!
 //! Extracted from the historical grab-bag `loader.rs` so the env-overlay
 //! concerns (the `config` crate's prefix source, the non-UTF-8 OPS__ key
@@ -21,14 +21,14 @@ use super::super::{merge::merge_config, Config, ConfigOverlay};
 /// `OPS__OUTOUT__THEME` in CI should surface as a loud error rather than a
 /// silent misconfiguration that drops every other OPS__ variable.
 ///
-/// ERR-1 / TASK-1389: a non-UTF-8 `OPS__*` key (rare but possible on Unix —
+/// A non-UTF-8 `OPS__*` key (rare but possible on Unix —
 /// e.g. an exec'd shim that wrote raw bytes via `OsString::from_vec`) is
 /// invisible to the `config` crate's `Environment::with_prefix("OPS")` source
 /// but is still operator intent. Count and `tracing::warn!` once per
 /// `merge_env_vars` call so the "OPS__ override didn't apply" symptom has a
 /// breadcrumb instead of vanishing silently.
 ///
-/// PERF-3 / TASK-1414: the success-path early-out (`vars_os().any(...)`)
+/// The success-path early-out (`vars_os().any(...)`)
 /// short-circuits without allocating a `Vec<String>` of every OPS__ key. The
 /// error-context closures are the only callers that need the materialised key
 /// list, so the collection is deferred into [`collect_ops_keys`] and only runs
@@ -62,8 +62,8 @@ pub(super) fn merge_env_vars(config: &mut Config) -> anyhow::Result<()> {
 
 /// Return `(has_ops_keys, non_utf8_count)` for the current process env.
 ///
-/// PERF-3 / TASK-1414: avoids the `Vec<String>` allocation on the success
-/// path. ERR-1 / TASK-1389: tracks non-UTF-8 `OPS__*` keys via the raw
+/// Avoids the `Vec<String>` allocation on the success
+/// path. Tracks non-UTF-8 `OPS__*` keys via the raw
 /// `OsStr::as_encoded_bytes` prefix so the diagnostic warn can fire even when
 /// `OsString::into_string()` would have dropped the entry.
 fn scan_ops_env_keys() -> (bool, usize) {
@@ -84,7 +84,7 @@ fn scan_ops_env_keys() -> (bool, usize) {
 }
 
 /// Collect the UTF-8 `OPS__*` env keys. Only the error-context closures call
-/// this; the success path skips it entirely (TASK-1414).
+/// this; the success path skips it entirely.
 fn collect_ops_keys() -> Vec<String> {
     std::env::vars_os()
         .filter_map(|(k, _)| k.into_string().ok())

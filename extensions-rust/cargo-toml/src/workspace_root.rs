@@ -7,11 +7,10 @@ use ops_core::text::read_capped_to_string;
 use std::fs;
 use std::path::{Path, PathBuf};
 
-/// ARCH-2 / TASK-0871: typed errors for [`find_workspace_root`].
+/// Typed errors for [`find_workspace_root`].
 ///
-/// Replaces the previously synthesised `io::Error::new(NotFound, …)`, so
-/// consumers (notably `is_manifest_missing` in `extensions-rust/about`)
-/// can match a typed variant instead of walking the source chain looking
+/// Consumers (notably `is_manifest_missing` in `extensions-rust/about`)
+/// match a typed variant instead of walking the source chain looking
 /// for an `io::ErrorKind::NotFound` shape that another wrapping layer
 /// would mask.
 #[derive(Debug, thiserror::Error)]
@@ -42,8 +41,8 @@ pub enum FindWorkspaceRootError {
 
 impl FindWorkspaceRootError {
     /// True when this error indicates the search walked to its bound without
-    /// finding any `Cargo.toml`. Mirrors the legacy `io::ErrorKind::NotFound`
-    /// signal that `is_manifest_missing` consumed.
+    /// finding any `Cargo.toml`. Mirrors the `io::ErrorKind::NotFound`
+    /// signal that `is_manifest_missing` consumes.
     #[must_use]
     pub const fn is_not_found(&self) -> bool {
         matches!(self, Self::NotFound { .. })
@@ -54,10 +53,10 @@ impl FindWorkspaceRootError {
 /// bound that prevents a symlink loop (or pathologically deep mount layout)
 /// from spinning the discovery loop forever.
 ///
-/// TASK-0963: exposed as `pub` so callers and tests can reference the same
-/// default the high-level [`find_workspace_root`] uses, and so a future
-/// caller with a legitimately deeper layout can opt into a larger bound via
-/// [`find_workspace_root_with_depth`] instead of patching the crate.
+/// Exposed as `pub` so callers and tests can reference the same default the
+/// high-level [`find_workspace_root`] uses, and so a caller with a
+/// legitimately deeper layout can opt into a larger bound via
+/// [`find_workspace_root_with_depth`].
 pub const MAX_ANCESTOR_DEPTH: usize = 64;
 
 /// Find the workspace root by walking up from `start` looking for Cargo.toml.
@@ -75,7 +74,7 @@ pub const MAX_ANCESTOR_DEPTH: usize = 64;
 /// resolved once up front, and the walk is capped at [`MAX_ANCESTOR_DEPTH`]
 /// so a symlink-induced loop cannot hang the process.
 ///
-/// # Symlink threat model (SEC-25 / TASK-0604 / TASK-1036)
+/// # Symlink threat model
 ///
 /// The walk starts from a single canonicalized path; intermediate ancestors
 /// are reached via [`Path::parent`] and are **not** re-canonicalized at each
@@ -114,9 +113,9 @@ pub fn find_workspace_root(start: &Path) -> Result<PathBuf, FindWorkspaceRootErr
 /// Variant of [`find_workspace_root`] that takes the ancestor-depth bound as
 /// a parameter.
 ///
-/// TASK-0963: lets tests verify the bound without crafting a 64-deep
-/// directory hierarchy, and gives callers an escape hatch if their layout
-/// legitimately needs a deeper walk.
+/// Tests use it to verify the bound without crafting a 64-deep directory
+/// hierarchy, and callers whose layout legitimately needs a deeper walk use
+/// it to opt in.
 ///
 /// The same symlink threat model documented on [`find_workspace_root`]
 /// applies here: the start path is canonicalized once and ancestors are
@@ -153,17 +152,16 @@ pub fn find_workspace_root_with_depth(
 /// discovered root outside the user's intended logical path — and any
 /// candidate whose parent cannot be canonicalized at all.
 ///
-/// SEC-25 / TASK-1204: addresses the symlink-retarget gap documented on
-/// [`find_workspace_root`]. The lenient walk reaches each ancestor via
-/// [`Path::parent`] on the lexical path of the canonicalized start and
-/// reads each candidate by its lexical path, so an attacker who can
-/// write inside any reachable ancestor can plant a `Cargo.toml`
-/// containing `[workspace]` and have it returned as the root — every
-/// downstream provider (units, coverage, deps) then targets the wrong
-/// workspace. The strict variant adds a per-candidate canonicalize step
-/// so a redirected ancestor is detected and skipped.
+/// The lenient walk reaches each ancestor via [`Path::parent`] on the
+/// lexical path of the canonicalized start and reads each candidate by its
+/// lexical path, so an attacker who can write inside any reachable
+/// ancestor can plant a `Cargo.toml` containing `[workspace]` and have it
+/// returned as the root — every downstream provider (units, coverage,
+/// deps) then targets the wrong workspace. The strict variant's
+/// per-candidate canonicalize step detects and skips a redirected
+/// ancestor.
 ///
-/// # Scope of the guarantee (TASK-1785 / TASK-2026)
+/// # Scope of the guarantee
 ///
 /// The strict variant enforces **two** independent checks per candidate:
 ///
@@ -174,28 +172,24 @@ pub fn find_workspace_root_with_depth(
 ///    symlink (or reachable through one) that redirects the read into
 ///    another tree.
 ///
-/// TASK-2026 recorded the decision behind check 2. Check 1 alone is a
-/// tautology on a quiescent filesystem: the shared walk canonicalizes
-/// `start` once and reaches every ancestor via [`Path::parent`], and every
-/// lexical ancestor of a canonical path is itself canonical, so
-/// `canonicalize(current) == current` and the ancestor-chain test can only
-/// fail if an ancestor is swapped for a symlink *during* the walk (a TOCTOU
-/// race no test can construct deterministically). Check 2 is the arm that
-/// actually rejects an attacker-plantable manifest on a quiescent
-/// filesystem, and it is driven by
-/// `find_root_strict_rejects_symlinked_manifest_that_lenient_accepts`.
+/// Check 1 alone is a tautology on a quiescent filesystem: the shared walk
+/// canonicalizes `start` once and reaches every ancestor via
+/// [`Path::parent`], and every lexical ancestor of a canonical path is
+/// itself canonical, so `canonicalize(current) == current` and the
+/// ancestor-chain test can only fail if an ancestor is swapped for a
+/// symlink *during* the walk (a TOCTOU race no test can construct
+/// deterministically). Check 2 is the arm that actually rejects an
+/// attacker-plantable manifest on a quiescent filesystem.
 ///
-/// The alternative — re-anchoring discovery to the caller's *pre-canonical*
-/// `start` — was rejected: it would reject every legitimate working
-/// directory reached through a symlink, which is a routine layout. Two
-/// consequences of that choice callers must not mistake for a stronger
-/// guarantee:
+/// Discovery is anchored to the canonical start, never to the caller's
+/// pre-canonical `start` — re-anchoring to the pre-canonical path would
+/// reject every legitimate working directory reached through a symlink.
+/// Two consequences of that anchoring callers must not mistake for a
+/// stronger guarantee:
 ///
 /// - A symlink *inside the caller's own `start` path* is resolved before
 ///   the walk begins, so the strict variant walks the resolved chain and
-///   accepts what it finds there — exactly like the lenient variant. It
-///   does **not** re-anchor discovery to the caller's pre-canonical,
-///   logical path.
+///   accepts what it finds there — exactly like the lenient variant.
 /// - A symlinked *directory* ancestor above the start is likewise already
 ///   resolved; only a symlinked `Cargo.toml` (check 2) and a mid-walk
 ///   ancestor swap (check 1) are rejected.
@@ -205,7 +199,7 @@ pub fn find_workspace_root_with_depth(
 /// filesystem.
 ///
 /// Lenient siblings remain available for callers that explicitly opt
-/// out (e.g. legacy `find_workspace_root` / `find_workspace_root_with_depth`),
+/// out ([`find_workspace_root`] / [`find_workspace_root_with_depth`]),
 /// preserving behaviour for tools that rely on the lexical walk.
 ///
 /// # Errors
@@ -215,8 +209,8 @@ pub fn find_workspace_root_with_depth(
 ///
 /// The strict variant additionally rejects a candidate root that does not
 /// contain `start` after canonicalization, and any candidate whose
-/// `Cargo.toml` resolves outside that directory (symlink-planting defence,
-/// TASK-2026).
+/// `Cargo.toml` resolves outside that directory (symlink-planting
+/// defence).
 pub fn find_workspace_root_strict(start: &Path) -> Result<PathBuf, FindWorkspaceRootError> {
     find_workspace_root_strict_with_depth(start, MAX_ANCESTOR_DEPTH)
 }
@@ -232,8 +226,8 @@ pub fn find_workspace_root_strict(start: &Path) -> Result<PathBuf, FindWorkspace
 ///
 /// The strict variant additionally rejects a candidate root that does not
 /// contain `start` after canonicalization, and any candidate whose
-/// `Cargo.toml` resolves outside that directory (symlink-planting defence,
-/// TASK-2026).
+/// `Cargo.toml` resolves outside that directory (symlink-planting
+/// defence).
 pub fn find_workspace_root_strict_with_depth(
     start: &Path,
     max_depth: usize,
@@ -248,18 +242,14 @@ pub fn find_workspace_root_strict_with_depth(
 /// The strict variant's per-candidate decision, with the canonicalizer
 /// injected.
 ///
-/// TASK-1785: the directory rejection arms — an off-chain canonical parent
-/// and a failed canonicalize — are unreachable through a quiescent
-/// filesystem (see "Scope of the guarantee" on
-/// [`find_workspace_root_strict`]), so they were previously untested despite
-/// being the entire reason the strict variant exists. Taking `canonicalize`
-/// as a parameter lets tests drive them deterministically instead of racing
-/// a symlink swap.
-///
-/// TASK-2026: adds the manifest-path check that *is* reachable on a
-/// quiescent filesystem — a `Cargo.toml` whose own canonical path does not
-/// sit directly inside the canonical candidate directory is a planted
-/// symlink into another tree and is skipped.
+/// The directory rejection arms — an off-chain canonical parent and a
+/// failed canonicalize — are unreachable through a quiescent filesystem
+/// (see "Scope of the guarantee" on [`find_workspace_root_strict`]), so
+/// `canonicalize` is a parameter: tests drive those arms deterministically
+/// instead of racing a symlink swap. The manifest-path check is the arm
+/// that *is* reachable on a quiescent filesystem — a `Cargo.toml` whose
+/// own canonical path does not sit directly inside the canonical candidate
+/// directory is a planted symlink into another tree and is skipped.
 pub fn strict_candidate_action(
     current: &Path,
     cargo_toml: &Path,
@@ -282,7 +272,7 @@ pub fn strict_candidate_action(
                     lexical_parent = ?current.display(),
                     canonical_parent = ?canonical_parent.display(),
                     canonical_start = ?start_canonical.display(),
-                    "SEC-25 / TASK-1204: candidate Cargo.toml's canonical parent escapes the canonical start's ancestor chain; rejecting"
+                    "candidate Cargo.toml's canonical parent escapes the canonical start's ancestor chain; rejecting"
                 );
                 CandidateAction::Skip
             }
@@ -291,15 +281,15 @@ pub fn strict_candidate_action(
             tracing::warn!(
                 path = ?current.display(),
                 error = ?e,
-                "TASK-1204: failed to canonicalize candidate manifest's parent; skipping ancestor"
+                "failed to canonicalize candidate manifest's parent; skipping ancestor"
             );
             CandidateAction::Skip
         }
     }
 }
 
-/// SEC-25 / TASK-2026: true iff the candidate `Cargo.toml` resolves to a
-/// file that lives directly inside `canonical_parent`.
+/// True iff the candidate `Cargo.toml` resolves to a file that lives
+/// directly inside `canonical_parent`.
 ///
 /// Unlike the ancestor-chain check this is *not* a tautology: the walk only
 /// ever canonicalizes directories, so a `Cargo.toml` that is itself a
@@ -323,7 +313,7 @@ fn manifest_is_contained(
             tracing::warn!(
                 path = ?cargo_toml.display(),
                 error = ?e,
-                "SEC-25 / TASK-2026: failed to canonicalize candidate Cargo.toml; skipping ancestor"
+                "failed to canonicalize candidate Cargo.toml; skipping ancestor"
             );
             return false;
         }
@@ -335,7 +325,7 @@ fn manifest_is_contained(
         cargo_toml = ?cargo_toml.display(),
         canonical_manifest = ?canonical_manifest.display(),
         canonical_parent = ?canonical_parent.display(),
-        "SEC-25 / TASK-2026: candidate Cargo.toml resolves outside its own directory (planted symlink); rejecting"
+        "candidate Cargo.toml resolves outside its own directory (planted symlink); rejecting"
     );
     false
 }
@@ -360,25 +350,7 @@ fn walk_ancestors(
     max_depth: usize,
     check: impl Fn(&Path, PathBuf, &Path) -> CandidateAction,
 ) -> Result<PathBuf, FindWorkspaceRootError> {
-    let start_canonical = match fs::canonicalize(start) {
-        Ok(p) => p,
-        Err(source) if source.kind() == std::io::ErrorKind::NotFound => {
-            tracing::debug!(
-                start = ?start.display(),
-                "find_workspace_root: start path is unreachable (canonicalize NotFound); reporting NotFound"
-            );
-            return Err(FindWorkspaceRootError::NotFound {
-                start: start.to_path_buf(),
-                depth: max_depth,
-            });
-        }
-        Err(source) => {
-            return Err(FindWorkspaceRootError::CanonicalizeFailed {
-                path: start.to_path_buf(),
-                source,
-            });
-        }
-    };
+    let start_canonical = canonicalize_start(start, max_depth)?;
     let mut current = start_canonical.as_path();
     let mut first_cargo_toml: Option<PathBuf> = None;
     for _ in 0..max_depth {
@@ -419,19 +391,43 @@ fn walk_ancestors(
     })
 }
 
+/// Canonicalise the walk's start directory, mapping both failure modes to
+/// their [`FindWorkspaceRootError`] variants: an unreachable start reports
+/// `NotFound` (the walk has nothing to climb), any other failure reports
+/// `CanonicalizeFailed`.
+fn canonicalize_start(start: &Path, max_depth: usize) -> Result<PathBuf, FindWorkspaceRootError> {
+    match fs::canonicalize(start) {
+        Ok(p) => Ok(p),
+        Err(source) if source.kind() == std::io::ErrorKind::NotFound => {
+            tracing::debug!(
+                start = ?start.display(),
+                "find_workspace_root: start path is unreachable (canonicalize NotFound); reporting NotFound"
+            );
+            Err(FindWorkspaceRootError::NotFound {
+                start: start.to_path_buf(),
+                depth: max_depth,
+            })
+        }
+        Err(source) => Err(FindWorkspaceRootError::CanonicalizeFailed {
+            path: start.to_path_buf(),
+            source,
+        }),
+    }
+}
+
 /// True iff the manifest at `path` contains a top-level `[workspace]` table
 /// header. A missing manifest returns false — the walk will keep looking and
 /// ultimately fall back to the first Cargo.toml seen.
 ///
-/// SEC-11 / TASK-1781: any *other* read failure (permission denied, the
-/// `read_capped_to_string` byte cap, a non-UTF-8 manifest) is logged at
-/// `warn` level rather than `debug`, so a legitimately large or unreadable
-/// workspace root that gets silently skipped is visible in the default log
-/// output instead of being indistinguishable from "no workspace declared".
+/// Any *other* read failure (permission denied, the `read_capped_to_string`
+/// byte cap, a non-UTF-8 manifest) is logged at `warn` level rather than
+/// `debug`, so a legitimately large or unreadable workspace root that gets
+/// silently skipped is visible in the default log output instead of being
+/// indistinguishable from "no workspace declared".
 ///
-/// PERF-3 / TASK-1512: avoids a full `toml::Value` parse (which allocates the
-/// entire AST only to check for one key). Instead performs a line-level scan
-/// that recognises TOML table headers of the form `[workspace]` or
+/// Avoids a full `toml::Value` parse (which allocates the entire AST only
+/// to check for one key). Instead performs a line-level scan that
+/// recognises TOML table headers of the form `[workspace]` or
 /// `[workspace.<anything>]`. Lines inside multi-line strings (triple-quoted
 /// basic or literal strings) are excluded so a string value containing the
 /// substring `[workspace]` does not produce a false positive.
@@ -443,7 +439,7 @@ fn manifest_declares_workspace(path: &Path) -> bool {
             tracing::warn!(
                 path = ?path.display(),
                 error = ?e,
-                "SEC-11 / TASK-1781: Cargo.toml unreadable during workspace walk (not NotFound); treating as 'no workspace declared' and continuing to climb"
+                "Cargo.toml unreadable during workspace walk (not NotFound); treating as 'no workspace declared' and continuing to climb"
             );
             return false;
         }
@@ -457,11 +453,11 @@ fn manifest_declares_workspace(path: &Path) -> bool {
 /// `'''`). A bare `[workspace]` on a line that is not inside such a string is
 /// enough to declare the manifest as workspace-bearing.
 ///
-/// SEC-11 / TASK-1781: the header is located by scanning for the closing `]`
-/// that is not inside a quoted key, so a trailing comment
-/// (`[workspace] # the root`) no longer defeats the match, and the first
-/// dotted key segment is unquoted before comparison so `["workspace"]` and
-/// `[ 'workspace'.package ]` are recognised too. A false negative here is
+/// The header is located by scanning for the closing `]` that is not
+/// inside a quoted key, so a trailing comment (`[workspace] # the root`)
+/// does not defeat the match, and the first dotted key segment is unquoted
+/// before comparison so `["workspace"]` and `[ 'workspace'.package ]` are
+/// recognised too. A false negative here is
 /// security-relevant: the walk simply keeps climbing past the real root and
 /// into attacker-plantable ancestors (see the threat model on
 /// [`find_workspace_root`]).

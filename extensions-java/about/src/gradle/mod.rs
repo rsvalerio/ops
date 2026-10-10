@@ -18,15 +18,15 @@ mod lexer;
 use std::path::Path;
 
 use ops_about::cards::format_unit_name;
-use ops_about::identity::{provide_identity_from_manifest, ParsedManifest};
+use ops_about::identity::{ParsedManifest, provide_identity_from_manifest};
 use ops_core::project_identity::{AboutFieldDef, ProjectUnit};
 use ops_core::text::for_each_trimmed_line;
 use ops_extension::{Context, DataProvider, DataProviderError};
 
 use super::gradle_about_fields;
 use lexer::{
-    brace_delta, extract_quoted, extract_quoted_list, split_at_unquoted_close_paren,
-    strip_properties_comment, strip_trailing_comment, MultilineStripper,
+    MultilineStripper, brace_delta, extract_quoted, extract_quoted_list,
+    split_at_unquoted_close_paren, strip_properties_comment, strip_trailing_comment,
 };
 
 pub struct GradleIdentityProvider;

@@ -36,6 +36,8 @@ pub struct ListRow<'a> {
     pub suffix: &'a str,
 }
 
+/// Write one aligned help-list row to `w`: leading pad, cyan-padded name,
+/// and dimmed description and suffix.
 pub fn write_list_row(w: &mut dyn Write, row: ListRow<'_>) -> std::io::Result<()> {
     let padded = pad_to_display_width(row.name, row.name_width);
     writeln!(

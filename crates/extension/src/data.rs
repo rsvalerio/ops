@@ -227,6 +227,11 @@ pub struct DataRegistry {
 }
 
 impl DataRegistry {
+    /// Creates an empty registry with a cleared duplicate-insert audit trail.
+    ///
+    /// Mirrors [`crate::CommandRegistry::new`]: no providers registered, and
+    /// [`DataRegistry::take_duplicate_inserts`] returns empty until
+    /// [`DataRegistry::register`] refuses a duplicate name.
     #[must_use]
     pub fn new() -> Self {
         Self::default()

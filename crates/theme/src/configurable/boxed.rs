@@ -43,6 +43,12 @@ const BOX_FRAME_BARS: usize = 2;
 const BOX_RAIL_PREFIX_PADDING: usize = 3;
 
 impl ConfigurableTheme {
+    /// Render an [`ErrorDetail`] as error-block lines, framed when boxed.
+    ///
+    /// Always renders the error block itself; only when the layout kind is
+    /// [`LayoutKind::Boxed`] are the lines additionally gutter-indented under
+    /// the step icon column, prefixed with the configured rail glyph and
+    /// right-padded to the closing `│` border at `columns`.
     #[must_use]
     pub fn render_error_detail(&self, detail: &ErrorDetail, columns: u16) -> Vec<String> {
         let lines = render_error_block(
@@ -87,6 +93,10 @@ impl ConfigurableTheme {
         target_gutter.saturating_sub(rail_width.saturating_add(BOX_RAIL_PREFIX_PADDING))
     }
 
+    /// Columns the boxed frame reserves around a step line.
+    ///
+    /// [`LayoutKind::Boxed`] reserves [`BOX_STEP_RESERVE`] cells
+    /// (`│ X  … │`); [`LayoutKind::Flat`] reserves none.
     #[must_use]
     pub const fn step_column_reserve(&self) -> u16 {
         match self.config.layout_kind {
@@ -95,6 +105,11 @@ impl ConfigurableTheme {
         }
     }
 
+    /// Render the boxed run's top border with its `Running:` title.
+    ///
+    /// Returns `None` unless the layout kind is [`LayoutKind::Boxed`];
+    /// otherwise a `╭─ … ─╮` border clamped to `snap.columns`, with the
+    /// command list title styled through the header prefix.
     #[must_use]
     pub fn box_top_border(&self, snap: BoxSnapshot<'_>) -> Option<String> {
         if !matches!(self.config.layout_kind, LayoutKind::Boxed) {
@@ -117,6 +132,13 @@ impl ConfigurableTheme {
         }))
     }
 
+    /// Render the boxed run's bottom border with the outcome summary.
+    ///
+    /// Returns `None` unless the layout kind is [`LayoutKind::Boxed`];
+    /// otherwise a `╰─ … ─╯` border clamped to `snap.columns`. A fully
+    /// successful run shows `Done N/M`; anything else shows the
+    /// succeeded/skipped/failed breakdown, which a single label cannot
+    /// express.
     #[must_use]
     pub fn box_bottom_border(&self, snap: BoxSnapshot<'_>) -> Option<String> {
         if !matches!(self.config.layout_kind, LayoutKind::Boxed) {
@@ -151,6 +173,13 @@ impl ConfigurableTheme {
         }))
     }
 
+    /// Wrap one rendered step line in the boxed `│ cell … │` frame.
+    ///
+    /// Returns `inner` unchanged when the layout kind is not
+    /// [`LayoutKind::Boxed`]. When boxed, the content is clamped to the
+    /// interior budget left after both outer pads and [`BOX_STEP_RESERVE`],
+    /// and right-padded so the closing bar lands at the same column as the
+    /// borders whatever `inner`'s width.
     #[must_use]
     pub fn wrap_step_line(&self, inner: &str, progress_cell: &str, columns: u16) -> String {
         if !matches!(self.config.layout_kind, LayoutKind::Boxed) {

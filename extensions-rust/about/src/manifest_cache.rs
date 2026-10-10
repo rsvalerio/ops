@@ -505,7 +505,7 @@ mod tests {
         );
 
         let mut ctx = Context::test_context(dir.path().to_path_buf());
-        let (logs, result) = ops_about::test_support::capture_tracing(tracing::Level::WARN, || {
+        let (logs, result) = ops_core::test_utils::capture_tracing(tracing::Level::WARN, || {
             load_workspace_manifest(&mut ctx)
         });
         assert!(result.is_ok(), "poisoned cache must recover, not propagate");

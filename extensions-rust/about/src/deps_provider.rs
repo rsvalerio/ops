@@ -33,9 +33,8 @@ impl DataProvider for RustDepsProvider {
             return Ok(serde_json::to_value(ProjectDependencies::default())?);
         };
 
-        // ERR-2 / TASK-0376: a SQLite schema/migration error here used to
-        // surface as an empty deps list with no signal. `query_or_warn`
-        // routes the failure through tracing::warn before falling back.
+        // `query_or_warn` routes a SQLite schema/migration failure through
+        // tracing::warn before falling back to an empty deps list.
         let per_crate = query_or_warn(
             "query_crate_deps",
             "project_dependencies will be empty",
@@ -576,7 +575,7 @@ fn update_drops_version(
 #[cfg(test)]
 mod tests {
     use super::{RustDepsProvider, PROVIDER_NAME};
-    use ops_about::test_support::capture_tracing;
+    use ops_core::test_utils::capture_tracing;
     use ops_extension::{Context, DataProvider};
     use ops_sqlite::Sqlite;
     use std::sync::Arc;

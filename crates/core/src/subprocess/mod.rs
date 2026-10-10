@@ -10,7 +10,7 @@
 //! `OPS_SUBPROCESS_TIMEOUT_SECS` environment variable (see
 //! [`default_timeout`]).
 //!
-//! # Module layout (ARCH-1 / TASK-1471)
+//! # Module layout
 //!
 //! - [`cap`] — env-knob parsers for the timeout and per-stream byte cap.
 //! - [`drain`] — bounded pipe-drain primitives and the post-timeout reaper.
@@ -20,7 +20,7 @@
 //! # Sync-only — async callers must offload
 //!
 //! [`run_with_timeout`] is a fully synchronous helper. It uses
-//! `wait_timeout::ChildExt::wait_timeout` (TASK-0451) so the wait is a
+//! `wait_timeout::ChildExt::wait_timeout` so the wait is a
 //! single OS-level wait rather than a 100 ms `thread::sleep` poll loop —
 //! no battery-burning wakeups for a 30 s `cargo metadata`, and idle waits
 //! cooperate with macOS App Nap. The wait blocks the calling thread for
@@ -88,7 +88,7 @@ impl std::error::Error for TimeoutError {}
 
 /// Returned when [`run_with_timeout`] cannot spawn the child process.
 ///
-/// ERR-4 / TASK-0925: a bare `io::Error` from `Command::spawn` renders as
+/// A bare `io::Error` from `Command::spawn` renders as
 /// `No such file or directory (os error 2)` with no indication of which
 /// subprocess failed. Wrapping the error with the caller-supplied label
 /// and the program name (e.g. `cargo`) makes the rendered message
@@ -122,7 +122,7 @@ impl std::error::Error for SpawnError {
 /// Error returned by [`run_with_timeout`]: either spawn failed, post-spawn
 /// IO failed, or the child outran the deadline.
 ///
-/// TRAIT-1 (TASK-1447): `From` is implemented uniformly for all three
+/// `From` is implemented uniformly for all three
 /// underlying error types so `?` propagation works the same way at every
 /// variant. Without this, `From<io::Error>` alone leaves callers thinking
 /// `?` will propagate every `RunError`, when in practice it only works for
@@ -190,7 +190,7 @@ impl From<TimeoutError> for RunError {
 /// Returns [`RunError::Io`] if spawning or waiting on the child fails, and
 /// [`RunError::Timeout`] if the child outruns `timeout`.
 ///
-/// ## Panic-handling guarantees (ERR-1 / TASK-0901)
+/// ## Panic-handling guarantees
 ///
 /// - A panic inside a stdout/stderr drain thread is propagated as
 ///   [`RunError::Io`] rather than silently substituting an empty
@@ -200,9 +200,9 @@ impl From<TimeoutError> for RunError {
 ///   silently saw a wrong empty result.
 /// - A drain thread that fails its `read_to_end` mid-read still returns
 ///   the bytes captured before the error, with a `tracing::warn!`
-///   breadcrumb (ERR-1 / TASK-0694).
+///   breadcrumb.
 /// - A drain thread that fails *before any byte is captured* is propagated
-///   as [`RunError::Io`] rather than `Ok(Vec::new())` (ARCH-2 / TASK-1426).
+///   as [`RunError::Io`] rather than `Ok(Vec::new())`.
 ///   This preserves the "empty means the child produced no output" half of
 ///   the contract — a zero-byte EIO would otherwise round-trip as a clean
 ///   empty stream.
@@ -229,7 +229,7 @@ fn run_with_timeout_inner(
         .stdin(Stdio::null())
         .spawn()
         .map_err(|e| {
-            // ERR-4 / TASK-0925: name the failing operation and program in
+            // Name the failing operation and program in
             // the rendered error so a missing binary surfaces as
             // "cargo metadata: failed to spawn cargo: …" instead of a bare
             // OS error string.
@@ -240,13 +240,13 @@ fn run_with_timeout_inner(
             })
         })?;
 
-    // ERR-1 / TASK-0694: drain threads return both the bytes read so far
+    // Drain threads return both the bytes read so far
     // and any IO error encountered. We surface drain failures via
     // `tracing::warn!` so callers parsing the captured output have a
     // breadcrumb when a buffer is truncated, instead of seeing a silently
     // empty stream that round-trips as "the command produced no output".
     //
-    // SEC-33 / TASK-1050: drain via `read_capped` so each buffer is bounded
+    // Drain via `read_capped` so each buffer is bounded
     // near `cap` regardless of how much the child writes. Bytes past the
     // cap are still read off the pipe (so the child does not block on a
     // full pipe and we don't false-positive into a timeout) but discarded;
@@ -254,27 +254,25 @@ fn run_with_timeout_inner(
     let stdout_handle = child.stdout.take().map(|p| spawn_drain(p, cap));
     let stderr_handle = child.stderr.take().map(|p| spawn_drain(p, cap));
 
-    // TASK-0451: single OS-level wait, no polling loop. Returns Ok(None)
+    // Single OS-level wait, no polling loop. Returns Ok(None)
     // on timeout, Ok(Some(status)) on exit; the underlying syscall sleeps
     // the thread cooperatively, so idle waits do not burn CPU/battery.
     let Some(status) = child.wait_timeout(timeout)? else {
         // Kill first so the drain threads can see EOF and unblock; then
         // collect their results before returning the timeout error.
-        // ASYNC-6: the kill only closes the pipe ends the child itself
+        // The kill only closes the pipe ends the child itself
         // holds — a surviving grandchild keeps its inherited copies open
         // — so `drain_after_timeout` bounds that wait rather than
         // blocking here for as long as the grandchild lives.
         let _ = child.kill();
         let _ = child.wait();
-        // ERR-1 / TASK-1466: the timeout branch used to swallow the
-        // collect_drain Result entirely via `let _ = ...`, defeating the
-        // ARCH-2 / ERR-1 hardening that made a panicking drain thread or
-        // mid-read EIO surface as RunError::Io. Now we tag each error
+        // Swallowing the collect_drain result here (`let _ = ...`)
+        // would hide a panicking drain thread or mid-read EIO that the
+        // RunError::Io hardening exists to surface. Each error is tagged
         // with a "during timeout cleanup" breadcrumb so operators see a
         // signal that the captured bytes were unrecoverable alongside
         // the Timeout — the Timeout error itself still wins (the child
-        // outran the deadline) but the drain situation is no longer
-        // invisible.
+        // outran the deadline) but the drain situation stays visible.
         drain_after_timeout(stdout_handle, stderr_handle, label);
         return Err(RunError::Timeout(TimeoutError {
             label: label.to_string(),
@@ -302,7 +300,7 @@ fn run_with_timeout_inner(
 /// `cargo update`, `cargo metadata`, `cargo upgrade`, `cargo deny`, and
 /// `cargo llvm-cov` callers in the Rust extensions.
 ///
-/// PORT-5 (TASK-0697): the cargo binary is resolved via `$CARGO` first and
+/// The cargo binary is resolved via `$CARGO` first and
 /// only falls back to a `$PATH` lookup of the literal `"cargo"` when the
 /// variable is unset. Cargo subcommands inherit `$CARGO` from the parent
 /// process pointing at the exact toolchain binary that drove the
@@ -327,7 +325,7 @@ pub fn run_cargo(
 
 /// [`run_cargo`] with the wait already resolved by the caller.
 ///
-/// CONC-9 / TASK-2068: [`run_cargo`]'s `op_default` goes through
+/// [`run_cargo`]'s `op_default` goes through
 /// [`default_timeout`], which lets `OPS_SUBPROCESS_TIMEOUT_SECS` *raise* the
 /// wait — fine for a fixed per-operation default, wrong for a caller that
 /// must not outlive a bound it was handed. `ops-test-coverage` sizes the
@@ -358,7 +356,7 @@ pub fn run_cargo_bounded(
 }
 
 /// Resolve the cargo binary, honouring `$CARGO` so nested cargo calls stay
-/// on the parent toolchain. PORT-5 (TASK-0697).
+/// on the parent toolchain. PORT-5.
 #[must_use]
 pub fn resolve_cargo_bin() -> std::ffi::OsString {
     std::env::var_os("CARGO").unwrap_or_else(|| "cargo".into())
@@ -367,7 +365,7 @@ pub fn resolve_cargo_bin() -> std::ffi::OsString {
 /// Resolve the rustup binary, honouring `$RUSTUP` for symmetry with
 /// [`resolve_cargo_bin`].
 ///
-/// PORT (TASK-0792): keeps direct rustup spawns in extensions on the same
+/// PORT: keeps direct rustup spawns in extensions on the same
 /// toolchain layout the parent process selected rather than forcing a
 /// fresh `$PATH` lookup.
 #[must_use]

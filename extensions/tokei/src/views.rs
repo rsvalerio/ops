@@ -28,17 +28,15 @@ pub const TOKEI_FILES_LOAD: JsonTableLoad = JsonTableLoad::flat_array(
     ],
 );
 
-/// SEC-12 (TASK-0593) / ERR-5 (TASK-1003): identifiers are routed through
-/// the const-validated [`TableName::from_static`] newtype so the
-/// compile-time invariant replaces the runtime `quoted_ident` Result.
+/// Builds the `tokei_languages` view statement aggregating `tokei_files`
+/// into per-language totals.
 ///
-/// Both literals are valid SQL identifiers — the assert in `from_static`
-/// would fire at build time on a typo.
-///
-/// SEC-12 / TASK-1864: the statement is returned as the gated
-/// [`CreateViewSql`] newtype, whose only constructor takes const-validated
-/// [`TableName`]s plus a `&'static str` body — a runtime-derived `String`
-/// can no longer reach `load_with_sidecar`.
+/// Identifiers are const-validated [`TableName`] newtypes — the assert in
+/// `from_static` fires at build time on a typo, so the builder is
+/// infallible and needs no `Result`. The statement is returned as the
+/// gated [`CreateViewSql`] newtype, whose only constructor takes
+/// const-validated [`TableName`]s plus a `&'static str` body, so only
+/// builder-produced SQL reaches `load_with_sidecar`.
 pub fn tokei_languages_view_sql() -> CreateViewSql {
     CreateViewSql::create_or_replace(
         TableName::from_static("tokei_languages"),
@@ -53,7 +51,7 @@ pub fn tokei_languages_view_sql() -> CreateViewSql {
 mod tests {
     use super::*;
 
-    /// SEC-12: the load spec's DDL quotes every identifier and declares the
+    /// The load spec's DDL quotes every identifier and declares the
     /// typed columns the queries decode against.
     #[test]
     fn tokei_files_load_declares_typed_quoted_columns() {
@@ -85,7 +83,7 @@ mod tests {
         assert!(sql.contains("ORDER BY code DESC"));
     }
 
-    /// SEC-12: identifiers must be double-quoted, matching the parity policy
+    /// Identifiers must be double-quoted, matching the parity policy
     /// of the load spec's DDL.
     #[test]
     fn tokei_languages_view_sql_quotes_identifiers() {

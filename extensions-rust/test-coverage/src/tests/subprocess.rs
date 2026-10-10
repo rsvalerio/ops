@@ -7,9 +7,9 @@ use crate::subprocess::{
 use ops_core::subprocess::default_timeout;
 use std::time::Duration;
 
-/// TASK-1595: the extracted helper must return `Some` when stderr contains
-/// bytes and `None` when empty, so the success-path log line fires only
-/// when there is actually something to report.
+/// The helper must return `Some` when stderr contains bytes and `None` when
+/// empty, so the success-path log line fires only when there is actually
+/// something to report.
 #[test]
 fn success_stderr_diagnostic_returns_some_for_nonempty_stderr() {
     let diag = format_stderr_diagnostic(b"warning: something");
@@ -48,7 +48,7 @@ fn check_llvm_cov_output_failure_includes_stderr_tail() {
     };
     let err = check_llvm_cov_output(&output).unwrap_err();
     let msg = err.to_string();
-    // PATTERN-1 / TASK-1099: format is "cargo llvm-cov exited with status {code}: ...".
+    // Format is "cargo llvm-cov exited with status {code}: ...".
     assert!(msg.contains("cargo llvm-cov"), "got: {msg}");
     assert!(msg.contains("status 1"), "exit code must appear: {msg}");
     assert!(
@@ -67,8 +67,7 @@ fn check_llvm_cov_output_failure_empty_stderr() {
         stderr: Vec::new(),
     };
     let err = check_llvm_cov_output(&output).unwrap_err();
-    // PATTERN-1 / TASK-1099: error message format is now
-    // "cargo llvm-cov exited with status {code}: ...".
+    // Error message format is "cargo llvm-cov exited with status {code}: ...".
     assert!(err.to_string().contains("cargo llvm-cov"));
 }
 
@@ -99,7 +98,7 @@ fn check_llvm_cov_output_missing_subcommand_appends_install_hint() {
         msg.contains("rustup component add llvm-tools-preview"),
         "toolchain component must appear: {msg}"
     );
-    // PATTERN-1 / TASK-1099 shape survives ahead of the hint.
+    // The exit marker survives ahead of the hint.
     assert!(msg.starts_with("cargo llvm-cov exited with status 101"));
 }
 
@@ -121,9 +120,8 @@ fn check_llvm_cov_output_ordinary_failure_has_no_install_hint() {
     );
 }
 
-/// PATTERN-1 / TASK-1099: non-zero exit codes must appear in the error
-/// string so exit 1 (issues), exit 101 (panic), and SIGKILL/None are
-/// distinguishable in operator logs.
+/// Non-zero exit codes must appear in the error string so exit 1 (issues),
+/// exit 101 (panic), and SIGKILL/None are distinguishable in operator logs.
 #[cfg(unix)]
 #[test]
 fn check_llvm_cov_output_failure_includes_exit_code() {
@@ -169,22 +167,21 @@ fn check_llvm_cov_output_failure_signal_kill_names_the_signal_once() {
     );
 }
 
-/// ERR-1 / TASK-1057: `cargo llvm-cov` must run with `--no-fail-fast`
-/// so a single failing test does not erase the entire coverage signal
-/// for the run. TEST-23 / TASK-1554: the regression guard reads the
-/// argv slice directly rather than grepping the source text via
-/// `include_str!`, so rustfmt re-wraps, helper-function moves, and
+/// `cargo llvm-cov` must run with `--no-fail-fast` so a single failing test
+/// does not erase the entire coverage signal for the run. The regression
+/// guard reads the argv slice directly rather than grepping the source text
+/// via `include_str!`, so rustfmt re-wraps, helper-function moves, and
 /// const-renames cannot make this test rot silently.
 #[test]
 fn run_cargo_llvm_cov_arg_list_includes_no_fail_fast() {
     assert!(
         LLVM_COV_ARGS.contains(&"--no-fail-fast"),
-        "argv must include --no-fail-fast (TASK-1057); current argv: {LLVM_COV_ARGS:?}"
+        "argv must include --no-fail-fast; current argv: {LLVM_COV_ARGS:?}"
     );
     assert_eq!(
         LLVM_COV_ARGS.last().copied(),
         Some("--json"),
-        "TASK-1057: --json must be the final flag (downstream parsing depends on JSON mode); \
+        "--json must be the final flag (downstream parsing depends on JSON mode); \
          current argv: {LLVM_COV_ARGS:?}"
     );
     // The first flag is the subcommand name; bind it so reordering doesn't
@@ -208,7 +205,7 @@ fn llvm_cov_argv_appends_output_path_after_static_args() {
 }
 
 // ---------------------------------------------------------------------------
-// CONC-9 / TASK-2068 — the subprocess wait is sized from the dispatch deadline
+// The subprocess wait is sized from the dispatch deadline
 // ---------------------------------------------------------------------------
 
 /// The ceiling these tests measure against.
@@ -223,7 +220,7 @@ fn ceiling() -> Duration {
     default_timeout(CARGO_LLVM_COV_TIMEOUT)
 }
 
-/// AC #1: with no deadline installed (an unbounded dispatch, or a direct
+/// With no deadline installed (an unbounded dispatch, or a direct
 /// `collect_coverage` call outside the provider graph) the wait stays at the
 /// operation ceiling.
 #[test]
@@ -231,19 +228,17 @@ fn llvm_cov_timeout_without_a_deadline_is_the_operation_ceiling() {
     assert_eq!(llvm_cov_timeout(None), ceiling());
 }
 
-/// AC #1: a deadline further out than the ceiling does not *extend* the wait —
-/// the ceiling is still a ceiling.
+/// A deadline further out than the ceiling does not *extend* the wait — the
+/// ceiling is still a ceiling.
 #[test]
 fn llvm_cov_timeout_never_exceeds_the_operation_ceiling() {
     let far = std::time::Instant::now() + ceiling() + Duration::from_secs(600);
     assert_eq!(llvm_cov_timeout(Some(far)), ceiling());
 }
 
-/// AC #1 + AC #2, the finding itself: a *tightened* budget must shorten the
-/// subprocess wait. Pre-fix the wait was a fixed 15 minutes regardless, so an
-/// operator who set `[data] provider_budget_secs = 60` still got a full
-/// fifteen-minute block in `cargo llvm-cov` and was only told about the
-/// overrun afterwards.
+/// A *tightened* budget must shorten the subprocess wait: an operator who
+/// sets `[data] provider_budget_secs = 60` must get a bounded wait, not a
+/// full fifteen-minute block that only reports the overrun afterwards.
 ///
 /// The budget is derived from the ceiling rather than fixed at 60s so it is
 /// always strictly below it: a lowered `OPS_SUBPROCESS_TIMEOUT_SECS` would
@@ -276,8 +271,8 @@ fn tighter_than_ceiling() -> Duration {
         .min(Duration::from_secs(60))
 }
 
-/// AC #1: an already-spent deadline yields a zero wait, so the subprocess is
-/// reaped immediately instead of being started on a budget with nothing left.
+/// An already-spent deadline yields a zero wait, so the subprocess is reaped
+/// immediately instead of being started on a budget with nothing left.
 #[test]
 fn an_expired_deadline_yields_a_zero_wait() {
     let past = std::time::Instant::now()
@@ -286,8 +281,8 @@ fn an_expired_deadline_yields_a_zero_wait() {
     assert_eq!(llvm_cov_timeout(Some(past)), Duration::ZERO);
 }
 
-/// AC #2, end to end: the budget an operator configures reaches this sizing
-/// through a real `DataRegistry` dispatch. `Context::deadline` is installed by
+/// End to end: the budget an operator configures reaches this sizing through
+/// a real `DataRegistry` dispatch. `Context::deadline` is installed by
 /// `DataRegistry::provide` and nothing else, so this is the only way to pin
 /// that the coverage provider reads the *configured* budget rather than a
 /// value a test handed it.

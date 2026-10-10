@@ -48,10 +48,10 @@ impl DataProvider for RustIdentityProvider {
         let manifest = load_workspace_manifest(ctx)?;
         let cwd = ctx.working_directory_arc().clone();
 
-        // OWN-12 / TASK-1767: named accessors, not `Deref` into the raw
-        // `CargoToml`. The manifest's `[workspace].members` still holds the
-        // unexpanded glob spec, and the type no longer puts it one field
-        // access away from the resolved list.
+        // `LoadedManifest` exposes named accessors rather than `Deref`
+        // into the raw `CargoToml`: the manifest's `[workspace].members`
+        // holds the unexpanded glob spec, kept deliberately separate from
+        // the resolved member list.
         let pkg = manifest.package();
         let ws_pkg = manifest.workspace_package();
         let fields = resolve_identity_fields(pkg, ws_pkg, &cwd);

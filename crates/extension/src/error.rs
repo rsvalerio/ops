@@ -233,6 +233,11 @@ pub enum DataProviderError {
 }
 
 impl DataProviderError {
+    /// Creates a `NotFound` error naming the unregistered provider.
+    ///
+    /// Prefer this over building the variant directly. Warm-up callers
+    /// routinely *expect* this answer for providers outside the active stack
+    /// and ignore it silently — see the variant docs for that contract.
     #[must_use]
     pub fn not_found(name: &str) -> Self {
         Self::NotFound(name.to_string())

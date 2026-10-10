@@ -2,10 +2,7 @@
 //!
 //! `created_date` needs only a UTC civil date plus minute resolution, but the
 //! epoch → civil-date reduction that produces it is exactly the arithmetic
-//! TIME-1 forbids hand-rolling, so it is delegated to `chrono`. That crate is
-//! already compiled into the `ops` binary through `duckdb -> arrow ->
-//! arrow-arith`, so depending on it directly costs no extra build time and no
-//! new supply-chain surface.
+//! TIME-1 forbids hand-rolling, so it is delegated to `chrono`.
 //!
 //! ERR-6: reading the clock is fallible and says so. When the host clock reads
 //! before 1970-01-01 — a container started before NTP steps it, an RTC-less

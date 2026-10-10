@@ -38,9 +38,9 @@ fn flatten_coverage_json_empty_files() {
     assert!(arr.is_empty());
 }
 
-/// ERR-1 / TASK-0595: when llvm-cov emits multiple data[] entries (per-target
-/// merging), every file across all entries must end up in the output. The
-/// previous shape silently dropped data[1..] producing under-reported coverage.
+/// When llvm-cov emits multiple data[] entries (per-target merging), every
+/// file across all entries must end up in the output — dropping data[1..]
+/// would under-report coverage.
 #[test]
 fn flatten_coverage_json_iterates_all_data_entries() {
     let raw = serde_json::json!({
@@ -61,9 +61,8 @@ fn flatten_coverage_json_iterates_all_data_entries() {
     assert_eq!(names, vec!["a.rs", "b.rs"]);
 }
 
-/// ERR-1 / TASK-0595: when `data` has multiple entries, every entry's files
-/// are flattened — the earlier "uses first only" behaviour silently dropped
-/// per-target merge exports.
+/// When `data` has multiple entries, every entry's files are flattened —
+/// per-target merge exports must all reach the output.
 #[test]
 fn flatten_coverage_json_multiple_data_entries_includes_all() {
     let raw = serde_json::json!({
@@ -79,13 +78,12 @@ fn flatten_coverage_json_multiple_data_entries_includes_all() {
     assert_eq!(arr[1]["filename"], "second.rs");
 }
 
-/// ERR-1 / TASK-1021: when `data[]` carries multiple exports listing the
-/// same source filename (per-target merge from a future llvm-cov
-/// version, or a sibling caller passing a multi-export JSON), the
-/// flatten step must dedup by filename so `coverage_summary` SUMs do
-/// not double-count `lines_count` / `lines_covered`. Behaviour
-/// documented: last-write-wins (the most recently merged export
-/// reflects the most up-to-date instrumentation).
+/// When `data[]` carries multiple exports listing the same source filename
+/// (per-target merge, or a sibling caller passing a multi-export JSON), the
+/// flatten step must dedup by filename so `coverage_summary` SUMs do not
+/// double-count `lines_count` / `lines_covered`. The policy is
+/// last-write-wins: the most recently merged export reflects the most
+/// up-to-date instrumentation.
 #[test]
 fn flatten_coverage_json_dedups_overlapping_filenames_across_exports() {
     let raw = serde_json::json!({
@@ -122,8 +120,8 @@ fn flatten_coverage_json_dedups_overlapping_filenames_across_exports() {
     assert!((arr[0]["lines_percent"].as_f64().unwrap() - 80.0).abs() < 0.01);
 }
 
-/// ERR-1 / TASK-1021: dedup must not collapse distinct filenames; only
-/// exact filename matches are merged.
+/// Dedup must not collapse distinct filenames; only exact filename matches
+/// are merged.
 #[test]
 fn flatten_coverage_json_keeps_distinct_filenames_across_exports() {
     let raw = serde_json::json!({

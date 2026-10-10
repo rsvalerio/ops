@@ -222,6 +222,8 @@ pub fn gather_available_commands(
     options
 }
 
+/// The one-line description of `spec` for hook listings: its help text when
+/// it has one, else the rendered command fallback.
 pub fn command_description(spec: &CommandSpec) -> String {
     spec.help().map_or_else(
         || spec.display_cmd_fallback(),

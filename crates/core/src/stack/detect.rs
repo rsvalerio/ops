@@ -1,6 +1,6 @@
 //! Filesystem walk that resolves a [`Stack`] from manifest presence.
 //!
-//! ARCH-1 / TASK-1185: extracted from the monolithic `stack.rs` so the
+//! Extracted from the monolithic `stack.rs` so the
 //! ancestor-walk and per-extension probe code lives separately from the
 //! enum + embedded TOML metadata table.
 
@@ -11,7 +11,7 @@ use strum::IntoEnumIterator;
 
 use super::Stack;
 
-/// PERF-3 (TASK-1410): canonicalize is one stat per path component plus a
+/// Canonicalize is one stat per path component plus a
 /// symlink dereference each level. `Stack::detect` runs once per CLI
 /// dispatch and on a deep cwd / NFS / FUSE mount the syscall fan-out shows
 /// up on the critical-path. Cache the resolved `(start -> canonical)`
@@ -20,7 +20,7 @@ use super::Stack;
 /// debug breadcrumb on error) is preserved on the first miss; subsequent
 /// hits replay the cached resolution.
 ///
-/// PERF-16 / TASK-2093: bounded by [`CANONICALIZE_CACHE_CAP`] with FIFO
+/// Bounded by [`CANONICALIZE_CACHE_CAP`] with FIFO
 /// eviction, mirroring the `OPS_ROOT_CACHE_CAP` shape in `expand.rs`, so a
 /// long-lived embedder rotating start paths cannot grow the map without
 /// bound. Production `ops` calls `detect()` at most a couple of times per
@@ -32,7 +32,7 @@ struct CanonicalizeCache {
     order: VecDeque<PathBuf>,
 }
 
-/// PERF-16 / TASK-2093: maximum number of distinct start paths cached
+/// Maximum number of distinct start paths cached
 /// before evicting the oldest. See [`CanonicalizeCache`] for the rationale.
 const CANONICALIZE_CACHE_CAP: usize = 64;
 
@@ -45,7 +45,7 @@ fn canonicalize_cached(start: &Path) -> PathBuf {
             order: VecDeque::new(),
         })
     });
-    // ERR-5 / TASK-1470 + DUP-3 / TASK-1477: poisoning here is recoverable
+    // Poisoning here is recoverable
     // — the protected cache has no invariant a panicking caller could have
     // broken. Route through the shared `sync::lock_recover` so a single
     // poison does not turn every later `Stack::detect` into a hard panic
@@ -72,7 +72,7 @@ fn canonicalize_cached(start: &Path) -> PathBuf {
     if guard.map.contains_key(start) {
         return resolved;
     }
-    // PERF-16 / TASK-2093: evict the oldest entry when at cap so a new
+    // Evict the oldest entry when at cap so a new
     // distinct start path still fits.
     if guard.map.len() >= CANONICALIZE_CACHE_CAP {
         if let Some(oldest) = guard.order.pop_front() {
@@ -85,10 +85,10 @@ fn canonicalize_cached(start: &Path) -> PathBuf {
     resolved
 }
 
-/// Test seam (PERF-3 / TASK-1410 AC#3): returns `true` once `start` has
-/// been resolved and cached by [`canonicalize_cached`]. The previous
-/// counter-based seam was racy under parallel tests; querying the cache
-/// directly is per-path and unaffected by other tests' `detect()` calls.
+/// Test seam: returns `true` once `start` has been resolved and cached
+/// by [`canonicalize_cached`]. Queries the cache directly rather than a
+/// shared counter, so the answer is per-path and unaffected by other
+/// tests' `detect()` calls.
 #[cfg(test)]
 pub(super) fn canonicalize_cache_contains(start: &Path) -> bool {
     CANONICALIZE_CACHE
@@ -96,7 +96,7 @@ pub(super) fn canonicalize_cache_contains(start: &Path) -> bool {
         .is_some_and(|c| crate::sync::lock_recover(c).map.contains_key(start))
 }
 
-/// PERF-16 / TASK-2093: test seam for the bounded-cache regression test —
+/// Test seam for the bounded-cache regression test —
 /// mirrors `ops_root_cache_len` in `expand.rs`.
 #[cfg(test)]
 pub(super) fn canonicalize_cache_len() -> usize {
@@ -105,7 +105,7 @@ pub(super) fn canonicalize_cache_len() -> usize {
         .map_or(0, |c| crate::sync::lock_recover(c).map.len())
 }
 
-/// PERF-16 / TASK-2093: test seam clearing the cache between assertions —
+/// Test seam clearing the cache between assertions —
 /// mirrors `reset_ops_root_cache` in `expand.rs`.
 #[cfg(test)]
 pub(super) fn reset_canonicalize_cache() {
@@ -116,13 +116,13 @@ pub(super) fn reset_canonicalize_cache() {
     }
 }
 
-/// SEC-25: probe a manifest path with `try_exists` so transient errors are
+/// Probe a manifest path with `try_exists` so transient errors are
 /// logged rather than silently swallowed by `Path::exists`.
 pub(super) fn manifest_present(path: &Path) -> bool {
     match path.try_exists() {
         Ok(present) => present,
         Err(err) => {
-            // ERR-7 (TASK-0945): Debug-format path/error so a CWD-relative
+            // Debug-format path/error so a CWD-relative
             // ancestor probe path containing newlines / ANSI escapes cannot
             // forge log records.
             tracing::debug!(
@@ -154,7 +154,7 @@ pub(super) fn has_manifest_in_dir(stack: Stack, dir: &Path) -> bool {
     }
     let extensions = manifest_extensions(stack);
     if !extensions.is_empty() {
-        // ERR-1 / TASK-1858: the directory-level failure gets the same
+        // The directory-level failure gets the same
         // breadcrumb policy as `manifest_present` above and the per-entry arm
         // below. `if let Ok(..)` dropped it, and this is where the *likely*
         // error lands — EACCES on an unreadable directory during the ancestor
@@ -176,7 +176,7 @@ pub(super) fn has_manifest_in_dir(stack: Stack, dir: &Path) -> bool {
         // Still "no manifest here" so the ancestor walk continues — this is a
         // diagnostics fix, not a behaviour change.
         if let Some(entries) = entries {
-            // ERR-1 (TASK-0935): explicit match so a per-entry IO error
+            // Explicit match so a per-entry IO error
             // leaves a `tracing::debug` breadcrumb instead of silently
             // making the manifest "not found".
             for entry in entries {
@@ -202,12 +202,11 @@ pub(super) fn has_manifest_in_dir(stack: Stack, dir: &Path) -> bool {
     false
 }
 
-/// ERR-5 / TASK-1470: regression — pollute the canonicalize cache via a
+/// Regression — pollute the canonicalize cache via a
 /// thread that panics while holding the lock, then assert the next
-/// `detect()` call still resolves rather than hard-panicking. Pre-fix,
-/// both lock sites in this module used `.expect("canonicalize cache
-/// poisoned")` which would propagate the poison as a panic for the rest
-/// of the process.
+/// `detect()` call still resolves rather than hard-panicking: an
+/// `.expect("canonicalize cache poisoned")` at either lock site would
+/// propagate the poison as a panic for the rest of the process.
 #[cfg(test)]
 #[test]
 fn detect_recovers_from_poisoned_canonicalize_cache() {
@@ -242,7 +241,7 @@ fn detect_recovers_from_poisoned_canonicalize_cache() {
     let _ = detect(dir.path());
 }
 
-/// PERF-16 / TASK-2093: the canonicalize cache must stay bounded under a
+/// The canonicalize cache must stay bounded under a
 /// stream of distinct start paths (e.g. an embedder rotating workspaces).
 /// Insert past the cap and assert the map size clamps to
 /// [`CANONICALIZE_CACHE_CAP`] with FIFO eviction so a new distinct start
@@ -269,13 +268,13 @@ fn canonicalize_cache_is_bounded_with_fifo_eviction() {
 
 /// Walk ancestors of `start` looking for a manifest match.
 ///
-/// SEC-25 / TASK-0902: canonicalize once so the `pop()` walk operates on
+/// Canonicalize once so the `pop()` walk operates on
 /// the resolved chain. Reaching the cwd through a symlink would otherwise
 /// let lexical `..` traversal yield ancestors outside the canonical
 /// workspace, picking up a sibling project's manifests.
 pub(super) fn detect(start: &Path) -> Option<Stack> {
     let mut current = canonicalize_cached(start);
-    // READ-6 (TASK-1404): detection priority follows the `Stack` variant
+    // Detection priority follows the `Stack` variant
     // declaration order; `Generic` has no manifest and is skipped via
     // `manifest_files().is_empty()`.
     for _ in 0..Stack::MAX_DETECT_DEPTH {

@@ -9,6 +9,8 @@ use ops_extension::DataRegistry;
 
 use crate::tty::SelectOption;
 
+/// Run `ops about setup`: interactively choose the about card fields and
+/// persist them to `.ops.toml`.
 pub fn run_about_setup(
     config: &ops_core::config::Config,
     data_registry: &DataRegistry,

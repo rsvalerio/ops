@@ -18,12 +18,12 @@ mod units;
 
 use std::path::Path;
 
-use ops_about::identity::{provide_identity_from_manifest, ParsedManifest};
+use ops_about::identity::{ParsedManifest, provide_identity_from_manifest};
 // The trim, control-character and URL-scheme policies are shared with the
 // Node provider through `ops_about::text_util`, so both stacks are pinned to
 // one definition of each rather than to copies that can drift.
 use ops_about::text_util::{contains_control_chars, has_allowed_url_scheme, trim_nonempty};
-use ops_core::project_identity::{base_about_fields, insert_homepage_field, AboutFieldDef};
+use ops_core::project_identity::{AboutFieldDef, base_about_fields, insert_homepage_field};
 use ops_extension::{Context, DataProvider, DataProviderError, ExtensionType};
 use serde::Deserialize;
 
@@ -32,6 +32,8 @@ const DESCRIPTION: &str = "Python project identity";
 const SHORTNAME: &str = "about-python";
 const DATA_PROVIDER_NAME: &str = "project_identity";
 
+/// Python about extension: registers the `project_identity` and
+/// `project_units` providers over `pyproject.toml`.
 #[non_exhaustive]
 pub struct AboutPythonExtension;
 
@@ -41,7 +43,7 @@ ops_extension::impl_extension! {
     description: DESCRIPTION,
     shortname: SHORTNAME,
     types: ExtensionType::DATASOURCE,
-    stack: Some(ops_extension::Stack::Python),
+    stack: Some(ops_core::stack::Stack::Python),
     data_provider_name: Some(DATA_PROVIDER_NAME),
     register_data_providers: |_self, registry| {
         let _ = registry.register(DATA_PROVIDER_NAME, Box::new(PythonIdentityProvider));
@@ -265,41 +267,47 @@ fn parse_pyproject(project_root: &Path) -> Option<Pyproject> {
         has_tool_uv: raw.tool.as_ref().and_then(|t| t.uv.as_ref()).is_some(),
         ..Pyproject::default()
     };
-
     if let Some(project) = raw.project {
-        let manifest_path = project_root.join("pyproject.toml");
-        out.name = trim_nonempty(project_field::<String>(&project, "name", &manifest_path));
-        out.version = trim_nonempty(project_field::<String>(&project, "version", &manifest_path));
-        out.description = trim_nonempty(project_field::<String>(
-            &project,
-            "description",
-            &manifest_path,
-        ));
-        out.requires_python = trim_nonempty(project_field::<String>(
-            &project,
-            "requires-python",
-            &manifest_path,
-        ));
-        out.license = project_field::<LicenseField>(&project, "license", &manifest_path)
-            .and_then(normalize_license);
-        out.authors = format_authors(
-            project_field::<Vec<RawAuthorEntry>>(&project, "authors", &manifest_path)
-                .unwrap_or_default(),
-            &manifest_path,
-        );
-        if let Some(urls) = project_field::<std::collections::BTreeMap<String, RawUrlEntry>>(
-            &project,
-            "urls",
-            &manifest_path,
-        ) {
-            let urls = filter_url_entries(urls, &manifest_path);
-            let (homepage, repository) = extract_urls(&urls);
-            out.homepage = homepage;
-            out.repository = repository;
-        }
+        apply_project_table(&project, &project_root.join("pyproject.toml"), &mut out);
     }
 
     Some(out)
+}
+
+/// Project the `[project]` table onto `out`, one key at a time.
+///
+/// Each key degrades independently through [`project_field`]: a type
+/// mismatch on one key warns and yields `None` for that field alone, so the
+/// remaining keys still populate the identity.
+fn apply_project_table(project: &toml::Table, manifest_path: &Path, out: &mut Pyproject) {
+    out.name = trim_nonempty(project_field::<String>(project, "name", manifest_path));
+    out.version = trim_nonempty(project_field::<String>(project, "version", manifest_path));
+    out.description = trim_nonempty(project_field::<String>(
+        project,
+        "description",
+        manifest_path,
+    ));
+    out.requires_python = trim_nonempty(project_field::<String>(
+        project,
+        "requires-python",
+        manifest_path,
+    ));
+    out.license = project_field::<LicenseField>(project, "license", manifest_path)
+        .and_then(normalize_license);
+    out.authors = format_authors(
+        project_field::<Vec<RawAuthorEntry>>(project, "authors", manifest_path).unwrap_or_default(),
+        manifest_path,
+    );
+    if let Some(urls) = project_field::<std::collections::BTreeMap<String, RawUrlEntry>>(
+        project,
+        "urls",
+        manifest_path,
+    ) {
+        let urls = filter_url_entries(urls, manifest_path);
+        let (homepage, repository) = extract_urls(&urls);
+        out.homepage = homepage;
+        out.repository = repository;
+    }
 }
 
 /// PEP 621 license can be a string, `{ text = "..." }`, or `{ file = "LICENSE" }`.
@@ -510,8 +518,8 @@ fn normalize_url_key(key: &str) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use ops_about::test_support::capture_tracing;
     use ops_core::project_identity::ProjectIdentity;
+    use ops_core::test_utils::capture_tracing;
 
     /// Write a `pyproject.toml` into a fresh tempdir and run the identity
     /// provider over it. The tempdir / write / `test_context` / deserialise
@@ -871,7 +879,7 @@ Repository = "https://github.com/x/demo"
     /// per-entry degradation `RawAuthorEntry::Unsupported` gives `authors`.
     #[test]
     fn mixed_value_urls_table_keeps_string_siblings_and_warns_per_entry() {
-        let (id, warn_count) = ops_about::test_support::count_warnings(|| {
+        let (id, warn_count) = ops_core::test_utils::count_warnings(|| {
             identity_from(
                 r#"
 [project]

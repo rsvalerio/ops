@@ -86,6 +86,11 @@ pub struct ConfigurableTheme {
 }
 
 impl ConfigurableTheme {
+    /// Build a theme from `config`, precomputing every derived value.
+    ///
+    /// The SGR prefixes, icon-column width, spinner and separator glyph
+    /// widths and the left-pad string are measured once here so the per-row
+    /// render path never re-parses a spec or re-allocates padding.
     #[must_use]
     pub fn new(config: ThemeConfig) -> Self {
         let left_pad_str = " ".repeat(config.left_pad);
@@ -164,6 +169,11 @@ impl ConfigurableTheme {
         self.icon_column_width
     }
 
+    /// Render the plan-header lines announcing `command_ids`.
+    ///
+    /// Always three lines: a blank, the styled header (`Plain` style, or the
+    /// `Tree` style's `┌` header plus a `│` continuation line) and the line
+    /// after it, coloured through the header prefix when the gate is on.
     #[must_use]
     pub fn render_plan_header(&self, command_ids: &[String]) -> Vec<String> {
         // Resolve the colour gate (which reads
@@ -190,6 +200,13 @@ impl ConfigurableTheme {
         }
     }
 
+    /// Render the configured summary separator line, clamped to `columns`.
+    ///
+    /// Returns an empty string when no separator is configured; otherwise
+    /// the line honours the column budget like every other render path —
+    /// a separator wider than the terminal must not wrap past the last
+    /// column. `columns == 0` means "no budget known"; the line is left
+    /// alone.
     #[must_use]
     pub fn render_summary_separator(&self, columns: u16) -> String {
         if self.config.summary_separator.is_empty() {
@@ -317,11 +334,13 @@ impl ConfigurableTheme {
         out
     }
 
-    // `render` uses precomputed SGR prefixes instead of re-parsing the spec
-    // string on every step line. The body lives in
-    // [`render_slot`](Self::render_slot); `render` only maps a `StepLine` onto a
-    // `SlotLine` (icon = status icon, trailing = formatted duration). Keep this
-    // mapping mechanical so the runner output stays byte-identical.
+    /// Render one `StepLine` within `columns`, as the runner prints it.
+    ///
+    /// Uses the precomputed SGR prefixes instead of re-parsing the spec
+    /// string on every step line. The body lives in
+    /// [`render_slot`](Self::render_slot); `render` only maps a `StepLine` onto a
+    /// `SlotLine` (icon = status icon, trailing = formatted duration). Keep this
+    /// mapping mechanical so the runner output stays byte-identical.
     #[must_use]
     pub fn render(&self, step: &StepLine, columns: u16) -> String {
         let is_running = step.status == StepStatus::Running;
@@ -437,8 +456,10 @@ impl ConfigurableTheme {
         budget.saturating_sub(reserved)
     }
 
-    // render_summary uses precomputed SGR prefix. Split so report
-    // footers reuse the same chrome (`render_summary_text`) with their own body.
+    /// Render the run summary line: `Done`/`Failed` plus the elapsed time.
+    ///
+    /// Uses the precomputed SGR prefix. Split so report
+    /// footers reuse the same chrome (`render_summary_text`) with their own body.
     #[must_use]
     pub fn render_summary(&self, success: bool, elapsed_secs: f64) -> String {
         let label = if success { "Done" } else { "Failed" };

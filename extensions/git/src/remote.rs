@@ -4,14 +4,8 @@ use serde::Serialize;
 
 /// Parsed remote-URL fields.
 ///
-/// Bare `String` fields are intentional: this struct is produced by
-/// [`parse_remote_url`] and immediately consumed by `provider.rs`, which serialises
-/// each field individually into a flat `serde_json` object. Newtype wrappers
-/// (`Host`, `Owner`, `RepoName`, `RepoUrl`) were considered for argument-order
-/// safety, but every consumer accesses fields by name (never positionally) and
-/// the JSON serialization shape would have to be hand-rolled to strip the wrapper
-/// — paying complexity for no caller-side win. Revisit if a function takes
-/// multiple of these as positional arguments.
+/// Bare `String` fields, constructed only by [`parse_remote_url`], consumed
+/// by name, and serialised flat into JSON by `provider.rs`.
 ///
 /// Invariant for `url`: normalized URL preserving the original input scheme
 /// (https / http / ssh / git), no credentials, no `.git` suffix. The scheme

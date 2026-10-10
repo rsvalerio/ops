@@ -14,7 +14,7 @@
 
 use std::path::{Path, PathBuf};
 
-use ops_core::test_utils::{git_fixture, git_fixture_os, GitFixtureError};
+use ops_core::test_utils::{GitFixtureError, git_fixture, git_fixture_os};
 
 pub use ops_core::test_utils::skip_precondition;
 

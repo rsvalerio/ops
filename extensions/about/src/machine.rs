@@ -62,7 +62,9 @@ pub struct MachineReport {
 /// One competing build process.
 #[derive(Debug, Clone, PartialEq, Eq, serde::Serialize)]
 pub struct BuildProcess {
+    /// Process id.
     pub pid: u32,
+    /// Process name (final component of `comm`).
     pub name: String,
 }
 
@@ -70,7 +72,9 @@ pub struct BuildProcess {
 /// path, or `default`.
 #[derive(Debug, Clone, PartialEq, Eq, serde::Serialize)]
 pub struct Setting {
+    /// The effective value, rendered as a string.
     pub value: String,
+    /// Where it came from: `env:NAME`, a config file path, or `default`.
     pub source: String,
 }
 
@@ -105,7 +109,9 @@ pub struct CargoSettings {
 /// cargo's default (`true` for `dev`, `false` for `release`).
 #[derive(Debug, Clone, PartialEq, Eq, serde::Serialize)]
 pub struct IncrementalProfiles {
+    /// The `dev` profile's effective `incremental`.
     pub dev: Setting,
+    /// The `release` profile's effective `incremental`.
     pub release: Setting,
 }
 
@@ -113,10 +119,16 @@ pub struct IncrementalProfiles {
 #[derive(Debug, Clone, PartialEq, Eq, serde::Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct FsReport {
+    /// The path reported on, as given (its nearest existing ancestor is
+    /// probed when it does not exist yet).
     pub path: String,
+    /// Filesystem type of the longest matching mount.
     pub fs_type: Option<String>,
+    /// Whether that filesystem is a tmpfs (fails cold builds).
     pub tmpfs: bool,
+    /// Total size, from `df -Pk`.
     pub total_bytes: Option<u64>,
+    /// Available size, from `df -Pk`.
     pub available_bytes: Option<u64>,
 }
 
@@ -128,6 +140,7 @@ pub struct ConfigLayer {
     /// The directory relative config paths resolve against: the parent of
     /// the `.cargo` directory holding the file.
     pub base: PathBuf,
+    /// The parsed TOML table.
     pub table: toml::Table,
 }
 
@@ -149,16 +162,17 @@ pub fn config_layers(cwd: &Path, cargo_home: Option<&Path>) -> Vec<ConfigLayer> 
     let mut layers = Vec::new();
     for dir in &dirs {
         // Cargo reads the legacy extensionless `config` when both exist
-        // (and warns), so it is looked up first.
-        let Some(path) = ["config", "config.toml"]
-            .iter()
-            .map(|name| dir.join(name))
-            .find(|p| p.is_file())
-        else {
-            continue;
-        };
+        // (and warns), so it is tried first. Selection happens through the
+        // read itself, not an `is_file` pre-probe: a probe followed by a
+        // separate read re-resolves the path, and a swap between the two —
+        // a symlink standing in for the probed regular file — is followed
+        // by the read. An unreadable or malformed `config` falls through
+        // to `config.toml`.
         let base = dir.parent().map_or_else(|| dir.clone(), Path::to_path_buf);
-        if let Some(layer) = read_layer(path, base) {
+        let layer = ["config", "config.toml"]
+            .iter()
+            .find_map(|name| read_layer(dir.join(name), base.clone()));
+        if let Some(layer) = layer {
             push_with_includes(layer, &mut layers, &mut Vec::new());
         }
     }
@@ -183,17 +197,25 @@ fn push_with_includes(layer: ConfigLayer, out: &mut Vec<ConfigLayer>, chain: &mu
             tracing::warn!(path = %path.display(), "about/machine: cargo config include cycle");
             continue;
         }
-        if optional && !path.is_file() {
-            continue;
-        }
         // Cargo resolves an included file's relative paths like any other
         // config file's: against the parent of the directory holding it.
         let base = path
             .parent()
             .and_then(Path::parent)
             .map_or_else(PathBuf::new, Path::to_path_buf);
-        if let Some(included) = read_layer(path, base) {
-            push_with_includes(included, out, chain);
+        // Optionality is decided by the read result rather than an
+        // `is_file` pre-probe: the probe and the read re-resolve the path
+        // separately, and a swap between them races. A missing optional
+        // include is an expected miss; a non-optional one that did not
+        // load is warned about here (matching cargo's refusal to load a
+        // config whose required include is absent).
+        match read_layer(path.clone(), base) {
+            Some(included) => push_with_includes(included, out, chain),
+            None if optional => {}
+            None => tracing::warn!(
+                path = %path.display(),
+                "about/machine: cargo config include not loaded"
+            ),
         }
     }
     chain.pop();
@@ -275,7 +297,9 @@ fn include_paths(layer: &ConfigLayer) -> Vec<(PathBuf, bool)> {
 /// `Cargo.toml` when readable.
 #[derive(Debug, Clone, Copy)]
 pub struct WorkspaceRoot<'a> {
+    /// The workspace root directory.
     pub path: &'a Path,
+    /// The parsed workspace `Cargo.toml`, when readable.
     pub manifest: Option<&'a ConfigLayer>,
 }
 
@@ -289,11 +313,14 @@ pub fn workspace_manifest(workspace_root: &Path) -> Option<ConfigLayer> {
     )
 }
 
-/// Read and parse one TOML file; unreadable or malformed files are skipped
-/// with a warning.
+/// Read and parse one TOML file. A file that is simply absent is a silent
+/// `None` — absence is an expected miss for config-layer discovery and
+/// optional includes; unreadable or malformed files are skipped with a
+/// warning.
 fn read_layer(path: PathBuf, base: PathBuf) -> Option<ConfigLayer> {
     let text = match std::fs::read_to_string(&path) {
         Ok(text) => text,
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => return None,
         Err(e) => {
             tracing::warn!(path = %path.display(), error = %e, "about/machine: reading cargo config failed");
             return None;
@@ -608,7 +635,53 @@ pub fn resolve_cargo_settings(
         from_env(env, &["CARGO_BUILD_JOBS"]).or_else(|| from_config(layers, &["build", "jobs"]));
     let rustc_wrapper = from_env(env, &["RUSTC_WRAPPER", "CARGO_BUILD_RUSTC_WRAPPER"])
         .or_else(|| from_config(layers, &["build", "rustc-wrapper"]));
-    let target_dir = from_env(env, &["CARGO_TARGET_DIR", "CARGO_BUILD_TARGET_DIR"])
+    let target_dir = resolve_target_dir(layers, env, cwd, workspace_root);
+    // Cargo: `CARGO_INCREMENTAL` overrides `build.incremental`, which
+    // overrides every profile's `incremental`.
+    let global_incremental = from_env(env, &["CARGO_INCREMENTAL", "CARGO_BUILD_INCREMENTAL"])
+        .or_else(|| from_config(layers, &["build", "incremental"]));
+    let incremental_profiles = global_incremental.is_none().then(|| IncrementalProfiles {
+        dev: profile_incremental(layers, env, manifest, "dev", true),
+        release: profile_incremental(layers, env, manifest, "release", false),
+    });
+    let incremental = global_incremental.unwrap_or_else(|| Setting {
+        value: "profile".to_string(),
+        source: "default".to_string(),
+    });
+    let (linker, target_rustflags) = resolve_target_tables(layers, env, host.as_deref(), &host_cfg);
+    let rustflags = resolve_rustflags(
+        env,
+        target_rustflags,
+        from_config_list(layers, &["build", "rustflags"]),
+    );
+    CargoSettings {
+        host,
+        jobs,
+        rustc_wrapper,
+        target_dir,
+        linker,
+        rustflags,
+        incremental,
+        incremental_profiles,
+        config_files: layers
+            .iter()
+            .map(|l| l.path.display().to_string())
+            .collect(),
+    }
+}
+
+/// The effective target dir: `CARGO_TARGET_DIR` / `CARGO_BUILD_TARGET_DIR`
+/// resolved against `cwd`, then `build.target-dir` resolved against the
+/// layer's base, then `<workspace_root>/target` — cargo anchors the default
+/// at the workspace root, not the cwd — falling back to `cwd` when the root
+/// is unknown.
+fn resolve_target_dir(
+    layers: &[ConfigLayer],
+    env: &dyn Fn(&str) -> Option<String>,
+    cwd: &Path,
+    workspace_root: Option<&Path>,
+) -> Setting {
+    from_env(env, &["CARGO_TARGET_DIR", "CARGO_BUILD_TARGET_DIR"])
         .map(|s| Setting {
             value: cwd.join(&s.value).display().to_string(),
             source: s.source,
@@ -626,26 +699,20 @@ pub fn resolve_cargo_settings(
                 .display()
                 .to_string(),
             source: "default".to_string(),
-        });
-    // Cargo: `CARGO_INCREMENTAL` overrides `build.incremental`, which
-    // overrides every profile's `incremental`.
-    let global_incremental = from_env(env, &["CARGO_INCREMENTAL", "CARGO_BUILD_INCREMENTAL"])
-        .or_else(|| from_config(layers, &["build", "incremental"]));
-    let incremental_profiles = global_incremental.is_none().then(|| IncrementalProfiles {
-        dev: profile_incremental(layers, env, manifest, "dev", true),
-        release: profile_incremental(layers, env, manifest, "release", false),
-    });
-    let incremental = global_incremental.unwrap_or_else(|| Setting {
-        value: "profile".to_string(),
-        source: "default".to_string(),
-    });
-    let (linker, target_rustflags) = resolve_target_tables(layers, env, host.as_deref(), &host_cfg);
-    // Cargo merges config files at load, so a rejected merge fails every
-    // build whatever env overrides are set: report no rustflags at all.
-    let rustflags = match (
-        target_rustflags,
-        from_config_list(layers, &["build", "rustflags"]),
-    ) {
+        })
+}
+
+/// The effective rustflags: `CARGO_ENCODED_RUSTFLAGS` > `RUSTFLAGS` >
+/// target-table rustflags > `CARGO_BUILD_RUSTFLAGS` > `build.rustflags`.
+///
+/// Cargo merges config files at load, so a rejected merge fails every
+/// build whatever env overrides are set: report no rustflags at all.
+fn resolve_rustflags(
+    env: &dyn Fn(&str) -> Option<String>,
+    target_rustflags: Result<Option<Setting>, String>,
+    build_rustflags: Result<Option<Setting>, String>,
+) -> Option<Setting> {
+    match (target_rustflags, build_rustflags) {
         (Ok(target_rustflags), Ok(build_rustflags)) => env("CARGO_ENCODED_RUSTFLAGS")
             .filter(|v| !v.is_empty())
             .map(|v| Setting {
@@ -660,20 +727,6 @@ pub fn resolve_cargo_settings(
             tracing::warn!(error = %e, "about/machine: invalid rustflags config");
             None
         }
-    };
-    CargoSettings {
-        host,
-        jobs,
-        rustc_wrapper,
-        target_dir,
-        linker,
-        rustflags,
-        incremental,
-        incremental_profiles,
-        config_files: layers
-            .iter()
-            .map(|l| l.path.display().to_string())
-            .collect(),
     }
 }
 
@@ -963,6 +1016,33 @@ fn sccache_stats() -> Option<serde_json::Value> {
         .ok()
 }
 
+/// Probe `rustc` for the host triple (`-vV`) and its cfg atoms
+/// (`--print cfg`); both probes degrade to empty on failure.
+fn probe_host_target(rustc: &std::ffi::OsStr) -> HostTarget {
+    HostTarget {
+        triple: probe(Command::new(rustc).arg("-vV"), "rustc -vV")
+            .and_then(|t| parse_rustc_host(&t)),
+        cfg: probe(
+            Command::new(rustc).args(["--print", "cfg"]),
+            "rustc --print cfg",
+        )
+        .map(|t| parse_rustc_cfg(&t))
+        .unwrap_or_default(),
+    }
+}
+
+/// The workspace root of the build at `cwd`, from
+/// `cargo locate-project --workspace`.
+fn locate_workspace_root(cargo_bin: &std::ffi::OsStr, cwd: &Path) -> Option<PathBuf> {
+    probe(
+        Command::new(cargo_bin)
+            .args(["locate-project", "--workspace", "--message-format", "plain"])
+            .current_dir(cwd),
+        "cargo locate-project --workspace",
+    )
+    .and_then(|t| parse_locate_project(&t))
+}
+
 /// Collect the machine report for a build rooted at `cwd`.
 #[must_use]
 pub fn collect_machine_report(cwd: &Path) -> MachineReport {
@@ -972,24 +1052,9 @@ pub fn collect_machine_report(cwd: &Path) -> MachineReport {
         .or_else(|| std::env::var_os("HOME").map(|h| PathBuf::from(h).join(".cargo")));
     let layers = config_layers(cwd, cargo_home.as_deref());
     let rustc = std::env::var_os("RUSTC").unwrap_or_else(|| "rustc".into());
-    let host = HostTarget {
-        triple: probe(Command::new(&rustc).arg("-vV"), "rustc -vV")
-            .and_then(|t| parse_rustc_host(&t)),
-        cfg: probe(
-            Command::new(&rustc).args(["--print", "cfg"]),
-            "rustc --print cfg",
-        )
-        .map(|t| parse_rustc_cfg(&t))
-        .unwrap_or_default(),
-    };
+    let host = probe_host_target(&rustc);
     let cargo_bin = std::env::var_os("CARGO").unwrap_or_else(|| "cargo".into());
-    let workspace_root = probe(
-        Command::new(cargo_bin)
-            .args(["locate-project", "--workspace", "--message-format", "plain"])
-            .current_dir(cwd),
-        "cargo locate-project --workspace",
-    )
-    .and_then(|t| parse_locate_project(&t));
+    let workspace_root = locate_workspace_root(&cargo_bin, cwd);
     let manifest = workspace_root.as_deref().and_then(workspace_manifest);
     let workspace = workspace_root.as_deref().map(|path| WorkspaceRoot {
         path,

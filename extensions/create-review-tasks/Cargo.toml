@@ -2,7 +2,7 @@
 name = "ops-create-review-tasks"
 publish = false
 version.workspace = true
-edition.workspace = true
+edition = "2024"
 license.workspace = true
 
 [dependencies]
@@ -10,7 +10,6 @@ ops-core = { workspace = true }
 ops-extension = { workspace = true }
 ops-backlog = { workspace = true }
 anyhow = { workspace = true }
-chrono = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }
 tracing = { workspace = true }

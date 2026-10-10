@@ -1,16 +1,11 @@
 //! Bounded process cache of `cwd → resolved workspace root`.
 //!
-//! PERF-1 / TASK-2028: CL-3 / TASK-1762 keyed the typed-manifest cache by the
-//! *resolved* workspace root so two cwds inside one workspace share one entry.
-//! That forced the resolution to happen **before** the cache probe, so
-//! `find_workspace_root_strict` — an ancestor walk that `fs::canonicalize`s
-//! each candidate's parent under the SEC-25 / TASK-1204 hardening — ran on
-//! every `load_workspace_manifest` call, cache hits included. Four providers
-//! hit the cache per `ops about` run against the same cwd, so the walk ran four
-//! times over for one answer that cannot change between them.
-//!
-//! Memoizing the walk restores the cheap hit path (`HashMap` probe plus the
-//! freshness `stat`) while leaving the typed-manifest cache keyed by the root.
+//! Resolving a workspace root is a canonicalizing ancestor walk
+//! (`find_workspace_root_strict`), and several providers per `ops about` run
+//! need it against the same cwd — an answer that cannot change between them
+//! within one run. This cache memoizes the walk per cwd so only the first
+//! caller pays it: later callers get a `HashMap` probe plus the freshness
+//! `stat`, and the typed-manifest cache stays keyed by the resolved root.
 //!
 //! # Cache contract
 //!

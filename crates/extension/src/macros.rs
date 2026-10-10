@@ -43,7 +43,7 @@ macro_rules! impl_extension {
             $types
         }
         $(
-            fn stack(&self) -> Option<$crate::Stack> {
+            fn stack(&self) -> Option<::ops_core::stack::Stack> {
                 $stack
             }
         )?

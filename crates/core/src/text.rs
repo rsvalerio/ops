@@ -5,7 +5,7 @@ use std::io::Read;
 use std::path::Path;
 use std::sync::OnceLock;
 
-/// SEC-33 (TASK-0932): default cap on manifest-style file reads
+/// Default cap on manifest-style file reads
 /// (`Cargo.toml`, `go.mod`, `package.json`, `requirements.txt`, …).
 ///
 /// `ops` runs in user-controlled working directories where an adversarial
@@ -18,40 +18,40 @@ pub const MANIFEST_MAX_BYTES_DEFAULT: u64 = 4 * 1024 * 1024;
 /// that fail to parse or are zero fall back to [`MANIFEST_MAX_BYTES_DEFAULT`].
 pub const MANIFEST_MAX_BYTES_ENV: &str = "OPS_MANIFEST_MAX_BYTES";
 
-/// PERF-3 / TASK-1055: resolve the env-driven cap once per process. The
-/// value is process-global and constant for a run, so the prior per-call
-/// `std::env::var` lookup contended on the global env lock under parallel
-/// stack-detection probes (which call this from `read_capped_to_string`
-/// for every manifest read). `OnceLock` keeps the override / fallback
-/// semantics (parsed at first use) without re-reading. Mirrors
-/// `crates/runner/src/command/results.rs::output_byte_cap` (TASK-0542).
+/// Resolve the env-driven cap once per process. The
+/// value is process-global and constant for a run, and parallel
+/// stack-detection probes call this from `read_capped_to_string` for every
+/// manifest read — a per-call `std::env::var` lookup would contend on the
+/// global env lock. `OnceLock` keeps the override / fallback semantics
+/// (parsed at first use) without re-reading. Mirrors
+/// `crates/runner/src/command/results.rs::output_byte_cap`.
 static MANIFEST_MAX_BYTES: OnceLock<u64> = OnceLock::new();
 
-/// ERR-1 / TASK-1443: hard upper bound for any byte-cap env knob (1 GiB).
+/// Hard upper bound for any byte-cap env knob (1 GiB).
 ///
 /// `parse_byte_cap_env` clamps values larger than this to the bound and emits
 /// a one-shot warn from [`cached_byte_cap_env`]. Without the clamp, a
 /// misconfigured `OPS_MANIFEST_MAX_BYTES=18446744073709551615` (`u64::MAX`)
 /// combined with `read_capped_to_string_with`'s `cap.saturating_add(1)` and
-/// `Read::take(limit)` reduces the SEC-33 cap contract to "unlimited" with
+/// `Read::take(limit)` reduces the read cap to "unlimited" with
 /// no breadcrumb — the inverse of what operators set the variable for.
 /// Mirrors the clamp pattern at
 /// `crates/runner/src/subprocess.rs::parse_subprocess_timeout`'s
 /// `MAX_TIMEOUT_SECS`.
 pub const BYTE_CAP_ENV_MAX: u64 = 1024 * 1024 * 1024;
 
-/// ERR-2 / TASK-0840 (mirrored for TASK-1055): pure parser for a positive
+/// Pure parser for a positive
 /// "byte cap from env" value. Returns the resolved cap and, when the input
 /// was present-but-unusable, a human message describing the fallback so the
 /// caller can emit a `tracing::warn!` outside the unit-test path. Factored
 /// out so the fallback semantics are unit-testable without poking the
 /// process-global `OnceLock`.
 ///
-/// ARCH-9 / TASK-1228: shared with [`cached_byte_cap_env`]. Both
+/// Shared with [`cached_byte_cap_env`]. Both
 /// `manifest_max_bytes` and `ops_toml_max_bytes` route through this so the
 /// "unset / unparseable / zero / valid" matrix has one implementation.
 ///
-/// ERR-1 / TASK-1443: values above [`BYTE_CAP_ENV_MAX`] are clamped (with a
+/// Values above [`BYTE_CAP_ENV_MAX`] are clamped (with a
 /// one-shot warn surfaced via the returned message) so a misconfigured
 /// `u64::MAX` cannot silently defeat the cap contract.
 pub(crate) fn parse_byte_cap_env(
@@ -89,15 +89,14 @@ pub(crate) fn parse_byte_cap_env(
     }
 }
 
-/// ARCH-9 / TASK-1228: resolve a positive byte-cap-from-env value once per
+/// Resolve a positive byte-cap-from-env value once per
 /// process.
 ///
 /// Both [`manifest_max_bytes`] and
 /// `crate::config::loader::ops_toml_max_bytes` (and any future sibling caps)
 /// route through this so the cache discipline, fallback semantics, and
 /// one-shot warn diagnostic stay aligned across the codebase. The shared shape
-/// mirrors `crates/runner/src/command/results.rs::output_byte_cap`
-/// (TASK-0542).
+/// mirrors `crates/runner/src/command/results.rs::output_byte_cap`.
 ///
 /// Unset / zero / unparseable values fall back to `default` with a one-shot
 /// `tracing::warn!` emitted from the `OnceLock` initialiser. Tests that
@@ -151,15 +150,15 @@ pub fn manifest_max_bytes() -> u64 {
 ///    between two steps cannot redirect a later one outside the chain
 ///    (`..` and `/` are resolved by the kernel and are never symlinks).
 ///
-/// SEC-25 (TASK-1442 / TASK-1461 / TASK-1468) and SEC-14 (TASK-1810): `ops`
-/// is invoked on third-party repos; an adversarial repo can plant
+/// `ops` is invoked on third-party repos; an
+/// adversarial repo can plant
 /// `package.json -> /etc/passwd` (or `.ops.toml -> /etc/shadow`) and leak
 /// privileged file contents through diagnostics. A bare `O_NOFOLLOW` guards
 /// only the last component, so `members = ["evil"]` plus a symlink
 /// `evil -> /etc` still reached `/etc/Cargo.toml`. The component walk closes
 /// that one directory level up.
 ///
-/// SEC-33 (TASK-1853): the final open also carries `O_NONBLOCK` and the
+/// The final open also carries `O_NONBLOCK` and the
 /// descriptor's type is checked with `fstat(2)` **before** any read, so a
 /// `mkfifo go.mod` in a hostile checkout cannot wedge `ops` inside `open(2)`
 /// waiting for a writer. `O_NONBLOCK` is cleared once the type check passes,
@@ -180,31 +179,22 @@ pub fn manifest_max_bytes() -> u64 {
 /// between the probe and the open is TOCTOU-prone. That is acceptable because
 /// the adversarial-repo threat model is exercised on Unix.
 ///
-/// # Decision: no root-anchored variant (ARCH-2 / TASK-2038)
-///
 /// Refusing a symlink at *any* component also refuses a legitimately
 /// symlinked directory above the workspace root (a monorepo that symlinks a
-/// shared subproject, an embedder that hands `ops` an unresolved root). The
-/// alternative considered was a second entry point that takes a verified
-/// workspace-root descriptor and applies the strict walk only to the suffix
-/// beneath it, permitting symlinks in the operator-controlled prefix.
+/// shared subproject, an embedder that hands `ops` an unresolved root). A
+/// caller that must support such a prefix canonicalizes its root once and
+/// joins repo-supplied components onto the resolved path: the prefix is
+/// then symlink-free by construction, and the strict walk applies exactly
+/// to the attacker-influenced suffix — the boundary
+/// `std::env::current_dir()` and `find_workspace_root` already give their
+/// callers.
 ///
-/// That variant is **not** added. The same boundary is already obtainable
-/// without new API and without a second contract to keep honest: a caller
-/// canonicalizes its root once, then joins repo-supplied components onto the
-/// resolved path. The prefix is then symlink-free by construction and the
-/// strict walk applies exactly to the attacker-influenced suffix — which is
-/// what `std::env::current_dir()` already gives every cwd-derived path, and
-/// what `find_workspace_root` gives its callers. A root-anchored variant
-/// would duplicate that with a `dirfd` lifetime to manage and a second
-/// refusal surface to document, for callers that can fix the problem one
-/// `canonicalize` earlier.
-///
-/// What the decision costs is explainability, so the refusal at an
-/// intermediate component now emits a `tracing::warn!` breadcrumb naming the
-/// offending component (see `unix_open::refused_symlink_component`): a
-/// degraded about card or a failed `.ops.toml` layer is traceable to the
-/// symlink that caused it instead of surfacing as a bare `InvalidInput`.
+/// Because such a refusal degrades output in ways that are hard to trace,
+/// the refusal at an intermediate component emits a `tracing::warn!`
+/// breadcrumb naming the offending component (see
+/// `unix_open::refused_symlink_component`): a degraded about card or a
+/// failed `.ops.toml` layer is traceable to the symlink that caused it
+/// instead of surfacing as a bare `InvalidInput`.
 pub(crate) fn open_refusing_symlinks(path: &Path) -> std::io::Result<std::fs::File> {
     #[cfg(unix)]
     {
@@ -241,15 +231,15 @@ fn refused_non_regular(path: &Path) -> std::io::Error {
     )
 }
 
-/// SEC-14 / TASK-1810 + SEC-33 / TASK-1853: component-by-component `openat`
+/// Component-by-component `openat`
 /// walk backing [`open_refusing_symlinks`] on Unix.
 ///
-/// # Miri (UNSAFE-10 / TASK-2087)
+/// # Miri
 ///
 /// This walk cannot run under Miri: every descriptor operation here is a
 /// direct foreign call into libc (`openat`, `fstat`, `fcntl`) for which
-/// Miri provides no shims. The substitute evidence required by UNSAFE-10
-/// is (1) the per-block `// SAFETY:` prose on each call below and (2) the
+/// Miri provides no shims. The substitute evidence is (1) the per-block
+/// `// SAFETY:` prose on each call below and (2) the
 /// symlink / FIFO / non-regular refusal tests in this file's test module,
 /// which exercise every refusal branch of the walk under the ordinary Test
 /// job. The pure-memory unsafe of this crate's atomic-write path
@@ -289,7 +279,7 @@ mod unix_open {
     ///
     /// On Linux that is exactly what `O_PATH` is for: it yields a handle
     /// usable for path resolution without opening the directory for reading,
-    /// so the walk no longer demands read permission on every ancestor of the
+    /// so the walk demands only search permission on every ancestor of the
     /// manifest (search permission — `+x` — is enough, which is what plain
     /// path resolution requires). Both operations the walk performs on these
     /// descriptors are explicitly supported for `O_PATH` handles: `fstat(2)`
@@ -379,9 +369,8 @@ mod unix_open {
         })
     }
 
-    /// ARCH-2 / TASK-2038: the refusal surface for an **intermediate**
-    /// component, which is the one that changed behaviour when the single
-    /// `O_NOFOLLOW` open became a component walk. A symlinked directory above
+    /// The refusal surface for an **intermediate**
+    /// component. A symlinked directory above
     /// the file is often benign (a monorepo symlinking a shared subproject,
     /// an embedder passing an unresolved root), and the caller usually
     /// degrades rather than fails — an about-card field disappears, a
@@ -390,13 +379,13 @@ mod unix_open {
     /// is byte-for-byte the one [`super::refused_symlink`] produces, so the
     /// documented `InvalidInput` surface is unchanged.
     fn refused_symlink_component(path: &Path, name: &CStr, kind: &'static str) -> io::Error {
-        // ERR-7: Debug-format path and component so an attacker-controlled
-        // repo path containing newlines / ANSI escapes cannot forge log lines.
+        // Debug-format path and component so an attacker-controlled repo
+        // path containing newlines / ANSI escapes cannot forge log lines.
         tracing::warn!(
             path = ?path.display(),
             component = ?name.to_string_lossy(),
             refusal = kind,
-            "ARCH-2 / TASK-2038: refusing to read through a symlinked directory component; the file is treated as unreadable, so anything derived from it (about-card fields, .ops.toml layers) is degraded. Canonicalize the root before joining repo-supplied components, or replace the symlink with a real directory."
+            "refusing to read through a symlinked directory component; the file is treated as unreadable, so anything derived from it (about-card fields, .ops.toml layers) is degraded. Canonicalize the root before joining repo-supplied components, or replace the symlink with a real directory."
         );
         super::refused_symlink(path)
     }
@@ -463,7 +452,7 @@ mod unix_open {
                 e
             }
         })?;
-        // SEC-33 / TASK-1853: type-check before the caller reads a byte.
+        // Type-check before the caller reads a byte.
         match file_type_bits(&fd)? {
             libc::S_IFREG => {}
             libc::S_IFDIR => return Err(io::Error::from_raw_os_error(libc::EISDIR)),
@@ -497,11 +486,11 @@ pub fn read_capped_to_string(path: &Path) -> std::io::Result<String> {
 /// Used by unit tests to exercise the cap-handling behaviour without
 /// depending on the process-global memoised [`manifest_max_bytes`] value.
 fn read_capped_to_string_with(path: &Path, cap: u64) -> std::io::Result<String> {
-    // ERR-4 / TASK-1393: attach the path to io::Error propagation so a
+    // Attach the path to io::Error propagation so a
     // bare `PermissionDenied`/`NotFound`/`IsADirectory` surfaces with the
     // file name, matching the oversize InvalidData branch below.
     let mut file = open_refusing_symlinks(path).map_err(|e| with_path(&e, path))?;
-    // ERR-2 / TASK-1855: read **bytes**, not a `String`. `read_to_string`
+    // Read **bytes**, not a `String`. `read_to_string`
     // decodes the truncated `cap + 1` window and fails with "stream did not
     // contain valid UTF-8" whenever byte `cap` lands inside a multi-byte
     // sequence — which any oversized non-ASCII file does routinely. That
@@ -541,7 +530,7 @@ fn with_path(e: &std::io::Error, path: &Path) -> std::io::Error {
     std::io::Error::new(e.kind(), format!("{}: {e}", path.display()))
 }
 
-/// SEC-2 / TASK-1238 / TASK-2116: whether `c` is a codepoint that must not
+/// Whether `c` is a codepoint that must not
 /// reach an operator-facing surface (About cards, JSON, log records) from
 /// untrusted input.
 ///
@@ -556,25 +545,24 @@ fn with_path(e: &std::io::Error, path: &Path) -> std::io::Error {
 /// `Zp` (line / paragraph separators) are pinned explicitly since they are
 /// not part of `Cf`.
 ///
-/// DUP-2 / TASK-2116: promoted from `ops-git`'s strictest copy so
-/// `ops-git`, `ops-about`, and every About provider that renders
-/// manifest-controlled text reject the same set. Each call site keeps its
-/// own drop-versus-escape decision; this predicate only defines what is
-/// rejected.
+/// Shared with `ops-git` so `ops-git`, `ops-about`, and every About
+/// provider that renders manifest-controlled text reject the same set.
+/// Each call site keeps its own drop-versus-escape decision; this
+/// predicate only defines what is rejected.
 #[must_use]
 pub const fn is_unsafe_display_char(c: char) -> bool {
     if c.is_control() {
         return true;
     }
     // The Cf (format) category, exhaustive, generated from the Unicode 16.0
-    // UCD (`DerivedGeneralCategory.txt`, lines tagged `Cf`). A hand-picked
-    // "most-abused" subset was here before; it missed e.g. U+061C (Arabic
-    // Letter Mark), a live bidi spoof, and every Unicode bump silently
-    // widened the gap. Regenerate the ranges from the UCD when Unicode
-    // moves; until then this list is the whole category, so the bidi
-    // overrides and isolates, the zero-width family, BOM, the interlinear
-    // annotation controls and the tag characters are all covered by
-    // construction rather than by enumeration.
+    // UCD (`DerivedGeneralCategory.txt`, lines tagged `Cf`) — the whole
+    // category rather than a hand-picked "most-abused" subset, which would
+    // miss e.g. U+061C (Arabic Letter Mark), a live bidi spoof, and
+    // silently widen the gap at every Unicode bump. Regenerate the ranges
+    // from the UCD when Unicode moves; this list is the whole category, so
+    // the bidi overrides and isolates, the zero-width family, BOM, the
+    // interlinear annotation controls and the tag characters are all
+    // covered by construction rather than by enumeration.
     matches!(
         c,
         '\u{00AD}' // SOFT HYPHEN
@@ -608,7 +596,7 @@ pub const fn is_unsafe_display_char(c: char) -> bool {
 /// String-level form of [`is_unsafe_display_char`]: whether `raw` carries any
 /// codepoint the display-safety policy rejects.
 ///
-/// SEC-2 / TASK-2116: callers drop the whole field on rejection (never strip
+/// Callers drop the whole field on rejection (never strip
 /// — stripping silently concatenates the attacker-controlled tail into a
 /// clickable value) so the field surfaces as missing.
 #[must_use]
@@ -637,7 +625,7 @@ pub fn format_number(n: i64) -> String {
         );
         return format!("-{}", insert_thousands_separators(&magnitude));
     }
-    // PERF-3 / TASK-1432: sub-1000 magnitudes (the dominant case in
+    // Sub-1000 magnitudes (the dominant case in
     // language-breakdown / about-card rendering) reuse the digit string
     // directly instead of paying a second allocation via `to_string()`.
     let digits = n.to_string();
@@ -647,7 +635,7 @@ pub fn format_number(n: i64) -> String {
     }
 }
 
-/// PERF-3 (TASK-1065): single forward pass over ASCII digits, no second
+/// Single forward pass over ASCII digits, no second
 /// allocation or `chars().rev()` round-trip. Callers in render hot paths
 /// (`format_number` from About-card / table rendering) hit this for every
 /// numeric cell. The input is always the decimal rendering of a non-negative
@@ -663,7 +651,7 @@ fn insert_thousands_separators(digits: &str) -> Cow<'_, str> {
     let bytes = digits.as_bytes();
     let len = bytes.len();
     if len <= 3 {
-        // PERF-3 / TASK-1432: zero-comma fast path returns the input
+        // Zero-comma fast path returns the input
         // verbatim — callers (`format_number`) can reuse the digit string
         // they already own without a second allocation.
         return Cow::Borrowed(digits);
@@ -709,7 +697,7 @@ pub fn dir_name(path: &Path) -> &str {
 /// unreadable" without changing log levels. `NotFound` remains silent — a missing
 /// manifest is a normal condition for optional stacks.
 ///
-/// SEC-33 (TASK-0932): the read is byte-capped via [`read_capped_to_string`] so
+/// The read is byte-capped via [`read_capped_to_string`] so
 /// an adversarial manifest cannot OOM the process before the first callback.
 pub fn for_each_trimmed_line<F: FnMut(&str)>(path: &Path, f: F) -> Option<()> {
     for_each_trimmed_line_with(path, manifest_max_bytes(), f)
@@ -723,7 +711,7 @@ fn for_each_trimmed_line_with<F: FnMut(&str)>(path: &Path, cap: u64, mut f: F) -
         Ok(c) => c,
         Err(e) if e.kind() == std::io::ErrorKind::NotFound => return None,
         Err(e) => {
-            // ERR-7 (TASK-0944): Debug-format path/error so a manifest path
+            // Debug-format path/error so a manifest path
             // under user-controlled CWD (`go.mod`, `gradle.properties`,
             // `requirements.txt`, ...) containing newlines or ANSI escapes
             // cannot forge log lines.

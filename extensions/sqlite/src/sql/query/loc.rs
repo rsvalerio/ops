@@ -71,11 +71,9 @@ pub fn query_project_loc(db: &Sqlite) -> anyhow::Result<i64> {
 ///
 /// READ-5 / TASK-0362: languages whose `loc_pct` rounds below 0.1% are
 /// omitted, *including* the case where every language is sub-threshold.
-/// Previously this function fell back to the top entry when the filtered
-/// set would otherwise be empty, which contradicted the documented
-/// "omit < 0.1%" contract and made it impossible for callers to
-/// distinguish "no tokei data" from "every language tiny". The empty
-/// return is now the only signal, matching the doc.
+/// The empty return is the signal callers rely on to distinguish
+/// "no tokei data" from "every language tiny", matching the documented
+/// "omit < 0.1%" contract.
 ///
 /// # Errors
 ///

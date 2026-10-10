@@ -5,8 +5,8 @@ use std::path::{Path, PathBuf};
 use std::sync::{Mutex, OnceLock, PoisonError};
 
 use ops_about::text_util::trim_nonempty;
-use serde::de::DeserializeOwned;
 use serde::Deserialize;
+use serde::de::DeserializeOwned;
 
 use super::repo_url::{append_tree_directory, normalize_repo_url};
 
@@ -540,7 +540,7 @@ mod tests {
             std::fs::write(dir.path().join("package.json"), manifest).expect("write");
 
             let (logs, parsed) =
-                ops_about::test_support::capture_tracing(tracing::Level::WARN, || {
+                ops_core::test_utils::capture_tracing(tracing::Level::WARN, || {
                     parse_package_json(dir.path())
                 });
 

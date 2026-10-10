@@ -13,7 +13,7 @@
 use std::fmt::Write as _;
 use std::io::Write;
 
-/// SEC-21 (TASK-0981): sanitise a single line for stderr emission.
+/// Sanitise a single line for stderr emission.
 ///
 /// # Character classes neutralised
 ///
@@ -32,7 +32,7 @@ use std::io::Write;
 /// responsibility of the caller — they are split before reaching this helper
 /// so each physical line gets its own `ops: <level>:` prefix.
 ///
-/// CL-3 / TASK-2019: passing tab through is safe for this channel — stderr
+/// Passing tab through is safe for this channel — stderr
 /// diagnostics are unframed, so a tab stop bends nothing — but it is *not*
 /// safe to measure, since `UnicodeWidthChar` scores it as zero columns while
 /// a terminal advances to the next 8-column stop. Sanitised text destined for
@@ -41,7 +41,7 @@ use std::io::Write;
 /// measurement and painting agree. This helper is an *escaping* guarantee, not
 /// a measurement one.
 ///
-/// SEC-21 / TASK-1843 records two deliberate decisions:
+/// The escape policy records two deliberate decisions:
 ///
 /// 1. **C1 is escaped even though not every emulator acts on it.** `U+009B`
 ///    is the single-character form of `ESC [` and `U+009D` of `ESC ]`;
@@ -52,15 +52,15 @@ use std::io::Write;
 /// 2. **Bidi controls are neutralised, not passed through.** They are the
 ///    Trojan-Source vector: they reorder rendered text without changing the
 ///    bytes, so a `--dry-run` audit preview could display a command line that
-///    is not the one that will run. DUP-2 / TASK-2250 widened the escaped
-///    set from just the reordering controls to every remaining codepoint the
-///    shared [`crate::text::is_unsafe_display_char`] policy rejects (the
-///    whole `Cf` category plus `Zl` / `Zp`), so this channel can no longer
-///    drift from the drop-based surfaces. Bidi *marks* and other invisible
+///    is not the one that will run. The escaped set is every codepoint
+///    the shared [`crate::text::is_unsafe_display_char`] policy rejects
+///    (the whole `Cf` category plus `Zl` / `Zp`), not just the reordering
+///    controls, so this channel cannot drift from the drop-based surfaces.
+///    Bidi *marks* and other invisible
 ///    formatting characters are escaped as text rather than stripped — this
 ///    is still not general Unicode confusable filtering.
 ///
-/// SEC-21 / TASK-1184: also exposed for the `ops --dry-run` audit channel,
+/// Also exposed for the `ops --dry-run` audit channel,
 /// which prints (env-expanded) program / args / env values / cwd verbatim
 /// to stdout. An adversarial `.ops.toml` value (or `${VAR}` expansion of
 /// one) containing ANSI clear-screen / cursor-move sequences can otherwise
@@ -76,7 +76,7 @@ pub fn sanitise_line(line: &str, out: &mut String) {
             c if c.is_control() => {
                 let _ = write!(out, "\\x{:02x}", u32::from(c));
             }
-            // DUP-2 / TASK-2250: every other codepoint the shared
+            // Every other codepoint the shared
             // display-safety policy rejects — the `Cf` format category and
             // the `Zl` / `Zp` separators — is escaped rather than passed
             // through, so this channel cannot drift from the policy the
@@ -96,14 +96,14 @@ fn emit(level: &str, message: &str) {
 /// Writer-generic core of [`emit`]: renders `message` through the SEC-21 line-
 /// split + sanitise pipeline into `w`. Production callers pass a locked stderr
 /// handle; tests pass a `Vec<u8>` so they can assert on the exact bytes the
-/// production pipeline produces (DUP-1 TASK-1031).
+/// production pipeline produces.
 pub(crate) fn emit_to<W: Write>(level: &str, message: &str, w: &mut W) {
-    // SEC-21 (TASK-0981): split on `\n` so a multi-line anyhow chain renders
+    // Split on `\n` so a multi-line anyhow chain renders
     // as continuation lines indented under the prefix, and an attacker-
     // injected `\n` cannot forge a top-level `ops: <level>:` line. Each
     // physical line is then sanitised to neutralise ANSI / control bytes.
     //
-    // PERF-3 / TASK-1422: render the full output into a single buffer and
+    // Render the full output into a single buffer and
     // emit it with one `write_all`. Stderr is unbuffered when piped (the
     // typical CI / capture path), so a writeln-per-line loop issued N
     // separate syscalls and risked interleaving with parallel writers.

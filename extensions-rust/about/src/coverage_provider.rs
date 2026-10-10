@@ -262,8 +262,8 @@ mod cache_tests {
         MAX_COVERAGE_CACHE_ENTRIES,
     };
     use ops_about::lru::VICTIM_QUEUE_SLACK;
-    use ops_about::test_support::{capture_tracing, pin_global_dispatcher, TracingBuf};
     use ops_core::sync::lock_recover;
+    use ops_core::test_utils::{capture_tracing, pin_global_dispatcher, TracingBuf};
     use ops_sqlite::Sqlite;
     use std::sync::Arc;
 
@@ -533,7 +533,7 @@ mod tests {
     #[serial_test::serial(typed_manifest_cache, project_coverage_cache)]
     fn non_utf8_workspace_root_skips_per_crate_coverage_with_warn() {
         use super::RustCoverageProvider;
-        use ops_about::test_support::capture_tracing;
+        use ops_core::test_utils::capture_tracing;
         use ops_extension::{Context, DataProvider};
         use ops_sqlite::Sqlite;
         use std::ffi::OsStr;
@@ -597,21 +597,20 @@ mod tests {
     }
 }
 
-/// TEST-5 / TASK-2154: happy-path coverage for `per_crate_units` and
-/// `RustCoverageProvider::provide`. Before this module the provider was
-/// driven by exactly one test — the non-UTF-8-root skip branch — so the
-/// row→unit mapping, the project total, and the default arms of `provide`
-/// had no test at all. These tests mirror the coverage shape the sibling
-/// `deps_provider` tests already establish (no-DB default, query-failure
-/// fallback with warn, multi-row mapping) and are platform-independent.
+/// Happy-path coverage for `per_crate_units` and
+/// `RustCoverageProvider::provide`: the row→unit mapping, the project
+/// total, and the default arms of `provide`. These tests mirror the
+/// coverage shape the sibling `deps_provider` tests establish (no-DB
+/// default, query-failure fallback with warn, multi-row mapping) and are
+/// platform-independent.
 ///
-/// Cross-stack note (TASK-2154 AC #4): the Go twin of this coverage shape
-/// lives in `extensions-go/about` (`units_provider_*` tests, TASK-2184) —
-/// keep the two stacks' provider-level coverage consistent.
+/// Cross-stack note: the Go twin of this coverage shape lives in
+/// `extensions-go/about` (`units_provider_*` tests) — keep the two stacks'
+/// provider-level coverage consistent.
 #[cfg(test)]
 mod provider_tests {
     use super::{per_crate_units, RustCoverageProvider};
-    use ops_about::test_support::capture_tracing;
+    use ops_core::test_utils::capture_tracing;
     use ops_extension::{Context, DataProvider};
     use ops_sqlite::Sqlite;
     use std::path::PathBuf;

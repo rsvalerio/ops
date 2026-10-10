@@ -520,10 +520,9 @@ mod tests {
         let dir = tempfile::tempdir().expect("tempdir");
         let member = "a\nb\u{1b}[31mc/*";
         // The parent does not exist, so `read_dir` fails and the warn fires.
-        let (logs, expanded) =
-            ops_about::test_support::capture_tracing(tracing::Level::WARN, || {
-                expand_member_glob(member, &dir.path().join("a\nb\u{1b}[31mc"), dir.path())
-            });
+        let (logs, expanded) = ops_core::test_utils::capture_tracing(tracing::Level::WARN, || {
+            expand_member_glob(member, &dir.path().join("a\nb\u{1b}[31mc"), dir.path())
+        });
         assert!(expanded.is_empty(), "unreadable prefix expands to nothing");
 
         assert!(
@@ -1030,7 +1029,7 @@ mod tests {
             "crates/foo?".to_string(),
         ];
         let (logs, excluded_literally) =
-            ops_about::test_support::capture_tracing(tracing::Level::WARN, || {
+            ops_core::test_utils::capture_tracing(tracing::Level::WARN, || {
                 let set = ExcludeSet::from_entries(&exclude);
                 (
                     set.excludes("crates/**"),

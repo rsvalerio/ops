@@ -5,6 +5,8 @@ use std::path::Path;
 
 use ops_core::config::{edit_ops_toml, ensure_table, insert_command};
 
+/// Run `ops new-command`: interactively prompt for a command and append it
+/// to `.ops.toml`.
 pub fn run_new_command(workspace_root: &Path) -> anyhow::Result<()> {
     run_new_command_with_tty_check(workspace_root, crate::tty::is_prompt_tty)
 }
@@ -54,7 +56,7 @@ where
     Ok(())
 }
 
-/// READ-5 (TASK-1355): writer-injection seam for the
+/// Writer-injection seam for the
 /// `Added command '…' to .ops.toml` success line. The interactive entry
 /// point passes `io::stdout()`; tests pass a `Vec<u8>` so the
 /// confirmation is observable without spawning the binary.
@@ -71,7 +73,7 @@ fn write_added_confirmation<W: Write>(w: &mut W, name: &str) -> io::Result<()> {
 /// flag) are all rejected so the on-disk config never ends up with an entry
 /// the rest of the tool cannot reach.
 ///
-/// ERR-10 (TASK-1316): returns `anyhow::Result<()>` so callers compose
+/// Returns `anyhow::Result<()>` so callers compose
 /// directly via `?` and the inquire validator can format the error chain
 /// with `{e:#}` without an intermediate `String` round-trip.
 pub fn validate_command_name(name: &str) -> anyhow::Result<()> {
@@ -199,7 +201,7 @@ mod tests {
         assert_eq!(args, vec![r#"a "quoted" word"#]);
     }
 
-    /// READ-5 (TASK-1355): the success-line writer seam is observable
+    /// The success-line writer seam is observable
     /// from a captured `Vec<u8>` without spawning the binary.
     #[test]
     fn write_added_confirmation_renders_name_into_writer() {
@@ -438,7 +440,7 @@ theme = "classic"
             .contains("interactive terminal"));
     }
 
-    /// TASK-1746: Esc / Ctrl-C at this command's picker is a user cancel —
+    /// Esc / Ctrl-C at this command's picker is a user cancel —
     /// it must reach `main` as the shared cancellation error (exit 130, no
     /// `ops: error:` frame), not as a plain anyhow failure exiting 1.
     #[test]
@@ -461,7 +463,7 @@ theme = "classic"
         }
     }
 
-    /// TASK-1746: Esc / Ctrl-C at this command's picker is a user cancel —
+    /// Esc / Ctrl-C at this command's picker is a user cancel —
     /// it must reach `main` as the shared cancellation error (exit 130, no
     /// `ops: error:` frame), not as a plain anyhow failure exiting 1.
     #[test]

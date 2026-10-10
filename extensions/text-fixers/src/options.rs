@@ -12,7 +12,13 @@ pub use ops_core::bounded_read::DEFAULT_MAX_BYTES;
 /// Options for both fixers.
 #[derive(Debug, Clone)]
 pub struct FixerOptions {
+    /// Directory the fixers walk for candidate files. Per-file paths in the
+    /// report are rendered relative to it where possible.
     pub root: PathBuf,
+    /// Select only the files git tracks, via `git ls-files` from `root`.
+    /// When git is unavailable or `root` is not a repository, discovery
+    /// silently widens to a full filesystem walk and records the reason in
+    /// the report's fallback notice; see [`crate::discovery`].
     pub tracked_only: bool,
     /// Per-file size cap; see [`DEFAULT_MAX_BYTES`]. Enforced on the read
     /// itself, not by a preceding `metadata()` call.

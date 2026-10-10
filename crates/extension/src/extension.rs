@@ -3,7 +3,7 @@
 use crate::data::DataRegistry;
 use indexmap::IndexMap;
 use ops_core::config::{CommandId, CommandSpec, Config};
-pub use ops_core::stack::Stack;
+use ops_core::stack::Stack;
 use std::path::Path;
 
 /// Factory function that creates an extension instance given config and workspace root.
@@ -93,11 +93,19 @@ bitflags::bitflags! {
 }
 
 impl ExtensionType {
+    /// Returns `true` when the `DATASOURCE` flag is set.
+    ///
+    /// Equivalent to `self.contains(Self::DATASOURCE)`; use it for readable
+    /// filtering instead of spelling out the flag test.
     #[must_use]
     pub const fn is_datasource(self) -> bool {
         self.contains(Self::DATASOURCE)
     }
 
+    /// Returns `true` when the `COMMAND` flag is set.
+    ///
+    /// Equivalent to `self.contains(Self::COMMAND)`; use it for readable
+    /// filtering instead of spelling out the flag test.
     #[must_use]
     pub const fn is_command(self) -> bool {
         self.contains(Self::COMMAND)
@@ -249,6 +257,10 @@ impl std::ops::Deref for CommandRegistry {
 impl IntoIterator for CommandRegistry {
     type Item = (CommandId, CommandSpec);
     type IntoIter = indexmap::map::IntoIter<CommandId, CommandSpec>;
+    /// Consumes the registry, yielding `(id, spec)` pairs in insertion order.
+    ///
+    /// The duplicate-insert audit trail is dropped: it belongs to the
+    /// registration phase, which `insert` callers drain explicitly.
     fn into_iter(self) -> Self::IntoIter {
         self.inner.into_iter()
     }
@@ -257,6 +269,10 @@ impl IntoIterator for CommandRegistry {
 impl<'a> IntoIterator for &'a CommandRegistry {
     type Item = (&'a CommandId, &'a CommandSpec);
     type IntoIter = indexmap::map::Iter<'a, CommandId, CommandSpec>;
+    /// Iterates the registry by reference, yielding `(&id, &spec)` in insertion order.
+    ///
+    /// Ordering matches registration order (config commands first, then
+    /// extension commands), which is what `--list` rendering relies on.
     fn into_iter(self) -> Self::IntoIter {
         self.inner.iter()
     }
@@ -322,30 +338,66 @@ pub trait Extension: Send + Sync {
     /// also the value [`Extension::shortname`] defaults to.
     fn name(&self) -> &'static str;
 
+    /// Returns a one-line human-readable description of the extension.
+    ///
+    /// Defaults to `""`. Override when the extension appears in listings
+    /// meant for humans (`ops about extensions`) and the bare name is not
+    /// self-explanatory; leave the default for internal extensions that
+    /// never surface there.
     fn description(&self) -> &'static str {
         ""
     }
 
+    /// Returns the short display name used in compact CLI output.
+    ///
+    /// Defaults to [`Extension::name`]. Override only when the registry
+    /// identifier is too long or too technical for tabular output and a
+    /// shorter stable label exists.
     fn shortname(&self) -> &'static str {
         self.name()
     }
 
+    /// Returns the extension's capability flags (datasource, command, both).
+    ///
+    /// Defaults to `ExtensionType::empty()`. Override to declare what the
+    /// extension registers — the flags drive `ops about extensions`
+    /// filtering and the CLI wiring order.
     fn types(&self) -> ExtensionType {
         ExtensionType::empty()
     }
 
+    /// Returns the command ids this extension registers, for listings only.
+    ///
+    /// Defaults to `&[]`. Override iff `register_commands` inserts commands,
+    /// keeping the list in sync with what registration actually inserts —
+    /// the registration itself is the source of truth.
     fn command_names(&self) -> &'static [&'static str] {
         &[]
     }
 
+    /// Returns the name of the data provider this extension registers.
+    ///
+    /// Defaults to `None`. Override iff `register_data_providers` registers
+    /// exactly one provider, returning the name it registers under; the
+    /// value feeds the data-provider audit trail.
     fn data_provider_name(&self) -> Option<&'static str> {
         None
     }
 
+    /// Returns the toolchain stack this extension is specific to, if any.
+    ///
+    /// Defaults to `None` (stack-agnostic). Override when the extension only
+    /// makes sense for one stack (e.g. Rust) so callers can filter or flag
+    /// it in stack-aware listings.
     fn stack(&self) -> Option<Stack> {
         None
     }
 
+    /// Aggregates the accessor methods into an [`ExtensionInfo`] snapshot.
+    ///
+    /// Defaults to calling each accessor in turn; override only to add
+    /// fields the accessors cannot express — the aggregate must stay
+    /// consistent with the individual methods.
     fn info(&self) -> ExtensionInfo {
         ExtensionInfo {
             name: self.name(),

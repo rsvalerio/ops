@@ -1558,7 +1558,6 @@ name = "ops-create-review-tasks"
 version = "0.80.1"
 dependencies = [
  "anyhow",
- "chrono",
  "ops-backlog",
  "ops-core",
  "ops-extension",
@@ -1733,6 +1732,7 @@ dependencies = [
  "anyhow",
  "ignore",
  "linkme",
+ "ops-core",
  "ops-extension",
  "ops-sqlite",
  "proc-macro2",

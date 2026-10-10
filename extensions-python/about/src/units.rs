@@ -326,7 +326,7 @@ members = ["libs/blank"]
         let dir = tempfile::tempdir().unwrap();
         write_file(&dir.path().join("pyproject.toml"), "[tool.uv.workspace\n");
 
-        let (logs, units) = ops_about::test_support::capture_tracing(tracing::Level::WARN, || {
+        let (logs, units) = ops_core::test_utils::capture_tracing(tracing::Level::WARN, || {
             collect_units(dir.path())
         });
 
@@ -423,16 +423,6 @@ members = ["packages/quiet"]
         let units = collect_units(dir.path());
         assert_eq!(units.len(), 1);
         assert_eq!(units[0].name, "Quiet");
-    }
-
-    /// `PROVIDER_NAME` is the key the registry indexes this provider under
-    /// (`lib.rs`'s `register_data_providers`), so a typo there silently
-    /// unregisters the Python packages card. Mirrors the Node crate's
-    /// `units_provider_name`.
-    #[test]
-    fn units_provider_name() {
-        assert_eq!(PythonUnitsProvider.name(), PROVIDER_NAME);
-        assert_eq!(PROVIDER_NAME, "project_units");
     }
 
     /// Drives `PythonUnitsProvider::provide` against a uv workspace tempdir

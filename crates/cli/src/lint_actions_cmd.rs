@@ -1,4 +1,4 @@
-//! `ops lint-actions`: the GitHub workflow supply-chain policy (TASK-2328).
+//! `ops lint-actions`: the GitHub workflow supply-chain policy.
 //!
 //! Two rules over every `.github/workflows/*.yml` / `*.yaml` and every
 //! composite action manifest (`action.yml` / `action.yaml` at the root, or one

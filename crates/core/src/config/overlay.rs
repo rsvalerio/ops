@@ -1,9 +1,8 @@
 //! Overlay structs used during hierarchical config merging.
 //!
-//! Extracted from `config/mod.rs` (ARCH-1 / TASK-0343). Each `*Overlay`
-//! mirrors one field of [`super::Config`] with all leaves wrapped in
-//! `Option`, so that an overlay only overwrites values explicitly set in
-//! the higher-priority source.
+//! Each `*Overlay` mirrors one field of [`super::Config`] with all leaves
+//! wrapped in `Option`, so that an overlay only overwrites values
+//! explicitly set in the higher-priority source.
 
 use std::path::PathBuf;
 
@@ -56,9 +55,9 @@ pub struct ConfigOverlay {
 /// Generate a single-field overlay struct (DUP-3 collapse).
 ///
 /// `ExtensionConfigOverlay`, `AboutConfigOverlay`, and `DataConfigOverlay`
-/// all followed the same shape: one `Option<T>` field plus
-/// `serde(deny_unknown_fields)`. Adding another single-field overlay used to
-/// mean copy-pasting the entire struct + derives + doc comment; the macro
+/// all follow the same shape: one `Option<T>` field plus
+/// `serde(deny_unknown_fields)`. Adding another single-field overlay is one
+/// macro invocation instead of a copy-pasted struct + derives + doc comment; the macro
 /// keeps the surface identical across all three so drift can't creep in.
 macro_rules! single_field_overlay {
     ($( #[$meta:meta] )* $name:ident, $field:ident : $ty:ty) => {

@@ -6,7 +6,7 @@ use ops_extension::{Context, DataProvider, DataProviderError, DataProviderSchema
 use serde::Serialize;
 
 use crate::config;
-use crate::remote::{parse_remote_url, RemoteInfo};
+use crate::remote::{RemoteInfo, parse_remote_url};
 
 /// Registry key of the `git_info` provider this crate registers.
 pub const DATA_PROVIDER_NAME: &str = "git_info";

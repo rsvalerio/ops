@@ -26,7 +26,7 @@ pub use deadline::{Deadline, DEFAULT_PROVIDER_BUDGET};
 pub use error::{DataProviderError, SharedError};
 pub use extension::{
     sort_compiled_extensions, CommandRegistry, Extension, ExtensionFactory, ExtensionInfo,
-    ExtensionType, Stack, EXTENSION_REGISTRY,
+    ExtensionType, EXTENSION_REGISTRY,
 };
 
 #[cfg(feature = "sqlite")]

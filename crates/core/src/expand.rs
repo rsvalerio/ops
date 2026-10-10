@@ -9,7 +9,7 @@ use std::fmt;
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex, OnceLock};
 
-/// ERR-1 / TASK-0450: a non-recoverable variable expansion failure.
+/// A non-recoverable variable expansion failure.
 ///
 /// Returned from [`Variables::try_expand`] when `shellexpand` reports an
 /// error such as `VarError::NotUnicode` — the underlying env var exists but
@@ -34,7 +34,7 @@ impl fmt::Display for ExpandError {
 }
 
 impl std::error::Error for ExpandError {
-    // ERR-7 / TASK-0835: expose the underlying VarError so callers and
+    // Expose the underlying VarError so callers and
     // tracing formatters can walk the chain via `{:#}` / `Error::source`,
     // instead of getting a flattened string snapshot.
     fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
@@ -62,7 +62,7 @@ impl std::error::Error for ExpandError {
 #[derive(Debug, Clone)]
 pub struct Variables {
     builtins: HashMap<&'static str, Arc<str>>,
-    /// SEC-31 / TASK-1854: when `Some`, every [`Variables::try_expand`]
+    /// When `Some`, every [`Variables::try_expand`]
     /// call fails with this error instead of consulting `builtins` or the
     /// process environment. Set by [`Variables::poisoned`], the fail-closed
     /// fallback for infallible construction sites.
@@ -75,13 +75,13 @@ pub struct Variables {
 /// `Variables::from_env` call so command-spec expansion avoids the syscall +
 /// allocation on every invocation.
 ///
-/// PERF-3 / TASK-0967: stored as `Arc<str>` so `from_env` can hand out a
+/// Stored as `Arc<str>` so `from_env` can hand out a
 /// reference-counted clone in O(1) instead of allocating a fresh `String`
 /// on every call. CLI entry / hooks / `RunBeforeCommit` invoke `from_env`
 /// outside the parallel-runtime Arc-cloning boundary, so amortised
 /// per-call allocation matters here.
 ///
-/// READ-5 / TASK-1068: **process-lifetime contract.** This `OnceLock` is
+/// **process-lifetime contract.** This `OnceLock` is
 /// populated on the first `Variables::from_env` call and never refreshed.
 /// Any later `std::env::set_var("TMPDIR", ...)` is **invisible** to
 /// subsequent `Variables::from_env` callers — they will keep observing the
@@ -90,7 +90,7 @@ pub struct Variables {
 /// first `from_env` call in the process; otherwise the swap is silently
 /// shadowed. The cache is intentional (see `from_env_reuses_cached_tmpdir_arc`
 /// and the `tmpdir_swap_after_from_env_is_not_observed` regression test).
-/// ERR-1 / TASK-1805: only a *successfully validated* UTF-8 rendering is
+/// Only a *successfully validated* UTF-8 rendering is
 /// ever stored here, so one non-UTF-8 lookup cannot poison the cache for
 /// the rest of the process.
 static TMPDIR_DISPLAY: std::sync::OnceLock<Arc<str>> = std::sync::OnceLock::new();
@@ -110,12 +110,12 @@ thread_local! {
         const { std::cell::RefCell::new(None) };
 }
 
-/// ERR-1 / TASK-1805: render the process temporary directory as an
+/// Render the process temporary directory as an
 /// `Arc<str>`, refusing to lossy-render a non-UTF-8 path.
 ///
 /// `Path::display()` substitutes U+FFFD for non-UTF-8 bytes, so the previous
 /// `temp_dir().display().to_string()` silently handed a corrupted `TMPDIR`
-/// to `try_expand` — the strict path whose whole purpose (TASK-0450) is to
+/// to `try_expand` — the strict path whose whole purpose is to
 /// refuse exactly that — and cached the corruption for the process lifetime.
 /// Mirrors the `OPS_ROOT` branch in [`cached_ops_root_arc`].
 ///
@@ -169,7 +169,7 @@ impl Drop for TmpdirOverrideGuard {
     }
 }
 
-/// PERF-3 / TASK-1183: per-`ops_root` cache for the rendered `OPS_ROOT`
+/// Per-`ops_root` cache for the rendered `OPS_ROOT`
 /// value so repeat `from_env` calls hand out an `Arc::clone` instead of
 /// re-allocating the rendered `String` and a fresh `Arc<str>` inner.
 /// `from_env` is invoked from hooks (`run-before-commit`,
@@ -182,7 +182,7 @@ impl Drop for TmpdirOverrideGuard {
 /// at one entry; embedders that legitimately switch roots get their
 /// rendered values memoised independently.
 ///
-/// CONC-1 / TASK-1418: bounded by [`OPS_ROOT_CACHE_CAP`] with FIFO
+/// Bounded by [`OPS_ROOT_CACHE_CAP`] with FIFO
 /// eviction so a long-lived embedder (or test binary running thousands of
 /// distinct workspace roots) cannot grow the map without bound. The cap
 /// is comfortably above any realistic workload — a single process working
@@ -193,7 +193,7 @@ struct OpsRootCache {
     order: VecDeque<PathBuf>,
 }
 
-/// CONC-1 / TASK-1418: maximum number of distinct workspace roots cached
+/// Maximum number of distinct workspace roots cached
 /// before evicting the oldest. See [`OpsRootCache`] for the rationale.
 pub(crate) const OPS_ROOT_CACHE_CAP: usize = 64;
 
@@ -210,7 +210,7 @@ fn ops_root_cache() -> &'static Mutex<OpsRootCache> {
 /// Resolve the `OPS_ROOT` `Arc<str>` for a workspace root, caching the
 /// rendered value and canonicalising the key so equivalent paths collapse.
 ///
-/// ERR-1 / TASK-1424: the cache key is the canonicalised path when
+/// The cache key is the canonicalised path when
 /// `std::fs::canonicalize` succeeds, so two semantically equal roots
 /// (`./project` vs `/abs/project`, symlinked vs canonical) yield the same
 /// `Arc<str>` and the same `OPS_ROOT` substitution. `canonicalize` requires
@@ -218,18 +218,18 @@ fn ops_root_cache() -> &'static Mutex<OpsRootCache> {
 /// repos that have not yet been written to disk) we fall back to the raw
 /// `Path` so callers still get a stable Arc within the process.
 fn cached_ops_root_arc(ops_root: &Path) -> Result<Arc<str>, ExpandError> {
-    // CONC-1 / TASK-1183: lock contention is negligible because `from_env`
+    // Lock contention is negligible because `from_env`
     // is not called from the parallel exec hot loop (that path constructs
     // `Variables` once and clones the Arc from the runner).
     //
-    // PERF-3 / TASK-1465: probe the cache by raw `&Path` first; the
+    // Probe the cache by raw `&Path` first; the
     // canonicalize syscall now runs **only on miss** to install the alias
     // entry. The hit path therefore costs one lock + hashmap lookup with no
     // `realpath(2)` traversal — relevant for hook callers
     // (`run-before-commit`/`run-before-push`) and dry-run that invoke
     // `from_env` repeatedly on the same workspace root.
     let cache = ops_root_cache();
-    // CONC-9 / TASK-1183 + DUP-3 / TASK-1477: lock poisoning here is
+    // Lock poisoning here is
     // recoverable — every state of the protected map is valid. Centralised
     // in `sync::lock_recover` so the policy stays uniform across the four
     // expand/detect sites that share it.
@@ -240,16 +240,16 @@ fn cached_ops_root_arc(ops_root: &Path) -> Result<Arc<str>, ExpandError> {
     // Miss: now pay the canonicalize syscall (so symlink + raw paths still
     // collapse onto a single cached value) and install both keys.
     drop(guard);
-    // TEST-15 / TASK-1465: increment immediately before the syscall so the
+    // Increment immediately before the syscall so the
     // counter measures exactly what the hit path must avoid.
     #[cfg(test)]
     record_canonicalize_call(ops_root);
     let canonical = std::fs::canonicalize(ops_root).ok();
     let key: &Path = canonical.as_deref().unwrap_or(ops_root);
-    // ERR-1 / TASK-1462: refuse to lossy-render a non-UTF-8 workspace
+    // Refuse to lossy-render a non-UTF-8 workspace
     // root through `Path::display()` — that path silently substitutes
     // U+FFFD and the resulting `Arc<str>` flows into argv/cwd/env through
-    // `try_expand`, defeating the strict-expand contract (TASK-0450).
+    // `try_expand`, defeating the strict-expand contract.
     // Surface as an [`ExpandError`] carrying
     // `VarError::NotUnicode` so callers see the failure instead of
     // materialising a corrupt OPS_ROOT.
@@ -263,7 +263,7 @@ fn cached_ops_root_arc(ops_root: &Path) -> Result<Arc<str>, ExpandError> {
     if let Some(existing) = guard.map.get(ops_root) {
         return Ok(Arc::clone(existing));
     }
-    // ERR-1 / TASK-1424: if the canonical form already lives in the cache
+    // If the canonical form already lives in the cache
     // (the alias-by-canonical scenario — e.g. a previous call resolved
     // the real path directly), reuse that `Arc<str>` so a real + symlink
     // pair collapses to one rendering. Without this branch the new entry
@@ -272,7 +272,7 @@ fn cached_ops_root_arc(ops_root: &Path) -> Result<Arc<str>, ExpandError> {
         .map
         .get(key)
         .map_or_else(|| Arc::<str>::from(rendered), Arc::clone);
-    // CONC-1 / TASK-1418: evict the oldest entry when at cap so the new
+    // Evict the oldest entry when at cap so the new
     // distinct root still fits.
     if guard.map.len() >= OPS_ROOT_CACHE_CAP {
         if let Some(oldest) = guard.order.pop_front() {
@@ -294,7 +294,7 @@ fn cached_ops_root_arc(ops_root: &Path) -> Result<Arc<str>, ExpandError> {
         guard.map.insert(canon_owned.clone(), Arc::clone(&arc));
         guard.order.push_back(canon_owned);
     }
-    // CONC-1: release the cache lock before returning; the `Arc` is already
+    // Release the cache lock before returning; the `Arc` is already
     // cloned out and the caller does no further cache work.
     drop(guard);
     Ok(arc)
@@ -302,7 +302,7 @@ fn cached_ops_root_arc(ops_root: &Path) -> Result<Arc<str>, ExpandError> {
 
 #[cfg(test)]
 pub(crate) fn ops_root_cache_len() -> usize {
-    // ERR-1 / TASK-1474: test seams must surface mutex poison rather than
+    // Test seams must surface mutex poison rather than
     // silently returning a "successful" count. `lock_recover_warn` clears
     // the poison and emits a `tracing::warn!` so a flake caused by a
     // sibling panic shows up at the right level instead of looking like a
@@ -316,21 +316,21 @@ pub(crate) fn ops_root_cache_len() -> usize {
 #[cfg(test)]
 pub(crate) fn reset_ops_root_cache() {
     let cache = ops_root_cache();
-    // DUP-3 / TASK-1477: shared poison-recover policy.
+    // Shared poison-recover policy.
     let mut guard = crate::sync::lock_recover(cache);
     guard.map.clear();
     guard.order.clear();
 }
 
-/// TEST-15 / TASK-1465: counts `std::fs::canonicalize` calls issued by
+/// Counts `std::fs::canonicalize` calls issued by
 /// [`cached_ops_root_arc`].
 ///
 /// The hit-path contract ("a warm `from_env` must not reach `realpath(2)`")
-/// used to be asserted by timing 200k calls against a one-second budget. That
-/// is a wall-clock assertion in a debug build: it passes on an idle machine and
-/// fails under CPU contention, which is exactly the condition a CI runner is
-/// in. Counting the syscall proves the same property deterministically, in a
-/// thousandth of the iterations, and is immune to how loaded the host is.
+/// cannot be proven by timing: a wall-clock budget for 200k calls passes on
+/// an idle machine and fails under CPU contention, which is exactly the
+/// condition a CI runner is in. Counting the syscall proves the same
+/// property deterministically, in a thousandth of the iterations, and is
+/// immune to how loaded the host is.
 ///
 /// Mirrors the existing seam style (`ops_root_cache_len`,
 /// `stack::detect::canonicalize_cache_contains`).
@@ -365,7 +365,7 @@ pub(crate) fn canonicalize_call_count(path: &Path) -> usize {
         .unwrap_or(0)
 }
 
-/// PERF-3 / TASK-1411 + CONC-1 / TASK-1444: maximum number of distinct
+/// Maximum number of distinct
 /// `var_name` entries [`expand_warn_seen`] holds before evicting the
 /// oldest. The dedup contract is "warn-once-per-distinct-name", so a stream
 /// of adversarial distinct names (e.g. a CI matrix that emits
@@ -377,7 +377,7 @@ pub(crate) fn canonicalize_call_count(path: &Path) -> usize {
 /// name still surfaces a single user-facing warn.
 pub(crate) const EXPAND_WARN_SEEN_CAP: usize = 256;
 
-/// ERR-1 / TASK-1224 + TASK-1411 / TASK-1444: track the set of variable
+/// Track the set of variable
 /// names for which [`Variables::expand`] has already surfaced a user-facing
 /// warning, so repeated failures on the same variable do not flood stderr.
 /// The underlying `tracing::warn!` continues to fire for every failure, so
@@ -430,14 +430,14 @@ fn expand_warn_seen() -> &'static Mutex<ExpandWarnSeen> {
 /// hint, not a correctness invariant.
 fn mark_expand_warn_emitted(var_name: &str) -> bool {
     let cache = expand_warn_seen();
-    // DUP-3 / TASK-1477: shared poison-recover policy.
+    // Shared poison-recover policy.
     let mut seen = crate::sync::lock_recover(cache);
     seen.insert(var_name)
 }
 
 #[cfg(test)]
 pub(crate) fn expand_warn_seen_count() -> usize {
-    // ERR-1 / TASK-1474: surface mutex poison via `lock_recover_warn` so a
+    // Surface mutex poison via `lock_recover_warn` so a
     // sibling-panic flake is visible at the recovery site rather than
     // masquerading as a later count mismatch.
     let cache = expand_warn_seen();
@@ -449,7 +449,7 @@ pub(crate) fn expand_warn_seen_count() -> usize {
 #[cfg(test)]
 pub(crate) fn reset_expand_warn_seen() {
     let cache = expand_warn_seen();
-    // DUP-3 / TASK-1477: shared poison-recover policy.
+    // Shared poison-recover policy.
     let mut seen = crate::sync::lock_recover(cache);
     seen.set.clear();
     seen.order.clear();
@@ -458,7 +458,7 @@ pub(crate) fn reset_expand_warn_seen() {
 impl Variables {
     /// Construct a `Variables` that fails **every** expansion with `err`.
     ///
-    /// SEC-31 / TASK-1854: the fallback for a construction site that cannot
+    /// The fallback for a construction site that cannot
     /// return a `Result` (e.g. `CommandRunner::from_arc_config` when
     /// [`Self::from_env`] rejects a non-UTF-8 workspace root). The previous
     /// fallback handed back an empty-builtins `Variables`, which was
@@ -481,7 +481,7 @@ impl Variables {
 
     /// Build from environment and workspace root.
     ///
-    /// READ-5 / TASK-1068: `TMPDIR` is read from the process environment at
+    /// `TMPDIR` is read from the process environment at
     /// most once per process and cached in [`TMPDIR_DISPLAY`]. Setting
     /// `TMPDIR` via `std::env::set_var` *after* the first call here will
     /// **not** be observed by later callers. If a test needs a specific
@@ -491,12 +491,12 @@ impl Variables {
     /// # Errors
     ///
     /// An [`ExpandError`] carrying `VarError::NotUnicode` if `ops_root` or
-    /// the temporary directory (`TMPDIR`) is not valid Unicode. ERR-1 /
-    /// TASK-1462 and ERR-1 / TASK-1805: surfaced rather than lossily
-    /// rendered so a corrupt path cannot flow into a spawned subprocess.
+    /// the temporary directory (`TMPDIR`) is not valid Unicode. Surfaced
+    /// rather than lossily rendered so a corrupt path cannot flow into a
+    /// spawned subprocess.
     pub fn from_env(ops_root: &Path) -> Result<Self, ExpandError> {
         let mut builtins: HashMap<&'static str, Arc<str>> = HashMap::with_capacity(2);
-        // ERR-1 / TASK-1462: surface a non-UTF-8 workspace root as a typed
+        // Surface a non-UTF-8 workspace root as a typed
         // `ExpandError` instead of lossy-rendering through
         // `Path::display()`. Strict callers (the command-build path)
         // propagate this so a corrupt OPS_ROOT cannot silently flow into
@@ -516,7 +516,7 @@ impl Variables {
     /// where rendering "${VAR}" is acceptable. **Strict callers (the path
     /// that materialises arguments into argv, cwd, or env) MUST use
     /// [`Self::try_expand`]** so a non-UTF-8 env var fails loudly instead
-    /// of being passed through literally (ERR-1 / TASK-0450).
+    /// of being passed through literally.
     pub fn expand<'a>(&'a self, input: &'a str) -> Cow<'a, str> {
         match self.try_expand(input) {
             Ok(out) => out,
@@ -526,7 +526,7 @@ impl Variables {
                     cause = %err.cause,
                     "variable expansion failed; passing input through unchanged"
                 );
-                // ERR-1 / TASK-1224: a default `OPS_LOG_LEVEL=info` filters
+                // A default `OPS_LOG_LEVEL=info` filters
                 // the tracing line above, so users debugging "why does my
                 // dry-run show ${HOME} literally" never see a diagnostic.
                 // Surface the first failure per distinct variable name via
@@ -548,11 +548,11 @@ impl Variables {
     /// Strict variant of [`Self::expand`]: returns `Err` on `shellexpand`
     /// errors (e.g. `VarError::NotUnicode`) instead of falling back to the
     /// literal input. Use this on any path that turns the result into an
-    /// argv element, cwd, or env value — see ERR-1 / TASK-0450.
+    /// argv element, cwd, or env value.
     ///
     /// # Errors
     ///
-    /// SEC-31 / TASK-1854: an [`ExpandError`] when a *referenced* variable
+    /// An [`ExpandError`] when a *referenced* variable
     /// exists but its value is not valid Unicode (`VarError::NotUnicode`),
     /// or unconditionally when `self` was built by [`Self::poisoned`].
     ///
@@ -564,13 +564,13 @@ impl Variables {
     /// that need a missing builtin to fail closed must construct their
     /// `Variables` through [`Self::poisoned`] rather than relying on this.
     pub fn try_expand<'a>(&'a self, input: &'a str) -> Result<Cow<'a, str>, ExpandError> {
-        // SEC-31 / TASK-1854: a poisoned `Variables` fails closed — no
+        // A poisoned `Variables` fails closed — no
         // builtin lookup, and no `std::env` fallback that could silently
         // resolve `$OPS_ROOT` to an unrelated ambient directory.
         if let Some(err) = &self.poison {
             return Err(err.clone());
         }
-        // CL-3: delegate to the shared helper so `~` expansion stays in sync
+        // Delegate to the shared helper so `~` expansion stays in sync
         // with platform path conventions used by the config loader.
         let home_dir = || -> Option<String> {
             crate::paths::home_dir()
@@ -579,7 +579,7 @@ impl Variables {
                 .map(String::from)
         };
 
-        // OWN-8: builtins are borrowed from `self`; `Cow::Borrowed` avoids
+        // Builtins are borrowed from `self`; `Cow::Borrowed` avoids
         // one heap allocation per expanded var. Env vars are inherently
         // owned (std::env::var returns String) so they stay `Cow::Owned`.
         let lookup = |var: &str| -> Result<Option<Cow<'_, str>>, std::env::VarError> {

@@ -2,8 +2,9 @@
 name = "ops-run-before-push"
 publish = false
 version.workspace = true
-edition.workspace = true
+edition = "2024"
 license.workspace = true
+rust-version.workspace = true
 
 [dependencies]
 ops-extension = { workspace = true }

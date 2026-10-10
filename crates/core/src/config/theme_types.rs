@@ -172,7 +172,7 @@ pub struct ThemeConfig {
     pub description: Option<String>,
     /// Number of spaces to prepend to all rendered output lines (left margin).
     ///
-    /// SEC-33 / TASK-1849: bounded by [`MAX_LEFT_PAD`] at the serde layer.
+    /// Bounded by [`MAX_LEFT_PAD`] at the serde layer.
     /// This value sizes an allocation directly (`" ".repeat(left_pad)` in
     /// `theme::ConfigurableTheme::new`, `runner::display::style`), so an
     /// unbounded `usize` from a repo-supplied `.ops.toml` was a ~400-byte
@@ -215,7 +215,7 @@ const fn default_left_pad() -> usize {
     1
 }
 
-/// SEC-33 / TASK-1849: upper bound on [`ThemeConfig::left_pad`].
+/// Upper bound on [`ThemeConfig::left_pad`].
 ///
 /// `left_pad` is a left margin measured in terminal columns. 1024 is already
 /// an order of magnitude past the widest realistic terminal, so the bound
@@ -223,7 +223,7 @@ const fn default_left_pad() -> usize {
 /// drives at one kibibyte of spaces.
 pub const MAX_LEFT_PAD: usize = 1024;
 
-/// SEC-33 / TASK-1849: reject an out-of-range `left_pad` during
+/// Reject an out-of-range `left_pad` during
 /// deserialization, before the value is ever stored on a [`ThemeConfig`].
 ///
 /// serde reports the offending key path (`themes.<name>.left_pad`) around this
@@ -315,10 +315,9 @@ impl ThemeConfig {
         }
     }
 
-    /// SEC-33 / TASK-1849: screen the theme's numeric knobs at config-load
+    /// Screen the theme's numeric knobs at config-load
     /// time. `Config::validate` — the one validation `load_config_at` runs —
-    /// calls this for every entry in `[themes]`, which until TASK-1849 was the
-    /// only config section nothing validated at all.
+    /// calls this for every entry in `[themes]`.
     ///
     /// The serde layer ([`deserialize_left_pad`]) already rejects an
     /// out-of-range `left_pad` before it can be stored, so for a TOML-sourced

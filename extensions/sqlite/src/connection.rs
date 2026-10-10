@@ -38,18 +38,10 @@ fn mint_db_id() -> u64 {
 ///
 /// # Concurrency Design (EFF-001)
 ///
-/// Uses `Mutex<Connection>` which serializes all database operations.
-/// `rusqlite::Connection` is `Send` but not `Sync`, so this design choice:
-///
-/// - **Pros**: Simple, safe, no risk of data races
-/// - **Cons**: All DB operations are serialized, potential bottleneck under load
-///
-/// If read-heavy concurrent access becomes a performance issue, consider:
-/// 1. Opening multiple read-only connections
-/// 2. Using connection pooling
-/// 3. Moving to `RwLock` over a connection-per-reader pool
-///
-/// For typical ops usage (single command execution at a time), this is acceptable.
+/// All database operations serialize on one `Mutex<Connection>`:
+/// `rusqlite::Connection` is `Send` but not `Sync`, which rules out sharing
+/// a handle across threads, and ops runs one command at a time, so
+/// serialization costs nothing in the expected workload.
 pub struct Sqlite {
     conn: Mutex<rusqlite::Connection>,
     db_path: PathBuf,
@@ -208,6 +200,11 @@ impl Sqlite {
     pub(crate) fn ingest_mutex_for(&self, table_name: &'static str) -> Arc<Mutex<()>> {
         let mut map = self.ingest_locks.lock().unwrap_or_else(|poisoned| {
             tracing::warn!("ingest_locks registry mutex was poisoned by a prior panic; recovered");
+            // VER-4: the recovery re-establishes the registry's invariant, so
+            // clear the poison flag — later acquires take the fast path
+            // instead of re-entering this branch and re-emitting the warn on
+            // every call.
+            self.ingest_locks.clear_poison();
             poisoned.into_inner()
         });
         // PERF-3 / TASK-1007: with the `&'static str` key, `entry` consumes
@@ -368,6 +365,31 @@ mod tests {
             assert!(
                 !missing_parent.exists(),
                 "open_readonly must not mkdir parent: {missing_parent:?}"
+            );
+        }
+
+        /// VER-4 / TASK-2597: after recovering a poisoned registry mutex,
+        /// the poison flag is cleared, so the recovery warn fires once —
+        /// not again on every subsequent acquire.
+        #[test]
+        fn ingest_mutex_for_clears_poison_so_recovery_warns_once() {
+            let db = Sqlite::open_in_memory().expect("open");
+
+            // Poison the registry mutex: panic while holding its guard.
+            let panicked = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+                let _guard = db.ingest_locks.lock().expect("registry lock");
+                panic!("poison the registry mutex");
+            }));
+            assert!(panicked.is_err(), "setup must have poisoned the registry");
+
+            let ((), warns) = ops_core::test_utils::count_warnings(|| {
+                let _first = db.ingest_mutex_for("poison_once_table");
+                let _second = db.ingest_mutex_for("poison_once_table");
+                let _third = db.ingest_mutex_for("poison_once_other_table");
+            });
+            assert_eq!(
+                warns, 1,
+                "recovery warn must fire on the first acquire only, got {warns}"
             );
         }
     }

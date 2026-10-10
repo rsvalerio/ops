@@ -3,17 +3,16 @@
 use ops_core::config::CommandSpec;
 use ops_runner::command::{CommandPlan, StepResult};
 
-/// One named command's own execution plan (TASK-2262).
+/// One named command's own execution plan.
 ///
 /// `ops run a b` expands each name independently, so `parallel`, `fail_fast`
 /// (and, for builtins, `exclusive`) come from each name's own composite tree
-/// and are never merged across names. The earlier `merge_plan` shape folded
-/// every name into one flat plan whose `any_parallel` was true whenever any
-/// name's was, so a single parallel name (a rust-stack `verify`) promoted the
+/// and are never merged across names. Folding every name into one flat plan
+/// would make a single parallel name (a rust-stack `verify`) promote the
 /// steps of every other named command — including ones that declared
 /// `parallel = false` — into concurrent execution.
 ///
-/// TASK-2275: the plan is a [`CommandPlan`] tree, not one flat leaf list —
+/// The plan is a [`CommandPlan`] tree, not one flat leaf list —
 /// a sequential group's entries are separate stages with their own
 /// schedules, so `ops <seq-group>` runs exactly what typing its entries on
 /// the command line runs.
@@ -28,18 +27,17 @@ pub struct NamePlan {
 /// Expand each named command into its own plan tree.
 ///
 /// Aggregation walks each name's composite tree so a nested composite
-/// with `parallel = true` or `fail_fast = false` is honoured. The earlier
-/// shape only inspected the top-level composite for each `name`, silently
-/// dropping nested parallelism / fail-fast semantics for
+/// with `parallel = true` or `fail_fast = false` is honoured: inspecting
+/// only the top-level composite for each `name` would silently drop
+/// nested parallelism / fail-fast semantics for
 /// `umbrella = { commands = ["inner"] }` where `inner.parallel = true`.
 ///
-/// An empty `names` slice is rejected with an error.
-/// The previous shape returned `(empty_plan, any_parallel = false,
-/// fail_fast = true)`, and the executor then ran zero steps and reported
-/// success. That silent "ran nothing, success" outcome masks upstream
+/// An empty `names` slice is rejected with an error: an empty plan would
+/// have the executor run zero steps and report success, a silent
+/// "ran nothing, success" outcome that masks upstream
 /// filtering bugs (callers that ended up with an empty argv after CLI
 /// parsing or hook filtering). The single production caller
-/// [`super::run_external_command`] already rejects empty argv before reaching
+/// [`super::run_external_command`] rejects empty argv before reaching
 /// here, so the error path is a defensive fail-loud guard rather than
 /// a behavioural change for the happy path.
 pub fn plans_for_names(
@@ -71,6 +69,8 @@ pub fn plans_for_names(
     Ok(plans)
 }
 
+/// The display string for command `id` in plan rows, matching each
+/// `CommandSpec` variant explicitly so a new variant fails to compile here.
 pub fn display_cmd_for(runner: &ops_runner::command::CommandRunner, id: &str) -> String {
     // Match every CommandSpec variant explicitly so a
     // future variant fails to compile here rather than silently falling

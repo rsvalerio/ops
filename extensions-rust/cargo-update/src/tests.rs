@@ -4,9 +4,9 @@ use super::*;
 
 // The tracing-capture harness (`BufWriter` + `MakeWriter` + the
 // global-dispatcher pin) and the control-character assertion come from the
-// shared `ops-about` test-support module rather than a local re-implementation
-// that can drift.
-use ops_about::test_support::{assert_rendered_escapes_control_chars, capture_warn};
+// shared `ops-about` test-support module.
+use ops_about::test_support::assert_rendered_escapes_control_chars;
+use ops_core::test_utils::capture_warn;
 
 // -- Extension trait tests --
 
@@ -1316,9 +1316,9 @@ mod properties {
     }
 }
 
-/// TASK-2298: modern cargo appends `(available: vX)` to an `Updating` line
-/// when a newer semver-incompatible release exists. That is healthy output,
-/// not format drift: the entry parses and no trailing-tokens warn fires.
+/// Modern cargo appends `(available: vX)` to an `Updating` line when a newer
+/// semver-incompatible release exists. That is healthy output, not format
+/// drift: the entry parses and no trailing-tokens warn fires.
 #[test]
 fn available_annotation_parses_without_warn() {
     let logged = capture_warn(|| {

@@ -1,7 +1,8 @@
 //! Theme types and step-line rendering.
 //!
 //! [`ThemeConfig`] is the serializable theme definition (TOML-compatible),
-//! defined in `ops-core` and re-exported here for convenience.
+//! defined in `ops-core`; this crate re-exports it, `PlanHeaderStyle` and
+//! `ErrorBlockChars` at its root as the theme-facing surface.
 //! [`ConfigurableTheme`] wraps a `ThemeConfig` and renders step lines and
 //! error details.
 
@@ -28,7 +29,6 @@ mod step_line_theme;
 pub mod style;
 
 pub use configurable::ConfigurableTheme;
-pub use ops_core::config::theme_types;
 pub use ops_core::config::theme_types::{ErrorBlockChars, PlanHeaderStyle, ThemeConfig};
 pub use render::render_error_block;
 pub use resolve::{list_theme_names, resolve_theme, resolve_theme_owned, ThemeError};

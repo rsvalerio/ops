@@ -11,10 +11,10 @@ use ops_sqlite::sql::{CreateViewSql, JsonColumn, JsonTableLoad, TableName};
 /// Declarative load spec for `coverage_files.json`: one row per source file,
 /// counts as INTEGER and percentages as REAL.
 ///
-/// SEC-12: the table and column identifiers are const-validated at
-/// construction, and the staged JSON reaches the engine as a bound `?1`
-/// parameter — the load executes [`JsonTableLoad`]'s DDL batch +
-/// `json_each` insert, never a path-bearing `read_json_auto` statement.
+/// The table and column identifiers are const-validated at construction,
+/// and the staged JSON reaches the engine as a bound `?1` parameter — the
+/// load executes [`JsonTableLoad`]'s DDL batch + `json_each` insert, never
+/// a path-bearing `read_json_auto` statement.
 pub const COVERAGE_FILES_LOAD: JsonTableLoad = JsonTableLoad::flat_array(
     "coverage_files",
     &[
@@ -36,17 +36,18 @@ pub const COVERAGE_FILES_LOAD: JsonTableLoad = JsonTableLoad::flat_array(
     ],
 );
 
-/// READ-6 / TASK-1934: every non-percentage SUM is wrapped in
-/// `COALESCE(..., 0)`. An ungrouped aggregate over an empty
-/// `coverage_files` returns exactly one row whose SUMs are all NULL, so
-/// without the wrapper a consumer decoding `lines_count` as a
-/// non-nullable integer gets a decode failure instead of a zero. The
-/// percentage columns need no wrapper: `NULL > 0` is NULL, which falls to
-/// the `ELSE 0.0` arm. This matches `coverage_col_select` in the sqlite
-/// extension, which already made the same decision for the same data.
-/// SEC-12 / TASK-1864: returned as the gated [`CreateViewSql`] newtype; the
-/// view and source identifiers go through the const-validated [`TableName`]
-/// and the body is a `&'static str`, so nothing runtime-derived can reach
+/// Every non-percentage SUM is wrapped in `COALESCE(..., 0)`: an ungrouped
+/// aggregate over an empty `coverage_files` returns exactly one row whose
+/// SUMs are all NULL, so without the wrapper a consumer decoding
+/// `lines_count` as a non-nullable integer gets a decode failure instead of
+/// a zero. The percentage columns need no wrapper: `NULL > 0` is NULL,
+/// which falls to the `ELSE 0.0` arm. This matches `coverage_col_select`
+/// in the sqlite extension, which makes the same decision for the same
+/// data.
+///
+/// Returned as the gated [`CreateViewSql`] newtype: the view and source
+/// identifiers go through the const-validated [`TableName`] and the body is
+/// a `&'static str`, so nothing runtime-derived can reach
 /// `load_with_sidecar`.
 pub fn coverage_summary_view_sql() -> CreateViewSql {
     CreateViewSql::create_or_replace(

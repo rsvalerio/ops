@@ -4,11 +4,13 @@
 //! (hook filename, env var name, legacy markers, help text). This crate
 //! extracts those common functions behind a [`HookConfig`] descriptor.
 //!
-//! Submodules:
-//! - [`git`]: `.git` directory discovery (plain repos, worktrees, submodules).
-//! - [`install`]: hook file installation with symlink/out-of-tree defenses.
-//! - [`config`]: `.ops.toml` mutation to register the hook's composite command.
+//! The crate's public surface lives at its root: [`find_git_dir`] (`.git`
+//! directory discovery for plain repos, worktrees, submodules),
+//! [`install_hook`] (hook installation with symlink/out-of-tree defenses),
+//! [`ensure_config_command`] (`.ops.toml` mutation to register the hook's
+//! composite command), and the [`git_state`] module's bounded-wait probe.
 
+#![forbid(unsafe_code)]
 #![cfg_attr(
     test,
     allow(
@@ -19,10 +21,10 @@
     )
 )]
 
-pub mod config;
-pub mod git;
+pub(crate) mod config;
+pub(crate) mod git;
 pub mod git_state;
-pub mod install;
+pub(crate) mod install;
 pub(crate) mod paths;
 
 #[cfg(any(test, feature = "test-helpers"))]
@@ -31,8 +33,11 @@ pub mod test_helpers;
 #[cfg(test)]
 mod fixtures;
 
+#[doc(inline)]
 pub use config::ensure_config_command;
+#[doc(inline)]
 pub use git::find_git_dir;
+#[doc(inline)]
 pub use install::install_hook;
 
 /// Describes one git-hook extension so the shared helpers know which file to
@@ -257,7 +262,7 @@ mod tests {
         assert!(!should_skip(&cfg));
     }
 
-    /// TEST-6: the accepted-token set is the operator's opt-out
+    /// The accepted-token set is the operator's opt-out
     /// contract. Pin every documented spelling so a refactor to `v == "1"`
     /// cannot silently remove the escape hatch.
     #[test]
@@ -270,7 +275,7 @@ mod tests {
         }
     }
 
-    /// TEST-6: the doc promises case-insensitivity.
+    /// The doc promises case-insensitivity.
     #[test]
     #[serial_test::serial]
     fn should_skip_is_case_insensitive() {
@@ -281,7 +286,7 @@ mod tests {
         }
     }
 
-    /// TEST-6: the rejection half of the contract, which nothing
+    /// The rejection half of the contract, which nothing
     /// covered. A refactor to "set means true" would make `SKIP_...=false` —
     /// the spelling an operator reaches for to *re-enable* the hook —
     /// silently disable every pre-commit and pre-push check.
@@ -295,7 +300,7 @@ mod tests {
         }
     }
 
-    // -- hook_script! prologue (DUP-1) --
+    // -- hook_script! prologue --
 
     /// A stand-in script with no risk of colliding with a real crate's
     /// identifiers, so these tests pin the *prologue* rather than any one

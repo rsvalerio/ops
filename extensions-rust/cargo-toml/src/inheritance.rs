@@ -69,14 +69,14 @@ impl CargoToml {
         // resolver. Adding a new inheritable field is one line here plus a
         // counterpart in `WorkspacePackage` — no risk of touching three
         // places to add a single field.
-        resolve_string_field(&mut pkg.version, ws_pkg.version.as_ref());
-        resolve_string_field(&mut pkg.edition, ws_pkg.edition.as_ref());
-        resolve_string_field(&mut pkg.rust_version, ws_pkg.rust_version.as_ref());
-        resolve_string_field(&mut pkg.description, ws_pkg.description.as_ref());
-        resolve_string_field(&mut pkg.documentation, ws_pkg.documentation.as_ref());
-        resolve_string_field(&mut pkg.homepage, ws_pkg.homepage.as_ref());
-        resolve_string_field(&mut pkg.repository, ws_pkg.repository.as_ref());
-        resolve_string_field(&mut pkg.license, ws_pkg.license.as_ref());
+        resolve_string_field(&mut pkg.version, ws_pkg.version.as_deref());
+        resolve_string_field(&mut pkg.edition, ws_pkg.edition.as_deref());
+        resolve_string_field(&mut pkg.rust_version, ws_pkg.rust_version.as_deref());
+        resolve_string_field(&mut pkg.description, ws_pkg.description.as_deref());
+        resolve_string_field(&mut pkg.documentation, ws_pkg.documentation.as_deref());
+        resolve_string_field(&mut pkg.homepage, ws_pkg.homepage.as_deref());
+        resolve_string_field(&mut pkg.repository, ws_pkg.repository.as_deref());
+        resolve_string_field(&mut pkg.license, ws_pkg.license.as_deref());
 
         resolve_vec_field(&mut pkg.keywords, &ws_pkg.keywords);
         resolve_vec_field(&mut pkg.categories, &ws_pkg.categories);
@@ -88,7 +88,7 @@ impl CargoToml {
             pkg.authors = InheritableField::Value(ws_pkg.authors.clone());
         }
 
-        resolve_optional_string(&mut pkg.license_file, ws_pkg.license_file.as_ref());
+        resolve_optional_string(&mut pkg.license_file, ws_pkg.license_file.as_deref());
         resolve_readme(&mut pkg.readme, ws_pkg.readme.as_ref());
         resolve_publish(&mut pkg.publish, &ws_pkg.publish);
     }
@@ -102,10 +102,10 @@ impl CargoToml {
 /// semantics), but ops-cargo-toml treats the field as if it were absent so
 /// downstream tooling can still introspect malformed-but-readable
 /// manifests. See `inheritance::tests::resolve_string_field_workspace_false_is_ignored`.
-pub fn resolve_string_field(field: &mut InheritableString, ws_value: Option<&String>) {
+pub fn resolve_string_field(field: &mut InheritableString, ws_value: Option<&str>) {
     if matches!(field, InheritableField::Inherited { workspace: true }) {
         if let Some(v) = ws_value {
-            *field = InheritableField::Value(v.clone());
+            *field = InheritableField::Value(v.to_string());
         }
     }
 }
@@ -114,11 +114,12 @@ pub fn resolve_string_field(field: &mut InheritableString, ws_value: Option<&Str
 /// workspace value verbatim (cloning) when the local field is in the
 /// `Inherited { workspace: true }` state.
 ///
-/// TASK-0961: `WorkspacePackage::keywords`/`categories` are plain `Vec<String>`
-/// (serde defaults to empty), so an absent workspace `keywords` table is
-/// indistinguishable from `keywords = []`. Treat an empty workspace value as
-/// "not declared" and leave the member field as `Inherited`, so member intent
-/// is not silently overwritten with a forced empty Vec.
+/// An empty workspace value means "not declared": `WorkspacePackage`'s
+/// `keywords`/`categories` are plain `Vec<String>` (serde defaults to
+/// empty), so an absent workspace `keywords` table is indistinguishable
+/// from `keywords = []`. Substituting it would overwrite the member's
+/// unresolved `Inherited` with a forced empty Vec, so an empty value
+/// leaves the member field as `Inherited`.
 pub fn resolve_vec_field(field: &mut InheritableVec, ws_value: &[String]) {
     if matches!(field, InheritableField::Inherited { workspace: true }) && !ws_value.is_empty() {
         *field = InheritableField::Value(ws_value.to_vec());
@@ -127,7 +128,7 @@ pub fn resolve_vec_field(field: &mut InheritableVec, ws_value: &[String]) {
 
 /// Resolve `license-file = { workspace = true }` against the workspace's
 /// `license-file`. Mirrors [`resolve_string_field`] but for `Option<InheritableString>`.
-pub fn resolve_optional_string(field: &mut Option<InheritableString>, ws_value: Option<&String>) {
+pub fn resolve_optional_string(field: &mut Option<InheritableString>, ws_value: Option<&str>) {
     if let Some(inner) = field {
         resolve_string_field(inner, ws_value);
     }
@@ -144,15 +145,15 @@ pub fn resolve_readme(field: &mut Option<ReadmeSpec>, ws_value: Option<&ReadmeSp
 
 /// Resolve `publish = { workspace = true }` against the workspace's `publish`.
 ///
-/// **Fail-closed rule (SEC-31 / TASK-1789).** `WorkspacePackage::publish` is
-/// `#[serde(default)]` over [`PublishSpec`], whose default is
-/// [`PublishSpec::None`] — "no `publish` key", which
-/// [`PublishSpec::is_publishable`] maps to `Some(true)`. An undeclared
-/// workspace `publish` is therefore indistinguishable from an explicit
-/// "publishable to any registry", and substituting it would rewrite the
-/// member's unresolved `Inherited` into an open default — the exact signal
-/// loss TASK-1196 introduced `Option<bool>` to prevent (cargo itself hard-
-/// errors on this manifest shape).
+/// **Fail-closed rule.** `WorkspacePackage::publish` is `#[serde(default)]`
+/// over [`PublishSpec`], whose default is [`PublishSpec::None`] — "no
+/// `publish` key", which [`PublishSpec::is_publishable`] maps to
+/// `Some(true)`. An undeclared workspace `publish` is therefore
+/// indistinguishable from an explicit "publishable to any registry", and
+/// substituting it would rewrite the member's unresolved `Inherited` into
+/// an open default — exactly the signal loss `Option<bool>` in
+/// [`PublishSpec::is_publishable`] exists to prevent (cargo itself
+/// hard-errors on this manifest shape).
 ///
 /// So, like [`resolve_string_field`] / [`resolve_vec_field`] /
 /// [`resolve_readme`], this resolver substitutes only when the workspace
@@ -219,12 +220,8 @@ fn resolve_dep_from_workspace(
 /// everything else — the source fields the doc comment on
 /// [`resolve_dep_from_workspace`] says are deliberately discarded, plus
 /// `workspace`, `package` and `target` — falls through to
-/// [`DetailedDepSpec::default`].
-///
-/// DUP-7 / TASK-1804: restating the nine default fields here made
-/// `DetailedDepSpec` exhaustively constructed in three places, so a new
-/// cargo dependency key had to be given a value three times with no single
-/// place stating the default.
+/// [`DetailedDepSpec::default`], the single place stating the default for
+/// every remaining cargo dependency key.
 fn resolve_from_simple_dep(version: &str, local: &DepSpec) -> DetailedDepSpec {
     let (local_features, local_optional, local_default_features) = extract_local_overrides(local);
     DetailedDepSpec {
@@ -252,16 +249,16 @@ fn resolve_from_simple_dep(version: &str, local: &DepSpec) -> DetailedDepSpec {
 ///   `default-features = true` (cargo emits a warning and keeps defaults
 ///   off). The AND fold reproduces that behavior.
 ///
-/// AC for TASK-0555: this is the rule the resolver implements; deviations
-/// from cargo's actual precedence (e.g. cargo > 1.71's edge cases) are not
+/// This is cargo's actual precedence to the fidelity the resolver needs:
+/// deviations from cargo's edge cases (e.g. cargo > 1.71's) are not
 /// modeled because the resolver consumes manifests for reporting, not for
 /// build-graph fidelity.
 ///
-/// DUP-7 / TASK-1804: unlike [`resolve_from_simple_dep`], this constructor
-/// stays exhaustive on purpose. Every field except `workspace` is *copied
-/// from the workspace spec*, so the exhaustive literal is the compile-time
-/// guard that a newly added cargo dependency key is consciously propagated
-/// here rather than silently defaulted away by a `..Default::default()`.
+/// Unlike [`resolve_from_simple_dep`], this constructor is exhaustive on
+/// purpose. Every field except `workspace` is *copied from the workspace
+/// spec*, so the exhaustive literal is the compile-time guard that a newly
+/// added cargo dependency key is consciously propagated here rather than
+/// silently defaulted away by a `..Default::default()`.
 fn resolve_from_detailed_dep(ws: &DetailedDepSpec, local: &DepSpec) -> DetailedDepSpec {
     let (local_features, local_optional, local_default_features) = extract_local_overrides(local);
     DetailedDepSpec {
@@ -298,8 +295,8 @@ fn extract_local_overrides(local: &DepSpec) -> (Vec<String>, bool, bool) {
 }
 
 fn merge_features(base: &[String], additional: &[String]) -> Vec<String> {
-    // PERF-2 (TASK-0807): feature lists are typically tiny (<10 entries), so a
-    // linear scan beats allocating + hashing into a HashSet just to dedup. The
+    // Feature lists are typically tiny (<10 entries), so a linear scan
+    // beats allocating + hashing into a HashSet just to dedup. The
     // merge is order-preserving (base first, then new entries from
     // `additional`).
     let mut merged = base.to_vec();
@@ -315,13 +312,13 @@ fn merge_features(base: &[String], additional: &[String]) -> Vec<String> {
 mod tests {
     use super::*;
 
-    /// TASK-0385: `workspace = false` is parseable but cargo rejects it. Our
-    /// resolver permissively ignores it: the field stays `Inherited { false }`
-    /// and is treated as unresolved (no value substituted from the workspace).
+    /// `workspace = false` is parseable but cargo rejects it. The resolver
+    /// permissively ignores it: the field stays `Inherited { false }` and is
+    /// treated as unresolved (no value substituted from the workspace).
     #[test]
     fn resolve_string_field_workspace_false_is_ignored() {
         let mut field: InheritableString = InheritableField::Inherited { workspace: false };
-        resolve_string_field(&mut field, Some(&"1.0.0".to_string()));
+        resolve_string_field(&mut field, Some("1.0.0"));
         assert_eq!(
             field,
             InheritableField::Inherited { workspace: false },
@@ -329,8 +326,8 @@ mod tests {
         );
     }
 
-    /// TASK-0961: when the workspace did not declare `keywords` (parsed as an
-    /// empty Vec), an inheriting member must remain `Inherited`, not be
+    /// When the workspace did not declare `keywords` (parsed as an empty
+    /// Vec), an inheriting member must remain `Inherited`, not be
     /// overwritten with an empty `Value`.
     #[test]
     fn resolve_vec_field_empty_ws_leaves_inherited_unchanged() {
@@ -357,7 +354,7 @@ mod tests {
     #[test]
     fn resolve_string_field_workspace_true_substitutes() {
         let mut field: InheritableString = InheritableField::Inherited { workspace: true };
-        resolve_string_field(&mut field, Some(&"1.0.0".to_string()));
+        resolve_string_field(&mut field, Some("1.0.0"));
         assert_eq!(
             field,
             InheritableField::Value("1.0.0".to_string()),

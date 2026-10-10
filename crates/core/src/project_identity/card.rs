@@ -13,10 +13,10 @@ use crate::ui::sanitise_line;
 
 /// Rendering-ready about card, derived from [`ProjectIdentity`].
 ///
-/// Everything that used to live in a title/badge header (name, version, stack,
-/// license) is now rendered as ordinary fields.
+/// Identity fields (name, version, stack, license) are rendered as
+/// ordinary fields rather than a title/badge header.
 ///
-/// TRAIT-1 / TASK-1435: derives `Debug` and `Clone` (C-DEBUG, C-CLONE) so
+/// Derives `Debug` and `Clone` (C-DEBUG, C-CLONE) so
 /// downstream extension structs that wrap an `AboutCard` get the derives
 /// mechanically and `tracing::debug!(card = ?card, ...)` compiles.
 #[derive(Debug, Clone)]
@@ -27,7 +27,7 @@ pub struct AboutCard {
     pub fields: Vec<(String, String)>,
 }
 
-/// FN-4 / TASK-1406: named about-card field row so callers read by name
+/// Named about-card field row so callers read by name
 /// (`spec.label`, `spec.value`) instead of remembering positional slot order
 /// in a tuple. The field id is the dispatch key in [`shown_field_specs`] and
 /// is not carried inside the spec.
@@ -36,14 +36,14 @@ struct FieldSpec {
     value: Option<String>,
 }
 
-/// PERF-3 / TASK-1391: clone an `Option<String>` only when it has non-empty,
-/// non-whitespace content. Centralises the previously-duplicated
+/// Clone an `Option<String>` only when it has non-empty,
+/// non-whitespace content. Centralises the shared
 /// `as_ref().filter(...).cloned()` idiom so a future tightening lands once.
 fn non_empty_clone(opt: Option<&String>) -> Option<String> {
     opt.filter(|s| !s.trim().is_empty()).cloned()
 }
 
-/// PERF-3 / TASK-1417 + TASK-1420: compute only those field specs the caller
+/// Compute only those field specs the caller
 /// will actually show. `show` returns `true` for every field id the caller
 /// wants rendered; we skip the (potentially allocation-heavy)
 /// `compose_*_value` / `format!` work for every other id.
@@ -87,7 +87,7 @@ fn shown_field_specs(id: &ProjectIdentity, show: &dyn Fn(&str) -> bool) -> Vec<F
             "dependencies" => FieldSpec {
                 label: "dependencies".into(),
                 value: id.dependency_count.filter(|&c| c > 0).map(|c| {
-                    // Avoid `as i64` narrowing (SEC-15 / TASK-0339): saturate so an
+                    // Avoid `as i64` narrowing: saturate so an
                     // unrealistically large usize still renders a sensible string
                     // instead of wrapping into a negative i64.
                     let n = i64::try_from(c).unwrap_or(i64::MAX);
@@ -147,7 +147,7 @@ fn push_special_fields(
 }
 
 impl AboutCard {
-    /// API-9 / TASK-0892: builder so a future field addition stays
+    /// Builder so a future field addition stays
     /// non-breaking. The previous `AboutCard::new(description, fields)`
     /// positional constructor exposed every current field — adding a
     /// third would have been a breaking signature change, defeating
@@ -157,16 +157,18 @@ impl AboutCard {
         AboutCardBuilder::default()
     }
 
+    /// An about card for `id` with every standard field visible.
     #[must_use]
     pub fn from_identity(id: &ProjectIdentity) -> Self {
         Self::from_identity_filtered(id, None)
     }
 
+    /// An about card for `id`, showing only the fields whose ids appear in
+    /// `visible_fields` (`None` shows every field).
     #[must_use]
     pub fn from_identity_filtered(id: &ProjectIdentity, visible_fields: Option<&[String]>) -> Self {
-        // PERF-3 / TASK-1420: hash the filter set once so every per-field
-        // `show()` check is O(1) instead of O(N) linear scan. Mirrors the
-        // already-closed TASK-1332 pattern in about_cmd.
+        // Hash the filter set once so every per-field `show()` check is
+        // O(1) instead of O(N) linear scan — the same pattern as about_cmd.
         let visible: Option<HashSet<&str>> =
             visible_fields.map(|f| f.iter().map(String::as_str).collect());
         let show =
@@ -193,7 +195,7 @@ impl AboutCard {
         let mut lines: Vec<String> = Vec::new();
 
         if let Some(desc) = &self.description {
-            // SEC-21 / TASK-1427: descriptions come from Cargo.toml /
+            // Descriptions come from Cargo.toml /
             // package.json metadata, which is attacker-controlled under a
             // hostile workspace. Strip ANSI/control bytes before stdout.
             lines.push(String::new());
@@ -204,7 +206,7 @@ impl AboutCard {
             if !lines.is_empty() {
                 lines.push(String::new());
             }
-            // PERF-3 / TASK-1220: align by display width, not byte length, so
+            // Align by display width, not byte length, so
             // multi-byte keys do not shift the value column by one cell per
             // non-ASCII char. Mirrors the format_language_breakdown / theme_cmd
             // alignment pattern.
@@ -224,12 +226,12 @@ impl AboutCard {
     }
 }
 
-/// API-9 / TASK-0892: builder for [`AboutCard`]. New fields land as
+/// Builder for [`AboutCard`]. New fields land as
 /// additional setter methods rather than positional constructor args, so
 /// downstream code that built via `AboutCard::builder().description(...)
 /// .fields(...).build()` keeps compiling unchanged.
 ///
-/// TRAIT-1 / TASK-1435: derives `Debug` / `Clone` (C-DEBUG) for symmetry
+/// Derives `Debug` / `Clone` (C-DEBUG) for symmetry
 /// with the built [`AboutCard`].
 #[derive(Debug, Clone, Default)]
 pub struct AboutCardBuilder {
@@ -238,18 +240,21 @@ pub struct AboutCardBuilder {
 }
 
 impl AboutCardBuilder {
+    /// Sets the card's description line (`None` omits it).
     #[must_use]
     pub fn description(mut self, description: Option<String>) -> Self {
         self.description = description;
         self
     }
 
+    /// Sets the card's `key = value` rows, in order.
     #[must_use]
     pub fn fields(mut self, fields: Vec<(String, String)>) -> Self {
         self.fields = fields;
         self
     }
 
+    /// Builds the card from the setter-supplied description and fields.
     #[must_use]
     pub fn build(self) -> AboutCard {
         AboutCard {
@@ -259,13 +264,13 @@ impl AboutCardBuilder {
     }
 }
 
-// READ-2 / TASK-1407: name the prefix column structure used by `render_field`
-// so `continuation_indent` is no longer an opaque arithmetic expression.
+// Name the prefix column structure used by `render_field`
+// so `continuation_indent` reads as structure, not opaque arithmetic.
 // Layout of each rendered row is:
 //   `"  " (LEADING) + emoji (EMOJI_COLS) + " " (KEY_SEP) + padded_key
 //      (max_key_len + KEY_PAD) + " " (VALUE_SEP) + value`
 const LEADING_COLS: usize = 2;
-/// PATTERN-1 / TASK-1844: the emoji column is a **fixed two-cell slot**, not
+/// The emoji column is a **fixed two-cell slot**, not
 /// an assertion about the glyph. Measured against the workspace's pinned
 /// `unicode-width`, two of the glyphs [`field_emoji`] can return are one cell
 /// wide — ⬢ (`U+2B22`, the Node/JavaScript stack glyph) and ▸ (`U+25B8`, the
@@ -294,7 +299,7 @@ fn continuation_indent(max_key_len: usize) -> String {
     )
 }
 
-/// SEC-21 / TASK-1427: route one line of attacker-controlled text through
+/// Route one line of attacker-controlled text through
 /// the shared `ui::sanitise_line` defence (escapes ESC/control bytes) before
 /// it reaches stdout.
 fn sanitised(line: &str) -> String {
@@ -313,14 +318,14 @@ fn render_field(
     is_tty: bool,
 ) -> Vec<String> {
     let styled = |s: &str| dim_gated(s, is_tty).into_owned();
-    // PATTERN-1 / TASK-1844: pad the glyph to the measured `EMOJI_COLS` slot
+    // Pad the glyph to the measured `EMOJI_COLS` slot
     // so a width-1 glyph does not shift this row's key and value columns —
     // and so `cont_indent`, which is derived from the same constant, matches
     // this row's actual emoji width.
     let emoji = pad_to_display_width(field_emoji(key, value), EMOJI_COLS);
     let mut value_lines = value.split('\n');
     let first = value_lines.next().unwrap_or("");
-    // DUP-3 / TASK-1390: route through the shared pad helper so a future
+    // Route through the shared pad helper so a future
     // tightening of width-aware padding lands once.
     let padded_key = pad_to_display_width(key, max_key_len.saturating_add(KEY_PAD_COLS));
     let mut out = vec![format!(
