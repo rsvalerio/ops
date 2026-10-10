@@ -1,13 +1,15 @@
 ---
 id: TASK-2432
 title: 'READ-13: remaining ops-about modules still carry TASK ids and change-history narration'
-status: Triage
+status: To Do
 assignee: []
 created_date: '2026-10-04 15:51'
+updated_date: '2026-10-10 14:31'
 labels:
   - code-review-rust
   - READ
 dependencies: []
+parent_task_id: 'TASK-2439'
 modified_files:
   - extensions/about/src/cards.rs
   - extensions/about/src/identity.rs

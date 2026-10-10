@@ -1,13 +1,15 @@
 ---
 id: TASK-2435
 title: 'ERR-4: create-review-tasks id allocation still walks task directories through the tolerant for_each_task_file / find_task_file'
-status: Triage
+status: To Do
 assignee: []
 created_date: '2026-10-04 15:56'
+updated_date: '2026-10-10 14:31'
 labels:
   - code-review-rust
   - ERR
 dependencies: []
+parent_task_id: 'TASK-2441'
 modified_files:
   - extensions/create-review-tasks/src/backlog.rs
   - extensions/create-review-tasks/src/lib.rs

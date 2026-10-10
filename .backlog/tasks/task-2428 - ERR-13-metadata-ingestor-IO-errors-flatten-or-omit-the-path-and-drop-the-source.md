@@ -1,13 +1,15 @@
 ---
 id: TASK-2428
 title: 'ERR-13: metadata ingestor IO errors flatten or omit the path and drop the source'
-status: Triage
+status: To Do
 assignee: []
 created_date: '2026-10-04 15:28'
+updated_date: '2026-10-10 14:31'
 labels:
   - code-review-rust
   - ERR
 dependencies: []
+parent_task_id: 'TASK-2441'
 modified_files:
   - extensions-rust/metadata/src/ingestor.rs
   - extensions/sqlite/src/error.rs

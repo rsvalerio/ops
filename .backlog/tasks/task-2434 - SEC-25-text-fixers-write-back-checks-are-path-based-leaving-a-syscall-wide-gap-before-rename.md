@@ -1,13 +1,15 @@
 ---
 id: TASK-2434
 title: 'SEC-25: text-fixers write-back checks are path-based, leaving a syscall-wide gap before rename'
-status: Triage
+status: To Do
 assignee: []
 created_date: '2026-10-04 15:55'
+updated_date: '2026-10-10 14:31'
 labels:
   - code-review-rust
   - SEC
 dependencies: []
+parent_task_id: 'TASK-2440'
 modified_files:
   - extensions/text-fixers/src/atomic.rs
   - crates/core/src/text.rs

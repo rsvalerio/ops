@@ -1,13 +1,15 @@
 ---
 id: TASK-2427
 title: 'UNSAFE-12: foundation lint template does not carry the unsafe_code policy this workspace now enforces'
-status: Triage
+status: To Do
 assignee: []
 created_date: '2026-10-04 15:28'
+updated_date: '2026-10-10 14:31'
 labels:
   - code-review-rust
   - unsafe
 dependencies: []
+parent_task_id: 'TASK-2438'
 modified_files:
   - extensions-rust/foundation/templates/lints.toml
   - docs/foundation.md

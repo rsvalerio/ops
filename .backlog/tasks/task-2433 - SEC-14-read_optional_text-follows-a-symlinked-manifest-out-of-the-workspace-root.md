@@ -1,13 +1,15 @@
 ---
 id: TASK-2433
 title: 'SEC-14: read_optional_text follows a symlinked manifest out of the workspace root'
-status: Triage
+status: To Do
 assignee: []
 created_date: '2026-10-04 15:51'
+updated_date: '2026-10-10 14:31'
 labels:
   - code-review-rust
   - SEC
 dependencies: []
+parent_task_id: 'TASK-2440'
 modified_files:
   - extensions/about/src/manifest_io.rs
   - extensions/about/src/manifest_cache.rs
