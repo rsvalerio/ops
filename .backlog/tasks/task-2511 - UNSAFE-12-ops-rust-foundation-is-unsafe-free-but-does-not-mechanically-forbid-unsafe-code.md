@@ -1,10 +1,10 @@
 ---
 id: TASK-2511
 title: 'UNSAFE-12: ops-rust-foundation is unsafe-free but does not mechanically forbid unsafe code'
-status: To Do
+status: Done
 assignee: []
 created_date: '2026-10-10 15:32'
-updated_date: '2026-10-10 21:12'
+updated_date: '2026-10-10 21:42'
 labels:
   - code-review-rust
   - unsafe
@@ -29,6 +29,7 @@ dedup_key: 'UNSAFE-12:extensions-rust/foundation/src/lib.rs:lib'
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 #![forbid(unsafe_code)] added at the crate root of extensions-rust/foundation/src/lib.rs
-- [ ] #2 cargo check -p ops-rust-foundation and cargo test -p ops-rust-foundation pass unchanged
+- [x] #1 #![forbid(unsafe_code)] added at the crate root of extensions-rust/foundation/src/lib.rs
+- [x] #2 cargo check -p ops-rust-foundation and cargo test -p ops-rust-foundation pass unchanged
+
 <!-- AC:END -->

@@ -1,10 +1,10 @@
 ---
 id: TASK-2520
 title: 'READ-13: foundation docs narrate a migration note and a rejected alternative instead of the end state'
-status: To Do
+status: Done
 assignee: []
 created_date: '2026-10-10 15:33'
-updated_date: '2026-10-10 21:12'
+updated_date: '2026-10-10 21:42'
 labels:
   - code-review-rust
   - readability
@@ -36,6 +36,7 @@ Surrounding docs were checked and are fine: `check_ops_pin`'s "floor, not an equ
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 Both passages rewritten to state behavior only, with no counterfactual or migration claims
-- [ ] #2 A pass over the crate's //! and /// docs confirms no other design-journey narration remains
+- [x] #1 Both passages rewritten to state behavior only, with no counterfactual or migration claims
+- [x] #2 A pass over the crate's //! and /// docs confirms no other design-journey narration remains
+
 <!-- AC:END -->

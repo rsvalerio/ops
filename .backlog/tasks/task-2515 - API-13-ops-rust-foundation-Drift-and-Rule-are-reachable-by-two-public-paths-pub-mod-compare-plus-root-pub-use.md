@@ -1,10 +1,10 @@
 ---
 id: TASK-2515
 title: 'API-13: ops-rust-foundation Drift and Rule are reachable by two public paths (pub mod compare plus root pub use)'
-status: To Do
+status: Done
 assignee: []
 created_date: '2026-10-10 15:32'
-updated_date: '2026-10-10 21:12'
+updated_date: '2026-10-10 21:42'
 labels:
   - code-review-rust
   - api
@@ -31,7 +31,8 @@ dedup_key: 'API-13:extensions-rust/foundation/src/lib.rs:lib'
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 compare module is private (mod compare;) with the root pub use kept, so Drift and Rule have exactly one public path
-- [ ] #2 The intra-doc link to compare in the crate docs is reworded or inlined so rustdoc builds with broken_intra_doc_links = deny
-- [ ] #3 cargo check -p ops and cargo test -p ops-rust-foundation pass
+- [x] #1 compare module is private (mod compare;) with the root pub use kept, so Drift and Rule have exactly one public path
+- [x] #2 The intra-doc link to compare in the crate docs is reworded or inlined so rustdoc builds with broken_intra_doc_links = deny
+- [x] #3 cargo check -p ops and cargo test -p ops-rust-foundation pass
+
 <!-- AC:END -->

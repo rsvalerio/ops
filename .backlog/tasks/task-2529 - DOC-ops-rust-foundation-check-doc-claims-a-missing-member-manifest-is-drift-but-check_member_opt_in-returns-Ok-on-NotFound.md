@@ -1,10 +1,10 @@
 ---
 id: TASK-2529
 title: 'DOC: ops-rust-foundation check() doc claims a missing member manifest is drift, but check_member_opt_in returns Ok on NotFound'
-status: To Do
+status: Done
 assignee: []
 created_date: '2026-10-10 15:34'
-updated_date: '2026-10-10 21:12'
+updated_date: '2026-10-10 21:42'
 labels:
   - code-review
   - documentation
@@ -30,5 +30,6 @@ ordinal: 1000
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 Either check_member_opt_in reports NotFound as drift, or the check() doc is corrected to match the skip behaviour
+- [x] #1 Either check_member_opt_in reports NotFound as drift, or the check() doc is corrected to match the skip behaviour
+
 <!-- AC:END -->
