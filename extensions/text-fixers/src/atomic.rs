@@ -28,15 +28,21 @@
 //!   and staging or renaming through it would land outside the tree the run
 //!   was pointed at. It is refused before the stage file is created.
 //! - **The target is still the file that was read.** Immediately before the
-//!   rename the target is `lstat`ed and its device, inode, length and
-//!   modification time are compared with the metadata of the read handle. Any
-//!   difference — an editor saving, another step rewriting, the file replaced
+//!   rename the target is `lstat`ed and its device, inode, length,
+//!   modification time and — on Unix — change time are compared with the
+//!   metadata of the read handle. Any difference — an editor saving, another
+//!   step rewriting, the file replaced
 //!   by a symlink or deleted — refuses the rewrite, because the staged
 //!   content was computed from bytes that are no longer the file's.
 //!
 //! Both are path-based checks, so the instants between each check and the
 //! `rename(2)` it guards remain; they shrink the window from "the whole
-//! read-fix-write cycle" to "one syscall gap", they do not close it.
+//! read-fix-write cycle" to "one syscall gap", they do not close it. On Unix
+//! the identity comparison also covers `ctime`, which the kernel maintains
+//! and userspace cannot restore, so a same-length in-place edit that also
+//! restores the original `mtime` is still refused. The residual one-syscall
+//! window is an accepted limit recorded in
+//! `.backlog/decisions/0001-text-fixers-write-back-residual-toctou-window.md`.
 //!
 //! # The trade this makes
 //!
@@ -87,9 +93,9 @@ pub const STAGE_PREFIX: &str = ".ops-text-fixers.";
 /// - [`io::ErrorKind::InvalidInput`] if a directory component of `path` is a
 ///   symlink.
 /// - An error whose message is [`CHANGED_SINCE_READ`] if the target no longer
-///   matches `original` (different device, inode, length or modification
-///   time, or no longer a regular file); [`io::ErrorKind::NotFound`] if it is
-///   gone.
+///   matches `original` (different device, inode, length, modification time
+///   or — on Unix — change time, or no longer a regular file);
+///   [`io::ErrorKind::NotFound`] if it is gone.
 /// - Any error from creating the temp file in `path`'s directory, writing it,
 ///   `fsync`ing it, or renaming it over `path`.
 ///
@@ -170,13 +176,24 @@ fn ensure_unchanged(path: &Path, original: &Metadata) -> io::Result<()> {
 
 /// Whether two metadata snapshots describe the same, unmodified file.
 ///
-/// Device and inode are compared on Unix only; elsewhere length and
-/// modification time are the available evidence.
+/// Device, inode and change time are compared on Unix only; elsewhere length
+/// and modification time are the available evidence.
+///
+/// `ctime` closes the hole `mtime` leaves: a same-length in-place edit that
+/// also restores the original `mtime` (via `utimensat`/`set_modified`)
+/// matches on length and timestamp, but every such restoration *bumps*
+/// `ctime`, and userspace cannot set `ctime` back. Only the kernel writes it
+/// (on write, chmod, chown, link/rename, truncate), so an unchanged `ctime`
+/// is evidence no mutating syscall touched the inode.
 fn is_same_file(current: &Metadata, original: &Metadata) -> bool {
     #[cfg(unix)]
     {
         use std::os::unix::fs::MetadataExt;
-        if current.dev() != original.dev() || current.ino() != original.ino() {
+        if current.dev() != original.dev()
+            || current.ino() != original.ino()
+            || current.ctime() != original.ctime()
+            || current.ctime_nsec() != original.ctime_nsec()
+        {
             return false;
         }
     }
@@ -274,6 +291,32 @@ mod tests {
             .open(&path)
             .unwrap()
             .set_modified(later)
+            .unwrap();
+
+        let err = replace(&path, b"cccc\n", &md).unwrap_err();
+        assert_eq!(err.to_string(), CHANGED_SINCE_READ);
+        assert_eq!(std::fs::read(&path).unwrap(), b"bbbb\n");
+    }
+
+    /// Same inode, same length, and the modification time restored to the
+    /// original: only `ctime` — kernel-maintained, not restorable from
+    /// userspace — gives it away (TASK-2434).
+    #[cfg(unix)]
+    #[test]
+    fn a_same_length_edit_with_mtime_restored_is_detected_by_ctime() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = canon(&dir).join("a.txt");
+        std::fs::write(&path, b"aaaa\n").unwrap();
+        let md = std::fs::metadata(&path).unwrap();
+
+        // Same-length in-place edit, then put the original mtime back, so
+        // length, mtime, device and inode all still match.
+        std::fs::write(&path, b"bbbb\n").unwrap();
+        File::options()
+            .write(true)
+            .open(&path)
+            .unwrap()
+            .set_modified(md.modified().unwrap())
             .unwrap();
 
         let err = replace(&path, b"cccc\n", &md).unwrap_err();
