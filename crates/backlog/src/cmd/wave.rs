@@ -61,6 +61,12 @@ pub struct WaveMigrateOptions {
 /// an assignee — the pre-migration shape — so this answers correctly before
 /// and after [`run_wave_migrate`].
 ///
+/// In the plain listing, waves in the terminal status (the last configured
+/// column) collapse to a one-line total — a tree accumulates finished review
+/// waves far faster than open ones, and listing them buries the work left to
+/// do. Asking for the terminal status explicitly (`--status Done`) lists
+/// them again; the JSON output always carries every row.
+///
 /// # Errors
 ///
 /// A task file in `tasks/` does not parse (the error names the file), or
@@ -84,10 +90,32 @@ pub fn run_wave_list<W: Write>(
         })
         .collect();
     if opts.json {
-        render::list_json(out, &waves, &cfg.statuses).context("writing wave list JSON")
-    } else {
-        render::list_plain(out, &waves, &cfg.statuses).context("writing wave list")
+        return render::list_json(out, &waves, &cfg.statuses).context("writing wave list JSON");
     }
+    // Done waves are collapsed unless the terminal status was asked for by
+    // name — an explicit filter means the user wants those rows after all.
+    let terminal = super::cleanup::terminal_status(&cfg.statuses).filter(|t| {
+        !opts
+            .statuses
+            .iter()
+            .any(|wanted| wanted.eq_ignore_ascii_case(t))
+    });
+    let (done, open): (Vec<TaskEntry>, Vec<TaskEntry>) = match terminal {
+        Some(terminal) => waves
+            .into_iter()
+            .partition(|entry| entry.doc.frontmatter.status.eq_ignore_ascii_case(terminal)),
+        None => (Vec::new(), waves),
+    };
+    render::list_plain(out, &open, &cfg.statuses).context("writing wave list")?;
+    if let Some(terminal) = terminal.filter(|_| !done.is_empty()) {
+        writeln!(
+            out,
+            "{terminal}: {} waves, hidden (pass --status {terminal} to list them)",
+            done.len()
+        )
+        .context("printing the done-waves total")?;
+    }
+    Ok(())
 }
 
 /// List one wave's members: the union of its `dependencies:`, every task
@@ -861,6 +889,57 @@ mod tests {
         migrate(&reopen(&dir), false, "y\n").expect("migrate");
         let after = render(&reopen(&dir));
         assert!(after.contains("TASK-0119"), "post-migration: {after}");
+    }
+
+    /// The plain listing totals done waves instead of listing them; an
+    /// explicit `--status Done` asks for the rows back, and JSON always
+    /// carries every row.
+    #[test]
+    fn list_collapses_done_waves_to_a_total() {
+        let (_dir, store) = scratch(&[
+            ("task-10 - open.md", wave("TASK-10", "To Do", &["TASK-1"])),
+            ("task-11 - done.md", wave("TASK-11", "Done", &["TASK-2"])),
+            ("task-12 - done.md", wave("TASK-12", "Done", &["TASK-3"])),
+            ("task-1 - m.md", member("TASK-1", &["a.rs"])),
+            ("task-2 - m.md", member("TASK-2", &["b.rs"])),
+            ("task-3 - m.md", member("TASK-3", &["c.rs"])),
+        ]);
+        let run = |statuses: Vec<String>, json: bool| {
+            let mut out = Vec::new();
+            run_wave_list(
+                &store,
+                &cfg(),
+                &WaveListOptions {
+                    marker: DEFAULT_WAVE_MARKER.to_string(),
+                    statuses,
+                    json,
+                },
+                &mut out,
+            )
+            .expect("list");
+            String::from_utf8(out).expect("utf8")
+        };
+
+        let plain = run(vec![], false);
+        assert!(plain.contains("TASK-10"), "open waves are listed: {plain}");
+        assert!(
+            plain.contains("Done: 2 waves, hidden (pass --status Done to list them)"),
+            "done waves collapse to a total: {plain}"
+        );
+        assert!(!plain.contains("TASK-11"), "{plain}");
+        assert!(!plain.contains("TASK-12"), "{plain}");
+
+        let filtered = run(vec!["Done".to_string()], false);
+        assert!(filtered.contains("TASK-11"), "{filtered}");
+        assert!(filtered.contains("TASK-12"), "{filtered}");
+        assert!(
+            !filtered.contains("waves, hidden"),
+            "no total line when the rows are shown: {filtered}"
+        );
+
+        let json = run(vec![], true);
+        assert!(json.contains("TASK-11"), "json keeps every row: {json}");
+        assert!(json.contains("TASK-12"), "{json}");
     }
 
     #[test]
