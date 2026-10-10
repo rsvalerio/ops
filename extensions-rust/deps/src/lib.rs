@@ -7,7 +7,7 @@
 //! `cargo-edit` and `cargo-deny` must be installed; `ops deps` fails without
 //! them.
 //!
-//! `ops deps --check` is the CI-safe gate (TASK-2324): it runs only
+//! `ops deps --check` is the CI-safe gate: it runs only
 //! `cargo deny check` and, when installed, `cargo machete` — no upgrade scan,
 //! so cargo-edit is not required — always collects fresh, and never writes
 //! the data cache. It fails on the same actionable findings as `ops deps`.
@@ -243,8 +243,7 @@ pub fn ensure_tools(working_dir: &std::path::Path) -> anyhow::Result<()> {
     Ok(())
 }
 
-/// An external binary `ops deps` spawns, as `ops explain --json` reports it
-/// (TASK-2326).
+/// An external binary `ops deps` spawns, as `ops explain --json` reports it.
 #[derive(Debug, Clone, PartialEq, Eq)]
 #[non_exhaustive]
 pub struct ExternalTool {
@@ -540,7 +539,7 @@ ops_extension::impl_extension! {
     command_names: &["deps"],
     data_provider_name: Some(DATA_PROVIDER_NAME),
     register_commands: |_self, registry| {
-        // SEC-13 / TASK-2336: a bare "ops" resolves through the invoking
+        // SEC-13: a bare "ops" resolves through the invoking
         // environment's PATH, so a shim or stale `ops` earlier on PATH would
         // run in place of this binary. `ops_subcommand` spawns the absolute
         // current_exe()-resolved binary and renders as `ops deps`. The
