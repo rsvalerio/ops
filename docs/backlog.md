@@ -173,7 +173,9 @@ ops backlog wave migrate [--marker <name>] [--dry-run]
 
 - `list` keeps tasks carrying the marker as a **label or an assignee**, so
   it answers the same before and after a migration. Rows are the `task list`
-  shape, grouped by status.
+  shape, grouped by status. In the plain listing, waves in the terminal
+  status collapse to a one-line total (`Done: 49 waves, hidden …`); pass
+  `-s <terminal status>` to list them, or `--json` for every row.
 - `members` lists the union of three links: the wave's `dependencies:`,
   every task whose `parent_task_id` names it, and every task still carrying
   the wave id as an assignee (the pre-migration form). They are written at
