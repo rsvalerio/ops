@@ -20,14 +20,14 @@
 //! requiring `trivy` to be installed. That is the "check what to run" preview.
 //!
 //! Every scan skips each stack's default build/dependency directories at any
-//! depth plus `.git` (see [`shared_skip_dirs`], TASK-2264): build output is
+//! depth plus `.git` (see [`shared_skip_dirs`]): build output is
 //! generated artefact, not source, and Trivy aborts a scan when a concurrent
 //! build deletes a file mid-walk. Generic names — `build`, `dist` — are
 //! plausible checked-in source paths too, so they are skipped only where a
 //! stack manifest beside them says they are generated output (see
 //! [`WalkOutcome::generated`]). `--no-default-skips` opts out.
 //!
-//! # Scan root, ignore file, dev dependencies (TASK-2276)
+//! # Scan root, ignore file, dev dependencies
 //!
 //! - **Scan root** is the invoking directory. Inside a subproject of a git
 //!   repo, files elsewhere in the repo (a root `Dockerfile`, `packaging/`)
@@ -50,12 +50,12 @@
 //! gate or pre-push hook keys off. It **fails closed**:
 //!
 //! - non-zero when any scan reports findings, errors, or times out;
-//! - non-zero when *zero* scans ran (SEC-31 / TASK-1754). An all-skipped run
-//!   used to print nothing and exit 0, which is indistinguishable — to every
-//!   automated consumer — from "all scans ran and found nothing". A silently
-//!   inert security gate reporting healthy is the fail-open shape, so the
-//!   empty selection is reported explicitly and treated as a failure.
-//!   `--dry-run` remains the way to preview a plan without running anything.
+//! - non-zero when *zero* scans ran: an all-skipped run is indistinguishable
+//!   — to every automated consumer — from "all scans ran and found nothing",
+//!   and a silently inert security gate reporting healthy is the fail-open
+//!   shape, so the empty selection is reported explicitly and treated as a
+//!   failure. `--dry-run` remains the way to preview a plan without running
+//!   anything.
 //!
 //! Each `trivy` invocation is bounded by [`DEFAULT_SCAN_TIMEOUT`], overridable
 //! via the [`SCAN_TIMEOUT_ENV`] environment variable.
@@ -70,10 +70,10 @@ use ops_core::subprocess::{run_with_timeout, RunError};
 /// Directories never worth walking, for detection *and* for Trivy — the
 /// *unambiguous* half of the skip policy.
 ///
-/// TASK-2264: the single shared list is `ops_core::stack::scan_skip_dirs` —
-/// every stack's declared build/dependency directories plus `.git`, minus
-/// the generic names — so the detection walk and the Trivy invocations
-/// cannot drift apart. Build output is generated artefact, not source:
+/// The single shared list is `ops_core::stack::scan_skip_dirs` — every
+/// stack's declared build/dependency directories plus `.git`, minus the
+/// generic names — so the detection walk and the Trivy invocations cannot
+/// drift apart. Build output is generated artefact, not source:
 /// walking it is slow (~16s on a Rust project, mostly `target/`), scans
 /// generated files rather than the code the user wrote, and races the
 /// builds producing it (Trivy aborts when a file vanishes mid-walk).
@@ -83,7 +83,7 @@ use ops_core::subprocess::{run_with_timeout, RunError};
 /// them only where [`ops_core::stack::is_generated_build_dir`] says the
 /// directory beside a stack manifest is generated output, and Trivy receives
 /// those as discovered per-path `--skip-dirs` entries rather than a blanket
-/// `**/build` (TASK-2271).
+/// `**/build`.
 ///
 /// `--no-default-skips` (see [`run_sec_to`]) removes the list from the
 /// Trivy invocations only; detection keeps skipping, because a marker file
@@ -275,7 +275,7 @@ struct Detected {
 /// The inventory is what Trivy skips for the generic names: a blanket
 /// `**/build` would also exclude checked-in source directories
 /// (`services/build`), so those names reach Trivy only as the exact
-/// discovered paths (TASK-2271).
+/// discovered paths.
 #[derive(Debug)]
 struct WalkOutcome {
     found: Detected,
@@ -534,7 +534,7 @@ macro_rules! trivy_install {
     };
 }
 
-/// How to install Trivy, as `ops explain --json` reports it (TASK-2326).
+/// How to install Trivy, as `ops explain --json` reports it.
 pub const TRIVY_INSTALL: &str = trivy_install!();
 
 const TRIVY_MISSING_HELP: &str = concat!(
@@ -545,7 +545,7 @@ const TRIVY_MISSING_HELP: &str = concat!(
 
 /// Wall-clock budget for a single `trivy` invocation.
 ///
-/// ASYNC-6 / SEC-33 (TASK-1748): `Command::output()` waits forever and buffers
+/// `Command::output()` waits forever and buffers
 /// the whole report in memory. `ops sec` is the terminal step of `ops qa`, so
 /// an unbounded wait here is a hung CI job or a hung pre-push hook with no
 /// diagnostic beyond a half-written `scanning vulnerabilities ` line.
@@ -588,7 +588,7 @@ fn scan_timeout() -> Duration {
 /// flags, then one `--skip-dirs` pair per skip pattern, then the target
 /// path.
 ///
-/// Patterns come in two shapes (TASK-2271): unambiguous skip dirs go as
+/// Patterns come in two shapes: unambiguous skip dirs go as
 /// `**/<name>`, which matches at any depth — verified against Trivy 0.74:
 /// `--skip-dirs '**/target'` skips both a top-level `target/` and a nested
 /// workspace's `nested/target/` — so a monorepo's inner Cargo workspaces
@@ -600,7 +600,7 @@ fn scan_timeout() -> Duration {
 /// An empty pattern list passes no `--skip-dirs` at all, leaving Trivy's
 /// own built-in defaults in charge (`--no-default-skips`).
 ///
-/// TASK-2276: every scan also gets `--ignorefile` when one was discovered,
+/// Every scan also gets `--ignorefile` when one was discovered,
 /// and the vulnerability scan gets `--include-dev-deps` unless opted out.
 fn trivy_argv(scan: Scan, root: &Path, opts: &TrivyOpts) -> Vec<String> {
     let mut args: Vec<String> = scan.trivy_args().iter().map(|s| (*s).to_string()).collect();
@@ -782,7 +782,7 @@ fn run_sec_to(
     } else {
         root
     };
-    // TASK-2276: stay scoped to the scan root, but say what that leaves out.
+    // Stay scoped to the scan root, but say what that leaves out.
     let outside: Vec<PathBuf> = match toplevel.as_deref() {
         Some(top) if top != scan_root => outside_iac_markers(top, scan_root),
         _ => Vec::new(),
@@ -823,7 +823,7 @@ fn run_sec_to(
         return Ok(ExitCode::SUCCESS);
     }
 
-    // SEC-31 (TASK-1754): zero scans selected must not fall through the loop
+    // Zero scans selected must not fall through the loop
     // into SUCCESS. `run_cmd/plan.rs::plans_for_names` refuses the same shape for
     // the same reason — "executed zero steps, reported success" masks an
     // upstream filtering bug — and here the blast radius is a security gate
@@ -840,7 +840,7 @@ fn run_sec_to(
     }
 
     // A live run is quiet, but files silently left out of a security gate
-    // deserve their one line (TASK-2276 AC #1).
+    // deserve their one line.
     if let Some(top) = toplevel.as_deref() {
         write_outside(w, top, &outside).context("failed to write out-of-scope files")?;
     }
@@ -862,11 +862,11 @@ fn run_sec_to(
     })
 }
 
-/// TASK-2264 AC #5: render the directories every Trivy scan will skip, so
+/// Render the directories every Trivy scan will skip, so
 /// `ops sec --dry-run` previews not just *which* scans run but *what* they
 /// walk. Each entry is the pattern actually passed to Trivy: `**/<dir>` for
 /// the unambiguous names (any depth), the exact discovered path for each
-/// generated `build`/`dist` directory (TASK-2271).
+/// generated `build`/`dist` directory.
 fn write_skip_dirs(
     w: &mut dyn std::io::Write,
     no_default_skips: bool,
@@ -883,7 +883,7 @@ fn write_skip_dirs(
     writeln!(w, "  skipping dirs: {}", patterns.join(", "))
 }
 
-/// TASK-2276 AC #3: name the ignore file every scan receives, or say none
+/// Name the ignore file every scan receives, or say none
 /// was found and where it was looked for.
 fn write_ignore_file(
     w: &mut dyn std::io::Write,
@@ -906,7 +906,7 @@ fn write_ignore_file(
     )
 }
 
-/// TASK-2276 AC #4: say whether the vulnerability scan covers dev
+/// Say whether the vulnerability scan covers dev
 /// dependencies and how to flip it.
 fn write_dev_deps(w: &mut dyn std::io::Write, include: bool) -> std::io::Result<()> {
     if include {
@@ -923,7 +923,7 @@ fn write_dev_deps(w: &mut dyn std::io::Write, include: bool) -> std::io::Result<
 /// How many out-of-scope paths [`write_outside`] names before summarising.
 const OUTSIDE_LISTED: usize = 5;
 
-/// TASK-2276 AC #1: name the `IaC` files elsewhere in the repo that this scan
+/// Name the `IaC` files elsewhere in the repo that this scan
 /// leaves out, and how to include them. Silent when there are none.
 fn write_outside(
     w: &mut dyn std::io::Write,
@@ -1171,7 +1171,7 @@ mod tests {
         assert_eq!(plan.len(), Scan::ALL.len());
     }
 
-    /// ASYNC-6 (TASK-1748): a scan that outruns its deadline must be reported
+    /// A scan that outruns its deadline must be reported
     /// as a timed-out scan — failure marker, the elapsed budget, and the
     /// escape hatch — not as a bare `RunError`, and it must fail closed.
     #[cfg(unix)]
@@ -1271,7 +1271,7 @@ mod tests {
         }
     }
 
-    /// SEC-31 (TASK-1754): `--skip` on every scan must not exit 0 with no
+    /// `--skip` on every scan must not exit 0 with no
     /// output — that is indistinguishable from "everything ran and was clean".
     #[test]
     fn all_scans_skipped_reports_zero_scans_and_fails_closed() {
@@ -1332,10 +1332,10 @@ mod tests {
         assert_eq!(format!("{code:?}"), format!("{:?}", ExitCode::SUCCESS));
     }
 
-    /// TASK-2264 AC #2: every scan type (secret, vuln, config) receives the
+    /// Every scan type (secret, vuln, config) receives the
     /// unambiguous shared skip dirs as `--skip-dirs **/<dir>` before the
     /// target path. The `**/` form is what makes a nested workspace's
-    /// `target/` skip too (AC #3, verified against Trivy 0.74).
+    /// `target/` skip too (verified against Trivy 0.74).
     #[test]
     fn trivy_argv_passes_shared_skip_dirs_to_every_scan() {
         let opts = TrivyOpts {
@@ -1352,7 +1352,7 @@ mod tests {
                 );
             }
             // The generic names never appear in their blanket form — they
-            // reach Trivy only as discovered per-path entries (TASK-2271).
+            // reach Trivy only as discovered per-path entries.
             for generic in ops_core::stack::generic_build_dirs() {
                 let blanket = format!("**/{generic}");
                 assert!(
@@ -1373,7 +1373,7 @@ mod tests {
         }
     }
 
-    /// TASK-2271: a generated `build/` (Gradle manifest beside it) reaches
+    /// A generated `build/` (Gradle manifest beside it) reaches
     /// Trivy as its exact discovered path — never as `**/build`, which would
     /// also exclude a checked-in `services/build`.
     #[test]
@@ -1403,7 +1403,7 @@ mod tests {
         }
     }
 
-    /// TASK-2264 AC #4: `--no-default-skips` passes no `--skip-dirs` at all,
+    /// `--no-default-skips` passes no `--skip-dirs` at all,
     /// leaving Trivy's own built-in defaults in charge.
     #[test]
     fn trivy_argv_with_no_default_skips_passes_no_skip_dirs() {
@@ -1416,7 +1416,7 @@ mod tests {
         }
     }
 
-    /// TASK-2264 AC #5: the dry-run preview names the directories every scan
+    /// The dry-run preview names the directories every scan
     /// will skip, in the `**/<dir>` form actually passed to Trivy.
     #[test]
     fn dry_run_lists_the_skipped_directories() {
@@ -1463,7 +1463,7 @@ mod tests {
         );
     }
 
-    /// TASK-2264 AC #6: detection and Trivy derive from the one shared
+    /// Detection and Trivy derive from the one shared
     /// policy, so a marker inside *generated* build output is invisible to
     /// detection — pinned for a Gradle `build/` declared by a
     /// `build.gradle` beside it.
@@ -1481,7 +1481,7 @@ mod tests {
         );
     }
 
-    /// TASK-2271: a `build/` with no declaring manifest beside it is
+    /// A `build/` with no declaring manifest beside it is
     /// checked-in source, not generated output — its markers stay
     /// detectable and it never lands in the generated inventory Trivy
     /// skips.
@@ -1507,7 +1507,7 @@ mod tests {
         );
     }
 
-    /// TASK-2271: generated `build`/`dist` directories land in the walk's
+    /// Generated `build`/`dist` directories land in the walk's
     /// inventory as root-relative paths — top-level and nested alike — and
     /// that inventory is what `trivy_skip_patterns` passes per-path.
     #[test]
@@ -1536,7 +1536,7 @@ mod tests {
             "no blanket generic pattern: {patterns:?}"
         );
     }
-    /// A monorepo shaped like the one TASK-2276 was found in: a git root
+    /// A monorepo fixture: a git root
     /// with a root `Dockerfile`, `packaging/docker/Dockerfile.build`, and two
     /// ops subprojects (`backend/` scanned here, `frontend/` a sibling with
     /// its own `.ops.toml` and `Dockerfile`).
@@ -1575,7 +1575,7 @@ mod tests {
         assert_eq!(git_toplevel(wt.path()).as_deref(), Some(wt.path()));
     }
 
-    /// TASK-2276 AC #1/#2: a subproject run stays scoped — no sibling or
+    /// A subproject run stays scoped — no sibling or
     /// root files in its own plan — and names the root-level `IaC` files it
     /// leaves out, excluding the sibling ops project (its own `sec` covers
     /// it, so reporting it would mean two owners for the same files).
@@ -1633,7 +1633,7 @@ mod tests {
         );
     }
 
-    /// TASK-2276 AC #1: `--repo` scans the git toplevel, so the root
+    /// `--repo` scans the git toplevel, so the root
     /// Dockerfile switches the misconfig scan on and nothing is left out.
     #[test]
     fn repo_flag_scans_the_git_toplevel() {
@@ -1678,7 +1678,7 @@ mod tests {
         assert!(!out.contains("not scanned:"), "{out}");
     }
 
-    /// TASK-2276 AC #3: both formats, both locations, YAML preferred, the
+    /// Both formats, both locations, YAML preferred, the
     /// scan root winning over the toplevel.
     #[test]
     fn ignore_file_discovery_covers_both_formats_and_locations() {
@@ -1712,7 +1712,7 @@ mod tests {
         );
     }
 
-    /// TASK-2276 AC #3: the ignore file reaches every scan as
+    /// The ignore file reaches every scan as
     /// `--ignorefile <path>`, and the dry-run names it — or says none.
     #[test]
     fn ignore_file_is_passed_to_every_scan_and_previewed() {
@@ -1746,7 +1746,7 @@ mod tests {
         assert!(!argv.iter().any(|a| a == "--ignorefile"), "{argv:?}");
     }
 
-    /// TASK-2276 AC #4: dev deps are on by default for the vuln scan only;
+    /// Dev deps are on by default for the vuln scan only;
     /// `--no-dev-deps` drops the flag.
     #[test]
     fn dev_deps_are_included_in_the_vuln_scan_by_default() {
