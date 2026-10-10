@@ -2,10 +2,10 @@
 //! wrapping for the boxed theme.
 
 use super::*;
-use crate::step_line_theme::BoxSnapshot;
 use ops_core::config::theme_types::LayoutKind;
+use ops_theme::BoxSnapshot;
 
-fn snap(
+const fn snap(
     completed: usize,
     total: usize,
     elapsed: f64,

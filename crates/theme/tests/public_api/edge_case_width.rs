@@ -10,8 +10,8 @@
 //! not clamped.
 
 use super::*;
-use crate::style::{visible_width, ELLIPSIS};
 use ops_core::output::StepLine;
+use ops_theme::style::{visible_width, ELLIPSIS};
 
 /// Render `step` at `columns` and assert the crate's central layout
 /// invariant: a rendered line never exceeds the budget it was given.

@@ -6,7 +6,7 @@
 //! the budget it was rendered at.
 
 use super::*;
-use crate::style::visible_width;
+use ops_theme::style::visible_width;
 
 /// Render at `columns` and assert the line fits the budget it was given.
 fn render_within_budget(
@@ -76,7 +76,7 @@ fn render_handles_very_long_unicode_label() {
         "the 200-column label must not be echoed verbatim: {line:?}"
     );
     assert!(
-        line.contains(crate::style::ELLIPSIS),
+        line.contains(ops_theme::style::ELLIPSIS),
         "truncation must be marked: {line:?}"
     );
 }
@@ -94,8 +94,8 @@ fn render_handles_right_to_left_text() {
 /// bar one column off.
 #[test]
 fn boxed_wide_label_at_narrow_width_matches_border_width() {
-    use crate::step_line_theme::BoxSnapshot;
     use ops_core::config::theme_types::LayoutKind;
+    use ops_theme::BoxSnapshot;
     let theme = ConfigurableTheme::new(ThemeConfig {
         layout_kind: LayoutKind::Boxed,
         left_pad: 0,

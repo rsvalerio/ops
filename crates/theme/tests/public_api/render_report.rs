@@ -4,9 +4,9 @@
 //! commands use.
 
 use super::*;
-use crate::SlotLine;
 use ops_core::config::theme_types::LayoutKind;
 use ops_core::report::{Report, ReportRow, ReportStatus};
+use ops_theme::SlotLine;
 
 /// The dotted separator width is a function of the trailing slot's *display
 /// width* only — not its contents. Two trailings of equal width must produce
@@ -191,7 +191,7 @@ fn render_summary_text_matches_render_summary_done_case() {
 /// escape's byte length and the frame bends.
 #[test]
 fn boxed_report_row_with_sgr_label_matches_border_width() {
-    use crate::style::visible_width;
+    use ops_theme::style::visible_width;
     let theme = ConfigurableTheme::new(ThemeConfig {
         layout_kind: LayoutKind::Boxed,
         left_pad: 0,

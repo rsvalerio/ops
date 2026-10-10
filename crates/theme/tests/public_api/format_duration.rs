@@ -87,7 +87,7 @@ fn enormous_finite_input_saturates_to_u64_max_form() {
     // conversion the same rounding-up way. `f64::from`/`try_from` do not exist
     // for u64, and hard-coding 1.8446744073709552e19 would silently drift from
     // the production bound.
-    #[allow(clippy::as_conversions)]
+    #[allow(clippy::as_conversions, clippy::cast_precision_loss)]
     let out = format_duration(u64::MAX as f64);
     assert!(out.contains('h'), "expected hours form, got: {out}");
 }
@@ -106,7 +106,7 @@ fn above_u64_max_finite_does_not_overflow() {
     // Same reason as above: the test's premise is "twice the exact f64 clamp
     // bound `format_duration` uses", which is only expressible as
     // `u64::MAX as f64` — there is no `From`/`TryFrom` impl for u64 -> f64.
-    #[allow(clippy::as_conversions)]
+    #[allow(clippy::as_conversions, clippy::cast_precision_loss)]
     let above = (u64::MAX as f64) * 2.0;
     assert!(above.is_finite(), "test premise");
     let out = format_duration(above);

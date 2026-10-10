@@ -117,8 +117,9 @@ fn plain_header_with_prefix_emits_prefix() {
 ///
 /// A test harness cannot make stdout a real terminal, so the scenario is
 /// pinned in two halves that together cover it: the gate itself is asked
-/// about exactly that stream combination, and a step line is rendered with
-/// the stderr-bound gate forced off and asserted to be plain.
+/// about exactly that stream combination (the private-gate half lives in the
+/// inline `style::sgr` tests), and a step line is rendered with the
+/// stderr-bound gate forced off and asserted to be plain.
 ///
 /// The rendered half must not depend on *this process's* stderr being
 /// redirected. `ops_core::style::stderr_is_terminal()` caches its
@@ -133,10 +134,9 @@ fn plain_header_with_prefix_emits_prefix() {
 #[serial]
 fn step_line_is_plain_when_stderr_is_redirected() {
     // stdout a TTY, stderr redirected: the shared stdout-bound resolver says
-    // "colour", the theme's stderr-bound gate must not. Both are pure
-    // functions of their arguments and hold whatever this process's stdio is.
+    // "colour"; the theme's stderr-bound gate must not (that gate is private
+    // and pinned by the inline `style::sgr` tests).
     assert!(ops_core::style::color_enabled_from(true, false, false));
-    assert!(!crate::style::color_enabled_for(false, false));
 
     let mut cfg = ThemeConfig::compact();
     cfg.label_color = "cyan".into();
@@ -275,7 +275,7 @@ fn error_detail_empty_returns_nothing() {
 /// worth pinning is that the line still renders and still fits its budget.
 #[test]
 fn classic_theme_very_small_columns() {
-    use crate::style::visible_width;
+    use ops_theme::style::visible_width;
     let theme = ConfigurableTheme::new(ThemeConfig::classic());
     let step = StepLine::new(StepStatus::Succeeded, "cmd".to_string(), Some(0.5));
     let line = theme.render(&step, 10);
@@ -289,7 +289,7 @@ fn classic_theme_very_small_columns() {
 
 #[test]
 fn compact_theme_very_small_columns() {
-    use crate::style::visible_width;
+    use ops_theme::style::visible_width;
     let theme = ConfigurableTheme::new(ThemeConfig::compact());
     let step = StepLine::new(StepStatus::Succeeded, "x".to_string(), Some(0.5));
     let line = theme.render(&step, 5);
