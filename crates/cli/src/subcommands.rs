@@ -22,6 +22,8 @@ pub fn cli_data_context(config: &Config) -> anyhow::Result<(PathBuf, ops_extensi
     Ok((cwd, registry))
 }
 
+/// Dispatch `ops about <action>`: the backlog and machine pages run
+/// directly, the rest go through the data registry.
 pub fn run_about(
     config: &Config,
     refresh: bool,
@@ -123,11 +125,15 @@ const fn deps_options(refresh: bool, check: bool) -> ops_deps::DepsOptions {
 }
 
 #[cfg(feature = "stack-rust")]
+/// Run `ops deps`: audit the workspace's Rust dependencies via
+/// `ops_deps::run_deps`.
 pub fn run_deps(config: &Config, refresh: bool, check: bool) -> anyhow::Result<()> {
     let (_cwd, registry) = cli_data_context(config)?;
     ops_deps::run_deps(&registry, &deps_options(refresh, check))
 }
 
+/// Run `ops create-review-tasks`: generate review tasks for the current
+/// diff via `ops_create_review_tasks`.
 pub fn run_create_review_tasks(config: &Config, dry_run: bool) -> anyhow::Result<()> {
     let (cwd, registry) = cli_data_context(config)?;
     let mode = if dry_run {
@@ -138,6 +144,7 @@ pub fn run_create_review_tasks(config: &Config, dry_run: bool) -> anyhow::Result
     ops_create_review_tasks::run_create_review_tasks(&registry, &cwd, &mut std::io::stdout(), mode)
 }
 
+/// Dispatch `ops theme list` / `ops theme select`.
 pub fn run_theme(config: &Config, action: ThemeAction) -> anyhow::Result<()> {
     match action {
         ThemeAction::List => theme_cmd::run_theme_list(config),
@@ -148,6 +155,7 @@ pub fn run_theme(config: &Config, action: ThemeAction) -> anyhow::Result<()> {
     }
 }
 
+/// Dispatch `ops extension list` / `ops extension show`.
 pub fn run_extension(config: &Config, action: ExtensionAction) -> anyhow::Result<()> {
     match action {
         ExtensionAction::List => extension_cmd::run_extension_list(config),
@@ -328,7 +336,7 @@ fn run_hook_action(
     }
 }
 
-/// TASK-2278: preview a hook action under the global `--dry-run` without
+/// Preview a hook action under the global `--dry-run` without
 /// running any step, installing a hook, or editing `.ops.toml`.
 ///
 /// The run path prints the configured command's resolved plan through the
@@ -376,6 +384,8 @@ fn preview_hook_action(
     }
 }
 
+/// Dispatch `ops run-before-commit`: install the hook, or run it — over
+/// changed files only with `--changed-only`, as a preview with `--dry-run`.
 pub fn run_before_commit(
     config: &std::sync::Arc<Config>,
     action: Option<RunBeforeCommitAction>,
@@ -446,6 +456,8 @@ where
     }
 }
 
+/// Run `ops trailing-whitespace`: strip trailing whitespace via
+/// `ops_text_fixers` (check-only with `--check`).
 pub fn run_trailing_whitespace(tracked: bool, check: bool) -> anyhow::Result<ExitCode> {
     run_text_fixer(
         "trailing-whitespace",
@@ -455,6 +467,8 @@ pub fn run_trailing_whitespace(tracked: bool, check: bool) -> anyhow::Result<Exi
     )
 }
 
+/// Run `ops end-of-file-fixer`: end files with exactly one newline via
+/// `ops_text_fixers` (check-only with `--check`).
 pub fn run_end_of_file_fixer(tracked: bool, check: bool) -> anyhow::Result<ExitCode> {
     run_text_fixer(
         "end-of-file-fixer",
@@ -489,12 +503,15 @@ where
     }
 }
 
+/// Run `ops check-json`: validate JSON (and JSON5 when allowed) via
+/// `ops_config_checkers`.
 pub fn run_check_json(tracked: bool, allow_json5: bool) -> anyhow::Result<ExitCode> {
     let cwd = crate::cwd()?;
     let opts = ops_config_checkers::CheckerOptions::new(cwd, tracked).with_allow_json5(allow_json5);
     run_config_checker("check-json", &opts, ops_config_checkers::run_check_json)
 }
 
+/// Run `ops check-yaml`: validate YAML via `ops_config_checkers`.
 pub fn run_check_yaml(tracked: bool) -> anyhow::Result<ExitCode> {
     let cwd = crate::cwd()?;
     let opts = ops_config_checkers::CheckerOptions::new(cwd, tracked);
@@ -595,7 +612,7 @@ mod tests {
         assert!(!env_flag_enabled("OPS_NONINTERACTIVE_TEST"));
     }
 
-    /// TEST-31 / TASK-2030: `ops deps --refresh` is plumbed argv →
+    /// `ops deps --refresh` is plumbed argv →
     /// `CoreSubcommand::Deps { refresh }` → `run_deps` →
     /// `DepsOptions::new(refresh)`. The library test pins
     /// `DepsOptions.refresh -> ctx.refresh`; nothing pinned the half above
@@ -733,7 +750,7 @@ program = "true"
         );
     }
 
-    /// SEC-11 / TASK-1906: the pre-push gate consumes git's ref-update
+    /// The pre-push gate consumes git's ref-update
     /// stream (forwarded by the installed hook) and decides run vs skip. A
     /// delete-only push and an empty push must short-circuit with SUCCESS
     /// *without* running the configured command — the command here is
@@ -790,7 +807,7 @@ program = "true"
         );
     }
 
-    /// TASK-2278: `ops --dry-run run-before-commit` / `run-before-push` must
+    /// `ops --dry-run run-before-commit` / `run-before-push` must
     /// print the plan and run no step. The configured hook command touches a
     /// marker file, so any execution — of the hook command itself or of a
     /// step it expands to — leaves evidence behind.
@@ -826,7 +843,7 @@ commands = ["touch-marker"]
         assert!(!marker.exists(), "run-before-push --dry-run ran a step");
     }
 
-    /// TASK-2278: `ops --dry-run run-before-* install` must not write the git
+    /// `ops --dry-run run-before-* install` must not write the git
     /// hook or touch `.ops.toml`.
     #[test]
     #[serial_test::serial]

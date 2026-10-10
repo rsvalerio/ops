@@ -264,7 +264,7 @@ fn insert_backlog_section(
 /// The cwd is unreadable, a config file is present but unparseable, the
 /// `.backlog/tasks` tree is missing (the error names it), or a handler
 /// failed — all bubble as anyhow context for `ops: error: …`.
-/// TASK-2279: the backlog actions that write the tree but have no preview
+/// The backlog actions that write the tree but have no preview
 /// mode, named as the user typed them. Under the global `--dry-run` these
 /// are refused rather than run: the flag promises "preview without
 /// executing", and silently writing a task file (and allocating its id)
@@ -892,7 +892,7 @@ mod tests {
             .collect()
     }
 
-    /// TASK-2279: under the global `--dry-run`, every mutating backlog
+    /// Under the global `--dry-run`, every mutating backlog
     /// action without a preview mode fails with an explicit error and writes
     /// nothing — no task file, no allocated id, no edit, no init.
     #[test]

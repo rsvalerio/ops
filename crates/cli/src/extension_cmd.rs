@@ -18,6 +18,8 @@ fn format_list(items: &[String]) -> String {
     }
 }
 
+/// Run `ops extension list`: print the compiled-in extensions, generic ones
+/// first then grouped by stack.
 pub fn run_extension_list(config: &ops_core::config::Config) -> anyhow::Result<()> {
     run_extension_list_to(config, &mut std::io::stdout())
 }
@@ -232,7 +234,7 @@ fn build_extension_row(
         .map(std::string::ToString::to_string)
         .unwrap_or_default();
 
-    // SEC-11 / TASK-2032: extension metadata is registry-supplied text, so
+    // Extension metadata is registry-supplied text, so
     // every cell here is built through `OpsTable`'s sanitising constructors.
     let data_cell = if table.is_tty() && !data_provider.is_empty() {
         OpsTable::text_cell(&data_provider).fg(Color::Green)
@@ -250,6 +252,8 @@ fn build_extension_row(
     ]
 }
 
+/// Run `ops extension show [name]`: print one extension's details, or open
+/// the interactive picker when `name` is absent.
 pub fn run_extension_show(
     config: &ops_core::config::Config,
     name: Option<&str>,
@@ -262,12 +266,9 @@ pub fn run_extension_show(
     )
 }
 
-/// DUP-1 / TASK-1449: writer-injected entry point for `ops extension show`.
+/// Writer-injected entry point for `ops extension show`.
 /// Contains the TTY / picker logic; tests construct a buffer and assert on
 /// the rendered output directly without going through `std::io::stdout()`.
-/// Previously this was a one-line passthrough into
-/// `run_extension_show_to`; the two are now collapsed into a
-/// single function so the call graph mirrors the doc.
 fn run_extension_show_to<F>(
     w: &mut dyn Write,
     config: &ops_core::config::Config,
@@ -825,7 +826,7 @@ enabled = []
         assert_eq!(format_list(&items), "DATASOURCE, COMMAND");
     }
 
-    /// TASK-1746: Esc / Ctrl-C at this command's picker is a user cancel —
+    /// Esc / Ctrl-C at this command's picker is a user cancel —
     /// it must reach `main` as the shared cancellation error (exit 130, no
     /// `ops: error:` frame), not as a plain anyhow failure exiting 1.
     #[test]
