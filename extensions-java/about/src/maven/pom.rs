@@ -167,33 +167,13 @@ pub(super) fn parse_pom_xml(project_root: &Path) -> Option<PomData> {
         }
 
         if !started {
-            // Support multi-line `<project ... >` openers, which
-            // real-world Maven formatters often emit (xmlns/xsi attributes
-            // split across lines). Track an "opener pending" state until the
-            // closing `>` arrives.
-            if opener_pending {
-                // When `>` lands on this line, the
-                // opener is closed but the *same* line may carry a real
-                // element after it (e.g. `...">`<artifactId>x</artifactId>`).
-                // Re-feed the post-`>` remainder through the started-line
-                // dispatch so the trailing tag is not silently dropped.
-                if let Some((_, after_gt)) = line.split_once('>') {
-                    opener_pending = false;
-                    started = true;
-                    let remainder = after_gt.trim();
-                    if remainder.is_empty() {
-                        continue;
-                    }
-                    if dispatch_started_line(remainder, &mut section, &mut data) {
-                        break;
-                    }
+            if let Some(remainder) = accept_project_opener(line, &mut started, &mut opener_pending)
+            {
+                if !remainder.is_empty()
+                    && dispatch_started_line(remainder, &mut section, &mut data)
+                {
+                    break;
                 }
-                continue;
-            }
-            if is_project_open(line) {
-                started = true;
-            } else if is_project_open_start(line) {
-                opener_pending = true;
             }
             continue;
         }
@@ -202,12 +182,47 @@ pub(super) fn parse_pom_xml(project_root: &Path) -> Option<PomData> {
         }
     }
 
-    // A truncated or hand-mangled pom.xml must not degrade to "empty POM"
-    // with no diagnostic, which is the same failure mode the crate-level
-    // malformed-vs-missing policy exists to prevent. Every construct still
-    // open at end of input is reported; the fields parsed before it are kept,
-    // and everything after it is explicitly dropped rather than silently
-    // swallowed.
+    warn_unterminated(in_comment, opener_pending, &section);
+
+    Some(data)
+}
+
+/// Advance the `<project` opener state machine by one not-yet-started line.
+///
+/// Supports multi-line `<project ... >` openers, which real-world Maven
+/// formatters often emit (xmlns/xsi attributes split across lines): an
+/// "opener pending" state is tracked until the closing `>` arrives. Returns
+/// `Some(remainder)` when the document has just started and the text after
+/// the opener's closing `>` still carries an element to dispatch on this same
+/// line (e.g. a trailing `<artifactId>x</artifactId>` glued to the `>`), so
+/// the trailing tag is not silently dropped; `None` otherwise.
+fn accept_project_opener<'a>(
+    line: &'a str,
+    started: &mut bool,
+    opener_pending: &mut bool,
+) -> Option<&'a str> {
+    if *opener_pending {
+        let (_, after_gt) = line.split_once('>')?;
+        *opener_pending = false;
+        *started = true;
+        return Some(after_gt.trim());
+    }
+    if is_project_open(line) {
+        *started = true;
+    } else if is_project_open_start(line) {
+        *opener_pending = true;
+    }
+    None
+}
+
+/// Report every construct still open at end of input.
+///
+/// A truncated or hand-mangled pom.xml must not degrade to "empty POM" with
+/// no diagnostic, which is the same failure mode the crate-level
+/// malformed-vs-missing policy exists to prevent. The fields parsed before
+/// the construct are kept, and everything after it is explicitly dropped
+/// rather than silently swallowed.
+fn warn_unterminated(in_comment: bool, opener_pending: bool, section: &PomSection) {
     if in_comment {
         tracing::warn!(
             manifest = "pom.xml",
@@ -229,8 +244,6 @@ pub(super) fn parse_pom_xml(project_root: &Path) -> Option<PomData> {
             "pom.xml: unterminated section at end of file; top-level fields after it were dropped"
         );
     }
-
-    Some(data)
 }
 
 /// Classify a `<project…` line as either a complete opener or the *start* of
@@ -335,6 +348,34 @@ fn handle_developers(line: &str, in_developer: &mut bool, data: &mut PomData) ->
     false
 }
 
+/// Walk every `<developer>` entry in a collapsed single-line
+/// `<developers>...</developers>` container, collecting each entry's
+/// `<name>` into `data.developers`.
+///
+/// Mirrors the multi-line [`handle_developers`] policy: every `<name>`
+/// inside a `<developer>` is kept, and text outside an entry contributes
+/// nothing. Scanning stops at the first malformed (unclosed) entry.
+fn extract_collapsed_developers(line: &str, data: &mut PomData) {
+    let mut rest = line;
+    while let Some(start) = rest.find("<developer>") {
+        let Some(after) = rest.get(start.saturating_add("<developer>".len())..) else {
+            break;
+        };
+        let Some(end) = after.find("</developer>") else {
+            break;
+        };
+        if let Some(entry) = after.get(..end) {
+            if let Some(val) = extract_xml_value(entry, "<name>", "</name>") {
+                data.developers.push(val.to_string());
+            }
+        }
+        let Some(next) = after.get(end.saturating_add("</developer>".len())..) else {
+            break;
+        };
+        rest = next;
+    }
+}
+
 fn handle_scm(line: &str, data: &mut PomData) -> bool {
     if line == "</scm>" {
         return true;
@@ -427,24 +468,7 @@ fn match_section_open(line: &str, data: &mut PomData) -> SectionOutcome {
         && line.ends_with("</developers>")
         && line.matches("<developers>").count() == 1
     {
-        let mut rest = line;
-        while let Some(start) = rest.find("<developer>") {
-            let Some(after) = rest.get(start.saturating_add("<developer>".len())..) else {
-                break;
-            };
-            let Some(end) = after.find("</developer>") else {
-                break;
-            };
-            if let Some(entry) = after.get(..end) {
-                if let Some(val) = extract_xml_value(entry, "<name>", "</name>") {
-                    data.developers.push(val.to_string());
-                }
-            }
-            let Some(next) = after.get(end.saturating_add("</developer>".len())..) else {
-                break;
-            };
-            rest = next;
-        }
+        extract_collapsed_developers(line, data);
         return SectionOutcome::Consumed;
     }
 
