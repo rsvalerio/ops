@@ -1,10 +1,10 @@
 ---
 id: TASK-2518
 title: 'API-14: DataRegistry::new has no doc summary'
-status: To Do
+status: Done
 assignee: []
 created_date: '2026-10-10 15:33'
-updated_date: '2026-10-10 21:12'
+updated_date: '2026-10-10 21:25'
 labels:
   - code-review-rust
   - api
@@ -29,5 +29,6 @@ dedup_key: 'API-14:crates/extension/src/data.rs:DataRegistry::new'
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 DataRegistry::new carries a doc comment whose first paragraph is a ~15-word summary stating the registry starts empty with a cleared audit trail
+- [x] #1 DataRegistry::new carries a doc comment whose first paragraph is a ~15-word summary stating the registry starts empty with a cleared audit trail
+
 <!-- AC:END -->

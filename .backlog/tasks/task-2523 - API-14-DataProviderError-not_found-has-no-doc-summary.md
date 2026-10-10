@@ -1,10 +1,10 @@
 ---
 id: TASK-2523
 title: 'API-14: DataProviderError::not_found has no doc summary'
-status: To Do
+status: Done
 assignee: []
 created_date: '2026-10-10 15:33'
-updated_date: '2026-10-10 21:12'
+updated_date: '2026-10-10 21:25'
 labels:
   - code-review-rust
   - api
@@ -29,5 +29,6 @@ dedup_key: 'API-14:crates/extension/src/error.rs:DataProviderError::not_found'
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 DataProviderError::not_found carries a doc comment whose first paragraph is a ~15-word summary, including the expected-NotFound warm-up idiom
+- [x] #1 DataProviderError::not_found carries a doc comment whose first paragraph is a ~15-word summary, including the expected-NotFound warm-up idiom
+
 <!-- AC:END -->

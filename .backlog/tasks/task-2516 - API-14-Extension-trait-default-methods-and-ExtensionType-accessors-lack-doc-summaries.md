@@ -1,10 +1,10 @@
 ---
 id: TASK-2516
 title: 'API-14: Extension trait default methods and ExtensionType accessors lack doc summaries'
-status: To Do
+status: Done
 assignee: []
 created_date: '2026-10-10 15:33'
-updated_date: '2026-10-10 21:12'
+updated_date: '2026-10-10 21:20'
 labels:
   - code-review-rust
   - api
@@ -31,6 +31,7 @@ dedup_key: 'API-14:crates/extension/src/extension.rs:Extension'
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 Every public item listed above carries a doc comment whose first paragraph is a ~15-word summary
-- [ ] #2 Extension trait method docs state their default value and when an extension should override them
+- [x] #1 Every public item listed above carries a doc comment whose first paragraph is a ~15-word summary
+- [x] #2 Extension trait method docs state their default value and when an extension should override them
+
 <!-- AC:END -->

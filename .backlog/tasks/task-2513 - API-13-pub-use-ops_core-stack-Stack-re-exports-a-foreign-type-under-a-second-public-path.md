@@ -1,10 +1,10 @@
 ---
 id: TASK-2513
 title: 'API-13: pub use ops_core::stack::Stack re-exports a foreign type under a second public path'
-status: To Do
+status: Done
 assignee: []
 created_date: '2026-10-10 15:32'
-updated_date: '2026-10-10 21:12'
+updated_date: '2026-10-10 21:24'
 labels:
   - code-review-rust
   - api
@@ -29,5 +29,12 @@ dedup_key: 'API-13:crates/extension/src/extension.rs:extension'
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 Stack is reachable by exactly one public path (ops_core::stack::Stack): the pub use is removed and in-tree usages of ops_extension::Stack are updated to name ops_core::stack::Stack
+- [x] #1 Stack is reachable by exactly one public path (ops_core::stack::Stack): the pub use is removed and in-tree usages of ops_extension::Stack are updated to name ops_core::stack::Stack
+
 <!-- AC:END -->
+
+## Implementation Notes
+
+<!-- SECTION:NOTES:BEGIN -->
+pub use removed; Stack now reachable only as ops_core::stack::Stack. In-tree usages updated beyond the files this task listed, all mechanical path renames: crates/extension/src/{extension.rs,lib.rs,macros.rs} ($crate::Stack → ::ops_core::stack::Stack in impl_extension!), plus ops_extension::Stack → ops_core::stack::Stack in extensions-rust (about, cargo-update, metadata, loc, create-review-tasks, cargo-toml, deps), extensions-{node,java,go,terraform,python}/about, and one grouped use-import in extensions-terraform/about. ops-rust-loc lacked a direct ops-core dep (the only extension crate that did) — added `ops-core = { workspace = true }` to its [dependencies], which is API-13's stated remedy (consumers depend on the owning crate). No in-tree invocation of impl_extension! uses the `stack:` arm, so the macro path change has no current blast radius. Workspace `cargo check --all-targets` clean.
+<!-- SECTION:NOTES:END -->
