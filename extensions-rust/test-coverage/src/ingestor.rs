@@ -46,27 +46,33 @@ mod tests {
         let missing = dir.path().join("does-not-exist");
         let ctx = ops_extension::Context::test_context(missing);
         let data_dir = tempfile::tempdir().unwrap();
-        // SEC-25 / TASK-2054: stage through the same verified anchor
-        // `provide_via_ingestor` builds.
+        // Stage through the same verified anchor `provide_via_ingestor`
+        // builds.
         let dir = IngestDir::open(&data_dir.path().join("ingest")).expect("anchor");
         let result = ingestor.collect(&ctx, &dir);
-        assert!(result.is_err());
+        // Pin that the failure is the collect step (spawning cargo in the
+        // nonexistent working directory), not fixture staging.
+        let err = result.expect_err("collect must fail in a nonexistent working directory");
+        let msg = format!("{:#}", anyhow::Error::new(err));
+        assert!(
+            msg.contains("cargo llvm-cov: failed to spawn"),
+            "expected the cargo spawn failure from the collect step, got: {msg}"
+        );
     }
 
-    /// DUP-3 / TASK-1562: this test deliberately keeps its own single-file
-    /// fixture (rather than going through `crate::tests::setup_loaded_db`)
-    /// because it owns the `WHERE filename = 'src/lib.rs'` round-trip
-    /// assertion against `lines_count = 100`. The shared fixture in
-    /// `tests::sample_coverage_json` deliberately ships two files (and
-    /// `src/lib.rs` carries `lines_count = 200`) so the
-    /// `coverage_summary_view_*` tests can pin the SUM-across-files
-    /// aggregates. Using the shared fixture would force a value rewrite
-    /// here that hides the original assertion's intent.
+    /// This test deliberately keeps its own single-file fixture (rather than
+    /// going through `crate::tests::setup_loaded_db`) because it owns the
+    /// `WHERE filename = 'src/lib.rs'` round-trip assertion against
+    /// `lines_count = 100`. The shared fixture in `tests::sample_coverage_json`
+    /// ships two files (with `src/lib.rs` carrying `lines_count = 200`) so
+    /// the `coverage_summary_view_*` tests can pin the SUM-across-files
+    /// aggregates; using it here would force a value rewrite that hides the
+    /// assertion's intent.
     #[test]
     fn coverage_load_with_sample_data() {
         let data_dir = tempfile::tempdir().unwrap();
-        // SEC-25 / TASK-2054: stage through the same verified anchor
-        // `provide_via_ingestor` builds.
+        // Stage through the same verified anchor `provide_via_ingestor`
+        // builds.
         let dir = IngestDir::open(&data_dir.path().join("ingest")).expect("anchor");
         let working_dir = tempfile::tempdir().unwrap();
 
