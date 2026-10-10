@@ -1,10 +1,10 @@
 ---
 id: TASK-2579
 title: 'FN-1: run_fixer in ops-text-fixers spans 103 code lines, mixing orchestration with per-file outcome handling'
-status: To Do
+status: Done
 assignee: []
 created_date: '2026-10-10 15:45'
-updated_date: '2026-10-10 21:12'
+updated_date: '2026-10-10 22:01'
 labels:
   - code-review-rust
   - fn
@@ -31,7 +31,8 @@ dedup_key: 'FN-1:extensions/text-fixers/src/runner.rs:run_fixer'
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 run_fixer's body is reduced to orchestration (discovery, notices, the candidate loop) with per-file handling extracted into one or more named helpers
-- [ ] #2 run_fixer and each extracted helper are at or under 50 code lines (excluding comments and blanks)
-- [ ] #3 The scanned + skipped + failed accounting is unchanged; all existing tests in extensions/text-fixers pass without modification
+- [x] #1 run_fixer's body is reduced to orchestration (discovery, notices, the candidate loop) with per-file handling extracted into one or more named helpers
+- [x] #2 run_fixer and each extracted helper are at or under 50 code lines (excluding comments and blanks)
+- [x] #3 The scanned + skipped + failed accounting is unchanged; all existing tests in extensions/text-fixers pass without modification
+
 <!-- AC:END -->

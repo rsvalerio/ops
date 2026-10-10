@@ -1,10 +1,10 @@
 ---
 id: TASK-2581
 title: 'READ-13: ops-text-fixers eof comments carry rule-ID and task provenance tags'
-status: To Do
+status: Done
 assignee: []
 created_date: '2026-10-10 15:45'
-updated_date: '2026-10-10 21:12'
+updated_date: '2026-10-10 22:07'
 labels:
   - code-review-rust
   - read
@@ -29,6 +29,7 @@ dedup_key: 'READ-13:extensions/text-fixers/src/eof.rs:mod eof'
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 The 'READ-5 / TASK-2253' prefixes at src/eof.rs:68 and src/eof.rs:177 are removed; the surrounding technical rationale (lone-CR preservation contract) is kept verbatim
-- [ ] #2 No TASK-#### or RULE-ID #### tags remain anywhere in extensions/text-fixers/src/eof.rs
+- [x] #1 The 'READ-5 / TASK-2253' prefixes at src/eof.rs:68 and src/eof.rs:177 are removed; the surrounding technical rationale (lone-CR preservation contract) is kept verbatim
+- [x] #2 No TASK-#### or RULE-ID #### tags remain anywhere in extensions/text-fixers/src/eof.rs
+
 <!-- AC:END -->

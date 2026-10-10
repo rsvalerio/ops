@@ -1,10 +1,10 @@
 ---
 id: TASK-2582
 title: 'READ-13: ops-text-fixers end-to-end test docs carry task provenance tags'
-status: To Do
+status: Done
 assignee: []
 created_date: '2026-10-10 15:45'
-updated_date: '2026-10-10 21:12'
+updated_date: '2026-10-10 22:07'
 labels:
   - code-review-rust
   - read
@@ -29,6 +29,7 @@ dedup_key: 'READ-13:extensions/text-fixers/src/tests.rs:mod tests'
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 The TASK-2322 / SEC-13 / TASK-2122 prefixes at src/tests.rs:71, :536 and :562 are removed; the behavioral descriptions they introduced are kept
-- [ ] #2 No TASK-#### tags remain anywhere in extensions/text-fixers/src/tests.rs
+- [x] #1 The TASK-2322 / SEC-13 / TASK-2122 prefixes at src/tests.rs:71, :536 and :562 are removed; the behavioral descriptions they introduced are kept
+- [x] #2 No TASK-#### tags remain anywhere in extensions/text-fixers/src/tests.rs
+
 <!-- AC:END -->

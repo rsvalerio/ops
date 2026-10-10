@@ -1,10 +1,10 @@
 ---
 id: TASK-2580
 title: 'READ-13: ops-text-fixers atomic module docs narrate the design journey and carry a task-provenance tag'
-status: To Do
+status: Done
 assignee: []
 created_date: '2026-10-10 15:45'
-updated_date: '2026-10-10 21:12'
+updated_date: '2026-10-10 22:07'
 labels:
   - code-review-rust
   - read
@@ -29,6 +29,7 @@ dedup_key: 'READ-13:extensions/text-fixers/src/atomic.rs:mod atomic'
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 Module docs state the enduring guarantees (atomic rename, attribute preservation, refusal conditions, stage-file residue behavior) without the 'why not fs::write' comparison essay or the 'all three are accepted' trade narration; design rationale lives only in the decision record
-- [ ] #2 The (TASK-2434) tag at src/atomic.rs:303 is removed; the technical content of the comment (ctime is kernel-maintained) is kept
+- [x] #1 Module docs state the enduring guarantees (atomic rename, attribute preservation, refusal conditions, stage-file residue behavior) without the 'why not fs::write' comparison essay or the 'all three are accepted' trade narration; design rationale lives only in the decision record
+- [x] #2 The (TASK-2434) tag at src/atomic.rs:303 is removed; the technical content of the comment (ctime is kernel-maintained) is kept
+
 <!-- AC:END -->
