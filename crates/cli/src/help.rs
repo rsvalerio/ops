@@ -9,16 +9,17 @@ use crate::hook_shared;
 /// E.g. `ops -h`, `ops --help`, `ops -d --help`, `ops --tap out.log --help`,
 /// but NOT `ops build -h`.
 ///
-/// PATTERN-1 (TASK-1377): global flags that accept a value as a separate
-/// argv entry (e.g. `--tap <FILE>`) used to make the next positional look
-/// like a subcommand, dropping `ops --tap path --help` into the
-/// subcommand-help branch. We consume one extra argv slot when the
-/// current flag is a value-taking global so the path argument is
-/// classified as the flag's value, not a positional. `--tap=path` was
-/// already handled because clap folds the value into the same argv entry.
+/// Global flags that accept a value as a separate
+/// argv entry (e.g. `--tap <FILE>`) would otherwise make the next
+/// positional look like a subcommand, dropping `ops --tap path --help`
+/// into the subcommand-help branch. One extra argv slot is consumed when
+/// the current flag is a value-taking global so the path argument is
+/// classified as the flag's value, not a positional. `--tap=path` needs
+/// no special handling because clap folds the value into the same argv
+/// entry.
 ///
 /// The set of such flags is derived from `Cli::command()` rather than
-/// transcribed (TASK-1750) — see [`value_taking_globals`].
+/// transcribed — see [`value_taking_globals`].
 pub fn is_toplevel_help(args: &[std::ffi::OsString]) -> bool {
     let value_taking_globals = value_taking_globals();
 
@@ -423,7 +424,7 @@ mod tests {
         assert!(!is_toplevel_help(&os(&["ops"])));
     }
 
-    /// PATTERN-1 (TASK-1377): a global value-taking flag (`--tap <FILE>`)
+    /// A global value-taking flag (`--tap <FILE>`)
     /// whose value sits in a separate argv entry must not make the next
     /// arg look like a subcommand.
     #[test]
@@ -436,7 +437,7 @@ mod tests {
         assert!(is_toplevel_help(&os(&["ops", "--tap=out.log", "--help"])));
     }
 
-    /// PATTERN-1 (TASK-1377): subcommand-help paths still classify as
+    /// Subcommand-help paths still classify as
     /// non-top-level even when a value-taking global comes first.
     #[test]
     fn is_toplevel_help_tap_value_before_subcommand_help_is_not_toplevel() {
@@ -446,7 +447,7 @@ mod tests {
         ])));
     }
 
-    /// TASK-1750: the set `is_toplevel_help` consumes an extra argv slot for
+    /// The set of flags `is_toplevel_help` consumes an extra argv slot for
     /// is derived from `Cli`, so a new value-taking global cannot drift out of
     /// sync. This test pins the derivation itself: it must find every global
     /// that takes a value, and no bool global.
@@ -504,12 +505,12 @@ mod tests {
             derived, expected,
             "derived value-taking globals disagree with Cli::command()"
         );
-        // `--tap` is the flag the mechanism was introduced for; if it ever
-        // stops being derived the PATTERN-1 regression is back.
+        // `--tap` is the flag the mechanism exists for; if it ever
+        // stops being derived the misclassification regression is back.
         assert!(derived.contains("--tap"), "derived set: {derived:?}");
     }
 
-    /// TASK-1750 AC#3: short spellings of value-taking globals must be
+    /// Short spellings of value-taking globals must be
     /// consumed too, or there must be none. Today `--tap` is long-only, so
     /// this asserts the second half — and flips to exercising the first half
     /// automatically if a short spelling is ever added.
