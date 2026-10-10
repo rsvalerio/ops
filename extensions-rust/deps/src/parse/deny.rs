@@ -334,20 +334,19 @@ struct DecodedDiagnostic {
     labels: Option<serde_json::Value>,
 }
 
-/// Decode one stderr line.
+/// Decode the JSON envelope of one stderr line, counting it in `diag`.
 ///
-/// `diag` records whether the line was a *candidate* diagnostic
-/// (`type == "diagnostic"`), which is what makes a later drop countable.
-/// Unparseable lines and `log` / `summary` envelopes are not candidates —
-/// cargo-deny is not claiming a finding on those.
-fn decode_diagnostic(trimmed: &str, diag: &mut DenyParseDiagnostics) -> Option<DecodedDiagnostic> {
-    let deny_line: DenyLine = match serde_json::from_str(trimmed) {
-        Ok(l) => {
-            // Counted before the `line_type` dispatch: even a `log` /
-            // `summary` envelope is evidence the stream *is* the JSON
-            // contract, which is what the exit-0 zero-envelope guard reads.
+/// The counter ticks for *every* envelope that decodes — `diagnostic`,
+/// `log`, `summary`, … — before the `line_type` dispatch in
+/// [`decode_diagnostic`]: even a non-diagnostic envelope is evidence the
+/// stream *is* the JSON contract, which is what the exit-0 zero-envelope
+/// guard reads. A line that does not decode at all is not that evidence,
+/// and only earns a debug breadcrumb.
+fn decode_envelope(trimmed: &str, diag: &mut DenyParseDiagnostics) -> Option<DenyLine> {
+    match serde_json::from_str(trimmed) {
+        Ok(line) => {
             diag.envelopes_seen = diag.envelopes_seen.saturating_add(1);
-            l
+            Some(line)
         }
         Err(e) => {
             tracing::debug!(
@@ -355,9 +354,34 @@ fn decode_diagnostic(trimmed: &str, diag: &mut DenyParseDiagnostics) -> Option<D
                 line = %truncate_for_log(trimmed),
                 "skipping malformed cargo-deny JSON line"
             );
-            return None;
+            None
         }
-    };
+    }
+}
+
+/// Resolve a diagnostic's severity, substituting the
+/// [`MISSING_SEVERITY_SENTINEL`] when cargo-deny omitted the field.
+fn resolve_severity(code: &str, severity: Option<String>, message: &str) -> String {
+    if let Some(severity) = severity {
+        return severity;
+    }
+    tracing::warn!(
+        code = %code,
+        message = %truncate_for_log(message),
+        "cargo-deny diagnostic missing severity; substituting `<missing-severity>` sentinel \
+         (treated as actionable / fail-closed by has_issues)"
+    );
+    MISSING_SEVERITY_SENTINEL.to_string()
+}
+
+/// Decode one stderr line.
+///
+/// `diag` records whether the line was a *candidate* diagnostic
+/// (`type == "diagnostic"`), which is what makes a later drop countable.
+/// Unparseable lines and `log` / `summary` envelopes are not candidates —
+/// cargo-deny is not claiming a finding on those.
+fn decode_diagnostic(trimmed: &str, diag: &mut DenyParseDiagnostics) -> Option<DecodedDiagnostic> {
+    let deny_line = decode_envelope(trimmed, diag)?;
     if deny_line.line_type != "diagnostic" {
         if diag.error_log.is_none() {
             diag.error_log = error_log_message(&deny_line);
@@ -404,17 +428,11 @@ fn decode_diagnostic(trimmed: &str, diag: &mut DenyParseDiagnostics) -> Option<D
         );
         return None;
     };
-    let severity = if let Some(s) = fields.severity {
-        s
-    } else {
-        tracing::warn!(
-            code = %code,
-            message = %truncate_for_log(fields.message.as_deref().unwrap_or("")),
-            "cargo-deny diagnostic missing severity; substituting `<missing-severity>` sentinel \
-             (treated as actionable / fail-closed by has_issues)"
-        );
-        MISSING_SEVERITY_SENTINEL.to_string()
-    };
+    let severity = resolve_severity(
+        &code,
+        fields.severity,
+        fields.message.as_deref().unwrap_or(""),
+    );
     Some(DecodedDiagnostic {
         code,
         severity,
@@ -533,43 +551,55 @@ fn push_diagnostic(result: &mut DenyResult, class: DiagClass, diag: DecodedDiagn
     // still whatever cargo-deny sent.
     let package = resolve_package(&diag);
     match class {
-        DiagClass::Advisory => {
-            let (id, title) = match diag.advisory {
-                Some(adv) => (adv.id, adv.title.unwrap_or(diag.message)),
-                None => (diag.code, diag.message),
-            };
-            result.advisories.push(AdvisoryEntry {
-                id,
-                package,
-                severity: diag.severity,
-                title,
-            });
-        }
-        DiagClass::License => result.licenses.push(LicenseEntry(DenyEntry {
-            package,
-            message: diag.message,
-            severity: diag.severity,
-        })),
+        DiagClass::Advisory => push_advisory(&mut result.advisories, package, diag),
+        DiagClass::License => push_wrapped(&mut result.licenses, LicenseEntry, package, diag),
         DiagClass::UnusedLicenseAllowance => {
-            result
-                .unused_license_allowances
-                .push(LicenseEntry(DenyEntry {
-                    package,
-                    message: diag.message,
-                    severity: diag.severity,
-                }));
+            push_wrapped(
+                &mut result.unused_license_allowances,
+                LicenseEntry,
+                package,
+                diag,
+            );
         }
-        DiagClass::Ban => result.bans.push(BanEntry(DenyEntry {
-            package,
-            message: diag.message,
-            severity: diag.severity,
-        })),
-        DiagClass::Source => result.sources.push(SourceEntry(DenyEntry {
-            package,
-            message: diag.message,
-            severity: diag.severity,
-        })),
+        DiagClass::Ban => push_wrapped(&mut result.bans, BanEntry, package, diag),
+        DiagClass::Source => push_wrapped(&mut result.sources, SourceEntry, package, diag),
     }
+}
+
+/// Push an advisory finding — the one diagnostic class whose entry shape is
+/// not [`DenyEntry`]: it carries the advisory id and title instead of a
+/// message, falling back to the diagnostic's code and message when
+/// cargo-deny sent no `advisory` object.
+fn push_advisory(section: &mut Vec<AdvisoryEntry>, package: String, diag: DecodedDiagnostic) {
+    let (id, title) = match diag.advisory {
+        Some(adv) => (adv.id, adv.title.unwrap_or(diag.message)),
+        None => (diag.code, diag.message),
+    };
+    section.push(AdvisoryEntry {
+        id,
+        package,
+        severity: diag.severity,
+        title,
+    });
+}
+
+/// Push a plain [`DenyEntry`]-shaped finding into its section.
+///
+/// `LicenseEntry`, `BanEntry` and `SourceEntry` are newtype wrappers over
+/// `DenyEntry`, so every non-advisory class shares this one construction:
+/// `wrap` is the wrapper's tuple constructor, and a field added to
+/// `DenyEntry` is written once here instead of once per class.
+fn push_wrapped<T>(
+    section: &mut Vec<T>,
+    wrap: fn(DenyEntry) -> T,
+    package: String,
+    diag: DecodedDiagnostic,
+) {
+    section.push(wrap(DenyEntry {
+        package,
+        message: diag.message,
+        severity: diag.severity,
+    }));
 }
 
 #[cfg(test)]
