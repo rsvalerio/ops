@@ -154,7 +154,7 @@ impl Root {
             .filter(|v| is_plain_version(v))
             .map(str::to_owned);
         let members = if shape == Shape::Workspace {
-            workspace_members(root, &text, value.contains_key("package"))
+            workspace_members(root, &text, value.contains_key("package"))?
         } else {
             Vec::new()
         };
@@ -170,21 +170,28 @@ impl Root {
 /// Resolve members through the same glob expander the about providers use,
 /// dropping any entry that would escape the workspace (SEC-14). A root that
 /// is also a package is its own member and opts in like any other.
-fn workspace_members(root: &Path, text: &str, root_is_package: bool) -> Vec<String> {
-    let mut members = match ops_cargo_toml::CargoToml::parse(text) {
-        Ok(manifest) => ops_about_rust::resolved_workspace_members(&manifest, root)
-            .into_iter()
-            .filter(|m| ops_about_rust::member_path_is_workspace_safe_or_warn(m, "rust-foundation"))
-            .collect(),
-        Err(err) => {
-            tracing::warn!(error = %err, "could not resolve workspace members");
-            Vec::new()
-        }
-    };
+///
+/// # Errors
+///
+/// If the manifest parses as TOML but not as a cargo manifest, so its
+/// workspace members cannot be resolved. Returning an empty list instead
+/// would make check report a clean result it did not establish and scaffold
+/// silently add no member opt-ins, so the parse failure propagates.
+fn workspace_members(
+    root: &Path,
+    text: &str,
+    root_is_package: bool,
+) -> anyhow::Result<Vec<String>> {
+    let manifest = ops_cargo_toml::CargoToml::parse(text)
+        .with_context(|| format!("resolving workspace members in {MANIFEST}"))?;
+    let mut members: Vec<String> = ops_about_rust::resolved_workspace_members(&manifest, root)
+        .into_iter()
+        .filter(|m| ops_about_rust::member_path_is_workspace_safe_or_warn(m, "rust-foundation"))
+        .collect();
     if root_is_package {
         members.insert(0, ".".to_owned());
     }
-    members
+    Ok(members)
 }
 
 /// Only digits and dots reach the rendered `msrv = "..."` line, so a hostile
@@ -231,8 +238,8 @@ fn render_lints(shape: Shape) -> String {
 ///
 /// # Errors
 ///
-/// If `root` has no parseable `Cargo.toml`, `.config` is a symlink, or any
-/// write fails.
+/// If `root` has no parseable `Cargo.toml`, its workspace members cannot be
+/// resolved, `.config` is a symlink, or any write fails.
 pub fn scaffold(root: &Path, force: bool) -> anyhow::Result<Vec<Written>> {
     let manifest = Root::load(root)?;
     let mut written = Vec::new();
@@ -402,9 +409,9 @@ fn remove_path(doc: &mut toml_edit::DocumentMut, path: &[&str]) {
 ///
 /// # Errors
 ///
-/// If `root` has no parseable `Cargo.toml`, or a file exists but cannot be
-/// read. A file or member manifest that is missing or does not parse is
-/// drift, not an error.
+/// If `root` has no parseable `Cargo.toml`, its workspace members cannot be
+/// resolved, or a file exists but cannot be read. A file or member manifest
+/// that is missing or does not parse is drift, not an error.
 pub fn check(root: &Path, waivers: &IndexMap<String, String>) -> anyhow::Result<Report> {
     let manifest = Root::load(root)?;
     let mut drift = Vec::new();

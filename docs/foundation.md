@@ -54,6 +54,10 @@ The comparison is semantic, not textual. Each template is a baseline:
   not a plain version such as `latest`, is drift at `mise.toml:tools.ops`.
 - Lint levels only need to be at least as strict: `deny` or `forbid` satisfies the
   template's `warn`.
+- `unsafe_code` is policed. The template sets it to `warn`, so a repo with no
+  mechanical unsafe policy is drift, while `deny` and `forbid` pass as stricter.
+  Scope FFI exceptions with a local `#[allow(unsafe_code, reason = "..")]`, or
+  put `#![forbid(unsafe_code)]` at the root of a crate with no unsafe at all.
 - In a workspace, every member must have `[lints] workspace = true`, or the policy
   silently does not apply to it.
 

@@ -13,6 +13,12 @@
 # backlog is clear.
 [lints.rust]
 elided_lifetimes_in_paths = "warn"
+# A mechanical unsafe policy: the check reports a repo with no `unsafe_code`
+# level, and `deny` or `forbid` passes as stricter. `warn` rather than `deny`
+# so a repo with FFI adopts the policy first and scopes its exceptions with a
+# local `#[allow(unsafe_code, reason = "..")]`; a crate with no unsafe at all
+# tightens to `#![forbid(unsafe_code)]` at its root.
+unsafe_code = "warn"
 unsafe_op_in_unsafe_fn = "warn"
 unused_lifetimes = "warn"
 # NOT `rust_2018_idioms`: it implies `unused_extern_crates`, which fires on the
