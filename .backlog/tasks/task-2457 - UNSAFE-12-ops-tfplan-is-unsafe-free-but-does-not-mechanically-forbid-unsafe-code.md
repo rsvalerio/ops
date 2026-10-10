@@ -1,10 +1,10 @@
 ---
 id: TASK-2457
 title: 'UNSAFE-12: ops-tfplan is unsafe-free but does not mechanically forbid unsafe code'
-status: To Do
+status: Done
 assignee: []
 created_date: '2026-10-10 15:25'
-updated_date: '2026-10-10 21:12'
+updated_date: '2026-10-10 21:53'
 labels:
   - code-review-rust
   - unsafe
@@ -29,7 +29,7 @@ dedup_key: 'UNSAFE-12:extensions-terraform/plan/src/lib.rs:lib'
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 An `unsafe_code = "forbid"` policy is mechanically reachable for ops-tfplan: `#![forbid(unsafe_code)]` at the crate root of extensions-terraform/plan/src/lib.rs (the per-crate route the workspace lint policy documents), and it is not lifted by any local allow
-- [ ] #2 cargo check -p ops-tfplan and cargo test -p ops-tfplan still pass with the attribute in place
+- [x] #1 An `unsafe_code = "forbid"` policy is mechanically reachable for ops-tfplan: `#![forbid(unsafe_code)]` at the crate root of extensions-terraform/plan/src/lib.rs (the per-crate route the workspace lint policy documents), and it is not lifted by any local allow
+- [x] #2 cargo check -p ops-tfplan and cargo test -p ops-tfplan still pass with the attribute in place
 
 <!-- AC:END -->

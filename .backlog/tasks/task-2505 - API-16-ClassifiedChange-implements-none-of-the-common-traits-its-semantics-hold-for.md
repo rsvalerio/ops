@@ -1,10 +1,10 @@
 ---
 id: TASK-2505
 title: 'API-16: ClassifiedChange implements none of the common traits its semantics hold for'
-status: To Do
+status: Done
 assignee: []
 created_date: '2026-10-10 15:31'
-updated_date: '2026-10-10 21:12'
+updated_date: '2026-10-10 21:53'
 labels:
   - code-review-rust
   - api
@@ -29,6 +29,7 @@ dedup_key: 'API-16:extensions-terraform/plan/src/model.rs:ClassifiedChange'
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 ClassifiedChange derives at least Debug and Clone (PartialEq/Eq may follow if equality on display data is deemed meaningful)
-- [ ] #2 cargo check -p ops-tfplan and cargo test -p ops-tfplan pass with the derives added
+- [x] #1 ClassifiedChange derives at least Debug and Clone (PartialEq/Eq may follow if equality on display data is deemed meaningful)
+- [x] #2 cargo check -p ops-tfplan and cargo test -p ops-tfplan pass with the derives added
+
 <!-- AC:END -->

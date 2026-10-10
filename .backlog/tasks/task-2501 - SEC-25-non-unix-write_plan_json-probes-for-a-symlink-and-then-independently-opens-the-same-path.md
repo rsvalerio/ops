@@ -1,10 +1,10 @@
 ---
 id: TASK-2501
 title: 'SEC-25: non-unix write_plan_json probes for a symlink and then independently opens the same path'
-status: To Do
+status: Done
 assignee: []
 created_date: '2026-10-10 15:31'
-updated_date: '2026-10-10 21:12'
+updated_date: '2026-10-10 21:53'
 labels:
   - code-review-rust
   - security
@@ -31,6 +31,7 @@ dedup_key: 'SEC-25:extensions-terraform/plan/src/lib.rs:write_plan_json'
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 On the non-unix arm the symlink rejection and the open are combined into one syscall-level operation (e.g. FILE_FLAG_OPEN_REPARSE_POINT via the win32 API behind a small cfg gate), or the residual TOCTOU window is documented at the function as an accepted platform limitation with the reasoning
-- [ ] #2 The unix arm keeps its O_NOFOLLOW + ELOOP behaviour unchanged
+- [x] #1 On the non-unix arm the symlink rejection and the open are combined into one syscall-level operation (e.g. FILE_FLAG_OPEN_REPARSE_POINT via the win32 API behind a small cfg gate), or the residual TOCTOU window is documented at the function as an accepted platform limitation with the reasoning
+- [x] #2 The unix arm keeps its O_NOFOLLOW + ELOOP behaviour unchanged
+
 <!-- AC:END -->

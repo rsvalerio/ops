@@ -1,10 +1,10 @@
 ---
 id: TASK-2496
 title: 'DUP-1: four near-identical symlink-refusal error constructions across the artifact hardening helpers'
-status: To Do
+status: Done
 assignee: []
 created_date: '2026-10-10 15:31'
-updated_date: '2026-10-10 21:12'
+updated_date: '2026-10-10 21:52'
 labels:
   - code-review-rust
   - duplication
@@ -36,6 +36,7 @@ Each block is 9-10 near-identical lines differing only in the noun ("artifact di
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 A single helper constructs the symlink-refusal io::Error, and all four sites (create_artifact_dir non-unix, verify_artifact_dir unix, write_plan_json non-unix probe, write_plan_json unix ELOOP arm) route through it
-- [ ] #2 The user-visible message still names the path, whether it is the artifact directory or the plan JSON, and the refusal verb, per the existing tests
+- [x] #1 A single helper constructs the symlink-refusal io::Error, and all four sites (create_artifact_dir non-unix, verify_artifact_dir unix, write_plan_json non-unix probe, write_plan_json unix ELOOP arm) route through it
+- [x] #2 The user-visible message still names the path, whether it is the artifact directory or the plan JSON, and the refusal verb, per the existing tests
+
 <!-- AC:END -->
