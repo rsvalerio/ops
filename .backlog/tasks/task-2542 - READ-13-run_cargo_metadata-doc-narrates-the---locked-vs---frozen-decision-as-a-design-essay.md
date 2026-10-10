@@ -1,10 +1,10 @@
 ---
 id: TASK-2542
 title: 'READ-13: run_cargo_metadata doc narrates the --locked vs --frozen decision as a design essay'
-status: To Do
+status: Done
 assignee: []
 created_date: '2026-10-10 15:37'
-updated_date: '2026-10-10 21:12'
+updated_date: '2026-10-10 21:48'
 labels:
   - code-review-rust
   - readability
@@ -29,6 +29,6 @@ dedup_key: 'READ-13:extensions-rust/metadata/src/lib.rs:run_cargo_metadata'
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 Doc states what run_cargo_metadata does and the enduring invariant (--locked prevents lockfile mutation, fails fast on drift) without the --frozen rejected-alternative comparison
+- [x] #1 Doc states what run_cargo_metadata does and the enduring invariant (--locked prevents lockfile mutation, fails fast on drift) without the --frozen rejected-alternative comparison
 
 <!-- AC:END -->

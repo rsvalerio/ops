@@ -1,10 +1,10 @@
 ---
 id: TASK-2565
 title: 'READ-13: CARGO_METADATA_ARGS doc narrates the testing strategy behind the constant'
-status: To Do
+status: Done
 assignee: []
 created_date: '2026-10-10 15:41'
-updated_date: '2026-10-10 21:12'
+updated_date: '2026-10-10 21:49'
 labels:
   - code-review-rust
   - readability
@@ -29,5 +29,6 @@ dedup_key: 'READ-13:extensions-rust/metadata/src/lib.rs:CARGO_METADATA_ARGS'
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 Doc states the argument list handed to cargo without the paragraph defending the constant's existence for test-assertion purposes
+- [x] #1 Doc states the argument list handed to cargo without the paragraph defending the constant's existence for test-assertion purposes
+
 <!-- AC:END -->

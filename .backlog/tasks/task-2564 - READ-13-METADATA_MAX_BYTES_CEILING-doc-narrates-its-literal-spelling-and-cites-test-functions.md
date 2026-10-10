@@ -1,10 +1,10 @@
 ---
 id: TASK-2564
 title: 'READ-13: METADATA_MAX_BYTES_CEILING doc narrates its literal spelling and cites test functions'
-status: To Do
+status: Done
 assignee: []
 created_date: '2026-10-10 15:41'
-updated_date: '2026-10-10 21:12'
+updated_date: '2026-10-10 21:48'
 labels:
   - code-review-rust
   - readability
@@ -29,5 +29,6 @@ dedup_key: 'READ-13:extensions-rust/metadata/src/lib.rs:METADATA_MAX_BYTES_CEILI
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 Doc keeps the ceiling policy (why 4 GiB, what an unbounded knob would do) and drops the test-function citations and the literal-spelling rationale
+- [x] #1 Doc keeps the ceiling policy (why 4 GiB, what an unbounded knob would do) and drops the test-function citations and the literal-spelling rationale
+
 <!-- AC:END -->

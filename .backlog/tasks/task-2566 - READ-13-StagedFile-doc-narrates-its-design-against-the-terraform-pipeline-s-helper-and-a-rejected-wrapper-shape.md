@@ -1,10 +1,10 @@
 ---
 id: TASK-2566
 title: 'READ-13: StagedFile doc narrates its design against the terraform pipeline''s helper and a rejected wrapper shape'
-status: To Do
+status: Done
 assignee: []
 created_date: '2026-10-10 15:41'
-updated_date: '2026-10-10 21:12'
+updated_date: '2026-10-10 21:49'
 labels:
   - code-review-rust
   - readability
@@ -29,5 +29,6 @@ dedup_key: 'READ-13:extensions-rust/metadata/src/ingestor.rs:StagedFile'
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 Doc states the ownership/unlink-on-drop contract without the terraform-pipeline mirroring note and the Drop-versus-wrapper comparison
+- [x] #1 Doc states the ownership/unlink-on-drop contract without the terraform-pipeline mirroring note and the Drop-versus-wrapper comparison
+
 <!-- AC:END -->

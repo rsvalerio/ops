@@ -1,10 +1,10 @@
 ---
 id: TASK-2567
 title: 'READ-13: ingestor tests carry TASK-2428 provenance tags in their doc comments'
-status: To Do
+status: Done
 assignee: []
 created_date: '2026-10-10 15:42'
-updated_date: '2026-10-10 21:12'
+updated_date: '2026-10-10 21:49'
 labels:
   - code-review-rust
   - readability
@@ -30,5 +30,6 @@ dedup_key: 'READ-13:extensions-rust/metadata/src/ingestor.rs:tests'
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 Both test doc comments state the pinned behavior without the TASK-2428 AC #N prefix
+- [x] #1 Both test doc comments state the pinned behavior without the TASK-2428 AC #N prefix
+
 <!-- AC:END -->

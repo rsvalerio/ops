@@ -1,10 +1,10 @@
 ---
 id: TASK-2568
 title: 'TEST-32: run_cargo_metadata_arg_list_includes_locked asserts the constant back against its own literal'
-status: To Do
+status: Done
 assignee: []
 created_date: '2026-10-10 15:42'
-updated_date: '2026-10-10 21:12'
+updated_date: '2026-10-10 21:49'
 labels:
   - code-review-rust
   - tests
@@ -29,5 +29,6 @@ dedup_key: 'TEST-32:extensions-rust/metadata/src/tests/wiring.rs:run_cargo_metad
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 Test asserts a property of the argument list (contains --locked; starts with the metadata subcommand) or the arguments actually handed to run_cargo, instead of restating the const's literal
+- [x] #1 Test asserts a property of the argument list (contains --locked; starts with the metadata subcommand) or the arguments actually handed to run_cargo, instead of restating the const's literal
+
 <!-- AC:END -->
