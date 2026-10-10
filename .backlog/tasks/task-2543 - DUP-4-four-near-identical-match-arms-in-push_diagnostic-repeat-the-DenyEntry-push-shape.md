@@ -1,10 +1,10 @@
 ---
 id: TASK-2543
 title: 'DUP-4: four near-identical match arms in push_diagnostic repeat the DenyEntry push shape'
-status: To Do
+status: Done
 assignee: []
 created_date: '2026-10-10 15:37'
-updated_date: '2026-10-10 21:12'
+updated_date: '2026-10-10 21:46'
 labels:
   - code-review
   - dup
@@ -29,6 +29,7 @@ dedup_key: 'DUP-4:extensions-rust/deps/src/parse/deny.rs:push_diagnostic'
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 The License/UnusedLicenseAllowance/Ban/Source arms no longer each repeat the full DenyEntry construction; the shape is expressed once
-- [ ] #2 Existing deny parser tests pass unchanged
+- [x] #1 The License/UnusedLicenseAllowance/Ban/Source arms no longer each repeat the full DenyEntry construction; the shape is expressed once
+- [x] #2 Existing deny parser tests pass unchanged
+
 <!-- AC:END -->

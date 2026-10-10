@@ -1,10 +1,10 @@
 ---
 id: TASK-2538
 title: 'READ-13: ops-deps tests.rs docs carry TASK-id provenance tags'
-status: To Do
+status: Done
 assignee: []
 created_date: '2026-10-10 15:36'
-updated_date: '2026-10-10 21:12'
+updated_date: '2026-10-10 21:45'
 labels:
   - code-review
   - read
@@ -29,6 +29,7 @@ dedup_key: 'READ-13:extensions-rust/deps/src/tests.rs:mod tests'
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 No TASK-number token remains anywhere in extensions-rust/deps/src/tests.rs
-- [ ] #2 Each cleaned test doc still states the behaviour under test without the task reference
+- [x] #1 No TASK-number token remains anywhere in extensions-rust/deps/src/tests.rs
+- [x] #2 Each cleaned test doc still states the behaviour under test without the task reference
+
 <!-- AC:END -->

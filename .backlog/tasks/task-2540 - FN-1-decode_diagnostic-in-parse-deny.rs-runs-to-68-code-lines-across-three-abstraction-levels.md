@@ -1,10 +1,10 @@
 ---
 id: TASK-2540
 title: 'FN-1: decode_diagnostic in parse/deny.rs runs to 68 code lines across three abstraction levels'
-status: To Do
+status: Done
 assignee: []
 created_date: '2026-10-10 15:37'
-updated_date: '2026-10-10 21:12'
+updated_date: '2026-10-10 21:45'
 labels:
   - code-review
   - fn
@@ -31,6 +31,7 @@ dedup_key: 'FN-1:extensions-rust/deps/src/parse/deny.rs:decode_diagnostic'
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 decode_diagnostic body is at most 50 code lines, or the excess is justified by an explicit comment naming the state-machine/exception rationale
-- [ ] #2 Counter-increment sites (envelopes_seen, candidate_diagnostics) remain in the same relative order, verified by the existing deny tests passing unchanged
+- [x] #1 decode_diagnostic body is at most 50 code lines, or the excess is justified by an explicit comment naming the state-machine/exception rationale
+- [x] #2 Counter-increment sites (envelopes_seen, candidate_diagnostics) remain in the same relative order, verified by the existing deny tests passing unchanged
+
 <!-- AC:END -->

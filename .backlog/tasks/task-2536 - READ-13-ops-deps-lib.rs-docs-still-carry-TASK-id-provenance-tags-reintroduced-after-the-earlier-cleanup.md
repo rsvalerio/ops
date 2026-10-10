@@ -1,10 +1,10 @@
 ---
 id: TASK-2536
 title: 'READ-13: ops-deps lib.rs docs still carry TASK-id provenance tags reintroduced after the earlier cleanup'
-status: To Do
+status: Done
 assignee: []
 created_date: '2026-10-10 15:36'
-updated_date: '2026-10-10 21:12'
+updated_date: '2026-10-10 21:45'
 labels:
   - code-review
   - read
@@ -29,6 +29,7 @@ dedup_key: 'READ-13:extensions-rust/deps/src/lib.rs:crate-root-docs'
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 No TASK-number token remains anywhere in extensions-rust/deps/src/lib.rs
-- [ ] #2 Each cleaned doc still states the behaviour it documents (the --check contract, the ExternalTool source, the PATH-shim rationale) without the task reference
+- [x] #1 No TASK-number token remains anywhere in extensions-rust/deps/src/lib.rs
+- [x] #2 Each cleaned doc still states the behaviour it documents (the --check contract, the ExternalTool source, the PATH-shim rationale) without the task reference
+
 <!-- AC:END -->
