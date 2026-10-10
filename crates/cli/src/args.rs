@@ -523,7 +523,8 @@ pub enum BacklogAction {
 /// marker label; its members link back with `parent_task_id`.
 #[derive(clap::Subcommand, Debug, Clone)]
 pub enum BacklogWaveAction {
-    /// List wave parents, grouped by status.
+    /// List wave parents, grouped by status. Done waves collapse to a
+    /// one-line total; filter by their status to list them.
     List {
         /// Filter by status, case-insensitive (comma-separated or
         /// repeatable).
