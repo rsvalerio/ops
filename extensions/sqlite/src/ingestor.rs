@@ -691,7 +691,10 @@ mod tests {
         // raced with cleanup. Writing the sidecar is enough.
         crate::sql::write_workspace_sidecar(&dir, config.name, temp_dir.path()).unwrap();
         config.cleanup_artifacts(&dir);
-        // Sidecar removal should still complete.
+        assert!(
+            !dir.entry_path("cleanup_best_effort_workspace.txt").exists(),
+            "sidecar removal should still complete"
+        );
     }
 
     #[test]
