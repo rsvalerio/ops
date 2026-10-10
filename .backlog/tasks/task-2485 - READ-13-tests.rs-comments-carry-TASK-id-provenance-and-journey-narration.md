@@ -1,10 +1,10 @@
 ---
 id: TASK-2485
 title: 'READ-13: tests.rs comments carry TASK-id provenance and journey narration'
-status: To Do
+status: Done
 assignee: []
 created_date: '2026-10-10 15:30'
-updated_date: '2026-10-10 21:12'
+updated_date: '2026-10-10 21:38'
 labels:
   - code-review-rust
   - READ
@@ -31,6 +31,7 @@ dedup_key: 'READ-13:extensions-rust/cargo-update/src/tests.rs:tests'
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 No comment in tests.rs references a TASK id
-- [ ] #2 The module doc states where the shared harness lives without the 'rather than a local re-implementation' journey clause
+- [x] #1 No comment in tests.rs references a TASK id
+- [x] #2 The module doc states where the shared harness lives without the 'rather than a local re-implementation' journey clause
+
 <!-- AC:END -->

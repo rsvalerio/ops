@@ -1,10 +1,10 @@
 ---
 id: TASK-2482
 title: 'READ-13: types module docs narrate TASK history instead of the end state'
-status: To Do
+status: Done
 assignee: []
 created_date: '2026-10-10 15:30'
-updated_date: '2026-10-10 21:12'
+updated_date: '2026-10-10 21:42'
 labels:
   - code-review
   - read
@@ -34,6 +34,7 @@ dedup_key: 'READ-13:extensions-rust/cargo-toml/src/types.rs:types'
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 Docs on CargoToml fields, InheritableField, and PublishSpec::is_publishable state the current semantics with no RULE-ID/TASK-XXXX references and no narration of previous behaviour
-- [ ] #2 The durable invariants (Absent vs empty-string vs Inherited semantics; unresolved Inherited returning None from is_publishable) remain documented in present tense
+- [x] #1 Docs on CargoToml fields, InheritableField, and PublishSpec::is_publishable state the current semantics with no RULE-ID/TASK-XXXX references and no narration of previous behaviour
+- [x] #2 The durable invariants (Absent vs empty-string vs Inherited semantics; unresolved Inherited returning None from is_publishable) remain documented in present tense
+
 <!-- AC:END -->

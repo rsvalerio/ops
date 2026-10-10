@@ -1,10 +1,10 @@
 ---
 id: TASK-2490
 title: 'READ-13: workspace_root docs narrate TASK history and rejected alternatives instead of the end state'
-status: To Do
+status: Done
 assignee: []
 created_date: '2026-10-10 15:30'
-updated_date: '2026-10-10 21:12'
+updated_date: '2026-10-10 21:40'
 labels:
   - code-review
   - read
@@ -39,6 +39,7 @@ dedup_key: 'READ-13:extensions-rust/cargo-toml/src/workspace_root.rs:workspace_r
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 Docs in workspace_root.rs carry no RULE-ID/TASK-XXXX references and no narration of rejected alternatives or previously-untested arms
-- [ ] #2 The enduring security semantics survive the rewrite: symlink threat model, the two per-candidate checks and what each rejects, canonicalize-injection test seam, depth-cap rationale
+- [x] #1 Docs in workspace_root.rs carry no RULE-ID/TASK-XXXX references and no narration of rejected alternatives or previously-untested arms
+- [x] #2 The enduring security semantics survive the rewrite: symlink threat model, the two per-candidate checks and what each rejects, canonicalize-injection test seam, depth-cap rationale
+
 <!-- AC:END -->

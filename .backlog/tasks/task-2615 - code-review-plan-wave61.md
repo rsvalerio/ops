@@ -1,10 +1,10 @@
 ---
 id: TASK-2615
 title: 'code-review-plan-wave61'
-status: To Do
+status: Done
 assignee: []
 created_date: '2026-10-10 21:12'
-updated_date: '2026-10-10 21:13'
+updated_date: '2026-10-10 21:49'
 labels:
   - code-review-wave
 dependencies:
@@ -51,4 +51,8 @@ ops-cargo-toml and ops-cargo-update siblings: doc cleanups, parameter ergonomics
 
 <!-- SECTION:NOTES:BEGIN -->
 Overlaps: none
+
+Branch: code-review/TASK-2615
+Worktree: /home/rsvalerio/projects/.wave-TASK-2615
+
 <!-- SECTION:NOTES:END -->

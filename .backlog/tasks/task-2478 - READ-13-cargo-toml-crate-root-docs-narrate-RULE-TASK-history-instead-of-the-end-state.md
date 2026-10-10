@@ -1,10 +1,10 @@
 ---
 id: TASK-2478
 title: 'READ-13: cargo-toml crate-root docs narrate RULE/TASK history instead of the end state'
-status: To Do
+status: Done
 assignee: []
 created_date: '2026-10-10 15:29'
-updated_date: '2026-10-10 21:12'
+updated_date: '2026-10-10 21:42'
 labels:
   - code-review
   - read
@@ -35,6 +35,7 @@ dedup_key: 'READ-13:extensions-rust/cargo-toml/src/lib.rs:cargo-toml'
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 Crate-root and item docs in lib.rs describe current behaviour only, with no RULE-ID/TASK-XXXX references and no narration of past implementations or review decisions
-- [ ] #2 Enduring semantics the docs carry today (e.g. why the strict walk is used, what the schema keys mean) are preserved as present-tense statements
+- [x] #1 Crate-root and item docs in lib.rs describe current behaviour only, with no RULE-ID/TASK-XXXX references and no narration of past implementations or review decisions
+- [x] #2 Enduring semantics the docs carry today (e.g. why the strict walk is used, what the schema keys mean) are preserved as present-tense statements
+
 <!-- AC:END -->

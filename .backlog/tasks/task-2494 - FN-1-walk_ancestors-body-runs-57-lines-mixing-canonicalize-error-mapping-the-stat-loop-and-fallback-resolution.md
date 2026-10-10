@@ -1,10 +1,10 @@
 ---
 id: TASK-2494
 title: 'FN-1: walk_ancestors body runs ~57 lines, mixing canonicalize error mapping, the stat loop, and fallback resolution'
-status: To Do
+status: Done
 assignee: []
 created_date: '2026-10-10 15:30'
-updated_date: '2026-10-10 21:12'
+updated_date: '2026-10-10 21:40'
 labels:
   - code-review
   - fn
@@ -32,6 +32,7 @@ dedup_key: 'FN-1:extensions-rust/cargo-toml/src/workspace_root.rs:walk_ancestors
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 walk_ancestors body is at or under 50 lines, or each extracted helper carries a single responsibility (canonicalization/error mapping vs walk loop)
-- [ ] #2 Behaviour is unchanged: existing find_root tests pass without modification
+- [x] #1 walk_ancestors body is at or under 50 lines, or each extracted helper carries a single responsibility (canonicalization/error mapping vs walk loop)
+- [x] #2 Behaviour is unchanged: existing find_root tests pass without modification
+
 <!-- AC:END -->

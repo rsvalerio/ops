@@ -1,10 +1,10 @@
 ---
 id: TASK-2491
 title: 'OWN-7: resolve_string_field and resolve_optional_string take Option<&String> instead of Option<&str>'
-status: To Do
+status: Done
 assignee: []
 created_date: '2026-10-10 15:30'
-updated_date: '2026-10-10 21:12'
+updated_date: '2026-10-10 21:41'
 labels:
   - code-review
   - own
@@ -33,6 +33,7 @@ Callers pass `ws_pkg.version.as_ref()` (inheritance.rs:72-79, 91) to satisfy the
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 resolve_string_field and resolve_optional_string accept Option<&str> (or &str where Option is not needed)
-- [ ] #2 Call sites in resolve_package_inheritance updated (as_deref or equivalent) and cargo check/clippy pass
+- [x] #1 resolve_string_field and resolve_optional_string accept Option<&str> (or &str where Option is not needed)
+- [x] #2 Call sites in resolve_package_inheritance updated (as_deref or equivalent) and cargo check/clippy pass
+
 <!-- AC:END -->

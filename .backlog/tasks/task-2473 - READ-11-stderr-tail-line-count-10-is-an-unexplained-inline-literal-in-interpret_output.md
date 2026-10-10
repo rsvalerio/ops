@@ -1,10 +1,10 @@
 ---
 id: TASK-2473
 title: 'READ-11: stderr-tail line count 10 is an unexplained inline literal in interpret_output'
-status: To Do
+status: Done
 assignee: []
 created_date: '2026-10-10 15:28'
-updated_date: '2026-10-10 21:12'
+updated_date: '2026-10-10 21:38'
 labels:
   - code-review-rust
   - READ
@@ -29,6 +29,7 @@ dedup_key: 'READ-11:extensions-rust/cargo-update/src/lib.rs:interpret_output'
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 The tail line count is a named crate-level const with a doc comment stating why that value and what it is pinned to
-- [ ] #2 interpret_output references the const instead of the inline literal
+- [x] #1 The tail line count is a named crate-level const with a doc comment stating why that value and what it is pinned to
+- [x] #2 interpret_output references the const instead of the inline literal
+
 <!-- AC:END -->

@@ -1,10 +1,10 @@
 ---
 id: TASK-2488
 title: 'READ-13: inheritance module docs narrate TASK history instead of the end state'
-status: To Do
+status: Done
 assignee: []
 created_date: '2026-10-10 15:30'
-updated_date: '2026-10-10 21:12'
+updated_date: '2026-10-10 21:41'
 labels:
   - code-review
   - read
@@ -37,6 +37,7 @@ dedup_key: 'READ-13:extensions-rust/cargo-toml/src/inheritance.rs:inheritance'
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 Docs in inheritance.rs (including test doc comments) carry no RULE-ID/TASK-XXXX references and no narration of previous implementations
-- [ ] #2 The durable rationale (empty-vec no-substitute rule, fail-closed publish resolution, exhaustive-constructor guard, linear-scan choice) remains as present-tense statements
+- [x] #1 Docs in inheritance.rs (including test doc comments) carry no RULE-ID/TASK-XXXX references and no narration of previous implementations
+- [x] #2 The durable rationale (empty-vec no-substitute rule, fail-closed publish resolution, exhaustive-constructor guard, linear-scan choice) remains as present-tense statements
+
 <!-- AC:END -->

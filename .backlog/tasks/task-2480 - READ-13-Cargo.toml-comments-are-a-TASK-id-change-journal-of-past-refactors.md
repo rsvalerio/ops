@@ -1,10 +1,10 @@
 ---
 id: TASK-2480
 title: 'READ-13: Cargo.toml comments are a TASK-id change journal of past refactors'
-status: To Do
+status: Done
 assignee: []
 created_date: '2026-10-10 15:29'
-updated_date: '2026-10-10 21:13'
+updated_date: '2026-10-10 21:38'
 labels:
   - code-review-rust
   - READ
@@ -32,6 +32,7 @@ dedup_key: 'READ-13:extensions-rust/cargo-update/Cargo.toml:Cargo.toml'
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 No Cargo.toml comment references a TASK id or narrates what the crate used to contain
-- [ ] #2 Each dependency comment states only the enduring reason for the dependency
+- [x] #1 No Cargo.toml comment references a TASK id or narrates what the crate used to contain
+- [x] #2 Each dependency comment states only the enduring reason for the dependency
+
 <!-- AC:END -->
