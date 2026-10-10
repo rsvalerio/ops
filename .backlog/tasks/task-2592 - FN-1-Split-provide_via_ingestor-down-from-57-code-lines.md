@@ -1,10 +1,10 @@
 ---
 id: TASK-2592
 title: 'FN-1: Split provide_via_ingestor down from ~57 code lines'
-status: To Do
+status: Done
 assignee: []
 created_date: '2026-10-10 15:47'
-updated_date: '2026-10-10 21:12'
+updated_date: '2026-10-10 21:56'
 labels:
   - code-review-rust
   - fn
@@ -29,5 +29,6 @@ dedup_key: 'FN-1:extensions/sqlite/src/sql/ingest/orchestrator.rs:provide_via_in
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 provide_via_ingestor is at most 50 code lines, with the DbError::External re-wrap block extracted into a named helper that preserves the existing source-chain behaviour
+- [x] #1 provide_via_ingestor is at most 50 code lines, with the DbError::External re-wrap block extracted into a named helper that preserves the existing source-chain behaviour
+
 <!-- AC:END -->

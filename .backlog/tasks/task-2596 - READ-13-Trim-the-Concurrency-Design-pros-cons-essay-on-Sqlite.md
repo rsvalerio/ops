@@ -1,10 +1,10 @@
 ---
 id: TASK-2596
 title: 'READ-13: Trim the Concurrency Design pros/cons essay on Sqlite'
-status: To Do
+status: Done
 assignee: []
 created_date: '2026-10-10 15:47'
-updated_date: '2026-10-10 21:12'
+updated_date: '2026-10-10 21:57'
 labels:
   - code-review-rust
   - read
@@ -29,5 +29,6 @@ dedup_key: 'READ-13:extensions/sqlite/src/connection.rs:Sqlite'
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 The Sqlite struct doc states the serialization contract and its rationale in prose without Pros/Cons headings or a numbered list of future alternatives
+- [x] #1 The Sqlite struct doc states the serialization contract and its rationale in prose without Pros/Cons headings or a numbered list of future alternatives
+
 <!-- AC:END -->

@@ -1,10 +1,10 @@
 ---
 id: TASK-2598
 title: 'VER-4: Clear poison after recovery in provide_via_ingestor'
-status: To Do
+status: Done
 assignee: []
 created_date: '2026-10-10 15:47'
-updated_date: '2026-10-10 21:12'
+updated_date: '2026-10-10 21:59'
 labels:
   - code-review-rust
   - ver
@@ -29,5 +29,6 @@ dedup_key: 'VER-4:extensions/sqlite/src/sql/ingest/orchestrator.rs:provide_via_i
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 The per-table mutex poison recovery in provide_via_ingestor clears the poison flag, and a test pins that a poisoned-then-recovered table does not warn on the next ingest
+- [x] #1 The per-table mutex poison recovery in provide_via_ingestor clears the poison flag, and a test pins that a poisoned-then-recovered table does not warn on the next ingest
+
 <!-- AC:END -->

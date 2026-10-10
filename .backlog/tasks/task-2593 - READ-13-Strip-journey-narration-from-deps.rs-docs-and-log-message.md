@@ -1,10 +1,10 @@
 ---
 id: TASK-2593
 title: 'READ-13: Strip journey narration from deps.rs docs and log message'
-status: To Do
+status: Done
 assignee: []
 created_date: '2026-10-10 15:47'
-updated_date: '2026-10-10 21:12'
+updated_date: '2026-10-10 21:57'
 labels:
   - code-review-rust
   - read
@@ -32,5 +32,6 @@ dedup_key: 'READ-13:extensions/sqlite/src/sql/query/deps.rs:query_dependency_cou
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 No doc comment or log message in deps.rs contains "used to", "previous", or a "now X" contrast with a past behaviour; each describes only the current contract
+- [x] #1 No doc comment or log message in deps.rs contains "used to", "previous", or a "now X" contrast with a past behaviour; each describes only the current contract
+
 <!-- AC:END -->

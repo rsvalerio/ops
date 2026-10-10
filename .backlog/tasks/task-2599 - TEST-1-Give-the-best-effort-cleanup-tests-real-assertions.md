@@ -1,10 +1,10 @@
 ---
 id: TASK-2599
 title: 'TEST-1: Give the best-effort cleanup tests real assertions'
-status: To Do
+status: Done
 assignee: []
 created_date: '2026-10-10 15:48'
-updated_date: '2026-10-10 21:12'
+updated_date: '2026-10-10 22:00'
 labels:
   - code-review-rust
   - test
@@ -36,5 +36,6 @@ dedup_key: 'TEST-1:extensions/sqlite/src/ingestor.rs:cleanup_is_best_effort_when
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 Each listed test contains at least one explicit assertion of the outcome its name or trailing comment states (sidecar removed after best-effort cleanup; directory state after removal of a missing sidecar; release-then-reacquire for the reentry guard)
+- [x] #1 Each listed test contains at least one explicit assertion of the outcome its name or trailing comment states (sidecar removed after best-effort cleanup; directory state after removal of a missing sidecar; release-then-reacquire for the reentry guard)
+
 <!-- AC:END -->

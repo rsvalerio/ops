@@ -1,10 +1,10 @@
 ---
 id: TASK-2594
 title: 'READ-13: Strip fallback-history narration from query_project_languages doc'
-status: To Do
+status: Done
 assignee: []
 created_date: '2026-10-10 15:47'
-updated_date: '2026-10-10 21:12'
+updated_date: '2026-10-10 21:57'
 labels:
   - code-review-rust
   - read
@@ -29,5 +29,6 @@ dedup_key: 'READ-13:extensions/sqlite/src/sql/query/loc.rs:query_project_languag
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 The query_project_languages doc describes only the current empty-return contract with no "previously"/past-behaviour sentence
+- [x] #1 The query_project_languages doc describes only the current empty-return contract with no "previously"/past-behaviour sentence
+
 <!-- AC:END -->

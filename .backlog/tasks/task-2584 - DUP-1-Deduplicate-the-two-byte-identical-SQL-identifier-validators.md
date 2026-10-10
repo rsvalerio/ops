@@ -1,10 +1,10 @@
 ---
 id: TASK-2584
 title: 'DUP-1: Deduplicate the two byte-identical SQL identifier validators'
-status: To Do
+status: Done
 assignee: []
 created_date: '2026-10-10 15:46'
-updated_date: '2026-10-10 21:12'
+updated_date: '2026-10-10 21:55'
 labels:
   - code-review-rust
   - dup
@@ -30,7 +30,7 @@ dedup_key: 'DUP-1:extensions/sqlite/src/sql/ingest/sql.rs:is_valid_column_name_c
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 the byte-identical const identifier validator in extensions/sqlite/src/sql/ingest/sql.rs (is_valid_column_name_const, lines 218-233) is removed and its callers use the surviving one in extensions/sqlite/src/sql/validation.rs (is_valid_identifier_const, lines 129-146)
-- [ ] #2 cargo check -p ops-sqlite and cargo test -p ops-sqlite pass after the change
+- [x] #1 the byte-identical const identifier validator in extensions/sqlite/src/sql/ingest/sql.rs (is_valid_column_name_const, lines 218-233) is removed and its callers use the surviving one in extensions/sqlite/src/sql/validation.rs (is_valid_identifier_const, lines 129-146)
+- [x] #2 cargo check -p ops-sqlite and cargo test -p ops-sqlite pass after the change
 
 <!-- AC:END -->

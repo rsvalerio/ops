@@ -1,10 +1,10 @@
 ---
 id: TASK-2597
 title: 'VER-4: Clear poison after recovery in ingest_mutex_for'
-status: To Do
+status: Done
 assignee: []
 created_date: '2026-10-10 15:47'
-updated_date: '2026-10-10 21:12'
+updated_date: '2026-10-10 21:58'
 labels:
   - code-review-rust
   - ver
@@ -29,5 +29,6 @@ dedup_key: 'VER-4:extensions/sqlite/src/connection.rs:ingest_mutex_for'
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 After a poison recovery in ingest_mutex_for, the ingest_locks mutex is cleared via clear_poison so later acquires succeed without re-warning; a test pins that the recovery warn fires once, not per acquire
+- [x] #1 After a poison recovery in ingest_mutex_for, the ingest_locks mutex is cleared via clear_poison so later acquires succeed without re-warning; a test pins that the recovery warn fires once, not per acquire
+
 <!-- AC:END -->

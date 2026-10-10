@@ -1,10 +1,10 @@
 ---
 id: TASK-2595
 title: 'READ-13: Strip duplication-history narration from relativize_path doc'
-status: To Do
+status: Done
 assignee: []
 created_date: '2026-10-10 15:47'
-updated_date: '2026-10-10 21:12'
+updated_date: '2026-10-10 22:04'
 labels:
   - code-review-rust
   - read
@@ -29,5 +29,6 @@ dedup_key: 'READ-13:extensions/sqlite/src/sql/mod.rs:relativize_path'
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 The relativize_path doc states only current behaviour and invariants, with no account of former duplicates in other extensions
+- [x] #1 The relativize_path doc states only current behaviour and invariants, with no account of former duplicates in other extensions
+
 <!-- AC:END -->
