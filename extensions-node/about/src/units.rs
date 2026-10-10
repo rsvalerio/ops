@@ -53,9 +53,9 @@ fn collect_units(cwd: &Path) -> Vec<ProjectUnit> {
         .into_iter()
         .map(|(member, manifest)| {
             let manifest_path = cwd.join(&member).join("package.json");
-            // The shared `parse_package_metadata` is called directly, so
-            // the per-stack `PackageProbe` lives next to its deserialiser
-            // rather than behind a parallel shim.
+            // The shared `parse_package_metadata` is called directly; the
+            // per-stack `PackageProbe` shape is deserialised by the closure
+            // below.
             let meta =
                 ops_about::workspace::parse_package_metadata(&manifest_path, &manifest, |c| {
                     // Path-tracking deserialiser: a wrong-typed field is
@@ -110,13 +110,11 @@ fn workspace_member_globs(root: &Path) -> (Vec<String>, Vec<String>) {
     let mut includes: Vec<String> = Vec::new();
     let mut excludes: Vec<String> = Vec::new();
 
-    // The file read is shared with the identity provider through the
-    // per-process manifest cache. Each consumer still parses its own typed
-    // projection (`RawRoot` here, `RawPackage` for identity) — only the IO
-    // and UTF-8 validation are deduplicated, with no `Value` tree clone.
-    // A parse failure is reported by the shared `deserialize_manifest`, which
-    // the identity provider also uses, so the two projections of this text
-    // emit a single record per manifest path.
+    // The file is read through the per-process manifest cache: one read and
+    // UTF-8 validation per manifest path, no `Value` tree clone — each
+    // consumer parses its own typed projection (`RawRoot` here). A parse
+    // failure is reported by the shared `deserialize_manifest`, emitting a
+    // single record per manifest path.
     let workspaces = ops_about::manifest_cache::for_filename("package.json")
         .read(root)
         .and_then(|content| {
@@ -224,8 +222,7 @@ struct PnpmParse {
 ///
 /// When a scalar contains a backslash escape or a doubled apostrophe, the
 /// parser emits a `tracing::debug!` event so operators can spot the
-/// unsupported shape. A long-term fix is to delegate to a real YAML crate;
-/// until then keeping the failure visible avoids silently-wrong member globs.
+/// unsupported shape, avoiding silently-wrong member globs.
 fn parse_pnpm_workspace_yaml(content: &str) -> PnpmParse {
     let mut out = Vec::new();
     let mut saw_packages_key = false;
