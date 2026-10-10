@@ -1,10 +1,10 @@
 ---
 id: TASK-2440
 title: 'code-review-plan-wave52'
-status: To Do
+status: Done
 assignee: []
 created_date: '2026-10-10 14:31'
-updated_date: '2026-10-10 14:32'
+updated_date: '2026-10-10 14:59'
 labels:
   - code-review-wave
 dependencies:
@@ -47,4 +47,8 @@ All three are symlink/SEC hardening: the ingest parent-directory symlink refusal
 
 <!-- SECTION:NOTES:BEGIN -->
 Overlaps: none
+
+Branch: code-review/TASK-2440
+Worktree: /home/rsvalerio/projects/.wave-TASK-2440
+
 <!-- SECTION:NOTES:END -->

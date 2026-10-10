@@ -1,10 +1,10 @@
 ---
 id: TASK-2433
 title: 'SEC-14: read_optional_text follows a symlinked manifest out of the workspace root'
-status: To Do
+status: Done
 assignee: []
 created_date: '2026-10-04 15:51'
-updated_date: '2026-10-10 14:31'
+updated_date: '2026-10-10 14:51'
 labels:
   - code-review-rust
   - SEC
@@ -36,6 +36,7 @@ ordinal: 1000
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 A manifest read through read_optional_text that resolves outside the workspace root via a symlink is refused with a warn
-- [ ] #2 Regression test with a root-level manifest symlinked outside the root
+- [x] #1 A manifest read through read_optional_text that resolves outside the workspace root via a symlink is refused with a warn
+- [x] #2 Regression test with a root-level manifest symlinked outside the root
+
 <!-- AC:END -->

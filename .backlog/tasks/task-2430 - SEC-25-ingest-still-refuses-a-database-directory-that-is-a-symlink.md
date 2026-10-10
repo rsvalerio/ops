@@ -1,10 +1,10 @@
 ---
 id: TASK-2430
 title: 'SEC-25: ingest still refuses a database directory that is a symlink'
-status: To Do
+status: Done
 assignee: []
 created_date: '2026-10-04 15:28'
-updated_date: '2026-10-10 14:31'
+updated_date: '2026-10-10 14:46'
 labels:
   - code-review-rust
   - SEC
@@ -30,5 +30,6 @@ ordinal: 1000
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 Ingest with the database in a symlinked directory either works, or the refusal is a documented, tested decision
+- [x] #1 Ingest with the database in a symlinked directory either works, or the refusal is a documented, tested decision
+
 <!-- AC:END -->

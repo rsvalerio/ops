@@ -1,10 +1,10 @@
 ---
 id: TASK-2434
 title: 'SEC-25: text-fixers write-back checks are path-based, leaving a syscall-wide gap before rename'
-status: To Do
+status: Done
 assignee: []
 created_date: '2026-10-04 15:55'
-updated_date: '2026-10-10 14:31'
+updated_date: '2026-10-10 14:56'
 labels:
   - code-review-rust
   - SEC
@@ -31,6 +31,7 @@ ordinal: 1000
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 atomic::replace stages and renames relative to a parent-directory handle opened without following symlinks, or the residual window is recorded as an accepted limit in an ADR
-- [ ] #2 The changed-since-read comparison also covers ctime on Unix, or the docs say why it does not
+- [x] #1 atomic::replace stages and renames relative to a parent-directory handle opened without following symlinks, or the residual window is recorded as an accepted limit in an ADR
+- [x] #2 The changed-since-read comparison also covers ctime on Unix, or the docs say why it does not
+
 <!-- AC:END -->
