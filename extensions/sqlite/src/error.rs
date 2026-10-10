@@ -65,9 +65,9 @@ pub enum DbError {
     /// READ-5 / TASK-1867: the ingest pipeline stages JSON next to the
     /// database file, so it needs a real filesystem path. `:memory:` is a
     /// SQLite connection string, not a path — appending `.ingest` to it
-    /// produced the *relative* `:memory:.ingest`, which the pipeline then
-    /// created inside whatever the process working directory happened to be
-    /// (and once got committed to this repository).
+    /// would produce the *relative* `:memory:.ingest`, which the pipeline
+    /// would then create inside whatever the process working directory
+    /// happens to be.
     #[error("database {0:?} is not file-backed; the ingest pipeline needs a real database path")]
     NotFileBacked(std::path::PathBuf),
 

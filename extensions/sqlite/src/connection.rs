@@ -25,9 +25,10 @@ const BUSY_TIMEOUT: Duration = Duration::from_secs(5);
 
 /// ARCH-9 / TASK-1155: process-wide monotonic counter that mints a fresh
 /// `Sqlite::id` per instance. Stable for the lifetime of the instance, and
-/// guaranteed distinct from every previously-minted id, so callers keying
-/// caches on the id avoid the pointer-address ABA hazard the prior
-/// `std::ptr::from_ref(db) as usize` scheme had.
+/// guaranteed distinct from every earlier-minted id, so callers keying
+/// caches on the id avoid the pointer-address ABA hazard a key derived
+/// from `std::ptr::from_ref(db) as usize` would carry: the allocator can
+/// hand a dropped instance's address to its replacement.
 fn mint_db_id() -> u64 {
     static COUNTER: AtomicU64 = AtomicU64::new(1);
     COUNTER.fetch_add(1, Ordering::Relaxed)
@@ -53,13 +54,13 @@ pub struct Sqlite {
     conn: Mutex<rusqlite::Connection>,
     db_path: PathBuf,
     /// ARCH-9 / TASK-1155: stable per-instance identity used by callers
-    /// that key process-local caches by `Sqlite` identity. The previous
-    /// pattern (`std::ptr::from_ref(db) as usize`) was vulnerable to
-    /// pointer-address ABA — a dropped-and-replaced `Sqlite` could
-    /// re-allocate at the same address and silently return a previous
-    /// instance's cached value. Minted from a process-wide monotonic
-    /// counter so two distinct instances always receive distinct ids
-    /// regardless of allocation reuse.
+    /// that key process-local caches by `Sqlite` identity. A key derived
+    /// from the instance's address (`std::ptr::from_ref(db) as usize`)
+    /// is vulnerable to pointer-address ABA — a dropped-and-replaced
+    /// `Sqlite` can re-allocate at the same address and silently surface
+    /// the earlier instance's cached value. Minted from a process-wide
+    /// monotonic counter so two distinct instances always receive distinct
+    /// ids regardless of allocation reuse.
     id: u64,
     /// Per-table ingest locks scoped to this `Sqlite` instance.
     ///
@@ -164,7 +165,7 @@ impl Sqlite {
     /// ARCH-9 / TASK-1155: stable per-instance identity for keying
     /// process-local caches by `Sqlite` identity. Distinct instances always
     /// receive distinct ids regardless of allocation reuse, eliminating
-    /// the ABA hazard the prior pointer-address scheme had.
+    /// the pointer-address ABA hazard.
     pub const fn id(&self) -> u64 {
         self.id
     }
