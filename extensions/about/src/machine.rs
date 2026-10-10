@@ -1166,7 +1166,7 @@ mod tests {
         None
     }
 
-    /// TASK-2311 AC #2: `CARGO_INCREMENTAL` beats `CARGO_BUILD_INCREMENTAL`,
+    /// `CARGO_INCREMENTAL` beats `CARGO_BUILD_INCREMENTAL`,
     /// which beats `build.incremental` in the nearest config layer; with
     /// none set the profile decides (`profile` / `default`).
     #[test]
@@ -1213,7 +1213,7 @@ mod tests {
         assert_eq!(resolve(&[], &no_env), setting("profile", "default"));
     }
 
-    /// TASK-2320 AC #1: with no global override each profile resolves
+    /// With no global override each profile resolves
     /// `CARGO_PROFILE_<NAME>_INCREMENTAL`, then the nearest config file,
     /// then the workspace `Cargo.toml`, then cargo's default; any global
     /// override leaves the profiles unreported.
@@ -1280,7 +1280,7 @@ mod tests {
         assert_eq!(resolve(&build, Some(&manifest), &no_env), None);
     }
 
-    /// TASK-2320: the text report lists each profile under `incremental`
+    /// The text report lists each profile under `incremental`
     /// when the profiles decide, and the JSON carries them.
     #[test]
     fn profile_incremental_is_rendered_when_no_override_applies() {
@@ -1419,7 +1419,7 @@ mod tests {
         assert!(!cfg_matches("cfg(not(unix, windows))", &cfg));
     }
 
-    /// TASK-2300 AC #1: a matching `target.'cfg(..)'` table supplies the
+    /// A matching `target.'cfg(..)'` table supplies the
     /// linker (the triple table still wins) and its rustflags join the
     /// triple's, each naming its table as the source.
     #[test]
@@ -1463,7 +1463,7 @@ mod tests {
         );
     }
 
-    /// TASK-2308: array-valued rustflags keys concatenate across layers,
+    /// Array-valued rustflags keys concatenate across layers,
     /// lower precedence first, naming every contributing file; a string
     /// value replaces what lower layers contributed.
     #[test]
@@ -1571,7 +1571,7 @@ mod tests {
         }
     }
 
-    /// TASK-2300 AC #2: the default target dir is anchored at the workspace
+    /// The default target dir is anchored at the workspace
     /// root, not the cwd of a member subdirectory.
     #[test]
     fn default_target_dir_resolves_against_the_workspace_root() {
@@ -1872,7 +1872,7 @@ mod tests {
         }
     }
 
-    /// TASK-2287: pins the `ops about machine --json` envelope and field
+    /// Pins the `ops about machine --json` envelope and field
     /// names.
     #[test]
     fn json_document_pins_schema_and_field_names() {

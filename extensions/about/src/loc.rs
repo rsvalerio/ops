@@ -436,7 +436,7 @@ mod tests {
         )
     }
 
-    /// TASK-2282: pins the `ops about loc --json` shape and the
+    /// Pins the `ops about loc --json` shape and the
     /// longest-prefix crate assignment (a nested member wins over the root
     /// crate; the root owns the rest).
     #[test]
@@ -495,7 +495,7 @@ mod tests {
         assert_eq!(value["crates"], serde_json::json!([]));
     }
 
-    /// TEST-5 / TASK-1739: with no `SQLite` handle on the context,
+    /// With no `SQLite` handle on the context,
     /// `query_rust_loc_stats` yields `None` and the runner takes its
     /// Rust-only "not applicable here" branch. That string had no assertion
     /// behind it.

@@ -8,8 +8,8 @@ license.workspace = true
 [features]
 default = []
 sqlite = ["dep:ops-sqlite", "ops-extension/sqlite"]
-# DUP-3 / TASK-0985: shared `assert_debug_escapes_control_chars` helper for
-# the ERR-7 sweep regression tests in the about extensions. Enabled only by
+# Shared `assert_debug_escapes_control_chars` helper for the
+# Debug-escaping regression tests in the about extensions. Enabled only by
 # dev-dependencies; production code never sees it.
 test-support = ["ops-core/test-support"]
 

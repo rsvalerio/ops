@@ -1,16 +1,13 @@
 //! Shared test helpers for the about extensions.
 //!
-//! DUP-3 / TASK-0985: the ERR-7 sweep (TASK-0818 / TASK-0930 / TASK-0809)
-//! pinned that path / directive tracing fields flow through `Debug` so
-//! embedded newlines / ANSI escapes cannot forge log records. Each
-//! provider grew its own `*_path_debug_escapes_control_characters` test
-//! that re-proved the same property of `std::fmt::Debug`. Per-site tests
-//! still exist (so the sweep contract is visible at every call site), but
-//! they now share the assertion logic — deletions of one site no longer
-//! weaken coverage silently.
+//! Path / directive tracing fields must flow through `Debug` so embedded
+//! newlines / ANSI escapes cannot forge log records. Each provider keeps
+//! its own `*_path_debug_escapes_control_characters` test so the contract
+//! is visible at every call site, and they share the assertion logic —
+//! deleting one site cannot silently weaken coverage.
 
-/// DUP-3 / TASK-1157, TASK-1735, TASK-1794, TASK-2014: the tracing-capture
-/// harness these extensions use now has exactly one definition, in
+/// The tracing-capture
+/// harness these extensions use has exactly one definition, in
 /// `ops_core::test_utils`. It lives there rather than here because
 /// `crates/core`, `crates/cli` and `extensions/git` also need it, and every
 /// one of them depends on `ops-core` — re-homing it the other way round would
@@ -62,7 +59,7 @@ pub fn assert_debug_escapes_control_chars<T: std::fmt::Debug>(value: T) {
 /// The half of [`assert_debug_escapes_control_chars`] that applies to an
 /// already-rendered string: no raw newline and no raw ANSI `ESC` survived.
 ///
-/// DUP-3 / TASK-1794: callers that capture a real `tracing` record (rather
+/// Callers that capture a real `tracing` record (rather
 /// than rendering a value themselves) assert the same property on the captured
 /// text — trim the record's own trailing newline first. Splitting it out keeps
 /// one definition instead of a second copy at every capture site.
@@ -84,7 +81,7 @@ pub fn assert_rendered_escapes_control_chars(rendered: &str) {
 
 /// Write `content` to `path`, creating any missing parent directories.
 ///
-/// DUP-1 / TASK-1736: the `about` extensions' `#[cfg(test)]` modules each
+/// The `about` extensions' `#[cfg(test)]` modules each
 /// grew a byte-identical six-line `write` helper for building tempdir
 /// fixtures. Hoisting it here gives the family one definition, so a future
 /// tightening (propagating the IO error, richer `expect` messages) lands

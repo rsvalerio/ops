@@ -27,7 +27,7 @@ pub fn run_about_deps(data_registry: &DataRegistry) -> anyhow::Result<()> {
     run_about_deps_with(data_registry, &mut std::io::stdout(), is_tty)
 }
 
-/// READ-5/TASK-0411: `is_tty` reflects the `writer` the caller hands in.
+/// `is_tty` reflects the `writer` the caller hands in.
 /// See [`crate::units::run_about_units_with`] for the rationale.
 ///
 /// # Errors
@@ -346,7 +346,7 @@ pub fn format_dependencies_section(deps: &ProjectDependencies, is_tty: bool) -> 
         lines.push(String::new());
         lines.push(format!("  {}", tty_style(&unit.unit_name, cyan, is_tty)));
 
-        // READ-5 (TASK-0591): use `split_last` so the connector choice never
+        // Use `split_last` so the connector choice never
         // depends on `len() - 1` over a possibly-zero-length slice. The
         // outer filter already rejects empty deps today, but a future
         // refactor that adds another filter and lets an empty slice through
@@ -383,7 +383,7 @@ mod tests {
     use super::*;
     use ops_core::project_identity::UnitDeps;
 
-    /// TEST-5 / TASK-1739: same gap as the other runners — the empty-state
+    /// Same gap as the other runners — the empty-state
     /// string had no assertion behind it.
     #[test]
     fn run_about_deps_with_reports_no_data_for_an_empty_registry() {
@@ -396,7 +396,7 @@ mod tests {
         );
     }
 
-    /// TASK-2282: pins the `ops about dependencies --json` shape.
+    /// Pins the `ops about dependencies --json` shape.
     #[test]
     fn deps_json_pins_the_document_shape() {
         let deps = ProjectDependencies::new(vec![
@@ -447,7 +447,7 @@ mod tests {
         }
     }
 
-    /// TASK-2288: pins the `--duplicates --json` shape.
+    /// Pins the `--duplicates --json` shape.
     #[test]
     fn duplicates_json_pins_the_document_shape() {
         let report = sample_duplicates();
@@ -520,7 +520,7 @@ mod tests {
         assert!(out.find("ops-cli").unwrap() < out.find("ops-core").unwrap());
     }
 
-    /// READ-5/TASK-0411: when the caller declares the writer is not a TTY,
+    /// When the caller declares the writer is not a TTY,
     /// the rendered output must not contain ANSI escape bytes — even if the
     /// process's stdout happens to be a real terminal at test time.
     #[test]
@@ -536,7 +536,7 @@ mod tests {
         );
     }
 
-    /// READ-5 (TASK-0591): pass a unit with empty deps directly and verify
+    /// Pass a unit with empty deps directly and verify
     /// no panic. The outer filter currently skips it, but the inner loop
     /// must be safe for an empty slice on its own merits.
     #[test]

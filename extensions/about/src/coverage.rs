@@ -61,7 +61,7 @@ pub fn run_about_coverage(data_registry: &DataRegistry) -> anyhow::Result<()> {
     run_about_coverage_with(data_registry, &mut std::io::stdout(), is_tty)
 }
 
-/// READ-5/TASK-0411: `is_tty` reflects the `writer` the caller hands in.
+/// `is_tty` reflects the `writer` the caller hands in.
 /// See [`crate::units::run_about_units_with`] for the rationale.
 ///
 /// # Errors
@@ -160,7 +160,7 @@ mod tests {
     use super::*;
     use ops_core::project_identity::{CoverageStats, UnitCoverage};
 
-    /// TEST-5 / TASK-1739: the runner's `writer` / `is_tty` seam existed with
+    /// The runner's `writer` / `is_tty` seam existed with
     /// no test behind it, leaving this user-facing empty-state string
     /// unasserted. An empty registry makes `load_or_default` yield
     /// `ProjectCoverage::default()`, whose zero `lines_count` drives

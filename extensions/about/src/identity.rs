@@ -1,7 +1,7 @@
 //! Shared `project_identity` builder used by stack `*IdentityProvider`s.
 //!
-//! Centralises the parse-then-build-`ProjectIdentity` skeleton each stack
-//! provider previously copied (TASK-0387). Stacks parse their own manifest
+//! Centralises the parse-then-build-`ProjectIdentity` skeleton every stack
+//! provider shares. Stacks parse their own manifest
 //! shape, project the result onto [`ParsedManifest`], and call
 //! [`build_identity_value`] which fills in the canonical fields, applies
 //! the git-remote repository fallback, and serialises to JSON.
@@ -61,7 +61,7 @@ impl ParsedManifest {
 ///
 /// Captures the `let cwd = ...; let parsed = parser(&cwd);
 /// build_identity_value(parsed, &cwd)` scaffold every stack
-/// `*IdentityProvider::provide` was duplicating (DUP-1 / TASK-0484).
+/// `*IdentityProvider::provide` shares.
 ///
 /// Stack providers that need to merge data from multiple manifests (e.g. the
 /// Go provider, which combines `go.mod` and `go.work`) can still call
@@ -89,14 +89,14 @@ where
 /// applies the git-remote repository fallback when no manifest-supplied
 /// repository URL is present.
 ///
-/// ERR-1 / TASK-1103: rejects a non-UTF-8 `cwd` with a typed
+/// Rejects a non-UTF-8 `cwd` with a typed
 /// [`DataProviderError::ComputationMessage`] rather than letting
 /// `Path::display` smuggle `U+FFFD` replacement bytes into the
 /// `project_root` JSON field. This mirrors the strict
-/// [`ops_sqlite::DbError::NonUtf8Path`] policy adopted in TASK-0928 for
+/// [`ops_sqlite::DbError::NonUtf8Path`] policy for
 /// `upsert_data_source`: any path persisted into a downstream consumer
 /// (`SQLite` row, JSON identity payload, audit log) must round-trip
-/// faithfully, so the two paths now share the same fail-fast contract.
+/// faithfully, so the two paths share the same fail-fast contract.
 ///
 /// # Errors
 ///
@@ -127,14 +127,14 @@ pub fn build_identity_value(
         languages,
     } = manifest;
 
-    // ERR-1 / TASK-1103: reject non-UTF-8 cwd up front. `Path::display`
+    // Reject non-UTF-8 cwd up front. `Path::display`
     // would otherwise replace each invalid byte with `U+FFFD`, silently
     // corrupting the `project_root` field of every downstream identity
     // JSON. See module-level / fn-level docs for the shared contract
     // with `upsert_data_source`'s `NonUtf8Path`.
     #[allow(clippy::unnecessary_debug_formatting)]
     let project_root = cwd.to_str().ok_or_else(|| {
-        // ERR-1 / TASK-1211: render the offending OsStr via `Debug` so
+        // Render the offending OsStr via `Debug` so
         // invalid UTF-8 bytes are escaped as `\xNN` rather than replaced
         // with `U+FFFD` by `Path::display`. The error string lands in
         // operator logs / CLI output verbatim, so the previous Display
@@ -171,7 +171,7 @@ pub fn build_identity_value(
 mod tests {
     use super::*;
 
-    /// ERR-1 / TASK-1103: a non-UTF-8 `cwd` must fail fast with a typed
+    /// A non-UTF-8 `cwd` must fail fast with a typed
     /// [`DataProviderError::ComputationMessage`] rather than silently
     /// shipping `U+FFFD`-mangled bytes into the `project_root` JSON
     /// field. Mirrors the `upsert_data_source` `NonUtf8Path` test in
@@ -190,11 +190,11 @@ mod tests {
 
         let err = build_identity_value(manifest, bad_cwd)
             .expect_err("non-UTF-8 cwd must yield a typed error");
-        // ERR-2 / TASK-1887: `computation_failed` carries the message
+        // `computation_failed` carries the message
         // directly instead of fabricating a `std::io::Error` to hold it.
         assert!(matches!(err, DataProviderError::ComputationMessage(_)));
         let msg = err.to_string();
-        // ERR-1 / TASK-1211: the rendered message must NOT smuggle U+FFFD
+        // The rendered message must NOT smuggle U+FFFD
         // (Path::display's lossy substitute) and must encode the offending
         // byte faithfully (Debug escapes invalid UTF-8 as `\xff` or similar).
         assert!(
