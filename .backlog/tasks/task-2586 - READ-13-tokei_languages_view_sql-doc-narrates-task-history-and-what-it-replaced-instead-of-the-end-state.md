@@ -1,10 +1,10 @@
 ---
 id: TASK-2586
 title: 'READ-13: tokei_languages_view_sql doc narrates task history and what it replaced instead of the end state'
-status: To Do
+status: Done
 assignee: []
 created_date: '2026-10-10 15:46'
-updated_date: '2026-10-10 21:12'
+updated_date: '2026-10-10 21:55'
 labels:
   - code-review-rust
   - readability
@@ -29,6 +29,7 @@ dedup_key: 'READ-13:extensions/tokei/src/views.rs:tokei_languages_view_sql'
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 Doc on tokei_languages_view_sql states the current invariants (const-validated identifiers, gated view SQL) without rule/task IDs or references to what the code replaced
-- [ ] #2 Test comments at views.rs:56-57 and :88 keep their behavioral rationale without the SEC-12 task-tag prefix
+- [x] #1 Doc on tokei_languages_view_sql states the current invariants (const-validated identifiers, gated view SQL) without rule/task IDs or references to what the code replaced
+- [x] #2 Test comments at views.rs:56-57 and :88 keep their behavioral rationale without the SEC-12 task-tag prefix
+
 <!-- AC:END -->

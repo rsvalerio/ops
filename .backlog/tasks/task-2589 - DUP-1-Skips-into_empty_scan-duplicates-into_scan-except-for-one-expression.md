@@ -1,10 +1,10 @@
 ---
 id: TASK-2589
 title: 'DUP-1: Skips::into_empty_scan duplicates into_scan except for one expression'
-status: To Do
+status: Done
 assignee: []
 created_date: '2026-10-10 15:46'
-updated_date: '2026-10-10 21:12'
+updated_date: '2026-10-10 21:58'
 labels:
   - code-review-rust
   - duplication
@@ -29,6 +29,7 @@ dedup_key: 'DUP-1:extensions/tokei/src/lib.rs:Skips'
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 Single constructor: into_empty_scan is removed and the empty-candidates path in scan_tokei calls into_scan(Vec::new())
-- [ ] #2 cargo test -p ops-tokei passes unchanged (pure refactor, no behavior change)
+- [x] #1 Single constructor: into_empty_scan is removed and the empty-candidates path in scan_tokei calls into_scan(Vec::new())
+- [x] #2 cargo test -p ops-tokei passes unchanged (pure refactor, no behavior change)
+
 <!-- AC:END -->

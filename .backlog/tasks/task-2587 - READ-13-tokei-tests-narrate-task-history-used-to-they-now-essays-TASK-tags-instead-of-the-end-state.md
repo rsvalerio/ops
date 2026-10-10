@@ -1,10 +1,10 @@
 ---
 id: TASK-2587
 title: 'READ-13: tokei tests narrate task history (used-to/they-now essays, TASK tags) instead of the end state'
-status: To Do
+status: Done
 assignee: []
 created_date: '2026-10-10 15:46'
-updated_date: '2026-10-10 21:12'
+updated_date: '2026-10-10 21:57'
 labels:
   - code-review-rust
   - readability
@@ -37,6 +37,7 @@ dedup_key: 'READ-13:extensions/tokei/src/tests.rs:mod-tests'
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 Test comments state the behavior each test pins, without TASK-/AC-#/rule-tag prefixes or narration of removed tests and past states
-- [ ] #2 The isolation-policy section of the module doc survives as policy; its TASK-1977 history paragraph does not
+- [x] #1 Test comments state the behavior each test pins, without TASK-/AC-#/rule-tag prefixes or narration of removed tests and past states
+- [x] #2 The isolation-policy section of the module doc survives as policy; its TASK-1977 history paragraph does not
+
 <!-- AC:END -->

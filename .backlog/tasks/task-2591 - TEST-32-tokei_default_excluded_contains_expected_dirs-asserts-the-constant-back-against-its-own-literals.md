@@ -1,10 +1,10 @@
 ---
 id: TASK-2591
 title: 'TEST-32: tokei_default_excluded_contains_expected_dirs asserts the constant back against its own literals'
-status: To Do
+status: Done
 assignee: []
 created_date: '2026-10-10 15:46'
-updated_date: '2026-10-10 21:12'
+updated_date: '2026-10-10 21:58'
 labels:
   - code-review-rust
   - test
@@ -29,6 +29,7 @@ dedup_key: 'TEST-32:extensions/tokei/src/tests.rs:tokei_default_excluded_contain
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 The constant-subset assertion is removed
-- [ ] #2 Every entry of TOKEI_DEFAULT_EXCLUDED (including venv, dist, build) is pinned behaviorally: a fixture source file inside each excluded root-children dir is asserted absent from collect_tokei output
+- [x] #1 The constant-subset assertion is removed
+- [x] #2 Every entry of TOKEI_DEFAULT_EXCLUDED (including venv, dist, build) is pinned behaviorally: a fixture source file inside each excluded root-children dir is asserted absent from collect_tokei output
+
 <!-- AC:END -->

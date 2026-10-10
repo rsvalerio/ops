@@ -1,10 +1,10 @@
 ---
 id: TASK-2544
 title: 'READ-13: rust-loc views docs cite the SEC-12 review rule ID instead of describing behaviour'
-status: To Do
+status: Done
 assignee: []
 created_date: '2026-10-10 15:38'
-updated_date: '2026-10-10 21:12'
+updated_date: '2026-10-10 21:55'
 labels:
   - code-review
   - readability
@@ -29,6 +29,7 @@ dedup_key: 'READ-13:extensions-rust/loc/src/views.rs:views'
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 No doc comment in the crate opens with or cites a review rule ID (SEC-12, ERR-n, TASK-nnnn); the identifier-validation and bound-parameter explanations are preserved, rewritten as descriptions of current behaviour
-- [ ] #2 cargo doc -p ops-rust-loc builds cleanly and the RUST_LOC_FILES_LOAD doc reads as a description of the load spec
+- [x] #1 No doc comment in the crate opens with or cites a review rule ID (SEC-12, ERR-n, TASK-nnnn); the identifier-validation and bound-parameter explanations are preserved, rewritten as descriptions of current behaviour
+- [x] #2 cargo doc -p ops-rust-loc builds cleanly and the RUST_LOC_FILES_LOAD doc reads as a description of the load spec
+
 <!-- AC:END -->
