@@ -1,10 +1,10 @@
 ---
 id: TASK-2477
 title: 'READ-13: Docs across ops-core narrate TASK-tag provenance and fix history instead of the end state'
-status: To Do
+status: Done
 assignee: []
 created_date: '2026-10-10 15:29'
-updated_date: '2026-10-10 21:12'
+updated_date: '2026-10-10 21:35'
 labels:
   - code-review-rust
   - READ
@@ -64,6 +64,7 @@ dedup_key: 'READ-13:crates/core/src/expand.rs:module docs'
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 Item and module docs describe current behaviour and invariants only; TASK/rule-id prefixes, 'used to'/'previously'/'pre-fix' passages, and design-decision essays are removed
-- [ ] #2 The tracing::warn! message at text.rs:399 no longer embeds backlog references; it states the refusal and the operator remedy
+- [x] #1 Item and module docs describe current behaviour and invariants only; TASK/rule-id prefixes, 'used to'/'previously'/'pre-fix' passages, and design-decision essays are removed
+- [x] #2 The tracing::warn! message at text.rs:399 no longer embeds backlog references; it states the refusal and the operator remedy
+
 <!-- AC:END -->

@@ -1,10 +1,10 @@
 ---
 id: TASK-2483
 title: 'ERR-10: Matrix API in config/strategy.rs returns Result<_, String> instead of a proper error type'
-status: To Do
+status: Done
 assignee: []
 created_date: '2026-10-10 15:30'
-updated_date: '2026-10-10 21:12'
+updated_date: '2026-10-10 21:24'
 labels:
   - code-review-rust
   - ERR
@@ -31,6 +31,7 @@ dedup_key: 'ERR-10:crates/core/src/config/strategy.rs:Matrix'
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 No function in config/strategy.rs returns Result<_, String>; the public cells() API and the private validators return a typed error (MatrixRefError or a sibling) carrying the key/value/entry context
-- [ ] #2 The in-crate caller of cells() propagates the typed error instead of re-wrapping a String via map_err
+- [x] #1 No function in config/strategy.rs returns Result<_, String>; the public cells() API and the private validators return a typed error (MatrixRefError or a sibling) carrying the key/value/entry context
+- [x] #2 The in-crate caller of cells() propagates the typed error instead of re-wrapping a String via map_err
+
 <!-- AC:END -->

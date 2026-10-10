@@ -1,10 +1,10 @@
 ---
 id: TASK-2487
 title: 'API-14: Public items in ops-core missing doc summaries'
-status: To Do
+status: Done
 assignee: []
 created_date: '2026-10-10 15:30'
-updated_date: '2026-10-10 21:12'
+updated_date: '2026-10-10 21:25'
 labels:
   - code-review-rust
   - API
@@ -34,6 +34,7 @@ dedup_key: 'API-14:crates/core/src/config/command_id.rs:CommandId'
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 Every public item listed above carries at least a one-sentence doc summary
-- [ ] #2 cargo doc renders summaries for these items in the module index
+- [x] #1 Every public item listed above carries at least a one-sentence doc summary
+- [x] #2 cargo doc renders summaries for these items in the module index
+
 <!-- AC:END -->
