@@ -384,7 +384,7 @@ mod tests {
         .unwrap();
 
         let (units, warn_count) =
-            ops_about::test_support::count_warnings(|| collect_units(dir.path()));
+            ops_core::test_utils::count_warnings(|| collect_units(dir.path()));
 
         assert_eq!(units.len(), 1);
         assert_eq!(units[0].path, "..staging/api");
@@ -469,7 +469,7 @@ mod tests {
         .unwrap();
 
         let (units, warn_count) =
-            ops_about::test_support::count_warnings(|| collect_units(dir.path()));
+            ops_core::test_utils::count_warnings(|| collect_units(dir.path()));
 
         assert_eq!(units.len(), 1);
         // Out-of-tree marker present on the description.
@@ -518,7 +518,7 @@ mod tests {
         .unwrap();
 
         let (units, warn_count) =
-            ops_about::test_support::count_warnings(|| collect_units(dir.path()));
+            ops_core::test_utils::count_warnings(|| collect_units(dir.path()));
 
         std::fs::remove_dir_all(&target).ok();
 

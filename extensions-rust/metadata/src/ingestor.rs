@@ -631,7 +631,7 @@ mod tests {
     /// Asserts both the warn and the error.
     #[test]
     fn metadata_load_rejects_metadata_raw_with_multiple_rows() {
-        use ops_about::test_support::capture_tracing;
+        use ops_core::test_utils::capture_tracing;
 
         let data_dir = tempfile::tempdir().unwrap();
         let dir = ingest_anchor(&data_dir);

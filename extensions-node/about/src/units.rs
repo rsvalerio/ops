@@ -437,7 +437,7 @@ mod tests {
             r#"{ "name": "x", "workspaces": 7 }"#,
         );
 
-        let (logs, units) = ops_about::test_support::capture_tracing(tracing::Level::WARN, || {
+        let (logs, units) = ops_core::test_utils::capture_tracing(tracing::Level::WARN, || {
             collect_units(dir.path())
         });
 
@@ -462,7 +462,7 @@ mod tests {
             r#"{ "name": "a", "version": 3 }"#,
         );
 
-        let (logs, units) = ops_about::test_support::capture_tracing(tracing::Level::WARN, || {
+        let (logs, units) = ops_core::test_utils::capture_tracing(tracing::Level::WARN, || {
             collect_units(dir.path())
         });
 

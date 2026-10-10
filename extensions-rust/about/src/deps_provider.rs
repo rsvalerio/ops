@@ -575,7 +575,7 @@ fn update_drops_version(
 #[cfg(test)]
 mod tests {
     use super::{RustDepsProvider, PROVIDER_NAME};
-    use ops_about::test_support::capture_tracing;
+    use ops_core::test_utils::capture_tracing;
     use ops_extension::{Context, DataProvider};
     use ops_sqlite::Sqlite;
     use std::sync::Arc;

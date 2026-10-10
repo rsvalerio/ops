@@ -510,8 +510,8 @@ fn normalize_url_key(key: &str) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use ops_about::test_support::capture_tracing;
     use ops_core::project_identity::ProjectIdentity;
+    use ops_core::test_utils::capture_tracing;
 
     /// Write a `pyproject.toml` into a fresh tempdir and run the identity
     /// provider over it. The tempdir / write / `test_context` / deserialise
@@ -871,7 +871,7 @@ Repository = "https://github.com/x/demo"
     /// per-entry degradation `RawAuthorEntry::Unsupported` gives `authors`.
     #[test]
     fn mixed_value_urls_table_keeps_string_siblings_and_warns_per_entry() {
-        let (id, warn_count) = ops_about::test_support::count_warnings(|| {
+        let (id, warn_count) = ops_core::test_utils::count_warnings(|| {
             identity_from(
                 r#"
 [project]

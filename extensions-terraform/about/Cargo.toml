@@ -21,8 +21,10 @@ tracing = { workspace = true }
 unicode-ident = { workspace = true }
 
 [dev-dependencies]
-# The shared `write_file` fixture helper and the `capture_warn` tracing
-# harness both live behind `ops-about`'s `test-support` feature.
+# The shared `write_file` fixture helper lives behind `ops-about`'s
+# `test-support` feature; the `capture_warn` tracing harness comes from
+# `ops_core::test_utils`.
+ops-core = { workspace = true, features = ["test-support"] }
 ops-about = { workspace = true, features = ["test-support"] }
 ops-extension = { workspace = true, features = ["test-support"] }
 tempfile = { workspace = true }

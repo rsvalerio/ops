@@ -64,7 +64,7 @@
 //!
 //! DUP-3 / TASK-2014: the workspace's single tracing-capture harness, so no
 //! crate has to re-derive the global-dispatcher pin whose absence is a silent
-//! flake. `ops_about::test_support` re-exports these for the extensions.
+//! flake.
 //!
 //! - [`capture_tracing`] — run a closure under a thread-local subscriber at a
 //!   given level, returning the rendered output and the closure's value.
@@ -912,8 +912,8 @@ impl Drop for CwdGuard {
 /// Every crate that asserts on `tracing` output used to grow its own copy of
 /// the buffer / `MakeWriter` shim *and* of the global-dispatcher pin below,
 /// whose absence is a silent flake rather than a failure. The harness lives
-/// here — the crate every other one already depends on — and is re-exported
-/// by `ops_about::test_support` for the extension family.
+/// here — the crate every other one already depends on — and the extension
+/// family imports it from this path directly.
 #[cfg(any(test, feature = "test-support"))]
 mod tracing_capture {
     use std::io::Write;

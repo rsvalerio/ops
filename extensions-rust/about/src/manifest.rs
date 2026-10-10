@@ -598,7 +598,7 @@ mod tests {
             "the typed NotFound marker must be reachable through the chain: {err:#}"
         );
 
-        let (logs, ()) = ops_about::test_support::capture_tracing(tracing::Level::DEBUG, || {
+        let (logs, ()) = ops_core::test_utils::capture_tracing(tracing::Level::DEBUG, || {
             log_manifest_load_failure(&err);
         });
 

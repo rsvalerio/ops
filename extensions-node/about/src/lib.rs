@@ -224,7 +224,7 @@ mod tests {
         let dir = tempfile::tempdir().unwrap();
         write(&dir.path().join("package.json"), "{ \"name\": ");
 
-        let (logs, ()) = ops_about::test_support::capture_tracing(tracing::Level::WARN, || {
+        let (logs, ()) = ops_core::test_utils::capture_tracing(tracing::Level::WARN, || {
             let mut ctx = ops_extension::Context::test_context(dir.path().to_path_buf());
             let _ = NodeIdentityProvider.provide(&mut ctx).unwrap();
             let _ = units::NodeUnitsProvider.provide(&mut ctx).unwrap();

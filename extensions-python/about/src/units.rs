@@ -326,7 +326,7 @@ members = ["libs/blank"]
         let dir = tempfile::tempdir().unwrap();
         write_file(&dir.path().join("pyproject.toml"), "[tool.uv.workspace\n");
 
-        let (logs, units) = ops_about::test_support::capture_tracing(tracing::Level::WARN, || {
+        let (logs, units) = ops_core::test_utils::capture_tracing(tracing::Level::WARN, || {
             collect_units(dir.path())
         });
 

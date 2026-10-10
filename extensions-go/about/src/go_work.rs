@@ -315,7 +315,7 @@ mod tests {
         .unwrap();
 
         let (dirs, warn_count) =
-            ops_about::test_support::count_warnings(|| parse_use_dirs(dir.path()));
+            ops_core::test_utils::count_warnings(|| parse_use_dirs(dir.path()));
 
         // The whole unterminated block — including the legitimate-looking
         // `./api` — is dropped rather than half-trusted: with no terminator
@@ -330,7 +330,7 @@ mod tests {
     fn unterminated_use_block_warn_names_manifest_and_directive() {
         let dir = tempfile::tempdir().unwrap();
         std::fs::write(dir.path().join("go.work"), "go 1.21\n\nuse (\n\t./api\n").unwrap();
-        let rendered = ops_about::test_support::capture_warn(|| {
+        let rendered = ops_core::test_utils::capture_warn(|| {
             parse_use_dirs(dir.path());
         });
         assert!(
@@ -359,7 +359,7 @@ mod tests {
         .unwrap();
 
         let (dirs, warn_count) =
-            ops_about::test_support::count_warnings(|| parse_use_dirs(dir.path()));
+            ops_core::test_utils::count_warnings(|| parse_use_dirs(dir.path()));
 
         assert_eq!(dirs, Some(vec!["./api".to_string()]));
         assert_eq!(warn_count, 1);

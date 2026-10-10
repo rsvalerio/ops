@@ -262,8 +262,8 @@ mod cache_tests {
         MAX_COVERAGE_CACHE_ENTRIES,
     };
     use ops_about::lru::VICTIM_QUEUE_SLACK;
-    use ops_about::test_support::{capture_tracing, pin_global_dispatcher, TracingBuf};
     use ops_core::sync::lock_recover;
+    use ops_core::test_utils::{capture_tracing, pin_global_dispatcher, TracingBuf};
     use ops_sqlite::Sqlite;
     use std::sync::Arc;
 
@@ -533,7 +533,7 @@ mod tests {
     #[serial_test::serial(typed_manifest_cache, project_coverage_cache)]
     fn non_utf8_workspace_root_skips_per_crate_coverage_with_warn() {
         use super::RustCoverageProvider;
-        use ops_about::test_support::capture_tracing;
+        use ops_core::test_utils::capture_tracing;
         use ops_extension::{Context, DataProvider};
         use ops_sqlite::Sqlite;
         use std::ffi::OsStr;
@@ -610,7 +610,7 @@ mod tests {
 #[cfg(test)]
 mod provider_tests {
     use super::{per_crate_units, RustCoverageProvider};
-    use ops_about::test_support::capture_tracing;
+    use ops_core::test_utils::capture_tracing;
     use ops_extension::{Context, DataProvider};
     use ops_sqlite::Sqlite;
     use std::path::PathBuf;

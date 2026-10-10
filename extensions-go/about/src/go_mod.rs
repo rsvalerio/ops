@@ -375,7 +375,7 @@ mod tests {
         )
         .unwrap();
 
-        let (m, warn_count) = ops_about::test_support::count_warnings(|| parse(dir.path()));
+        let (m, warn_count) = ops_core::test_utils::count_warnings(|| parse(dir.path()));
 
         let m = m.unwrap();
         // The directive before the block survives.
@@ -395,7 +395,7 @@ mod tests {
             "module example.com/m\n\nreplace (\n\tex.com/sdk => ./sdk\n",
         )
         .unwrap();
-        let rendered = ops_about::test_support::capture_warn(|| {
+        let rendered = ops_core::test_utils::capture_warn(|| {
             parse(dir.path());
         });
         assert!(

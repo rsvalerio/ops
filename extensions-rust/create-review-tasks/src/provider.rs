@@ -495,7 +495,7 @@ mod tests {
         let (_dir, root) = scratch_workspace(r#""a\nb\u001B31mc""#, &[(member, None)]);
 
         let (logs, value) =
-            ops_about::test_support::capture_tracing(tracing::Level::WARN, || provide(&root));
+            ops_core::test_utils::capture_tracing(tracing::Level::WARN, || provide(&root));
         let value = value.expect("provide must fall back, not fail");
         assert_eq!(
             value["targets"][0]["path"], member,

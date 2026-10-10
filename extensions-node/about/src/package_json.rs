@@ -540,7 +540,7 @@ mod tests {
             std::fs::write(dir.path().join("package.json"), manifest).expect("write");
 
             let (logs, parsed) =
-                ops_about::test_support::capture_tracing(tracing::Level::WARN, || {
+                ops_core::test_utils::capture_tracing(tracing::Level::WARN, || {
                     parse_package_json(dir.path())
                 });
 

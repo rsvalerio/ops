@@ -1161,9 +1161,10 @@ mod tests {
     // The `write` fixture helper is shared with the sibling about crates, so
     // a future tightening (error propagation, a setup message) lands once
     // rather than four times.
-    use ops_about::test_support::{capture_warn, write_file as write};
+    use ops_about::test_support::write_file as write;
     use ops_core::project_identity::ProjectIdentity;
     use ops_core::stack::Stack;
+    use ops_core::test_utils::capture_warn;
     use ops_extension::{DataRegistry, Extension};
 
     // The crate's public surface is the `Extension` impl, so it is exercised

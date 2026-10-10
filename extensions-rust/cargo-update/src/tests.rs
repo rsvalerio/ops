@@ -5,7 +5,8 @@ use super::*;
 // The tracing-capture harness (`BufWriter` + `MakeWriter` + the
 // global-dispatcher pin) and the control-character assertion come from the
 // shared `ops-about` test-support module.
-use ops_about::test_support::{assert_rendered_escapes_control_chars, capture_warn};
+use ops_about::test_support::assert_rendered_escapes_control_chars;
+use ops_core::test_utils::capture_warn;
 
 // -- Extension trait tests --
 

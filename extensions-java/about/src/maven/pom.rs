@@ -1182,8 +1182,7 @@ mod tests {
         )
         .unwrap();
 
-        let (pom, warn_count) =
-            ops_about::test_support::count_warnings(|| parse_pom_xml(dir.path()));
+        let (pom, warn_count) = ops_core::test_utils::count_warnings(|| parse_pom_xml(dir.path()));
 
         let pom = pom.unwrap();
         assert_eq!(pom.artifact_id, Some("kept".to_string()));
@@ -1205,8 +1204,7 @@ mod tests {
         )
         .unwrap();
 
-        let (pom, warn_count) =
-            ops_about::test_support::count_warnings(|| parse_pom_xml(dir.path()));
+        let (pom, warn_count) = ops_core::test_utils::count_warnings(|| parse_pom_xml(dir.path()));
 
         let pom = pom.unwrap();
         assert!(pom.artifact_id.is_none());
@@ -1227,8 +1225,7 @@ mod tests {
         )
         .unwrap();
 
-        let (pom, warn_count) =
-            ops_about::test_support::count_warnings(|| parse_pom_xml(dir.path()));
+        let (pom, warn_count) = ops_core::test_utils::count_warnings(|| parse_pom_xml(dir.path()));
 
         let pom = pom.unwrap();
         // Parsed before the section opened: kept.
@@ -1249,7 +1246,7 @@ mod tests {
         )
         .unwrap();
 
-        let rendered = ops_about::test_support::capture_warn(|| {
+        let rendered = ops_core::test_utils::capture_warn(|| {
             parse_pom_xml(dir.path());
         });
 

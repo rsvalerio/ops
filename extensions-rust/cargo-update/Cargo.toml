@@ -18,8 +18,9 @@ anyhow = { workspace = true }
 tracing = { workspace = true }
 
 [dev-dependencies]
-# Provides the tracing-capture harness and the control-character assertions
-# via `ops_about::test_support`.
+# Provides the control-character assertions via `ops_about::test_support`;
+# the tracing-capture harness comes from `ops_core::test_utils`.
+ops-core = { workspace = true, features = ["test-support"] }
 ops-about = { workspace = true, features = ["test-support"] }
 # Drives the byte-oriented scanner property tests over generated action
 # lines.
