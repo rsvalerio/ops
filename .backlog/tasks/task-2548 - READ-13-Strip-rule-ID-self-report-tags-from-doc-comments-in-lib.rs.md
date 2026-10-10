@@ -1,10 +1,10 @@
 ---
 id: TASK-2548
 title: 'READ-13: Strip rule-ID self-report tags from doc comments in lib.rs'
-status: To Do
+status: Done
 assignee: []
 created_date: '2026-10-10 15:39'
-updated_date: '2026-10-10 21:12'
+updated_date: '2026-10-10 22:03'
 labels:
   - code-review
   - readability
@@ -29,6 +29,7 @@ dedup_key: 'READ-13:extensions/create-review-tasks/src/lib.rs:<crate docs>'
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 Rule-ID tag prefixes (PATTERN-1:, ERR-6:, SEC-11:, SEC-25:, ERR-13:, FN-3:, TEST-5:, TEST-6:) are removed from every listed doc comment in src/lib.rs
-- [ ] #2 The enduring rationale each comment carries (why the clock is read first, why create_new is used, why validation sits at the boundary) is retained as plain prose without the tag
+- [x] #1 Rule-ID tag prefixes (PATTERN-1:, ERR-6:, SEC-11:, SEC-25:, ERR-13:, FN-3:, TEST-5:, TEST-6:) are removed from every listed doc comment in src/lib.rs
+- [x] #2 The enduring rationale each comment carries (why the clock is read first, why create_new is used, why validation sits at the boundary) is retained as plain prose without the tag
+
 <!-- AC:END -->

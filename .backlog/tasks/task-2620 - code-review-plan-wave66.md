@@ -1,10 +1,10 @@
 ---
 id: TASK-2620
 title: 'code-review-plan-wave66'
-status: To Do
+status: Done
 assignee: []
 created_date: '2026-10-10 21:12'
-updated_date: '2026-10-10 21:13'
+updated_date: '2026-10-10 22:10'
 labels:
   - code-review-wave
 dependencies:
@@ -43,4 +43,8 @@ extensions/create-review-tasks: provenance stripping, forbid unsafe, drop unused
 
 <!-- SECTION:NOTES:BEGIN -->
 Overlaps: TASK-2608 (extensions/create-review-tasks/Cargo.toml)
+
+Branch: code-review/TASK-2620
+Worktree: /home/rsvalerio/projects/.wave-TASK-2620
+
 <!-- SECTION:NOTES:END -->

@@ -1,10 +1,10 @@
 ---
 id: TASK-2442
 title: 'READ-13: Strip task-provenance tag from comment in member_target_name'
-status: To Do
+status: Done
 assignee: []
 created_date: '2026-10-10 15:21'
-updated_date: '2026-10-10 21:12'
+updated_date: '2026-10-10 22:02'
 labels:
   - code-review
   - readability
@@ -29,7 +29,7 @@ dedup_key: 'READ-13:extensions-rust/create-review-tasks/src/provider.rs:member_t
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 The `DUP-1 / TASK-2251:` prefix and rule-ID self-report are removed from the comment in `member_target_name`
-- [ ] #2 The enduring rationale (shared helper Debug-formats the untrusted member; `site` field tags this surface) is retained without the provenance tag
+- [x] #1 The `DUP-1 / TASK-2251:` prefix and rule-ID self-report are removed from the comment in `member_target_name`
+- [x] #2 The enduring rationale (shared helper Debug-formats the untrusted member; `site` field tags this surface) is retained without the provenance tag
 
 <!-- AC:END -->

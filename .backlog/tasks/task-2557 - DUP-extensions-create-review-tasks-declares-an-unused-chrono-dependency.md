@@ -1,10 +1,10 @@
 ---
 id: TASK-2557
 title: 'DUP: extensions/create-review-tasks declares an unused chrono dependency'
-status: To Do
+status: Done
 assignee: []
 created_date: '2026-10-10 15:40'
-updated_date: '2026-10-10 21:12'
+updated_date: '2026-10-10 22:05'
 labels:
   - code-review
   - dependencies
@@ -30,5 +30,6 @@ ordinal: 1000
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 chrono removed from extensions/create-review-tasks/Cargo.toml and cargo check -p ops-create-review-tasks still passes
+- [x] #1 chrono removed from extensions/create-review-tasks/Cargo.toml and cargo check -p ops-create-review-tasks still passes
+
 <!-- AC:END -->

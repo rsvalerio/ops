@@ -1,10 +1,10 @@
 ---
 id: TASK-2550
 title: 'UNSAFE-12: Unsafe-free crate without impl_extension! should forbid unsafe_code at its root'
-status: To Do
+status: Done
 assignee: []
 created_date: '2026-10-10 15:39'
-updated_date: '2026-10-10 21:12'
+updated_date: '2026-10-10 22:04'
 labels:
   - code-review
   - unsafe
@@ -29,6 +29,7 @@ dedup_key: 'UNSAFE-12:extensions/create-review-tasks/src/lib.rs:<crate root>'
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 #![forbid(unsafe_code)] is added at the crate root of src/lib.rs
-- [ ] #2 cargo check -p ops-create-review-tasks and cargo test -p ops-create-review-tasks still pass
+- [x] #1 #![forbid(unsafe_code)] is added at the crate root of src/lib.rs
+- [x] #2 cargo check -p ops-create-review-tasks and cargo test -p ops-create-review-tasks still pass
+
 <!-- AC:END -->

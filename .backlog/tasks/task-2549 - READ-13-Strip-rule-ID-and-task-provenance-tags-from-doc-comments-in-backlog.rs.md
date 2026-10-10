@@ -1,10 +1,10 @@
 ---
 id: TASK-2549
 title: 'READ-13: Strip rule-ID and task-provenance tags from doc comments in backlog.rs'
-status: To Do
+status: Done
 assignee: []
 created_date: '2026-10-10 15:39'
-updated_date: '2026-10-10 21:12'
+updated_date: '2026-10-10 22:03'
 labels:
   - code-review
   - readability
@@ -29,6 +29,7 @@ dedup_key: 'READ-13:extensions/create-review-tasks/src/backlog.rs:<module docs>'
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 Rule-ID tag prefixes (READ-11:, ERR-13:, FN-3:, DUP-2:, READ-6:, TEST-8:, SEC-11:) and TASK-2435 provenance tags are removed from every listed doc comment in src/backlog.rs
-- [ ] #2 The enduring rationale each comment carries (why the id width is pinned, why the shared ops_backlog renderer is used, what the boundary tests pin) is retained as plain prose without the tags
+- [x] #1 Rule-ID tag prefixes (READ-11:, ERR-13:, FN-3:, DUP-2:, READ-6:, TEST-8:, SEC-11:) and TASK-2435 provenance tags are removed from every listed doc comment in src/backlog.rs
+- [x] #2 The enduring rationale each comment carries (why the id width is pinned, why the shared ops_backlog renderer is used, what the boundary tests pin) is retained as plain prose without the tags
+
 <!-- AC:END -->
