@@ -133,13 +133,7 @@ pub(crate) fn check_metadata_not_capped(output: &Output) -> Result<(), anyhow::E
 /// The ceiling is **policy**, not an engine limit: a knob value above
 /// 4 GiB (`u32::MAX` bytes) is almost certainly a typo or an attempt to
 /// disable the payload guard rather than a real metadata document size, and
-/// an unbounded knob would silently disable the cap (see
-/// `above_ceiling_warns_and_clamps` in `tests/payload_cap.rs`).
-///
-/// Spelled as a literal because `u64::from` is not callable in a `const`
-/// initialiser and `u32::MAX as u64` would need an `as_conversions`
-/// exception (`docs/clippy.md`); the equality with `u32::MAX` is pinned by
-/// `ceiling_is_exactly_u32_max` in `tests/payload_cap.rs`.
+/// an unbounded knob would silently disable the cap.
 pub(crate) const METADATA_MAX_BYTES_CEILING: u64 = 4_294_967_295;
 
 /// Validates and bounds the raw `OPS_METADATA_MAX_BYTES` value at the
@@ -213,11 +207,7 @@ pub(crate) fn metadata_max_bytes() -> u64 {
 /// reproducibility breaks (`data_sources.checksum` drifts between runs of
 /// the same workspace). `--locked` fails fast if cargo would need to
 /// update the lockfile, surfacing the drift rather than rewriting on the
-/// operator's behalf. We prefer `--locked` over `--frozen` because the
-/// latter additionally forbids network access, which can break first-run
-/// metadata for fresh checkouts where the registry index has not yet been
-/// downloaded — the operator-visible failure mode of `--frozen` is worse
-/// than the lockfile-mutation issue we're guarding against.
+/// operator's behalf.
 pub(crate) fn run_cargo_metadata(working_dir: &Path) -> Result<Output, RunError> {
     run_cargo(
         &CARGO_METADATA_ARGS,
@@ -227,13 +217,8 @@ pub(crate) fn run_cargo_metadata(working_dir: &Path) -> Result<Output, RunError>
     )
 }
 
-/// The argument list [`run_cargo_metadata`] passes to `cargo`.
-///
-/// It is a named constant so a test can assert on the *value* the production
-/// call site uses. Asserting on the source text instead would test the
-/// formatter — `cargo fmt` rewrapping the list would fail while `--locked` was
-/// still passed, and deleting the call site would stay green so long as the
-/// literal survived anywhere in the file, a doc comment included.
+/// The argument list [`run_cargo_metadata`] hands to `cargo`: the
+/// `metadata` subcommand, machine-readable format version 1, and `--locked`.
 pub(crate) const CARGO_METADATA_ARGS: [&str; 4] = ["metadata", "--format-version", "1", "--locked"];
 
 /// Turns a non-zero `cargo metadata` exit into an error naming the failure.
