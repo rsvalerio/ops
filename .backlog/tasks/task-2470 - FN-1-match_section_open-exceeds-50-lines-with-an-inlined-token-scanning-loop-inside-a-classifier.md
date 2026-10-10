@@ -1,10 +1,10 @@
 ---
 id: TASK-2470
 title: 'FN-1: match_section_open exceeds 50 lines with an inlined token-scanning loop inside a classifier'
-status: To Do
+status: Done
 assignee: []
 created_date: '2026-10-10 15:28'
-updated_date: '2026-10-10 21:12'
+updated_date: '2026-10-10 22:07'
 labels:
   - code-review-rust
   - fn
@@ -29,6 +29,7 @@ dedup_key: 'FN-1:extensions-java/about/src/maven/pom.rs:match_section_open'
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 The collapsed-developers scanning loop is extracted to a named helper so match_section_open classifies section shapes at one abstraction level
-- [ ] #2 Function body is <=50 lines after extraction, or the residual classifier length is documented as a justified exhaustive-match exception
+- [x] #1 The collapsed-developers scanning loop is extracted to a named helper so match_section_open classifies section shapes at one abstraction level
+- [x] #2 Function body is <=50 lines after extraction, or the residual classifier length is documented as a justified exhaustive-match exception
+
 <!-- AC:END -->

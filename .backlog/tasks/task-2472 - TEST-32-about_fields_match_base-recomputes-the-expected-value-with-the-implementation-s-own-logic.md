@@ -1,10 +1,10 @@
 ---
 id: TASK-2472
 title: 'TEST-32: about_fields_match_base recomputes the expected value with the implementation''s own logic'
-status: To Do
+status: Done
 assignee: []
 created_date: '2026-10-10 15:28'
-updated_date: '2026-10-10 21:12'
+updated_date: '2026-10-10 22:11'
 labels:
   - code-review-rust
   - test
@@ -29,6 +29,7 @@ dedup_key: 'TEST-32:extensions-terraform/about/src/lib.rs:about_fields_match_bas
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 The test no longer derives its expected value from base_about_fields(), the same function the implementation delegates to
-- [ ] #2 The replacement asserts an independent expectation (pinned ids or a stated property) so a real regression in the provider's field set fails the test
+- [x] #1 The test no longer derives its expected value from base_about_fields(), the same function the implementation delegates to
+- [x] #2 The replacement asserts an independent expectation (pinned ids or a stated property) so a real regression in the provider's field set fails the test
+
 <!-- AC:END -->

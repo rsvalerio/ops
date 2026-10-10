@@ -1,10 +1,10 @@
 ---
 id: TASK-2489
 title: 'TEST-32: units_provider_name asserts the PROVIDER_NAME constant back to itself'
-status: To Do
+status: Done
 assignee: []
 created_date: '2026-10-10 15:30'
-updated_date: '2026-10-10 21:12'
+updated_date: '2026-10-10 22:12'
 labels:
   - code-review
   - test
@@ -29,6 +29,7 @@ dedup_key: 'TEST-32:extensions-python/about/src/units.rs:units_provider_name'
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 The tautological assertions are removed, or the test is rewritten to assert a property independent of the constant's definition while the registry test keeps the end-to-end key contract pinned
-- [ ] #2 cargo test -p ops-about-python still fails on an accidental rename of the project_units registry key (via the registry-level test)
+- [x] #1 The tautological assertions are removed, or the test is rewritten to assert a property independent of the constant's definition while the registry test keeps the end-to-end key contract pinned
+- [x] #2 cargo test -p ops-about-python still fails on an accidental rename of the project_units registry key (via the registry-level test)
+
 <!-- AC:END -->

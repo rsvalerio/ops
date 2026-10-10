@@ -1,10 +1,10 @@
 ---
 id: TASK-2474
 title: 'TEST-32: units_provider_name asserts the provider-name constant back to itself'
-status: To Do
+status: Done
 assignee: []
 created_date: '2026-10-10 15:28'
-updated_date: '2026-10-10 21:12'
+updated_date: '2026-10-10 22:11'
 labels:
   - code-review
   - test
@@ -29,6 +29,7 @@ dedup_key: 'TEST-32:extensions-go/about/src/modules.rs:units_provider_name'
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 The tautological name()-vs-PROVIDER_NAME assertion is removed or replaced with a behavioral assertion
-- [ ] #2 The contract-pin assertion against the literal "project_units" remains
+- [x] #1 The tautological name()-vs-PROVIDER_NAME assertion is removed or replaced with a behavioral assertion
+- [x] #2 The contract-pin assertion against the literal "project_units" remains
+
 <!-- AC:END -->

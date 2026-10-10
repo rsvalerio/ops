@@ -1,10 +1,10 @@
 ---
 id: TASK-2621
 title: 'code-review-plan-wave67'
-status: To Do
+status: Done
 assignee: []
 created_date: '2026-10-10 21:12'
-updated_date: '2026-10-10 21:13'
+updated_date: '2026-10-10 22:18'
 labels:
   - code-review-wave
 dependencies:
@@ -55,4 +55,8 @@ Per-language about extensions (go, java, node, python, terraform): doc summaries
 
 <!-- SECTION:NOTES:BEGIN -->
 Overlaps: TASK-2608 (extensions-node/about/Cargo.toml)
+
+Branch: code-review/TASK-2621
+Worktree: /home/rsvalerio/projects/.wave-TASK-2621
+
 <!-- SECTION:NOTES:END -->

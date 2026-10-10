@@ -1,10 +1,10 @@
 ---
 id: TASK-2484
 title: 'API-14: public AboutPythonExtension type lacks a doc summary'
-status: To Do
+status: Done
 assignee: []
 created_date: '2026-10-10 15:30'
-updated_date: '2026-10-10 21:12'
+updated_date: '2026-10-10 22:12'
 labels:
   - code-review
   - api
@@ -29,6 +29,7 @@ dedup_key: 'API-14:extensions-python/about/src/lib.rs:AboutPythonExtension'
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 AboutPythonExtension carries a /// doc summary of roughly 15 words stating what it provides
-- [ ] #2 cargo doc -p ops-about-python renders the type with its summary in the crate index
+- [x] #1 AboutPythonExtension carries a /// doc summary of roughly 15 words stating what it provides
+- [x] #2 cargo doc -p ops-about-python renders the type with its summary in the crate index
+
 <!-- AC:END -->

@@ -1,10 +1,10 @@
 ---
 id: TASK-2463
 title: 'READ-13: Cargo.toml comment carries a task-provenance tag'
-status: To Do
+status: Done
 assignee: []
 created_date: '2026-10-10 15:27'
-updated_date: '2026-10-10 21:12'
+updated_date: '2026-10-10 22:10'
 labels:
   - code-review
   - readability
@@ -29,5 +29,6 @@ dedup_key: 'READ-13:extensions-node/about/Cargo.toml:ops-about-node'
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 The TASK-2013 provenance tag is removed from the comment; the explanation of why linkme is a load-bearing dependency remains
+- [x] #1 The TASK-2013 provenance tag is removed from the comment; the explanation of why linkme is a load-bearing dependency remains
+
 <!-- AC:END -->

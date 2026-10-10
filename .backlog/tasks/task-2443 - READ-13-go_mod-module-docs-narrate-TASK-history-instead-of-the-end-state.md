@@ -1,10 +1,10 @@
 ---
 id: TASK-2443
 title: 'READ-13: go_mod module docs narrate TASK history instead of the end state'
-status: To Do
+status: Done
 assignee: []
 created_date: '2026-10-10 15:23'
-updated_date: '2026-10-10 21:12'
+updated_date: '2026-10-10 22:08'
 labels:
   - code-review
   - read
@@ -29,6 +29,7 @@ dedup_key: 'READ-13:extensions-go/about/src/go_mod.rs:go_mod'
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 Module doc describes current parser behavior only, with no TASK-XXXX references and no narration of removed code
-- [ ] #2 grep -r 'TASK-' extensions-go/about/src returns no hits
+- [x] #1 Module doc describes current parser behavior only, with no TASK-XXXX references and no narration of removed code
+- [x] #2 grep -r 'TASK-' extensions-go/about/src returns no hits
+
 <!-- AC:END -->

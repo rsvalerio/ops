@@ -1,10 +1,10 @@
 ---
 id: TASK-2444
 title: 'API-14: four crate-local public items in ops-about-go lack doc summaries'
-status: To Do
+status: Done
 assignee: []
 created_date: '2026-10-10 15:23'
-updated_date: '2026-10-10 21:12'
+updated_date: '2026-10-10 22:09'
 labels:
   - code-review
   - api
@@ -37,6 +37,7 @@ dedup_key: 'API-14:extensions-go/about/src/lib.rs:crate root'
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 Each of the four items carries a /// summary of roughly 15 words describing its behavior
-- [ ] #2 No other pub item in the crate is undocumented
+- [x] #1 Each of the four items carries a /// summary of roughly 15 words describing its behavior
+- [x] #2 No other pub item in the crate is undocumented
+
 <!-- AC:END -->

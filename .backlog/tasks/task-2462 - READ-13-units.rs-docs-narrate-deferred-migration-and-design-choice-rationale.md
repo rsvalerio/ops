@@ -1,10 +1,10 @@
 ---
 id: TASK-2462
 title: 'READ-13: units.rs docs narrate deferred-migration and design-choice rationale'
-status: To Do
+status: Done
 assignee: []
 created_date: '2026-10-10 15:27'
-updated_date: '2026-10-10 21:12'
+updated_date: '2026-10-10 22:10'
 labels:
   - code-review
   - readability
@@ -34,6 +34,7 @@ dedup_key: 'READ-13:extensions-node/about/src/units.rs:units'
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 Doc comments state current behavior only; the deferred-migration sentence and the rejected-alternative comparisons are removed or moved to an ADR
-- [ ] #2 cargo test -p ops-about-node passes unchanged
+- [x] #1 Doc comments state current behavior only; the deferred-migration sentence and the rejected-alternative comparisons are removed or moved to an ADR
+- [x] #2 cargo test -p ops-about-node passes unchanged
+
 <!-- AC:END -->

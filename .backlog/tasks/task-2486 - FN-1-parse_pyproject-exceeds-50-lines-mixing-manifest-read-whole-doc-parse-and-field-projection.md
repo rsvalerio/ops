@@ -1,10 +1,10 @@
 ---
 id: TASK-2486
 title: 'FN-1: parse_pyproject exceeds 50 lines, mixing manifest read, whole-doc parse, and field projection'
-status: To Do
+status: Done
 assignee: []
 created_date: '2026-10-10 15:30'
-updated_date: '2026-10-10 21:12'
+updated_date: '2026-10-10 22:15'
 labels:
   - code-review
   - structure
@@ -29,6 +29,7 @@ dedup_key: 'FN-1:extensions-python/about/src/lib.rs:parse_pyproject'
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 No function in the crate exceeds 50 code lines, with parse_pyproject's field-projection block extracted to a named helper at one abstraction level
-- [ ] #2 cargo test -p ops-about-python passes unchanged (behaviour identical)
+- [x] #1 No function in the crate exceeds 50 code lines, with parse_pyproject's field-projection block extracted to a named helper at one abstraction level
+- [x] #2 cargo test -p ops-about-python passes unchanged (behaviour identical)
+
 <!-- AC:END -->

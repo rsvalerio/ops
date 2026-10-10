@@ -1,10 +1,10 @@
 ---
 id: TASK-2458
 title: 'READ-13: doc comments narrate rejected alternatives and past bugs rather than current behavior'
-status: To Do
+status: Done
 assignee: []
 created_date: '2026-10-10 15:25'
-updated_date: '2026-10-10 21:12'
+updated_date: '2026-10-10 22:09'
 labels:
   - code-review-rust
   - READ
@@ -35,6 +35,7 @@ dedup_key: 'READ-13:extensions-terraform/about/src/lib.rs:is_heredoc_ident_start
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 Doc comments at the three listed sites state the current behavior or the invariant the test pins, without rejected-alternative essays or pre-fix/pre-change narration
-- [ ] #2 No other doc comment in the crate narrates past bugs, prior implementations, or design-selection history
+- [x] #1 Doc comments at the three listed sites state the current behavior or the invariant the test pins, without rejected-alternative essays or pre-fix/pre-change narration
+- [x] #2 No other doc comment in the crate narrates past bugs, prior implementations, or design-selection history
+
 <!-- AC:END -->

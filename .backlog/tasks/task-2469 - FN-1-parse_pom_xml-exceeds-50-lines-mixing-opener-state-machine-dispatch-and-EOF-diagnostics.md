@@ -1,10 +1,10 @@
 ---
 id: TASK-2469
 title: 'FN-1: parse_pom_xml exceeds 50 lines, mixing opener state machine, dispatch, and EOF diagnostics'
-status: To Do
+status: Done
 assignee: []
 created_date: '2026-10-10 15:27'
-updated_date: '2026-10-10 21:12'
+updated_date: '2026-10-10 22:07'
 labels:
   - code-review-rust
   - fn
@@ -29,6 +29,7 @@ dedup_key: 'FN-1:extensions-java/about/src/maven/pom.rs:parse_pom_xml'
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 parse_pom_xml operates at a single abstraction level: EOF diagnostics extracted to a named helper and the opener path flattened to <=4 nesting levels
-- [ ] #2 Function body is <=50 lines, or the remaining overage is documented as a justified state-machine exception
+- [x] #1 parse_pom_xml operates at a single abstraction level: EOF diagnostics extracted to a named helper and the opener path flattened to <=4 nesting levels
+- [x] #2 Function body is <=50 lines, or the remaining overage is documented as a justified state-machine exception
+
 <!-- AC:END -->
