@@ -19,6 +19,10 @@ use crate::go_syntax::{
     is_block_opener, is_block_terminator, strip_line_comment, strip_verb, unquote_token,
 };
 
+/// Parse the `go.work` in `root`, returning its `use` directive directories.
+///
+/// Returns `None` when the file is absent or unreadable, or when no `use`
+/// entries are found; block and single-line forms are both accepted.
 pub fn parse_use_dirs(root: &Path) -> Option<Vec<String>> {
     let path = root.join("go.work");
     let content = ops_about::manifest_io::read_optional_text(&path, root, "go.work")?;

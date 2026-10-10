@@ -3,9 +3,8 @@
 //! Produces module path and Go toolchain version. `replace` directives —
 //! single-line and block-form `replace ( ... )` — are recognized and skipped:
 //! a replace is a dependency substitution, not a workspace member, and no
-//! card reads its targets (TASK-2178 dropped replaces from `module_count`;
-//! TASK-2254 removed the then-reader-less target collection). Trailing
-//! `// ...` comments are stripped from each line before further parsing.
+//! card reads its targets. Trailing `// ...` comments are stripped from each
+//! line before further parsing.
 
 use std::path::Path;
 
@@ -40,6 +39,10 @@ pub struct GoMod {
     pub go_version: Option<String>,
 }
 
+/// Parse the `go.mod` in `dir` for module path and toolchain version.
+///
+/// Returns `None` when the file is absent or unreadable; `replace`
+/// directives are recognized and skipped (see the module docs).
 pub fn parse(dir: &Path) -> Option<GoMod> {
     let path = dir.join("go.mod");
     let content = ops_about::manifest_io::read_optional_text(&path, dir, "go.mod")?;
