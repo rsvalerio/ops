@@ -1,6 +1,7 @@
 //! The fixing engine: discover candidates, read each one under a hard byte
 //! cap, apply the fix, and write it back atomically.
 
+use std::fs::Metadata;
 use std::io::Write;
 use std::path::Path;
 
@@ -86,7 +87,78 @@ fn run_fixer(
         )
     })?;
 
-    if let Some(fallback) = discovered.fallback {
+    let mut report = FixerReport {
+        check_only: opts.check,
+        ..FixerReport::default()
+    };
+    report_discovery_issues(&mut report, writer, label, &opts.root, &mut discovered)?;
+
+    let mut ctx = RunContext {
+        label,
+        check: opts.check,
+        root: &opts.root,
+        writer,
+    };
+    // Every counter below tallies entries of `discovered.files`, an in-memory
+    // `Vec` from one discovery pass, so the totals are bounded by its length
+    // and the `saturating_add` guards can never actually saturate.
+    for path in discovered.files {
+        let outcome = classify_candidate(opts.max_bytes, fix, &path);
+        record_outcome(&mut ctx, &mut report, &path, outcome)?;
+    }
+
+    Ok(report)
+}
+
+/// Everything the per-file stage needs to record one outcome: the run's label
+/// and root for rendering paths, the check-mode flag that decides write-back,
+/// and the writer the lines go to.
+struct RunContext<'a> {
+    label: &'a str,
+    check: bool,
+    root: &'a Path,
+    writer: &'a mut dyn Write,
+}
+
+/// What the examining stage found for one discovered file.
+///
+/// The variants are the per-file accounting contract: each maps to exactly
+/// one counter — `Unchanged` and a completed [`FileOutcome::NeedsWrite`] to
+/// `files_scanned`, [`FileOutcome::Skipped`] to `files_skipped`,
+/// [`FileOutcome::Failed`] to `files_failed` — so `scanned + skipped +
+/// failed` accounts for every discovered path exactly once.
+enum FileOutcome {
+    /// Read and examined, but no rewrite is warranted: the fixer found
+    /// nothing to change, or the fix produced identical bytes.
+    Unchanged,
+    /// Deliberately not examined; see [`SkipReason`].
+    Skipped(SkipReason),
+    /// Could not be read, with the failure kind and message to record.
+    Failed { kind: FailureKind, message: String },
+    /// The fix produced new bytes that must be written back — or, in check
+    /// mode, reported without writing.
+    NeedsWrite { fixed: Vec<u8>, metadata: Metadata },
+}
+
+/// Render the run-level discovery notices and fold the walk errors into the
+/// report: the tracked-mode fallback warning, the untraversable directories,
+/// then the undecodable-path count, in that order.
+///
+/// The walk-error accounting loop is shared with the config checkers; see
+/// `ops_core::bounded_read::report_walk_errors` for why an untraversable
+/// directory must fail the run, not just print.
+///
+/// # Errors
+///
+/// If `writer` fails while rendering a notice.
+fn report_discovery_issues(
+    report: &mut FixerReport,
+    writer: &mut dyn Write,
+    label: &str,
+    root: &Path,
+    discovered: &mut discovery::Discovery,
+) -> anyhow::Result<()> {
+    if let Some(fallback) = &discovered.fallback {
         // The user asked for the git index and is getting the filesystem
         // instead, which puts untracked files under a tool that rewrites in
         // place. Never silent.
@@ -94,19 +166,12 @@ fn run_fixer(
             writer,
             "{label}: --tracked unavailable ({fallback}); falling back to a full walk of {} — \
              untracked files are candidates too",
-            opts.root.display()
+            root.display()
         )
         .with_context(|| format!("{label}: writing the discovery fallback notice failed"))?;
     }
-    let mut report = FixerReport {
-        check_only: opts.check,
-        ..FixerReport::default()
-    };
-    // The walk-error accounting loop is shared with the
-    // config checkers; see `ops_core::bounded_read::report_walk_errors` for
-    // why an untraversable directory must fail the run, not just print.
     report_walk_errors(
-        &mut report,
+        report,
         writer,
         label,
         std::mem::take(&mut discovered.walk_errors),
@@ -119,86 +184,118 @@ fn run_fixer(
         )
         .with_context(|| format!("{label}: writing the undecodable-path notice failed"))?;
     }
+    Ok(())
+}
 
-    // Every counter below tallies entries of `discovered.files`, an in-memory
-    // `Vec` from one discovery pass, so the totals are bounded by its length
-    // and the `saturating_add` guards can never actually saturate.
-    for path in discovered.files {
-        let display = relative_to(&path, &opts.root);
-        // The bounded read pipeline is shared with the config checkers; one
-        // implementation in `ops_core::bounded_read`, so its symlink/type
-        // guards and read ceiling stay in one place.
-        let (bytes, metadata) = match read_candidate(&path, opts.max_bytes) {
-            Ok(candidate) => candidate,
-            Err(Rejected::Skipped(reason)) => {
-                report.files_skipped = report.files_skipped.saturating_add(1);
-                write_skip(writer, label, &display, &reason)?;
-                continue;
-            }
-            Err(Rejected::Failed(kind, message)) => {
-                record_failure(
-                    &mut report,
-                    writer,
-                    label,
-                    FailedFile {
-                        path: display,
-                        kind,
-                        message,
-                    },
-                )?;
-                continue;
-            }
-        };
-
-        if !binary::is_text(&bytes) {
-            report.files_skipped = report.files_skipped.saturating_add(1);
-            write_skip(writer, label, &display, &SkipReason::NotText)?;
-            continue;
-        }
-        let Some(fixed) = fix(&bytes) else {
-            report.files_scanned = report.files_scanned.saturating_add(1);
-            continue;
-        };
-        if fixed == bytes {
-            report.files_scanned = report.files_scanned.saturating_add(1);
-            continue;
-        }
-
-        if opts.check {
-            // Check mode: the file needs fixing, which is the finding. It is
-            // recorded exactly like a rewrite so the exit code is the same,
-            // but the tree is never touched.
-            report.files_scanned = report.files_scanned.saturating_add(1);
-            writeln!(writer, "{label}: would fix {}", display.display())
-                .with_context(|| format!("{label}: writing the would-fix line failed"))?;
-            report.files_changed.push(display);
-            continue;
-        }
-
-        // The scanned tally is deliberately deferred past this point: a file
-        // whose rewrite fails is recorded in `files_failed`, and counting it
-        // as scanned too would put one discovered file in two buckets and
-        // make `scanned + failed + skipped` overshoot the discovered total.
-        if let Err(e) = atomic::replace(&path, &fixed, &metadata) {
-            record_failure(
-                &mut report,
-                writer,
-                label,
-                FailedFile {
-                    path: display,
-                    kind: FailureKind::Write(e.kind()),
-                    message: format!("write: {e}"),
-                },
-            )?;
-            continue;
-        }
-        report.files_scanned = report.files_scanned.saturating_add(1);
-        writeln!(writer, "{label}: fixed {}", display.display())
-            .with_context(|| format!("{label}: writing the fixed-file line failed"))?;
-        report.files_changed.push(display);
+/// Read one discovered file and classify it, without touching the report or
+/// the writer.
+///
+/// The bounded read pipeline is shared with the config checkers; one
+/// implementation in `ops_core::bounded_read`, so its symlink/type guards and
+/// read ceiling stay in one place.
+fn classify_candidate(
+    max_bytes: u64,
+    fix: fn(&[u8]) -> Option<Vec<u8>>,
+    path: &Path,
+) -> FileOutcome {
+    let (bytes, metadata) = match read_candidate(path, max_bytes) {
+        Ok(candidate) => candidate,
+        Err(Rejected::Skipped(reason)) => return FileOutcome::Skipped(reason),
+        Err(Rejected::Failed(kind, message)) => return FileOutcome::Failed { kind, message },
+    };
+    if !binary::is_text(&bytes) {
+        return FileOutcome::Skipped(SkipReason::NotText);
     }
+    match fix(&bytes) {
+        Some(fixed) if fixed != bytes => FileOutcome::NeedsWrite { fixed, metadata },
+        _ => FileOutcome::Unchanged,
+    }
+}
 
-    Ok(report)
+/// Record one classified outcome: tally the counter it belongs to and render
+/// its line.
+///
+/// # Errors
+///
+/// If `writer` fails while rendering a line.
+fn record_outcome(
+    ctx: &mut RunContext<'_>,
+    report: &mut FixerReport,
+    path: &Path,
+    outcome: FileOutcome,
+) -> anyhow::Result<()> {
+    match outcome {
+        FileOutcome::Unchanged => {
+            report.files_scanned = report.files_scanned.saturating_add(1);
+        }
+        FileOutcome::Skipped(reason) => {
+            report.files_skipped = report.files_skipped.saturating_add(1);
+            let display = relative_to(path, ctx.root);
+            write_skip(ctx.writer, ctx.label, &display, &reason)?;
+        }
+        FileOutcome::Failed { kind, message } => {
+            let display = relative_to(path, ctx.root);
+            let failure = FailedFile {
+                path: display,
+                kind,
+                message,
+            };
+            record_failure(report, ctx.writer, ctx.label, failure)?;
+        }
+        FileOutcome::NeedsWrite { fixed, metadata } => {
+            record_rewrite(ctx, report, path, &fixed, &metadata)?;
+        }
+    }
+    Ok(())
+}
+
+/// Write back a file the fix changed — or, in check mode, report it without
+/// writing — and tally the outcome.
+///
+/// # Errors
+///
+/// If `writer` fails while rendering a line.
+fn record_rewrite(
+    ctx: &mut RunContext<'_>,
+    report: &mut FixerReport,
+    path: &Path,
+    fixed: &[u8],
+    metadata: &Metadata,
+) -> anyhow::Result<()> {
+    let display = relative_to(path, ctx.root);
+    let label = ctx.label;
+    if ctx.check {
+        // Check mode: the file needs fixing, which is the finding. It is
+        // recorded exactly like a rewrite so the exit code is the same,
+        // but the tree is never touched.
+        report.files_scanned = report.files_scanned.saturating_add(1);
+        writeln!(ctx.writer, "{label}: would fix {}", display.display())
+            .with_context(|| format!("{label}: writing the would-fix line failed"))?;
+        report.files_changed.push(display);
+        return Ok(());
+    }
+    // The scanned tally is deliberately deferred past the write: a file
+    // whose rewrite fails is recorded in `files_failed`, and counting it
+    // as scanned too would put one discovered file in two buckets and
+    // make `scanned + failed + skipped` overshoot the discovered total.
+    if let Err(e) = atomic::replace(path, fixed, metadata) {
+        record_failure(
+            report,
+            ctx.writer,
+            label,
+            FailedFile {
+                path: display,
+                kind: FailureKind::Write(e.kind()),
+                message: format!("write: {e}"),
+            },
+        )?;
+        return Ok(());
+    }
+    report.files_scanned = report.files_scanned.saturating_add(1);
+    writeln!(ctx.writer, "{label}: fixed {}", display.display())
+        .with_context(|| format!("{label}: writing the fixed-file line failed"))?;
+    report.files_changed.push(display);
+    Ok(())
 }
 
 /// Render a per-file skip line, except for the one skip that is routine.
