@@ -1,9 +1,11 @@
 //! TASK-2277: matrix commands run once per cell as one plan step.
 //!
 //! Cells are `sh -c` scripts so a cell's outcome is picked by its value.
-//! Overlap is proven with a `mkdir` lock rather than timing: `mkdir` fails
-//! when the directory exists, so two cells (or a cell and a sibling step)
-//! holding the lock at once make one of them fail, deterministically.
+//! Overlap is proven with a lock file rather than timing: under `set -C`
+//! the shell creates the file with `O_EXCL`, which fails when it exists, so
+//! two cells (or a cell and a sibling step) holding the lock at once make
+//! one of them fail, deterministically. Not `mkdir`: uutils coreutils'
+//! `mkdir` can report success to every racing caller.
 #![cfg(unix)]
 
 use super::*;
@@ -27,7 +29,7 @@ fn matrix_cmd(script: &str, values: &[&str], max_parallel: usize, fail_fast: boo
 /// A script holding `lock` for a moment; fails when it is already held.
 fn locked(lock: &std::path::Path, extra: &str) -> String {
     let lock = lock.display();
-    format!("mkdir {lock} || exit 9; sleep 0.2; rmdir {lock}; {extra}")
+    format!("(set -C; : > {lock}) 2>/dev/null || exit 9; sleep 0.2; rm -f {lock}; {extra}")
 }
 
 fn ids_where(events: &[RunnerEvent], pick: fn(&RunnerEvent) -> Option<&CommandId>) -> Vec<String> {
