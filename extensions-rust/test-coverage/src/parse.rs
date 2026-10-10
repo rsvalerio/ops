@@ -1,10 +1,8 @@
 //! llvm-cov JSON parsing and flattening.
 //!
-//! ARCH-1 / TASK-1559: lifted out of `lib.rs` so the wiring layer stays
-//! focused. DUP-3 / TASK-1555: the per-file row schema is owned by
-//! [`CoverageRow`] — the schema field list, the flatten output, the
-//! `query_coverage_files` projection, and the in-crate test fixtures all
-//! resolve to this one struct.
+//! The per-file row schema is owned by [`CoverageRow`] — the schema field
+//! list, the flatten output, the `query_coverage_files` projection, and the
+//! in-crate test fixtures all resolve to this one struct.
 
 use crate::subprocess::{check_llvm_cov_output, format_cargo_exit, run_cargo_llvm_cov};
 use anyhow::Context as AnyhowContext;
@@ -12,8 +10,8 @@ use ops_core::output::format_error_tail;
 use serde::{Deserialize, Serialize};
 use std::path::Path;
 
-/// DUP-3 / TASK-1555: single source of truth for the 15-field per-file
-/// coverage row. The provider schema, flatten output, `query_coverage_files`
+/// Single source of truth for the 15-field per-file coverage row. The
+/// provider schema, flatten output, `query_coverage_files`
 /// projection, and in-crate test fixtures all flow through this struct so
 /// adding a new metric (e.g. `mcdc_*` if llvm-cov adds it) lights up the
 /// compiler at every site instead of silently dropping the field somewhere.
@@ -95,8 +93,8 @@ fn extract_section(
     }
 }
 
-/// TASK-1599: batches schema-drift warnings so N malformed files produce at
-/// most one warn per (section, field) pair per `flatten_coverage_json` call.
+/// Batches schema-drift warnings so N malformed files produce at most one
+/// warn per (section, field) pair per `flatten_coverage_json` call.
 pub struct DriftTracker<'a> {
     section_key: &'a str,
     warned: &'a mut std::collections::HashSet<(String, String)>,
@@ -133,10 +131,10 @@ impl DriftTracker<'_> {
     }
 }
 
-/// ERR-1 / TASK-1599: an absent field is legitimately empty (default); a
-/// field that is `null` is downgraded to `debug!` (harmless absent marker);
-/// a field that is present but the wrong shape (e.g. llvm-cov bumping `count`
-/// to a string) is a schema-drift signal surfaced via [`DriftTracker`].
+/// An absent field is legitimately empty (default); a field that is `null`
+/// is downgraded to `debug!` (harmless absent marker); a field that is
+/// present but the wrong shape (e.g. llvm-cov bumping `count` to a string)
+/// is a schema-drift signal surfaced via [`DriftTracker`].
 fn read_field<T: Default>(
     section: &serde_json::Value,
     field: &str,
@@ -174,10 +172,9 @@ fn read_f64_field(section: &serde_json::Value, field: &str, drift: &mut DriftTra
     read_field(section, field, serde_json::Value::as_f64, "a float", drift)
 }
 
-/// FN-1 / TASK-1553: build a single `CoverageRow` for one entry in
-/// `files[]`. Returns `None` when `filename` is absent or non-string so the
-/// caller can skip the record (TASK-0984: empty-key rows used to inflate
-/// project totals).
+/// Build a single `CoverageRow` for one entry in `files[]`. Returns `None`
+/// when `filename` is absent, non-string, or empty so the caller can skip
+/// the record — empty-key rows would otherwise inflate project totals.
 fn build_record(
     file: &serde_json::Value,
     drift_warned: &mut std::collections::HashSet<(String, String)>,
@@ -189,7 +186,7 @@ fn build_record(
                 field = "filename",
                 value = %other.map_or(serde_json::Value::Null, |s| serde_json::Value::String(s.to_string())),
                 raw = %file.get("filename").unwrap_or(&serde_json::Value::Null),
-                "TASK-0984: coverage file record has missing or non-string filename; skipping (llvm-cov schema drift?)"
+                "coverage file record has missing or non-string filename; skipping (llvm-cov schema drift?)"
             );
             return None;
         }
@@ -200,12 +197,12 @@ fn build_record(
     Some(CoverageRow::from_summary(filename, summary, drift_warned))
 }
 
-/// FN-1 / TASK-1553 + PATTERN-3 / TASK-1558: push `record` onto `records`,
-/// or overwrite the prior slot when its filename was already seen.
+/// Push `record` onto `records`, or overwrite the prior slot when its
+/// filename was already seen.
 ///
-/// PERF-3 / TASK-1598: uses `get` + conditional `insert` so the duplicate
-/// (Occupied) path avoids the filename clone that `entry()` would require.
-/// Only first-seen filenames incur one clone for the `HashMap` key.
+/// Uses `get` + conditional `insert` so the duplicate (Occupied) path avoids
+/// the filename clone that `entry()` would require. Only first-seen
+/// filenames incur one clone for the `HashMap` key.
 fn dedup_push(
     records: &mut Vec<CoverageRow>,
     idx_map: &mut std::collections::HashMap<String, usize>,
@@ -229,42 +226,17 @@ fn dedup_push(
     }
 }
 
-/// FN-1 / TASK-1553: extracted from the previous 106-line monolith. Reads
-/// as: validate top-level shape → for each export build records → dedup →
-/// optionally warn. The per-record construction lives in [`build_record`],
-/// the dedup branch in [`dedup_push`].
-#[must_use = "flatten output drives coverage_files ingest; dropping it loses every per-file row"]
-pub fn flatten_coverage_json(raw: &serde_json::Value) -> Result<serde_json::Value, anyhow::Error> {
-    let data = raw
-        .get("data")
-        .and_then(|d| d.as_array())
-        .context("missing or invalid 'data' array in coverage JSON")?;
-    if data.is_empty() {
-        anyhow::bail!("'data' array is empty in coverage JSON");
-    }
-    // ERR-1: cargo llvm-cov --json's `data` is an array (one entry per
-    // export); future per-target merging produces multiple exports. Iterate
-    // every entry instead of silently dropping data[1..].
-    if data.len() > 1 {
-        tracing::warn!(
-            entries = data.len(),
-            "coverage JSON contains more than one data export; flattening all entries"
-        );
-    }
-    let file_arrays: Vec<&[serde_json::Value]> = data
-        .iter()
-        .map(|entry| {
-            entry
-                .get("files")
-                .and_then(|f| f.as_array().map(std::vec::Vec::as_slice))
-                .context("missing or invalid 'files' array in coverage data")
-        })
-        .collect::<Result<_, _>>()?;
+/// Build the deduped per-file records from every export's `files` array.
+///
+/// Returns the records plus two accounting counts for the caller's summary
+/// warns: records skipped because their filename was missing or non-string,
+/// and duplicate filename rows overwritten by a later export.
+fn build_records(file_arrays: Vec<&[serde_json::Value]>) -> (Vec<CoverageRow>, usize, usize) {
     let total: usize = file_arrays.iter().map(|f| f.len()).sum();
     let mut records: Vec<CoverageRow> = Vec::with_capacity(total);
-    // ERR-1 / TASK-1021: dedup by filename across all data[] exports.
-    // Last-write-wins keeps `coverage_summary` SUM aggregates honest when a
-    // future per-target merge surfaces the same filename in two exports.
+    // Dedup by filename across all data[] exports: last-write-wins keeps
+    // `coverage_summary` SUM aggregates honest when per-target merging
+    // surfaces the same filename in two exports.
     let mut filename_to_idx: std::collections::HashMap<String, usize> =
         std::collections::HashMap::with_capacity(total);
     let mut duplicate_count: usize = 0;
@@ -286,6 +258,41 @@ pub fn flatten_coverage_json(raw: &serde_json::Value) -> Result<serde_json::Valu
             &mut duplicate_count,
         );
     }
+    (records, skipped_count, duplicate_count)
+}
+
+/// Flattens the llvm-cov JSON document into per-file coverage rows. Reads
+/// as: validate top-level shape → build deduped records → warn on skips and
+/// duplicates. The per-record construction lives in [`build_record`], the
+/// dedup branch in [`dedup_push`], and the records loop in [`build_records`].
+#[must_use = "flatten output drives coverage_files ingest; dropping it loses every per-file row"]
+pub fn flatten_coverage_json(raw: &serde_json::Value) -> Result<serde_json::Value, anyhow::Error> {
+    let data = raw
+        .get("data")
+        .and_then(|d| d.as_array())
+        .context("missing or invalid 'data' array in coverage JSON")?;
+    if data.is_empty() {
+        anyhow::bail!("'data' array is empty in coverage JSON");
+    }
+    // cargo llvm-cov --json's `data` is an array (one entry per export);
+    // per-target merging produces multiple exports. Iterate every entry
+    // instead of silently dropping data[1..].
+    if data.len() > 1 {
+        tracing::warn!(
+            entries = data.len(),
+            "coverage JSON contains more than one data export; flattening all entries"
+        );
+    }
+    let file_arrays: Vec<&[serde_json::Value]> = data
+        .iter()
+        .map(|entry| {
+            entry
+                .get("files")
+                .and_then(|f| f.as_array().map(std::vec::Vec::as_slice))
+                .context("missing or invalid 'files' array in coverage data")
+        })
+        .collect::<Result<_, _>>()?;
+    let (records, skipped_count, duplicate_count) = build_records(file_arrays);
     if skipped_count > 0 {
         tracing::warn!(
             skipped = skipped_count,
@@ -298,7 +305,7 @@ pub fn flatten_coverage_json(raw: &serde_json::Value) -> Result<serde_json::Valu
         tracing::warn!(
             duplicates = duplicate_count,
             unique_files = records.len(),
-            "TASK-1021: coverage JSON contained duplicate filename rows across data[] exports; \
+            "coverage JSON contained duplicate filename rows across data[] exports; \
              applied last-write-wins dedup to keep coverage_summary aggregates honest"
         );
     }
@@ -314,17 +321,17 @@ pub fn format_stderr_diagnostic(stderr: &[u8]) -> Option<String> {
     Some(format_error_tail(stderr, 5))
 }
 
-/// DUP-1 / TASK-1929: the soft-fail predicate, named once so
-/// [`collect_coverage_with`] and its regression guard bind to the same code.
+/// The soft-fail predicate, named once so [`collect_coverage_with`] and its
+/// regression guard bind to the same code.
 ///
 /// Returns `true` when the llvm-cov report recovered from a non-zero cargo
 /// run is usable: `data` is an array, it is non-empty, and every entry
 /// carries a `files` array.
 ///
-/// ERR-1 / TASK-1557: an empty `data` array means cargo failed before
-/// instrumenting anything. ERR-1 / TASK-1597: an entry without `files`
-/// would surface a schema-shape parse error instead of the cargo exit.
-/// Both must reject so the caller falls through to the cargo error path.
+/// An empty `data` array means cargo failed before instrumenting anything,
+/// and an entry without `files` would surface a schema-shape parse error
+/// instead of the cargo exit. Both must reject so the caller falls through
+/// to the cargo error path.
 pub fn has_parseable_coverage_data(raw: &serde_json::Value) -> bool {
     raw.get("data").and_then(|d| d.as_array()).is_some_and(|a| {
         !a.is_empty()
@@ -335,28 +342,73 @@ pub fn has_parseable_coverage_data(raw: &serde_json::Value) -> bool {
 
 /// Run `cargo llvm-cov` and flatten its JSON output into per-file records.
 ///
-/// ERR-1 / TASK-1057: with `--no-fail-fast`, `cargo llvm-cov` still exits
-/// non-zero when one or more tests fail, but the report file contains a
-/// complete llvm-cov JSON document for the passing slice of the workspace. Treat
-/// that case as a soft failure: warn (so the operator still sees the test
-/// breakage in the log) and continue with the partial-but-useful coverage
-/// data instead of dropping every per-file row.
+/// With `--no-fail-fast`, `cargo llvm-cov` still exits non-zero when one or
+/// more tests fail, but the report file contains a complete llvm-cov JSON
+/// document for the passing slice of the workspace. That case is treated as
+/// a soft failure: warn (so the operator still sees the test breakage in
+/// the log) and continue with the partial-but-useful coverage data instead
+/// of dropping every per-file row.
 ///
-/// ERR-1 / TASK-1557: the soft-fail predicate requires a **non-empty**
-/// `data` array. An empty `data` array means cargo failed before
-/// instrumenting anything; surfacing the original `check_llvm_cov_output`
-/// error (with the cargo exit code + stderr tail) keeps the operator
-/// pointed at the real root cause instead of the misleading "data array
-/// is empty" message from `flatten_coverage_json`.
+/// The soft-fail predicate requires a **non-empty** `data` array. An empty
+/// `data` array means cargo failed before instrumenting anything; surfacing
+/// the original `check_llvm_cov_output` error (with the cargo exit code +
+/// stderr tail) keeps the operator pointed at the real root cause instead
+/// of the misleading "data array is empty" message from
+/// `flatten_coverage_json`.
 ///
 /// On the success path, non-empty stderr is emitted at `info` level so
 /// instrumentation skips and compiler warnings are visible in operator
 /// logs without re-running with `RUST_LOG=debug`.
 ///
-/// CONC-9 / TASK-2068: `deadline` is the provider dispatch deadline
-/// (`Context::deadline`), which sizes the `cargo llvm-cov` wait so the
-/// subprocess cannot outlive the budget bounding it. `None` means unbounded
-/// dispatch and leaves the wait at [`crate::subprocess::CARGO_LLVM_COV_TIMEOUT`].
+/// `deadline` is the provider dispatch deadline (`Context::deadline`), which
+/// sizes the `cargo llvm-cov` wait so the subprocess cannot outlive the
+/// budget bounding it. `None` means unbounded dispatch and leaves the wait
+/// at [`crate::subprocess::CARGO_LLVM_COV_TIMEOUT`].
+/// Soft-fail recovery for a non-zero `cargo llvm-cov` exit.
+///
+/// Reads and parses the report file named by `report_path`. When it carries
+/// usable coverage data ([`has_parseable_coverage_data`]), warns so the
+/// operator still sees the test breakage and returns `Some` with the
+/// flattened partial report — typically test failures under `--no-fail-fast`
+/// that still leave a complete report for the passing slice of the workspace.
+///
+/// Returns `None` when no usable report exists so the caller falls through
+/// to the cargo exit error: a report that cannot be read leaves a breadcrumb
+/// warn naming the path and the IO error (the cargo exit stays the headline
+/// error, but the failed read is a filesystem problem the operator would
+/// otherwise never see), and a report without usable `data` means cargo
+/// failed before instrumenting anything.
+fn recover_partial_report(
+    report_path: &Path,
+    output: &std::process::Output,
+) -> Option<Result<serde_json::Value, anyhow::Error>> {
+    let parsed = match std::fs::read(report_path) {
+        Ok(bytes) => serde_json::from_slice::<serde_json::Value>(&bytes).ok(),
+        Err(err) => {
+            tracing::warn!(
+                report_path = %report_path.display(),
+                error = %err,
+                "could not read the llvm-cov JSON report after a non-zero cargo exit; \
+                 falling through to the cargo error"
+            );
+            None
+        }
+    };
+    let valid_parsed = parsed
+        .as_ref()
+        .filter(|raw| has_parseable_coverage_data(raw))?;
+    let tail = format_error_tail(&output.stderr, 5);
+    let marker = format_cargo_exit(output.status);
+    tracing::warn!(
+        exit = %marker,
+        stderr_tail = %tail,
+        report_path = %report_path.display(),
+        "cargo llvm-cov exited non-zero but the JSON report file is parseable; \
+         continuing with partial coverage data (likely test failures with --no-fail-fast)"
+    );
+    Some(flatten_coverage_json(valid_parsed))
+}
+
 #[must_use = "collect_coverage drives the coverage ingest; dropping the result throws the run away"]
 pub fn collect_coverage(
     working_dir: &Path,
@@ -367,11 +419,10 @@ pub fn collect_coverage(
     })
 }
 
-/// TEST-6 / TASK-1938: the body of [`collect_coverage`], with the cargo
-/// runner injected so the soft-fail demotion, the hard-fail fall-through,
-/// and the report-read arms are reachable from tests. A real invocation
-/// runs the whole workspace suite under instrumentation with a 15-minute
-/// timeout, which is not a unit test.
+/// The body of [`collect_coverage`], with the cargo runner injected so the
+/// soft-fail demotion, the hard-fail fall-through, and the report-read arms
+/// are reachable from tests without running the whole workspace suite under
+/// instrumentation.
 ///
 /// `run` receives the working directory and the OS path of the report file
 /// that `--output-path` names, so a test double can write a synthetic
@@ -402,39 +453,8 @@ where
         .to_string();
     let output = run(working_dir, &report_path)?;
     if !output.status.success() {
-        // ERR-13 / TASK-1949: the cargo exit stays the headline error on this
-        // path, but a failed report read is a filesystem problem the operator
-        // cannot otherwise see — leave a breadcrumb naming the path and the
-        // IO error before falling through.
-        let parsed = match std::fs::read(report.path()) {
-            Ok(bytes) => serde_json::from_slice::<serde_json::Value>(&bytes).ok(),
-            Err(err) => {
-                tracing::warn!(
-                    report_path = %report.path().display(),
-                    error = %err,
-                    "could not read the llvm-cov JSON report after a non-zero cargo exit; \
-                     falling through to the cargo error"
-                );
-                None
-            }
-        };
-        // READ-5 / TASK-1609: the predicate and value recovery are unified in
-        // one `if let` so the compiler enforces the "parsed is Some" invariant
-        // instead of a runtime `expect`.
-        if let Some(valid_parsed) = parsed
-            .as_ref()
-            .filter(|raw| has_parseable_coverage_data(raw))
-        {
-            let tail = format_error_tail(&output.stderr, 5);
-            let marker = format_cargo_exit(output.status);
-            tracing::warn!(
-                exit = %marker,
-                stderr_tail = %tail,
-                report_path = %report.path().display(),
-                "TASK-1057: cargo llvm-cov exited non-zero but the JSON report file is parseable; \
-                 continuing with partial coverage data (likely test failures with --no-fail-fast)"
-            );
-            return flatten_coverage_json(valid_parsed);
+        if let Some(partial) = recover_partial_report(report.path(), &output) {
+            return partial;
         }
         check_llvm_cov_output(&output)?;
     }
@@ -446,8 +466,8 @@ where
     } else {
         tracing::debug!("cargo llvm-cov completed successfully");
     }
-    // ERR-13 / TASK-1949: name the report file in both error contexts — the
-    // path is a tempfile under TMPDIR, and it is what tells the operator
+    // Name the report file in both error contexts — the path is a tempfile
+    // under TMPDIR, and it is what tells the operator
     // whether TMPDIR is full, read-only, or swept by a cleaner mid-run.
     let bytes = std::fs::read(report.path())
         .with_context(|| format!("reading llvm-cov JSON report {}", report.path().display()))?;
