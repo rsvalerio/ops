@@ -597,17 +597,16 @@ mod tests {
     }
 }
 
-/// TEST-5 / TASK-2154: happy-path coverage for `per_crate_units` and
-/// `RustCoverageProvider::provide`. Before this module the provider was
-/// driven by exactly one test — the non-UTF-8-root skip branch — so the
-/// row→unit mapping, the project total, and the default arms of `provide`
-/// had no test at all. These tests mirror the coverage shape the sibling
-/// `deps_provider` tests already establish (no-DB default, query-failure
-/// fallback with warn, multi-row mapping) and are platform-independent.
+/// Happy-path coverage for `per_crate_units` and
+/// `RustCoverageProvider::provide`: the row→unit mapping, the project
+/// total, and the default arms of `provide`. These tests mirror the
+/// coverage shape the sibling `deps_provider` tests establish (no-DB
+/// default, query-failure fallback with warn, multi-row mapping) and are
+/// platform-independent.
 ///
-/// Cross-stack note (TASK-2154 AC #4): the Go twin of this coverage shape
-/// lives in `extensions-go/about` (`units_provider_*` tests, TASK-2184) —
-/// keep the two stacks' provider-level coverage consistent.
+/// Cross-stack note: the Go twin of this coverage shape lives in
+/// `extensions-go/about` (`units_provider_*` tests) — keep the two stacks'
+/// provider-level coverage consistent.
 #[cfg(test)]
 mod provider_tests {
     use super::{per_crate_units, RustCoverageProvider};

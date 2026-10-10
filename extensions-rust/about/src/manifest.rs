@@ -246,13 +246,12 @@ pub fn load_workspace_manifest(ctx: &mut Context) -> Result<LoadedManifest, Data
 /// The returned path is canonical, which is also what makes it a stable cache
 /// key: two cwds inside one workspace resolve to the same root.
 ///
-/// PERF-1 / TASK-2028: the walk is memoized per cwd in
-/// [`crate::workspace_root_cache`], because keying the typed-manifest cache by
-/// the resolved root (CL-3 / TASK-1762) put this walk *ahead* of the cache
-/// probe — so every provider's cache hit paid for it again against the same
-/// cwd. `ctx.refresh` bypasses the memo and replaces the entry, which is the
-/// only in-process event that can legitimately move a cwd's root. Failures are
-/// never memoized: a missing `Cargo.toml` must stay re-checkable.
+/// The walk is memoized per cwd in [`crate::workspace_root_cache`]: the
+/// resolved root cannot change between providers within one run, so one
+/// walk serves them all. `ctx.refresh` bypasses the memo and replaces the
+/// entry, which is the only in-process event that can legitimately move a
+/// cwd's root. Failures are never memoized: a missing `Cargo.toml` must
+/// stay re-checkable.
 fn resolve_workspace_root(ctx: &Context) -> Result<Arc<PathBuf>, DataProviderError> {
     let cwd = ctx.working_directory();
     if !ctx.is_refreshing() {
@@ -281,13 +280,11 @@ fn resolve_workspace_root(ctx: &Context) -> Result<Arc<PathBuf>, DataProviderErr
 /// `serde_json::from_value`, the dominant typed cache miss does not.
 fn parse_manifest(ctx: &mut Context, root: &Path) -> Result<CargoToml, DataProviderError> {
     if let Some(cached) = ctx.cached(ops_cargo_toml::DATA_PROVIDER_NAME) {
-        // PERF-3 / TASK-1201: deserialize against a borrowed `&serde_json::Value`
-        // instead of `(**cached).clone()` deep-cloning the entire tree before
-        // `from_value` consumes it. The clone allocated one Box per nested
-        // map/array node — multi-MB workspaces clone 10k+ allocations only
-        // to drop them. `serde::Deserialize::deserialize` takes the value by
-        // reference via its `IntoDeserializer` impl, so the cached Arc stays
-        // shared and only the typed fields are produced.
+        // Deserialize against a borrowed `&serde_json::Value` rather than
+        // deep-cloning the cached tree:
+        // `serde::Deserialize::deserialize` takes the value by reference via
+        // its `IntoDeserializer` impl, so the cached Arc stays shared and
+        // only the typed fields are produced.
         return CargoToml::deserialize(cached.as_ref())
             .map_err(DataProviderError::computation_error);
     }
