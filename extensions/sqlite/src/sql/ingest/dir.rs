@@ -41,8 +41,17 @@ pub fn data_dir_for_db(db_path: &Path) -> DbResult<PathBuf> {
 /// `AlreadyExists` says only that the name is taken. The path is `lstat`ed,
 /// anything that is not a real directory is refused, and the mode is stamped
 /// through an open handle whose `(dev, ino)` matches the `lstat`, so a planted
-/// symlink cannot have its target chmodded. A symlink at the immediate parent
-/// is refused the same way, before the leaf is created inside its target.
+/// symlink cannot have its target chmodded.
+///
+/// The immediate parent is *not* policed: it may be a symlink (a `target/ops`
+/// relocated to another disk, a configured `data.path` through a link), which
+/// `Sqlite::open` follows for the database file itself, so refusing it for
+/// staging would only make ingest fail where the database already works. The
+/// symlink is followed for the leaf too, and the leaf anchor — not the
+/// parent's shape — is what defends staging: [`IngestDir`] verifies the leaf's
+/// owner, mode and identity and stages through `*at` syscalls on that
+/// descriptor, so a parent swapped for a symlink redirects nothing after the
+/// handle is taken.
 ///
 /// Non-Unix platforms have no portable mode to stamp, so they keep the
 /// rejection half only: a symlink or reparse point at `data_dir` is refused
@@ -52,8 +61,8 @@ pub fn data_dir_for_db(db_path: &Path) -> DbResult<PathBuf> {
 /// # Errors
 ///
 /// If a directory cannot be created, inspected or restricted, or if
-/// `data_dir` or its immediate parent is a symlink or not a directory. Every
-/// error names the path it concerns.
+/// `data_dir` is a symlink or not a directory. Every error names the path it
+/// concerns.
 pub(super) fn create_ingest_dir(data_dir: &Path) -> std::io::Result<()> {
     if let Some(parent) = data_dir.parent() {
         if !parent.as_os_str().is_empty() {
@@ -63,10 +72,6 @@ pub(super) fn create_ingest_dir(data_dir: &Path) -> std::io::Result<()> {
                     e,
                 )
             })?;
-            #[cfg(unix)]
-            if reject_untrusted_ingest_dir(parent)?.is_none() {
-                return Err(vanished(parent));
-            }
         }
     }
     #[cfg(unix)]
@@ -848,47 +853,44 @@ mod tests {
         );
     }
 
-    /// SEC-25: a symlink planted at the staging *parent* must be rejected
-    /// before the leaf is created, so the staging area cannot be relocated
-    /// into the symlink's target.
+    /// SEC-25 / TASK-2430: a symlink at the staging *parent* is followed, not
+    /// refused — `Sqlite::open` follows the same link for the database file,
+    /// and the leaf anchor (owner, mode, identity, `*at` staging) is the
+    /// defence, not the parent's shape. Ingest through a symlinked parent
+    /// must work and land in the link's target.
     #[cfg(unix)]
     #[test]
-    fn create_ingest_dir_rejects_a_symlinked_staging_parent() {
+    fn ingest_stages_through_a_symlinked_parent() {
         use std::os::unix::fs::PermissionsExt;
         let tmp = tempfile::tempdir().expect("tempdir");
-        let target = tmp.path().join("attacker-owned");
+        let target = tmp.path().join("elsewhere");
         std::fs::create_dir(&target).expect("target");
-        std::fs::set_permissions(&target, std::fs::Permissions::from_mode(0o777)).expect("mode");
 
         let link = tmp.path().join("parent");
         std::os::unix::fs::symlink(&target, &link).expect("symlink");
         let data_dir = link.join("data.db.ingest");
 
-        let err = create_ingest_dir(&data_dir).expect_err("symlinked parent must be rejected");
-        assert!(
-            err.to_string().contains("symlink"),
-            "error should name the symlink: {err}"
-        );
+        let dir = IngestDir::open(&data_dir).expect("ingest must work through a symlinked parent");
+        dir.write_atomic("stage.json", b"{}")
+            .expect("staged write through the symlinked parent");
 
-        let target_mode = std::fs::metadata(&target)
-            .expect("target meta")
+        let leaf = target.join("data.db.ingest");
+        let mode = std::fs::metadata(&leaf)
+            .expect("leaf created in the symlink's target")
             .permissions()
             .mode()
-            & 0o7777;
-        assert_eq!(
-            target_mode, 0o777,
-            "the symlink's target must keep its mode; got {target_mode:o}"
-        );
+            & 0o777;
+        assert_eq!(mode, 0o700, "leaf must be 0700 where it landed");
         assert!(
-            !target.join("data.db.ingest").exists(),
-            "no leaf ingest dir may be created inside the target"
+            leaf.join("stage.json").exists(),
+            "staged entry must exist inside the target"
         );
         assert!(
             std::fs::symlink_metadata(&link)
                 .expect("link meta")
                 .file_type()
                 .is_symlink(),
-            "the planted symlink must be left in place, not replaced"
+            "the user's symlink must be left in place"
         );
     }
 
