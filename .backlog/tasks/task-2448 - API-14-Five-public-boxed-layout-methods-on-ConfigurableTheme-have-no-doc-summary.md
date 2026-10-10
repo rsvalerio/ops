@@ -1,10 +1,10 @@
 ---
 id: TASK-2448
 title: 'API-14: Five public boxed-layout methods on ConfigurableTheme have no doc summary'
-status: To Do
+status: Done
 assignee: []
 created_date: '2026-10-10 15:24'
-updated_date: '2026-10-10 21:12'
+updated_date: '2026-10-10 21:21'
 labels:
   - code-review-rust
   - api
@@ -29,6 +29,7 @@ dedup_key: 'API-14:crates/theme/src/configurable/boxed.rs:impl ConfigurableTheme
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 render_error_detail, step_column_reserve, box_top_border, box_bottom_border and wrap_step_line each carry a /// doc summary
-- [ ] #2 Each summary states the LayoutKind gating and the columns==0 'no budget' convention where applicable
+- [x] #1 render_error_detail, step_column_reserve, box_top_border, box_bottom_border and wrap_step_line each carry a /// doc summary
+- [x] #2 Each summary states the LayoutKind gating and the columns==0 'no budget' convention where applicable
+
 <!-- AC:END -->

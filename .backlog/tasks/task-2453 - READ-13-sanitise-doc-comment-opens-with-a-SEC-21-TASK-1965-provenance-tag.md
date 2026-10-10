@@ -1,10 +1,10 @@
 ---
 id: TASK-2453
 title: 'READ-13: sanitise doc comment opens with a SEC-21 / TASK-1965 provenance tag'
-status: To Do
+status: Done
 assignee: []
 created_date: '2026-10-10 15:24'
-updated_date: '2026-10-10 21:12'
+updated_date: '2026-10-10 21:25'
 labels:
   - code-review-rust
   - readability
@@ -29,5 +29,6 @@ dedup_key: 'READ-13:crates/theme/src/render.rs:sanitise'
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 The sanitise doc summary states the behaviour without the SEC-21 / TASK-1965 prefix; the threat-model rationale is kept
+- [x] #1 The sanitise doc summary states the behaviour without the SEC-21 / TASK-1965 prefix; the threat-model rationale is kept
+
 <!-- AC:END -->

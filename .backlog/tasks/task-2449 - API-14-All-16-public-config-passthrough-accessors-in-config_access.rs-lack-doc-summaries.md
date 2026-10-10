@@ -1,10 +1,10 @@
 ---
 id: TASK-2449
 title: 'API-14: All 16 public config passthrough accessors in config_access.rs lack doc summaries'
-status: To Do
+status: Done
 assignee: []
 created_date: '2026-10-10 15:24'
-updated_date: '2026-10-10 21:12'
+updated_date: '2026-10-10 21:22'
 labels:
   - code-review-rust
   - api
@@ -29,5 +29,6 @@ dedup_key: 'API-14:crates/theme/src/configurable/config_access.rs:impl Configura
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 Each public accessor carries a one-line /// summary, or the finding is explicitly waived as wontfix with a note in the task
+- [x] #1 Each public accessor carries a one-line /// summary, or the finding is explicitly waived as wontfix with a note in the task
+
 <!-- AC:END -->

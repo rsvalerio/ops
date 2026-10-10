@@ -1,10 +1,10 @@
 ---
 id: TASK-2447
 title: 'API-14: Five public ConfigurableTheme render methods have no doc summary'
-status: To Do
+status: Done
 assignee: []
 created_date: '2026-10-10 15:24'
-updated_date: '2026-10-10 21:12'
+updated_date: '2026-10-10 21:21'
 labels:
   - code-review-rust
   - api
@@ -29,6 +29,7 @@ dedup_key: 'API-14:crates/theme/src/configurable.rs:impl ConfigurableTheme'
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 new, render_plan_header, render_summary_separator, render and render_summary each carry a /// summary of roughly 15 words followed by a blank line
-- [ ] #2 The existing // comments on render and render_summary are either promoted to /// or retained as implementation notes below a doc summary
+- [x] #1 new, render_plan_header, render_summary_separator, render and render_summary each carry a /// summary of roughly 15 words followed by a blank line
+- [x] #2 The existing // comments on render and render_summary are either promoted to /// or retained as implementation notes below a doc summary
+
 <!-- AC:END -->

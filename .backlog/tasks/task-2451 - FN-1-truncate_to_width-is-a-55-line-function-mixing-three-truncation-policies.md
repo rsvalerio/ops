@@ -1,10 +1,10 @@
 ---
 id: TASK-2451
 title: 'FN-1: truncate_to_width is a 55-line function mixing three truncation policies'
-status: To Do
+status: Done
 assignee: []
 created_date: '2026-10-10 15:24'
-updated_date: '2026-10-10 21:12'
+updated_date: '2026-10-10 21:25'
 labels:
   - code-review-rust
   - structure
@@ -29,6 +29,7 @@ dedup_key: 'FN-1:crates/theme/src/style/strip.rs:truncate_to_width'
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 truncate_to_width's body is at or under 50 code lines, e.g. by extracting the Raw-run control filter and the ellipsis/reset cut policy into named helpers
-- [ ] #2 The existing strip/truncate tests and the visible_width proptest corpus pass unchanged (behaviour is byte-identical)
+- [x] #1 truncate_to_width's body is at or under 50 code lines, e.g. by extracting the Raw-run control filter and the ellipsis/reset cut policy into named helpers
+- [x] #2 The existing strip/truncate tests and the visible_width proptest corpus pass unchanged (behaviour is byte-identical)
+
 <!-- AC:END -->

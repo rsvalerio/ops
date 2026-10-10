@@ -1,10 +1,10 @@
 ---
 id: TASK-2452
 title: 'READ-13: step_line_theme doc comments still carry TASK tags and prior-implementation narration'
-status: To Do
+status: Done
 assignee: []
 created_date: '2026-10-10 15:24'
-updated_date: '2026-10-10 21:12'
+updated_date: '2026-10-10 21:25'
 labels:
   - code-review-rust
   - readability
@@ -32,5 +32,6 @@ dedup_key: 'READ-13:crates/theme/src/step_line_theme.rs:mod step_line_theme'
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 No /// or // comment in the file references a TASK id or a superseded implementation; the behavioural facts they carried remain stated in end-state terms
+- [x] #1 No /// or // comment in the file references a TASK id or a superseded implementation; the behavioural facts they carried remain stated in end-state terms
+
 <!-- AC:END -->

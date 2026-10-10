@@ -1,10 +1,10 @@
 ---
 id: TASK-2454
 title: 'READ-13: style.rs test docs carry RULE/TASK provenance tags'
-status: To Do
+status: Done
 assignee: []
 created_date: '2026-10-10 15:24'
-updated_date: '2026-10-10 21:12'
+updated_date: '2026-10-10 21:25'
 labels:
   - code-review-rust
   - readability
@@ -29,5 +29,6 @@ dedup_key: 'READ-13:crates/theme/src/style.rs:mod tests'
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 No comment in style.rs references a TASK id or rule-ID prefix; the documented invariants remain
+- [x] #1 No comment in style.rs references a TASK id or rule-ID prefix; the documented invariants remain
+
 <!-- AC:END -->

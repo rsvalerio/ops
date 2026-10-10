@@ -1,10 +1,10 @@
 ---
 id: TASK-2446
 title: 'API-13: ThemeConfig, PlanHeaderStyle and ErrorBlockChars reachable by two public paths in ops-theme'
-status: To Do
+status: Done
 assignee: []
 created_date: '2026-10-10 15:24'
-updated_date: '2026-10-10 21:12'
+updated_date: '2026-10-10 21:21'
 labels:
   - code-review-rust
   - api
@@ -32,6 +32,7 @@ Each of the three types is therefore reachable by two public paths in this crate
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 Each of ThemeConfig, PlanHeaderStyle, ErrorBlockChars is reachable by exactly one public path in ops-theme (drop either the module re-export or the item re-exports)
-- [ ] #2 The crate docs in lib.rs that reference the re-export arrangement are updated to match
+- [x] #1 Each of ThemeConfig, PlanHeaderStyle, ErrorBlockChars is reachable by exactly one public path in ops-theme (drop either the module re-export or the item re-exports)
+- [x] #2 The crate docs in lib.rs that reference the re-export arrangement are updated to match
+
 <!-- AC:END -->

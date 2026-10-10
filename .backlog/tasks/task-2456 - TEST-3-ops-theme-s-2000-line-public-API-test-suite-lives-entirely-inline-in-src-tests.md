@@ -1,10 +1,10 @@
 ---
 id: TASK-2456
 title: 'TEST-3: ops-theme''s 2000-line public-API test suite lives entirely inline in src/tests'
-status: To Do
+status: Done
 assignee: []
 created_date: '2026-10-10 15:24'
-updated_date: '2026-10-10 21:12'
+updated_date: '2026-10-10 21:29'
 labels:
   - code-review-rust
   - tests
@@ -30,6 +30,13 @@ dedup_key: 'TEST-3:crates/theme/src/tests/mod.rs:mod tests'
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 Public-API-only test files move to crates/theme/tests/ as integration tests; files needing private access (error_block_color, error_block_sanitise) may remain inline with a comment saying why
-- [ ] #2 cargo test passes with the suite in its new location and no test logic is rewritten beyond import paths
+- [x] #1 Public-API-only test files move to crates/theme/tests/ as integration tests; files needing private access (error_block_color, error_block_sanitise) may remain inline with a comment saying why
+- [x] #2 cargo test passes with the suite in its new location and no test logic is rewritten beyond import paths
+
 <!-- AC:END -->
+
+## Implementation Notes
+
+<!-- SECTION:NOTES:BEGIN -->
+Suite moved to crates/theme/tests/public_api/ (one integration binary, shared fixture in main.rs). error_block_color/error_block_sanitise remain inline (private render_error_block_gated). One substitution: render_basics' duplicated private-gate assertion color_enabled_for(false,false) was dropped from the moved copy — that exact assertion stays covered by the inline style::sgr test gate_ignores_stdout_and_follows_stderr; also snap() made const fn and the two u64::MAX-as-f64 saturation tests' scoped allow extended to cast_precision_loss (mirrors the lib.rs test-cfg allowance the inline suite had). Orphaned #[cfg(test)] re-export of color_enabled_for removed from style.rs.
+<!-- SECTION:NOTES:END -->

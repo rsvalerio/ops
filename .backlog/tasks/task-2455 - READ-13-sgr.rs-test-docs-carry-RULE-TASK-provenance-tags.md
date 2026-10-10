@@ -1,10 +1,10 @@
 ---
 id: TASK-2455
 title: 'READ-13: sgr.rs test docs carry RULE/TASK provenance tags'
-status: To Do
+status: Done
 assignee: []
 created_date: '2026-10-10 15:24'
-updated_date: '2026-10-10 21:12'
+updated_date: '2026-10-10 21:25'
 labels:
   - code-review-rust
   - readability
@@ -29,5 +29,6 @@ dedup_key: 'READ-13:crates/theme/src/style/sgr.rs:mod tests'
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 No comment in sgr.rs references a TASK id or rule-ID prefix; the documented gate/equivalence contracts remain
+- [x] #1 No comment in sgr.rs references a TASK id or rule-ID prefix; the documented gate/equivalence contracts remain
+
 <!-- AC:END -->
