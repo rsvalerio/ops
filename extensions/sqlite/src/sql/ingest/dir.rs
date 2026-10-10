@@ -360,7 +360,12 @@ impl IngestDir {
 
     /// Wrap `source` as a [`DbError::Io`] naming the operation `op` and the
     /// staged entry `name` it acted on.
-    pub(crate) fn entry_error(&self, op: &str, name: &str, source: std::io::Error) -> DbError {
+    ///
+    /// Public so ingestor implementations outside this crate (`ops-metadata`'s
+    /// `MetadataIngestor`) can wrap anchored-entry failures with the same
+    /// message shape and source chain as the walkers in this module.
+    #[must_use = "return the constructed error; building it reports nothing"]
+    pub fn entry_error(&self, op: &str, name: &str, source: std::io::Error) -> DbError {
         DbError::Io(io_context(
             format!("{op} staged entry {}", self.entry_path(name).display()),
             source,
