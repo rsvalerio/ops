@@ -95,6 +95,11 @@ where
             table = %table_name,
             "per-table ingest mutex was poisoned by a prior panic; recovered"
         );
+        // VER-4: the mutex only guards a `()` token, so recovery
+        // re-establishes its invariant — clear the poison flag so later
+        // ingests for this table do not re-enter this branch and re-emit
+        // the warn.
+        ingest_mutex.clear_poison();
         poisoned.into_inner()
     });
 
@@ -131,32 +136,9 @@ where
         // on to be resolved again at every write.
         let dir = IngestDir::open(&data_dir)
             .with_context(|| format!("provide_via_ingestor({table_name}): create ingest dir"))?;
-        // `.with_context` on a `DbError` erases any typed
-        // `DataProviderError` travelling inside `DbError::External`:
-        // anyhow's context wrapper around a *foreign* error type downcasts
-        // by matching only that type — it cannot recurse into the
-        // `External` payload — so a spent deadline in an ingestor's walk
-        // would reach the operator as
-        // `DataProviderError::ComputationFailed` once
-        // `From<anyhow::Error> for DataProviderError` fails its downcast.
-        // Re-raising a typed payload through an *anyhow-internal* context
-        // instead gives a chain that downcasts recursively, so the variant
-        // survives for every caller that matches on it, and the phase
-        // label survives with it. Every sidecar ingestor's `collect`
-        // funnels through here, so this covers them all, not just tokei.
         if let Err(err) = ingestor.collect(ctx, &dir) {
             let label = format!("provide_via_ingestor({table_name}): ingestor collect");
-            return Err(match err {
-                crate::DbError::External(payload) => {
-                    match payload.downcast::<ops_extension::DataProviderError>() {
-                        Ok(typed) => anyhow::Error::new(typed).context(label),
-                        Err(payload) => {
-                            anyhow::Error::new(crate::DbError::External(payload)).context(label)
-                        }
-                    }
-                }
-                other => anyhow::Error::new(other).context(label),
-            });
+            return Err(normalise_pipeline_errors(err, label));
         }
         crate::init_schema(db)
             .with_context(|| format!("provide_via_ingestor({table_name}): init_schema"))?;
@@ -166,6 +148,35 @@ where
     }
 
     query_fn(db).with_context(|| format!("provide_via_ingestor({table_name}): query_fn"))
+}
+
+/// Re-wrap a failed pipeline call so a typed error payload survives
+/// anyhow's context wrapping.
+///
+/// `.with_context` on a `DbError` erases any typed `DataProviderError`
+/// travelling inside `DbError::External`: anyhow's context wrapper around a
+/// *foreign* error type downcasts by matching only that type — it cannot
+/// recurse into the `External` payload — so a spent deadline in an
+/// ingestor's walk would reach the operator as
+/// `DataProviderError::ComputationFailed` once
+/// `From<anyhow::Error> for DataProviderError` fails its downcast.
+/// Re-raising a typed payload through an *anyhow-internal* context instead
+/// gives a chain that downcasts recursively, so the variant survives for
+/// every caller that matches on it, and the phase label survives with it.
+/// Every sidecar ingestor's `collect` funnels through
+/// [`provide_via_ingestor`], so this covers them all, not just tokei.
+fn normalise_pipeline_errors(err: crate::DbError, label: String) -> anyhow::Error {
+    match err {
+        crate::DbError::External(payload) => {
+            match payload.downcast::<ops_extension::DataProviderError>() {
+                Ok(typed) => anyhow::Error::new(typed).context(label),
+                Err(payload) => {
+                    anyhow::Error::new(crate::DbError::External(payload)).context(label)
+                }
+            }
+        }
+        other => anyhow::Error::new(other).context(label),
+    }
 }
 
 /// Drop a table if it exists (used by refresh to force re-collection).
@@ -490,6 +501,80 @@ mod tests {
         );
     }
 
+    /// VER-4 / TASK-2598: clearing the per-table poison flag on recovery
+    /// means a poisoned-then-recovered table does not warn on the next
+    /// ingest — the recovery warn fires once, not per ingest.
+    #[test]
+    fn poison_recovery_warns_once_across_ingests() {
+        use crate::DataIngestor;
+        use std::sync::atomic::{AtomicBool, Ordering};
+
+        struct PanickyOnceIngestor {
+            should_panic: AtomicBool,
+        }
+        impl DataIngestor for PanickyOnceIngestor {
+            fn name(&self) -> &'static str {
+                "panicky_once"
+            }
+            // The panic *is* the behaviour under test: this mock stands in
+            // for an ingestor that blows up mid-collect exactly once.
+            #[allow(clippy::panic_in_result_fn)]
+            fn collect(&self, _ctx: &ops_extension::Context, dir: &IngestDir) -> DbResult<()> {
+                assert!(
+                    !self.should_panic.swap(false, Ordering::SeqCst),
+                    "simulated transient ingest panic"
+                );
+                dir.write_atomic("panicky_once.json", b"[{\"id\":1}]")?;
+                Ok(())
+            }
+            fn load(&self, dir: &IngestDir, db: &Sqlite) -> DbResult<crate::LoadResult> {
+                let load = JsonTableLoad::flat_array("panicky_once_table", ID_COLS);
+                let conn = db.lock()?;
+                execute_json_load(&conn, dir, &load, "panicky_once.json")?;
+                drop(conn);
+                Ok(crate::LoadResult::success("panicky_once", 1))
+            }
+        }
+
+        let db_dir = tempfile::tempdir().expect("tempdir");
+        let db_path = db_dir.path().join("panicky_once.db");
+        let db = Arc::new(Sqlite::open(&db_path).expect("db"));
+        init_schema(&db).expect("init_schema");
+        let ingestor = Arc::new(PanickyOnceIngestor {
+            should_panic: AtomicBool::new(true),
+        });
+
+        let db1 = Arc::clone(&db);
+        let ing1 = Arc::clone(&ingestor);
+        let h = std::thread::spawn(move || {
+            let ctx = ops_extension::Context::new(
+                Arc::new(ops_core::config::Config::empty()),
+                PathBuf::from("/tmp"),
+            );
+            provide_via_ingestor(&db1, &ctx, "panicky_once_table", &*ing1, |_| {
+                Ok(serde_json::Value::Null)
+            })
+        });
+        assert!(h.join().is_err(), "first call must have panicked");
+
+        let ((), warns) = ops_core::test_utils::count_warnings(|| {
+            for _ in 0..2 {
+                let ctx = ops_extension::Context::new(
+                    Arc::new(ops_core::config::Config::empty()),
+                    PathBuf::from("/tmp"),
+                );
+                provide_via_ingestor(&db, &ctx, "panicky_once_table", &*ingestor, |_| {
+                    Ok(serde_json::Value::Null)
+                })
+                .expect("post-poison ingest must not panic");
+            }
+        });
+        assert_eq!(
+            warns, 1,
+            "recovery warn must fire on the first ingest only, got {warns}"
+        );
+    }
+
     /// Refresh-driven DROP serializes behind in-flight `query_fn`.
     #[test]
     fn refresh_during_query_fn_is_serialized_by_ingest_mutex() {
@@ -594,12 +679,24 @@ mod tests {
         );
     }
 
-    /// Distinct tables on the same thread are fine.
+    /// Distinct tables on the same thread are fine, and a released table
+    /// can be re-acquired on the same thread.
     #[cfg(debug_assertions)]
     #[test]
     fn reentry_guard_allows_distinct_tables_on_same_thread() {
-        let _a = ReentryGuard::new("conc2_table_a");
+        let a = ReentryGuard::new("conc2_table_a");
         let _b = ReentryGuard::new("conc2_table_b");
+        // Release `conc2_table_a`, then re-acquire the same table on this
+        // thread: the held-set tracks live guards, so a dropped guard must
+        // not trip the same-thread re-entry assert.
+        drop(a);
+        let reacquired = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+            let _a_again = ReentryGuard::new("conc2_table_a");
+        }));
+        assert!(
+            reacquired.is_ok(),
+            "release-then-reacquire of the same table must be allowed"
+        );
     }
 
     /// A failing `collect` must surface the table name
