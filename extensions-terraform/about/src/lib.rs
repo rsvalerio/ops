@@ -628,21 +628,9 @@ fn open_heredoc_at(line: &str, idx: usize, heredoc: &mut HeredocTracker) -> bool
 /// Is `c` valid as the first character of a heredoc terminator?
 ///
 /// HCL identifiers are `UAX #31` — `ID_Start (ID_Continue | '-')*` — so `<<終端`
-/// is a legal opener and the terminator has to be matched with the same
-/// alphabet.
-///
-/// `char::is_alphabetic` / `is_alphanumeric` are **not** a workable stand-in.
-/// `ID_Continue` includes combining marks, and Rust's predicates admit only
-/// those carrying `Other_Alphabetic` (a Devanagari vowel sign passes,
-/// `U+0301 COMBINING ACUTE ACCENT` does not). A decomposed `<<é` would then
-/// have its terminator truncated to `e`, the real closing line would never
-/// match, and the rest of the file would be swallowed as heredoc body.
-///
-/// `unicode-ident` carries the generated tables. It resolves `XID_Start` /
-/// `XID_Continue`, the normalisation-closed profile `UAX #31` recommends;
-/// it differs from HCL's `ID_*` only for a handful of code points that are
-/// excluded precisely because they break under normalisation, and no
-/// terminator can depend on one of those and still round-trip.
+/// is a legal opener and the terminator must be matched with the same
+/// alphabet: `unicode-ident`'s `XID_Start` (the normalisation-closed profile
+/// `UAX #31` recommends), plus `_`.
 fn is_heredoc_ident_start(c: char) -> bool {
     unicode_ident::is_xid_start(c) || c == '_'
 }
@@ -1215,15 +1203,29 @@ mod tests {
         assert_eq!(provider.name(), "project_identity");
     }
 
+    /// The terraform provider exposes exactly the base about fields, in the
+    /// base order — no stack-specific extras and none missing. The expected
+    /// ids are pinned here rather than read back from `base_about_fields()`
+    /// (which the implementation delegates to), so a change on either side
+    /// of that delegation fails this test.
     #[test]
     fn about_fields_match_base() {
         let provider = TerraformIdentityProvider;
         let fields = provider.about_fields();
-        let base = base_about_fields();
-        assert_eq!(fields.len(), base.len());
-        for (a, b) in fields.iter().zip(base.iter()) {
-            assert_eq!(a.id, b.id);
-        }
+        let ids: Vec<&str> = fields.iter().map(|f| f.id).collect();
+        assert_eq!(
+            ids,
+            vec![
+                "stack",
+                "license",
+                "project",
+                "modules",
+                "codebase",
+                "repository",
+                "authors",
+                "coverage",
+            ]
+        );
     }
 
     #[test]
@@ -1903,10 +1905,10 @@ terraform {
         );
     }
 
-    /// A terminator carrying a combining mark must survive whole. `ID_Continue`
-    /// admits `U+0301 COMBINING ACUTE ACCENT`, but `char::is_alphanumeric`
-    /// does not: it truncated `<<e\u{301}` to `e`, so the real closing line
-    /// never matched and the rest of the file was eaten as heredoc body.
+    /// A terminator carrying a combining mark (`U+0301 COMBINING ACUTE
+    /// ACCENT`) must survive whole: terminators match the full `ID_Continue`
+    /// alphabet, so the closing line still matches and the
+    /// `required_version` after the heredoc body is read.
     #[test]
     fn extract_required_version_after_a_decomposed_unicode_heredoc_terminator() {
         let content = concat!(
@@ -2376,10 +2378,9 @@ terraform {
     }
 
     /// Vendoring a shared module once and symlinking it into each stack's
-    /// `modules/` is a normal terraform layout. `DirEntry::file_type` does
-    /// not follow symlinks, so such an entry reported `Symlink` and was
-    /// dropped from the count; `fs::metadata` resolves it. A dangling link
-    /// resolves to `NotFound` and is still not a module.
+    /// `modules/` is a normal terraform layout. A symlinked module directory
+    /// counts as a module — its target is resolved via `fs::metadata` —
+    /// while a dangling link resolves to `NotFound` and does not.
     #[cfg(unix)]
     #[test]
     fn count_local_modules_follows_symlinked_module_dirs() {
