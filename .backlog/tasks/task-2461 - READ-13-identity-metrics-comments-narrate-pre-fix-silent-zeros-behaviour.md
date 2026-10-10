@@ -1,10 +1,10 @@
 ---
 id: TASK-2461
 title: 'READ-13: identity metrics comments narrate pre-fix silent-zeros behaviour'
-status: To Do
+status: Done
 assignee: []
 created_date: '2026-10-10 15:27'
-updated_date: '2026-10-10 21:12'
+updated_date: '2026-10-10 21:35'
 labels:
   - code-review
   - READ
@@ -31,5 +31,6 @@ dedup_key: 'READ-13:extensions-rust/about/src/identity/metrics.rs:metrics'
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 Both comments state the current contract (handle resolved once and threaded; every query failure warns before its fallback) in present tense with no 'used to render'/'got fixed for' narration
+- [x] #1 Both comments state the current contract (handle resolved once and threaded; every query failure warns before its fallback) in present tense with no 'used to render'/'got fixed for' narration
+
 <!-- AC:END -->

@@ -1,10 +1,10 @@
 ---
 id: TASK-2465
 title: 'READ-13: coverage provider_tests module doc narrates the suite''s own creation'
-status: To Do
+status: Done
 assignee: []
 created_date: '2026-10-10 15:27'
-updated_date: '2026-10-10 21:12'
+updated_date: '2026-10-10 21:35'
 labels:
   - code-review
   - READ
@@ -29,5 +29,6 @@ dedup_key: 'READ-13:extensions-rust/about/src/coverage_provider.rs:provider_test
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 provider_tests module doc states what the suite covers (row-to-unit mapping, project total, default arms, cross-stack parity with extensions-go/about) without the 'before this module / had no test at all' narration
+- [x] #1 provider_tests module doc states what the suite covers (row-to-unit mapping, project total, default arms, cross-stack parity with extensions-go/about) without the 'before this module / had no test at all' narration
+
 <!-- AC:END -->

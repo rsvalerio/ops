@@ -1,10 +1,10 @@
 ---
 id: TASK-2464
 title: 'READ-13: deps_provider provide comment narrates pre-fix silent-empty-deps behaviour'
-status: To Do
+status: Done
 assignee: []
 created_date: '2026-10-10 15:27'
-updated_date: '2026-10-10 21:12'
+updated_date: '2026-10-10 21:35'
 labels:
   - code-review
   - READ
@@ -29,5 +29,6 @@ dedup_key: 'READ-13:extensions-rust/about/src/deps_provider.rs:RustDepsProvider:
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 Comment states the query_or_warn contract in present tense; the 'used to surface as an empty deps list' clause is removed
+- [x] #1 Comment states the query_or_warn contract in present tense; the 'used to surface as an empty deps list' clause is removed
+
 <!-- AC:END -->

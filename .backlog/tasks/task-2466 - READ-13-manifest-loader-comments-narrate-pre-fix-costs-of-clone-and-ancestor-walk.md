@@ -1,10 +1,10 @@
 ---
 id: TASK-2466
 title: 'READ-13: manifest loader comments narrate pre-fix costs of clone and ancestor walk'
-status: To Do
+status: Done
 assignee: []
 created_date: '2026-10-10 15:27'
-updated_date: '2026-10-10 21:12'
+updated_date: '2026-10-10 21:35'
 labels:
   - code-review
   - READ
@@ -33,6 +33,7 @@ dedup_key: 'READ-13:extensions-rust/about/src/manifest.rs:resolve_workspace_root
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 resolve_workspace_root doc states the memoization contract in present tense without 'paid for it again'
-- [ ] #2 parse_manifest comment states the borrow-based deserialization choice without the past-tense 'The clone allocated ... only to drop them' cost accounting
+- [x] #1 resolve_workspace_root doc states the memoization contract in present tense without 'paid for it again'
+- [x] #2 parse_manifest comment states the borrow-based deserialization choice without the past-tense 'The clone allocated ... only to drop them' cost accounting
+
 <!-- AC:END -->

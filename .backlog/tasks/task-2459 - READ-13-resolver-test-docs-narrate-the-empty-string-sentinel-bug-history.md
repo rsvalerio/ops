@@ -1,10 +1,10 @@
 ---
 id: TASK-2459
 title: 'READ-13: resolver test docs narrate the empty-string sentinel bug history'
-status: To Do
+status: Done
 assignee: []
 created_date: '2026-10-10 15:26'
-updated_date: '2026-10-10 21:12'
+updated_date: '2026-10-10 21:35'
 labels:
   - code-review
   - READ
@@ -29,5 +29,6 @@ dedup_key: 'READ-13:extensions-rust/about/src/identity/resolver.rs:resolve_field
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 Test doc states the fallback invariant and the empty-string-beats-workspace case in present tense, with no 'used to be'/'never fired'/'had to hand-roll' narration
+- [x] #1 Test doc states the fallback invariant and the empty-string-beats-workspace case in present tense, with no 'used to be'/'never fired'/'had to hand-roll' narration
+
 <!-- AC:END -->

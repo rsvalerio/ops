@@ -1,10 +1,10 @@
 ---
 id: TASK-2467
 title: 'READ-13: identity provide comment references the retired Deref shape'
-status: To Do
+status: Done
 assignee: []
 created_date: '2026-10-10 15:27'
-updated_date: '2026-10-10 21:12'
+updated_date: '2026-10-10 21:35'
 labels:
   - code-review
   - READ
@@ -31,5 +31,6 @@ dedup_key: 'READ-13:extensions-rust/about/src/identity/mod.rs:RustIdentityProvid
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 Comment states the accessor separation contract without the 'no longer puts it one field access away' comparative to the removed Deref shape
+- [x] #1 Comment states the accessor separation contract without the 'no longer puts it one field access away' comparative to the removed Deref shape
+
 <!-- AC:END -->

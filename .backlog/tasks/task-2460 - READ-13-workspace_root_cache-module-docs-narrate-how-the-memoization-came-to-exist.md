@@ -1,10 +1,10 @@
 ---
 id: TASK-2460
 title: 'READ-13: workspace_root_cache module docs narrate how the memoization came to exist'
-status: To Do
+status: Done
 assignee: []
 created_date: '2026-10-10 15:26'
-updated_date: '2026-10-10 21:12'
+updated_date: '2026-10-10 21:35'
 labels:
   - code-review
   - READ
@@ -29,5 +29,6 @@ dedup_key: 'READ-13:extensions-rust/about/src/workspace_root_cache.rs:workspace_
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 Module doc leads with the memoization contract in present tense; the 'that forced / ran on every / ran four times over' history is removed or recast as the enduring reason (the walk cannot change between providers within one run)
+- [x] #1 Module doc leads with the memoization contract in present tense; the 'that forced / ran on every / ran four times over' history is removed or recast as the enduring reason (the walk cannot change between providers within one run)
+
 <!-- AC:END -->
