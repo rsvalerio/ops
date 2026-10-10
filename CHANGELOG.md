@@ -2,6 +2,30 @@
 All notable changes to this project will be documented in this file. See [conventional commits](https://www.conventionalcommits.org/) for commit guidelines.
 
 - - -
+## [v0.80.1](https://github.com/rsvalerio/ops/compare/fae44e6d30cc1dab66fb0d2ea7ac6076d55710af..v0.80.1) - 2026-10-10
+#### 🐛 Bug Fixes
+- (**about**) refuse root manifests that resolve outside the workspace - ([a5e37ca](https://github.com/rsvalerio/ops/commit/a5e37ca84e1c8583ec8263e1083a8e3c6e358588)) - [@rsvalerio](https://github.com/rsvalerio)
+- (**backlog**) fail id allocation and claim re-check on unreadable task directories (TASK-2435) - ([bfcc72a](https://github.com/rsvalerio/ops/commit/bfcc72aba3c7329bd09d85662ee70f6225bad805)) - [@rsvalerio](https://github.com/rsvalerio)
+- (**foundation**) error on unresolvable workspace members and add the unsafe_code floor - ([4aa1fc9](https://github.com/rsvalerio/ops/commit/4aa1fc97a029d5fe36c3d2df9968c52115fd8665)) - [@rsvalerio](https://github.com/rsvalerio)
+- (**metadata**) keep the IO error source in io_at and name the staged entry in read failures (TASK-2428) - ([b517bdb](https://github.com/rsvalerio/ops/commit/b517bdb2fa0b14522e98b7ef0028cc23c4bf0af4)) - [@rsvalerio](https://github.com/rsvalerio)
+- (**sqlite**) follow a symlinked ingest parent instead of refusing it - ([bfc32af](https://github.com/rsvalerio/ops/commit/bfc32af6a453cf1396028079239647c8ad8e4d80)) - [@rsvalerio](https://github.com/rsvalerio)
+- (**text-fixers**) compare ctime before the write-back rename and record the residual window - ([06c3df3](https://github.com/rsvalerio/ops/commit/06c3df37e138044e65fa7a512096e6c68b095d01)) - [@rsvalerio](https://github.com/rsvalerio)
+#### 📚 Documentation
+- (**about**) remove task provenance tags from module docs - ([1d9bc64](https://github.com/rsvalerio/ops/commit/1d9bc644c5caadc0e6b1044c1208e4ebc7492466)) - [@rsvalerio](https://github.com/rsvalerio)
+- (**about**) present manifest and cache invariants as end state - ([32fe9ec](https://github.com/rsvalerio/ops/commit/32fe9ecf8620e514f94ab05243fed1cac4427261)) - [@rsvalerio](https://github.com/rsvalerio)
+- (**extension**) drop change-history narration from error docs and tests - ([e4b3d14](https://github.com/rsvalerio/ops/commit/e4b3d14380c25b877a238afa8ae6f680885cf277)) - [@rsvalerio](https://github.com/rsvalerio)
+- (**sqlite**) describe connection hazards without narrating fixes - ([8378947](https://github.com/rsvalerio/ops/commit/837894716d3adc4700fc6fb723a482e6b935deac)) - [@rsvalerio](https://github.com/rsvalerio)
+- (**theme**) strip task tags and history narration from docs and tests - ([e5b5443](https://github.com/rsvalerio/ops/commit/e5b5443f1b7ee9c8b9da67a3b9411a6b0c383ddf)) - [@rsvalerio](https://github.com/rsvalerio)
+#### ⚙️ Miscellaneous
+- (**backlog**) close code-review wave 51 - ([8eaaaca](https://github.com/rsvalerio/ops/commit/8eaaaca428dd0b7fd476a2bf9af3309180dbd9cb)) - [@rsvalerio](https://github.com/rsvalerio)
+- (**backlog**) close code-review wave 52 - ([6852a2a](https://github.com/rsvalerio/ops/commit/6852a2a9f52f82b17da039c92101e3e454d2b9f4)) - [@rsvalerio](https://github.com/rsvalerio)
+- (**backlog**) close code-review wave 53 - ([45f8caa](https://github.com/rsvalerio/ops/commit/45f8caa273003b12606fbf636b8228d854bef1de)) - [@rsvalerio](https://github.com/rsvalerio)
+- (**backlog**) close code-review wave 50 - ([78f5c1e](https://github.com/rsvalerio/ops/commit/78f5c1e1ed2dcd0558713fdd631393276ea8d775)) - [@rsvalerio](https://github.com/rsvalerio)
+- (**backlog**) plan code-review waves 50-53 - ([fae44e6](https://github.com/rsvalerio/ops/commit/fae44e6d30cc1dab66fb0d2ea7ac6076d55710af)) - [@rsvalerio](https://github.com/rsvalerio)
+- (**foundation**) drop the tracing dependency orphaned by the error propagation - ([1f64dd1](https://github.com/rsvalerio/ops/commit/1f64dd1d0ab3e83353dd8a06478ae2443d16a739)) - [@rsvalerio](https://github.com/rsvalerio)
+
+- - -
+
 ## [v0.80.0](https://github.com/rsvalerio/ops/compare/109a27240ea6472fe7e41e8a51b2b1a882bc863e..v0.80.0) - 2026-10-10
 #### 🚀 Features
 - (**backlog**) collapse done waves to a total in wave list - ([2ff00fd](https://github.com/rsvalerio/ops/commit/2ff00fd4548a156eb3759665c4f72e4e9635019a)) - [@rsvalerio](https://github.com/rsvalerio)
