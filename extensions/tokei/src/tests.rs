@@ -1,20 +1,15 @@
 //! Tests for the tokei extension.
 //!
-//! ## Test isolation policy (TEST-17/TEST-18)
+//! ## Test isolation policy
 //!
 //! Tests that scan the live workspace via `env!("CARGO_MANIFEST_DIR")` are
 //! non-deterministic (file counts depend on the working tree) and slow.
 //! Any such test MUST be gated behind
-//! `#[ignore = "scans CARGO_MANIFEST_DIR; non-deterministic and slow (TEST-17)"]`,
+//! `#[ignore = "scans CARGO_MANIFEST_DIR; non-deterministic and slow"]`,
 //! matching the precedent set by `tokei_provider_returns_valid_json_on_real_project`.
 //! Prefer `tempfile::tempdir()` plus canned fixture files for default `cargo test`
 //! coverage; ignored tests remain available for ad-hoc smoke runs via
 //! `cargo test -- --ignored`.
-//!
-//! TEST-18 (TASK-1977): five tests used to scan the live crate directory
-//! without that gate, and paid for it with `> 0` assertions that would have
-//! passed on almost any input. They now build a [`fixture_project`] tree with
-//! known contents and assert the exact counts it implies.
 
 use super::*;
 use ops_extension::{Extension, ExtensionType};
@@ -76,7 +71,7 @@ fn tokei_provider_name() {
 #[test]
 fn tokei_provider_returns_valid_json_on_canned_dir() {
     // Deterministic: a fixed Rust file in a tempdir, independent of repo
-    // contents. Avoids scanning the whole crate at test time (TEST-17).
+    // contents. Avoids scanning the whole crate at test time.
     let dir = tempfile::tempdir().expect("tempdir");
     std::fs::write(
         dir.path().join("hello.rs"),
@@ -104,7 +99,7 @@ fn tokei_provider_returns_valid_json_on_canned_dir() {
 // Live workspace scan retained but ignored — kept for ad-hoc smoke testing
 // against the actual repo via `cargo test -- --ignored`.
 #[test]
-#[ignore = "scans CARGO_MANIFEST_DIR; non-deterministic and slow (TEST-17)"]
+#[ignore = "scans CARGO_MANIFEST_DIR; non-deterministic and slow"]
 fn tokei_provider_returns_valid_json_on_real_project() {
     let manifest_dir = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"));
     let mut ctx = Context::test_context(manifest_dir);
@@ -146,14 +141,15 @@ fn tokei_provider_schema_has_fields() {
 // -- exclusion tests --
 
 #[test]
-fn collect_tokei_excludes_target_and_git() {
+fn collect_tokei_excludes_every_default_excluded_dir() {
     let dir = tempfile::tempdir().expect("tempdir");
     // Real source file
     std::fs::create_dir_all(dir.path().join("src")).expect("mkdir src");
     std::fs::write(dir.path().join("src/lib.rs"), "fn a() {}\n").expect("write src");
 
-    // Build/VCS dirs that should be excluded
-    for excluded in &["target", ".git", "node_modules", ".venv"] {
+    // Every directory named in the default exclusion list gets a noise file
+    // that must not be counted.
+    for excluded in super::TOKEI_DEFAULT_EXCLUDED {
         let p = dir.path().join(excluded);
         std::fs::create_dir_all(&p).expect("mkdir excluded");
         std::fs::write(p.join("noise.rs"), "fn b() {}\nfn c() {}\nfn d() {}\n")
@@ -168,7 +164,7 @@ fn collect_tokei_excludes_target_and_git() {
         .map(|v| v["file"].as_str().unwrap_or("").to_string())
         .collect();
     assert!(files.iter().any(|f| f.ends_with("src/lib.rs")));
-    for excluded in &["target", ".git", "node_modules", ".venv"] {
+    for excluded in super::TOKEI_DEFAULT_EXCLUDED {
         assert!(
             !files.iter().any(|f| f.contains(excluded)),
             "expected {excluded}/ to be excluded; got files = {files:?}"
@@ -176,7 +172,7 @@ fn collect_tokei_excludes_target_and_git() {
     }
 }
 
-// CL-3 (TASK-1974): exclusion is anchored to direct children of the scan
+// Exclusion is anchored to direct children of the scan
 // root. A directory with an excluded name deeper in the tree is real source
 // and is counted.
 #[test]
@@ -207,7 +203,7 @@ fn collect_tokei_counts_build_dir_nested_under_src() {
     );
 }
 
-// CL-3 (TASK-1974): only *directories* are pruned. A plain file whose name
+// Only *directories* are pruned. A plain file whose name
 // matches an entry is source like any other.
 #[test]
 fn collect_tokei_counts_file_named_like_an_excluded_dir() {
@@ -224,7 +220,7 @@ fn collect_tokei_counts_file_named_like_an_excluded_dir() {
     assert_eq!(files, vec!["build".to_owned()]);
 }
 
-// -- scan bound tests (SEC-33, TASK-1970) --
+// -- scan bound tests --
 
 #[test]
 fn scan_tokei_skips_files_over_the_byte_cap() {
@@ -262,7 +258,7 @@ fn scan_tokei_truncates_at_the_file_cap() {
     assert!(scan.truncated, "a truncated result must say so");
 }
 
-/// CL-3 / TASK-2153: records are emitted sorted by file path (language as
+/// Records are emitted sorted by file path (language as
 /// tiebreak), not in tokei's rayon completion order. The exact sequence is
 /// pinned — not just the count — so a regression to worker order fails here
 /// and with it the byte-stable sidecar/SQLite-ingest contract the sort
@@ -375,7 +371,7 @@ fn scan_tokei_within_the_depth_cap_reports_nothing_too_deep() {
     assert!(!scan.is_incomplete());
 }
 
-// -- scan root error tests (ERR-2, TASK-1972) --
+// -- scan root error tests --
 
 #[test]
 fn collect_tokei_errors_on_missing_directory() {
@@ -402,7 +398,7 @@ fn collect_tokei_errors_when_root_is_a_file() {
     );
 }
 
-/// ERR-2 (TASK-1972): a file tokei cannot open is counted, not silently
+/// A file tokei cannot open is counted, not silently
 /// dropped from the statistics.
 #[cfg(unix)]
 #[test]
@@ -425,15 +421,6 @@ fn scan_tokei_counts_unreadable_files() {
         scan.skipped_unreadable, 1,
         "an unreadable file must be counted, not silently dropped"
     );
-}
-
-#[test]
-fn tokei_default_excluded_contains_expected_dirs() {
-    let exc: std::collections::HashSet<&str> =
-        super::TOKEI_DEFAULT_EXCLUDED.iter().copied().collect();
-    for needed in &["target", ".git", "node_modules", ".venv"] {
-        assert!(exc.contains(needed), "expected {needed} in defaults");
-    }
 }
 
 // -- per-report transformation tests --
@@ -478,7 +465,7 @@ fn flatten_tokei_empty_languages() {
 }
 
 #[test]
-#[ignore = "scans CARGO_MANIFEST_DIR; non-deterministic and slow (TEST-17)"]
+#[ignore = "scans CARGO_MANIFEST_DIR; non-deterministic and slow"]
 fn flatten_tokei_real_project_structure() {
     let manifest_dir = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"));
     let mut languages = Languages::new();
@@ -512,7 +499,7 @@ fn flatten_tokei_real_project_structure() {
 }
 
 #[test]
-#[ignore = "scans CARGO_MANIFEST_DIR; non-deterministic and slow (TEST-17)"]
+#[ignore = "scans CARGO_MANIFEST_DIR; non-deterministic and slow"]
 fn flatten_tokei_strips_workspace_prefix() {
     let manifest_dir = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"));
     let mut languages = Languages::new();
@@ -535,7 +522,7 @@ fn flatten_tokei_strips_workspace_prefix() {
 // -- collect_tokei tests --
 
 #[test]
-#[ignore = "scans CARGO_MANIFEST_DIR; non-deterministic and slow (TEST-17)"]
+#[ignore = "scans CARGO_MANIFEST_DIR; non-deterministic and slow"]
 fn collect_tokei_on_real_project() {
     let manifest_dir = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"));
     let result = collect_tokei(&manifest_dir, None).expect("collect_tokei should succeed");
@@ -545,7 +532,7 @@ fn collect_tokei_on_real_project() {
 
 // The counterpart to `collect_tokei_errors_on_missing_directory`: a readable
 // but genuinely empty directory is an empty *success*, so a caller can tell
-// the two apart (ERR-2, TASK-1972).
+// the two apart.
 #[test]
 fn collect_tokei_on_empty_dir() {
     let dir = tempfile::tempdir().expect("tempdir");
@@ -558,11 +545,11 @@ fn collect_tokei_on_empty_dir() {
 // -- SQLite integration tests --
 
 #[test]
-#[ignore = "scans CARGO_MANIFEST_DIR; non-deterministic and slow (TEST-17)"]
+#[ignore = "scans CARGO_MANIFEST_DIR; non-deterministic and slow"]
 fn tokei_collect_and_load_cycle() {
     let manifest_dir = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"));
     let data_dir = tempfile::tempdir().expect("tempdir");
-    // SEC-25 / TASK-2054: ingestors stage through a verified anchor, so the
+    // Ingestors stage through a verified anchor, so the
     // test drives the same handle `provide_via_ingestor` builds.
     let dir =
         ops_sqlite::IngestDir::open(&data_dir.path().join("ingest")).expect("open ingest dir");
@@ -610,14 +597,13 @@ fn tokei_files_has_data_returns_false_for_empty_db() {
 
 // -- TokeiIngestor::load tests --
 //
-// `load_tokei` was removed (DUP-1, TASK-0226): it duplicated the
-// `TokeiIngestor::load` path for no benefit. These tests now exercise the
-// ingestor directly, which is the single supported entry point.
+// `TokeiIngestor::load` is the single supported entry point for loading
+// staged tokei data; these tests drive it directly.
 
 #[test]
 fn ingestor_load_errors_when_json_missing() {
     let data_dir = tempfile::tempdir().expect("tempdir");
-    // SEC-25 / TASK-2054: ingestors stage through a verified anchor, so the
+    // Ingestors stage through a verified anchor, so the
     // test drives the same handle `provide_via_ingestor` builds.
     let dir =
         ops_sqlite::IngestDir::open(&data_dir.path().join("ingest")).expect("open ingest dir");
@@ -636,7 +622,7 @@ fn ingestor_load_errors_when_json_missing() {
 fn load_tokei_succeeds_after_collect() {
     let project = fixture_project();
     let data_dir = tempfile::tempdir().expect("tempdir");
-    // SEC-25 / TASK-2054: ingestors stage through a verified anchor, so the
+    // Ingestors stage through a verified anchor, so the
     // test drives the same handle `provide_via_ingestor` builds.
     let dir =
         ops_sqlite::IngestDir::open(&data_dir.path().join("ingest")).expect("open ingest dir");
@@ -666,10 +652,9 @@ fn load_tokei_succeeds_after_collect() {
     assert_eq!(count, i64::try_from(FIXTURE_FILE_COUNT).expect("fits"));
 }
 
-// TEST-1 (TASK-1978): the single-entry-point invariant used to live here as a
-// test with a fully commented-out body, which could never fail. It is now a
-// `compile_fail` doctest on the crate root, which actually breaks when
-// `load_tokei` is reintroduced.
+// The single-entry-point invariant is enforced by a `compile_fail` doctest
+// on the crate root: a second load entry point fails compilation instead
+// of silently coexisting with `TokeiIngestor::load`.
 
 // -- query_tokei_files tests --
 
@@ -677,7 +662,7 @@ fn load_tokei_succeeds_after_collect() {
 fn query_tokei_files_returns_json_array() {
     let project = fixture_project();
     let data_dir = tempfile::tempdir().expect("tempdir");
-    // SEC-25 / TASK-2054: ingestors stage through a verified anchor, so the
+    // Ingestors stage through a verified anchor, so the
     // test drives the same handle `provide_via_ingestor` builds.
     let dir =
         ops_sqlite::IngestDir::open(&data_dir.path().join("ingest")).expect("open ingest dir");
@@ -709,7 +694,7 @@ fn query_tokei_files_returns_json_array() {
 fn tokei_ingestor_collect_empty_dir() {
     let workspace = tempfile::tempdir().expect("tempdir");
     let data_dir = tempfile::tempdir().expect("data tempdir");
-    // SEC-25 / TASK-2054: ingestors stage through a verified anchor, so the
+    // Ingestors stage through a verified anchor, so the
     // test drives the same handle `provide_via_ingestor` builds.
     let dir =
         ops_sqlite::IngestDir::open(&data_dir.path().join("ingest")).expect("open ingest dir");
@@ -732,7 +717,7 @@ fn tokei_ingestor_collect_empty_dir() {
 #[test]
 fn tokei_ingestor_load_without_collect_fails() {
     let data_dir = tempfile::tempdir().expect("tempdir");
-    // SEC-25 / TASK-2054: ingestors stage through a verified anchor, so the
+    // Ingestors stage through a verified anchor, so the
     // test drives the same handle `provide_via_ingestor` builds.
     let dir =
         ops_sqlite::IngestDir::open(&data_dir.path().join("ingest")).expect("open ingest dir");
@@ -756,7 +741,7 @@ fn flatten_tokei_with_unrelated_prefix_keeps_full_path() {
 
     // Use a root that shares no prefix with the fixture. Built from the
     // platform's own root component so the test carries no unix-only path
-    // assumption (TEST-18, TASK-1977).
+    // assumption.
     let unrelated_root = std::env::temp_dir().join("ops-tokei-unrelated-root");
     let result = serde_json::Value::Array(flatten_tokei_records(&languages, &unrelated_root));
     let arr = result.as_array().unwrap();
@@ -778,13 +763,9 @@ fn flatten_tokei_with_unrelated_prefix_keeps_full_path() {
 
 // -- views tests --
 //
-// SQLite port note: the former `tokei_files_create_sql_with_real_json` test
-// asserted the shape of the DuckDB builder that interpolated the staged JSON
-// path into `read_json_auto('<path>')`. That builder is gone — `tokei_files`
-// now loads from the const `views::TOKEI_FILES_LOAD` spec with the staged
-// bytes bound as a parameter. Its two halves survive elsewhere: the DDL-shape
-// assertions live in `views::tests::tokei_files_load_declares_typed_quoted_columns`,
-// and the real-fixture collect→load→query path in
+// DDL-shape assertions for the `views::TOKEI_FILES_LOAD` spec live in
+// `views::tests::tokei_files_load_declares_typed_quoted_columns`; the
+// real-fixture collect→load→query path is pinned by
 // `tokei_languages_view_aggregates_correctly` below.
 
 // -- SQLite query correctness --
@@ -793,7 +774,7 @@ fn flatten_tokei_with_unrelated_prefix_keeps_full_path() {
 fn tokei_languages_view_aggregates_correctly() {
     let project = fixture_project();
     let data_dir = tempfile::tempdir().expect("tempdir");
-    // SEC-25 / TASK-2054: ingestors stage through a verified anchor, so the
+    // Ingestors stage through a verified anchor, so the
     // test drives the same handle `provide_via_ingestor` builds.
     let dir =
         ops_sqlite::IngestDir::open(&data_dir.path().join("ingest")).expect("open ingest dir");
@@ -843,17 +824,16 @@ fn tokei_languages_view_aggregates_correctly() {
     assert_eq!(distinct_langs, FIXTURE_LANGUAGE_COUNT);
 }
 
-// -- SEC-33 / TASK-2052: the walk honours the dispatch deadline --
+// -- the walk honours the dispatch deadline --
 
-/// AC #2: with a budget already spent, the provider must abort *during* the
+/// With a budget already spent, the provider must abort *during* the
 /// walk rather than run it to completion and be told afterwards.
 ///
 /// Driven through `DataRegistry::provide`, which is what installs the
 /// deadline, so this pins the dispatch path an operator's dispatch takes —
-/// not just `scan_tokei`'s parameter. TASK-2156 correction: with no
-/// database attached this exercises the **fallback branch** of
-/// `try_provide_from_db` only; the ingest branch (a `Sqlite` attached,
-/// `tokei_files` empty) is pinned by
+/// not just `scan_tokei`'s parameter. With no database attached this
+/// exercises the **fallback branch** of `try_provide_from_db` only; the
+/// ingest branch (a `Sqlite` attached, `tokei_files` empty) is pinned by
 /// `a_spent_budget_keeps_the_typed_timeout_on_the_ingest_path` below. The
 /// control run shows the same tree scans cleanly, so the failure is the
 /// deadline and not the fixture.
@@ -885,14 +865,14 @@ fn a_spent_budget_aborts_the_tokei_walk_with_a_typed_timeout() {
     );
 }
 
-/// AC #3 / TASK-2156: the production shape is the **ingest path** — a
+/// The production shape is the **ingest path** — a
 /// `Sqlite` attached and `tokei_files` empty, so dispatch runs
 /// `provide_via_ingestor` → `TokeiIngestor::collect` → `external_err` →
-/// the orchestrator's context wrap. That wrap used to erase the typed
-/// `TimedOut` into `ComputationFailed` (anyhow cannot recurse into a
-/// foreign `DbError` payload); the orchestrator now re-raises typed
-/// payloads through an anyhow-internal context, and this test pins the
-/// variant surviving the whole way out.
+/// the orchestrator's context wrap. The orchestrator re-raises typed
+/// payloads through an anyhow-internal context (a plain context wrap
+/// would erase the typed `TimedOut` into `ComputationFailed`, since
+/// anyhow cannot recurse into a foreign `DbError` payload), and this
+/// test pins the variant surviving the whole way out.
 #[test]
 fn a_spent_budget_keeps_the_typed_timeout_on_the_ingest_path() {
     let dir = fixture_project();
