@@ -49,7 +49,7 @@ ops_extension::impl_extension! {
     description: DESCRIPTION,
     shortname: SHORTNAME,
     types: ExtensionType::DATASOURCE,
-    stack: Some(ops_extension::Stack::Go),
+    stack: Some(ops_core::stack::Stack::Go),
     data_provider_name: Some(DATA_PROVIDER_NAME),
     register_data_providers: |_self, registry| {
         let _ = registry.register(DATA_PROVIDER_NAME, Box::new(GoIdentityProvider));

@@ -58,7 +58,7 @@ ops_extension::impl_extension! {
     description: DESCRIPTION,
     shortname: SHORTNAME,
     types: ExtensionType::DATASOURCE,
-    stack: Some(ops_extension::Stack::Terraform),
+    stack: Some(ops_core::stack::Stack::Terraform),
     data_provider_name: Some(DATA_PROVIDER_NAME),
     register_data_providers: |_self, registry| {
         let _ = registry.register(DATA_PROVIDER_NAME, Box::new(TerraformIdentityProvider));
@@ -1163,7 +1163,8 @@ mod tests {
     // rather than four times.
     use ops_about::test_support::{capture_warn, write_file as write};
     use ops_core::project_identity::ProjectIdentity;
-    use ops_extension::{DataRegistry, Extension, Stack};
+    use ops_core::stack::Stack;
+    use ops_extension::{DataRegistry, Extension};
 
     // The crate's public surface is the `Extension` impl, so it is exercised
     // directly here: a drift between `DATA_PROVIDER_NAME` and the

@@ -51,7 +51,7 @@ ops_extension::impl_extension! {
     description: DESCRIPTION,
     shortname: SHORTNAME,
     types: ExtensionType::DATASOURCE,
-    stack: Some(ops_extension::Stack::Node),
+    stack: Some(ops_core::stack::Stack::Node),
     data_provider_name: Some(DATA_PROVIDER_NAME),
     register_data_providers: |_self, registry| {
         let _ = registry.register(DATA_PROVIDER_NAME, Box::new(NodeIdentityProvider));
@@ -520,7 +520,7 @@ mod tests {
         assert_eq!(name, NAME);
         assert_eq!(Extension::name(ext.as_ref()), "about-node");
         assert_eq!(ext.shortname(), SHORTNAME);
-        assert_eq!(ext.stack(), Some(ops_extension::Stack::Node));
+        assert_eq!(ext.stack(), Some(ops_core::stack::Stack::Node));
         assert!(ext.types().is_datasource());
         assert_eq!(ext.data_provider_name(), Some(DATA_PROVIDER_NAME));
     }

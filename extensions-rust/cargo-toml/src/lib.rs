@@ -169,7 +169,7 @@ ops_extension::impl_extension! {
     description: DESCRIPTION,
     shortname: SHORTNAME,
     types: ExtensionType::DATASOURCE,
-    stack: Some(ops_extension::Stack::Rust),
+    stack: Some(ops_core::stack::Stack::Rust),
     data_provider_name: Some(DATA_PROVIDER_NAME),
     register_data_providers: |this, registry| {
         let provider = this

@@ -536,7 +536,7 @@ ops_extension::impl_extension! {
     description: DESCRIPTION,
     shortname: SHORTNAME,
     types: ExtensionType::DATASOURCE | ExtensionType::COMMAND,
-    stack: Some(ops_extension::Stack::Rust),
+    stack: Some(ops_core::stack::Stack::Rust),
     command_names: &["deps"],
     data_provider_name: Some(DATA_PROVIDER_NAME),
     register_commands: |_self, registry| {
