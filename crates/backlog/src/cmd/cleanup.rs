@@ -89,52 +89,13 @@ fn cleanup_with<W: Write>(
     };
 
     let entries = store.scan_tasks()?;
-    let terminal_tasks: Vec<&TaskEntry> = entries
-        .iter()
-        .filter(|e| e.doc.frontmatter.status.eq_ignore_ascii_case(terminal))
-        .collect();
-    if terminal_tasks.is_empty() {
-        writeln!(out, "No {terminal} tasks found to clean up.")
-            .context("printing the no-terminal-tasks notice")?;
-        return Ok(());
-    }
-    writeln!(
-        out,
-        "Found {} tasks marked as {terminal}.",
-        terminal_tasks.len()
-    )
-    .context("printing the terminal-status count")?;
-
     let cutoff = env
         .now
         .checked_sub_days(Days::new(u64::from(opts.older_than_days)))
         .context("computing the cleanup cutoff")?;
-    let aged: Vec<&&TaskEntry> = terminal_tasks
-        .iter()
-        .filter(|e| is_older_than(e, cutoff))
-        .collect();
+    let aged = preview_aged_tasks(&entries, terminal, cutoff, opts.older_than_days, out)?;
     if aged.is_empty() {
-        writeln!(
-            out,
-            "No tasks found that are older than {} days.",
-            opts.older_than_days
-        )
-        .context("printing the no-aged-tasks notice")?;
         return Ok(());
-    }
-
-    writeln!(
-        out,
-        "Found {} tasks older than {} days:",
-        aged.len(),
-        opts.older_than_days
-    )
-    .context("printing the aged-task count")?;
-    for entry in &aged {
-        let fm = &entry.doc.frontmatter;
-        let date = fm.updated_date.as_deref().unwrap_or(&fm.created_date);
-        writeln!(out, "  - {}: {} ({date})", fm.id, fm.title)
-            .context("printing an aged-task row")?;
     }
 
     if opts.dry_run {
@@ -151,23 +112,92 @@ fn cleanup_with<W: Write>(
         return Ok(());
     }
 
+    move_aged_tasks(&aged, store)?;
+    writeln!(out, "Moved {} tasks to completed folder.", aged.len())
+        .context("printing the moved summary")?;
+    Ok(())
+}
+
+/// Narrate the selection and return the tasks cleanup would move: the
+/// terminal-status tasks older than the cutoff, in scan order. An empty
+/// selection has already said why — no terminal-status tasks, or none old
+/// enough.
+///
+/// # Errors
+///
+/// Writing `out` failed.
+fn preview_aged_tasks<'a, W: Write>(
+    entries: &'a [TaskEntry],
+    terminal: &str,
+    cutoff: DateTime<Utc>,
+    older_than_days: u32,
+    out: &mut W,
+) -> anyhow::Result<Vec<&'a TaskEntry>> {
+    let terminal_tasks: Vec<&TaskEntry> = entries
+        .iter()
+        .filter(|e| e.doc.frontmatter.status.eq_ignore_ascii_case(terminal))
+        .collect();
+    if terminal_tasks.is_empty() {
+        writeln!(out, "No {terminal} tasks found to clean up.")
+            .context("printing the no-terminal-tasks notice")?;
+        return Ok(Vec::new());
+    }
+    writeln!(
+        out,
+        "Found {} tasks marked as {terminal}.",
+        terminal_tasks.len()
+    )
+    .context("printing the terminal-status count")?;
+
+    let aged: Vec<&TaskEntry> = terminal_tasks
+        .into_iter()
+        .filter(|e| is_older_than(e, cutoff))
+        .collect();
+    if aged.is_empty() {
+        writeln!(
+            out,
+            "No tasks found that are older than {older_than_days} days."
+        )
+        .context("printing the no-aged-tasks notice")?;
+        return Ok(Vec::new());
+    }
+
+    writeln!(
+        out,
+        "Found {} tasks older than {older_than_days} days:",
+        aged.len()
+    )
+    .context("printing the aged-task count")?;
+    for entry in &aged {
+        let fm = &entry.doc.frontmatter;
+        let date = fm.updated_date.as_deref().unwrap_or(&fm.created_date);
+        writeln!(out, "  - {}: {} ({date})", fm.id, fm.title)
+            .context("printing an aged-task row")?;
+    }
+    Ok(aged)
+}
+
+/// Move the aged selection into `completed/`, preflighting every destination
+/// before the first move: a collision found only when its turn comes would
+/// leave the earlier files already moved — a partial cleanup.
+/// [`move_to_completed`] itself claims each destination atomically, guarding
+/// against a file appearing in `completed/` in between.
+///
+/// # Errors
+///
+/// Creating `completed/` failed, a destination is already taken, or a move
+/// failed — each error names the paths involved.
+fn move_aged_tasks(aged: &[&TaskEntry], store: &Store) -> anyhow::Result<()> {
     let completed = store.completed_dir();
     std::fs::create_dir_all(&completed)
         .with_context(|| format!("creating {}", completed.display()))?;
-    // Preflight every destination before the first move: a collision found
-    // only when its turn comes would leave the earlier files already moved —
-    // a partial cleanup. [`move_to_completed`] itself claims each destination
-    // atomically, guarding against a file appearing in `completed/` in
-    // between.
-    for entry in &aged {
+    for entry in aged {
         let to = destination_for(&entry.path, &completed)?;
         ensure_destination_free(&entry.path, &to)?;
     }
-    for entry in &aged {
+    for entry in aged {
         move_to_completed(&entry.path, &completed)?;
     }
-    writeln!(out, "Moved {} tasks to completed folder.", aged.len())
-        .context("printing the moved summary")?;
     Ok(())
 }
 
