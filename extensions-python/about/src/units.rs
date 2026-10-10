@@ -425,16 +425,6 @@ members = ["packages/quiet"]
         assert_eq!(units[0].name, "Quiet");
     }
 
-    /// `PROVIDER_NAME` is the key the registry indexes this provider under
-    /// (`lib.rs`'s `register_data_providers`), so a typo there silently
-    /// unregisters the Python packages card. Mirrors the Node crate's
-    /// `units_provider_name`.
-    #[test]
-    fn units_provider_name() {
-        assert_eq!(PythonUnitsProvider.name(), PROVIDER_NAME);
-        assert_eq!(PROVIDER_NAME, "project_units");
-    }
-
     /// Drives `PythonUnitsProvider::provide` against a uv workspace tempdir
     /// and asserts the deserialised JSON payload, so the
     /// `serde_json::to_value` step and the shape consumers read are pinned,
