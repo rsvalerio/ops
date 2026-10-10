@@ -42,7 +42,7 @@ pub struct GoMod {
 
 pub fn parse(dir: &Path) -> Option<GoMod> {
     let path = dir.join("go.mod");
-    let content = ops_about::manifest_io::read_optional_text(&path, "go.mod")?;
+    let content = ops_about::manifest_io::read_optional_text(&path, dir, "go.mod")?;
 
     let mut out = GoMod::default();
     let mut block: Option<Block> = None;
