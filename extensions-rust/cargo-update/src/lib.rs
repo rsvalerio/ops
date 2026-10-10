@@ -178,6 +178,18 @@ pub struct CargoUpdateResult {
 /// `OPS_SUBPROCESS_TIMEOUT_SECS`.
 pub const CARGO_UPDATE_TIMEOUT: Duration = Duration::from_mins(2);
 
+/// Lines of stderr retained in the error message when `cargo update --dry-run`
+/// exits non-zero.
+///
+/// Pinned to cargo's error-report shape: cargo prints the actionable
+/// diagnosis — the `error:` line, its cause chain, and the `warning:` lines
+/// that precede a failed resolution — at the *end* of stderr, so a 10-line
+/// tail captures the whole diagnosis for typical failures while keeping the
+/// error message bounded on noisy registry-heavy runs. Lower it and the
+/// cause line (printed last) can fall off the tail; raise it and the
+/// operator reads reconfiguration noise before the error.
+const STDERR_TAIL_LINES: usize = 10;
+
 /// Argv handed to `cargo` by [`run_cargo_update_dry_run`].
 const CARGO_UPDATE_ARGS: &[&str] = &["update", "--dry-run"];
 
@@ -244,10 +256,7 @@ pub fn parse_update_output(stderr: &[u8]) -> CargoUpdateResult {
     let mut entries = Vec::new();
     // Accumulate per-action counts during the parse loop so `entries` is
     // walked once rather than once per action afterwards.
-    let mut update_count = 0usize;
-    let mut downgrade_count = 0usize;
-    let mut add_count = 0usize;
-    let mut remove_count = 0usize;
+    let mut counts = ActionCounts::default();
 
     for line in text.lines() {
         let trimmed = line.trim();
@@ -259,70 +268,105 @@ pub fn parse_update_output(stderr: &[u8]) -> CargoUpdateResult {
         let clean_cow = strip_ansi_preserving_raw(trimmed);
         let clean = clean_cow.trim();
 
-        // Skip noise lines. `Unchanged` is the verbose-only arm of cargo's
-        // lockfile-change printer and carries no change, so it is filtered
-        // deliberately here rather than falling through as unrecognised.
-        if clean.is_empty()
-            || clean.starts_with("Locking")
-            || clean.starts_with("Unchanged")
-            || clean.starts_with("warning:")
-            || clean.starts_with("note:")
-        {
+        if is_noise_line(clean) {
             continue;
         }
 
-        // Skip the "Updating <registry> index" noise line, matching only its
-        // exact documented forms. Matching `index` anywhere in the line would
-        // drop legitimate updates for crates whose names contain it (e.g.
-        // `Updating indexer v1.0.0 -> v1.0.1`), so the shape test keys on token
-        // position instead, independent of registry naming.
-        if clean.starts_with("Updating") && is_index_progress_line(clean) {
-            continue;
-        }
-
-        match parse_action_line(clean) {
-            ActionLineOutcome::Parsed(entry) => {
-                // At most one increment per line of the in-memory `stderr`
-                // string, whose length is bounded by `isize::MAX`, so
-                // `saturating_add` equals `+= 1` exactly.
-                match entry.action() {
-                    UpdateAction::Update => update_count = update_count.saturating_add(1),
-                    UpdateAction::Downgrade => downgrade_count = downgrade_count.saturating_add(1),
-                    UpdateAction::Add => add_count = add_count.saturating_add(1),
-                    UpdateAction::Remove => remove_count = remove_count.saturating_add(1),
-                }
-                entries.push(entry);
-            }
-            // The verb matched but a field failed validation. Such a line is
-            // never published as an entry, and never dropped silently either.
-            ActionLineOutcome::Rejected(reason) => {
-                tracing::warn!(
-                    line = ?clean,
-                    reason,
-                    "skipping cargo-update line whose parsed fields failed validation"
-                );
-            }
-            // A line that begins with a known verb but did not parse most
-            // likely indicates cargo-update format drift. It is logged at warn
-            // so the resulting count regression is observable at the default
-            // log level; at debug it would disappear.
-            ActionLineOutcome::NoMatch => {
-                if starts_with_known_verb(clean) {
-                    tracing::warn!(
-                        line = ?clean,
-                        "skipping cargo-update line that begins with a known verb but did not parse — possible format drift"
-                    );
-                }
-            }
-        }
+        absorb_outcome(parse_action_line(clean), clean, &mut counts, &mut entries);
     }
 
     CargoUpdateResult {
         entries,
-        update_count,
-        downgrade_count,
-        add_count,
-        remove_count,
+        update_count: counts.update,
+        downgrade_count: counts.downgrade,
+        add_count: counts.add,
+        remove_count: counts.remove,
+    }
+}
+
+/// Per-action running counts, accumulated during the parse loop so `entries`
+/// is walked once rather than once per action afterwards.
+#[derive(Default)]
+struct ActionCounts {
+    update: usize,
+    downgrade: usize,
+    add: usize,
+    remove: usize,
+}
+
+impl ActionCounts {
+    /// Count one parsed entry's action. At most one increment per line of the
+    /// in-memory `stderr` string, whose length is bounded by `isize::MAX`, so
+    /// `saturating_add` equals `+= 1` exactly.
+    const fn bump(&mut self, action: UpdateAction) {
+        match action {
+            UpdateAction::Update => self.update = self.update.saturating_add(1),
+            UpdateAction::Downgrade => self.downgrade = self.downgrade.saturating_add(1),
+            UpdateAction::Add => self.add = self.add.saturating_add(1),
+            UpdateAction::Remove => self.remove = self.remove.saturating_add(1),
+        }
+    }
+}
+
+/// `true` iff `clean` (an ANSI-stripped, trimmed stderr line) carries no
+/// dependency-change information and should not reach the action parser.
+///
+/// Covers blank lines, cargo's progress/noise prefixes, and the
+/// `Updating <registry> index` shape. `Unchanged` is the verbose-only arm of
+/// cargo's lockfile-change printer and carries no change, so it is filtered
+/// deliberately here rather than falling through as unrecognised.
+fn is_noise_line(clean: &str) -> bool {
+    if clean.is_empty()
+        || clean.starts_with("Locking")
+        || clean.starts_with("Unchanged")
+        || clean.starts_with("warning:")
+        || clean.starts_with("note:")
+    {
+        return true;
+    }
+    // The index-progress test matches only its exact documented forms.
+    // Matching `index` anywhere in the line would drop legitimate updates for
+    // crates whose names contain it (e.g. `Updating indexer v1.0.0 ->
+    // v1.0.1`), so the shape test keys on token position instead, independent
+    // of registry naming.
+    clean.starts_with("Updating") && is_index_progress_line(clean)
+}
+
+/// Fold one line's parse outcome into the accumulating result: a parsed entry
+/// is counted and stored; a rejected or drift-suspect line warns so it is
+/// never dropped silently.
+fn absorb_outcome(
+    outcome: ActionLineOutcome,
+    clean: &str,
+    counts: &mut ActionCounts,
+    entries: &mut Vec<UpdateEntry>,
+) {
+    match outcome {
+        ActionLineOutcome::Parsed(entry) => {
+            counts.bump(entry.action());
+            entries.push(entry);
+        }
+        // The verb matched but a field failed validation. Such a line is
+        // never published as an entry, and never dropped silently either.
+        ActionLineOutcome::Rejected(reason) => {
+            tracing::warn!(
+                line = ?clean,
+                reason,
+                "skipping cargo-update line whose parsed fields failed validation"
+            );
+        }
+        // A line that begins with a known verb but did not parse most
+        // likely indicates cargo-update format drift. It is logged at warn
+        // so the resulting count regression is observable at the default
+        // log level; at debug it would disappear.
+        ActionLineOutcome::NoMatch => {
+            if starts_with_known_verb(clean) {
+                tracing::warn!(
+                    line = ?clean,
+                    "skipping cargo-update line that begins with a known verb but did not parse — possible format drift"
+                );
+            }
+        }
     }
 }
 
@@ -646,7 +690,7 @@ fn interpret_output(output: &Output) -> Result<serde_json::Value, DataProviderEr
     // updates available" for a failed invocation — so the error is surfaced
     // instead, matching sibling providers (test-coverage, metadata, deps).
     if !output.status.success() {
-        let stderr_tail = format_error_tail(&output.stderr, 10);
+        let stderr_tail = format_error_tail(&output.stderr, STDERR_TAIL_LINES);
         // `format_error_tail` normalises CR/CRLF/bare-CR but does NOT scrub
         // other C0 control bytes (ESC `\x1b`, BEL, NUL, ...). Cargo's stderr is
         // influenced by crate names, version strings and registry metadata —
