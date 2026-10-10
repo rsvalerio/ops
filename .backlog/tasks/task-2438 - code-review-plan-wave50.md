@@ -1,10 +1,10 @@
 ---
 id: TASK-2438
 title: 'code-review-plan-wave50'
-status: To Do
+status: Done
 assignee: []
 created_date: '2026-10-10 14:31'
-updated_date: '2026-10-10 14:32'
+updated_date: '2026-10-10 14:53'
 labels:
   - code-review-wave
 dependencies:
@@ -40,4 +40,8 @@ Both findings live in the extensions-rust/foundation crate: the check/scaffold t
 
 <!-- SECTION:NOTES:BEGIN -->
 Overlaps: none
+
+Branch: code-review/TASK-2438
+Worktree: /home/rsvalerio/projects/.wave-TASK-2438
+
 <!-- SECTION:NOTES:END -->
