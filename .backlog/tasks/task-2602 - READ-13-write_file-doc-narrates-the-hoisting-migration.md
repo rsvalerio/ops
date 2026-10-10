@@ -1,10 +1,10 @@
 ---
 id: TASK-2602
 title: 'READ-13: write_file doc narrates the hoisting migration'
-status: To Do
+status: Done
 assignee: []
 created_date: '2026-10-10 20:49'
-updated_date: '2026-10-10 21:12'
+updated_date: '2026-10-10 21:56'
 labels:
   - code-review-rust
   - read
@@ -29,6 +29,7 @@ dedup_key: 'READ-13:extensions/about/src/test_support.rs:write_file'
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 write_file doc states behavior and failure semantics only; the hoisting/migration narration is removed
-- [ ] #2 Module docs state where the tracing harness lives and why without narrating the relocation history
+- [x] #1 write_file doc states behavior and failure semantics only; the hoisting/migration narration is removed
+- [x] #2 Module docs state where the tracing harness lives and why without narrating the relocation history
+
 <!-- AC:END -->

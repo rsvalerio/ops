@@ -1,10 +1,10 @@
 ---
 id: TASK-2600
 title: 'READ-13: render_card comment narrates the superseded implementation'
-status: To Do
+status: Done
 assignee: []
 created_date: '2026-10-10 20:48'
-updated_date: '2026-10-10 21:12'
+updated_date: '2026-10-10 21:53'
 labels:
   - code-review-rust
   - read
@@ -29,5 +29,6 @@ dedup_key: 'READ-13:extensions/about/src/cards.rs:render_card'
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 Comment states why the borrowed form is correct without referencing a prior implementation or review rule IDs
+- [x] #1 Comment states why the borrowed form is correct without referencing a prior implementation or review rule IDs
+
 <!-- AC:END -->

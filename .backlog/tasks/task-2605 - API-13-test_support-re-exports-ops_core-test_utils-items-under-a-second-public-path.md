@@ -1,10 +1,10 @@
 ---
 id: TASK-2605
 title: 'API-13: test_support re-exports ops_core::test_utils items under a second public path'
-status: To Do
+status: Done
 assignee: []
 created_date: '2026-10-10 20:50'
-updated_date: '2026-10-10 21:12'
+updated_date: '2026-10-10 21:56'
 labels:
   - code-review-rust
   - api
@@ -29,6 +29,7 @@ dedup_key: 'API-13:extensions/about/src/test_support.rs:test_support'
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 About-family test modules import the tracing-capture harness from ops_core::test_utils directly
-- [ ] #2 The re-export (and its justification docs) is removed, or the re-export is kept with a triaged decision recorded on this task
+- [x] #1 About-family test modules import the tracing-capture harness from ops_core::test_utils directly
+- [x] #2 The re-export (and its justification docs) is removed, or the re-export is kept with a triaged decision recorded on this task
+
 <!-- AC:END -->

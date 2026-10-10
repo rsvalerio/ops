@@ -1,10 +1,10 @@
 ---
 id: TASK-2606
 title: 'FN-1: six production functions in ops-about exceed the 50-line threshold'
-status: To Do
+status: Done
 assignee: []
 created_date: '2026-10-10 20:50'
-updated_date: '2026-10-10 21:12'
+updated_date: '2026-10-10 21:53'
 labels:
   - code-review-rust
   - fn
@@ -42,7 +42,8 @@ dedup_key: 'FN-1:extensions/about/src/text_util.rs:wrap_text'
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 wrap_text extracts the ellipsis fixup and the per-line width enforcement into named helpers
-- [ ] #2 enrich_from_db collapses the four query match blocks behind one helper
-- [ ] #3 Remaining candidates either drop under ~50 lines or get a triaged accept with rationale
+- [x] #1 wrap_text extracts the ellipsis fixup and the per-line width enforcement into named helpers
+- [x] #2 enrich_from_db collapses the four query match blocks behind one helper
+- [x] #3 Remaining candidates either drop under ~50 lines or get a triaged accept with rationale
+
 <!-- AC:END -->

@@ -1,10 +1,10 @@
 ---
 id: TASK-2604
 title: 'API-14: many public struct fields in ops-about carry no doc summary'
-status: To Do
+status: Done
 assignee: []
 created_date: '2026-10-10 20:49'
-updated_date: '2026-10-10 21:12'
+updated_date: '2026-10-10 21:57'
 labels:
   - code-review-rust
   - api
@@ -41,5 +41,6 @@ Neighboring types (`MachineReport`, `CargoSettings`, `UnitRecord`, `AboutOptions
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 Every public field of the listed structs has a doc summary line
+- [x] #1 Every public field of the listed structs has a doc summary line
+
 <!-- AC:END -->

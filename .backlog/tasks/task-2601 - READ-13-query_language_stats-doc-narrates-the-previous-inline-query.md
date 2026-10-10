@@ -1,10 +1,10 @@
 ---
 id: TASK-2601
 title: 'READ-13: query_language_stats doc narrates the previous inline query'
-status: To Do
+status: Done
 assignee: []
 created_date: '2026-10-10 20:49'
-updated_date: '2026-10-10 21:12'
+updated_date: '2026-10-10 21:53'
 labels:
   - code-review-rust
   - read
@@ -29,5 +29,6 @@ dedup_key: 'READ-13:extensions/about/src/code.rs:query_language_stats'
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 Doc states that the helper delegates to the shared canonical query, with no reference to a previous implementation
+- [x] #1 Doc states that the helper delegates to the shared canonical query, with no reference to a previous implementation
+
 <!-- AC:END -->

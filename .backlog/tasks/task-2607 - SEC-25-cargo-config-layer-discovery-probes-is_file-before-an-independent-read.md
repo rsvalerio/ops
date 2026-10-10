@@ -1,10 +1,10 @@
 ---
 id: TASK-2607
 title: 'SEC-25: cargo config layer discovery probes is_file() before an independent read'
-status: To Do
+status: Done
 assignee: []
 created_date: '2026-10-10 20:51'
-updated_date: '2026-10-10 21:12'
+updated_date: '2026-10-10 21:59'
 labels:
   - code-review-rust
   - sec
@@ -29,6 +29,7 @@ dedup_key: 'SEC-25:extensions/about/src/machine.rs:config_layers'
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 config_layers selects between config/config.toml by attempting the read (NotFound/parse-failure falls back) rather than an is_file pre-probe
-- [ ] #2 push_with_includes drops the is_file pre-probe for optional includes and decides optionality from the read result
+- [x] #1 config_layers selects between config/config.toml by attempting the read (NotFound/parse-failure falls back) rather than an is_file pre-probe
+- [x] #2 push_with_includes drops the is_file pre-probe for optional includes and decides optionality from the read result
+
 <!-- AC:END -->

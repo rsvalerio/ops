@@ -1,10 +1,10 @@
 ---
 id: TASK-2603
 title: 'READ-13: deserialize_payload doc self-reports review-rule compliance'
-status: To Do
+status: Done
 assignee: []
 created_date: '2026-10-10 20:49'
-updated_date: '2026-10-10 21:12'
+updated_date: '2026-10-10 21:56'
 labels:
   - code-review-rust
   - read
@@ -29,6 +29,7 @@ dedup_key: 'READ-13:extensions/about/src/providers.rs:deserialize_payload'
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 Doc explains the field-path context behavior without citing review rule IDs
-- [ ] #2 No enumeration of sibling call sites that must "not" do something (state what this function does instead)
+- [x] #1 Doc explains the field-path context behavior without citing review rule IDs
+- [x] #2 No enumeration of sibling call sites that must "not" do something (state what this function does instead)
+
 <!-- AC:END -->
