@@ -57,11 +57,10 @@ pub struct LoadedManifest {
 impl LoadedManifest {
     fn new(manifest: CargoToml, workspace_root: Arc<PathBuf>) -> Self {
         // ERR-1 / TASK-1076: resolve workspace members into a sibling field
-        // instead of mutating `manifest.workspace.members` in place. The
-        // previous mutation flattened `["crates/*"]` to the expanded list on
-        // the cached Arc, hiding the original glob spec from any future
-        // consumer (linter, doc generator) and silently no-op'ing any
-        // re-expansion attempt.
+        // instead of mutating `manifest.workspace.members` in place:
+        // overwriting the spec with the expanded list on the cached Arc would
+        // hide the original glob spec from any future consumer (linter, doc
+        // generator) and silently no-op any re-expansion attempt.
         let resolved_members = Arc::new(resolved_workspace_members(
             &manifest,
             workspace_root.as_path(),
@@ -185,8 +184,8 @@ pub fn log_manifest_load_failure(err: &DataProviderError) {
 fn is_manifest_missing(err: &(dyn std::error::Error + 'static)) -> bool {
     // ARCH-2 / TASK-0871: prefer the typed `FindWorkspaceRootError::NotFound`
     // marker so wrapping context layers added by future callers don't silently
-    // mask the "missing manifest" signal. The legacy `io::ErrorKind::NotFound`
-    // chain-walk is retained as a fallback for IO errors raised outside the
+    // mask the "missing manifest" signal. The `io::ErrorKind::NotFound`
+    // chain-walk below is the fallback for IO errors raised outside the
     // workspace-root walk (e.g. direct `read_to_string` failures).
     let mut current: Option<&(dyn std::error::Error + 'static)> = Some(err);
     while let Some(e) = current {
@@ -309,7 +308,7 @@ mod tests {
     /// PERF-3 / TASK-0969: the resolved-members list (post glob expansion)
     /// must survive across `load_workspace_manifest` calls without
     /// re-walking the filesystem. ERR-1 / TASK-1076: the resolved view is
-    /// now stored in a sibling field on `LoadedManifest` (the cached
+    /// stored in a sibling field on `LoadedManifest` (the cached
     /// `Arc<CargoToml>` keeps the original glob spec verbatim), so
     /// subsequent providers grab the resolved members from the cached
     /// `LoadedManifest::resolved_members` snapshot — verified here by
@@ -406,9 +405,9 @@ mod tests {
         );
 
         // The cached manifest's literal `[workspace].members` must still be
-        // the glob spec, NOT the expanded `["crates/foo"]`. Before TASK-1076
-        // this would have been the resolved list because the loader
-        // overwrote `ws.members` in place before caching.
+        // the glob spec, NOT the expanded `["crates/foo"]`: the loader stores
+        // the resolved list in a sibling field precisely so the spec survives
+        // on the cached Arc.
         assert_eq!(
             first.unexpanded_workspace_members_spec(),
             &["crates/*".to_string()][..],
@@ -432,10 +431,9 @@ mod tests {
     }
 
     /// CL-3 / TASK-1762: a cwd below the workspace root must still resolve the
-    /// root's own glob members. Before the fix the ancestor walk found the
-    /// root, parsed its manifest, then expanded `crates/*` by `read_dir`-ing
-    /// `<cwd>/crates` — which does not exist — so the member list came back
-    /// empty with no error.
+    /// root's own glob members — glob expansion must `read_dir` the root's
+    /// `crates/` directory, never `<cwd>/crates`, so a subdirectory cwd does
+    /// not silently yield an empty member list.
     #[serial_test::serial(typed_manifest_cache)]
     #[test]
     fn members_resolve_against_the_root_not_the_cwd() {
@@ -583,14 +581,11 @@ mod tests {
         );
     }
 
-    /// ERR-1 / TASK-2024: the classification built on top of that error is
-    /// what was inert. `SharedError::source()` skipped its own inner error and
-    /// `From<anyhow::Error>` stored anyhow's wrapper rather than the
-    /// originating error, so `is_manifest_missing`'s chain walk never reached
-    /// `FindWorkspaceRootError` and returned `false` — every directory that is
-    /// simply not a Rust project produced "failed to load workspace
-    /// Cargo.toml" at warn. The test above used to say so in prose and
-    /// deliberately declined to pin it; this pins the fixed behaviour.
+    /// ERR-1 / TASK-2024: a directory that is simply not a Rust project must
+    /// be classified as "missing", not reported as a failure. This requires
+    /// `is_manifest_missing`'s chain walk to actually reach the typed
+    /// `FindWorkspaceRootError` marker through `SharedError`'s source chain;
+    /// this test pins that classification end to end, at the debug log level.
     #[serial_test::serial(typed_manifest_cache)]
     #[test]
     fn a_missing_manifest_is_classified_as_not_found_and_logged_at_debug() {
