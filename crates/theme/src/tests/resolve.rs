@@ -73,7 +73,7 @@ fn resolve_theme_is_case_sensitive() {
 
 #[test]
 fn resolve_theme_owned_takes_ownership_no_clone() {
-    // OWN-4 / TASK-0836: the owning variant pulls the entry out of the map
+    // The owning variant pulls the entry out of the map
     // via swap_remove, so no ThemeConfig clone is performed.
     let mut themes = IndexMap::new();
     themes.insert("compact".into(), ThemeConfig::compact());

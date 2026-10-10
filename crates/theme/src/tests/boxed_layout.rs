@@ -75,7 +75,7 @@ fn boxed_bottom_border_shows_done_when_success() {
 
 #[test]
 fn boxed_bottom_border_shows_breakdown_when_not_success() {
-    // CL-3 / TASK-0771: bottom border now surfaces the succeeded/skipped/failed
+    // Bottom border now surfaces the succeeded/skipped/failed
     // breakdown instead of conflating terminal count with success count.
     let theme = boxed_theme();
     let bottom = theme
@@ -182,7 +182,7 @@ fn boxed_error_detail_aligns_mid_with_label_column() {
     );
 }
 
-/// FN-1 / TASK-1192 AC#2: pin gutter alignment for two `step_indent` widths
+/// Pin gutter alignment for two `step_indent` widths
 /// (0 and 2) so a future refactor of `boxed_error_indent_columns` cannot
 /// silently mis-align the error glyph column.
 #[test]
@@ -228,7 +228,7 @@ fn boxed_error_indent_tracks_step_indent_width() {
     );
 }
 
-/// PERF-3 / TASK-1130: pin the no-extra-allocation contract on the hot path.
+/// Pin the no-extra-allocation contract on the hot path.
 /// `wrap_step_line` must not allocate an intermediate `" ".repeat(n)` String
 /// per call and `render_separator` must not call `sep.to_string().repeat(n)` —
 /// in both cases the result String is built directly. We pin this by asserting

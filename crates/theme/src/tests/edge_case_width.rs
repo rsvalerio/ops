@@ -1,14 +1,13 @@
-//! TQ-010: extreme column widths and over-long labels must not panic or
+//! Extreme column widths and over-long labels must not panic or
 //! produce empty output. Also covers display-width invariants in
 //! `render_separator`.
 //!
-//! TEST-11 / TASK-1980: every test here that renders at a given `columns`
-//! value now asserts the produced line's *visible width* against that budget,
-//! not only that the line is non-empty. Two of these cases rendered lines
-//! three to ten times the requested width while the suite stayed green,
-//! because nothing looked at the width — which is exactly the defect CL-3 /
-//! TASK-1969 fixed. A budget of `0` means "unknown" (see the truncation
-//! policy in `configurable.rs`) and is the one case that is not clamped.
+//! Every test here that renders at a given `columns`
+//! value asserts the produced line's *visible width* against that budget,
+//! not only that the line is non-empty — a non-empty check alone cannot see
+//! a line that overruns its budget. A budget of `0` means "unknown" (see
+//! the truncation policy in `configurable.rs`) and is the one case that is
+//! not clamped.
 
 use super::*;
 use crate::style::{visible_width, ELLIPSIS};
@@ -80,7 +79,7 @@ fn render_failed_with_minimal_columns() {
     assert!(!line.is_empty());
 }
 
-/// TQ-010 + TEST-11 / TASK-1980 AC#2: a label longer than the column width is
+/// A label longer than the column width is
 /// truncated to the budget and marked with the ellipsis, rather than echoed
 /// back at three times the requested width.
 #[test]
@@ -103,9 +102,9 @@ fn render_label_longer_than_columns() {
     );
 }
 
-/// TEST-11 / TASK-1980 AC#3: the old bound here was `sep.len() <= 200`, a
-/// byte-length assertion with no relationship to the contract. The contract
-/// is that the separator never pushes the line past `columns`.
+/// The contract is that the separator never pushes the line past
+/// `columns` — a byte-length bound on the separator string has no
+/// relationship to that contract.
 #[test]
 fn render_separator_label_longer_than_columns() {
     let theme = ConfigurableTheme::new(ThemeConfig::classic());
@@ -126,7 +125,7 @@ fn render_separator_label_longer_than_columns() {
     assert_eq!(visible_width(&line), 80, "{line:?}");
 }
 
-/// READ-5/TASK-0351: a custom theme returning a multi-byte duration string
+/// A custom theme returning a multi-byte duration string
 /// (e.g. comma-decimal, leading wide glyph) must not cause the separator
 /// math to over-reserve width. The fixed-inside cost is computed in
 /// display columns, not UTF-8 bytes.
@@ -148,7 +147,7 @@ fn render_separator_uses_display_width_for_multi_byte_duration() {
     );
 }
 
-/// READ-5 / TASK-1971 AC#1: the separator is budgeted in *columns*, so a
+/// The separator is budgeted in *columns*, so a
 /// full-width separator glyph yields half as many repetitions and the same
 /// total width — not a line twice as wide as the budget it came from.
 #[test]
@@ -176,7 +175,7 @@ fn render_separator_budgets_wide_glyphs_in_columns() {
     );
 }
 
-/// READ-5 / TASK-1971 AC#4: a theme with a full-width separator *and* a
+/// A theme with a full-width separator *and* a
 /// two-column spinner glyph still produces a boxed step line exactly as wide
 /// as its border.
 #[test]
@@ -210,8 +209,8 @@ fn icon_column_width_handles_all_statuses() {
     assert!(width > 0, "icon column width should be positive");
 }
 
-/// PERF-3 / TASK-1975 AC#3: the accessor now returns a value computed once in
-/// the constructor — it must still report the widest `ALL_STATUSES` glyph,
+/// The accessor returns a value computed once in
+/// the constructor — it must report the widest `ALL_STATUSES` glyph,
 /// including for a theme whose custom icon is multi-column.
 #[test]
 fn icon_column_width_tracks_widest_custom_icon() {

@@ -1,12 +1,9 @@
 //! Error-block rendering: SGR wrapping rules around the rail/top/mid/bottom
 //! glyphs, gutter geometry, and width invariance under unknown color specs.
 //!
-//! TEST-25 / TASK-1979: these tests used to assert against a local copy of
-//! `render_error_block` — the function under test was never called, and the
-//! copy had already drifted (a hardcoded four-space gutter, no `left_pad`, no
-//! `stderr_tail` branch). They now drive the shipped renderer through its
-//! injected colour gate, so the properties they claim to pin are pinned on
-//! the code that ships.
+//! These tests drive the shipped renderer through its injected colour
+//! gate, so the properties they pin hold on the code that ships — not on a
+//! local copy of `render_error_block` that could drift from it.
 
 use super::*;
 use crate::render::render_error_block_gated;
@@ -70,7 +67,7 @@ fn error_block_unknown_color_does_not_change_display_width() {
     }
 }
 
-/// TEST-25 / TASK-1979 AC#3: the railless gutter is `icon_column_width + 3`
+/// The railless gutter is `icon_column_width + 3`
 /// spaces, not the four spaces the old copy hardcoded — so a theme with wider
 /// icons is covered by the same assertion.
 #[test]
@@ -92,7 +89,7 @@ fn error_block_gutter_width_tracks_icon_column_width() {
     }
 }
 
-/// TEST-25 / TASK-1979 AC#4: the `stderr_tail` branch — the header line plus
+/// The `stderr_tail` branch — the header line plus
 /// one line per captured entry — is part of the shipped renderer, and no
 /// colour test reached it while the suite asserted against a three-line copy.
 #[test]

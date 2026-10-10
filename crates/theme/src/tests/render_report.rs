@@ -169,7 +169,7 @@ fn boxed_theme_frames_the_report() {
     }
 }
 
-/// `render_summary_text` must reproduce the chrome of the legacy
+/// `render_summary_text` must reproduce the chrome of
 /// `render_summary` for the "Done in …" body — the split that lets reports
 /// reuse the runner's footer styling cannot drift.
 #[test]
@@ -184,11 +184,11 @@ fn render_summary_text_matches_render_summary_done_case() {
     }
 }
 
-/// READ-6 / TASK-1973 AC#3: a report row label that already carries an SGR
-/// sequence must not change the geometry. The layout used to measure the
-/// label prefix with the ANSI-blind `display_width` and the assembled line
-/// with the ANSI-aware `visible_width`, so the two halves of the same line
-/// disagreed by exactly the escape's byte length and the frame bent.
+/// A report row label that already carries an SGR
+/// sequence must not change the geometry: the label prefix and the
+/// assembled line must be measured with the same ANSI-aware
+/// `visible_width`, or the two halves of the same line disagree by the
+/// escape's byte length and the frame bends.
 #[test]
 fn boxed_report_row_with_sgr_label_matches_border_width() {
     use crate::style::visible_width;
@@ -224,7 +224,7 @@ fn boxed_report_row_with_sgr_label_matches_border_width() {
     }
 }
 
-/// SEC-21 / TASK-1965 (extended): the report title and each row's label and
+/// The report title and each row's label and
 /// result are producer-supplied text on the same footing as the detail lines,
 /// so a captured tool output carrying ESC or a control byte must not reach the
 /// terminal raw. Sanitisation happens *before* `render_slot` measures and

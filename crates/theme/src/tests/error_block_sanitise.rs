@@ -1,4 +1,4 @@
-//! SEC-21 / TASK-1965: the error block and report details are the crate's
+//! The error block and report details are the crate's
 //! largest untrusted-input surface — everything else it renders comes from
 //! config, these come from arbitrary child processes. Nothing on that path
 //! called the project's own `ui::sanitise_line` defence, so a failing command
@@ -34,7 +34,7 @@ fn chars() -> ErrorBlockChars {
     }
 }
 
-/// AC#2: no ESC, no CR, no other C0 byte survives into a rendered line.
+/// No ESC, no CR, no other C0 byte survives into a rendered line.
 #[test]
 fn error_block_neutralises_control_bytes_from_subprocess_stderr() {
     let lines = render_error_block_gated(&hostile_detail(), 2, &chars(), 0, false);
@@ -56,7 +56,7 @@ fn error_block_neutralises_control_bytes_from_subprocess_stderr() {
     );
 }
 
-/// AC#3: in boxed layout the sanitised (and therefore wider) text is clamped,
+/// In boxed layout the sanitised (and therefore wider) text is clamped,
 /// so the closing frame bar still lands at the frame width.
 #[test]
 fn boxed_error_block_keeps_frame_width_with_hostile_stderr() {
@@ -80,7 +80,7 @@ fn boxed_error_block_keeps_frame_width_with_hostile_stderr() {
     }
 }
 
-/// AC#1: report row details take the same treatment on both layout paths.
+/// Report row details take the same treatment on both layout paths.
 #[test]
 fn report_details_are_sanitised_on_both_layouts() {
     let mut report = Report::new("deps");
@@ -106,12 +106,13 @@ fn report_details_are_sanitised_on_both_layouts() {
     }
 }
 
-/// CL-3 / TASK-2019 AC#2: tab is the one control character `sanitise_line`
-/// deliberately passes through, and it used to reach the frame unmeasured —
-/// `UnicodeWidthChar` scores it as zero columns while the terminal advances
-/// to the next 8-column stop, so the right pad came out too long and the
-/// closing bar landed short. Tabs are ordinary in rustc notes and test-runner
-/// panics, so this is the common case rather than an adversarial one.
+/// Tab is the one control character `sanitise_line`
+/// deliberately passes through, and it must be measured by its terminal
+/// effect — `UnicodeWidthChar` scores it as zero columns while the terminal
+/// advances to the next 8-column stop, so an unmeasured tab makes the right
+/// pad too long and the closing bar land short. Tabs are ordinary in rustc
+/// notes and test-runner panics, so this is the common case rather than an
+/// adversarial one.
 #[test]
 fn boxed_error_block_keeps_frame_width_with_tabbed_stderr() {
     let theme = ConfigurableTheme::new(ThemeConfig {
