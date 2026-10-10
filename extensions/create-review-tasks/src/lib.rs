@@ -150,7 +150,7 @@ fn run_create_review_tasks_at(
     let plan = match mode {
         // A dry run allocates exactly like a real run and stops there, so the
         // ids it reports are the ones the next real run will try to take.
-        RunMode::DryRun => plan_task_set(workspace_root, &targets, stamp),
+        RunMode::DryRun => plan_task_set(workspace_root, &targets, stamp)?,
         RunMode::Write => commit_task_set(workspace_root, &targets, stamp)?,
     };
     // Deferred until the set exists: the operator is never told a task was
@@ -298,18 +298,18 @@ struct PlannedSubtask<'a> {
     path: &'a str,
 }
 
-/// Allocate the ids for one attempt. Pure apart from the single directory
-/// scan, so a dry run and a real run reach identical plans from identical
-/// state.
+/// Allocate the ids for one attempt. One fallible directory scan apart from
+/// nothing, so a dry run and a real run reach identical plans from identical
+/// state — and fail identically on a backlog tree that cannot be fully read.
 fn plan_task_set<'a>(
     workspace_root: &Path,
     targets: &'a ReviewTargets,
     stamp: &UtcStamp,
-) -> TaskPlan<'a> {
+) -> anyhow::Result<TaskPlan<'a>> {
     let backlog::NextIds {
         number: main_number,
         sequence,
-    } = backlog::next_ids(workspace_root, &stamp.date);
+    } = backlog::next_ids(workspace_root, &stamp.date)?;
     let subtasks = targets
         .targets
         .iter()
@@ -329,12 +329,13 @@ fn plan_task_set<'a>(
             }
         })
         .collect();
-    TaskPlan {
+    let plan = TaskPlan {
         main_number,
         main_id: backlog::main_task_id(main_number),
         main_title: format!("review-request-{}-{sequence}", stamp.date),
         subtasks,
-    }
+    };
+    Ok(plan)
 }
 
 /// Allocate and write the whole task set, returning the plan that committed.
@@ -356,7 +357,7 @@ fn commit_task_set<'a>(
     stamp: &UtcStamp,
 ) -> anyhow::Result<TaskPlan<'a>> {
     for _ in 0..MAX_ALLOCATION_ATTEMPTS {
-        let plan = plan_task_set(workspace_root, targets, stamp);
+        let plan = plan_task_set(workspace_root, targets, stamp)?;
         if write_task_set(workspace_root, &plan, stamp)? {
             return Ok(plan);
         }
@@ -401,7 +402,7 @@ fn write_task_set(
         number: plan.main_number,
         title: &plan.main_title,
     };
-    if let Some(other) = backlog::conflicting_claim(workspace_root, &claim) {
+    if let Some(other) = backlog::conflicting_claim(workspace_root, &claim)? {
         tracing::debug!(
             conflict = %other,
             claimed = %plan.main_title,

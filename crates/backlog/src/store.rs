@@ -11,6 +11,7 @@
 //! (the corpus contains four id collisions between `completed/` and
 //! `archive/tasks/`).
 
+use std::ops::ControlFlow;
 use std::path::{Path, PathBuf};
 
 use crate::model::TaskDoc;
@@ -247,26 +248,18 @@ impl Store {
     /// # Errors
     ///
     /// A task directory exists but it, or one of its entries, cannot be
-    /// read; the error names the directory. Allocating from a partial
-    /// listing could hand out a number an unseen file already carries.
+    /// read (see [`walk_task_files`]); the error names the directory.
+    /// Allocating from a partial listing could hand out a number an unseen
+    /// file already carries.
     pub fn next_task_number(&self) -> anyhow::Result<u32> {
         let mut max_number = 0u32;
-        for dir in TASK_DIRS {
-            let dir_path = self.backlog_root.join(dir);
-            let Some(read) = read_existing_dir(&dir_path)? else {
-                continue;
-            };
-            for entry in read {
-                let name = readable_entry(entry, &dir_path)?.file_name();
-                let number = name
-                    .to_str()
-                    .and_then(TaskFileName::parse)
-                    .and_then(|parsed| parsed.number);
-                if let Some(number) = number {
-                    max_number = max_number.max(number);
-                }
+        // A full walk: the closure never breaks, hence the `()` break type.
+        walk_task_files::<()>(&self.backlog_root, |_dir, name| {
+            if let Some(number) = TaskFileName::parse(name).and_then(|parsed| parsed.number) {
+                max_number = max_number.max(number);
             }
-        }
+            ControlFlow::Continue(())
+        })?;
         Ok(max_number.saturating_add(1))
     }
 
@@ -411,52 +404,47 @@ fn readable_entry(
     entry.map_err(|err| anyhow::anyhow!("reading {}: {err}", dir_path.display()))
 }
 
-/// Invoke `f` for every entry name in each existing [`TASK_DIRS`] directory.
+/// Walk every entry name in each existing [`TASK_DIRS`] directory, in
+/// declaration order, until `f` breaks.
 ///
-/// This walk is tolerant by contract: a directory or entry that cannot be
-/// read is skipped like an absent one, as are non-UTF-8 names, and the walk
-/// has no error channel. It suits callers for whom a partial listing is
-/// acceptable; [`Store::next_task_number`] is the strict allocator and
-/// fails on an unreadable directory instead.
-pub fn for_each_task_file(backlog_root: &Path, mut f: impl FnMut(&str, &str)) {
-    for dir in TASK_DIRS {
-        let Ok(entries) = std::fs::read_dir(backlog_root.join(dir)) else {
-            continue;
-        };
-        for entry in entries.flatten() {
-            if let Ok(name) = entry.file_name().into_string() {
-                f(dir, &name);
-            }
-        }
-    }
-}
-
-/// Find the first task file for which `f` returns `Some`, stopping the walk
-/// at that entry.
+/// The one fallible walker behind [`Store::next_task_number`] and the
+/// create-review-tasks id allocation and claim re-check: a task directory
+/// that exists but cannot be listed (or an entry that cannot be read)
+/// surfaces as an error naming the directory, because allocating or
+/// re-checking claims against a partial listing could hand out an id some
+/// unseen file already carries. A directory that does not exist is skipped —
+/// only `tasks/` is required — as are non-UTF-8 entry names, which cannot be
+/// task filenames.
 ///
-/// Early-exit twin of [`for_each_task_file`] — a conflict re-check only
-/// needs the first match, and a real backlog tree holds thousands of files,
-/// so enumerating the rest of the tree after the answer is decided is pure
-/// I/O (retried up to 32 times per contended allocation). Directory order,
-/// the tolerant skipping of unreadable directories and entries, and
-/// non-UTF-8 handling match [`for_each_task_file`].
-pub fn find_task_file<B>(
+/// `f` receives the [`TASK_DIRS`]-relative directory name and the entry
+/// name. Returning [`ControlFlow::Break`] stops the walk early — a conflict
+/// re-check only needs the first match, and a real backlog tree holds
+/// thousands of files, so enumerating the rest of the tree after the answer
+/// is decided is pure I/O (retried up to 32 times per contended allocation).
+///
+/// # Errors
+///
+/// A task directory exists but cannot be read, or one of its entries cannot
+/// be; the error names the directory.
+pub fn walk_task_files<B>(
     backlog_root: &Path,
-    mut f: impl FnMut(&str, &str) -> Option<B>,
-) -> Option<B> {
+    mut f: impl FnMut(&str, &str) -> ControlFlow<B>,
+) -> anyhow::Result<Option<B>> {
     for dir in TASK_DIRS {
-        let Ok(entries) = std::fs::read_dir(backlog_root.join(dir)) else {
+        let dir_path = backlog_root.join(dir);
+        let Some(read) = read_existing_dir(&dir_path)? else {
             continue;
         };
-        for entry in entries.flatten() {
-            if let Ok(name) = entry.file_name().into_string() {
-                if let Some(found) = f(dir, &name) {
-                    return Some(found);
+        for entry in read {
+            let name = readable_entry(entry, &dir_path)?.file_name();
+            if let Some(name) = name.to_str() {
+                if let ControlFlow::Break(found) = f(dir, name) {
+                    return Ok(Some(found));
                 }
             }
         }
     }
-    None
+    Ok(None)
 }
 
 /// Zero-padded task id string (`TASK-0042`) for a main-task number under the
@@ -536,24 +524,27 @@ mod tests {
         assert_eq!(store.next_task_number().expect("allocate"), 8);
     }
 
-    /// PERF-3 / TASK-2131: `find_task_file` must stop the walk at the first
+    /// PERF-3 / TASK-2131: `walk_task_files` must stop the walk at the first
     /// match. The target sits in `tasks` and the non-matches in `completed`
     /// (a later [`TASK_DIRS`] directory), so if the walk continued past the
     /// match the closure would be invoked for the `completed` entries too —
     /// pinned by the visited count, which is immune to `read_dir`'s
     /// intra-directory ordering.
     #[test]
-    fn find_task_file_stops_at_first_match() {
+    fn walk_task_files_stops_at_first_match() {
         let dir = scratch_backlog(&[
             ("tasks", "task-0002 - beta.md"),
             ("completed", "task-0001 - alpha.md"),
             ("completed", "task-0003 - gamma.md"),
         ]);
         let mut visited = 0usize;
-        let found = find_task_file(&dir.path().join(".backlog"), |_dir, name| {
+        let found = walk_task_files(&dir.path().join(".backlog"), |_dir, name| {
             visited += 1;
-            (name == "task-0002 - beta.md").then(|| name.to_string())
-        });
+            (name == "task-0002 - beta.md")
+                .then(|| name.to_string())
+                .map_or(ControlFlow::Continue(()), ControlFlow::Break)
+        })
+        .expect("walk");
         assert_eq!(found.as_deref(), Some("task-0002 - beta.md"));
         assert_eq!(
             visited, 1,
@@ -561,22 +552,40 @@ mod tests {
         );
     }
 
-    /// PERF-3 / TASK-2131: no match means `None`, with every entry in every
-    /// existing directory visited — the full-walk contract when nothing
+    /// PERF-3 / TASK-2131: no match means `Ok(None)`, with every entry in
+    /// every existing directory visited — the full-walk contract when nothing
     /// matches.
     #[test]
-    fn find_task_file_returns_none_when_nothing_matches() {
+    fn walk_task_files_returns_none_when_nothing_matches() {
         let dir = scratch_backlog(&[
             ("tasks", "task-0001 - alpha.md"),
             ("completed", "task-0003 - gamma.md"),
         ]);
         let mut visited = 0usize;
-        let found = find_task_file(&dir.path().join(".backlog"), |_dir, _name| {
+        let found = walk_task_files(&dir.path().join(".backlog"), |_dir, _name| {
             visited += 1;
-            None::<String>
-        });
+            ControlFlow::<String>::Continue(())
+        })
+        .expect("walk");
         assert!(found.is_none());
         assert_eq!(visited, 2, "both entries must have been examined");
+    }
+
+    /// An unreadable task directory must surface from the walk naming the
+    /// directory — here, a file squatting where `completed/` belongs —
+    /// instead of degrading to a partial listing.
+    #[test]
+    fn walk_task_files_read_failure_names_the_directory() {
+        let dir = scratch_backlog(&[("tasks", "task-0001 - live.md")]);
+        let root = dir.path().join(".backlog");
+        std::fs::write(root.join("completed"), "not a dir").expect("write file");
+        let err = walk_task_files(&root, |_dir, _name| ControlFlow::<String>::Continue(()))
+            .expect_err("must fail");
+        let rendered = format!("{err:#}");
+        assert!(
+            rendered.contains("completed"),
+            "error must name the unreadable directory, got: {rendered}"
+        );
     }
 
     #[test]
@@ -666,21 +675,19 @@ mod tests {
         );
     }
 
-    /// The free-function walkers are tolerant by contract: an unreadable
-    /// directory is skipped like an absent one and the readable ones are
-    /// still visited.
+    /// The walk skips a *missing* directory like an absent one (only
+    /// `tasks/` is required) but must fail on one that exists and cannot be
+    /// read — covered above; this pins the skip-half of that contract.
     #[test]
-    fn tolerant_walkers_skip_an_unreadable_directory() {
+    fn walk_task_files_skips_absent_directories() {
         let dir = scratch_backlog(&[("tasks", "task-0001 - live.md")]);
-        let root = dir.path().join(".backlog");
-        std::fs::write(root.join("completed"), "not a dir").expect("write file");
-
         let mut seen = Vec::new();
-        for_each_task_file(&root, |sub, name| seen.push(format!("{sub}/{name}")));
+        walk_task_files(&dir.path().join(".backlog"), |sub, name| {
+            seen.push(format!("{sub}/{name}"));
+            ControlFlow::<String>::Continue(())
+        })
+        .expect("walk");
         assert_eq!(seen, vec!["tasks/task-0001 - live.md".to_string()]);
-
-        let found = find_task_file(&root, |_sub, name| Some(name.to_string()));
-        assert_eq!(found.as_deref(), Some("task-0001 - live.md"));
     }
 
     #[test]
