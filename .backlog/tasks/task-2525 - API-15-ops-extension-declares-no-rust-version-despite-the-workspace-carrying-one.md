@@ -1,10 +1,10 @@
 ---
 id: TASK-2525
 title: 'API-15: ops-extension declares no rust-version despite the workspace carrying one'
-status: To Do
+status: Done
 assignee: []
 created_date: '2026-10-10 15:33'
-updated_date: '2026-10-10 21:12'
+updated_date: '2026-10-10 22:25'
 labels:
   - code-review-rust
   - api
@@ -29,5 +29,6 @@ dedup_key: 'API-15:crates/extension/Cargo.toml:ops-extension'
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 crates/extension/Cargo.toml contains rust-version.workspace = true and cargo metadata reports the crate's rust_version as 1.97
+- [x] #1 crates/extension/Cargo.toml contains rust-version.workspace = true and cargo metadata reports the crate's rust_version as 1.97
+
 <!-- AC:END -->

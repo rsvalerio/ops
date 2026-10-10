@@ -1,10 +1,10 @@
 ---
 id: TASK-2547
 title: 'ARCH-17: ops-config-checkers crate created on edition 2021'
-status: To Do
+status: Done
 assignee: []
 created_date: '2026-10-10 15:39'
-updated_date: '2026-10-10 21:12'
+updated_date: '2026-10-10 22:31'
 labels:
   - code-review-rust
   - architecture
@@ -29,7 +29,13 @@ dedup_key: 'ARCH-17:extensions/config-checkers/Cargo.toml:ops-config-checkers'
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 ops-config-checkers compiles with edition 2024 (crate-level edition = "2024", or a recorded workspace-wide migration decision)
-- [ ] #2 cargo check -p ops-config-checkers and cargo test -p ops-config-checkers pass after the change
+- [x] #1 ops-config-checkers compiles with edition 2024 (crate-level edition = "2024", or a recorded workspace-wide migration decision)
+- [x] #2 cargo check -p ops-config-checkers and cargo test -p ops-config-checkers pass after the change
 
 <!-- AC:END -->
+
+## Implementation Notes
+
+<!-- SECTION:NOTES:BEGIN -->
+Edition 2024 applied as a crate-level override (edition = "2024"). No rustc migration lints fired; rustfmt 2024 style-edition reformat applied, and clippy collapsible_if let-chain collapses where the new edition unlocked them (see TASK-2585 note). Crate tests green after.
+<!-- SECTION:NOTES:END -->

@@ -1,10 +1,10 @@
 ---
 id: TASK-2450
 title: 'API-15: ops-theme library declares no rust-version (MSRV)'
-status: To Do
+status: Done
 assignee: []
 created_date: '2026-10-10 15:24'
-updated_date: '2026-10-10 21:12'
+updated_date: '2026-10-10 22:25'
 labels:
   - code-review-rust
   - api
@@ -29,6 +29,7 @@ dedup_key: 'API-15:crates/theme/Cargo.toml:ops-theme'
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 crates/theme/Cargo.toml declares rust-version.workspace = true (inheriting the workspace's 1.97) or an explicit rust-version
-- [ ] #2 cargo metadata --no-deps reports a non-null rust_version for ops-theme
+- [x] #1 crates/theme/Cargo.toml declares rust-version.workspace = true (inheriting the workspace's 1.97) or an explicit rust-version
+- [x] #2 cargo metadata --no-deps reports a non-null rust_version for ops-theme
+
 <!-- AC:END -->

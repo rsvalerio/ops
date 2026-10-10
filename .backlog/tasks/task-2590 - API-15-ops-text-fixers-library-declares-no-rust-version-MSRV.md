@@ -1,10 +1,10 @@
 ---
 id: TASK-2590
 title: 'API-15: ops-text-fixers library declares no rust-version (MSRV)'
-status: To Do
+status: Done
 assignee: []
 created_date: '2026-10-10 15:46'
-updated_date: '2026-10-10 21:12'
+updated_date: '2026-10-10 22:26'
 labels:
   - code-review-rust
   - api
@@ -29,6 +29,7 @@ dedup_key: 'API-15:extensions/text-fixers/Cargo.toml:ops-text-fixers'
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 extensions/text-fixers/Cargo.toml declares rust-version.workspace = true (or an explicit MSRV no lower than the workspace's 1.97)
-- [ ] #2 cargo check -p ops-text-fixers succeeds and the workspace MSRV machinery recognizes the crate
+- [x] #1 extensions/text-fixers/Cargo.toml declares rust-version.workspace = true (or an explicit MSRV no lower than the workspace's 1.97)
+- [x] #2 cargo check -p ops-text-fixers succeeds and the workspace MSRV machinery recognizes the crate
+
 <!-- AC:END -->

@@ -1,10 +1,10 @@
 ---
 id: TASK-2585
 title: 'ARCH-17: ops-tokei crate created on edition 2021, not 2024'
-status: To Do
+status: Done
 assignee: []
 created_date: '2026-10-10 15:46'
-updated_date: '2026-10-10 21:12'
+updated_date: '2026-10-10 22:31'
 labels:
   - code-review-rust
   - architecture
@@ -29,6 +29,13 @@ dedup_key: 'ARCH-17:extensions/tokei/Cargo.toml:ops-tokei'
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 Crate builds on edition 2024: manifest sets edition = "2024" (directly or via a workspace bump), cargo check + cargo test pass
-- [ ] #2 No code changes are needed beyond the edition bump (no 2024 migration lints fire); if any fire, they are applied per EDITION-5
+- [x] #1 Crate builds on edition 2024: manifest sets edition = "2024" (directly or via a workspace bump), cargo check + cargo test pass
+- [x] #2 No code changes are needed beyond the edition bump (no 2024 migration lints fire); if any fire, they are applied per EDITION-5
+
 <!-- AC:END -->
+
+## Implementation Notes
+
+<!-- SECTION:NOTES:BEGIN -->
+Edition 2024 applied as a crate-level override (edition = "2024"). No rustc migration lints fired; follow-ups applied: rustfmt 2024 style-edition reformat (use-list reordering, tests.rs) and clippy collapsible_if let-chain collapses in ops-git, ops-text-fixers, ops-rust-loc, ops-about-go, ops-about-java, ops-about-node. All crate tests re-run green; workspace ops verify 8/8.
+<!-- SECTION:NOTES:END -->

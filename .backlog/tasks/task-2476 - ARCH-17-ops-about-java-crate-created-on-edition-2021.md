@@ -1,10 +1,10 @@
 ---
 id: TASK-2476
 title: 'ARCH-17: ops-about-java crate created on edition 2021'
-status: To Do
+status: Done
 assignee: []
 created_date: '2026-10-10 15:29'
-updated_date: '2026-10-10 21:12'
+updated_date: '2026-10-10 22:31'
 labels:
   - code-review-rust
   - arch
@@ -29,5 +29,12 @@ dedup_key: 'ARCH-17:extensions-java/about/Cargo.toml:ops-about-java'
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 The crate compiles and passes its tests on edition 2024, via cargo fix --edition followed by flipping the edition (workspace-wide or per-crate)
+- [x] #1 The crate compiles and passes its tests on edition 2024, via cargo fix --edition followed by flipping the edition (workspace-wide or per-crate)
+
 <!-- AC:END -->
+
+## Implementation Notes
+
+<!-- SECTION:NOTES:BEGIN -->
+Edition 2024 applied as a crate-level override (edition = "2024"). No rustc migration lints fired; rustfmt 2024 style-edition reformat applied, and clippy collapsible_if let-chain collapses where the new edition unlocked them (see TASK-2585 note). Crate tests green after.
+<!-- SECTION:NOTES:END -->

@@ -1,10 +1,10 @@
 ---
 id: TASK-2608
 title: 'code-review-plan-wave54'
-status: To Do
+status: Done
 assignee: []
 created_date: '2026-10-10 21:12'
-updated_date: '2026-10-10 21:13'
+updated_date: '2026-10-10 22:33'
 labels:
   - code-review-wave
 dependencies:
@@ -71,4 +71,8 @@ Single concern: bump every crate still on edition 2021 to 2024 and declare the i
 
 <!-- SECTION:NOTES:BEGIN -->
 Overlaps: TASK-2620 (extensions/create-review-tasks/Cargo.toml); TASK-2621 (extensions-node/about/Cargo.toml); TASK-2624 (extensions/git/Cargo.toml)
+
+Branch: code-review/TASK-2608
+Worktree: /home/rsvalerio/projects/.wave-TASK-2608
+
 <!-- SECTION:NOTES:END -->

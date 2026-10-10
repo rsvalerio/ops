@@ -1,10 +1,10 @@
 ---
 id: TASK-2588
 title: 'ARCH-17: ops-text-fixers crate created on edition 2021, not 2024'
-status: To Do
+status: Done
 assignee: []
 created_date: '2026-10-10 15:46'
-updated_date: '2026-10-10 21:12'
+updated_date: '2026-10-10 22:31'
 labels:
   - code-review-rust
   - arch
@@ -29,6 +29,13 @@ dedup_key: 'ARCH-17:extensions/text-fixers/Cargo.toml:ops-text-fixers'
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 The crate compiles on edition 2024, either via a workspace-wide edition bump or a per-crate override, after cargo fix --edition applies the migration
-- [ ] #2 cargo test -p ops-text-fixers passes on the new edition
+- [x] #1 The crate compiles on edition 2024, either via a workspace-wide edition bump or a per-crate override, after cargo fix --edition applies the migration
+- [x] #2 cargo test -p ops-text-fixers passes on the new edition
+
 <!-- AC:END -->
+
+## Implementation Notes
+
+<!-- SECTION:NOTES:BEGIN -->
+Edition 2024 applied as a crate-level override (edition = "2024"). No rustc migration lints fired; rustfmt 2024 style-edition reformat applied, and clippy collapsible_if let-chain collapses where the new edition unlocked them (see TASK-2585 note). Crate tests green after.
+<!-- SECTION:NOTES:END -->

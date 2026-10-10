@@ -1,10 +1,10 @@
 ---
 id: TASK-2546
 title: 'API-15: ops-rust-loc library declares no rust-version (MSRV)'
-status: To Do
+status: Done
 assignee: []
 created_date: '2026-10-10 15:38'
-updated_date: '2026-10-10 21:12'
+updated_date: '2026-10-10 22:26'
 labels:
   - code-review
   - api
@@ -29,6 +29,7 @@ dedup_key: 'API-15:extensions-rust/loc/Cargo.toml:ops-rust-loc'
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 Cargo.toml declares the MSRV via rust-version.workspace = true (or an explicit rust-version matching the workspace floor)
-- [ ] #2 cargo check -p ops-rust-loc still succeeds and cargo metadata reports the rust-version for ops-rust-loc
+- [x] #1 Cargo.toml declares the MSRV via rust-version.workspace = true (or an explicit rust-version matching the workspace floor)
+- [x] #2 cargo check -p ops-rust-loc still succeeds and cargo metadata reports the rust-version for ops-rust-loc
+
 <!-- AC:END -->

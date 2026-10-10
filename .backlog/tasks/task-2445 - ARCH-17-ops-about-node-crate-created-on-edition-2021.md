@@ -1,10 +1,10 @@
 ---
 id: TASK-2445
 title: 'ARCH-17: ops-about-node crate created on edition 2021'
-status: To Do
+status: Done
 assignee: []
 created_date: '2026-10-10 15:23'
-updated_date: '2026-10-10 21:12'
+updated_date: '2026-10-10 22:31'
 labels:
   - code-review
   - architecture
@@ -29,6 +29,13 @@ dedup_key: 'ARCH-17:extensions-node/about/Cargo.toml:ops-about-node'
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 Crate compiles on edition 2024 (crate-level edition override or a workspace bump), with cargo fix --edition applied if the compiler requests any migration fixes
-- [ ] #2 cargo test -p ops-about-node passes unchanged
+- [x] #1 Crate compiles on edition 2024 (crate-level edition override or a workspace bump), with cargo fix --edition applied if the compiler requests any migration fixes
+- [x] #2 cargo test -p ops-about-node passes unchanged
+
 <!-- AC:END -->
+
+## Implementation Notes
+
+<!-- SECTION:NOTES:BEGIN -->
+Edition 2024 applied as a crate-level override (edition = "2024"). No rustc migration lints fired; rustfmt 2024 style-edition reformat applied, and clippy collapsible_if let-chain collapses where the new edition unlocked them (see TASK-2585 note). Crate tests green after.
+<!-- SECTION:NOTES:END -->

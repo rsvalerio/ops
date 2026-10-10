@@ -1,10 +1,10 @@
 ---
 id: TASK-2578
 title: 'API-15: ops-run-before-push library declares no rust-version (MSRV)'
-status: To Do
+status: Done
 assignee: []
 created_date: '2026-10-10 15:44'
-updated_date: '2026-10-10 21:12'
+updated_date: '2026-10-10 22:26'
 labels:
   - code-review-rust
   - api
@@ -29,6 +29,7 @@ dedup_key: 'API-15:extensions/run-before-push/Cargo.toml:ops-run-before-push'
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 Manifest declares rust-version, e.g. rust-version.workspace = true
-- [ ] #2 cargo metadata reports the MSRV for ops-run-before-push
+- [x] #1 Manifest declares rust-version, e.g. rust-version.workspace = true
+- [x] #2 cargo metadata reports the MSRV for ops-run-before-push
+
 <!-- AC:END -->

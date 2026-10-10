@@ -1,10 +1,10 @@
 ---
 id: TASK-2576
 title: 'ARCH-17: ops-run-before-push crate created on edition 2021'
-status: To Do
+status: Done
 assignee: []
 created_date: '2026-10-10 15:43'
-updated_date: '2026-10-10 21:12'
+updated_date: '2026-10-10 22:31'
 labels:
   - code-review-rust
   - architecture
@@ -29,6 +29,13 @@ dedup_key: 'ARCH-17:extensions/run-before-push/Cargo.toml:ops-run-before-push'
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 Crate compiles under edition 2024, either via edition = "2024" in this manifest or a workspace-wide bump with cargo fix --edition applied first
-- [ ] #2 cargo test -p ops-run-before-push passes on the new edition
+- [x] #1 Crate compiles under edition 2024, either via edition = "2024" in this manifest or a workspace-wide bump with cargo fix --edition applied first
+- [x] #2 cargo test -p ops-run-before-push passes on the new edition
+
 <!-- AC:END -->
+
+## Implementation Notes
+
+<!-- SECTION:NOTES:BEGIN -->
+Edition 2024 applied as a crate-level override (edition = "2024"). No rustc migration lints fired; rustfmt 2024 style-edition reformat applied, and clippy collapsible_if let-chain collapses where the new edition unlocked them (see TASK-2585 note). Crate tests green after.
+<!-- SECTION:NOTES:END -->

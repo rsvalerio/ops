@@ -1,10 +1,10 @@
 ---
 id: TASK-2555
 title: 'API-15: ops-git declares no rust-version while the workspace package table carries MSRV 1.97'
-status: To Do
+status: Done
 assignee: []
 created_date: '2026-10-10 15:40'
-updated_date: '2026-10-10 21:12'
+updated_date: '2026-10-10 22:26'
 labels:
   - code-review-rust
   - api
@@ -29,6 +29,7 @@ dedup_key: 'API-15:extensions/git/Cargo.toml:[package]'
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 extensions/git/Cargo.toml sets rust-version.workspace = true so the crate inherits the workspace MSRV (1.97)
-- [ ] #2 cargo metadata for ops-git reports the resolved rust-version; cargo check -p ops-git unchanged
+- [x] #1 extensions/git/Cargo.toml sets rust-version.workspace = true so the crate inherits the workspace MSRV (1.97)
+- [x] #2 cargo metadata for ops-git reports the resolved rust-version; cargo check -p ops-git unchanged
+
 <!-- AC:END -->

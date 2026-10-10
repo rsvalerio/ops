@@ -1,10 +1,10 @@
 ---
 id: TASK-2495
 title: 'API-15: ops-cargo-toml library declares no rust-version (MSRV)'
-status: To Do
+status: Done
 assignee: []
 created_date: '2026-10-10 15:31'
-updated_date: '2026-10-10 21:12'
+updated_date: '2026-10-10 22:25'
 labels:
   - code-review
   - api
@@ -29,6 +29,7 @@ dedup_key: 'API-15:extensions-rust/cargo-toml/Cargo.toml:ops-cargo-toml'
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 Cargo.toml [package] contains rust-version.workspace = true (or an explicit rust-version matching the workspace value)
-- [ ] #2 cargo check succeeds and cargo metadata reports the crate's rust_version as the workspace MSRV
+- [x] #1 Cargo.toml [package] contains rust-version.workspace = true (or an explicit rust-version matching the workspace value)
+- [x] #2 cargo check succeeds and cargo metadata reports the crate's rust_version as the workspace MSRV
+
 <!-- AC:END -->

@@ -1,10 +1,10 @@
 ---
 id: TASK-2552
 title: 'ARCH-17: New crate created on edition 2021 instead of 2024'
-status: To Do
+status: Done
 assignee: []
 created_date: '2026-10-10 15:39'
-updated_date: '2026-10-10 21:12'
+updated_date: '2026-10-10 22:31'
 labels:
   - code-review
   - architecture
@@ -29,6 +29,13 @@ dedup_key: 'ARCH-17:extensions/create-review-tasks/Cargo.toml:ops-create-review-
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 The crate builds on edition 2024, either via a per-crate edition = "2024" in its Cargo.toml or by recorded decision to migrate with the workspace
-- [ ] #2 cargo check -p ops-create-review-tasks and cargo test -p ops-create-review-tasks pass on the new edition
+- [x] #1 The crate builds on edition 2024, either via a per-crate edition = "2024" in its Cargo.toml or by recorded decision to migrate with the workspace
+- [x] #2 cargo check -p ops-create-review-tasks and cargo test -p ops-create-review-tasks pass on the new edition
+
 <!-- AC:END -->
+
+## Implementation Notes
+
+<!-- SECTION:NOTES:BEGIN -->
+Edition 2024 applied as a crate-level override (edition = "2024"). No rustc migration lints fired; rustfmt 2024 style-edition reformat applied, and clippy collapsible_if let-chain collapses where the new edition unlocked them (see TASK-2585 note). Crate tests green after.
+<!-- SECTION:NOTES:END -->

@@ -1,10 +1,10 @@
 ---
 id: TASK-2481
 title: 'API-15: ops-about-python library declares no rust-version (MSRV)'
-status: To Do
+status: Done
 assignee: []
 created_date: '2026-10-10 15:30'
-updated_date: '2026-10-10 21:12'
+updated_date: '2026-10-10 22:25'
 labels:
   - code-review
   - api
@@ -29,6 +29,7 @@ dedup_key: 'API-15:extensions-python/about/Cargo.toml:ops-about-python'
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 Cargo.toml declares the crate's MSRV (rust-version = workspace value, via rust-version.workspace = true or an explicit pin matching the root)
-- [ ] #2 cargo check -p ops-about-python succeeds with the declared toolchain
+- [x] #1 Cargo.toml declares the crate's MSRV (rust-version = workspace value, via rust-version.workspace = true or an explicit pin matching the root)
+- [x] #2 cargo check -p ops-about-python succeeds with the declared toolchain
+
 <!-- AC:END -->

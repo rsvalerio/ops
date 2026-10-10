@@ -1,10 +1,10 @@
 ---
 id: TASK-2475
 title: 'ARCH-17: ops-about-go was created on edition 2021, not 2024'
-status: To Do
+status: Done
 assignee: []
 created_date: '2026-10-10 15:28'
-updated_date: '2026-10-10 21:12'
+updated_date: '2026-10-10 22:31'
 labels:
   - code-review
   - arch
@@ -29,6 +29,13 @@ dedup_key: 'ARCH-17:extensions-go/about/Cargo.toml:ops-about-go'
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 Crate builds with edition = "2024" in extensions-go/about/Cargo.toml, or triage records an explicit workspace-level edition decision covering all member crates
-- [ ] #2 cargo check -p ops-about-go passes after the change
+- [x] #1 Crate builds with edition = "2024" in extensions-go/about/Cargo.toml, or triage records an explicit workspace-level edition decision covering all member crates
+- [x] #2 cargo check -p ops-about-go passes after the change
+
 <!-- AC:END -->
+
+## Implementation Notes
+
+<!-- SECTION:NOTES:BEGIN -->
+Edition 2024 applied as a crate-level override (edition = "2024"). No rustc migration lints fired; rustfmt 2024 style-edition reformat applied, and clippy collapsible_if let-chain collapses where the new edition unlocked them (see TASK-2585 note). Crate tests green after.
+<!-- SECTION:NOTES:END -->

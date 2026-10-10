@@ -1,10 +1,10 @@
 ---
 id: TASK-2504
 title: 'API-15: ops-tfplan declares no rust-version despite the workspace defining one to inherit'
-status: To Do
+status: Done
 assignee: []
 created_date: '2026-10-10 15:31'
-updated_date: '2026-10-10 21:12'
+updated_date: '2026-10-10 22:25'
 labels:
   - code-review-rust
   - api
@@ -29,5 +29,6 @@ dedup_key: 'API-15:extensions-terraform/plan/Cargo.toml:package'
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 extensions-terraform/plan/Cargo.toml declares rust-version (rust-version.workspace = true inheriting the workspace 1.97, or an explicit value) and cargo check -p ops-tfplan still passes
+- [x] #1 extensions-terraform/plan/Cargo.toml declares rust-version (rust-version.workspace = true inheriting the workspace 1.97, or an explicit value) and cargo check -p ops-tfplan still passes
+
 <!-- AC:END -->

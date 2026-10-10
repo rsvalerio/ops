@@ -1,10 +1,10 @@
 ---
 id: TASK-2562
 title: 'ARCH-17: ops-git crate created on edition 2021, not 2024'
-status: To Do
+status: Done
 assignee: []
 created_date: '2026-10-10 15:40'
-updated_date: '2026-10-10 21:12'
+updated_date: '2026-10-10 22:31'
 labels:
   - code-review-rust
   - architecture
@@ -29,6 +29,13 @@ dedup_key: 'ARCH-17:extensions/git/Cargo.toml:[package]'
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 extensions/git/Cargo.toml declares edition 2024 (overriding the workspace-inherited 2021) after running cargo fix --edition on the crate
-- [ ] #2 cargo test -p ops-git passes on the new edition with no behavioral change
+- [x] #1 extensions/git/Cargo.toml declares edition 2024 (overriding the workspace-inherited 2021) after running cargo fix --edition on the crate
+- [x] #2 cargo test -p ops-git passes on the new edition with no behavioral change
+
 <!-- AC:END -->
+
+## Implementation Notes
+
+<!-- SECTION:NOTES:BEGIN -->
+Edition 2024 applied as a crate-level override (edition = "2024"). No rustc migration lints fired; rustfmt 2024 style-edition reformat applied, and clippy collapsible_if let-chain collapses where the new edition unlocked them (see TASK-2585 note). Crate tests green after.
+<!-- SECTION:NOTES:END -->
