@@ -221,6 +221,21 @@ pub(crate) fn run_cargo_metadata(working_dir: &Path) -> Result<Output, RunError>
 /// `metadata` subcommand, machine-readable format version 1, and `--locked`.
 pub(crate) const CARGO_METADATA_ARGS: [&str; 4] = ["metadata", "--format-version", "1", "--locked"];
 
+/// Lines of stderr retained in the error when `cargo metadata` exits
+/// non-zero.
+///
+/// Pinned to cargo's error-report shape: `cargo metadata` fails fast with a
+/// short diagnosis — manifest parse errors, `--locked` drift against the
+/// lockfile, an unresolvable workspace — printed as an `error:` line plus
+/// its cause chain at the *end* of stderr, without the reconfiguration
+/// noise a full resolution run prints (which is why the cargo-update
+/// sibling keeps a 10-line tail for `cargo update --dry-run`). A 5-line
+/// tail captures the whole diagnosis for typical failures while keeping
+/// the error message bounded; lower it and the cause line (printed last)
+/// can fall off the tail, raise it and the operator reads warning noise
+/// before the error.
+const STDERR_TAIL_LINES: usize = 5;
+
 /// Turns a non-zero `cargo metadata` exit into an error naming the failure.
 ///
 /// The error string carries the numeric exit code (or `signal` when there is
@@ -229,7 +244,7 @@ pub(crate) const CARGO_METADATA_ARGS: [&str; 4] = ["metadata", "--format-version
 /// crate.
 pub(crate) fn check_metadata_output(output: &Output) -> Result<(), anyhow::Error> {
     if !output.status.success() {
-        let tail = format_error_tail(&output.stderr, 5);
+        let tail = format_error_tail(&output.stderr, STDERR_TAIL_LINES);
         match output.status.code() {
             Some(code) => anyhow::bail!("cargo metadata exited with status {code}: {tail}"),
             None => anyhow::bail!("cargo metadata terminated by signal (exit_code = None): {tail}"),
