@@ -3,7 +3,7 @@
 use crate::data::DataRegistry;
 use indexmap::IndexMap;
 use ops_core::config::{CommandId, CommandSpec, Config};
-use ops_core::stack::Stack;
+pub use ops_core::stack::Stack;
 use std::path::Path;
 
 /// Factory function that creates an extension instance given config and workspace root.
