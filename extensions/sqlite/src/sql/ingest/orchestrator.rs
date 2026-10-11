@@ -169,6 +169,9 @@ fn normalise_pipeline_errors(err: crate::DbError, label: String) -> anyhow::Erro
     match err {
         crate::DbError::External(payload) => {
             match payload.downcast::<ops_extension::DataProviderError>() {
+                // `Box::downcast` hands back the *unboxed* `DataProviderError`,
+                // so `Error::new` wraps the concrete type and later
+                // `downcast_ref::<DataProviderError>()` calls hit.
                 Ok(typed) => anyhow::Error::new(typed).context(label),
                 Err(payload) => {
                     anyhow::Error::new(crate::DbError::External(payload)).context(label)
@@ -696,6 +699,31 @@ mod tests {
         assert!(
             reacquired.is_ok(),
             "release-then-reacquire of the same table must be allowed"
+        );
+    }
+
+    /// `normalise_pipeline_errors` must preserve the concrete
+    /// `DataProviderError` type: `downcast_ref::<DataProviderError>()` on the
+    /// re-raised error has to hit, which requires unboxing before
+    /// `anyhow::Error::new` — a `Box<T>` payload only downcasts to `Box<T>`,
+    /// so every caller matching on the variant would miss.
+    #[test]
+    fn normalise_pipeline_errors_preserves_the_typed_payload() {
+        let err = normalise_pipeline_errors(
+            DbError::External(anyhow::Error::new(
+                ops_extension::DataProviderError::ComputationMessage("spent deadline".into()),
+            )),
+            "provide_via_ingestor(t): ingestor collect".to_string(),
+        );
+        assert!(
+            err.downcast_ref::<ops_extension::DataProviderError>()
+                .is_some(),
+            "the unboxed concrete type must survive for downcast_ref"
+        );
+        let rendered = format!("{err:#}");
+        assert!(
+            rendered.contains("ingestor collect"),
+            "phase label must survive: {rendered}"
         );
     }
 
