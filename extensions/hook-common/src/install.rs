@@ -106,7 +106,7 @@ fn write_new_hook(
     let tmp = stage_hook_payload(hook_path, config)?;
     match tmp.persist_noclobber(hook_path) {
         Ok(_file) => {
-            // SEC-25: fsync the parent so the new directory entry survives a
+            // Fsync the parent so the new directory entry survives a
             // power loss. Without this, the inode is durable but the
             // .git/hooks/<name> link can be lost on ext4/xfs, silently
             // disabling the hook even though `ops install` reported success.
@@ -228,7 +228,7 @@ fn handle_existing_hook(
     config: &HookConfig,
     w: &mut dyn Write,
 ) -> anyhow::Result<PathBuf> {
-    // SEC-33: over-cap or non-UTF-8 content can only be foreign
+    // Over-cap or non-UTF-8 content can only be foreign
     // — ops scripts are short valid UTF-8 — so it is refused with the same
     // actionable message as any other user-authored hook, never surfaced as
     // an opaque read error.
@@ -327,7 +327,7 @@ fn upgrade_legacy_hook(
 ) -> anyhow::Result<PathBuf> {
     let tmp = stage_hook_payload(hook_path, config)?;
 
-    // SEC-33: the re-read is bounded and UTF-8-guarded like the
+    // The re-read is bounded and UTF-8-guarded like the
     // first one; over-cap or non-UTF-8 content mid-install is foreign (the
     // `None` arm below), not a read error.
     let message = match read_existing_hook_capped(hook_path, config)?
@@ -335,7 +335,7 @@ fn upgrade_legacy_hook(
         .map(|content| classify_existing_hook(content, config))
     {
         Some(ExistingHook::Legacy) => "Updating outdated ops hook at",
-        // SEC-25: a truncated ops artefact is replaced, not
+        // A truncated ops artefact is replaced, not
         // reported as a foreign hook.
         Some(ExistingHook::Partial) => "Replacing partially written ops hook at",
         // A concurrent installer won the race with the identical payload.
@@ -373,7 +373,7 @@ fn upgrade_legacy_hook(
             hook_path.display()
         ))
     })?;
-    // SEC-25: fsync the parent so the rename hits disk; without
+    // Fsync the parent so the rename hits disk; without
     // this a crash can leave the directory entry pointing at the temp
     // inode (or the old hook) even though the new content is durable.
     sync_parent_dir(hook_path);
@@ -394,7 +394,7 @@ fn sync_parent_dir(path: &Path) {
         match File::open(parent) {
             Ok(dir) => {
                 if let Err(e) = dir.sync_all() {
-                    // ERR-7: Debug-format the path and
+                    // Debug-format the path and
                     // error so a directory name carrying newlines or ANSI
                     // escapes cannot forge lines in the developer's terminal.
                     tracing::debug!(
@@ -405,7 +405,7 @@ fn sync_parent_dir(path: &Path) {
                 }
             }
             Err(e) => {
-                // ERR-7: see above.
+                // See above.
                 tracing::debug!(
                     parent = ?parent.display(),
                     error = ?e,
@@ -569,7 +569,7 @@ mod tests {
     fn install_hook_create_failure_leaves_no_hook_file() {
         use std::os::unix::fs::PermissionsExt;
 
-        // TEST-19: root bypasses DAC, so the 0o555 chmod below would not deny
+        // Root bypasses DAC, so the 0o555 chmod below would not deny
         // anything and the install would succeed — turning the whole test
         // into a silent no-op that still reports green. Skip before touching
         // the permissions rather than after.

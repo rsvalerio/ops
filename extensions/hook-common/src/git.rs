@@ -132,7 +132,7 @@ fn read_gitdir_pointer(file: &Path) -> Option<PathBuf> {
             // etc.) is worth a diagnostic — the walker would otherwise fall
             // through to the parent silently. debug! keeps it out of normal
             // logs while letting `RUST_LOG=ops_hook_common=debug` surface it.
-            // ERR-7: Debug-format path/error so an
+            // Debug-format path/error so an
             // attacker-controlled `.git` pointer path cannot inject
             // newlines/ANSI escapes into operator-facing logs.
             tracing::debug!(
@@ -143,7 +143,7 @@ fn read_gitdir_pointer(file: &Path) -> Option<PathBuf> {
             return None;
         }
     };
-    // PATTERN-1: require the strict single-line shape git itself
+    // Require the strict single-line shape git itself
     // writes — no leading whitespace, no second `gitdir:` line. Trim *trailing*
     // whitespace per line (covers `\r` from CRLF endings) but reject any line
     // whose pre-`gitdir:` portion is non-empty.
@@ -172,7 +172,7 @@ fn read_gitdir_pointer(file: &Path) -> Option<PathBuf> {
     let anchor = canonical_anchor(parent)?;
     let canonical_target = canonicalize_gitdir_target(&joined)?;
     if !canonical_target.starts_with(&anchor) {
-        // ERR-7: Debug-format paths to neutralize control
+        // Debug-format paths to neutralize control
         // characters and ANSI escapes in worktree-root rejection logs.
         tracing::debug!(
             anchor = ?anchor.display(),
@@ -204,22 +204,21 @@ fn canonical_anchor(parent: &Path) -> Option<PathBuf> {
     let Some(anchor_raw) = anchor_ancestor(parent) else {
         tracing::debug!(
             parent = ?parent.display(),
-            "gitdir pointer: SEC-14 anchor would be the filesystem root; refusing to resolve"
+            "gitdir pointer: canonical anchor would be the filesystem root; refusing to resolve"
         );
         return None;
     };
-    // ERR-1: emit a per-site breadcrumb on canonicalize failure
+    // Emit a per-site breadcrumb on canonicalize failure
     // so operators chasing "ops did nothing in this repo" can distinguish
-    // (a) no `.git` upstream, (b) SEC-14 escape rejection, and (c) a real
+    // (a) no `.git` upstream, (b) escape rejection, and (c) a real
     // canonicalize syscall error. Without this the three failure modes
-    // collapsed to the same silent `None`. Debug-format paths/errors per
-    // the ERR-7 sweep.
+    // collapsed to the same silent `None`. Debug-format paths/errors.
     match std::fs::canonicalize(anchor_raw) {
         Ok(p) if p.parent().is_none() => {
             tracing::debug!(
                 anchor_raw = ?anchor_raw.display(),
                 anchor = ?p.display(),
-                "gitdir pointer: SEC-14 anchor canonicalizes to the filesystem root; refusing to resolve"
+                "gitdir pointer: anchor canonicalizes to the filesystem root; refusing to resolve"
             );
             None
         }
@@ -228,7 +227,7 @@ fn canonical_anchor(parent: &Path) -> Option<PathBuf> {
             tracing::debug!(
                 anchor_raw = ?anchor_raw.display(),
                 error = ?e,
-                "gitdir pointer: failed to canonicalize SEC-14 anchor; treating as no gitdir"
+                "gitdir pointer: failed to canonicalize anchor; treating as no gitdir"
             );
             None
         }
@@ -329,7 +328,7 @@ fn resolve_absolute_gitdir(pointer: &Path, parent: &Path, target: &Path) -> Opti
     if is_separate_git_dir(&canonical_target) {
         return Some(canonical_target);
     }
-    // ERR-7: Debug-format paths, matching the relative-pointer
+    // Debug-format paths, matching the relative-pointer
     // refusal paths.
     tracing::debug!(
         pointer = ?pointer.display(),
@@ -547,7 +546,7 @@ mod tests {
         std::fs::write(&pointer, "gitdir: ../../../etc_passwd\n").unwrap();
 
         // No real .git anywhere in the ancestor chain — only the planted
-        // pointer. With the SEC-14 traversal bound the pointer is refused
+        // pointer. With the traversal bound the pointer is refused
         // and the walk falls through to None.
         assert_eq!(find_git_dir(&chain), None);
     }
@@ -742,7 +741,7 @@ mod tests {
     #[test]
     fn find_git_dir_rejects_unanchored_absolute_pointer() {
         let dir = tempfile::tempdir().expect("tempdir");
-        // The pointer sits deep enough that its SEC-14 anchor
+        // The pointer sits deep enough that its canonical anchor
         // (`<tmp>/work/a/b`) does not contain the planted target.
         let worktree = dir.path().join("work/a/b/c/checkout");
         std::fs::create_dir_all(&worktree).unwrap();
@@ -766,7 +765,7 @@ mod tests {
     #[test]
     fn find_git_dir_accepts_external_separate_git_dir() {
         let dir = tempfile::tempdir().expect("tempdir");
-        // Deep enough that the SEC-14 anchor (`<tmp>/work/a/b`) cannot
+        // Deep enough that the canonical anchor (`<tmp>/work/a/b`) cannot
         // contain the external gitdir.
         let worktree = dir.path().join("work/a/b/c/checkout");
         std::fs::create_dir_all(&worktree).unwrap();

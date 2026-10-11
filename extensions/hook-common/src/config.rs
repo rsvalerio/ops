@@ -44,7 +44,7 @@ pub fn ensure_config_command(
 
     let config_path = config_dir.join(".ops.toml");
 
-    // Read with parse-error propagation (ERR-5) and NotFound-as-empty (SEC-25).
+    // Read with parse-error propagation and NotFound-as-empty.
     let mut doc = ops_core::config::read_ops_toml(&config_path)?;
 
     if let Some(commands) = doc.get("commands").and_then(|c| c.as_table()) {
@@ -78,7 +78,7 @@ pub fn ensure_config_command(
         arr.push(name.as_str());
     }
     cmd.insert("commands", toml_edit::value(arr));
-    // PATTERN-1: `fail_fast = true` is hardcoded by design — see
+    // `fail_fast = true` is hardcoded by design — see
     // the function-level doc for the rationale and the operator override path
     // (hand-edit `.ops.toml`; the early-exit guard above preserves the edit
     // on subsequent installs).
@@ -87,7 +87,7 @@ pub fn ensure_config_command(
 
     commands.insert(config.name, toml_edit::Item::Table(cmd));
 
-    // Atomic write (SEC-32): sibling temp file + rename so a crash mid-write
+    // Atomic write: sibling temp file + rename so a crash mid-write
     // leaves the user's original .ops.toml intact.
     ops_core::config::write_ops_toml(&config_path, &doc)?;
     writeln!(w, "Added '{}' command to .ops.toml", config.name)?;
@@ -101,7 +101,7 @@ mod tests {
     use crate::fixtures::{commit_config, push_config};
 
     /// Resolve the tempdir root through macOS's symlinked `/var` prefix so the
-    /// SEC-33 `open_refusing_symlinks` guard accepts it (Linux CI's `/tmp` is
+    /// `open_refusing_symlinks` guard accepts it (Linux CI's `/tmp` is
     /// not a symlink, so only local runs need this).
     fn canon(dir: &tempfile::TempDir) -> std::path::PathBuf {
         dir.path().canonicalize().unwrap()
@@ -184,7 +184,7 @@ mod tests {
 
     #[test]
     fn ensure_config_refuses_to_overwrite_malformed_toml() {
-        // ERR-5 / SEC-32: a parse error must surface as Err and the user's
+        // A parse error must surface as Err and the user's
         // existing (malformed-but-meaningful) file must not be clobbered.
         let cfg = commit_config();
         let dir = tempfile::tempdir().expect("tempdir");
