@@ -370,11 +370,11 @@ fn register_extension_commands_collision_with_pre_existing_omits_sentinel() {
     );
 }
 
-/// TEST-11 (TASK-1365): the previous body passed `&[]` to a
-/// pre-empty registry and asserted `is_empty()` — a tautology provable
-/// at the type level (zero extensions cannot mutate the registry). The
-/// real invariant we care about is *preservation*: a zero-extension
-/// call must leave any pre-seeded entries exactly as they were.
+/// The invariant this test pins is *preservation*: a zero-extension call
+/// must leave any pre-seeded entries exactly as they were. Passing `&[]`
+/// to a pre-empty registry and asserting `is_empty()` instead would be a
+/// tautology provable at the type level (zero extensions cannot mutate
+/// the registry).
 #[test]
 fn register_extension_commands_zero_extensions_preserves_existing_entries() {
     use ops_core::config::{CommandSpec, ExecCommandSpec};

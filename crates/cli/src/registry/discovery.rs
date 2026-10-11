@@ -38,7 +38,7 @@ pub fn collect_compiled_extensions(
     // event per slot so `RUST_LOG=ops=debug` answers "the X extension is not
     // running for me" without changing behaviour for the success path. The
     // `slot` index is a link-order artifact, not a stable identifier for an
-    // extension — it is a within-process breadcrumb only (ARCH-9 / TASK-1868).
+    // extension — it is a within-process breadcrumb only.
     let probed: Vec<(&'static str, Box<dyn Extension>)> = ops_extension::EXTENSION_REGISTRY
         .iter()
         .enumerate()
@@ -53,8 +53,8 @@ pub fn collect_compiled_extensions(
             pair
         })
         .collect();
-    // ARCH-9 / TASK-1868: `EXTENSION_REGISTRY` yields pairs in unspecified
-    // linker order, and `dedup_compiled_extensions` below is last-write-wins —
+    // `EXTENSION_REGISTRY` yields pairs in unspecified linker order, and
+    // `dedup_compiled_extensions` below is last-write-wins —
     // so without this the winner of a `config_name` collision is decided by
     // link order and can flip between builds. Sorting is done in ops-extension
     // so every consumer of the slice inherits the same total order.
@@ -227,8 +227,8 @@ fn select_enabled(
 /// `config_name` with no breadcrumb.
 ///
 /// **Resolution policy**: last-write-wins on duplicate `config_name`,
-/// matching `register_extension_commands`. ARCH-9 / TASK-1868: which pair is
-/// *last* is only meaningful because [`collect_compiled_extensions`] has
+/// matching `register_extension_commands`. Which pair is *last* is only
+/// meaningful because [`collect_compiled_extensions`] has
 /// already run the probed pairs through
 /// `ops_extension::sort_compiled_extensions`, imposing a total order on
 /// `(config_name, Extension::name())`. Callers that build the `pairs` vector

@@ -27,7 +27,7 @@ pub const PUSH_OPS: HookOps = HookOps {
     should_skip: ops_run_before_push::should_skip,
     preflight: None,
     // git describes the push on the hook's stdin; the installed hook forwards
-    // it, and this gate skips a delete-only or empty push (SEC-11 / TASK-1906).
+    // it, and this gate skips a delete-only or empty push.
     gate: Some(ops_run_before_push::skip_reason),
 };
 
