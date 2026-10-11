@@ -384,8 +384,9 @@ fn preview_hook_action(
     }
 }
 
-/// Dispatch `ops run-before-commit`: install the hook, or run it — over
-/// changed files only with `--changed-only`, as a preview with `--dry-run`.
+/// Dispatch `ops run-before-commit`: install the hook, or run it — skipped
+/// entirely when no files are staged, with `--changed-only`, as a preview
+/// with `--dry-run`.
 pub fn run_before_commit(
     config: &std::sync::Arc<Config>,
     action: Option<RunBeforeCommitAction>,
