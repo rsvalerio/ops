@@ -162,16 +162,16 @@ pub fn config_layers(cwd: &Path, cargo_home: Option<&Path>) -> Vec<ConfigLayer> 
     let mut layers = Vec::new();
     for dir in &dirs {
         // Cargo reads the legacy extensionless `config` when both exist
-        // (and warns), so it is tried first. Selection happens through the
-        // read itself, not an `is_file` pre-probe: a probe followed by a
-        // separate read re-resolves the path, and a swap between the two —
-        // a symlink standing in for the probed regular file — is followed
-        // by the read. An unreadable or malformed `config` falls through
-        // to `config.toml`.
+        // (and warns), so it is tried first. Selection follows *existence*,
+        // not parse success: a present-but-malformed `config` contributes
+        // no layer (the parse warning fires) rather than silently falling
+        // through to `config.toml`, matching cargo's refusal to load a
+        // config whose chosen file does not parse.
         let base = dir.parent().map_or_else(|| dir.clone(), Path::to_path_buf);
-        let layer = ["config", "config.toml"]
+        let selected = ["config", "config.toml"]
             .iter()
-            .find_map(|name| read_layer(dir.join(name), base.clone()));
+            .find(|name| dir.join(name).exists());
+        let layer = selected.and_then(|name| read_layer(dir.join(name), base.clone()));
         if let Some(layer) = layer {
             push_with_includes(layer, &mut layers, &mut Vec::new());
         }
@@ -213,7 +213,9 @@ fn push_with_includes(layer: ConfigLayer, out: &mut Vec<ConfigLayer>, chain: &mu
             Some(included) => push_with_includes(included, out, chain),
             None if optional => {}
             None => tracing::warn!(
-                path = %path.display(),
+                // Debug, not Display: a path is filesystem-controlled data,
+                // and `?` escapes any newline or ANSI sequence it carries.
+                path = ?path.display(),
                 "about/machine: cargo config include not loaded"
             ),
         }
@@ -1740,6 +1742,25 @@ mod tests {
                 value: "false".to_string(),
                 source: root.join(".cargo/config").display().to_string(),
             }
+        );
+    }
+
+    /// A malformed legacy `config` must not fall through to `config.toml`:
+    /// cargo picks by existence, so a present-but-unparseable file
+    /// contributes no layer at all rather than silently switching to the
+    /// other name.
+    #[test]
+    fn malformed_legacy_config_does_not_fall_through_to_config_toml() {
+        let dir = tempfile::tempdir().expect("tempdir");
+        let root = dir.path();
+        std::fs::create_dir_all(root.join(".cargo")).expect("mkdir");
+        std::fs::write(root.join(".cargo/config"), "not = = toml").expect("write");
+        std::fs::write(root.join(".cargo/config.toml"), "[build]\njobs = 3\n").expect("write");
+
+        let layers = config_layers(root, None);
+        assert!(
+            layers.is_empty(),
+            "config.toml must not be consulted while the legacy config exists"
         );
     }
 
