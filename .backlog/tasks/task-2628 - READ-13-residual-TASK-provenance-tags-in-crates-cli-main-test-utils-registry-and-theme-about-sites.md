@@ -1,13 +1,15 @@
 ---
 id: TASK-2628
 title: 'READ-13: residual TASK provenance tags in crates/cli main, test utils, registry and theme/about sites'
-status: Triage
+status: To Do
 assignee: []
 created_date: '2026-10-10 21:34'
+updated_date: '2026-10-11 12:18'
 labels:
   - code-review-rust
   - readability
 dependencies: []
+parent_task_id: 'TASK-2632'
 modified_files:
   - crates/cli/src/main.rs
   - crates/cli/src/test_utils.rs

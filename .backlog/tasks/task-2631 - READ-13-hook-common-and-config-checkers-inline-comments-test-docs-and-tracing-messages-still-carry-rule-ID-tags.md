@@ -1,13 +1,15 @@
 ---
 id: TASK-2631
 title: 'READ-13: hook-common and config-checkers inline comments, test docs, and tracing messages still carry rule-ID tags'
-status: Triage
+status: To Do
 assignee: []
 created_date: '2026-10-10 22:19'
+updated_date: '2026-10-11 12:18'
 labels:
   - code-review-rust
   - readability
 dependencies: []
+parent_task_id: 'TASK-2632'
 modified_files:
   - extensions/hook-common/src/config.rs
   - extensions/hook-common/src/git.rs

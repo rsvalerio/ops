@@ -1,13 +1,15 @@
 ---
 id: TASK-2630
 title: 'READ-11: sibling format_error_tail call sites use an unexplained inline literal 5'
-status: Triage
+status: To Do
 assignee: []
 created_date: '2026-10-10 21:46'
+updated_date: '2026-10-11 12:18'
 labels:
   - code-review-rust
   - READ
 dependencies: []
+parent_task_id: 'TASK-2632'
 modified_files:
   - extensions-rust/metadata/src/lib.rs
   - extensions-rust/test-coverage/src/subprocess.rs

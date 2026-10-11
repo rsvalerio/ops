@@ -1,13 +1,15 @@
 ---
 id: TASK-2629
 title: 'READ-13: residual RULE/TASK provenance tags across extensions-rust/about item and test docs'
-status: Triage
+status: To Do
 assignee: []
 created_date: '2026-10-10 21:38'
+updated_date: '2026-10-11 12:18'
 labels:
   - code-review-rust
   - readability
 dependencies: []
+parent_task_id: 'TASK-2632'
 modified_files:
   - extensions-rust/about/src/coverage_provider.rs
   - extensions-rust/about/src/deps_provider.rs
