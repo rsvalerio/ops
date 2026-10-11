@@ -12,13 +12,9 @@ use ops_extension::{Context, DataRegistry};
 
 use crate::providers::warm_providers;
 
-/// Delegate to the shared `query_project_languages`
-/// helper so the `about code` page and any other LOC consumer share one
-/// implementation.
-///
-/// The previous inline aggregate query lacked percentages, used a
-/// different `LanguageStat` shape, and could drift from the canonical
-/// query without anyone noticing.
+/// Fetch this project's per-language LOC statistics via the shared
+/// canonical query, so the `about code` page always matches every other
+/// consumer of the same data.
 pub fn query_language_stats(
     ctx: &mut Context,
     data_registry: &DataRegistry,

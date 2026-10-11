@@ -15,10 +15,10 @@
 use std::path::{Path, PathBuf};
 
 use ops_extension::{Context, DataProvider};
-use ops_sqlite::{init_schema, DataIngestor, Sqlite};
+use ops_sqlite::{DataIngestor, Sqlite, init_schema};
 
 use super::{RustLocExtension, RustLocIngestor, RustLocProvider};
-use crate::counter::{count_source, region_from_path, LineKind, Locs, Region, MAX_NESTING_DEPTH};
+use crate::counter::{LineKind, Locs, MAX_NESTING_DEPTH, Region, count_source, region_from_path};
 
 // -- Extension trait tests --
 

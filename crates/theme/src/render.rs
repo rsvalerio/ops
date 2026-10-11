@@ -5,8 +5,8 @@ use ops_core::output::ErrorDetail;
 
 use super::style::{apply_style_gated, color_enabled};
 
-/// SEC-21 / TASK-1965: neutralise a string that came from a child process
-/// before it is interpolated into a rendered line.
+/// Neutralise a string that came from a child process before it is
+/// interpolated into a rendered line.
 ///
 /// `detail.message` and every `detail.stderr_tail` entry are verbatim
 /// subprocess stderr, and report row details are whatever the report
@@ -15,7 +15,7 @@ use super::style::{apply_style_gated, color_enabled};
 /// bare `\r` additionally corrupts the boxed frame, because the width
 /// helpers score it as zero columns while the terminal acts on it.
 ///
-/// Routes through the project's own SEC-21 defence,
+/// Routes through the project's own sanitisation defence,
 /// [`ops_core::ui::sanitise_line`], so the theme escapes exactly what the
 /// `ui::error` / dry-run audit channels escape.
 pub fn sanitise(s: &str) -> String {

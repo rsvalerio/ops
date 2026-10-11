@@ -1,4 +1,4 @@
-//! `CoverageProvider` schema and the `DuckDB` readback projection.
+//! `CoverageProvider` schema and the `SQLite` readback projection.
 
 use super::setup_loaded_db;
 use crate::provider::{provide_from_db, query_coverage_files, CoverageProvider};
@@ -9,17 +9,15 @@ fn coverage_provider_name() {
     assert_eq!(CoverageProvider.name(), "coverage");
 }
 
-/// TEST-23 / TASK-2195: the schema's field list is bound to `CoverageRow`
-/// itself, not restated. The expected field-name set is derived by
-/// serializing a `CoverageRow` (it derives `Serialize`), so adding or
-/// renaming a struct field fails this test until `schema()` follows — the
-/// previous shape hardcoded the same 15 literals it guarded and passed
-/// unchanged after a `CoverageRow` edit.
+/// The schema's field list is bound to `CoverageRow` itself, not restated.
+/// The expected field-name set is derived by serializing a `CoverageRow`
+/// (it derives `Serialize`), so adding or renaming a struct field fails this
+/// test until `schema()` follows.
 ///
 /// Ordering is deliberately *not* asserted: the two sides order fields
 /// differently by construction (struct order vs schema order), and consumers
-/// bind columns by name (`query_coverage_files`, TASK-1610), so order is not
-/// part of the contract — set equality is.
+/// bind columns by name (`query_coverage_files`), so order is not part of
+/// the contract — set equality is.
 #[test]
 fn coverage_provider_schema_fields_match_covered_row_serialization() {
     let row = crate::parse::CoverageRow {
@@ -88,16 +86,14 @@ fn query_coverage_files_round_trip() {
     }
 }
 
-/// TEST-5 / TASK-2190 AC #1 + #2: `CoverageProvider::provide` takes the
-/// `DuckDB` branch when a handle is attached — the fixture rows come back and
-/// no `cargo` subprocess is spawned. The context's working directory is a
-/// bare tempdir with no `Cargo.toml`: if the downcast in
-/// `try_provide_from_db` ever stopped resolving (the live hazard documented
-/// at `extensions/duckdb/src/lib.rs` — a stray `DuckDbHandle` import flips
-/// every downcast to `None`), the fallback would run `collect_coverage`,
-/// whose `cargo llvm-cov` invocation fails in a non-cargo directory — this
-/// test would then fail instead of silently paying a 15-minute workspace
-/// run on every `ops about`.
+/// `CoverageProvider::provide` takes the attached-db branch when a handle
+/// is attached — the fixture rows come back and no `cargo` subprocess is
+/// spawned. The context's working directory is a bare tempdir with no
+/// `Cargo.toml`: if the downcast in `try_provide_from_db` ever stopped
+/// resolving, the fallback would run `collect_coverage`, whose
+/// `cargo llvm-cov` invocation fails in a non-cargo directory — this test
+/// would then fail instead of silently paying a 15-minute workspace run on
+/// every `ops about`.
 #[test]
 fn provide_reads_rows_from_attached_db_without_running_cargo() {
     let (_data_dir, _dir, db) = setup_loaded_db();
@@ -117,12 +113,11 @@ fn provide_reads_rows_from_attached_db_without_running_cargo() {
     assert!(filenames.contains(&"src/lib.rs"));
 }
 
-/// TEST-5 / TASK-2190 AC #3: `provide_from_db` against a `DuckDB` whose
-/// `coverage_files` table already holds rows takes the
-/// `provide_via_ingestor` short-circuit — the `table_has_data` probe finds
-/// data and the ingestor's `collect` (cargo) never runs. Same discrimination
-/// as the sibling test: the bare non-cargo cwd makes any attempted collect
-/// fail loudly instead of re-ingesting.
+/// `provide_from_db` against a `SQLite` whose `coverage_files` table already
+/// holds rows takes the `provide_via_ingestor` short-circuit — the
+/// `table_has_data` probe finds data and the ingestor's `collect` (cargo)
+/// never runs. Same discrimination as the sibling test: the bare non-cargo
+/// cwd makes any attempted collect fail loudly instead of re-ingesting.
 #[test]
 fn provide_from_db_short_circuits_when_table_has_rows() {
     let (_data_dir, _dir, db) = setup_loaded_db();

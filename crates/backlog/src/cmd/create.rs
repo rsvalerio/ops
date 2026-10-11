@@ -111,43 +111,7 @@ pub(crate) fn create_task(
         let id = format_task_id(&cfg.task_prefix, number, cfg.zero_padded_ids);
         let file_name = main_task_file_name(number, cfg.zero_padded_ids, &opts.title);
         let path = store.task_path(&file_name);
-
-        let mut frontmatter = Frontmatter {
-            id: id.clone(),
-            title: opts.title.clone(),
-            status: opts
-                .status
-                .clone()
-                .unwrap_or_else(|| cfg.default_status.clone()),
-            assignees: opts.assignees.clone(),
-            created_date: format!("{} {}", stamp.date, stamp.minutes),
-            updated_date: None,
-            labels: opts.labels.clone(),
-            dependencies: opts.dependencies.clone(),
-            priority: Some(opts.priority.clone().unwrap_or_else(|| "low".to_string())),
-            modified_files: opts.modified_files.clone(),
-            // The ordinal the backlog CLI assigns a freshly created parent
-            // task, pinned by the create-review-tasks golden tests.
-            ordinal: Some("1000".to_string()),
-            extras: Vec::new(),
-        };
-        if let Some(key) = &opts.unless_exists {
-            frontmatter.set_extra_scalar(DEDUP_KEY, key);
-        }
-        let ac = AcItem::unchecked_all(&opts.ac);
-        let dod = AcItem::unchecked_all(&opts.dod);
-        let body = render_body(
-            opts.description.as_deref().unwrap_or(""),
-            &ac,
-            &dod,
-            opts.plan.as_deref(),
-            opts.notes.as_deref(),
-        );
-        let rendered = TaskDoc {
-            frontmatter,
-            body: Body { raw: body },
-        }
-        .render();
+        let rendered = render_new_task(opts, cfg, &id, &stamp);
 
         let mut handle = match std::fs::File::create_new(&path) {
             Ok(handle) => handle,
@@ -165,6 +129,54 @@ pub(crate) fn create_task(
             .with_context(|| format!("writing {}", path.display()))?;
         return Ok(Created::New(id));
     }
+}
+
+/// The rendered task file for a would-be `id`: the frontmatter with every
+/// option applied (defaults from `cfg`, the `dedup_key` extra when
+/// `unless_exists` is set) around the body with description, acceptance
+/// criteria, definition of done, plan and notes.
+fn render_new_task(
+    opts: &CreateOptions,
+    cfg: &BacklogConfig,
+    id: &str,
+    stamp: &UtcStamp,
+) -> String {
+    let mut frontmatter = Frontmatter {
+        id: id.to_string(),
+        title: opts.title.clone(),
+        status: opts
+            .status
+            .clone()
+            .unwrap_or_else(|| cfg.default_status.clone()),
+        assignees: opts.assignees.clone(),
+        created_date: format!("{} {}", stamp.date, stamp.minutes),
+        updated_date: None,
+        labels: opts.labels.clone(),
+        dependencies: opts.dependencies.clone(),
+        priority: Some(opts.priority.clone().unwrap_or_else(|| "low".to_string())),
+        modified_files: opts.modified_files.clone(),
+        // The ordinal the backlog CLI assigns a freshly created parent
+        // task, pinned by the create-review-tasks golden tests.
+        ordinal: Some("1000".to_string()),
+        extras: Vec::new(),
+    };
+    if let Some(key) = &opts.unless_exists {
+        frontmatter.set_extra_scalar(DEDUP_KEY, key);
+    }
+    let ac = AcItem::unchecked_all(&opts.ac);
+    let dod = AcItem::unchecked_all(&opts.dod);
+    let body = render_body(
+        opts.description.as_deref().unwrap_or(""),
+        &ac,
+        &dod,
+        opts.plan.as_deref(),
+        opts.notes.as_deref(),
+    );
+    TaskDoc {
+        frontmatter,
+        body: Body { raw: body },
+    }
+    .render()
 }
 
 /// The id of an open task in `tasks/` whose `dedup_key` equals `key`.

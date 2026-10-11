@@ -153,16 +153,12 @@ version = "2.0.0"
         assert!(result.is_none());
     }
 
-    /// ERR-6 / TASK-1793: a `[package]` that *exists* but omits the field
-    /// must still fall through to `[workspace.package]`.
-    ///
-    /// This is the cross-crate consequence of the empty-string sentinel:
-    /// `InheritableField::default()` used to be `Value("")`, so
-    /// `p.version.as_str()` returned `Some("")` for an omitted key and the
-    /// `.or_else(...)` fallback never fired — `about` reported an empty
-    /// version and description instead of the workspace's values. Note the
-    /// `authors` arm in `resolve_identity_fields` had to hand-roll a
-    /// `!wp.authors.is_empty()` guard for exactly this reason.
+    /// A `[package]` that *exists* but omits the field falls through to
+    /// `[workspace.package]`: an omitted key presents as `None`, not as an
+    /// empty string, so the `.or_else(...)` workspace fallback fires. The
+    /// `authors` arm in `resolve_identity_fields` applies the collection form
+    /// of the same rule — the workspace list must be non-empty to be
+    /// inherited.
     #[test]
     fn resolve_field_falls_back_to_workspace_when_package_omits_the_key() {
         let manifest = parse_pkg(
@@ -200,8 +196,8 @@ description = "ws desc"
         );
     }
 
-    /// ERR-6 / TASK-1793: the guard rail for the test above — a member that
-    /// *declares* an empty string keeps it, rather than silently inheriting.
+    /// The inverse of the test above: a member that *declares* an empty
+    /// string keeps it, rather than inheriting the workspace value.
     #[test]
     fn resolve_field_declared_empty_string_beats_workspace() {
         let manifest = parse_pkg(

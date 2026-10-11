@@ -1,3 +1,10 @@
+// This crate parses untrusted terraform plan JSON and hardens
+// secret-bearing artifacts; it holds no `unsafe` and must stay that way.
+// `forbid` (not the workspace `deny`) so a later scoped
+// `#[allow(unsafe_code)]` cannot lift it — this crate invokes no
+// `impl_extension!`-style macro, so the crate-root attribute the workspace
+// lint policy documents is reachable without an escape hatch.
+#![forbid(unsafe_code)]
 #![cfg_attr(
     test,
     allow(
@@ -483,6 +490,36 @@ fn prepare_artifact_paths(opts: &PlanOptions) -> anyhow::Result<ArtifactPaths> {
     Ok(ArtifactPaths { binary, json })
 }
 
+/// Constructs the shared symlink-refusal error.
+///
+/// Every symlink defence in this crate — the artifact-directory checks and
+/// the plan-JSON write — reports through this one construction, so neither
+/// the wording nor `ErrorKind::InvalidInput` can drift between copies.
+/// `what` names what stands at the path ("artifact directory", "plan
+/// JSON"); `refusing` is the refusal verb phrase.
+fn symlink_refusal_error(path: &Path, what: &str, refusing: &str) -> std::io::Error {
+    std::io::Error::new(
+        std::io::ErrorKind::InvalidInput,
+        format!("{what} {} is a symlink; {refusing}", path.display()),
+    )
+}
+
+/// Probes `path` for a symlink/reparse point and returns the shared refusal
+/// error if one is found.
+///
+/// The rejection half for the non-unix arms, where std exposes no portable
+/// `O_NOFOLLOW` to make the open itself the check: `None` means the path is
+/// absent or not a link. The unix arms reject atomically instead —
+/// `O_NOFOLLOW` on the open, or an `lstat` this run already needed.
+#[cfg(not(unix))]
+fn symlink_probe_error(path: &Path, what: &str, refusing: &str) -> Option<std::io::Error> {
+    let meta = std::fs::symlink_metadata(path).ok()?;
+    if meta.file_type().is_symlink() {
+        return Some(symlink_refusal_error(path, what, refusing));
+    }
+    None
+}
+
 /// Creates the artifact directory at 0700 and — when it already existed —
 /// verifies that what is actually there deserves the artifacts.
 ///
@@ -507,16 +544,12 @@ fn create_artifact_dir(dir: &Path) -> std::io::Result<()> {
         // No portable mode to inspect: the rejection half only, as the
         // ingest-dir checks in `ops-sqlite` do — a pre-existing symlink or
         // reparse point at the directory path is refused.
-        if let Ok(meta) = std::fs::symlink_metadata(dir) {
-            if meta.file_type().is_symlink() {
-                return Err(std::io::Error::new(
-                    std::io::ErrorKind::InvalidInput,
-                    format!(
-                        "artifact directory {} is a symlink; refusing to stage plan artifacts through it",
-                        dir.display()
-                    ),
-                ));
-            }
+        if let Some(e) = symlink_probe_error(
+            dir,
+            "artifact directory",
+            "refusing to stage plan artifacts through it",
+        ) {
+            return Err(e);
         }
         Ok(())
     }
@@ -539,12 +572,10 @@ fn verify_artifact_dir(dir: &Path) -> std::io::Result<()> {
     let lstat = std::fs::symlink_metadata(dir)?;
     let file_type = lstat.file_type();
     if file_type.is_symlink() {
-        return Err(Error::new(
-            ErrorKind::InvalidInput,
-            format!(
-                "artifact directory {} is a symlink; refusing to stage plan artifacts through it",
-                dir.display()
-            ),
+        return Err(symlink_refusal_error(
+            dir,
+            "artifact directory",
+            "refusing to stage plan artifacts through it",
         ));
     }
     if !file_type.is_dir() {
@@ -611,6 +642,18 @@ fn harden_artifact_permissions(path: &Path) {
 /// so it can only ever chmod this run's own file. The mode is applied after
 /// opening, because `OpenOptions::mode` only takes effect when the file is
 /// created and this path may already exist.
+///
+/// # Platform limitation (non-unix)
+///
+/// On unix the symlink rejection is atomic: the open itself fails with
+/// `ELOOP`. The non-unix fallback instead probes with `symlink_metadata`
+/// and only then opens — two resolutions of the same path, because std
+/// exposes no portable `O_NOFOLLOW` to combine check and act into one
+/// operation. The residual window between the probe and the open is an
+/// accepted limitation of this crate's non-primary platforms: no local
+/// attacker is in the default threat model there, and closing it would
+/// take a win32 reparse-point open (`FILE_FLAG_OPEN_REPARSE_POINT`) that
+/// this repository's unix-only CI can neither compile nor test.
 fn write_plan_json(path: &Path, contents: &str) -> std::io::Result<()> {
     use std::io::Write as _;
     let mut open_opts = std::fs::OpenOptions::new();
@@ -622,31 +665,21 @@ fn write_plan_json(path: &Path, contents: &str) -> std::io::Result<()> {
     }
     #[cfg(not(unix))]
     {
-        // No portable O_NOFOLLOW: the rejection half only, as the unix arm
-        // does through the flag — refuse a pre-existing symlink/reparse
-        // point rather than writing through it.
-        if let Ok(meta) = std::fs::symlink_metadata(path) {
-            if meta.file_type().is_symlink() {
-                return Err(std::io::Error::new(
-                    std::io::ErrorKind::InvalidInput,
-                    format!(
-                        "plan JSON {} is a symlink; refusing to write through it",
-                        path.display()
-                    ),
-                ));
-            }
+        // No portable O_NOFOLLOW: the rejection half only — the residual
+        // check-then-act window this leaves is documented on
+        // `write_plan_json` as an accepted platform limitation.
+        if let Some(e) = symlink_probe_error(path, "plan JSON", "refusing to write through it") {
+            return Err(e);
         }
     }
     let mut file = match open_opts.open(path) {
         Ok(file) => file,
         #[cfg(unix)]
         Err(e) if e.raw_os_error() == Some(libc::ELOOP) => {
-            return Err(std::io::Error::new(
-                std::io::ErrorKind::InvalidInput,
-                format!(
-                    "plan JSON {} is a symlink; refusing to write through it",
-                    path.display()
-                ),
+            return Err(symlink_refusal_error(
+                path,
+                "plan JSON",
+                "refusing to write through it",
             ));
         }
         Err(e) => return Err(e),

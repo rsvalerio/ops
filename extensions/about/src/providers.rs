@@ -104,22 +104,14 @@ where
 /// Deserialize a provider payload into `T`, naming the provider, the target
 /// type and the failing field path when it does not fit.
 ///
-/// Both deserialization call sites in this crate —
-/// [`load_or_default`], the single funnel for `project_coverage`,
-/// `project_dependencies` and `project_units`, and `lib.rs::resolve_identity`
-/// for `project_identity` — must not propagate the raw `serde_json` error
-/// with a bare `?`: a stack-extension author whose payload shape has drifted
-/// would see only `invalid type: string, expected i64`, with no indication
-/// of which provider produced it or which type it was being read into — in
-/// a crate that is otherwise meticulous about attaching `path` / `kind` /
-/// `subpage` to every warn. Both facts are in scope here, so both are attached.
-///
-/// ERR-14: these payloads are nested (`ProjectIdentity` carries
+/// These payloads are nested (`ProjectIdentity` carries
 /// `languages: Vec<LanguageStat>`, `ProjectCoverage` carries
-/// `units: Vec<UnitCoverage>`), so the bare message could refer to any of a
-/// hundred fields. `serde_path_to_error` reports the concrete location —
-/// `units[3].lines_percent` — which is the difference between a fixable bug
-/// report and a bisect.
+/// `units: Vec<UnitCoverage>`), so a bare serde message could refer to any
+/// of a hundred fields. `serde_path_to_error` reports the concrete
+/// location — `units[3].lines_percent` — which is the difference between a
+/// fixable bug report and a bisect: a stack-extension author whose payload
+/// shape has drifted sees which provider produced it, which type it was
+/// being read into, and where it stopped fitting.
 ///
 /// Still borrows the payload. `serde_path_to_error`
 /// wraps the `&Value` deserializer, so the JSON tree is not deep-cloned to

@@ -1,6 +1,4 @@
 //! `CoverageProvider` impl and `SQLite` readback path.
-//!
-//! ARCH-1 / TASK-1559: lifted out of `lib.rs`.
 
 use crate::ingestor::CoverageIngestor;
 use crate::parse::{collect_coverage, CoverageRow};
@@ -22,11 +20,10 @@ impl DataProvider for CoverageProvider {
 
     fn schema(&self) -> DataProviderSchema {
         use ops_extension::data_field;
-        // DUP-3 / TASK-1555: the field list mirrors `CoverageRow`'s struct
-        // layout. Adding a new metric flows through one struct edit + this
-        // list; the `query_coverage_files` projection and the `flatten`
-        // builder no longer need parallel edits because they consume the
-        // struct directly via `serde`.
+        // The field list mirrors `CoverageRow`'s struct layout: adding a new
+        // metric flows through one struct edit + this list, while the
+        // `query_coverage_files` projection and the `flatten` builder consume
+        // the struct directly via `serde`.
         DataProviderSchema::new(
             "LLVM code coverage from `cargo llvm-cov` (per-file metrics)",
             vec![
@@ -54,10 +51,10 @@ impl DataProvider for CoverageProvider {
     }
 }
 
-/// DUP-3 / TASK-1555: project rows through `CoverageRow` so the SELECT list
-/// and the JSON row builder share one schema. Column binding is by name
-/// (TASK-1610) so reordering the SELECT or swapping same-typed columns
-/// produces a clear runtime error instead of silent data corruption.
+/// Project rows through `CoverageRow` so the SELECT list and the JSON row
+/// builder share one schema. Column binding is by name, so reordering the
+/// SELECT or swapping same-typed columns produces a clear runtime error
+/// instead of silent data corruption.
 pub fn query_coverage_files(db: &Sqlite) -> Result<serde_json::Value, anyhow::Error> {
     ops_sqlite::sql::query_rows_to_json(
         db,

@@ -6,14 +6,16 @@
 //! templates are embedded in the binary, [`scaffold`] writes them into a repo
 //! (`ops init --rust`), and [`check`] reports where the repo has drifted from
 //! the running ops version's copy (`ops init --rust --check`). Updates ship
-//! with ops releases; there are no vendored copies to sync.
+//! with ops releases.
 //!
-//! The check is semantic (see [`compare`]): a template is a baseline, so
+//! The check is semantic: a template is a baseline, so
 //! additions such as `advisories.ignore` entries are the repo's own, while a
 //! changed or missing baseline key is drift unless a waiver in `.ops.toml`
 //! records why.
 
-pub mod compare;
+#![forbid(unsafe_code)]
+
+mod compare;
 
 use std::fs::OpenOptions;
 use std::io::{ErrorKind, Write};
@@ -174,9 +176,7 @@ impl Root {
 /// # Errors
 ///
 /// If the manifest parses as TOML but not as a cargo manifest, so its
-/// workspace members cannot be resolved. Returning an empty list instead
-/// would make check report a clean result it did not establish and scaffold
-/// silently add no member opt-ins, so the parse failure propagates.
+/// workspace members cannot be resolved.
 fn workspace_members(
     root: &Path,
     text: &str,
@@ -410,8 +410,9 @@ fn remove_path(doc: &mut toml_edit::DocumentMut, path: &[&str]) {
 /// # Errors
 ///
 /// If `root` has no parseable `Cargo.toml`, its workspace members cannot be
-/// resolved, or a file exists but cannot be read. A file or member manifest
-/// that is missing or does not parse is drift, not an error.
+/// resolved, or a file exists but cannot be read. A file that is missing or
+/// does not parse is drift, not an error, and so is a member manifest that
+/// does not parse; a member manifest that is missing is skipped.
 pub fn check(root: &Path, waivers: &IndexMap<String, String>) -> anyhow::Result<Report> {
     let manifest = Root::load(root)?;
     let mut drift = Vec::new();

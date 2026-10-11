@@ -173,6 +173,13 @@ impl Action {
 }
 
 /// One sanitized, display-ready change produced by `classify_plan`.
+///
+/// Every field is sanitized display data — no secret-bearing surface — so
+/// the common traits hold trivially and are derived here rather than left
+/// for consumers to wish for (`Debug` to log or assert on a misclassified
+/// plan, `Clone` to keep a copy across a move into a renderer); adding them
+/// later would be a semver-visible change.
+#[derive(Debug, Clone)]
 #[non_exhaustive]
 pub struct ClassifiedChange {
     /// Classified action; drives colour, label and sort order.

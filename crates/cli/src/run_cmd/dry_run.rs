@@ -32,6 +32,8 @@ pub fn run_command_dry_run(
     run_command_dry_run_to(runner, name, &mut std::io::stdout())
 }
 
+/// Render the dry-run preview of one named command to `w`: the command, its
+/// resolved steps, and each step's expanded spec.
 pub fn run_command_dry_run_to(
     runner: &ops_runner::command::CommandRunner,
     name: &str,
@@ -75,7 +77,7 @@ pub fn run_command_dry_run_to(
     Ok(ExitCode::SUCCESS)
 }
 
-/// TASK-2277: a matrix step previews its schedule and then every cell with
+/// A matrix step previews its schedule and then every cell with
 /// its fully expanded program and args — what each spawn will actually run.
 fn print_matrix_spec(
     w: &mut dyn Write,
@@ -102,6 +104,8 @@ fn print_matrix_spec(
     Ok(())
 }
 
+/// Render one exec step's expanded program, args, env and cwd for the
+/// dry-run preview.
 pub fn print_exec_spec(
     w: &mut dyn Write,
     e: &ops_core::config::ExecCommandSpec,

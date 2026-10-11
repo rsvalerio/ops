@@ -11,7 +11,7 @@ use ops_sqlite::sql::{CreateViewSql, JsonColumn, JsonTableLoad, TableName};
 /// Declarative load spec for `rust_loc_files.json`: one row per file, one
 /// column per counter region.
 ///
-/// SEC-12: the table and column identifiers are const-validated at
+/// The table and column identifiers are const-validated at
 /// construction, and the staged JSON reaches the engine as a bound `?1`
 /// parameter — the load executes [`JsonTableLoad`]'s DDL batch +
 /// `json_each` insert, never a path-bearing `read_json_auto` statement.
@@ -64,7 +64,7 @@ mod tests {
         );
     }
 
-    /// SEC-12: the load spec's DDL quotes the table name and declares typed
+    /// The load spec's DDL quotes the table name and declares typed
     /// NOT NULL columns, mirroring the builder tests in `ops_sqlite`.
     #[test]
     fn rust_loc_files_load_declares_typed_columns() {

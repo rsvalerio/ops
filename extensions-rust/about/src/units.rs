@@ -360,7 +360,7 @@ pub fn resolve_crate_display_name(member: &str, workspace_root: &Path) -> String
 #[cfg(test)]
 mod tests {
     use super::*;
-    use ops_about::test_support::capture_tracing;
+    use ops_core::test_utils::capture_tracing;
 
     /// ERR-7 (TASK-0977) / TEST-25 (TASK-1773): `read_crate_metadata`'s
     /// breadcrumbs must Debug-format the manifest path so an

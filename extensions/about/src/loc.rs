@@ -50,7 +50,9 @@ fn region_display(region: &str) -> (usize, &str) {
 /// `main` and `test` rows, so adding those columns counts it twice.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct RustLocPage {
+    /// Per-region LOC statistics.
     pub regions: Vec<RustLocStat>,
+    /// Distinct files counted across all regions.
     pub files: i64,
 }
 
@@ -218,12 +220,19 @@ pub const LOC_JSON_SCHEMA_VERSION: u32 = 1;
 #[derive(Debug, Clone, PartialEq, Eq, serde::Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct LocRegionRecord {
+    /// Region display name (see the struct docs).
     pub region: String,
+    /// Distinct `.rs` files with code in this region.
     pub files: i64,
+    /// Code lines.
     pub code: i64,
+    /// Doc-comment lines.
     pub docs: i64,
+    /// Inline-comment lines.
     pub comments: i64,
+    /// Blank lines.
     pub blanks: i64,
+    /// Total lines of every kind.
     pub lines: i64,
 }
 
@@ -231,6 +240,7 @@ pub struct LocRegionRecord {
 #[derive(Debug, Clone, PartialEq, Eq, serde::Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct LocCrateRecord {
+    /// Crate name.
     pub name: String,
     /// Repo-relative manifest dir, as `ops about crates --json` reports it.
     pub manifest_dir: String,
@@ -244,7 +254,9 @@ pub struct LocCrateRecord {
 #[derive(Debug, Clone, PartialEq, Eq, serde::Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct LocDocument {
+    /// Version of this JSON document's schema.
     pub schema_version: u32,
+    /// Document discriminator; always `"about-loc"`.
     pub kind: &'static str,
     /// Distinct `.rs` files counted across the workspace.
     pub files: i64,

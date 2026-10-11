@@ -1,9 +1,7 @@
 //! Tests for the coverage extension.
 //!
-//! ARCH-1 / TASK-1944: the production code was split by concern under
-//! TASK-1559, but the test module was not and had grown to 940 lines behind
-//! banner comments that no longer kept related tests together. It now
-//! mirrors the production module layout, one file per concern:
+//! The test module mirrors the production module layout, one file per
+//! concern:
 //!
 //! - [`wiring`]: extension registration + the public `load_coverage` entry.
 //! - [`parse`] / [`parse_edge`]: `flatten_coverage_json` behaviour and its
@@ -14,10 +12,10 @@
 //! - [`ingest`]: `CoverageIngestor` end-to-end loads.
 //! - [`views`]: `coverage_summary` DDL and query behaviour.
 //!
-//! Test placement rule (TASK-1944): tests live here unless they need
-//! module-private items. `ingestor.rs` keeps an inline `#[cfg(test)]` module
-//! because its tests bind the private `PIPELINE` constant; nothing else in
-//! the crate does, so no other file carries inline tests.
+//! Test placement rule: tests live here unless they need module-private
+//! items. `ingestor.rs` keeps an inline `#[cfg(test)]` module because its
+//! tests bind the private `PIPELINE` constant; nothing else in the crate
+//! does, so no other file carries inline tests.
 
 mod collect;
 mod ingest;
@@ -63,8 +61,8 @@ pub fn sample_coverage_json() -> serde_json::Value {
     })
 }
 
-/// SEC-25 / TASK-2054: the fixture is staged through the verified anchor, the
-/// same way `CoverageIngestor::collect` stages it in production.
+/// Stages the fixture through the verified anchor, the same way
+/// `CoverageIngestor::collect` stages it in production.
 pub fn write_coverage_fixture(dir: &IngestDir) {
     let raw = sample_coverage_json();
     let flat = flatten_coverage_json(&raw).expect("flatten");
@@ -81,11 +79,10 @@ pub fn ingest_anchor(tmp: &tempfile::TempDir) -> IngestDir {
     IngestDir::open(&tmp.path().join("data.db.ingest")).expect("open ingest dir")
 }
 
-/// DUP-3 / TASK-1562: collapses the 5-line `tempdir + open_in_memory +
-/// write_coverage_fixture + ingest` boilerplate that previously sat in
-/// five `SQLite` integration tests. Returns the tempdir (kept alive so the
-/// sidecar paths remain valid for the lifetime of the test) and the
-/// loaded `Sqlite` handle.
+/// Collapses the shared `tempdir + open_in_memory + write_coverage_fixture +
+/// ingest` setup used by the `SQLite` integration tests. Returns the tempdir
+/// (kept alive so the sidecar paths remain valid for the lifetime of the
+/// test) and the loaded `Sqlite` handle.
 pub fn setup_loaded_db() -> (tempfile::TempDir, IngestDir, Sqlite) {
     let data_dir = tempfile::tempdir().expect("tempdir");
     let dir = ingest_anchor(&data_dir);

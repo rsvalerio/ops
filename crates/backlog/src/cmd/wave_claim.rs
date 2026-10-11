@@ -83,16 +83,58 @@ pub fn run_wave_claim<W: Write>(
     if branch.starts_with('-') || branch.trim().is_empty() {
         anyhow::bail!("invalid branch name {branch:?}");
     }
-    let worktree = match &opts.worktree {
-        Some(path) if path.is_absolute() => path.clone(),
-        Some(path) => cwd.join(path),
-        None => top
-            .parent()
-            .unwrap_or(&top)
-            .join(format!(".wave-{wave_id}")),
-    };
+    let worktree = resolve_worktree(cwd, &top, opts.worktree.as_deref(), &wave_id);
+    ensure_claimable(&top, &branch, &worktree, &wave_id)?;
+    create_claim_worktree(&top, &branch, &worktree, &wave_id)?;
 
-    if git::branch_exists(&top, &branch)? {
+    let edit = EditOptions {
+        task_id: wave_id.clone(),
+        status: Some("In Progress".to_string()),
+        append_notes: vec![format!(
+            "Branch: {branch}\nWorktree: {}",
+            worktree.display()
+        )],
+        ..EditOptions::default()
+    };
+    if let Err(err) = run_edit(store, &edit, &mut std::io::sink()) {
+        return Err(undo_failed_claim(err, &top, &worktree, &branch, &wave_id));
+    }
+
+    writeln!(
+        out,
+        "Claimed {wave_id}: branch {branch}, worktree {}",
+        worktree.display()
+    )
+    .context("printing the claim summary")?;
+    Ok(())
+}
+
+/// The worktree path a claim uses: the explicit `--worktree` path (relative
+/// ones resolve against `cwd`) or, by default, `<repo-parent>/.wave-<wave-id>`
+/// — a sibling of the repository, so it never shows up as untracked files
+/// inside it.
+fn resolve_worktree(cwd: &Path, top: &Path, explicit: Option<&Path>, wave_id: &str) -> PathBuf {
+    match explicit {
+        Some(path) if path.is_absolute() => path.to_path_buf(),
+        Some(path) => cwd.join(path),
+        None => top.parent().unwrap_or(top).join(format!(".wave-{wave_id}")),
+    }
+}
+
+/// Refuse a claim whose branch or worktree path is already taken — before
+/// anything is created.
+///
+/// # Errors
+///
+/// The branch already exists (the wave is claimed elsewhere) or the
+/// worktree path is taken.
+fn ensure_claimable(
+    top: &Path,
+    branch: &str,
+    worktree: &Path,
+    wave_id: &str,
+) -> anyhow::Result<()> {
+    if git::branch_exists(top, branch)? {
         anyhow::bail!(
             "{wave_id} is already claimed: branch {branch} exists — pick another wave, \
              or resume the parked one from its worktree"
@@ -107,61 +149,65 @@ pub fn run_wave_claim<W: Write>(
             worktree.display()
         );
     }
+    Ok(())
+}
 
-    let worktree_arg = worktree.as_os_str().to_os_string();
+/// Create the claim's branch and worktree in one step: `git worktree add -b`
+/// refusing an existing branch is what makes the claim exclusive.
+///
+/// # Errors
+///
+/// `git worktree add` failed.
+fn create_claim_worktree(
+    top: &Path,
+    branch: &str,
+    worktree: &Path,
+    wave_id: &str,
+) -> anyhow::Result<()> {
     git::run(
-        &top,
+        top,
         [
             std::ffi::OsString::from("worktree"),
             "add".into(),
             "-b".into(),
-            branch.clone().into(),
-            worktree_arg,
+            branch.to_string().into(),
+            worktree.as_os_str().to_os_string(),
         ],
     )
     .with_context(|| format!("claiming {wave_id}"))?;
-
-    let edit = EditOptions {
-        task_id: wave_id.clone(),
-        status: Some("In Progress".to_string()),
-        append_notes: vec![format!(
-            "Branch: {branch}\nWorktree: {}",
-            worktree.display()
-        )],
-        ..EditOptions::default()
-    };
-    if let Err(err) = run_edit(store, &edit, &mut std::io::sink()) {
-        // Undo the claim so a retry starts clean. Neither step forces: the
-        // fresh worktree holds nothing, and a refusal here means someone
-        // already wrote into it, which must not be discarded.
-        let undo = git::run(
-            &top,
-            [
-                std::ffi::OsString::from("worktree"),
-                "remove".into(),
-                worktree.as_os_str().to_os_string(),
-            ],
-        )
-        .and_then(|_| git::run(&top, ["branch", "-d", branch.as_str()]));
-        return Err(match undo {
-            Ok(_) => err.context(format!(
-                "claiming {wave_id}: the status edit failed; branch and worktree removed again"
-            )),
-            Err(undo_err) => err.context(format!(
-                "claiming {wave_id}: the status edit failed and undoing the claim failed too \
-                 ({undo_err:#}); branch {branch} and worktree {} are left in place",
-                worktree.display()
-            )),
-        });
-    }
-
-    writeln!(
-        out,
-        "Claimed {wave_id}: branch {branch}, worktree {}",
-        worktree.display()
-    )
-    .context("printing the claim summary")?;
     Ok(())
+}
+
+/// Undo a just-made claim after the status edit failed, so a retry starts
+/// clean, and wrap `err` with the outcome. Neither undo step forces: the
+/// fresh worktree holds nothing, and a refusal here means someone already
+/// wrote into it, which must not be discarded.
+fn undo_failed_claim(
+    err: anyhow::Error,
+    top: &Path,
+    worktree: &Path,
+    branch: &str,
+    wave_id: &str,
+) -> anyhow::Error {
+    let undo = git::run(
+        top,
+        [
+            std::ffi::OsString::from("worktree"),
+            "remove".into(),
+            worktree.as_os_str().to_os_string(),
+        ],
+    )
+    .and_then(|_| git::run(top, ["branch", "-d", branch]));
+    match undo {
+        Ok(_) => err.context(format!(
+            "claiming {wave_id}: the status edit failed; branch and worktree removed again"
+        )),
+        Err(undo_err) => err.context(format!(
+            "claiming {wave_id}: the status edit failed and undoing the claim failed too \
+             ({undo_err:#}); branch {branch} and worktree {} are left in place",
+            worktree.display()
+        )),
+    }
 }
 
 /// Park a wave: set its status and record why it did not land, keeping its

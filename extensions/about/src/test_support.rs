@@ -5,32 +5,12 @@
 //! its own `*_path_debug_escapes_control_characters` test so the contract
 //! is visible at every call site, and they share the assertion logic —
 //! deleting one site cannot silently weaken coverage.
-
-/// The tracing-capture
-/// harness these extensions use has exactly one definition, in
-/// `ops_core::test_utils`. It lives there rather than here because
-/// `crates/core`, `crates/cli` and `extensions/git` also need it, and every
-/// one of them depends on `ops-core` — re-homing it the other way round would
-/// have made an extension a dev-dependency of the crate it is built on.
-///
-/// Re-exported under the `test-support` feature so the about family keeps
-/// importing it from `ops_about::test_support`:
-///
-/// - `TracingBuf` — the shared capture sink.
-/// - `WarnCounter` / `count_warnings` — assert on how many `WARN` events fired.
-/// - `capture_warn` — assert on the rendered `WARN` records.
-/// - `capture_tracing` — the level-parameterised form behind both.
-/// - `pin_global_dispatcher` — for a test that must install its own
-///   subscriber (one per spawned thread, say) instead of using the above.
-///
-/// All four pin a global dispatcher first: `tracing` caches each callsite's
-/// `Interest` process-wide, so with only scoped subscribers a parallel test
-/// thread can cache `Interest::never()` and the capture comes back empty at
-/// random. The hazard is unreachable through these entry points.
-#[cfg(feature = "test-support")]
-pub use ops_core::test_utils::{
-    capture_tracing, capture_warn, count_warnings, pin_global_dispatcher, TracingBuf, WarnCounter,
-};
+//!
+//! The tracing-capture harness (`capture_tracing`, `capture_warn`,
+//! `count_warnings`, `pin_global_dispatcher`, `TracingBuf`, `WarnCounter`)
+//! lives in `ops_core::test_utils`: it is shared with `crates/core`,
+//! `crates/cli` and `extensions/git`, which — like every about-family
+//! crate — depend on `ops-core` directly. Import it from there.
 
 /// Pin the property guaranteed by `Debug` formatting on `Path::display()`
 /// (or any value carrying user-controlled text):
@@ -81,13 +61,8 @@ pub fn assert_rendered_escapes_control_chars(rendered: &str) {
 
 /// Write `content` to `path`, creating any missing parent directories.
 ///
-/// The `about` extensions' `#[cfg(test)]` modules each
-/// grew a byte-identical six-line `write` helper for building tempdir
-/// fixtures. Hoisting it here gives the family one definition, so a future
-/// tightening (propagating the IO error, richer `expect` messages) lands
-/// once instead of drifting between copies. Import it as
-/// `use ops_about::test_support::write_file as write;` to keep existing
-/// call sites unchanged.
+/// Import it as `use ops_about::test_support::write_file as write;` to
+/// keep existing call sites unchanged.
 ///
 /// # Panics
 ///

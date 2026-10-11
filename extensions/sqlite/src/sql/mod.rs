@@ -107,11 +107,8 @@ fn is_hard_failure(err: &anyhow::Error) -> bool {
 }
 
 /// Render `path` as a workspace-relative UTF-8 string for a JSON-sidecar
-/// column.
-///
-/// DUP-1 / TASK-2183: the `tokei` and `rust-loc` extensions each carried a
-/// byte-identical copy of this helper; the policy now lives here, once,
-/// for every extension that feeds a `SQLite` view from a JSON sidecar.
+/// column. This is the single path-relativization policy for every
+/// extension that feeds a `SQLite` view from a JSON sidecar.
 ///
 /// READ-5 (TASK-0504): intentionally lossy. The sidecar-backed views
 /// (`tokei_files`, `rust_loc_files`) are read-only at the value level —

@@ -1,4 +1,4 @@
-//! `ops msrv`: build the workspace on its declared `rust-version` (TASK-2327).
+//! `ops msrv`: build the workspace on its declared `rust-version`.
 //!
 //! `clippy::incompatible_msrv` (driven by `clippy.toml`'s `msrv`) catches
 //! standard-library calls above the floor but is blind to language features;

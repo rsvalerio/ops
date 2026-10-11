@@ -8,9 +8,9 @@ use super::helpers::{query_project_scalar, query_rows_fold, QuerySpec};
 /// Query total normal-dependency count from `crate_dependencies`.
 ///
 /// ERR-1 (TASK-0506): a negative i64 from COUNT (which `SQLite` should never
-/// emit but a future cast or schema bug could) used to be silently coerced
-/// to 0. Now we surface the anomaly via `tracing::warn` before falling back
-/// so a misbehaving view doesn't impersonate "no dependencies".
+/// emit but a future cast or schema bug could) is surfaced via `tracing::warn`
+/// before falling back to 0, so a misbehaving view doesn't impersonate
+/// "no dependencies".
 ///
 /// PATTERN-1 / TASK-1075: filter to `dependency_kind = 'normal'` so the
 /// scalar matches the "Dependencies" identity-card label rendered by
@@ -97,9 +97,9 @@ pub fn query_crate_deps(db: &Sqlite) -> anyhow::Result<HashMap<String, Vec<(Stri
 /// Returns an empty map if the view doesn't exist (graceful degradation).
 ///
 /// ERR-2 / TASK-1253: keyed by `crate_manifest_path` (uniquely identifying a
-/// workspace member) instead of bare `crate_name`. The previous shape silently
-/// mis-attributed counts for renamed packages (`[package] name = "alt-name"`)
-/// and collapsed members that share a `package.name` into a single map entry.
+/// workspace member) rather than bare `crate_name`, which would
+/// mis-attribute counts for renamed packages (`[package] name = "alt-name"`)
+/// and collapse members that share a `package.name` into a single map entry.
 /// When the same `crate_name` maps to multiple manifest paths we emit a
 /// `tracing::debug` breadcrumb so an operator chasing a None `dep_count` for a
 /// duplicate-named member sees the diagnosis.
@@ -143,7 +143,7 @@ pub fn query_crate_dep_counts(db: &Sqlite) -> anyhow::Result<HashMap<String, i64
         tracing::debug!(
             crate_name = name,
             occurrences = count,
-            "ERR-2 / TASK-1253: crate_name maps to multiple manifest_paths; dep_counts now key by manifest_path"
+            "ERR-2 / TASK-1253: crate_name maps to multiple manifest_paths; dep_counts are keyed by crate_manifest_path"
         );
     }
 

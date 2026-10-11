@@ -5,6 +5,7 @@ use std::io::Write;
 
 use anyhow::Context as _;
 
+use crate::cmd::OutputFormat;
 use crate::render;
 use crate::store::Store;
 
@@ -20,9 +21,9 @@ pub struct SearchOptions {
     pub modified_file: Vec<String>,
     /// Drop tasks whose status matches (case-insensitive).
     pub exclude_status: Vec<String>,
-    pub plain: bool,
-    /// Render the versioned `kind: search` JSON document instead of rows.
-    pub json: bool,
+    /// The renderer: human-readable rows (also the default) or the
+    /// versioned `kind: search` JSON document.
+    pub format: OutputFormat,
 }
 
 /// Search and render `Tasks:` rows.
@@ -49,12 +50,14 @@ pub fn run_search<W: Write>(
         })
         .collect();
     render::sort_hits(&mut hits);
-    if opts.json {
-        render::search_json(out, &hits, !query.is_empty()).context("writing search results")?;
-    } else {
-        render::search_plain(out, &hits, !query.is_empty()).context("writing search results")?;
+    match opts.format {
+        OutputFormat::Json => {
+            render::search_json(out, &hits, !query.is_empty()).context("writing search results")
+        }
+        OutputFormat::Plain => {
+            render::search_plain(out, &hits, !query.is_empty()).context("writing search results")
+        }
     }
-    Ok(())
 }
 
 fn modified_file_matches(opts: &SearchOptions, modified_files: &[String]) -> bool {
@@ -115,7 +118,7 @@ mod tests {
             &store,
             &SearchOptions {
                 query: Some("DUP-3".to_string()),
-                plain: true,
+                format: OutputFormat::Plain,
                 ..SearchOptions::default()
             },
             &mut out,
@@ -137,7 +140,7 @@ mod tests {
             &store,
             &SearchOptions {
                 modified_file: vec!["crates/foo".to_string()],
-                plain: true,
+                format: OutputFormat::Plain,
                 ..SearchOptions::default()
             },
             &mut out,
@@ -161,7 +164,7 @@ mod tests {
             &store,
             &SearchOptions {
                 query: Some("DUP-3".to_string()),
-                json: true,
+                format: OutputFormat::Json,
                 ..SearchOptions::default()
             },
             &mut out,
@@ -188,7 +191,7 @@ mod tests {
             &store,
             &SearchOptions {
                 modified_file: vec!["crates/bar".to_string()],
-                json: true,
+                format: OutputFormat::Json,
                 ..SearchOptions::default()
             },
             &mut out,
@@ -203,7 +206,7 @@ mod tests {
             &store,
             &SearchOptions {
                 query: Some("no-such-token".to_string()),
-                json: true,
+                format: OutputFormat::Json,
                 ..SearchOptions::default()
             },
             &mut out,
@@ -222,7 +225,7 @@ mod tests {
             &SearchOptions {
                 query: Some("DUP-3".to_string()),
                 exclude_status: vec!["done".to_string()],
-                plain: true,
+                format: OutputFormat::Plain,
                 ..SearchOptions::default()
             },
             &mut out,

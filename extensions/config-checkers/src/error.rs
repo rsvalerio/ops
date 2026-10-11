@@ -7,7 +7,8 @@ use std::str::Utf8Error;
 ///
 /// Distinct from a parser error: the input may be perfectly well-formed and
 /// still be rejected because validating it would cost more than the checker
-/// is willing to spend (`SEC-33`). Surfaced through
+/// is willing to spend — the bound keeps a tiny input from amplifying into
+/// unbounded memory use during validation. Surfaced through
 /// [`CheckError::Parse`] so callers keep a single failure shape.
 #[derive(Debug, Clone, Copy)]
 pub struct LimitExceeded {
@@ -59,7 +60,8 @@ impl fmt::Display for CheckError {
             // Delegates rather than wrapping, so the rendered line stays
             // byte-identical to the parser's own message: this variant adds
             // no information of its own, and interpolating the source into a
-            // longer sentence would be the `ERR-9` duplication.
+            // longer sentence would print the same text twice for any
+            // printer that walks the error chain.
             Self::Parse(e) => fmt::Display::fmt(e, f),
         }
     }

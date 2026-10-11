@@ -18,7 +18,7 @@ mod metadata;
 
 /// The set of project stacks `ops` can detect and accept.
 ///
-/// READ-6 (TASK-1404): the enum is the single source of truth for both the
+/// The enum is the single source of truth for both the
 /// list of stacks accepted in `config.stack` overrides (`Stack::VARIANTS`,
 /// derived by `strum::VariantNames`) and the priority order used by
 /// `Stack::detect` (declaration order, iterated via `strum::EnumIter`).
@@ -69,7 +69,7 @@ impl Stack {
     }
 
     /// This stack's default build output and dependency directories
-    /// (TASK-2264): `target` for Rust/Maven, `node_modules`/`dist` for Node,
+    /// : `target` for Rust/Maven, `node_modules`/`dist` for Node,
     /// and so on. Generated artefacts, not source — the directories a
     /// whole-tree scanner should skip at any depth.
     #[must_use]
@@ -77,11 +77,11 @@ impl Stack {
         metadata::metadata(*self).2
     }
 
-    /// DUP-001: Resolve stack from config override or auto-detection.
+    /// Resolve stack from config override or auto-detection.
     ///
     /// Shared by `CommandRunner::new()` and `extensions::resolve_stack()`.
     ///
-    /// ERR-2 (TASK-0540): an unparseable `config.stack` value emits a
+    /// An unparseable `config.stack` value emits a
     /// `tracing::warn!` event and a user-visible `ui::warn` listing accepted
     /// stack names before falling back to filesystem detection. Without the
     /// diagnostic the override is silently dropped and users debugging
@@ -130,13 +130,13 @@ impl Stack {
         metadata::metadata(*self).1
     }
 
-    /// PERF-3 (TASK-1409): the parsed default-commands map is memoized
+    /// The parsed default-commands map is memoized
     /// per-process. First call eagerly parses every variant's embedded
     /// TOML once; subsequent calls clone from the cache (`IndexMap<String,
     /// CommandSpec>` clone is O(n) on entries, but avoids re-running the
     /// TOML parser on every `ops <cmd>` dispatch).
     ///
-    /// OWN-8 (TASK-1469): prefer [`Self::default_commands_ref`] for
+    /// Prefer [`Self::default_commands_ref`] for
     /// read-only callers; this owning form exists for callers that need
     /// to move the map into a mutable target (e.g. `ops init` scaffolds
     /// the result into a writable [`Config`]).
@@ -145,7 +145,7 @@ impl Stack {
         self.default_commands_ref().clone()
     }
 
-    /// OWN-8 (TASK-1469): borrowing accessor over the memoized
+    /// Borrowing accessor over the memoized
     /// default-commands map. Returns a `'static` reference into the
     /// process-wide cache so repeat calls allocate zero `CommandSpec`
     /// contents.
@@ -203,7 +203,7 @@ const GENERIC_BUILD_DIR_NAMES: &[&str] = &["build", "dist"];
 /// are excluded — they are skipped per-path as discovered generated output,
 /// never globally by name.
 ///
-/// TASK-2264: both halves of `ops sec` consume this list — the detection
+/// Both halves of `ops sec` consume this list — the detection
 /// walk and every Trivy invocation — so the two cannot drift apart. It is
 /// a union rather than "the detected stack's dirs" because detection
 /// itself must skip build output before it knows which stack it will find,
@@ -277,7 +277,7 @@ pub fn is_generated_build_dir(parent: &Path, dir_name: &str) -> bool {
 /// Parse an embedded `.default.<stack>.ops.toml` payload, falling back to an
 /// empty `IndexMap` on parse failure.
 ///
-/// ERR-1 (TASK-1413): the embedded TOML is validated by
+/// The embedded TOML is validated by
 /// `tests::all_embedded_default_tomls_parse`; reaching the failure branch
 /// at runtime means the CI gate was bypassed and the next `ops init` would
 /// otherwise scaffold an empty command section with no operator-visible

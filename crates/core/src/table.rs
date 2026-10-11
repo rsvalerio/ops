@@ -25,7 +25,7 @@ impl Default for OpsTable {
 impl OpsTable {
     /// Create a new table, auto-detecting TTY from stdout.
     ///
-    /// PERF-3 / TASK-1439: TTY probe routes through the shared
+    /// TTY probe routes through the shared
     /// `style::stdout_is_terminal` cache so repeated constructions reuse
     /// a single `isatty` syscall per process and cannot disagree with
     /// `style::color_enabled` mid-render after a redirect.
@@ -62,7 +62,7 @@ impl OpsTable {
 
     /// Create a cell that is colored only when outputting to a TTY.
     ///
-    /// SEC-11 / TASK-2032: `value` is sanitised by [`sanitise_table_text`],
+    /// `value` is sanitised by [`sanitise_table_text`],
     /// so this constructor is safe for untrusted text. Colour is applied by
     /// comfy-table via `fg`, never as escape bytes inside `value`, so
     /// stripping controls here cannot swallow a caller's styling.
@@ -80,7 +80,7 @@ impl OpsTable {
     /// uncoloured cell whose contents have been run through
     /// [`sanitise_table_text`].
     ///
-    /// SEC-11 / TASK-2032: `comfy_table::Cell::new` is re-exported from this
+    /// `comfy_table::Cell::new` is re-exported from this
     /// module and writes whatever bytes it is handed straight into a cell.
     /// Anything that reaches a table from outside the process — a plan
     /// document, a config value, a subprocess's stdout — must come through
@@ -111,7 +111,7 @@ impl OpsTable {
     }
 }
 
-/// SEC-11 / TASK-1939, TASK-2032: strip every character that a terminal or
+/// Strip every character that a terminal or
 /// comfy-table would act on rather than draw, so untrusted text can be put
 /// in a table cell.
 ///
@@ -124,7 +124,7 @@ impl OpsTable {
 /// approving an apply. A bare carriage return does the same more crudely, and
 /// either desynchronises comfy-table's width accounting.
 ///
-/// DUP-2 / TASK-2250: the dropped set *is*
+/// The dropped set *is*
 /// [`crate::text::is_unsafe_display_char`] — the whole-codepoint
 /// display-safety policy shared with every other operator-facing surface.
 /// That covers the `Cc` controls (`U+0000..=U+001F` with ESC, CR, LF and TAB

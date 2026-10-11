@@ -8,7 +8,7 @@ use std::path::{Path, PathBuf};
 use anyhow::Context;
 
 use ops_core::bounded_read::{
-    read_candidate, record_failure, relative_to, report_walk_errors, Rejected, SkipReason,
+    Rejected, SkipReason, read_candidate, record_failure, relative_to, report_walk_errors,
 };
 
 use crate::error::CheckError;

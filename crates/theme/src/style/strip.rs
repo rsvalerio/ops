@@ -357,18 +357,9 @@ pub fn truncate_to_width(s: &str, max_cols: usize) -> Cow<'_, str> {
     if fits && !s.chars().any(is_rewritten) {
         return Cow::Borrowed(s);
     }
-    // When content must be dropped, reserve the last column for the ellipsis
-    // marker. A string that already fits (and is only being stripped of
-    // control characters) keeps the full budget.
-    let body_cols = if fits {
-        max_cols
-    } else {
-        max_cols.saturating_sub(1)
-    };
+    let mut budget = BodyBudget::new(fits, max_cols);
     let mut out = String::with_capacity(s.len());
-    let mut used = 0usize;
     let mut had_escape = false;
-    let mut truncated = false;
     for piece in ansi_pieces(s) {
         let c = match piece {
             // Escape sequences cost no columns; preserving them keeps the
@@ -378,50 +369,98 @@ pub fn truncate_to_width(s: &str, max_cols: usize) -> Cow<'_, str> {
                 out.push_str(seq);
                 continue;
             }
-            // Raw pieces are escape-shaped *runs*: an introducer whose
-            // sequence never terminated plus whatever the bounded scan
-            // consumed chasing it — and those consumed bytes can include
-            // C0 controls (`"\x1b(\r"` swallows the CR into the run).
-            // Pushing the run verbatim would push the controls too, so the
-            // run gets the same per-character treatment the Char arm
-            // applies: droppable controls dropped, tab rewritten,
-            // everything else (the introducer included, cost-free)
-            // preserved — keeping the truncated bytes observable, the same
-            // reasoning as strip_ansi_preserving_raw.
+            // Raw pieces are escape-shaped *runs*; see [`push_filtered_run`].
             AnsiPiece::Raw(seq) => {
                 had_escape = true;
-                for rc in seq.chars() {
-                    match rc {
-                        '\t' => out.push(TAB_REPLACEMENT),
-                        rc if is_droppable_control(rc) => {}
-                        rc => out.push(rc),
-                    }
-                }
+                push_filtered_run(&mut out, seq);
                 continue;
             }
             AnsiPiece::Char('\t') => TAB_REPLACEMENT,
             AnsiPiece::Char(c) if is_droppable_control(c) => continue,
             AnsiPiece::Char(c) => c,
         };
-        if truncated {
-            continue;
-        }
-        let w = c.width().unwrap_or(0);
-        if used.saturating_add(w) > body_cols {
-            truncated = true;
-            // Mark the cut in place so the ellipsis inherits the
-            // styling of the text it replaces, and any trailing
-            // reset in the source still lands after it.
-            if max_cols > 0 {
-                out.push(ELLIPSIS);
-            }
-            continue;
-        }
-        used = used.saturating_add(w);
-        out.push(c);
+        budget.push(&mut out, c);
     }
-    if truncated && had_escape && !out.ends_with(RESET) {
+    if budget.truncated() && had_escape && !out.ends_with(RESET) {
         out.push_str(RESET);
     }
     Cow::Owned(out)
+}
+
+/// Append an escape-shaped raw run to `out`, character-filtered.
+///
+/// Raw pieces are escape-shaped *runs*: an introducer whose
+/// sequence never terminated plus whatever the bounded scan
+/// consumed chasing it — and those consumed bytes can include
+/// C0 controls (`"\x1b(\r"` swallows the CR into the run).
+/// Pushing the run verbatim would push the controls too, so the
+/// run gets the same per-character treatment the Char arm
+/// applies: droppable controls dropped, tab rewritten,
+/// everything else (the introducer included, cost-free)
+/// preserved — keeping the truncated bytes observable, the same
+/// reasoning as `strip_ansi_preserving_raw`.
+fn push_filtered_run(out: &mut String, seq: &str) {
+    for rc in seq.chars() {
+        match rc {
+            '\t' => out.push(TAB_REPLACEMENT),
+            rc if is_droppable_control(rc) => {}
+            rc => out.push(rc),
+        }
+    }
+}
+
+/// Visible-column budget for [`truncate_to_width`]'s emission loop.
+///
+/// Spends columns one character at a time and marks the cut with an
+/// ellipsis when a character no longer fits.
+struct BodyBudget {
+    body_cols: usize,
+    max_cols: usize,
+    used: usize,
+    truncated: bool,
+}
+
+impl BodyBudget {
+    /// When content must be dropped, reserve the last column for the
+    /// ellipsis marker. A string that already fits (and is only being
+    /// stripped of control characters) keeps the full budget.
+    const fn new(fits: bool, max_cols: usize) -> Self {
+        let body_cols = if fits {
+            max_cols
+        } else {
+            max_cols.saturating_sub(1)
+        };
+        Self {
+            body_cols,
+            max_cols,
+            used: 0,
+            truncated: false,
+        }
+    }
+
+    /// Whether the cut has already been marked.
+    const fn truncated(&self) -> bool {
+        self.truncated
+    }
+
+    /// Append `c` to `out` while it fits the remaining budget; otherwise
+    /// mark the cut. The cut is marked in place so the ellipsis inherits
+    /// the styling of the text it replaces, and any trailing reset in the
+    /// source still lands after it. `max_cols == 0` spends no column on
+    /// the ellipsis (nothing visible can be shown anyway).
+    fn push(&mut self, out: &mut String, c: char) {
+        if self.truncated {
+            return;
+        }
+        let w = c.width().unwrap_or(0);
+        if self.used.saturating_add(w) > self.body_cols {
+            self.truncated = true;
+            if self.max_cols > 0 {
+                out.push(ELLIPSIS);
+            }
+            return;
+        }
+        self.used = self.used.saturating_add(w);
+        out.push(c);
+    }
 }

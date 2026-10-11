@@ -19,7 +19,7 @@ pub const MAX_COMPOSITE_DEPTH: usize = 100;
 
 /// Root configuration structure.
 ///
-/// TRAIT-4 / TASK-0872: `Default` is **gated to test/test-support builds**
+/// `Default` is **gated to test/test-support builds**
 /// so a buggy production CLI path cannot silently fall back to a blank
 /// `Config` (no commands, no themes, etc.) instead of going through
 /// [`crate::config::loader::load_config_or_default`]. Production code that genuinely needs a
@@ -66,7 +66,7 @@ pub struct Config {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub stack: Option<String>,
     /// Load-time provenance of `commands` entries that `clone` / `[extend]`
-    /// materialized (TASK-2280), so a plan can say where a step came from
+    /// materialized, so a plan can say where a step came from
     /// after the load has flattened every entry into a plain spec.
     /// Runtime-only: recorded by the loader, never read from or written to
     /// a config file.
@@ -102,10 +102,10 @@ pub struct CloneOrigin {
 ///
 /// - `visiting` is the current DFS *path*: a node is inserted on entry and
 ///   removed on every exit path, so re-encountering one is the cycle signal
-///   (ERR-1 / TASK-1221). It is cleared between sibling roots.
+///   It is cleared between sibling roots.
 /// - `validated` maps each node whose subtree has fully validated to that
 ///   subtree's *height*, and is never cleared — it is the memo that keeps the
-///   walk linear (SEC-33 / TASK-1832).
+///   walk linear.
 #[derive(Debug, Default)]
 pub struct CompositeWalk<'a> {
     visiting: std::collections::HashSet<&'a str>,
@@ -114,7 +114,7 @@ pub struct CompositeWalk<'a> {
 
 #[cfg(test)]
 impl CompositeWalk<'_> {
-    /// ERR-1 / TASK-1221: lets the invariant tests assert that the DFS path
+    /// Lets the invariant tests assert that the DFS path
     /// set is empty on every exit, without making the field public.
     pub fn path_is_empty(&self) -> bool {
         self.visiting.is_empty()
@@ -151,9 +151,9 @@ impl Config {
     /// `load_config_at` calls it on every `ops` invocation. It covers:
     ///
     /// - every exec spec ([`crate::config::ExecCommandSpec::validate`]);
-    /// - every theme ([`ThemeConfig::validate`], SEC-33 / TASK-1849);
+    /// - every theme ([`ThemeConfig::validate`]);
     /// - alias hygiene against the config's own command names
-    ///   ([`Config::validate_aliases`], SEC-31 / TASK-1818).
+    ///   ([`Config::validate_aliases`]).
     ///
     /// **Composite reference, cycle, and depth checks are not run here.** A
     /// composite may reference a stack default or an extension-registered
@@ -161,9 +161,8 @@ impl Config {
     /// `externals` list the loader does not have; they live in
     /// [`Config::validate_commands`] and are re-caught at dispatch by the
     /// runner's `expand_inner`. Alias hygiene, by contrast, is *not*
-    /// duplicated anywhere downstream, which is why it runs here (SEC-31 /
-    /// TASK-1818): the externals it cannot see only make the check narrower,
-    /// never wrong.
+    /// duplicated anywhere downstream, which is why it runs here: the
+    /// externals it cannot see only make the check narrower, never wrong.
     ///
     /// # Errors
     ///
@@ -176,7 +175,7 @@ impl Config {
             if let CommandSpec::Exec(exec) = spec {
                 exec.validate(name)?;
             }
-            // TASK-2273: `config::clone::apply` materializes every clone
+            // `config::clone::apply` materializes every clone
             // declaration before validate runs on the load path, so a Clone
             // variant here means a `Config` was deserialized straight from a
             // document that never went through the loader. Refuse it — a
@@ -190,7 +189,7 @@ impl Config {
                 );
             }
         }
-        // SEC-33 / TASK-1849: `[themes]` was the one config section nothing
+        // `[themes]` was the one config section nothing
         // screened, so an unbounded `left_pad` reached `" ".repeat(n)` and
         // aborted the process from a ~400-byte `.ops.toml`.
         for (name, theme) in &self.themes {
@@ -231,7 +230,7 @@ impl Config {
             .chain(externals.iter().copied())
             .collect();
 
-        // SEC-33 / TASK-1832: `state.validated` is the third DFS colour and is
+        // `state.validated` is the third DFS colour and is
         // deliberately carried across the sibling roots — that is what makes
         // the whole pass O(V+E). `state.visiting` is reset per root; see
         // [`CompositeWalk`] and [`Config::walk_composite`].
@@ -246,7 +245,7 @@ impl Config {
         self.validate_aliases(&known)
     }
 
-    /// ERR-1 / TASK-1181, TASK-1182: alias hygiene.
+    /// Alias hygiene.
     ///
     /// The CLI's `External` dispatcher matches the literal command name first
     /// and only falls through to alias lookup when no command exists by that
@@ -257,13 +256,11 @@ impl Config {
     /// declare the same alias. Catch both up-front so misconfigurations fail
     /// loud at validate time rather than as ghost behaviour at invocation.
     ///
-    /// SEC-31 / TASK-1818: this used to live inside
-    /// [`Config::validate_commands`], which has no production caller — so the
-    /// shipped binary ran neither rule and dispatched to whichever command sat
-    /// earlier in the map. It is now reachable from [`Config::validate`], the
-    /// one validation `load_config_at` performs, with `known` narrowed to the
-    /// config's own command names. `validate_commands` still passes the wider
-    /// set including `externals`; a narrower `known` only makes the
+    /// [`Config::validate`] — the one validation `load_config_at` performs —
+    /// runs this with `known` narrowed to the config's own command names.
+    /// [`Config::validate_commands`] still passes the wider set including
+    /// `externals`, but has no production caller. A narrower `known` only
+    /// makes the
     /// collides-with-a-command-name rule miss external names, never
     /// false-positive, and the duplicate-alias rule does not depend on it at
     /// all.
@@ -299,7 +296,7 @@ impl Config {
 
     /// Recursive composite walker.
     ///
-    /// ERR-1 / TASK-1221: `visiting` must be left in a consistent state on
+    /// `visiting` must be left in a consistent state on
     /// every exit path, including the early-`Err` short-circuits inside the
     /// loop. The previous shape used `?` then a tail `visiting.remove(name)`
     /// that only ran on success, so a future refactor hoisting `visiting` to
@@ -308,7 +305,7 @@ impl Config {
     /// The invariant is now: if this function inserted `name` into `visiting`,
     /// it removes it before returning, regardless of outcome.
     ///
-    /// SEC-33 / TASK-1832: `validated` is the **second, independent** set and
+    /// `validated` is the **second, independent** set and
     /// carries the opposite meaning — `visiting` is the current DFS *path*
     /// (inserted on entry, removed on every exit; that is the cycle signal),
     /// while `validated` is the set of nodes whose entire subtree already
@@ -414,7 +411,7 @@ impl Config {
     }
 }
 
-/// TRAIT-4 / TASK-0872: `Default` is intentionally test-only. Production
+/// `Default` is intentionally test-only. Production
 /// code uses [`Config::empty`] (explicit blank slate) or
 /// [`crate::config::loader::load_config_or_default`] (user-visible defaults). The serde defaults
 /// on individual fields do not require `Config: Default`.

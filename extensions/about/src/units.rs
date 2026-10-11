@@ -176,8 +176,11 @@ fn normalize_unit_path(path: &str) -> (String, bool) {
 #[derive(Debug, Clone, PartialEq, Eq, serde::Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct UnitsDocument {
+    /// Version of this JSON document's schema.
     pub schema_version: u32,
+    /// Document discriminator; always `"about-crates"`.
     pub kind: &'static str,
+    /// One record per project unit, ordered by manifest dir then name.
     pub crates: Vec<UnitRecord>,
 }
 
@@ -264,34 +267,26 @@ fn enrich_from_db(ctx: &Context, units: &mut [ProjectUnit]) {
     // names every field left stale, instead of four scattered messages
     // from which the partial-frame nature has to be reconstructed.
     let mut partial_failures: Vec<(&'static str, String)> = Vec::new();
-    let locs = match ops_sqlite::sql::query_crate_loc(db, &per_crate_paths) {
-        Ok(map) => Some(map),
-        Err(e) => {
-            partial_failures.push(("crate_loc", format!("{e:#}")));
-            None
-        }
-    };
-    let files = match ops_sqlite::sql::query_crate_file_count(db, &per_crate_paths) {
-        Ok(map) => Some(map),
-        Err(e) => {
-            partial_failures.push(("crate_file_count", format!("{e:#}")));
-            None
-        }
-    };
-    let project_loc = match ops_sqlite::sql::query_project_loc(db) {
-        Ok(v) => Some(v),
-        Err(e) => {
-            partial_failures.push(("project_loc", format!("{e:#}")));
-            None
-        }
-    };
-    let project_files = match ops_sqlite::sql::query_project_file_count(db) {
-        Ok(v) => Some(v),
-        Err(e) => {
-            partial_failures.push(("project_file_count", format!("{e:#}")));
-            None
-        }
-    };
+    let locs = try_query(
+        &mut partial_failures,
+        "crate_loc",
+        ops_sqlite::sql::query_crate_loc(db, &per_crate_paths),
+    );
+    let files = try_query(
+        &mut partial_failures,
+        "crate_file_count",
+        ops_sqlite::sql::query_crate_file_count(db, &per_crate_paths),
+    );
+    let project_loc = try_query(
+        &mut partial_failures,
+        "project_loc",
+        ops_sqlite::sql::query_project_loc(db),
+    );
+    let project_files = try_query(
+        &mut partial_failures,
+        "project_file_count",
+        ops_sqlite::sql::query_project_file_count(db),
+    );
     if !partial_failures.is_empty() {
         let fields: Vec<&'static str> = partial_failures.iter().map(|(f, _)| *f).collect();
         let detail = partial_failures
@@ -327,6 +322,28 @@ fn enrich_from_db(ctx: &Context, units: &mut [ProjectUnit]) {
             if candidate.is_some() {
                 unit.file_count = candidate;
             }
+        }
+    }
+}
+
+/// Run one enrichment query, recording `field` in `partial_failures` on
+/// error.
+///
+/// A query failure must not silently overwrite provider-supplied unit
+/// fields, so the error arm returns `None` and the caller leaves the
+/// untouched fields in place; `partial_failures` feeds the consolidated
+/// partial-frame warn in [`enrich_from_db`].
+#[cfg(feature = "sqlite")]
+fn try_query<T>(
+    partial_failures: &mut Vec<(&'static str, String)>,
+    field: &'static str,
+    query: anyhow::Result<T>,
+) -> Option<T> {
+    match query {
+        Ok(value) => Some(value),
+        Err(e) => {
+            partial_failures.push((field, format!("{e:#}")));
+            None
         }
     }
 }

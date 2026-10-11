@@ -126,7 +126,7 @@ impl TableName {
     }
 }
 
-const fn is_valid_identifier_const(s: &str) -> bool {
+pub(super) const fn is_valid_identifier_const(s: &str) -> bool {
     // Slice patterns walk the bytes without any indexing, so the empty and
     // out-of-bounds cases are handled by construction.
     let (first, mut rest) = match s.as_bytes() {

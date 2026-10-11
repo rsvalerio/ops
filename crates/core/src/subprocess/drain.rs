@@ -1,4 +1,4 @@
-//! ARCH-1 / TASK-1471: drain machinery for [`super::run_with_timeout`],
+//! Drain machinery for [`super::run_with_timeout`],
 //! extracted from the historical grab-bag module.
 //!
 //! Owns the bounded-read primitive ([`read_capped`]), the per-pipe drain
@@ -13,22 +13,22 @@ use std::time::{Duration, Instant};
 use super::cap::OUTPUT_CAP_ENV;
 use super::RunError;
 
-/// SEC-33 / TASK-1050: result type returned by drain threads. `(captured,
+/// Result type returned by drain threads. `(captured,
 /// dropped, error_during_read)` where `captured.len() <= cap` and
 /// `dropped` counts bytes read past the cap.
 pub(super) type DrainResult = (Vec<u8>, u64, Option<io::Error>);
 
-/// SEC-33 / TASK-1050: drain `reader` into `buf` up to `cap` bytes, then
+/// Drain `reader` into `buf` up to `cap` bytes, then
 /// keep reading and discarding the remainder so the child does not block
 /// on a full pipe. Returns the number of bytes that were dropped past the
 /// cap (`0` when the stream fit within the cap) plus any IO error
 /// encountered mid-read.
 ///
-/// PERF-3 / TASK-1473: once the in-memory buffer reaches `cap`, the discard
+/// Once the in-memory buffer reaches `cap`, the discard
 /// path dispatches to [`io::copy`] into [`io::sink`] rather than spinning
 /// in user space on per-8 KiB chunks. The kernel-side copy loop in
 /// `io::copy` is the same shape the stdlib uses for `read_to_end` discard,
-/// and we no longer re-check `remaining` on every iteration after the cap
+/// and `remaining` is not re-checked on every iteration once the cap
 /// is hit.
 pub(super) fn read_capped<R: Read>(
     mut reader: R,
@@ -39,7 +39,7 @@ pub(super) fn read_capped<R: Read>(
     // `read_to_end` uses internally; large enough that the syscall overhead
     // is amortised, small enough that the sink path stays cheap.
     let mut chunk = [0u8; 8 * 1024];
-    // PERF-3 / TASK-1425: pre-size the capture buffer so multi-MiB streams
+    // Pre-size the capture buffer so multi-MiB streams
     // (cargo metadata, large stdout) skip the O(log N) Vec-doubling chain
     // from empty. Bounded by `cap` so a tiny cap doesn't over-reserve, and
     // by 64 KiB so a huge cap (256 MiB default) doesn't allocate up-front
@@ -53,7 +53,7 @@ pub(super) fn read_capped<R: Read>(
     let mut dropped: u64 = 0;
     loop {
         if buf.len() >= cap {
-            // PERF-3 / TASK-1473: switch the discard path to io::copy
+            // Switch the discard path to io::copy
             // -> io::sink. Bytes past the cap are still consumed (so the
             // child does not block on a full pipe) but stdlib drives the
             // read/discard loop instead of our per-iteration `remaining`
@@ -93,7 +93,7 @@ pub(super) fn read_capped<R: Read>(
     }
 }
 
-/// DUP-4 / TASK-1399: shared helper for spawning a drain thread that
+/// Shared helper for spawning a drain thread that
 /// captures the bytes a child wrote to one pipe, bounded by `cap`. Both
 /// stdout and stderr go through this one entry point so the two halves
 /// cannot diverge on the next change to read-cap or panic semantics.
@@ -112,11 +112,11 @@ where
 /// against `label`/`stream`, and return whatever bytes were successfully
 /// read.
 ///
-/// ERR-1 / TASK-0694: a truncated buffer (the partial-read case) is still
+/// A truncated buffer (the partial-read case) is still
 /// returned with a tracing breadcrumb so callers see what was captured
 /// before the read failure.
 ///
-/// ERR-1 / TASK-0901: a *panicked* drain thread is now propagated as
+/// A *panicked* drain thread is now propagated as
 /// `RunError::Io` instead of an empty `Vec<u8>`. Returning `Vec::new()` on
 /// panic made a successful command appear to have produced no output —
 /// indistinguishable from a clean empty stream — and downstream cargo
@@ -132,7 +132,7 @@ pub(super) fn collect_drain(
     };
     match handle.join() {
         Ok((buf, dropped, None)) => {
-            // SEC-33 / TASK-1050: warn-once-per-stream when the capture was
+            // Warn-once-per-stream when the capture was
             // bounded so callers parsing the output see a breadcrumb that
             // explains a truncated stdout/stderr instead of treating
             // "missing trailing JSON" as a parser bug.
@@ -149,7 +149,7 @@ pub(super) fn collect_drain(
             Ok(buf)
         }
         Ok((buf, dropped, Some(err))) => {
-            // ARCH-2 / TASK-1426: a mid-read IO failure that captured *zero*
+            // A mid-read IO failure that captured *zero*
             // bytes is indistinguishable from a clean empty stream once we
             // drop the error, which contradicts the panic-handling contract
             // ("an empty value here always means the child produced no
@@ -195,7 +195,7 @@ pub(super) fn collect_drain(
     }
 }
 
-/// ASYNC-6: how long the post-timeout cleanup waits for a drain thread to
+/// How long the post-timeout cleanup waits for a drain thread to
 /// see EOF before abandoning it. Mirrors the stderr drain grace the hook
 /// crates use for the same reason.
 const DRAIN_GRACE: Duration = Duration::from_millis(500);
@@ -205,14 +205,14 @@ const DRAIN_GRACE: Duration = Duration::from_millis(500);
 /// spin.
 const DRAIN_POLL: Duration = Duration::from_millis(10);
 
-/// ERR-1 / TASK-1466: post-timeout-kill drain reaper. Joins both pipe
+/// Post-timeout-kill drain reaper. Joins both pipe
 /// drains and emits a `tracing::warn!` against `label`/`stream` when a
 /// drain ended in an IO error or thread panic. `collect_drain` already
 /// emits its own internal warn; the extra "during timeout cleanup"
 /// breadcrumb here lets operators correlate the loss of captured bytes
 /// with the `RunError::Timeout` that the caller observed.
 ///
-/// ASYNC-6: the join is bounded by [`DRAIN_GRACE`] rather than unbounded.
+/// The join is bounded by [`DRAIN_GRACE`] rather than unbounded.
 /// Killing the child does *not* guarantee EOF on its pipes: any surviving
 /// grandchild inherits the write ends and holds them open (`sh -c "sleep
 /// 30"` under a shell that forks instead of exec'ing leaves the `sleep`

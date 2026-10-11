@@ -137,11 +137,11 @@ mod tests {
     // Import the shared probe from its own crate rather than through a
     // re-export from this one — these tests exercise `ops_hook_common`'s
     // bounded wait, not this crate's contribution to it.
-    use ops_hook_common::git_state::{has_staged_files_with_timeout, HasStagedFilesError};
+    use ops_hook_common::git_state::{HasStagedFilesError, has_staged_files_with_timeout};
     use ops_hook_common::test_helpers::{CwdGuard, EnvGuard};
     use std::path::Path;
 
-    // TEST-18 / TASK-2119: `EnvGuard`/`CwdGuard` mutate process-global state
+    // `EnvGuard`/`CwdGuard` mutate process-global state
     // (environ, cwd), and `std::process::Command` snapshots both while
     // building a child. `serial_test::serial` serializes its members against
     // *each other only*, so a test that spawns a subprocess without the
@@ -236,7 +236,7 @@ mod tests {
         let script = dir.path().join("pre-commit");
         std::fs::write(&script, HOOK_SCRIPT).unwrap();
 
-        // TEST-15 / TASK-2113: PATH points only at this test's own empty
+        // PATH points only at this test's own empty
         // tempdir, so the `command -v ops` probe fails unconditionally — an
         // empty directory cannot contain `ops` on any machine, unlike
         // /usr/bin:/bin, which a distro package or CI image may well occupy.
@@ -277,7 +277,7 @@ mod tests {
         let script = dir.path().join("pre-commit");
         std::fs::write(&script, HOOK_SCRIPT).unwrap();
 
-        // TEST-15 / TASK-2113: PATH contains only the empty tempdir holding
+        // PATH contains only the empty tempdir holding
         // the script, so `ops` is unfindable on every machine and the
         // fall-through can never exec a real ops binary.
         for value in ["1", "true", "TRUE", "Yes", "on"] {
@@ -316,100 +316,49 @@ mod tests {
 
     // -- install_hook: wrapper-specific legacy markers --
 
+    /// Every marker on the legacy upgrade contract — the names earlier ops
+    /// releases installed, including the one this crate itself writes — is
+    /// upgraded in place rather than left alone as an unrecognised hook.
+    /// Iterating [`HOOK_CONFIG.legacy_markers`] (the exact list pinned by
+    /// `hook_config_legacy_markers_only_match_commit_hooks`) keeps a newly
+    /// added marker covered without copying the test body.
     #[test]
-    fn install_hook_updates_legacy_before_commit_hook() {
-        let dir = tempfile::tempdir().expect("tempdir");
-        let git_dir = dir.path().join(".git");
-        std::fs::create_dir_all(git_dir.join("hooks")).unwrap();
-        std::fs::write(git_dir.join("HEAD"), "ref: refs/heads/main\n").unwrap();
-        std::fs::write(
-            git_dir.join("hooks/pre-commit"),
-            "#!/bin/sh\nexec ops before-commit\n",
-        )
-        .unwrap();
+    fn install_hook_updates_every_legacy_marker() {
+        for marker in HOOK_CONFIG.legacy_markers {
+            let dir = tempfile::tempdir().expect("tempdir");
+            let git_dir = dir.path().join(".git");
+            std::fs::create_dir_all(git_dir.join("hooks")).unwrap();
+            std::fs::write(git_dir.join("HEAD"), "ref: refs/heads/main\n").unwrap();
+            std::fs::write(
+                git_dir.join("hooks/pre-commit"),
+                format!("#!/bin/sh\nexec {marker}\n"),
+            )
+            .unwrap();
 
-        let mut buf = Vec::new();
-        let path = install_hook(&git_dir, &mut buf).expect("install_hook");
+            let mut buf = Vec::new();
+            let path = install_hook(&git_dir, &mut buf).expect("install_hook");
 
-        // TEST-5 / TASK-2133: the returned path must be the pre-commit hook
-        // git actually runs — a wrong `hook_filename` in `HOOK_CONFIG` would
-        // write a different file and leave the legacy hook in place, with
-        // the content assertions below passing against the wrong path.
-        assert_eq!(
-            path.file_name(),
-            Some(std::ffi::OsStr::new("pre-commit")),
-            "install must target .git/hooks/pre-commit, got: {}",
-            path.display()
-        );
-
-        let content = std::fs::read_to_string(&path).unwrap();
-        assert_eq!(content, HOOK_SCRIPT);
-
-        let output = String::from_utf8(buf).unwrap();
-        assert!(output.contains("Updating outdated"));
-    }
-
-    #[test]
-    fn install_hook_updates_legacy_pre_commit_hook() {
-        let dir = tempfile::tempdir().expect("tempdir");
-        let git_dir = dir.path().join(".git");
-        std::fs::create_dir_all(git_dir.join("hooks")).unwrap();
-        std::fs::write(git_dir.join("HEAD"), "ref: refs/heads/main\n").unwrap();
-        std::fs::write(
-            git_dir.join("hooks/pre-commit"),
-            "#!/bin/sh\nexec ops pre-commit\n",
-        )
-        .unwrap();
-
-        let mut buf = Vec::new();
-        let path = install_hook(&git_dir, &mut buf).expect("install_hook");
-
-        // TEST-5 / TASK-2133: the returned path must be the pre-commit hook
-        // git actually runs — a wrong `hook_filename` in `HOOK_CONFIG` would
-        // write a different file and leave the legacy hook in place, with
-        // the content assertions below passing against the wrong path.
-        assert_eq!(
-            path.file_name(),
-            Some(std::ffi::OsStr::new("pre-commit")),
-            "install must target .git/hooks/pre-commit, got: {}",
-            path.display()
-        );
-
-        let content = std::fs::read_to_string(&path).unwrap();
-        assert_eq!(content, HOOK_SCRIPT);
-
-        let output = String::from_utf8(buf).unwrap();
-        assert!(output.contains("Updating outdated"));
-    }
-
-    /// A pre-commit hook carrying the `ops run-before-commit` marker — the
-    /// name this crate itself installs — is upgraded in place rather than
-    /// left alone as an unrecognised hook.
-    #[test]
-    fn install_hook_updates_run_before_commit_hook() {
-        let dir = tempfile::tempdir().expect("tempdir");
-        let git_dir = dir.path().join(".git");
-        std::fs::create_dir_all(git_dir.join("hooks")).unwrap();
-        std::fs::write(git_dir.join("HEAD"), "ref: refs/heads/main\n").unwrap();
-        std::fs::write(
-            git_dir.join("hooks/pre-commit"),
-            "#!/bin/sh\nexec ops run-before-commit\n",
-        )
-        .unwrap();
-
-        let mut buf = Vec::new();
-        let path = install_hook(&git_dir, &mut buf).expect("install_hook");
-
-        assert_eq!(
-            path.file_name(),
-            Some(std::ffi::OsStr::new("pre-commit")),
-            "install must target .git/hooks/pre-commit, got: {}",
-            path.display()
-        );
-        assert_eq!(std::fs::read_to_string(&path).unwrap(), HOOK_SCRIPT);
-        assert!(String::from_utf8(buf)
-            .unwrap()
-            .contains("Updating outdated"));
+            // The returned path must be the pre-commit hook
+            // git actually runs — a wrong `hook_filename` in `HOOK_CONFIG` would
+            // write a different file and leave the legacy hook in place, with
+            // the content assertions below passing against the wrong path.
+            assert_eq!(
+                path.file_name(),
+                Some(std::ffi::OsStr::new("pre-commit")),
+                "install must target .git/hooks/pre-commit for {marker:?}, got: {}",
+                path.display()
+            );
+            assert_eq!(
+                std::fs::read_to_string(&path).unwrap(),
+                HOOK_SCRIPT,
+                "the hook carrying {marker:?} must be replaced with HOOK_SCRIPT"
+            );
+            assert!(
+                String::from_utf8(buf)
+                    .unwrap()
+                    .contains("Updating outdated")
+            );
+        }
     }
 
     /// Every field of `HOOK_CONFIG` names the commit hook: the filename, the
@@ -672,7 +621,7 @@ mod tests {
             matches!(err, HasStagedFilesError::Timeout { .. }),
             "expected Timeout variant, got {err:?}"
         );
-        // TEST-15 / TASK-1913 AC#3: a hang detector, not a performance
+        // A hang detector, not a performance
         // budget. The fake git sleeps 30 s, so only a bounded wait that never
         // fired can exceed this — 25x the configured 200 ms timeout leaves a
         // loaded machine ample room.

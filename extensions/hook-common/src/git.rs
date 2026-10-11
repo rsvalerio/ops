@@ -10,7 +10,7 @@ use std::path::{Component, Path, PathBuf};
 /// Bounds the loop so a hostile cwd cannot force us to ascend to `/` repeatedly.
 const FIND_GIT_DIR_MAX_DEPTH: usize = 64;
 
-/// SEC-14: maximum net `..` traversal allowed in a relative `gitdir:` pointer.
+/// Maximum net `..` traversal allowed in a relative `gitdir:` pointer.
 ///
 /// Real worktree pointers either use absolute paths or step up at most one or
 /// two directories to reach the parent repo's `.git/worktrees/<name>`.
@@ -28,7 +28,7 @@ const MAX_GITDIR_PARENT_TRAVERSAL: usize = 2;
 /// holding the absolute path of the worktree's own `.git` pointer file.
 const GITDIR_BACKREFERENCE: &str = "gitdir";
 
-/// SEC-33: byte cap for the back-reference file read.
+/// Byte cap for the back-reference file read.
 ///
 /// The file git writes holds a single absolute path, so 64 KiB is orders of
 /// magnitude above any legitimate content while keeping a hostile (or
@@ -184,7 +184,7 @@ fn read_gitdir_pointer(file: &Path) -> Option<PathBuf> {
     Some(canonical_target)
 }
 
-/// SEC-14: the textual `max_parent_escape` cap is symlink-blind.
+/// The textual `max_parent_escape` cap is symlink-blind.
 /// A pointer like `link/../../etc` has peak textual escape = 1 (well within
 /// the cap of 2), but if `link` is a symlink, `canonicalize` follows it and
 /// can land the resolved gitdir anywhere on disk. Anchor the canonical
@@ -235,7 +235,7 @@ fn canonical_anchor(parent: &Path) -> Option<PathBuf> {
     }
 }
 
-/// The lexical ancestor the SEC-14 containment check anchors to: at most
+/// The lexical ancestor the containment check anchors to: at most
 /// [`MAX_GITDIR_PARENT_TRAVERSAL`] levels above the pointer's parent, but
 /// never the filesystem root itself.
 ///
@@ -273,7 +273,7 @@ fn canonicalize_gitdir_target(target: &Path) -> Option<PathBuf> {
     }
 }
 
-/// SEC-14: validate an **absolute** `gitdir:` target.
+/// Validate an **absolute** `gitdir:` target.
 ///
 /// An absolute target cannot be trusted verbatim. A `.git` *file* planted
 /// anywhere in the walk `find_git_dir` performs — an unpacked archive, a
@@ -315,10 +315,9 @@ fn canonicalize_gitdir_target(target: &Path) -> Option<PathBuf> {
 /// and which additionally requires the directory be named `.git` or sit at
 /// `<repo>/.git/worktrees/<name>`.
 ///
-/// Realistic impact of the old shape was bounded by filesystem permissions —
-/// the redirect can only land where the invoking user could already write —
-/// so this is defence in depth. The asymmetry is what made it a finding: two
-/// spellings of the same input got very different scrutiny.
+/// Impact stays bounded by filesystem permissions — the redirect can only
+/// land where the invoking user could already write — so these rules are
+/// defence in depth on top of them.
 fn resolve_absolute_gitdir(pointer: &Path, parent: &Path, target: &Path) -> Option<PathBuf> {
     let canonical_target = canonicalize_gitdir_target(target)?;
     if canonical_anchor(parent).is_some_and(|anchor| canonical_target.starts_with(&anchor)) {
@@ -391,12 +390,12 @@ fn has_gitdir_backreference(gitdir: &Path, pointer: &Path) -> bool {
         .is_some_and(|recorded| recorded == canonical_pointer)
 }
 
-/// SEC-14: peak number of directories `path` ascends above its starting point
+/// Peak number of directories `path` ascends above its starting point
 /// while being walked component-by-component. `a/../../b` peaks at 1 above
 /// start, `../../etc` peaks at 2.
 ///
 /// `peak` is tracked as a `usize` directly, so no conversion sits between
-/// the walk and the SEC-14 traversal cap: a signed peak converted with a
+/// the walk and the traversal cap: a signed peak converted with a
 /// fallback (`usize::try_from(...).unwrap_or(0)`) would report "no escape"
 /// if the "peak is non-negative" invariant were ever broken — the worst
 /// possible failure mode for a security gate.
@@ -427,7 +426,7 @@ fn max_parent_escape(path: &Path) -> usize {
 mod tests {
     use super::*;
 
-    /// ERR-7: tracing fields for git-pointer paths flow through
+    /// Tracing fields for git-pointer paths flow through
     /// the `?` formatter so embedded newlines or ANSI escapes cannot forge
     /// log lines. Pin the value-level escape without a tracing-subscriber
     /// dev-dep — mirrors `manifest_io::path_display_debug_escapes_*`.
@@ -528,7 +527,7 @@ mod tests {
         assert_eq!(find_git_dir(&workspace), None);
     }
 
-    /// SEC-14: a relative `gitdir:` pointer that traverses several parents to
+    /// A relative `gitdir:` pointer that traverses several parents to
     /// land on something like `/etc/passwd` must be rejected, even if the
     /// attacker plants a HEAD file in the resolved target so `looks_like_git_dir`
     /// would otherwise accept it.
@@ -589,7 +588,7 @@ mod tests {
         );
     }
 
-    /// SEC-14: a relative pointer using the Normal-then-ParentDir
+    /// A relative pointer using the Normal-then-ParentDir
     /// cancellation pattern (`link/../../target`) has peak textual escape = 1
     /// and slips past `MAX_GITDIR_PARENT_TRAVERSAL`. If `link` is a symlink to
     /// a sibling directory outside the worktree-root anchor, `canonicalize`
@@ -628,7 +627,7 @@ mod tests {
         assert_eq!(find_git_dir(&pointer_parent), None);
     }
 
-    /// SEC-14: the anchor must never degenerate to a path that
+    /// The anchor must never degenerate to a path that
     /// contains every candidate target. Pinned lexically because the
     /// degenerate layouts (`/srv/checkout`, `/repo`, `/`) are not ones a test
     /// can create on a real filesystem.
@@ -654,12 +653,12 @@ mod tests {
         assert_eq!(anchor_ancestor(Path::new("/")), None);
     }
 
-    /// SEC-14: the on-disk half of the same fix. The pointer sits
-    /// directly at the tempdir root, so its parent is shallow (`/tmp/.tmpXXXX`)
-    /// and the unfloored anchor `parent.ancestors().nth(2)` was `/` — under
-    /// which `canonical_target.starts_with(anchor)` holds for every path on the
-    /// machine, so a symlink jumping clean out of the temp tree was accepted.
-    /// With the anchor floored at the temp root the same redirect is refused.
+    /// A pointer sitting directly at the tempdir root has a shallow
+    /// parent (`/tmp/.tmpXXXX`): an unfloored anchor
+    /// `parent.ancestors().nth(2)` would be `/`, and
+    /// `canonical_target.starts_with("/")` holds for every path on the
+    /// machine — a containment gate that proves nothing. The floored
+    /// anchor refuses a symlink jumping clean out of the temp tree.
     #[cfg(unix)]
     #[test]
     fn find_git_dir_rejects_out_of_tree_redirect_from_a_shallow_pointer() {
@@ -734,13 +733,12 @@ mod tests {
         assert!(resolved.ends_with("real_gitdir"));
     }
 
-    /// SEC-14: an absolute `gitdir:` target that is neither
+    /// An absolute `gitdir:` target that is neither
     /// anchored near the pointer nor back-referenced by git must be refused,
     /// even though the planted target is a perfectly convincing repository
     /// (named `.git`, carrying a `HEAD` regular file) that
-    /// `paths::is_accepted_git_dir` would wave through. Before the fix the
-    /// absolute branch returned the target verbatim and the hook installer
-    /// wrote an executable script into it.
+    /// `paths::is_accepted_git_dir` would wave through — the hook installer
+    /// would otherwise write an executable script into it.
     #[test]
     fn find_git_dir_rejects_unanchored_absolute_pointer() {
         let dir = tempfile::tempdir().expect("tempdir");
@@ -760,7 +758,7 @@ mod tests {
         assert_eq!(find_git_dir(&worktree), None);
     }
 
-    /// SEC-14: `git init --separate-git-dir=<dir>` writes an
+    /// `git init --separate-git-dir=<dir>` writes an
     /// absolute pointer and **no** reverse link (verified against git 2.53),
     /// so neither the anchor rule nor the back-reference rule accepts it. The
     /// substance of the target — `HEAD` plus `objects/` and `refs/` — is the
@@ -812,7 +810,7 @@ mod tests {
         assert_eq!(find_git_dir(&worktree), None);
     }
 
-    /// SEC-14: the shape `git worktree add` writes for a worktree
+    /// The shape `git worktree add` writes for a worktree
     /// far from its repository — an absolute forward pointer plus the
     /// `<gitdir>/gitdir` back-reference — still resolves. A containment rule
     /// on its own would have broken this, which is why the back-reference is
@@ -844,7 +842,7 @@ mod tests {
         assert_eq!(find_git_dir(&worktree), Some(canonical_gitdir));
     }
 
-    /// SEC-14: a back-reference that names *someone else's*
+    /// A back-reference that names *someone else's*
     /// pointer proves nothing — the planted pointer must not ride another
     /// worktree's link.
     #[test]

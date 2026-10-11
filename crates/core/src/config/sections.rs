@@ -47,7 +47,7 @@ pub struct DataConfig {
     /// Absolute paths are used as-is; relative paths resolve from workspace root.
     /// Default (when None): `<workspace_root>/target/ops/data.db`
     pub path: Option<PathBuf>,
-    /// CONC-9 / TASK-2056: wall-clock budget, in whole seconds, for one data
+    /// Wall-clock budget, in whole seconds, for one data
     /// provider dispatch.
     ///
     /// `None` (the default) means `ops_extension::DEFAULT_PROVIDER_BUDGET`.
@@ -71,8 +71,7 @@ impl DataConfig {
     }
 }
 
-/// `[cargo]` — switches applied to the cargo invocations ops runs
-/// (TASK-2323).
+/// `[cargo]` — switches applied to the cargo invocations ops runs.
 ///
 /// `Option` leaves so a layer that does not mention a key leaves the lower
 /// layer's value alone; `OPS__CARGO__LOCKED=true` sets it from the
@@ -94,7 +93,7 @@ impl CargoSection {
 }
 
 /// `[foundation]` — settings for the Rust foundation check
-/// (`ops init --rust --check`, TASK-2330).
+/// (`ops init --rust --check`).
 #[derive(Debug, Clone, Default, PartialEq, Eq, Deserialize, Serialize)]
 #[serde(deny_unknown_fields)]
 pub struct FoundationSection {
@@ -111,7 +110,7 @@ impl FoundationSection {
     }
 }
 
-/// `[lint_actions]` — settings for `ops lint-actions` (TASK-2328).
+/// `[lint_actions]` — settings for `ops lint-actions`.
 #[derive(Debug, Clone, Default, PartialEq, Eq, Deserialize, Serialize)]
 #[serde(deny_unknown_fields)]
 pub struct LintActionsSection {
@@ -238,7 +237,7 @@ fn default_theme() -> String {
     "classic".into()
 }
 
-/// READ-5 / TASK-1219: deserialising `[output]` must produce a deterministic
+/// Deserialising `[output]` must produce a deterministic
 /// `Config` regardless of the calling terminal. Use `0` as an "auto" sentinel
 /// for the serde default; terminal-aware width is resolved at render time via
 /// [`OutputConfig::resolve_columns`].
@@ -253,7 +252,7 @@ const fn default_columns() -> u16 {
 }
 
 /// Compute 90% of the reported terminal width without wrapping u16.
-/// SEC-15 / TASK-0344: widths above ~7281 cols would overflow `w * 9`.
+/// Widths above ~7281 cols would overflow `w * 9`.
 /// Promote to u32 for the multiply, then clamp back to u16.
 pub fn scale_columns(width: u16) -> u16 {
     let scaled = u32::from(width) * 9 / 10;
@@ -266,7 +265,7 @@ const fn is_default_columns(v: &u16) -> bool {
     *v == AUTO_COLUMNS
 }
 
-/// READ-5 / TASK-1416: process-stable cache of the auto-resolved terminal
+/// Process-stable cache of the auto-resolved terminal
 /// width. `terminal_size` issues a `TIOCGWINSZ` ioctl (or the Windows
 /// console-handle equivalent) on every call; rendering paths (step lines,
 /// help/about cards) call [`OutputConfig::resolve_columns`] per render, and
@@ -283,8 +282,7 @@ fn probe_auto_columns() -> u16 {
 impl OutputConfig {
     /// Effective column width for rendering. When `columns` is the auto
     /// sentinel (`0`), probe the terminal once per process and cache the
-    /// result; otherwise honour the pinned config value. READ-5 / TASK-1219,
-    /// READ-5 / TASK-1416.
+    /// result; otherwise honour the pinned config value.
     #[must_use]
     pub fn resolve_columns(&self) -> u16 {
         if self.columns == AUTO_COLUMNS {

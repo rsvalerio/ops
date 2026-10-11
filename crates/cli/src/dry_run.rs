@@ -1,4 +1,4 @@
-//! TASK-2301: how each builtin subcommand treats the global `--dry-run`.
+//! How each builtin subcommand treats the global `--dry-run`.
 //!
 //! `--dry-run` promises "preview without executing". A builtin either
 //! honours it (previews, or has no side effect to preview) or is refused
@@ -47,7 +47,7 @@ pub const fn unpreviewable_builtin(sub: &CoreSubcommand) -> Option<&'static str>
         },
         #[cfg(feature = "stack-rust")]
         CoreSubcommand::Deps { .. } => Some("deps"),
-        // `--tool-versions` runs every listed tool's `--version` (TASK-2335).
+        // `--tool-versions` runs every listed tool's `--version`.
         CoreSubcommand::Explain(ExplainArgs {
             tool_versions: true,
             ..

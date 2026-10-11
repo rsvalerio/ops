@@ -1,6 +1,6 @@
 //! Configuration loading from files, directories, and environment variables.
 //!
-//! # Module layout (ARCH-1 / TASK-1471)
+//! # Module layout
 //!
 //! - [`mod@env`] — `OPS__*` env-var overlay merge.
 //! - [`global`] — global config path resolver (XDG / APPDATA / HOME) and
@@ -41,14 +41,14 @@ pub use global::resolve_global_config_path;
 #[cfg(any(test, feature = "test-support"))]
 pub use global::{reset_global_config_path_cache, GlobalConfigPathResetToken};
 
-/// SEC-33 / TASK-0943: default cap on `.ops.toml` (and `.ops.d/*.toml`,
+/// Default cap on `.ops.toml` (and `.ops.d/*.toml`,
 /// global config) reads. Real-world ops configs are well under 256 KiB,
 /// so this cap sits comfortably above any legitimate use while preventing
 /// a symlink to `/dev/zero` or an adversarially-large config from
 /// exhausting memory. Mirrors the
 /// `extensions_terraform_plan::OPS_PLAN_JSON_MAX_BYTES` posture
-/// (TASK-0915) and `extensions::git::config::MAX_GIT_CONFIG_BYTES`
-/// (TASK-0910). Operators expecting larger configs can raise the cap via
+///  and `extensions::git::config::MAX_GIT_CONFIG_BYTES`
+/// . Operators expecting larger configs can raise the cap via
 /// [`OPS_TOML_MAX_BYTES_ENV`].
 pub const DEFAULT_OPS_TOML_MAX_BYTES: u64 = 256 * 1024;
 // Compile-time guard for the documented >=256 KiB floor.
@@ -58,7 +58,7 @@ const _: () = assert!(DEFAULT_OPS_TOML_MAX_BYTES >= 256 * 1024);
 /// A value of `0` or an unparseable value falls back to the default.
 pub const OPS_TOML_MAX_BYTES_ENV: &str = "OPS_TOML_MAX_BYTES";
 
-/// READ-5 / TASK-1129 + ARCH-9 / TASK-1228: cache the resolved cap behind a
+/// Cache the resolved cap behind a
 /// `OnceLock<u64>` and emit a one-shot warn on unparseable values. Mirrors
 /// `crates/core/src/text.rs::manifest_max_bytes`.
 static OPS_TOML_MAX_BYTES: OnceLock<u64> = OnceLock::new();
@@ -66,7 +66,7 @@ static OPS_TOML_MAX_BYTES: OnceLock<u64> = OnceLock::new();
 /// Resolve the current `.ops.toml` byte cap, honouring the
 /// [`OPS_TOML_MAX_BYTES_ENV`] override.
 ///
-/// READ-5 / TASK-1129: cached behind a `OnceLock<u64>`. The env knob is
+/// Cached behind a `OnceLock<u64>`. The env knob is
 /// process-global; subsequent calls do not touch `std::env`. Unparseable or
 /// zero values fall back to [`DEFAULT_OPS_TOML_MAX_BYTES`] with a one-shot
 /// `tracing::warn!`. Tests that need to override the cap must set the env
@@ -82,10 +82,9 @@ pub fn ops_toml_max_bytes() -> u64 {
 /// Which trust boundary a config path sits on, and therefore whether a
 /// symlink at that path is refused.
 ///
-/// SEC-25 / TASK-1468 put `O_NOFOLLOW` on every config open, to stop an
-/// adversarial repo planting `.ops.toml -> /etc/shadow`. SEC-14 / TASK-1847
-/// is the other half of that story: the **two paths are not the same trust
-/// boundary**.
+/// Every config open passes `O_NOFOLLOW`, to stop an adversarial repo
+/// planting `.ops.toml -> /etc/shadow`. The **two paths are not the same
+/// trust boundary**:
 ///
 /// - **Workspace-relative** (`.ops.toml`, `.ops.d/*.toml`) is content supplied
 ///   by whatever repository `ops` happens to be run inside. It is attacker
@@ -122,7 +121,7 @@ pub fn read_capped_toml_file(path: &Path) -> anyhow::Result<Option<String>> {
     read_capped_toml_file_with(path, ops_toml_max_bytes())
 }
 
-/// READ-5 / TASK-1129: testable variant of [`read_capped_toml_file`] that
+/// Testable variant of [`read_capped_toml_file`] that
 /// takes an explicit cap. Production callers go through
 /// `read_capped_toml_file`; tests use this to bypass the
 /// `ops_toml_max_bytes` `OnceLock` (which is process-global and cannot be
@@ -138,13 +137,13 @@ fn read_capped_toml_file_with_policy(
     cap: u64,
     symlinks: SymlinkPolicy,
 ) -> anyhow::Result<Option<String>> {
-    // SEC-25 (TASK-1468): refuse to follow symlinks at *workspace* config
+    // Refuse to follow symlinks at *workspace* config
     // paths. An adversarial repo planting `.ops.toml -> /etc/shadow` would
     // otherwise be slurped into the TOML parser and echoed back through
     // diagnostics. Shared with `text::read_capped_to_string_with` so the two
     // read_capped_* entry points cannot diverge again.
     //
-    // SEC-14 (TASK-1847): the global config takes `Follow` instead — see
+    // The global config takes `Follow` instead — see
     // [`SymlinkPolicy`] for why the two paths are different trust boundaries.
     let opened = match symlinks {
         SymlinkPolicy::Refuse => open_refusing_symlinks(path),
@@ -154,7 +153,7 @@ fn read_capped_toml_file_with_policy(
         Ok(f) => f,
         Err(e) if e.kind() == std::io::ErrorKind::NotFound => return Ok(None),
         Err(e) => {
-            // SEC-21 (TASK-1472): Debug-format the path so a user-controlled
+            // Debug-format the path so a user-controlled
             // cwd containing newlines / ANSI escapes cannot forge log lines
             // through `tracing::warn!` consumers of this anyhow chain (e.g.
             // `load_config_or_default_with`). Matches the policy at
@@ -164,9 +163,9 @@ fn read_capped_toml_file_with_policy(
         }
     };
     let limit = cap.saturating_add(1);
-    // ERR-2 / TASK-1855: read **bytes**, not a `String`. `read_to_string`
+    // Read **bytes**, not a `String`. `read_to_string`
     // decodes the truncated `cap + 1` window, so an oversized `.ops.toml`
-    // whose cap boundary splits a multi-byte character used to fail with
+    // whose cap boundary splits a multi-byte character would fail with
     // "stream did not contain valid UTF-8" and never reach the bail below:
     // the user was told their config was corrupt instead of too large, with
     // no mention of the override env var. Size first, decode second — same
@@ -181,7 +180,7 @@ fn read_capped_toml_file_with_policy(
     // `u64::MAX` would report the file as oversize, which is the safe
     // direction for a size cap.
     if u64::try_from(bytes.len()).unwrap_or(u64::MAX) > cap {
-        // SEC-21 (TASK-1472): same Debug-format policy for the bounded-read
+        // Same Debug-format policy for the bounded-read
         // bail. The `?` debug repr keeps newlines / ANSI escapes inert.
         anyhow::bail!(
             "config file at {:?} exceeds {cap} bytes (override via {OPS_TOML_MAX_BYTES_ENV})",
@@ -195,11 +194,11 @@ fn read_capped_toml_file_with_policy(
 }
 
 /// Counter for `load_config` invocations. Used by the CLI regression test
-/// (TASK-0427) to assert that a typical `ops <cmd>` flow only loads
+///  to assert that a typical `ops <cmd>` flow only loads
 /// `.ops.toml` once. Gated behind `cfg(any(test, feature = "test-support"))`
 /// so production CLI binaries do not carry the `AtomicUsize` or its symbols.
 ///
-/// CONC-7 (TASK-1093): this counter is **process-global**. Two parallel tests
+/// This counter is **process-global**. Two parallel tests
 /// that both call `reset_load_config_call_count()` and assert
 /// `load_config_call_count() == N` will race — one test's `fetch_add` lands in
 /// the other test's window. Every call site MUST be marked
@@ -214,7 +213,7 @@ static LOAD_CONFIG_CALL_COUNT: std::sync::atomic::AtomicUsize =
 /// Snapshot the current `load_config` invocation count.
 ///
 /// **Hazard**: process-global state. See [`LOAD_CONFIG_CALL_COUNT`] for the
-/// CONC-7 race details. Callers MUST be `#[serial_test::serial]`.
+/// race details. Callers MUST be `#[serial_test::serial]`.
 #[cfg(any(test, feature = "test-support"))]
 pub fn load_config_call_count() -> usize {
     LOAD_CONFIG_CALL_COUNT.load(std::sync::atomic::Ordering::Relaxed)
@@ -223,7 +222,7 @@ pub fn load_config_call_count() -> usize {
 /// Reset the `load_config` invocation count to zero.
 ///
 /// **Hazard**: process-global state. See [`LOAD_CONFIG_CALL_COUNT`] for the
-/// CONC-7 race details. Callers MUST be `#[serial_test::serial]`.
+/// race details. Callers MUST be `#[serial_test::serial]`.
 #[cfg(any(test, feature = "test-support"))]
 pub fn reset_load_config_call_count() {
     LOAD_CONFIG_CALL_COUNT.store(0, std::sync::atomic::Ordering::Relaxed);
@@ -232,7 +231,7 @@ pub fn reset_load_config_call_count() {
 /// Load the layered ops config rooted at the current process working
 /// directory.
 ///
-/// READ-5 / TASK-1446: this entry point is **cwd-sensitive** — it resolves
+/// This entry point is **cwd-sensitive** — it resolves
 /// `.ops.toml` and `.ops.d/` relative to the live process cwd. Callers that
 /// need to be explicit about the workspace root (long-running daemons, code
 /// that spawns work across cwds, future async refactors) should call
@@ -287,7 +286,7 @@ pub fn load_config_at(workspace_root: &Path) -> anyhow::Result<Config> {
 
     env::merge_env_vars(&mut config).context("loading OPS__ environment overlay")?;
 
-    // TASK-2273: clones materialize before extends, so a clone copies the
+    // Clones materialize before extends, so a clone copies the
     // source pre-extend (extends stay per-name) and `[extend.<clone>]` then
     // applies to the materialized copy.
     super::clone::apply(&mut config, workspace_root)
@@ -296,7 +295,7 @@ pub fn load_config_at(workspace_root: &Path) -> anyhow::Result<Config> {
     super::extend::apply(&mut config, workspace_root)
         .context("applying [extend] command sections")?;
 
-    // TASK-2323: after `[extend]`, so an extended stack default is locked
+    // After `[extend]`, so an extended stack default is locked
     // in its materialized copy rather than re-copied from the default.
     super::locked::apply(&mut config, workspace_root);
 
@@ -319,10 +318,10 @@ pub fn load_config_at(workspace_root: &Path) -> anyhow::Result<Config> {
 /// production fallbacks never carry blank-slate values that a caller
 /// could mistake for a real config.
 ///
-/// DUP-3 / TASK-0345: collapses the same fallback block previously duplicated
-/// across `cli/main.rs`, `cli/about_cmd.rs`, and `cli/hook_shared.rs`.
+/// One copy of the fallback block shared by `cli/main.rs`,
+/// `cli/about_cmd.rs`, and `cli/hook_shared.rs`.
 ///
-/// READ-5 / TASK-1446: cwd-sensitive convenience that delegates to
+/// Cwd-sensitive convenience that delegates to
 /// [`load_config_or_default_at`]; prefer the explicit form in production
 /// callers.
 #[must_use]
@@ -359,7 +358,7 @@ pub fn read_config_file(path: &Path) -> anyhow::Result<Option<ConfigOverlay>> {
     read_config_file_with_policy(path, SymlinkPolicy::Refuse)
 }
 
-/// SEC-14 / TASK-1847: [`read_config_file`] for the user's own global config,
+/// [`read_config_file`] for the user's own global config,
 /// which follows symlinks. See [`SymlinkPolicy`] for why the global path and
 /// the workspace paths get different policies.
 ///
@@ -376,7 +375,7 @@ fn read_config_file_with_policy(
     path: &Path,
     symlinks: SymlinkPolicy,
 ) -> anyhow::Result<Option<ConfigOverlay>> {
-    // SEC-33 / TASK-0943: route through the byte-capped reader so a
+    // Route through the byte-capped reader so a
     // multi-GB or symlink-to-/dev/zero `.ops.toml` cannot OOM the CLI. The
     // cap applies under **both** symlink policies, so following a link in
     // `$HOME` still cannot be turned into an unbounded read.

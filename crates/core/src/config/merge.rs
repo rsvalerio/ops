@@ -20,15 +20,15 @@ pub(super) fn merge_indexmap<K: Eq + std::hash::Hash + std::fmt::Debug, V>(
     overlay: Option<IndexMap<K, V>>,
 ) {
     if let Some(items) = overlay {
-        // READ-5 / TASK-1133: short-circuit when no overlay key collides with
+        // Short-circuit when no overlay key collides with
         // base — the common no-overlap case skips the Vec<String>/format!
         // allocation entirely. The first colliding key seeds the Vec; subsequent
-        // collisions extend it. Preserves the SEC-21 / TASK-0745 escape contract:
+        // collisions extend it. Preserves the escape contract:
         // every recorded key is still pre-formatted via Debug before the
         // tracing event sees it, so a subscriber that pulls the field as a
         // Display-rendered string still gets the escaped form.
         //
-        // PERF-3 / TASK-1401: gate the whole collision scan behind
+        // Gate the whole collision scan behind
         // `event_enabled!(Level::DEBUG)`. When debug logging is off, the
         // recorded `Vec<String>` and its `format!` allocations are pure
         // overhead — the macro itself can't short-circuit because the format
@@ -58,9 +58,9 @@ pub(super) fn merge_indexmap<K: Eq + std::hash::Hash + std::fmt::Debug, V>(
 /// `[extend.verify]` in `.ops.toml` already declared, in layer order.
 /// Replacing instead would silently drop the lower layer's appends. Both
 /// list fields follow the rule — `commands` for composite targets, `args`
-/// for exec targets (TASK-2272).
+/// for exec targets.
 ///
-/// `help` / `category` (TASK-2274) are scalars, not lists: they **replace**,
+/// `help` / `category` are scalars, not lists: they **replace**,
 /// so the last layer that sets one wins, and a layer that sets none keeps
 /// the earlier layer's value — with one guard: a layer that appends
 /// `commands` without setting `help` gets its commands named in whatever
@@ -89,7 +89,7 @@ fn merge_extend(
             }
             base_entry.commands.extend(entry.commands);
             base_entry.args.extend(entry.args);
-            // TASK-2277: matrix axes/include/exclude concatenate like the
+            // Matrix axes/include/exclude concatenate like the
             // other lists, so an `.ops.d` layer adds to `.ops.toml`'s values.
             base_entry.matrix.append(&entry.matrix);
             if entry.help.is_some() {
@@ -121,7 +121,7 @@ fn merge_output(base: &mut OutputConfig, overlay: OutputConfigOverlay) {
 ///
 /// Collapses the `if let Some(section_overlay) = section { if let Some(v) =
 /// &section_overlay.field { base.section.field = Some(v.clone()); } }`
-/// pattern that used to appear four times (data/path, extensions/enabled,
+/// pattern shared by every overlay field (data/path, extensions/enabled,
 /// about/fields, …). If `section` is `None` the base is preserved; if it's
 /// `Some(..)` and its inner field is `Some(v)`, the base field is overwritten
 /// with an owned copy; otherwise preserved.

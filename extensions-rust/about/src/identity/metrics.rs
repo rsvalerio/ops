@@ -14,10 +14,10 @@ pub(super) struct IdentityMetrics {
     pub languages: Vec<LanguageStat>,
 }
 
-/// TASK-0530: resolve `get_db` once and thread the borrowed handle to each
-/// sub-query so we don't re-locate / re-lock the `SQLite` handle three times
-/// per `provide()`. Same anti-pattern that `about/units::enrich_from_db` got
-/// fixed for. Falls back to all-`None` metrics when `SQLite` is not available.
+/// Resolve `get_db` once and thread the borrowed handle to each sub-query,
+/// so the `SQLite` handle is located and locked one time per `provide()`
+/// rather than once per sub-query. Falls back to all-`None` metrics when
+/// `SQLite` is not available.
 pub(super) fn query_identity_metrics(ctx: &Context) -> IdentityMetrics {
     let Some(db) = ops_sqlite::get_db(ctx) else {
         return IdentityMetrics {
@@ -39,10 +39,9 @@ pub(super) fn query_identity_metrics(ctx: &Context) -> IdentityMetrics {
     }
 }
 
-// ERR-2 / TASK-0376: every SQLite query lookup logs at warn before falling
-// back. A schema mismatch or migration bug used to render as silent zeros
-// because all four call sites used `.ok()` / `.unwrap_or_default()` without
-// any signal.
+// Every SQLite query lookup logs at warn before falling back, so a schema
+// mismatch or migration bug surfaces as a warning rather than silently
+// rendering as zeros.
 
 fn query_dependency_count(db: &Sqlite) -> Option<usize> {
     query_or_warn(

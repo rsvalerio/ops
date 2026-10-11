@@ -82,31 +82,51 @@ pub fn build_card_stats_line(unit: &ProjectUnit) -> Option<String> {
     }
 }
 
+/// `s` truncated to `inner_width` display columns when it overflows,
+/// borrowed unchanged when it already fits.
+fn fit_line(s: &str, inner_width: usize) -> std::borrow::Cow<'_, str> {
+    if display_width(s) > inner_width {
+        std::borrow::Cow::Owned(truncate_to_width(s, inner_width))
+    } else {
+        std::borrow::Cow::Borrowed(s)
+    }
+}
+
+/// Append the card's description rows: one row per [`CardLayoutConfig`]
+/// description-line slot, wrapped text styled and padded, empty slots blank.
+fn push_description_rows(
+    lines: &mut Vec<String>,
+    desc_lines: &[String],
+    empty_line: &str,
+    inner_width: usize,
+    is_tty: bool,
+) {
+    for i in 0..CardLayoutConfig::CARD_DESC_LINES {
+        let desc_line = desc_lines.get(i).map_or("", std::string::String::as_str);
+        let content = if desc_line.is_empty() {
+            empty_line.to_string()
+        } else {
+            tty_style(&pad_to_width_plain(desc_line, inner_width), white, is_tty)
+        };
+        lines.push(format!("\u{2502}{content}\u{2502}"));
+    }
+}
+
 /// Renders one [`ProjectUnit`] as a card's lines, styled when `is_tty`.
 pub fn render_card(unit: &ProjectUnit, is_tty: bool) -> Vec<String> {
     use std::borrow::Cow;
 
     let inner_width = CardLayoutConfig::CARD_WIDTH - 2;
 
-    // Borrow `unit.name` directly when no version suffix is needed (PERF-3 /
-    // OWN-8): the prior code cloned the name into an owned String even when
-    // the format! call was unreachable.
+    // The borrowed form covers the common no-version case; the owned
+    // `name vX.Y` shape exists only when a version is present.
     let title: Cow<'_, str> = unit.version.as_ref().map_or_else(
         || Cow::Borrowed(unit.name.as_str()),
         |v| Cow::Owned(format!("{} v{}", unit.name, v)),
     );
 
-    let title_truncated: Cow<'_, str> = if display_width(&title) > inner_width {
-        Cow::Owned(truncate_to_width(&title, inner_width))
-    } else {
-        title
-    };
-
-    let path_truncated: Cow<'_, str> = if display_width(&unit.path) > inner_width {
-        Cow::Owned(truncate_to_width(&unit.path, inner_width))
-    } else {
-        Cow::Borrowed(unit.path.as_str())
-    };
+    let title_truncated = fit_line(&title, inner_width);
+    let path_truncated = fit_line(&unit.path, inner_width);
 
     let desc_lines = wrap_text(
         unit.description.as_deref().unwrap_or(""),
@@ -145,15 +165,7 @@ pub fn render_card(unit: &ProjectUnit, is_tty: bool) -> Vec<String> {
         lines.push(format!("\u{2502}{empty_line}\u{2502}"));
     }
 
-    for i in 0..CardLayoutConfig::CARD_DESC_LINES {
-        let desc_line = desc_lines.get(i).map_or("", std::string::String::as_str);
-        let content = if desc_line.is_empty() {
-            empty_line.clone()
-        } else {
-            tty_style(&pad_to_width_plain(desc_line, inner_width), white, is_tty)
-        };
-        lines.push(format!("\u{2502}{content}\u{2502}"));
-    }
+    push_description_rows(&mut lines, &desc_lines, &empty_line, inner_width, is_tty);
 
     lines.push(bottom_border);
     lines

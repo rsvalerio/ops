@@ -1,8 +1,7 @@
 //! Coverage extension: LLVM code coverage via `cargo llvm-cov`.
 //! Collects per-file coverage data and loads into `SQLite`.
 //!
-//! ARCH-1 / TASK-1559: the previous monolithic `lib.rs` (412 lines) mixed
-//! six concerns. The crate is now split into:
+//! The crate is split into:
 //!
 //! - [`subprocess`]: cargo argv + run/check helpers + exit formatter.
 //! - [`parse`]: llvm-cov JSON → `CoverageRow` flattening + soft-fail policy.
@@ -10,13 +9,12 @@
 //! - [`ingestor`]: `CoverageIngestor` (sidecar writer + `SQLite` loader).
 //! - [`views`]: `SQLite` view DDL.
 //!
-//! `lib.rs` retains only wiring + `load_coverage` (the crate's public ingest
+//! `lib.rs` holds the wiring + `load_coverage` (the crate's public ingest
 //! entry point).
 
-// READ-10 / TASK-1946: only `unwrap_used` is load-bearing here. The three
-// cast lints that used to sit alongside it were a copied template — the
-// crate contains no `as` cast in any configuration, so they suppressed
-// nothing and no reader could tell which entries mattered.
+// Only `unwrap_used` is load-bearing here: test code uses unwrap and expect
+// as its failure mechanism, and the crate contains no `as` cast in any
+// configuration.
 #![cfg_attr(
     test,
     allow(
@@ -25,12 +23,11 @@
     )
 )]
 
-// API-14 / TASK-2198: the five modules below are private, so the `pub`
-// items inside them are crate-internal — that spelling (rather than
-// `pub(crate)`) is the convention `clippy::redundant_pub_crate` enforces
-// workspace-wide; see the note in `ops-cargo-toml`'s lib.rs. The crate's
-// exported surface is the const quartet, `CoverageExtension` and
-// `load_coverage` below.
+// The five modules below are private, so the `pub` items inside them are
+// crate-internal — that spelling (rather than `pub(crate)`) is the
+// convention `clippy::redundant_pub_crate` enforces workspace-wide; see the
+// note in `ops-cargo-toml`'s lib.rs. The crate's exported surface is the
+// const quartet, `CoverageExtension` and `load_coverage` below.
 mod ingestor;
 mod parse;
 mod provider;
@@ -39,11 +36,9 @@ mod subprocess;
 mod tests;
 mod views;
 
-// API-9 / TASK-1601: CoverageIngestor has no external callers; kept
-// crate-private (ingestor + provider reference it via crate-internal paths).
-// API-9 / TASK-1602: flatten_coverage_json / collect_coverage have no external
-// callers either; they stay in the private parse.rs, so nothing they declare
-// is reachable outside the crate.
+// CoverageIngestor and the parse.rs helpers (flatten_coverage_json,
+// collect_coverage) have no external callers; they stay crate-private and
+// nothing they declare is reachable outside the crate.
 
 use crate::ingestor::CoverageIngestor;
 use ops_extension::ExtensionType;
@@ -62,7 +57,7 @@ pub const SHORTNAME: &str = "cov";
 /// key the about coverage subpage looks the per-unit coverage table up by.
 pub const DATA_PROVIDER_NAME: &str = "coverage";
 
-/// API-9 / TASK-0922: construct via the registered extension factory only.
+/// Construct via the registered extension factory only.
 #[non_exhaustive]
 pub struct CoverageExtension;
 
@@ -84,25 +79,21 @@ ops_extension::impl_extension! {
 /// Ingest coverage sidecar data into `SQLite` and return the structured load
 /// report.
 ///
-/// READ-5 (TASK-0808): the previous signature returned `()` and silently
-/// dropped the [`LoadResult`], leaving callers unable to distinguish a
-/// zero-row load from a healthy one. The signature now surfaces the report;
+/// The report lets callers distinguish a zero-row load from a healthy one;
 /// a zero-record load is also logged at `warn` so even fire-and-forget
-/// callers see the health signal.
-///
-/// API-5 / TASK-1561: `#[must_use]` carries that contract into the type
-/// system so a future caller writing `let _ = load_coverage(...)` lights
-/// up a lint.
+/// callers see the health signal. `#[must_use]` carries that contract into
+/// the type system: a caller writing `let _ = load_coverage(...)` lights up
+/// a lint.
 ///
 /// # Errors
 ///
 /// If the schema cannot be initialised, or the coverage sidecar staged in
 /// `dir` cannot be read or loaded into the database.
 ///
-/// SEC-25 / TASK-2054: takes the verified [`IngestDir`] anchor the ingestor
-/// trait now takes, so this public entry point cannot re-introduce a by-name
-/// resolution of the staging directory that `provide_via_ingestor` verified.
-#[must_use = "load report carries the record_count health signal (TASK-0808)"]
+/// Takes the verified [`IngestDir`] anchor the ingestor trait takes, so
+/// this public entry point cannot re-introduce a by-name resolution of the
+/// staging directory that `provide_via_ingestor` verified.
+#[must_use = "load report carries the record_count health signal"]
 pub fn load_coverage(dir: &IngestDir, db: &Sqlite) -> Result<LoadResult, anyhow::Error> {
     init_schema(db)?;
     let ingestor = CoverageIngestor;

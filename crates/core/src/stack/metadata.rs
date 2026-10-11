@@ -1,6 +1,6 @@
 //! Per-stack manifest list and embedded default-commands TOML.
 //!
-//! ARCH-1 / TASK-1185: extracted from the monolithic `stack.rs` so adding a
+//! Extracted from the monolithic `stack.rs` so adding a
 //! new stack touches only this metadata table — the detection walk and
 //! enum live in sibling modules.
 
@@ -12,7 +12,7 @@ use super::Stack;
 /// Consolidates parallel match blocks (CD-11) so adding a new stack
 /// updates exactly one match arm.
 ///
-/// `build_dirs` (TASK-2264) are the stack's default build output and
+/// `build_dirs` are the stack's default build output and
 /// dependency directories — generated artefacts, not source. `ops sec`
 /// skips them at any depth in every Trivy scan so it reads source instead
 /// of `target/`-shaped junk and does not race the builds producing it.

@@ -27,11 +27,11 @@ mod package_manager;
 mod repo_url;
 mod units;
 
-use ops_about::identity::{provide_identity_from_manifest, ParsedManifest};
-use ops_core::project_identity::{base_about_fields, insert_homepage_field, AboutFieldDef};
+use ops_about::identity::{ParsedManifest, provide_identity_from_manifest};
+use ops_core::project_identity::{AboutFieldDef, base_about_fields, insert_homepage_field};
 use ops_extension::{Context, DataProvider, DataProviderError, ExtensionType};
 
-use package_json::{parse_package_json, PackageJson};
+use package_json::{PackageJson, parse_package_json};
 use package_manager::detect_package_manager;
 
 const NAME: &str = "about-node";
@@ -51,7 +51,7 @@ ops_extension::impl_extension! {
     description: DESCRIPTION,
     shortname: SHORTNAME,
     types: ExtensionType::DATASOURCE,
-    stack: Some(ops_extension::Stack::Node),
+    stack: Some(ops_core::stack::Stack::Node),
     data_provider_name: Some(DATA_PROVIDER_NAME),
     register_data_providers: |_self, registry| {
         let _ = registry.register(DATA_PROVIDER_NAME, Box::new(NodeIdentityProvider));
@@ -224,7 +224,7 @@ mod tests {
         let dir = tempfile::tempdir().unwrap();
         write(&dir.path().join("package.json"), "{ \"name\": ");
 
-        let (logs, ()) = ops_about::test_support::capture_tracing(tracing::Level::WARN, || {
+        let (logs, ()) = ops_core::test_utils::capture_tracing(tracing::Level::WARN, || {
             let mut ctx = ops_extension::Context::test_context(dir.path().to_path_buf());
             let _ = NodeIdentityProvider.provide(&mut ctx).unwrap();
             let _ = units::NodeUnitsProvider.provide(&mut ctx).unwrap();
@@ -520,7 +520,7 @@ mod tests {
         assert_eq!(name, NAME);
         assert_eq!(Extension::name(ext.as_ref()), "about-node");
         assert_eq!(ext.shortname(), SHORTNAME);
-        assert_eq!(ext.stack(), Some(ops_extension::Stack::Node));
+        assert_eq!(ext.stack(), Some(ops_core::stack::Stack::Node));
         assert!(ext.types().is_datasource());
         assert_eq!(ext.data_provider_name(), Some(DATA_PROVIDER_NAME));
     }

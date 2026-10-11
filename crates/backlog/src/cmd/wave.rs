@@ -227,12 +227,32 @@ pub fn run_wave_overlap<W: Write>(
 ) -> anyhow::Result<()> {
     let entries = store.scan_tasks()?;
     let terminal = super::cleanup::terminal_status(&cfg.statuses);
-    let is_open = |entry: &TaskEntry| {
-        terminal.is_none_or(|t| !entry.doc.frontmatter.status.eq_ignore_ascii_case(t))
-    };
+    let (selected, compared) = select_waves(&entries, &opts.wave_ids, &opts.marker, terminal)?;
+    let rows = overlap_rows(&entries, &selected, &compared);
+    if opts.json {
+        render::wave_overlap_json(out, &rows).context("writing wave overlap JSON")
+    } else {
+        render::wave_overlap_plain(out, &rows).context("writing wave overlap")
+    }
+}
 
+/// The waves to report (`selected`) and the waves they are compared against
+/// (`compared`): every named wave whatever its status, plus every open wave;
+/// with no names given, the open waves are the selection too. Deduplication
+/// is by entry identity, so a wave named explicitly and also open appears
+/// once.
+///
+/// # Errors
+///
+/// A named wave id resolves to no task in `tasks/`.
+fn select_waves<'a>(
+    entries: &'a [TaskEntry],
+    wave_ids: &[String],
+    marker: &str,
+    terminal: Option<&str>,
+) -> anyhow::Result<(Vec<&'a TaskEntry>, Vec<&'a TaskEntry>)> {
     let mut selected: Vec<&TaskEntry> = Vec::new();
-    for id in &opts.wave_ids {
+    for id in wave_ids {
         let wave = entries
             .iter()
             .find(|e| e.doc.frontmatter.id.eq_ignore_ascii_case(id))
@@ -243,20 +263,31 @@ pub fn run_wave_overlap<W: Write>(
     }
     let open_waves = entries
         .iter()
-        .filter(|entry| is_wave(entry, &opts.marker) && is_open(entry));
+        .filter(|entry| is_wave(entry, marker) && is_open(entry, terminal));
     let mut compared: Vec<&TaskEntry> = selected.clone();
     for wave in open_waves {
         if !compared.iter().any(|w| std::ptr::eq(*w, wave)) {
             compared.push(wave);
         }
     }
-    if opts.wave_ids.is_empty() {
+    if wave_ids.is_empty() {
         selected.clone_from(&compared);
     }
+    Ok((selected, compared))
+}
 
+/// One row per selected wave: its file scope, the paths shared with each
+/// other compared wave (ordered by task id), and the total shared-path count
+/// as the row's merge-order weight — least-overlapping first, ties on the
+/// numeric task id, so the order is deterministic.
+fn overlap_rows(
+    entries: &[TaskEntry],
+    selected: &[&TaskEntry],
+    compared: &[&TaskEntry],
+) -> Vec<render::WaveOverlapRow> {
     let scopes: Vec<(&TaskEntry, std::collections::BTreeSet<&str>)> = compared
         .iter()
-        .map(|wave| (*wave, file_scope(&entries, &wave.doc)))
+        .map(|wave| (*wave, file_scope(entries, &wave.doc)))
         .collect();
     let mut rows: Vec<(usize, render::WaveOverlapRow)> = selected
         .iter()
@@ -291,13 +322,13 @@ pub fn run_wave_overlap<W: Write>(
         })
         .collect();
     rows.sort_by(|(wa, a), (wb, b)| wa.cmp(wb).then_with(|| id_order(&a.id, &b.id)));
-    let rows: Vec<render::WaveOverlapRow> = rows.into_iter().map(|(_, row)| row).collect();
+    rows.into_iter().map(|(_, row)| row).collect()
+}
 
-    if opts.json {
-        render::wave_overlap_json(out, &rows).context("writing wave overlap JSON")
-    } else {
-        render::wave_overlap_plain(out, &rows).context("writing wave overlap")
-    }
+/// Is the entry open — any status but the terminal one (the last configured
+/// column)?
+fn is_open(entry: &TaskEntry, terminal: Option<&str>) -> bool {
+    terminal.is_none_or(|t| !entry.doc.frontmatter.status.eq_ignore_ascii_case(t))
 }
 
 /// The union of the wave's members' `modified_files`, trimmed, blanks
@@ -407,51 +438,13 @@ fn migrate_with<W: Write>(
 
     let member_count: usize = plans.iter().map(|plan| plan.members.len()).sum();
     report_plan(&plans, out)?;
-
-    if opts.dry_run {
-        writeln!(out, "Dry run: no files changed.").context("printing the dry-run notice")?;
-        return Ok(());
-    }
-
-    if !crate::cmd::confirm(
-        &format!("Migrate {} waves / {member_count} members?", plans.len()),
-        input,
-        out,
-    )? {
-        writeln!(out, "Migration cancelled.").context("printing the cancellation notice")?;
+    if !migration_confirmed(&plans, member_count, opts, input, out)? {
         return Ok(());
     }
 
     let stamp = UtcStamp::now()?;
     let updated = format!("{} {}", stamp.date, stamp.minutes);
-    let total = writes.len();
-    let mut written: Vec<std::path::PathBuf> = Vec::new();
-    for write in &mut writes {
-        write.doc.frontmatter.updated_date = Some(updated.clone());
-        let rendered = write.doc.render();
-        if let Err(err) = crate::cmd::atomic_write(&write.path, &rendered) {
-            // Every file is swapped in whole or not at all, so a stopped
-            // migration is a clean split: report exactly which files landed
-            // so it can be repaired — the preflight above exists to prevent
-            // the split, this reports it.
-            return Err(err).with_context(|| {
-                format!(
-                    "migration stopped after {} of {total} writes; already written: {}",
-                    written.len(),
-                    if written.is_empty() {
-                        "none".to_string()
-                    } else {
-                        written
-                            .iter()
-                            .map(|path| path.display().to_string())
-                            .collect::<Vec<_>>()
-                            .join(", ")
-                    }
-                )
-            });
-        }
-        written.push(write.path.clone());
-    }
+    write_migrations(&mut writes, &updated)?;
     writeln!(
         out,
         "Migrated {} waves and {member_count} members.",
@@ -459,6 +452,79 @@ fn migrate_with<W: Write>(
     )
     .context("printing the migrated summary")?;
     Ok(())
+}
+
+/// Gate the migration on its preview modes: a dry run reports the plan and
+/// stops; a live run asks for confirmation (default No) and says so when
+/// declined.
+///
+/// # Errors
+///
+/// Writing `out` failed, or the confirmation answer could not be read.
+fn migration_confirmed<W: Write>(
+    plans: &[WavePlan],
+    member_count: usize,
+    opts: &WaveMigrateOptions,
+    input: &mut dyn std::io::BufRead,
+    out: &mut W,
+) -> anyhow::Result<bool> {
+    if opts.dry_run {
+        writeln!(out, "Dry run: no files changed.").context("printing the dry-run notice")?;
+        return Ok(false);
+    }
+    if !crate::cmd::confirm(
+        &format!("Migrate {} waves / {member_count} members?", plans.len()),
+        input,
+        out,
+    )? {
+        writeln!(out, "Migration cancelled.").context("printing the cancellation notice")?;
+        return Ok(false);
+    }
+    Ok(true)
+}
+
+/// Apply every queued write, stamping `updated_date` on each. The first
+/// failure stops the migration and reports exactly which files already
+/// landed: every file is swapped in whole or not at all, so a stopped
+/// migration is a clean split the report makes repairable — the preflight
+/// exists to prevent the split, this reports it.
+///
+/// # Errors
+///
+/// A write failed; the error names the failing path and every path already
+/// written before it.
+fn write_migrations(writes: &mut [PendingWrite], updated: &str) -> anyhow::Result<()> {
+    let total = writes.len();
+    let mut written: Vec<std::path::PathBuf> = Vec::new();
+    for write in writes {
+        write.doc.frontmatter.updated_date = Some(updated.to_string());
+        let rendered = write.doc.render();
+        if let Err(err) = crate::cmd::atomic_write(&write.path, &rendered) {
+            return Err(err).with_context(|| {
+                format!(
+                    "migration stopped after {} of {total} writes; already written: {}",
+                    written.len(),
+                    already_written_summary(&written)
+                )
+            });
+        }
+        written.push(write.path.clone());
+    }
+    Ok(())
+}
+
+/// The paths a stopped migration already wrote, for its error message:
+/// `none`, or a comma-separated list.
+fn already_written_summary(written: &[std::path::PathBuf]) -> String {
+    if written.is_empty() {
+        "none".to_string()
+    } else {
+        written
+            .iter()
+            .map(|path| path.display().to_string())
+            .collect::<Vec<_>>()
+            .join(", ")
+    }
 }
 
 /// Build every rewrite the migration would apply, without touching disk:

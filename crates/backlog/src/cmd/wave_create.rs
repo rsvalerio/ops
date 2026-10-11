@@ -1,11 +1,10 @@
 //! `wave create`: create a wave parent and link its members in one step.
 //!
-//! Triage used to do this as one `task create` plus one `task edit` per
-//! member — N+1 separate writes, any of which an agent could skip or get
-//! wrong (a member missing its `parent_task_id`, or left in `Triage`). This
-//! command writes every link of the wave convention (see [`super::wave`])
-//! at once: the parent's marker label and `dependencies:`, and each
-//! member's `parent_task_id` and status.
+//! One invocation writes every link of the wave convention (see
+//! [`super::wave`]) at once: the parent's marker label and `dependencies:`,
+//! and each member's `parent_task_id` and status. Every check runs before
+//! the first write, so a refused create leaves the tree untouched (see
+//! [`run_wave_create`]).
 
 use std::io::Write;
 

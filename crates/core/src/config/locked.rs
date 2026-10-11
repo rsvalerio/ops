@@ -1,5 +1,5 @@
 //! `[cargo] locked = true`: run every lockfile-resolving cargo command with
-//! `--locked` (TASK-2323).
+//! `--locked`.
 //!
 //! CI must build against the committed `Cargo.lock`, never one cargo resolved
 //! on the fly. Without a switch, every repo that wants that re-declares each

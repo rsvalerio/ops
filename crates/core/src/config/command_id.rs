@@ -12,10 +12,12 @@
 pub struct CommandId(String);
 
 impl CommandId {
+    /// Wraps `s` as a command identifier.
     pub fn new(s: impl Into<String>) -> Self {
         Self(s.into())
     }
 
+    /// The command identifier as a string slice.
     #[must_use]
     pub fn as_str(&self) -> &str {
         &self.0

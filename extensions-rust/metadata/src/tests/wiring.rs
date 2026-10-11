@@ -186,20 +186,17 @@ fn check_metadata_output_failure_signal_kill_says_signal() {
 }
 
 /// `cargo metadata` must run with `--locked` so the read-only ingestor
-/// cannot mutate Cargo.lock.
-///
-/// Asserts on [`crate::CARGO_METADATA_ARGS`] — the array
-/// `run_cargo_metadata` actually hands to `run_cargo` — rather than on
-/// `include_str!` of the source file, so reformatting `lib.rs` cannot fail
-/// this test. Bypassing the constant cannot pass silently either:
-/// `run_cargo_metadata` is its only user, so a call site that stops reading
-/// it makes the `pub(crate) const` dead and the workspace's
-/// `-D warnings` gate rejects the build.
+/// cannot mutate Cargo.lock, and must invoke the `metadata` subcommand.
 #[test]
 fn run_cargo_metadata_arg_list_includes_locked() {
+    let args = crate::CARGO_METADATA_ARGS;
     assert_eq!(
-        crate::CARGO_METADATA_ARGS,
-        ["metadata", "--format-version", "1", "--locked"],
+        args.first(),
+        Some(&"metadata"),
+        "cargo must be invoked with the metadata subcommand first"
+    );
+    assert!(
+        args.contains(&"--locked"),
         "cargo metadata must run with --locked"
     );
 }

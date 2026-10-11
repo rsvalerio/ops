@@ -3,9 +3,8 @@
 //! Produces module path and Go toolchain version. `replace` directives —
 //! single-line and block-form `replace ( ... )` — are recognized and skipped:
 //! a replace is a dependency substitution, not a workspace member, and no
-//! card reads its targets (TASK-2178 dropped replaces from `module_count`;
-//! TASK-2254 removed the then-reader-less target collection). Trailing
-//! `// ...` comments are stripped from each line before further parsing.
+//! card reads its targets. Trailing `// ...` comments are stripped from each
+//! line before further parsing.
 
 use std::path::Path;
 
@@ -40,6 +39,10 @@ pub struct GoMod {
     pub go_version: Option<String>,
 }
 
+/// Parse the `go.mod` in `dir` for module path and toolchain version.
+///
+/// Returns `None` when the file is absent or unreadable; `replace`
+/// directives are recognized and skipped (see the module docs).
 pub fn parse(dir: &Path) -> Option<GoMod> {
     let path = dir.join("go.mod");
     let content = ops_about::manifest_io::read_optional_text(&path, dir, "go.mod")?;
@@ -375,7 +378,7 @@ mod tests {
         )
         .unwrap();
 
-        let (m, warn_count) = ops_about::test_support::count_warnings(|| parse(dir.path()));
+        let (m, warn_count) = ops_core::test_utils::count_warnings(|| parse(dir.path()));
 
         let m = m.unwrap();
         // The directive before the block survives.
@@ -395,7 +398,7 @@ mod tests {
             "module example.com/m\n\nreplace (\n\tex.com/sdk => ./sdk\n",
         )
         .unwrap();
-        let rendered = ops_about::test_support::capture_warn(|| {
+        let rendered = ops_core::test_utils::capture_warn(|| {
             parse(dir.path());
         });
         assert!(

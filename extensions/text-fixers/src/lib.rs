@@ -65,8 +65,8 @@ pub mod trailing;
 
 use ops_extension::ExtensionType;
 
-pub use options::{FixerOptions, DEFAULT_MAX_BYTES};
-pub use report::{write_summary, FailedFile, FailureKind, FixerReport, SkipReason};
+pub use options::{DEFAULT_MAX_BYTES, FixerOptions};
+pub use report::{FailedFile, FailureKind, FixerReport, SkipReason, write_summary};
 pub use runner::{run_end_of_file_fixer, run_trailing_whitespace};
 
 /// Extension name, as registered with the extension registry.

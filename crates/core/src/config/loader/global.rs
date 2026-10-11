@@ -141,11 +141,11 @@ pub fn resolve_global_config_path() -> Option<PathBuf> {
     let (config_dir, source) = if let Some(xdg) = std::env::var_os("XDG_CONFIG_HOME") {
         (PathBuf::from(xdg), "XDG_CONFIG_HOME")
     } else if cfg!(windows) {
-        // CL-3: fall back through the shared `paths::home_dir` helper so
+        // Fall back through the shared `paths::home_dir` helper so
         // Windows-native paths use the same HOME → USERPROFILE order as the
-        // rest of the crate. READ-1 / TASK-1434: `home_dir` is the single
-        // source of truth for the HOME-vs-USERPROFILE precedence policy on
-        // non-Unix targets; documented there.
+        // rest of the crate. `home_dir` is the single source of truth for
+        // the HOME-vs-USERPROFILE precedence policy on non-Unix targets;
+        // documented there.
         let dir = std::env::var_os("APPDATA")
             .map(PathBuf::from)
             .or_else(|| crate::paths::home_dir().map(|h| h.join("AppData/Roaming")))?;
@@ -168,11 +168,11 @@ pub fn resolve_global_config_path() -> Option<PathBuf> {
 
 /// Load global config from standard paths.
 ///
-/// ERR-1: a read/parse error on the global config surfaces as a hard error
+/// A read/parse error on the global config surfaces as a hard error
 /// with the path attached — a corrupted `~/.config/ops/config.toml` should
 /// not be silently ignored, leaving the user thinking their config applied.
 ///
-/// PATTERN-1 (TASK-1090): two filenames are tried, **in this order**:
+/// Two filenames are tried, **in this order**:
 ///
 /// 1. `<dir>/ops/config.toml` — the documented, conventional name.
 /// 2. `<dir>/ops/config` — a bare-extension fallback retained for legacy
@@ -191,7 +191,7 @@ pub(super) fn load_global_config(config: &mut Config) -> anyhow::Result<()> {
 /// Test-friendly inner: try `<base>.toml` then `<base>` (bare-extension
 /// legacy fallback). See [`load_global_config`] for the precedence contract.
 ///
-/// READ-5 / TASK-1403: when both the canonical `<base>.toml` and the legacy
+/// When both the canonical `<base>.toml` and the legacy
 /// bare-extension `<base>` exist, the bare file is shadowed. A `tracing::warn`
 /// surfaces the situation so operators who left a stale legacy file in place
 /// see a signal at the level the silent-edit-loss deserves.
@@ -205,12 +205,12 @@ fn load_global_config_at(config: &mut Config, global_path: &Path) -> anyhow::Res
             "global config: legacy bare-extension file is shadowed by canonical .toml; edits to the legacy file are ignored"
         );
     }
-    // SEC-14 / TASK-1847: the global config **follows** symlinks; the
+    // The global config **follows** symlinks; the
     // workspace-relative layers do not. `~/.config/**` being a symlink is the
     // normal state under GNU Stow / chezmoi / nix home-manager, and `$HOME` is
     // the user's own — not a privilege boundary. Applying the repo-local
-    // SEC-25 refusal here made a dotfile-managed global config abort the whole
-    // layered load: `load_config_at` propagates this `Err` with `?` *before*
+    // symlink refusal here aborts the whole layered load for a
+    // dotfile-managed global config: `load_config_at` propagates this `Err` with `?` *before*
     // `.ops.toml` and `.ops.d` are read at all, so the user lost every command,
     // theme, and stack setting from their own repo over a symlink in their home
     // directory. The byte cap still applies. Read `super::SymlinkPolicy` before

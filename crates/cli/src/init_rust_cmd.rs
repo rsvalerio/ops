@@ -1,4 +1,4 @@
-//! Handler for `ops init --rust` and `ops init --rust --check` (TASK-2330).
+//! Handler for `ops init --rust` and `ops init --rust --check`.
 //!
 //! The templates, the scaffold and the semantic drift check live in
 //! `ops-rust-foundation`; this module resolves the project root, feeds in the
@@ -14,6 +14,8 @@ use ops_rust_foundation::{Outcome, Report};
 
 const VERSION: &str = env!("CARGO_PKG_VERSION");
 
+/// Run `ops init --rust` / `ops init --rust --check`: scaffold or
+/// drift-check the Rust foundation files via `ops_rust_foundation`.
 pub fn run_init_rust(force: bool, check: bool, config: &Config) -> anyhow::Result<ExitCode> {
     let cwd = crate::cwd()?;
     let mut out = std::io::stdout().lock();

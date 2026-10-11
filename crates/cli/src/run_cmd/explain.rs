@@ -1,5 +1,4 @@
-//! `ops explain <cmd>...`: the resolved execution plan, never executed
-//! (TASK-2280).
+//! `ops explain <cmd>...`: the resolved execution plan, never executed.
 //!
 //! The plan comes from the same [`super::plan::plans_for_names`] expansion the run path
 //! uses, so what is printed is what `ops <cmd>...` would schedule: each named
@@ -8,7 +7,7 @@
 //! step's program, args, env, cwd and origin. Nothing here spawns a process:
 //! the module only resolves specs and renders them. The one exception is
 //! opt-in: `--json --tool-versions` hands [`write_json`] a version prober
-//! that runs each listed tool's `--version` (TASK-2335).
+//! that runs each listed tool's `--version`.
 //!
 //! The subcommand is `explain` rather than `plan` because the terraform
 //! stack ships a `plan` command, which a builtin `plan` would shadow.
@@ -55,10 +54,10 @@ pub fn write_json(
 /// in first-use order, so a step shared by two named commands is described
 /// once and referenced by id from each plan.
 ///
-/// `tools` (TASK-2326) lists every external binary the plan needs on `PATH`,
+/// `tools` lists every external binary the plan needs on `PATH`,
 /// once each in first-use order, with the steps that need it (see
 /// [`super::tools`] for how they are derived). With a `probe`
-/// (`--tool-versions`, TASK-2335) each tool also carries `installedVersion`:
+/// (`--tool-versions`) each tool also carries `installedVersion`:
 /// what the probe answered, or `null` when the tool is missing or its
 /// version could not be read. Without one the key is absent and nothing is
 /// spawned. ops declares no minimum version for any tool, so none is
@@ -456,7 +455,7 @@ mod tests {
         String::from_utf8(out).expect("utf8")
     }
 
-    /// TASK-2280: `ops explain` never executes a step, for any command —
+    /// `ops explain` never executes a step, for any command —
     /// including the hook commands. Every exec here touches a marker, so a
     /// single spawn anywhere leaves evidence.
     #[test]
@@ -588,7 +587,7 @@ args = ["--locked"]
         );
     }
 
-    /// TASK-2326: `tools` lists each binary the plan needs once, in
+    /// `tools` lists each binary the plan needs once, in
     /// first-use order, with the steps that need it — cargo plugins and the
     /// tools `ops` builtins spawn included, `ops` itself and path programs
     /// excluded.
@@ -654,7 +653,7 @@ commands = ["nt", "lint", "bld", "script", "sec", "end-of-file-fixer"]
         assert_eq!(step("end-of-file-fixer"), serde_json::json!([]));
     }
 
-    /// TASK-2335: `--tool-versions` adds each tool's `installedVersion` —
+    /// `--tool-versions` adds each tool's `installedVersion` —
     /// the `--version` banner when the tool runs, `null` when it is missing.
     #[test]
     #[serial_test::serial]

@@ -145,7 +145,9 @@ impl ArcTextCache {
         // OnceLock and bump the LRU tick. The file read happens *outside*
         // this lock so distinct paths run their `read_optional_text` IO in
         // parallel — only same-path readers serialise on the inner OnceLock
-        // and observe a single Arc, preserving the dedup contract.
+        // and observe a single Arc, preserving the dedup contract. The
+        // guard leaves scope — hit branch and miss branch alike — at the
+        // end of the block below.
         //
         // Recover from poisoning by inheriting the inner map. The cache
         // value is the raw file text, not authoritative state, so a panic
@@ -174,32 +176,7 @@ impl ArcTextCache {
                 // sits below the cap.
                 Arc::clone(slot)
             } else {
-                // The insert cap-evicts the entry with the smallest
-                // `last_accessed` tick (LRU, O(log n) via the min-heap with
-                // lazy invalidation). Entries whose read is still in flight
-                // are pinned by the `is_evictable` filter, never evicted.
-                let slot: CacheSlot = Arc::new(OnceLock::new());
-                if let Some(victim) =
-                    guard.insert_filtered(path.clone(), Arc::clone(&slot), is_evictable)
-                {
-                    tracing::debug!(
-                        filename = self.filename,
-                        cap = CACHE_MAX_ENTRIES,
-                        victim = ?victim.display(),
-                        "manifest cache reached cap; evicting LRU entry"
-                    );
-                }
-                debug_assert!(
-                    guard.len() <= CACHE_MAX_ENTRIES
-                        || guard.values().any(|slot| slot.get().is_none()),
-                    "manifest cache exceeded cap of {CACHE_MAX_ENTRIES} with no in-flight entry pinning it"
-                );
-                // Release the outer mutex before the file read
-                // below — the whole point of the per-key `OnceLock`
-                // design. The guard leaves the hit branch the same way,
-                // at the end of this block.
-                drop(guard);
-                slot
+                insert_slot(&mut guard, &path, self.filename)
             }
         };
         // Same-path readers race here; OnceLock guarantees the closure runs
@@ -247,6 +224,31 @@ impl ArcTextCache {
     pub fn raw_mutex(&self) -> Option<&Mutex<CacheMap>> {
         self.cache.get()
     }
+}
+
+/// Insert a fresh, uninitialised slot for `path` into `map` on a cache
+/// miss, evicting the LRU evictable entry when the cap is reached.
+///
+/// The insert cap-evicts the entry with the smallest `last_accessed` tick
+/// (LRU, O(log n) via the min-heap with lazy invalidation). Entries whose
+/// read is still in flight are pinned by the [`is_evictable`] filter, never
+/// evicted. The slot's `OnceLock` is initialised by the caller after the
+/// outer mutex has been released, so the file read runs outside the lock.
+fn insert_slot(map: &mut CacheMap, path: &Path, filename: &'static str) -> CacheSlot {
+    let slot: CacheSlot = Arc::new(OnceLock::new());
+    if let Some(victim) = map.insert_filtered(path.to_path_buf(), Arc::clone(&slot), is_evictable) {
+        tracing::debug!(
+            filename,
+            cap = CACHE_MAX_ENTRIES,
+            victim = ?victim.display(),
+            "manifest cache reached cap; evicting LRU entry"
+        );
+    }
+    debug_assert!(
+        map.len() <= CACHE_MAX_ENTRIES || map.values().any(|slot| slot.get().is_none()),
+        "manifest cache exceeded cap of {CACHE_MAX_ENTRIES} with no in-flight entry pinning it"
+    );
+    slot
 }
 
 /// Per-process accessor returning the cached text for

@@ -25,7 +25,7 @@
 mod gradle;
 mod maven;
 
-use ops_core::project_identity::{base_about_fields, insert_homepage_field, AboutFieldDef};
+use ops_core::project_identity::{AboutFieldDef, base_about_fields, insert_homepage_field};
 use ops_extension::ExtensionType;
 
 use gradle::GradleIdentityProvider;
@@ -52,7 +52,7 @@ ops_extension::impl_extension! {
     description: MAVEN_DESCRIPTION,
     shortname: MAVEN_SHORTNAME,
     types: ExtensionType::DATASOURCE,
-    stack: Some(ops_extension::Stack::JavaMaven),
+    stack: Some(ops_core::stack::Stack::JavaMaven),
     data_provider_name: Some("project_identity"),
     register_data_providers: |_self, registry| {
         let _ = registry.register("project_identity", Box::new(MavenIdentityProvider));
@@ -85,7 +85,7 @@ ops_extension::impl_extension! {
     description: GRADLE_DESCRIPTION,
     shortname: GRADLE_SHORTNAME,
     types: ExtensionType::DATASOURCE,
-    stack: Some(ops_extension::Stack::JavaGradle),
+    stack: Some(ops_core::stack::Stack::JavaGradle),
     data_provider_name: Some("project_identity"),
     register_data_providers: |_self, registry| {
         let _ = registry.register("project_identity", Box::new(GradleIdentityProvider));
@@ -141,7 +141,7 @@ mod tests {
         assert_eq!(maven.shortname(), MAVEN_SHORTNAME);
         assert_eq!(maven.description(), MAVEN_DESCRIPTION);
         assert!(maven.types().is_datasource());
-        assert_eq!(maven.stack(), Some(ops_extension::Stack::JavaMaven));
+        assert_eq!(maven.stack(), Some(ops_core::stack::Stack::JavaMaven));
         assert_eq!(maven.data_provider_name(), Some("project_identity"));
 
         let (gradle_name, gradle) = (super::GRADLE_ABOUT_FACTORY)(&cfg, cwd)
@@ -151,7 +151,7 @@ mod tests {
         assert_eq!(gradle.shortname(), GRADLE_SHORTNAME);
         assert_eq!(gradle.description(), GRADLE_DESCRIPTION);
         assert!(gradle.types().is_datasource());
-        assert_eq!(gradle.stack(), Some(ops_extension::Stack::JavaGradle));
+        assert_eq!(gradle.stack(), Some(ops_core::stack::Stack::JavaGradle));
         assert_eq!(gradle.data_provider_name(), Some("project_identity"));
     }
 

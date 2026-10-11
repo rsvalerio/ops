@@ -1,8 +1,8 @@
 //! Shared `.ops.toml` edit helper used by interactive CLI handlers.
 //!
-//! Consolidates the read → parse → mutate → atomic-write pattern previously
-//! duplicated across `theme_cmd`, `about_cmd`, `new_command_cmd` and
-//! `hook-common`. Three important properties:
+//! One shared read → parse → mutate → atomic-write helper for
+//! `theme_cmd`, `about_cmd`, `new_command_cmd` and `hook-common`.
+//! Three important properties:
 //!
 //! - A missing file is treated as empty (no check-then-read TOCTOU).
 //! - A parse error is propagated with the file path as context rather than
@@ -23,7 +23,7 @@ use anyhow::Context;
 /// document. Used by callers that want to inspect the document without
 /// necessarily writing back.
 ///
-/// SEC-33 / TASK-0943: routes through
+/// Routes through
 /// [`super::loader::read_capped_toml_file`] so an oversized `.ops.toml`
 /// fails fast with a typed bounded-read error rather than slurping the
 /// whole file. Cap is overridable via
@@ -36,7 +36,7 @@ use anyhow::Context;
 pub fn read_ops_toml(path: &Path) -> anyhow::Result<toml_edit::DocumentMut> {
     let content = super::loader::read_capped_toml_file(path)?.unwrap_or_default();
     content.parse::<toml_edit::DocumentMut>().with_context(|| {
-        // SEC-21 (TASK-1472): Debug-format the path so a `.ops.toml` whose
+        // Debug-format the path so a `.ops.toml` whose
         // path contains newlines / ANSI escapes cannot forge log lines via
         // anyhow consumers that render the chain through `tracing::warn!`.
         format!(
@@ -46,19 +46,19 @@ pub fn read_ops_toml(path: &Path) -> anyhow::Result<toml_edit::DocumentMut> {
     })
 }
 
-/// DUP-1 / TASK-1278: ensure a top-level table named `key` exists in `doc`
+/// Ensure a top-level table named `key` exists in `doc`
 /// and return a mutable reference to it.
 ///
 /// If the key is absent, an empty `Table` is inserted. If the key is
 /// present but holds a non-table value (e.g. `output = "classic"`), an
-/// `anyhow::Error` is returned rather than panicking — this is the failure
-/// mode TASK-1300 hit on the `doc["output"]["theme"] = …` indexer path in
-/// `theme_cmd::set_theme`.
+/// `anyhow::Error` is returned rather than panicking — the failure mode
+/// `theme_cmd::set_theme` hits on the `doc["output"]["theme"] = …`
+/// indexer path.
 ///
 /// Use this anywhere `.ops.toml` writers need to land a key under a top-level
-/// section: `about_cmd`, `theme_cmd`, and `new_command_cmd` previously each
-/// open-coded the `contains_key` + insert + `as_table_mut().context(...)`
-/// idiom, and `theme_cmd` did so incorrectly.
+/// section: open-coding the `contains_key` + insert +
+/// `as_table_mut().context(...)` idiom per command handler is how
+/// `theme_cmd` got it wrong.
 ///
 /// # Errors
 ///
@@ -217,7 +217,7 @@ pub fn atomic_write(path: &Path, bytes: &[u8]) -> std::io::Result<()> {
     Ok(())
 }
 
-// ERR-1 / TASK-1040: `Path::parent()` returns `Some("")` — not `None` —
+// `Path::parent()` returns `Some("")` — not `None` —
 // for a bare filename. Remap empty to "." so the parent fsync runs.
 fn resolve_parent_and_filename(path: &Path) -> std::io::Result<(&Path, &OsStr)> {
     let parent = match path.parent() {
@@ -230,16 +230,16 @@ fn resolve_parent_and_filename(path: &Path) -> std::io::Result<(&Path, &OsStr)> 
     Ok((parent, file_name))
 }
 
-/// READ-5 / TASK-1467: fallback mode for `atomic_write` when the
+/// Fallback mode for `atomic_write` when the
 /// destination is absent, non-regular, or a symlink. Tied to SEC-25 /
-/// TASK-0898 + TASK-1086 + TASK-1388: a planted symlink at the
+/// A planted symlink at the
 /// destination must not let the link target's mode drive the new file's
 /// perms — 0o600 is the conservative "owner-only" default that keeps
 /// `.ops.toml`-style configs out of world-readable mode.
 #[cfg(unix)]
 pub const ATOMIC_WRITE_FALLBACK_MODE: u32 = 0o600;
 
-/// READ-5 / TASK-1467: Unix permission-bit mask (sticky + setuid + setgid
+/// Unix permission-bit mask (sticky + setuid + setgid
 /// plus the standard rwxrwxrwx triplet). Applied to the mode probed from
 /// a pre-existing destination so the carried-over value is the permission
 /// bits only, not the file-type bits that `stat(2)` packs into the same
@@ -247,12 +247,12 @@ pub const ATOMIC_WRITE_FALLBACK_MODE: u32 = 0o600;
 #[cfg(unix)]
 pub const ATOMIC_WRITE_MODE_MASK: u32 = 0o7777;
 
-// SEC-25 / TASK-0837: build the tmp basename from raw OsStr bytes so two
+// Build the tmp basename from raw OsStr bytes so two
 // non-UTF-8 siblings whose lossy renders collide do not race on the same
-// tmp. READ-5 / TASK-0908: strip a leading dot so `.ops.toml` does not
+// tmp. Strip a leading dot so `.ops.toml` does not
 // produce a double-dot `..ops.toml.tmp.…` shape.
 //
-// READ-1 / TASK-1476: uniqueness is carried by `(pid, counter)`; the
+// Uniqueness is carried by `(pid, counter)`; the
 // `nanos` suffix is **best-effort entropy** — it is `0` when the system
 // clock is set before `UNIX_EPOCH`, in which case the AtomicU64 counter
 // is still monotonically distinct per call and the basename remains
@@ -260,7 +260,7 @@ pub const ATOMIC_WRITE_MODE_MASK: u32 = 0o7777;
 // `nanos` carries the uniqueness invariant would be wrong; the counter
 // does.
 //
-// UNSAFE-10 / TASK-2087: the `from_encoded_bytes_unchecked` call below is
+// The `from_encoded_bytes_unchecked` call below is
 // the crate's pure-memory unsafe and is exercised under Miri in CI — the
 // `miri` job runs the `atomic_write*` tests in this module, which build
 // their tmp names through this function. (The other unsafe site,
@@ -278,7 +278,7 @@ fn build_tmp_basename(file_name: &OsStr) -> OsString {
 
     let pid = std::process::id();
     let counter = COUNTER.fetch_add(1, Ordering::Relaxed);
-    // READ-1 / TASK-1476: `nanos` is best-effort entropy only — falls
+    // `nanos` is best-effort entropy only — falls
     // back to 0 when the clock is set before `UNIX_EPOCH`. Real
     // uniqueness comes from `(pid, counter)`.
     let nanos = SystemTime::now()
@@ -291,7 +291,7 @@ fn build_tmp_basename(file_name: &OsStr) -> OsString {
     // encoding; OsStr::as_encoded_bytes documents this is safe.
     let stem = unsafe { OsStr::from_encoded_bytes_unchecked(stem_bytes) };
 
-    // PERF-3 / TASK-1223: one allocation for the suffix, one for the OsString.
+    // One allocation for the suffix, one for the OsString.
     let mut suffix = String::with_capacity(48);
     let _ = write!(suffix, ".tmp.{pid}.{counter}.{nanos}");
     let mut tmp_name = OsString::with_capacity(
@@ -306,7 +306,7 @@ fn build_tmp_basename(file_name: &OsStr) -> OsString {
     tmp_name
 }
 
-// ERR-1 / TASK-1134: cleanup-on-error path shared by the write/sync and
+// Cleanup-on-error path shared by the write/sync and
 // rename failure arms. NotFound from the write/sync arm is expected when
 // `open` itself failed, so do not warn on it; the rename arm always warns
 // because the tmp existed at that point.
@@ -318,7 +318,7 @@ fn cleanup_tmp(tmp: &Path, warn_on_not_found: bool, msg: &'static str) {
     }
 }
 
-// SEC-25 / TASK-0898 + TASK-1086 + TASK-1388: preserve restrictive perms
+// Preserve restrictive perms
 // across atomic-replace. Probe via symlink_metadata so a symlink at `path`
 // does not let the link target's mode drive the new file's perms; fall
 // back to 0o600 for new files, non-regular entries, or non-Unix.
@@ -330,7 +330,7 @@ fn write_tmp_and_sync(tmp: &Path, dest: &Path, bytes: &[u8]) -> std::io::Result<
     #[cfg(unix)]
     let requested_mode: u32 = {
         use std::os::unix::fs::OpenOptionsExt;
-        // READ-5 / TASK-1467: the symlink_metadata probe carries over the
+        // The symlink_metadata probe carries over the
         // destination's existing permission bits (masked to
         // `ATOMIC_WRITE_MODE_MASK`); a missing / non-regular / symlinked
         // destination falls back to the security-relevant
@@ -362,7 +362,7 @@ fn write_tmp_and_sync(tmp: &Path, dest: &Path, bytes: &[u8]) -> std::io::Result<
     Ok(())
 }
 
-// ERR-1 / TASK-0899 + TASK-1231: a failing directory fsync is non-fatal
+// A failing directory fsync is non-fatal
 // (the rename already succeeded) but it is the only signal that crash
 // safety is broken, so we warn rather than swallow. Windows has no
 // portable directory-fsync analogue; emit a debug breadcrumb so the
@@ -392,11 +392,11 @@ fn sync_parent_dir(parent: &Path) {
             }
         }
         Err(e) => {
-            // ERR-1 / TASK-1464: surface a `tracing::warn!` symmetric to
+            // Surface a `tracing::warn!` symmetric to
             // the sync_all arm when `File::open(parent)` itself fails
             // (e.g. EACCES on a parent the caller can still rename into
-            // but cannot open for fsync). Pre-fix this was silently
-            // swallowed, breaking the documented crash-safety contract
+            // but cannot open for fsync). A silent swallow here would
+            // break the documented crash-safety contract
             // without an observability breadcrumb.
             tracing::warn!(
                 parent = %parent.display(),

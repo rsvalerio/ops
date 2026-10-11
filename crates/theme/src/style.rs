@@ -20,10 +20,6 @@ mod strip;
 
 pub(crate) use sgr::color_enabled;
 pub use sgr::{apply_style, apply_style_gated, apply_with_prefix_gated, precompute_sgr_prefix};
-// The pure gate resolver is exercised by the crate's own tests (CL-3 /
-// TASK-1976); production code always goes through `color_enabled`.
-#[cfg(test)]
-pub(crate) use sgr::color_enabled_for;
 pub use strip::{
     strip_ansi, strip_ansi_preserving_raw, truncate_to_width, visible_width, ELLIPSIS,
     TAB_REPLACEMENT,
@@ -33,7 +29,7 @@ pub use strip::{
 mod tests {
     use super::*;
 
-    /// READ-5/TASK-0355: an OSC-8 hyperlink wraps visible text in
+    /// An OSC-8 hyperlink wraps visible text in
     /// `ESC ] 8 ; ; <url> ESC \\ <text> ESC ] 8 ; ; ESC \\`. `strip_ansi`
     /// must remove both OSC introducers so the visible portion has zero
     /// ANSI bytes left, matching what a width-sensitive caller expects.
@@ -57,7 +53,7 @@ mod tests {
         assert_eq!(strip_ansi(s), "helloworld");
     }
 
-    /// PERF-3 / TASK-0746: `visible_width` must produce identical results to
+    /// `visible_width` must produce identical results to
     /// `display_width(&strip_ansi(s))` across the `strip_ansi` corpus — that is
     /// the contract that lets every hot-path call site swap the allocating
     /// pair for the inline scan without a behaviour change.
@@ -119,7 +115,7 @@ mod tests {
             );
             let stripped = strip_ansi(&s);
             prop_assert!(!stripped.contains('\x1b'));
-            // SEC-11 / TASK-1967 AC#2 + CL-3 / TASK-2019: no C0 byte, no
+            // No C0 byte, no
             // DEL and no C1 code point survives, for any input — tab
             // included, since it is rewritten to a space.
             prop_assert!(
@@ -133,7 +129,7 @@ mod tests {
         });
     }
 
-    /// SEC-11 / TASK-1967 AC#1: the 8-bit C1 introducers are equivalent to
+    /// The 8-bit C1 introducers are equivalent to
     /// their two-byte `ESC` forms, so their payloads must be consumed rather
     /// than counted as visible text.
     #[test]
@@ -148,7 +144,7 @@ mod tests {
         assert_eq!(visible_width("\u{9b}2Jhello"), 5);
     }
 
-    /// SEC-11 / TASK-1967 AC#2: bare C0 bytes never survive stripping, so a
+    /// Bare C0 bytes never survive stripping, so a
     /// caller cannot print a "stripped" string that still moves the cursor.
     #[test]
     fn bare_control_bytes_are_stripped() {
@@ -172,7 +168,7 @@ mod tests {
         assert_eq!(TAB_REPLACEMENT, ' ');
     }
 
-    /// CL-3 / TASK-1969: the truncation policy — visible width is bounded,
+    /// The truncation policy — visible width is bounded,
     /// escapes survive, and a cut string is marked with the ellipsis and
     /// reset.
     #[test]

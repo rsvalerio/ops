@@ -37,7 +37,7 @@ pub struct RunOptions {
     pub dry_run: bool,
     pub verbose: bool,
     pub tap: Option<PathBuf>,
-    /// TASK-2338: `--junit <file>` `JUnit` XML report of the run's steps.
+    /// `--junit <file>` `JUnit` XML report of the run's steps.
     pub junit: Option<PathBuf>,
     pub raw: bool,
     /// cwd-escape policy applied to the runner this invocation builds. Hook-triggered entry points
@@ -79,7 +79,7 @@ pub fn run_external_command(
     run_commands(config, &names, opts)
 }
 
-/// `ops explain <cmd>... [--json]` (TASK-2280): resolve each name exactly as
+/// `ops explain <cmd>... [--json]`: resolve each name exactly as
 /// `ops <cmd>...` would — the same runner, extensions and
 /// [`plans_for_names`] expansion — and print the plan. No step is ever
 /// executed, whatever the command: this path has no call into the
@@ -106,7 +106,7 @@ enum ExplainOutput {
     /// The versioned JSON document. Spawns nothing.
     Json,
     /// The JSON document with each tool's `installedVersion`, probed by
-    /// running its `--version` (`--tool-versions`, TASK-2335).
+    /// running its `--version` (`--tool-versions`).
     JsonWithToolVersions,
 }
 
@@ -249,7 +249,7 @@ fn run_commands(
     Ok(summarize(&results))
 }
 
-/// Run each named command as its own plan, one after another (TASK-2262).
+/// Run each named command as its own plan, one after another.
 ///
 /// Scheduling flags are per-name and never merged: a parallel `verify`
 /// followed by a sequential `qax` runs verify's stages concurrently, then
@@ -261,8 +261,8 @@ fn run_commands(
 /// Sequence-level fail-fast mirrors the step-level flag: a plan whose steps
 /// failed and whose effective `fail_fast` is true stops the names after it,
 /// while a `fail_fast = false` name keeps the sequence going — exactly as
-/// the flag keeps later steps going inside a single plan. TASK-2275 makes
-/// that one rule for every ordered run: a sequential group's entries stop
+/// the flag keeps later steps going inside a single plan. That is one
+/// rule for every ordered run: a sequential group's entries stop
 /// the same way inside `run_plan_tree`.
 // Same `!Send` reasoning as `run_plan_parallel`: the `on_event` sink is
 // backed by non-`Send` `indicatif` state (docs/clippy.md layer 3).
@@ -287,7 +287,7 @@ async fn run_name_plans(
         .await
 }
 
-/// One display lifecycle for the whole named sequence (TASK-2262 AC #4).
+/// One display lifecycle for the whole named sequence.
 ///
 /// `run_plan` / `run_plan_parallel` emit their own `PlanStarted` /
 /// `RunFinished` bookends per stage; forwarded straight to the shared
@@ -296,8 +296,8 @@ async fn run_name_plans(
 /// and emits one outer pair instead — `PlanStarted` naming every leaf of
 /// every plan before the first step, `RunFinished` with the aggregate
 /// success after the last — so the shared display and its final summary
-/// see a single run, not one per name (TASK-2275 AC #6: still one display
-/// and one summary when a sequential group fans out into several stages).
+/// see a single run, not one per name — still one display
+/// and one summary when a sequential group fans out into several stages.
 // Same `!Send` reasoning as `run_name_plans`: the `on_event` sink is
 // backed by non-`Send` `indicatif` state (docs/clippy.md layer 3).
 #[allow(clippy::future_not_send)]
@@ -306,7 +306,7 @@ async fn run_named_sequence_lifecycle(
     plans: &[NamePlan],
     on_event: &mut impl FnMut(ops_runner::command::RunnerEvent),
 ) -> Vec<StepResult> {
-    // TASK-2277: rows, not leaves — a matrix leaf renders one row per cell.
+    // Rows, not leaves — a matrix leaf renders one row per cell.
     let leaf_ids: Vec<ops_core::config::CommandId> =
         plans.iter().flat_map(|p| p.plan.leaf_ids()).collect();
     let command_ids = runner.row_ids(&leaf_ids);
@@ -338,7 +338,7 @@ fn run_commands_raw(
         tap.is_some(),
         verbose,
     );
-    // CONC-14 / TASK-1932: raw mode has no EchoGuard to restore, but a
+    // Raw mode has no EchoGuard to restore, but a
     // SIGTERM still has to cancel the plan rather than leave its children
     // behind. Ctrl-C additionally reaches raw children through the tty
     // (they deliberately stay in the runner's process group); `SIGTERM`
@@ -431,7 +431,7 @@ fn emit_raw_warnings(any_parallel: bool, has_tap: bool, verbose: bool) {
     }
 }
 
-/// CONC-14 / TASK-1932: outcome of a plan raced against the shutdown
+/// Outcome of a plan raced against the shutdown
 /// signals.
 enum PlanOutcome<T> {
     Completed(T),
@@ -445,7 +445,7 @@ enum PlanOutcome<T> {
 ///
 /// Both of the runner's cleanup mechanisms are `Drop`-based — `EchoGuard`
 /// restores the terminal's `ECHO` bit in its destructor, and a running child
-/// is torn down when its spawn future is dropped (CONC-9 / TASK-1919 signals
+/// is torn down when its spawn future is dropped (the drop signals
 /// the child's whole process group from there). `Drop` does not run when the
 /// process is terminated by a signal, so before this existed a `SIGTERM` (a
 /// cancelled CI job, a `kill`, a container stop) killed `ops` outright:
@@ -462,7 +462,7 @@ enum PlanOutcome<T> {
 /// listens for on unix; it is used directly so the signal number is
 /// available for the exit code.
 ///
-/// ## Manual verification (TASK-1932 AC #5)
+/// ## Manual verification (signal cancels the plan)
 ///
 /// ```text
 /// $ ops build &            # a plan with a long step
@@ -478,8 +478,8 @@ where
     {
         use tokio::signal::unix::{signal, SignalKind};
         // A failure to register (no runtime signal driver, a sandbox that
-        // blocks it) must not take the run down with it: fall back to the
-        // pre-TASK-1932 behaviour of simply awaiting the plan.
+        // blocks it) must not take the run down with it: fall back to
+        // simply awaiting the plan.
         let handlers = signal(SignalKind::terminate()).and_then(|term| {
             let int = signal(SignalKind::interrupt())?;
             Ok((term, int))
@@ -495,7 +495,7 @@ where
                 return PlanOutcome::Completed(plan.await);
             }
         };
-        // CONC-14 / TASK-2023: the restore runs inside the signal arms, not
+        // The restore runs inside the signal arms, not
         // after the `select!`, because `select!` drops the losing futures
         // only once the whole expression finishes — and dropping the plan
         // future *is* the teardown we need to stay escapable.
@@ -517,8 +517,7 @@ where
     }
 }
 
-/// Restore the kernel's default disposition for `SIGINT` / `SIGTERM`
-/// (CONC-14 / TASK-2023).
+/// Restore the kernel's default disposition for `SIGINT` / `SIGTERM`.
 ///
 /// Installing a tokio signal handler replaces the default disposition for
 /// the rest of the process's life. Without this, every signal delivered
@@ -526,23 +525,22 @@ where
 /// stream nobody reads any more — so a second Ctrl-C does nothing while the
 /// teardown is slow or wedged (a child ignoring `SIGTERM` through its
 /// `GROUP_TERM_GRACE` window, a capture drain still running, the runtime
-/// parked on a blocking-pool task). That removed the escape hatch users had
-/// before TASK-1932. The conventional shape is what this restores: the first
-/// signal requests a graceful cancel, the second one exits hard.
+/// parked on a blocking-pool task). This restore is that escape hatch: the
+/// first signal requests a graceful cancel, the second one exits hard.
 ///
 /// The second signal then terminates the process the way it would have
 /// before any handler existed, which shells report as `128 + signo` — 130
 /// for `SIGINT`, 143 for `SIGTERM` — matching the graceful path's exit code.
 ///
-/// **Trade-off (TASK-2023 AC #2).** Dying from the second signal bypasses
+/// **Trade-off.** Dying from the second signal bypasses
 /// unwinding, so [`EchoGuard`]'s `Drop` does not run and an interactive
-/// terminal keeps `ECHO` cleared; `reset` is the remedy. That is the same
-/// exposure the pre-TASK-1932 behaviour had, and it is recorded in the
-/// `Drop`-paths table on `EchoGuard` itself. Restoring the terminal from a
+/// terminal keeps `ECHO` cleared; `reset` is the remedy. That exposure is
+/// recorded in the `Drop`-paths table on `EchoGuard` itself. Restoring the
+/// terminal from a
 /// signal-death path is not possible without an async-signal-safe handler,
 /// which is a strictly larger change than the escape hatch is worth.
 ///
-/// ## Manual verification (TASK-2023 AC #3)
+/// ## Manual verification (second signal exits hard)
 ///
 /// ```text
 /// $ ops <a plan with a step that ignores SIGTERM>
@@ -600,12 +598,12 @@ fn run_commands_with_display(
     junit: Option<PathBuf>,
     verbose: bool,
 ) -> anyhow::Result<Vec<StepResult>> {
-    // One display covering every named command's steps (TASK-2262 AC #4):
+    // One display covering every named command's steps:
     // the map is built over all leaves across all plans and
     // `run_named_sequence_lifecycle` emits one outer `PlanStarted` /
     // `RunFinished` pair around the sequence, so the progress display and
     // the final summary see a single run, not one per name — including when
-    // a sequential group fans out into several stages (TASK-2275 AC #6).
+    // a sequential group fans out into several stages.
     let all_leaf_ids: Vec<ops_core::config::CommandId> =
         plans.iter().flat_map(|p| p.plan.leaf_ids()).collect();
     // A matrix cell's row id is its label (`name [key=value]`), which
@@ -633,9 +631,9 @@ fn run_commands_with_display(
     } else {
         RuntimeKind::Sequential
     };
-    // CONC-14 / TASK-1932: the plan runs *inside* the signal race, so a
+    // The plan runs *inside* the signal race, so a
     // SIGTERM/SIGINT drops it and the runner's own cancellation path
-    // (process-group teardown, CONC-9 / TASK-1919) runs.
+    // (process-group teardown) runs.
     let outcome = run_with_runtime_kind(kind, async {
         Ok(
             run_until_signal(run_named_sequence_lifecycle(runner, plans, &mut |event| {

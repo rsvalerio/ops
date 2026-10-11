@@ -1,9 +1,5 @@
-//! `commit`: commit exactly the named tasks' files, and nothing else.
-//!
-//! Several code-review waves write task edits into the one main checkout at
-//! the same time, so a bookkeeping commit built with `git add .backlog`
-//! sweeps up the other waves' in-flight edits. This command replaces the
-//! shell the wave runner used to guard against that:
+//! `commit`: commit exactly the named tasks' files, and nothing else — even
+//! with other writers staging into the same index between the steps.
 //!
 //! 1. resolve each task id to its file;
 //! 2. refuse — touching nothing — when the index already holds any other
@@ -12,10 +8,10 @@
 //!    commit;
 //! 4. `git add` those files and `git commit --only -- <files>`.
 //!
-//! `--only` is what closes the race the shell version needed a lock for:
-//! it commits exactly the named paths even if another writer stages
-//! something between step 2 and step 4, and leaves that writer's entries
-//! staged for its own commit.
+//! `--only` is what makes step 4 safe against a concurrent writer: it
+//! commits exactly the named paths even if that writer stages something
+//! between step 2 and step 4, and leaves the writer's entries staged for
+//! its own commit.
 
 use std::io::Write;
 use std::path::Path;
@@ -61,10 +57,21 @@ pub fn run_commit<W: Write>(
     }
     let top = git::toplevel(cwd)?;
     let task_paths = resolve_task_paths(store, &top, &opts.task_ids)?;
+    ensure_index_pure(&top, &task_paths)?;
+    let changed = changed_task_paths(&top, &task_paths, &opts.task_ids)?;
+    commit_changed_files(&top, &changed, &opts.message)?;
+    print_commit_summary(&top, &changed, out)
+}
 
-    // Step 2: the index must hold nothing but our own files. Checked before
-    // any mutation, so a refusal leaves the index exactly as it was.
-    let foreign: Vec<String> = git::staged_paths(&top)?
+/// Step 2: the index must hold nothing but our own files. Checked before
+/// any mutation, so a refusal leaves the index exactly as it was.
+///
+/// # Errors
+///
+/// The index already holds a path that is not one of `task_paths` —
+/// nothing is touched.
+fn ensure_index_pure(top: &Path, task_paths: &[String]) -> anyhow::Result<()> {
+    let foreign: Vec<String> = git::staged_paths(top)?
         .into_iter()
         .filter(|staged| !task_paths.contains(staged))
         .collect();
@@ -75,9 +82,20 @@ pub fn run_commit<W: Write>(
             foreign.join(", ")
         );
     }
+    Ok(())
+}
 
-    // Step 3: only the task files with a change (staged or not, including a
-    // brand-new untracked file) are committed.
+/// Step 3: only the task files with a change (staged or not, including a
+/// brand-new untracked file) are committed.
+///
+/// # Errors
+///
+/// None of `task_paths` changed (no commit is made).
+fn changed_task_paths(
+    top: &Path,
+    task_paths: &[String],
+    task_ids: &[String],
+) -> anyhow::Result<Vec<String>> {
     let mut status_args: Vec<String> = [
         "status",
         "--porcelain=v1",
@@ -92,7 +110,7 @@ pub fn run_commit<W: Write>(
     .map(ToString::to_string)
     .collect();
     status_args.extend(task_paths.iter().cloned());
-    let status = git::run(&top, &status_args)?;
+    let status = git::run(top, &status_args)?;
     let changed_in_status: Vec<String> = git::nul_records(&status)
         .into_iter()
         .filter_map(|record| record.get(3..).map(str::to_string))
@@ -105,13 +123,25 @@ pub fn run_commit<W: Write>(
     if changed.is_empty() {
         anyhow::bail!(
             "nothing to commit: none of the files of {} changed",
-            opts.task_ids.join(", ")
+            task_ids.join(", ")
         );
     }
+    Ok(changed)
+}
 
-    // Step 4. `git add` is what brings a new untracked file in; a deleted
-    // path is left to `commit --only`, which records the deletion whether or
-    // not it is staged (`git add` of an already-staged deletion fails).
+/// Step 4: stage the still-present changed files and commit exactly them.
+///
+/// `git add` is what brings a new untracked file in; a deleted path is left
+/// to `commit --only`, which records the deletion whether or not it is
+/// staged (`git add` of an already-staged deletion fails). A failed commit
+/// puts the index back the way step 2 found it: none of our files were
+/// staged before `git add` above.
+///
+/// # Errors
+///
+/// A git step failed; on a failed commit the staged files are reset again
+/// before the error is returned.
+fn commit_changed_files(top: &Path, changed: &[String], message: &str) -> anyhow::Result<()> {
     let present: Vec<String> = changed
         .iter()
         .filter(|path| top.join(path.as_str()).exists())
@@ -120,27 +150,38 @@ pub fn run_commit<W: Write>(
     if !present.is_empty() {
         let mut add_args: Vec<String> = vec!["add".to_string(), "--".to_string()];
         add_args.extend(present);
-        git::run(&top, &add_args)?;
+        git::run(top, &add_args)?;
     }
     let mut commit_args: Vec<String> = vec![
         "commit".to_string(),
         "--quiet".to_string(),
         "--only".to_string(),
         "-m".to_string(),
-        opts.message.clone(),
+        message.to_string(),
         "--".to_string(),
     ];
     commit_args.extend(changed.iter().cloned());
-    if let Err(err) = git::run(&top, &commit_args) {
-        // Put the index back the way step 2 found it: none of our files
-        // were staged before `git add` above.
+    if let Err(err) = git::run(top, &commit_args) {
         let mut reset_args: Vec<String> =
             vec!["reset".to_string(), "-q".to_string(), "--".to_string()];
         reset_args.extend(changed.iter().cloned());
-        git::run(&top, &reset_args).ok();
+        git::run(top, &reset_args).ok();
         return Err(err);
     }
-    let sha = git::run(&top, ["rev-parse", "--short", "HEAD"])?;
+    Ok(())
+}
+
+/// Print what landed: the short sha and one row per committed path.
+///
+/// # Errors
+///
+/// Writing `out` failed.
+fn print_commit_summary<W: Write>(
+    top: &Path,
+    changed: &[String],
+    out: &mut W,
+) -> anyhow::Result<()> {
+    let sha = git::run(top, ["rev-parse", "--short", "HEAD"])?;
     writeln!(
         out,
         "Committed {} task file(s) as {}:",
@@ -148,7 +189,7 @@ pub fn run_commit<W: Write>(
         sha.trim()
     )
     .context("printing the commit summary")?;
-    for path in &changed {
+    for path in changed {
         writeln!(out, "  {path}").context("printing a committed path")?;
     }
     Ok(())

@@ -38,7 +38,7 @@ pub mod yaml;
 
 pub use error::{CheckError, LimitExceeded};
 pub use options::CheckerOptions;
-pub use report::{write_summary, CheckerReport, FailedFile, FailureKind};
+pub use report::{CheckerReport, FailedFile, FailureKind, write_summary};
 pub use runner::{run_check_json, run_check_yaml};
 
 use ops_extension::ExtensionType;

@@ -5,10 +5,8 @@ use crate::ingestor::CoverageIngestor;
 use crate::views::{coverage_summary_view_sql, COVERAGE_FILES_LOAD};
 use ops_sqlite::{DataIngestor, Sqlite};
 
-/// SEC-12 (successor of the `test_create_sql_validation!` macro, which
-/// pinned the deleted `read_json_auto` builder): the load spec's DDL quotes
-/// the table name and declares typed NOT NULL columns — counts INTEGER,
-/// percentages REAL.
+/// The load spec's DDL quotes the table name and declares typed NOT NULL
+/// columns — counts INTEGER, percentages REAL.
 #[test]
 fn coverage_files_load_declares_typed_columns() {
     let sql = COVERAGE_FILES_LOAD.create_table_sql().to_string();
@@ -65,8 +63,8 @@ fn coverage_summary_view_sql_has_notcovered_columns() {
     assert!(sql.contains("branches_notcovered"));
 }
 
-/// PATTERN-1 / TASK-1603: verify no ROUND in the view so downstream
-/// consumers get full f64 precision.
+/// Verify no ROUND in the view so downstream consumers get full f64
+/// precision.
 #[test]
 fn coverage_summary_view_sql_has_no_round() {
     let sql = coverage_summary_view_sql().to_string();
@@ -76,8 +74,8 @@ fn coverage_summary_view_sql_has_no_round() {
     );
 }
 
-/// READ-6 / TASK-1934: every count column is `COALESCE`d so the zero-row
-/// aggregate returns 0 rather than NULL.
+/// Every count column is `COALESCE`d so the zero-row aggregate returns 0
+/// rather than NULL.
 #[test]
 fn coverage_summary_view_sql_coalesces_every_count_column() {
     let sql = coverage_summary_view_sql().to_string();
@@ -127,10 +125,10 @@ fn coverage_summary_view_computes_percentages() {
     );
 }
 
-/// READ-6 / TASK-1934: **zero rows**, not one row of zeros. An ungrouped
-/// aggregate over an empty table returns exactly one row whose SUMs are
-/// NULL, so without `COALESCE` every count column decodes as NULL and a
-/// consumer expecting a non-nullable integer fails outright.
+/// **Zero rows**, not one row of zeros. An ungrouped aggregate over an
+/// empty table returns exactly one row whose SUMs are NULL, so without
+/// `COALESCE` every count column decodes as NULL and a consumer expecting
+/// a non-nullable integer fails outright.
 ///
 /// This is a different case from
 /// [`coverage_summary_view_handles_zero_counts`] below, which loads one
@@ -175,8 +173,7 @@ fn coverage_summary_view_empty_table_yields_zero_counts() {
 #[test]
 fn coverage_summary_view_handles_zero_counts() {
     let data_dir = tempfile::tempdir().expect("tempdir");
-    // SEC-25 / TASK-2054: stage through the same verified anchor
-    // `provide_via_ingestor` builds.
+    // Stage through the same verified anchor `provide_via_ingestor` builds.
     let dir = ops_sqlite::IngestDir::open(&data_dir.path().join("ingest")).expect("anchor");
     let db = Sqlite::open_in_memory().expect("open in-memory db");
 
@@ -189,11 +186,10 @@ fn coverage_summary_view_handles_zero_counts() {
         "branches_count": 0, "branches_covered": 0, "branches_notcovered": 0, "branches_percent": 0.0
     }]);
     let json_bytes = serde_json::to_vec_pretty(&flat).expect("serialize");
-    // TEST-6 / TASK-2200: stage through the anchor's verified writer — the
-    // same `write_atomic` path `write_coverage_fixture` and production's
-    // `provide_via_ingestor` use — not a raw `std::fs::write` on a bare
-    // `entry_path`, which bypasses exactly the anchored, atomic staging the
-    // comment above claims to exercise.
+    // Stage through the anchor's verified writer — the same `write_atomic`
+    // path `write_coverage_fixture` and production's `provide_via_ingestor`
+    // use — not a raw `std::fs::write` on a bare `entry_path`, which
+    // bypasses the anchored, atomic staging under test.
     dir.write_atomic("coverage_files.json", &json_bytes)
         .expect("write");
     dir.write_atomic("coverage_workspace.txt", b"/test/workspace")

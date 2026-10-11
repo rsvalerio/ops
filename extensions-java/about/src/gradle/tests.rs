@@ -4,7 +4,7 @@
 //! both via `super::*` (lexer items are `pub(super)`, so they stay visible
 //! here).
 
-use super::lexer::{extract_quoted, extract_quoted_list, MultilineStripper};
+use super::lexer::{MultilineStripper, extract_quoted, extract_quoted_list};
 use super::*;
 
 /// Resolve the tempdir root through macOS's symlinked `/var` prefix so the
@@ -881,7 +881,7 @@ fn parse_gradle_settings_unterminated_block_comment_warns() {
     let root = canon(&dir);
 
     let (settings, warn_count) =
-        ops_about::test_support::count_warnings(|| parse_gradle_settings(&root));
+        ops_core::test_utils::count_warnings(|| parse_gradle_settings(&root));
 
     assert_eq!(settings.unwrap().includes, vec!["app".to_string()]);
     assert_eq!(warn_count, 1);

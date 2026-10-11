@@ -7,7 +7,7 @@ use super::{LanguageStat, ProjectIdentity};
 use crate::output::{display_width, pad_to_display_width};
 use crate::text::format_number;
 
-/// READ-1 / TASK-1392: push `s` onto `parts` iff non-empty, so the
+/// Push `s` onto `parts` iff non-empty, so the
 /// non-empty-then-push idiom lives in one place.
 fn push_non_empty(parts: &mut Vec<String>, s: &str) {
     if !s.is_empty() {
@@ -15,7 +15,7 @@ fn push_non_empty(parts: &mut Vec<String>, s: &str) {
     }
 }
 
-/// READ-1 / TASK-1392: `Option`-aware sibling of [`push_non_empty`].
+/// `Option`-aware sibling of [`push_non_empty`].
 fn push_non_empty_opt(parts: &mut Vec<String>, opt: Option<&str>) {
     if let Some(s) = opt {
         push_non_empty(parts, s);
@@ -43,7 +43,7 @@ pub(super) fn field_emoji(key: &str, value: &str) -> &'static str {
 /// Language-specific emoji derived from the stack label (first token of the
 /// `stack` field value, e.g. `"Rust · Edition 2021"` → `"Rust"` → 🦀).
 ///
-/// DUP-3 / TASK-0983: delegates to [`language_emoji`] for the shared
+/// Delegates to [`language_emoji`] for the shared
 /// language-to-glyph mapping. Two cases are deliberately divergent:
 ///
 /// 1. **Node / JavaScript**: the stack field renders the Node ecosystem
@@ -130,7 +130,7 @@ fn format_language_breakdown(
     if langs.is_empty() {
         return Vec::new();
     }
-    // READ-5 (TASK-1187): align by display width, not byte length —
+    // Align by display width, not byte length —
     // `short_language_name` falls back to the original name verbatim, so a
     // future non-ASCII LanguageStat would otherwise misalign the column.
     // Pattern mirrors theme_cmd / help.rs.
@@ -150,7 +150,7 @@ fn format_language_breakdown(
         .iter()
         .take(top_n)
         .map(|l| {
-            // DUP-3 / TASK-1390: route through the shared pad helper so a
+            // Route through the shared pad helper so a
             // future tightening (tab/ZWJ handling) lands once.
             let padded_name = pad_to_display_width(short_language_name(&l.name), name_width);
             format!(

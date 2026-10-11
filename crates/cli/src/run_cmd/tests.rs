@@ -43,9 +43,9 @@ fn display_cmd_for_composite_returns_child_list() {
 /// - Event emission
 /// - Result aggregation
 ///
-/// TEST-26 (TASK-1753): this used to be `#[ignore]`d "spawns real
-/// subprocesses; writes to stderr; requires `echo`". None of those
-/// distinguishes it from tests that run by default beside it —
+/// This test runs by default: none of "spawns real subprocesses; writes to
+/// stderr; requires `echo`" distinguishes it from tests that run by default
+/// beside it —
 /// `run_command_returns_success_for_valid_command` spawns `echo` through the
 /// same runner, `run_command_returns_failure_for_failing_command` spawns
 /// `false`, and `cli_run_echo_reports_resolved_command_and_timing_in_stderr`
@@ -475,7 +475,7 @@ mod run_command_dry_run_tests {
         assert!(output.contains("program: cargo"), "got: {output}");
     }
 
-    /// TASK-2277 AC #6: a matrix step lists every cell with its fully
+    /// A matrix step lists every cell with its fully
     /// expanded args, under its schedule.
     #[test]
     fn dry_run_lists_every_matrix_cell() {
@@ -942,11 +942,11 @@ mod nested_parallel_detection_tests {
 }
 
 /// `plans_for_names` takes each name's scheduling flags from its own
-/// composite tree (TASK-2262): flags are per-name and never merged across
-/// names, so a parallel name can no longer promote a sequential name's steps
+/// composite tree: flags are per-name and never merged across
+/// names, so a parallel name cannot promote a sequential name's steps
 /// into a parallel plan.
 ///
-/// Within one name the plan is a tree (TASK-2275): a sequential root's
+/// Within one name the plan is a tree: a sequential root's
 /// entries are separate stages with their own schedules, a parallel root is
 /// one flat stage that rejects a nested sequential group, and a nested
 /// `fail_fast` that disagrees is only an error inside one parallel stage.
@@ -979,9 +979,9 @@ mod name_plan_expansion_tests {
         }
     }
 
-    /// TASK-2275 AC #4: a parallel inner composite under a sequential outer
+    /// A parallel inner composite under a sequential outer
     /// one keeps its own parallel schedule as its own stage — the sequential
-    /// root no longer flattens (and thereby downgrades) it.
+    /// root neither flattens nor downgrades it.
     #[test]
     fn nested_parallel_under_sequential_outer_gets_its_own_parallel_stage() {
         let mut inner = CompositeCommandSpec::new(["a", "b"]);
@@ -1015,7 +1015,7 @@ mod name_plan_expansion_tests {
         );
     }
 
-    /// TASK-2275 AC #1: a sequential group whose entries are groups runs each
+    /// A sequential group whose entries are groups runs each
     /// child as its own stage in declaration order, keeping each child's own
     /// schedule — the shape `ops <child1> <child2> ...` produces.
     #[test]
@@ -1061,7 +1061,7 @@ mod name_plan_expansion_tests {
         );
     }
 
-    /// TASK-2275 AC #3: `ops <seq-group>` and `ops <children...>` produce the
+    /// `ops <seq-group>` and `ops <children...>` produce the
     /// same schedule — the group's plan tree is a sequence of exactly the
     /// children's own plan trees.
     #[test]
@@ -1109,10 +1109,9 @@ mod name_plan_expansion_tests {
         );
     }
 
-    /// TASK-2275: a nested `fail_fast = false` under a sequential root is no
-    /// longer a load error — each entry keeps its own value. The
-    /// whole-tree aggregation (a single `false` makes the name's effective
-    /// fail-fast false) still holds.
+    /// A nested `fail_fast = false` under a sequential root is allowed —
+    /// each entry keeps its own value. The whole-tree aggregation (a single
+    /// `false` makes the name's effective fail-fast false) still holds.
     #[test]
     fn nested_fail_fast_false_under_sequential_outer_is_allowed() {
         let mut inner = CompositeCommandSpec::new(["a"]);
@@ -1134,8 +1133,7 @@ mod name_plan_expansion_tests {
         );
     }
 
-    /// The TASK-1657 contract that survives TASK-2275: inside one *parallel*
-    /// stage a `fail_fast` disagreement is still rejected.
+    /// Inside one *parallel* stage a `fail_fast` disagreement is rejected.
     #[test]
     fn fail_fast_disagreement_inside_parallel_stage_is_rejected() {
         let mut inner = CompositeCommandSpec::new(["a"]);
@@ -1160,7 +1158,7 @@ mod name_plan_expansion_tests {
         );
     }
 
-    /// TASK-1657: a tree whose composites *agree* still expands, and the
+    /// A tree whose composites *agree* still expands, and the
     /// agreed value is what the stage reports. This is the positive case
     /// that proves the check rejects disagreement rather than nesting itself.
     #[test]
@@ -1189,10 +1187,10 @@ mod name_plan_expansion_tests {
         );
     }
 
-    /// TASK-2262 AC #1: independent roots keep their own flags — `ops run seq
-    /// par` names two independent plans, and one name's `parallel = true`
-    /// never leaks into the other's scheduling. Before TASK-2262 the merged
-    /// plan OR-folded `any_parallel` across every name.
+    /// Independent roots keep their own flags — `ops run seq par` names two
+    /// independent plans, and one name's `parallel = true` never leaks into
+    /// the other's scheduling (a merged plan OR-folding `any_parallel`
+    /// across every name would).
     #[test]
     fn independent_roots_keep_their_own_flags() {
         let mut par = CompositeCommandSpec::new(["b"]);
@@ -1242,7 +1240,7 @@ mod name_plan_expansion_tests {
     }
 }
 
-/// TASK-2262: each named command runs as its own plan, one after another,
+/// Each named command runs as its own plan, one after another,
 /// with its own `parallel` / `fail_fast` scheduling. Assertions run against
 /// the captured `RunnerEvent` stream: `StepStarted` vs terminal
 /// (`StepFinished` / `StepFailed` / `StepSkipped`) ordering is the observable
@@ -1278,9 +1276,9 @@ mod run_name_plans_tests {
             .unwrap_or_else(|| panic!("expected event not found in {events:?}"))
     }
 
-    /// TASK-2262 AC #2 / #5: a parallel name followed by a sequential name
+    /// A parallel name followed by a sequential name
     /// runs the parallel name's stages concurrently, finishes them, then runs
-    /// the sequential name's steps one at a time. AC #4: the one result set
+    /// the sequential name's steps one at a time. The one result set
     /// covers every step of both names, which is what the single summary is
     /// computed from.
     #[tokio::test(flavor = "multi_thread")]
@@ -1335,7 +1333,7 @@ mod run_name_plans_tests {
         );
     }
 
-    /// TASK-2262 AC #4: the display lifecycle covers the whole named
+    /// The display lifecycle covers the whole named
     /// sequence — exactly one outer `PlanStarted` naming every leaf of
     /// every plan before any step event, and one `RunFinished` with the
     /// aggregate success after all of them — instead of the per-plan
@@ -1389,7 +1387,7 @@ mod run_name_plans_tests {
         );
     }
 
-    /// TASK-2262 AC #3: under `fail_fast`, a failing command stops the
+    /// Under `fail_fast`, a failing command stops the
     /// commands named after it.
     #[tokio::test(flavor = "multi_thread")]
     async fn failing_command_under_fail_fast_stops_the_names_after_it() {
@@ -1419,7 +1417,7 @@ mod run_name_plans_tests {
         assert!(!results[0].success, "the failing step is reported failed");
     }
 
-    /// The AC #3 counterpart: a name that declares `fail_fast = false` asks
+    /// The fail-fast counterpart: a name that declares `fail_fast = false` asks
     /// for continue-on-error, so the sequence keeps going — the same
     /// semantics the flag has for steps inside one plan.
     #[tokio::test(flavor = "multi_thread")]
@@ -1450,7 +1448,7 @@ mod run_name_plans_tests {
         assert!(results[1].success);
     }
 
-    /// TASK-2262 AC #4 (wiring): `run_commands` executes every named
+    /// `run_commands` executes every named
     /// command and aggregates the summary over all of them.
     #[test]
     fn run_commands_two_names_summarise_across_every_step() {
@@ -1507,7 +1505,7 @@ args = []
     }
 }
 
-/// TASK-2275: each nested group keeps its own scheduling. A sequential
+/// Each nested group keeps its own scheduling. A sequential
 /// group's entries run as their own stages — a parallel child's steps
 /// overlap, a failing child stops the entries after it under fail-fast,
 /// and `ops <seq-group>` behaves exactly like naming its entries — while
@@ -1561,10 +1559,10 @@ mod staged_scheduling_tests {
         ops_runner::command::CommandRunner::new(config, std::path::PathBuf::from("."))
     }
 
-    /// TASK-2275 AC #4: the parallel child's staged schedule survives under
+    /// The parallel child's staged schedule survives under
     /// the sequential root — its steps overlap, and nothing after the group
-    /// starts until the group finishes. Before TASK-2275 the root flattened
-    /// the plan and ran `g_slow` and `g_quick` one at a time.
+    /// starts until the group finishes (a root that flattened the plan would
+    /// run `g_slow` and `g_quick` one at a time).
     #[tokio::test(flavor = "multi_thread")]
     async fn parallel_child_under_sequential_root_keeps_its_staged_schedule() {
         let runner = seq_root_with_parallel_child();
@@ -1590,7 +1588,7 @@ mod staged_scheduling_tests {
         }
     }
 
-    /// TASK-2275 AC #2: under fail-fast a failing child group stops the
+    /// Under fail-fast a failing child group stops the
     /// entries after it.
     #[tokio::test(flavor = "multi_thread")]
     async fn failing_child_group_stops_later_entries_under_fail_fast() {
@@ -1652,7 +1650,7 @@ mod staged_scheduling_tests {
         assert!(results[1].success);
     }
 
-    /// TASK-2275 AC #3: `ops root` and `ops grp boom c` produce the same
+    /// `ops root` and `ops grp boom c` produce the same
     /// results — same steps, same order, same outcomes. The failing entry
     /// is a deterministic exec (not a step inside the parallel group, whose
     /// in-flight cancellation would make the result set timing-dependent)
@@ -1710,7 +1708,7 @@ mod staged_scheduling_tests {
         );
     }
 
-    /// TASK-2275 AC #6: a sequential group that fans out into several stages
+    /// A sequential group that fans out into several stages
     /// still gets exactly one display lifecycle — one outer `PlanStarted`
     /// naming every leaf, one `RunFinished` with the aggregate success.
     #[tokio::test(flavor = "multi_thread")]
@@ -1803,7 +1801,7 @@ mod dry_run_override_warnings_tests {
     }
 }
 
-// -- CONC-14 / TASK-1932: signal shutdown path --
+// -- signal shutdown path --
 
 mod signal_shutdown_tests {
     use crate::run_cmd::{exit_code_for_signal, run_until_signal, PlanOutcome};
@@ -1835,8 +1833,8 @@ mod signal_shutdown_tests {
         assert!(matches!(outcome, PlanOutcome::Completed(7)));
     }
 
-    /// TASK-1932 AC #5 and CONC-14 / TASK-2023, asserted by a **single**
-    /// test on purpose (TEST-16 / TASK-2051).
+    /// Several signal-shutdown behaviours asserted by a **single**
+    /// test on purpose.
     ///
     /// What it covers:
     /// 1. a real `SIGTERM` delivered mid-plan cuts the run short and reports

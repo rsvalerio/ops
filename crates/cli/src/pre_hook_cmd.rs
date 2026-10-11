@@ -31,6 +31,8 @@ pub const PUSH_OPS: HookOps = HookOps {
     gate: Some(ops_run_before_push::skip_reason),
 };
 
+/// Run `ops run-before-commit install`: write the git pre-commit hook and
+/// record the chosen command in `.ops.toml`.
 pub fn run_before_commit_install(config: &ops_core::config::Config) -> anyhow::Result<()> {
     hook_shared::run_hook_install(
         config,
@@ -40,6 +42,8 @@ pub fn run_before_commit_install(config: &ops_core::config::Config) -> anyhow::R
     )
 }
 
+/// Run `ops run-before-push install`: write the git pre-push hook and
+/// record the chosen command in `.ops.toml`.
 pub fn run_before_push_install(config: &ops_core::config::Config) -> anyhow::Result<()> {
     hook_shared::run_hook_install(
         config,

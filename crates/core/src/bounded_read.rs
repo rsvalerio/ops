@@ -1,15 +1,12 @@
 //! The bounded read pipeline shared by the file-walking extensions
 //! (`ops-text-fixers`, `ops-config-checkers`).
 //!
-//! DUP-2 / TASK-2162: this layer used to exist twice, near-verbatim, and the
-//! copies had already diverged in the security-relevant direction — the
-//! fixers' `open` used [`std::fs::symlink_metadata`] while the checkers' used
-//! [`std::fs::metadata`], so a symlink was judged by itself in one crate and
-//! by its target in the other. Both now share this one implementation, which
-//! judges a symlink **as itself**: a repository-controlled link must never
-//! put its target — which can live outside the run's root, or be a FIFO or
-//! device that blocks `open(2)` — in front of a tool that reads and rewrites
-//! files from a git hook.
+//! Both extensions share this one implementation so their symlink
+//! judgements cannot diverge: `open` uses [`std::fs::symlink_metadata`],
+//! which judges a symlink **as itself**: a repository-controlled link must
+//! never put its target — which can live outside the run's root, or be a
+//! FIFO or device that blocks `open(2)` — in front of a tool that reads
+//! and rewrites files from a git hook.
 //!
 //! The vocabulary of *what happened instead of a read* lives here too
 //! ([`SkipReason`], [`FailureKind`], [`FailedFile`]), along with the two
@@ -35,15 +32,15 @@ use anyhow::Context;
 ///
 /// Files larger than this are skipped and reported rather than read. The
 /// consumers hold the whole file in memory (and the fixers allocate a second
-/// buffer of the same size when a file actually changes — since TASK-2168
-/// `fix_trailing` scans first and allocates only on a needed trim, so a
-/// clean file, the steady state, stays at roughly 1x), so worst-case peak
+/// buffer of the same size when a file actually changes (`fix_trailing`
+/// scans first and allocates only on a needed trim, so a clean file, the
+/// steady state, stays at roughly 1x), so worst-case peak
 /// resident memory is roughly twice the largest candidate — and the
 /// candidate set is repository-controlled. A multi-gigabyte NUL-free file
 /// (a CSV export, an ndjson dump, a `.sql` seed, a minified bundle) is
 /// ordinary in a repo and would otherwise OOM-kill a `git commit`.
 ///
-/// DUP-2 / TASK-2162: defined once here so `ops-text-fixers` and
+/// Defined once here so `ops-text-fixers` and
 /// `ops-config-checkers` cannot drift on what "too big to hold" means.
 /// Nothing a whitespace fixer or config validator should be looking at comes
 /// close to it.

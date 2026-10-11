@@ -241,18 +241,16 @@ fn parse_origin_url_inner(content: &str, path: Option<&Path>) -> Option<Redacted
             }
             continue;
         }
-        if in_origin {
-            if let Some(value) = strip_url_key(trimmed) {
-                match RedactedUrl::redact(value.as_ref()) {
-                    Some(r) => last = Some(r),
-                    None => {
-                        // A `url = ...` line with an embedded control or
-                        // Unicode formatting codepoint (raw newline, ANSI
-                        // escape, NUL, bidi override, zero-width space) is
-                        // dropped rather than propagated.
-                        // One increment per line of `content`; cannot saturate a `usize`.
-                        rejected_count = rejected_count.saturating_add(1);
-                    }
+        if in_origin && let Some(value) = strip_url_key(trimmed) {
+            match RedactedUrl::redact(value.as_ref()) {
+                Some(r) => last = Some(r),
+                None => {
+                    // A `url = ...` line with an embedded control or
+                    // Unicode formatting codepoint (raw newline, ANSI
+                    // escape, NUL, bidi override, zero-width space) is
+                    // dropped rather than propagated.
+                    // One increment per line of `content`; cannot saturate a `usize`.
+                    rejected_count = rejected_count.saturating_add(1);
                 }
             }
         }
@@ -734,18 +732,22 @@ mod tests {
         // `[remote origin]` (no quotes) is malformed per git-config(1) and git
         // itself ignores it; we must not silently honour what git would not.
         let cfg = "[remote origin]\n\turl = https://github.com/bare/repo.git\n";
-        assert!(read_origin_url_from(cfg)
-            .map(RedactedUrl::into_string)
-            .is_none());
+        assert!(
+            read_origin_url_from(cfg)
+                .map(RedactedUrl::into_string)
+                .is_none()
+        );
     }
 
     #[test]
     fn escaped_subsection_is_not_treated_as_origin() {
         // `[remote "or\"igin"]` decodes to subsection `or"igin`, not `origin`.
         let cfg = "[remote \"or\\\"igin\"]\n\turl = https://github.com/escaped/repo.git\n";
-        assert!(read_origin_url_from(cfg)
-            .map(RedactedUrl::into_string)
-            .is_none());
+        assert!(
+            read_origin_url_from(cfg)
+                .map(RedactedUrl::into_string)
+                .is_none()
+        );
     }
 
     #[test]
@@ -753,9 +755,11 @@ mod tests {
         // Subsection names are case-sensitive and exact; `" origin "` is not
         // the same subsection as `"origin"`.
         let cfg = "[remote \" origin \"]\n\turl = https://github.com/spaced/repo.git\n";
-        assert!(read_origin_url_from(cfg)
-            .map(RedactedUrl::into_string)
-            .is_none());
+        assert!(
+            read_origin_url_from(cfg)
+                .map(RedactedUrl::into_string)
+                .is_none()
+        );
     }
 
     /// When last-wins picks up a trailing `url = ...` line that gets dropped
@@ -837,9 +841,11 @@ mod tests {
 [remote \"upstream\"]
 \turl = https://example.com/other/repo.git
 ";
-        assert!(read_origin_url_from(cfg)
-            .map(RedactedUrl::into_string)
-            .is_none());
+        assert!(
+            read_origin_url_from(cfg)
+                .map(RedactedUrl::into_string)
+                .is_none()
+        );
     }
 
     #[test]

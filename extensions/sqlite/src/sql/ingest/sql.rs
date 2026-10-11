@@ -8,7 +8,7 @@
 //! [`crate::IngestDir`] anchor and there is no path to interpolate or swap.
 
 use crate::error::{DbError, DbResult};
-use crate::sql::validation::{quoted_ident, TableName};
+use crate::sql::validation::{is_valid_identifier_const, quoted_ident, TableName};
 use crate::Sqlite;
 use std::io::Read;
 
@@ -163,7 +163,7 @@ impl JsonColumn {
         col_type: JsonColumnType,
     ) -> Self {
         assert!(
-            is_valid_column_name_const(name),
+            is_valid_identifier_const(name),
             "JsonColumn name must be a valid SQL identifier ([A-Za-z_][A-Za-z0-9_]*)"
         );
         assert!(
@@ -213,23 +213,6 @@ impl JsonColumn {
     pub const fn real(name: &'static str, json_path: &'static str) -> Self {
         Self::new(name, json_path, JsonColumnType::Real)
     }
-}
-
-const fn is_valid_column_name_const(s: &str) -> bool {
-    let (first, mut rest) = match s.as_bytes() {
-        [] => return false,
-        [first, rest @ ..] => (*first, rest),
-    };
-    if !(first.is_ascii_alphabetic() || first == b'_') {
-        return false;
-    }
-    while let [b, tail @ ..] = rest {
-        if !(b.is_ascii_alphanumeric() || *b == b'_') {
-            return false;
-        }
-        rest = tail;
-    }
-    true
 }
 
 const fn is_valid_json_path_const(s: &str) -> bool {

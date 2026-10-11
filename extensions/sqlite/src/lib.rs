@@ -213,6 +213,14 @@ mod tests {
         let db = Sqlite::open_in_memory().expect("should open");
         let guard = db.lock().expect("lock should succeed");
         drop(guard);
+        // The guard must yield a usable connection: re-acquire after the
+        // drop and run a statement through it.
+        let version: String = {
+            let conn = db.lock().expect("re-lock after drop should succeed");
+            conn.query_row("SELECT sqlite_version()", [], |row| row.get(0))
+                .expect("query through the guard's connection")
+        };
+        assert!(!version.is_empty(), "guard must yield a live connection");
     }
 
     #[test]

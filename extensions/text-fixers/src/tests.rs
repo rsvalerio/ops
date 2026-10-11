@@ -10,7 +10,7 @@ use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
 
 use super::*;
-use crate::test_support::{git_add, git_init, skip_precondition, ReadOnlyDir, UnreadableFile};
+use crate::test_support::{ReadOnlyDir, UnreadableFile, git_add, git_init, skip_precondition};
 
 /// Resolve a tempdir root through its symlinked prefix (macOS: `/var` →
 /// `/private/var`), per the caller-canonicalizes-once rule
@@ -68,7 +68,7 @@ fn trailing_whitespace_rewrites_dirty_files() {
     );
 }
 
-/// TASK-2322: check mode reports the files a fix would change, keeps the
+/// Check mode reports the files a fix would change, keeps the
 /// exit-code contract (`changed()`), and writes nothing.
 #[test]
 fn check_mode_reports_without_writing() {
@@ -533,7 +533,7 @@ fn extension_constants_kebab_case() {
     }
 }
 
-/// SEC-13 / TASK-2122: the registered fixers spawn an absolute
+/// The registered fixers spawn an absolute
 /// `current_exe()`-derived program, never a bare PATH-resolved `"ops"`, and
 /// render as `ops <fixer>`. They rewrite files other steps read, so they must
 /// be exclusive in a parallel plan.
@@ -559,7 +559,7 @@ fn registered_fixers_spawn_absolute_ops_and_are_exclusive() {
     }
 }
 
-/// TASK-2322: each fixer has a registered `--check` twin that never writes,
+/// Each fixer has a registered `--check` twin that never writes,
 /// so it is not exclusive and can run in `verify`'s parallel stage.
 #[test]
 fn registered_check_twins_pass_check_and_are_not_exclusive() {

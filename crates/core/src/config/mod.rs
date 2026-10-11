@@ -15,11 +15,11 @@
 //! 4. the workspace's `.ops.d/*.toml` fragments, merged in sorted filename order,
 //! 5. `OPS__*` environment variables.
 //!
-//! ARCH-11 / TASK-1851: `.ops.d` is layer 4 — **above** `.ops.toml`. This doc
-//! previously listed four layers and omitted it, so a reader would put a
-//! setting in `.ops.toml` expecting it to win over a fragment. The chain is
-//! implemented in `loader::load_config_at` and pinned end-to-end by the
-//! precedence tests there, so reordering those merge calls now fails the suite.
+//! `.ops.d` is layer 4 — **above** `.ops.toml`; a reader who puts a
+//! setting in `.ops.toml` expecting it to win over a fragment gets the
+//! opposite. The chain is implemented in `loader::load_config_at` and
+//! pinned end-to-end by the precedence tests there, so reordering those
+//! merge calls now fails the suite.
 //!
 //! After every layer has merged, `loader::load_config_at` applies the
 //! `[extend.<target>]` sections (`extend::apply`): each entry's commands are
@@ -36,17 +36,16 @@
 //! - [`extend`] — the `[extend.<target>]` sections appending commands to an
 //!   existing composite at load time.
 //! - `locked` — the `[cargo] locked = true` switch, adding `--locked` to
-//!   every lockfile-resolving cargo command after `[extend]` (TASK-2323).
+//!   every lockfile-resolving cargo command after `[extend]`.
 //! - `clone` — the `[commands.<name>] clone = "<source>"` declarations,
-//!   materialized into concrete specs at load time before `[extend]` runs
-//!   (TASK-2273).
+//!   materialized into concrete specs at load time before `[extend]` runs.
 //! - [`overlay`] / [`merge`] — the partial-config mirror types and their merge.
 //! - [`loader`] — the file/env resolution order described above.
 //! - [`init`] — `ops init` template rendering.
 //! - [`edit`] — in-place `.ops.toml` editing.
 //! - [`theme_types`] — the `[themes]` payload types.
 //! - `strategy` — `[commands.<name>.strategy]` matrices: one exec command
-//!   run once per cell as a single plan step (TASK-2277).
+//!   run once per cell as a single plan step.
 
 mod clone;
 pub(crate) mod command_id;
@@ -84,8 +83,8 @@ pub use sections::{
     LintActionsSection, OutputConfig,
 };
 pub use strategy::{
-    substitute as substitute_matrix_refs, Matrix, MatrixCell, MatrixEntry, MatrixRefError,
-    Strategy, MAX_MATRIX_CELLS,
+    substitute as substitute_matrix_refs, Matrix, MatrixCell, MatrixEntry, MatrixExpandError,
+    MatrixRefError, Strategy, MAX_MATRIX_CELLS,
 };
 
 #[cfg(test)]

@@ -116,10 +116,10 @@ fn neither_reviewable_shape(manifest: &CargoToml, root: &std::path::Path) -> Dat
 /// is the defence-in-depth layer that keeps that true if this provider is
 /// ever fed a member list from elsewhere.
 fn member_target_name(member: &str, root: &std::path::Path) -> String {
-    // DUP-1 / TASK-2251: the reject-and-warn routes through the shared
+    // The reject-and-warn routes through the shared
     // `member_path_is_workspace_safe_or_warn` helper, which Debug-formats the
-    // untrusted `member` (ERR-7: embedded newlines and ANSI escapes cannot
-    // forge log records) and tags this surface via the `site` field.
+    // untrusted `member` — embedded newlines and ANSI escapes cannot forge
+    // log records — and tags this surface via the `site` field.
     if !member_path_is_workspace_safe_or_warn(member, "create-review-tasks provider") {
         return format_unit_name(member);
     }
@@ -495,7 +495,7 @@ mod tests {
         let (_dir, root) = scratch_workspace(r#""a\nb\u001B31mc""#, &[(member, None)]);
 
         let (logs, value) =
-            ops_about::test_support::capture_tracing(tracing::Level::WARN, || provide(&root));
+            ops_core::test_utils::capture_tracing(tracing::Level::WARN, || provide(&root));
         let value = value.expect("provide must fall back, not fail");
         assert_eq!(
             value["targets"][0]["path"], member,

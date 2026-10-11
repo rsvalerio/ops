@@ -10,15 +10,15 @@
 //! commands = ["my-new-command"]
 //! ```
 //!
-//! or one flag to an exec command without re-declaring its `program`/`args`
-//! (TASK-2272 — the exec twin of the same staleness problem):
+//! or one flag to an exec command without re-declaring its
+//! `program`/`args`:
 //!
 //! ```toml
 //! [extend.clippy]
 //! args = ["--locked"]
 //! ```
 //!
-//! TASK-2274: an entry may also override the target's `help` (and
+//! An entry may also override the target's `help` (and
 //! `category`, for symmetry) — and when a composite's command list grows
 //! without a `help` override, the existing help is extended to name the
 //! appended commands, so `ops --help` can never silently understate what
@@ -82,7 +82,7 @@ pub struct ExtendEntry {
     /// Replaces the target's `category` (either kind).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub category: Option<String>,
-    /// Appended to the target exec command's `strategy.matrix` (TASK-2277):
+    /// Appended to the target exec command's `strategy.matrix`:
     /// `matrix.<key> = [...]` extends an existing axis, `include` /
     /// `exclude` entries extend those lists (see [`append_matrix`]).
     #[serde(default, skip_serializing_if = "Matrix::is_empty")]
@@ -111,8 +111,7 @@ pub(super) fn append_exec_args(args: &mut Vec<String>, extra: &[String]) {
     }
 }
 
-/// Append an `[extend.<target>] matrix` entry to the target's strategy
-/// (TASK-2277).
+/// Append an `[extend.<target>] matrix` entry to the target's strategy.
 ///
 /// Only existing axes can grow: a key the target's matrix does not declare
 /// would silently multiply every cell by a new dimension and is far more
@@ -142,10 +141,10 @@ fn append_matrix(target: &str, spec: &mut ExecCommandSpec, extra: &Matrix) -> an
 
 /// Apply one entry to a target spec of matching kind.
 ///
-/// TASK-2274: when a composite's `commands` list grows and the entry sets no
+/// When a composite's `commands` list grows and the entry sets no
 /// `help` override, an existing help text is extended to name the appended
-/// commands (`"<old>; then <extras>"`) — the default outcome used to be a
-/// stale help that understated the plan, and nobody noticed. A composite
+/// commands (`"<old>; then <extras>"`); without it a growing composite
+/// would keep a stale help that understates the plan. A composite
 /// without help needs nothing: the help fallback already renders the
 /// materialized `commands` list.
 ///
@@ -205,7 +204,7 @@ fn apply_to_spec(target: &str, spec: &mut CommandSpec, entry: &ExtendEntry) -> a
 }
 
 /// Replace the target's `help` / `category` when the entry sets them
-/// (TASK-2274). Applies to both composites and exec commands — the fields
+/// . Applies to both composites and exec commands — the fields
 /// exist on either kind, and an override-only entry (no `commands`/`args`)
 /// is the one way to fix a stack default's help without restating its
 /// command list.

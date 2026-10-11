@@ -978,7 +978,7 @@ fn builtin_tokens() -> &'static HashMap<String, String> {
 const BUILTINS_RUNNING_OWN_CONFIG_COMMAND: &[&str] =
     &[ops_run_before_commit::NAME, ops_run_before_push::NAME];
 
-/// TASK-2306: `[commands.<name>]` entries clap resolves to a builtin, as
+/// `[commands.<name>]` entries clap resolves to a builtin, as
 /// `(command, builtin)`. Such a command loads fine but never runs as
 /// `ops <name>`; the caller warns so the shadowing is not silent.
 pub fn shadowed_config_commands(config: &ops_core::config::Config) -> Vec<(&str, &'static str)> {
@@ -991,7 +991,7 @@ pub fn shadowed_config_commands(config: &ops_core::config::Config) -> Vec<(&str,
         .collect()
 }
 
-/// Warn once per config command shadowed by a builtin (TASK-2306).
+/// Warn once per config command shadowed by a builtin.
 pub fn warn_shadowed_config_commands(config: &ops_core::config::Config) {
     for (name, builtin) in shadowed_config_commands(config) {
         let owner = if name == builtin {
@@ -1005,6 +1005,8 @@ pub fn warn_shadowed_config_commands(config: &ops_core::config::Config) {
     }
 }
 
+/// Normalise argv: drop the redundant `ops` token in `ops ops <cmd>`
+/// (cargo-style invocation); everything else passes through unchanged.
 pub fn preprocess_args(args: Vec<OsString>) -> Vec<OsString> {
     if args.get(1).is_some_and(|arg| arg == "ops") {
         // Drop the redundant `ops` token in `ops ops <cmd>` (cargo-style
@@ -1021,7 +1023,7 @@ pub fn preprocess_args(args: Vec<OsString>) -> Vec<OsString> {
 mod tests {
     use super::*;
 
-    /// TASK-2297: a stack default named like a builtin (or a builtin's
+    /// A stack default named like a builtin (or a builtin's
     /// alias) parses as the builtin and never runs as `ops <name>`. Pin
     /// that every stack's default command is reachable.
     #[test]
@@ -1045,7 +1047,7 @@ mod tests {
         }
     }
 
-    /// TASK-2306: a config command named like a builtin or a builtin's
+    /// A config command named like a builtin or a builtin's
     /// alias is reported with the builtin that shadows it; a hook builtin's
     /// own config command is its input, not shadowed.
     #[test]
@@ -1187,7 +1189,7 @@ mod tests {
 
     #[test]
     fn hide_irrelevant_commands_preserves_non_stack_commands() {
-        // TEST-25 (TASK-1374): build the clap command tree exactly once and
+        // Build the clap command tree exactly once and
         // pre-compute the set of originally-hidden subcommand names instead
         // of calling `Cli::command()` inside the loop, which would
         // re-walk the entire derive metadata on every iteration.
@@ -1222,11 +1224,11 @@ mod tests {
         }
     }
 
-    /// TEST-11 (TASK-1362): pin the visibility of every name returned
-    /// by `stack_specific_commands()` under a chosen `Option<Stack>`. The
-    /// previous trio of tests open-coded `name == "deps" || name ==
-    /// "tools"`; under a feature combo that drops both, the loop body
-    /// never executed and the test passed without checking anything.
+    /// Pin the visibility of every name returned
+    /// by `stack_specific_commands()` under a chosen `Option<Stack>`.
+    /// Checking each name against a hand-written list would let a feature
+    /// combo that drops every stack-specific subcommand run an empty loop
+    /// and pass without checking anything.
     /// Sourcing the expected names from `stack_specific_commands()` covers
     /// future additions automatically and the up-front presence check
     /// fails loudly when no stack-specific subcommand is registered at
@@ -1647,7 +1649,7 @@ mod tests {
         }
     }
 
-    /// TASK-2282 / TASK-2287 / TASK-2288: the machine-readable flags parse
+    /// The machine-readable flags parse
     /// onto their subcommands.
     #[test]
     fn parse_about_json_flags() {

@@ -290,38 +290,48 @@ pub fn wrap_text(text: &str, max_width: usize, max_lines: usize) -> Vec<String> 
 
     lines.truncate(max_lines);
 
-    // Mark the last emitted line as truncated. We
-    // append `\u{2026}` and trim from the end if the resulting display
-    // width would exceed max_width, so the contract (every line <=
-    // max_width) is preserved. `truncate_to_width` already implements that
-    // shape — feed it the line-plus-ellipsis "intent" and it produces a
-    // single trailing ellipsis at most max_width columns wide.
     if truncated {
-        if let Some(last) = lines.last_mut() {
-            // Avoid double-ellipsis if the line already ends in U+2026
-            // (e.g. an unbreakable word that was truncated mid-emit).
-            if !last.ends_with('\u{2026}') {
-                let with_ellipsis = format!("{last}\u{2026}");
-                *last = if measure_width(&with_ellipsis) <= max_width {
-                    with_ellipsis
-                } else {
-                    truncate_to_width(last, max_width)
-                };
-            }
+        mark_last_line_truncated(&mut lines, max_width);
+    }
+    enforce_line_width_limit(&mut lines, max_width);
+
+    lines
+}
+
+/// Mark the last emitted line as truncated.
+///
+/// Appends `\u{2026}` and trims from the end if the resulting display
+/// width would exceed `max_width`, so the contract (every line <=
+/// `max_width`) is preserved. `truncate_to_width` already implements that
+/// shape — feed it the line-plus-ellipsis "intent" and it produces a
+/// single trailing ellipsis at most `max_width` columns wide.
+fn mark_last_line_truncated(lines: &mut [String], max_width: usize) {
+    if let Some(last) = lines.last_mut() {
+        // Avoid double-ellipsis if the line already ends in U+2026
+        // (e.g. an unbreakable word that was truncated mid-emit).
+        if !last.ends_with('\u{2026}') {
+            let with_ellipsis = format!("{last}\u{2026}");
+            *last = if measure_width(&with_ellipsis) <= max_width {
+                with_ellipsis
+            } else {
+                truncate_to_width(last, max_width)
+            };
         }
     }
+}
 
-    // An unbreakable word wider than max_width is pushed
-    // verbatim when current_line is empty and may land on an intermediate
-    // line, so truncating only the last line lets earlier lines exceed the
-    // contract. Enforce display_width(line) <= max_width on every line.
-    for line in &mut lines {
+/// Enforce `display_width(line) <= max_width` on every line.
+///
+/// An unbreakable word wider than `max_width` is pushed verbatim when
+/// `current_line` is empty and may land on an intermediate line, so
+/// truncating only the last line would let earlier lines exceed the
+/// contract.
+fn enforce_line_width_limit(lines: &mut [String], max_width: usize) {
+    for line in lines {
         if measure_width(line) > max_width.saturating_sub(1) {
             *line = truncate_to_width(line, max_width);
         }
     }
-
-    lines
 }
 
 /// Applies `styler` to `text` only when the output is an interactive TTY.

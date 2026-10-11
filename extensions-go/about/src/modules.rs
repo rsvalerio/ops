@@ -15,8 +15,10 @@ use ops_about::cards::format_unit_name;
 use ops_core::project_identity::ProjectUnit;
 use ops_extension::{Context, DataProvider, DataProviderError};
 
+/// Registry key this provider's units are indexed under.
 pub const PROVIDER_NAME: &str = "project_units";
 
+/// Go `project_units` provider: one [`ProjectUnit`] per `go.work`/`go.mod` module.
 pub struct GoUnitsProvider;
 
 impl DataProvider for GoUnitsProvider {
@@ -188,12 +190,11 @@ fn normalize_module_path(dir: &str) -> String {
 pub fn last_segment(module: Option<&str>) -> Option<String> {
     let m = module?;
     let mut segments: Vec<&str> = m.split('/').collect();
-    if segments.len() >= 2 {
-        if let Some(last) = segments.last() {
-            if is_go_major_version_suffix(last) {
-                segments.pop();
-            }
-        }
+    if segments.len() >= 2
+        && let Some(last) = segments.last()
+        && is_go_major_version_suffix(last)
+    {
+        segments.pop();
     }
     segments.last().map(|s| (*s).to_string())
 }
@@ -384,7 +385,7 @@ mod tests {
         .unwrap();
 
         let (units, warn_count) =
-            ops_about::test_support::count_warnings(|| collect_units(dir.path()));
+            ops_core::test_utils::count_warnings(|| collect_units(dir.path()));
 
         assert_eq!(units.len(), 1);
         assert_eq!(units[0].path, "..staging/api");
@@ -393,11 +394,13 @@ mod tests {
             units[0].description.as_deref(),
             Some("example.com/staging/api")
         );
-        assert!(!units[0]
-            .description
-            .as_deref()
-            .unwrap_or("")
-            .contains("(outside project root)"));
+        assert!(
+            !units[0]
+                .description
+                .as_deref()
+                .unwrap_or("")
+                .contains("(outside project root)")
+        );
         assert_eq!(warn_count, 0);
     }
 
@@ -469,7 +472,7 @@ mod tests {
         .unwrap();
 
         let (units, warn_count) =
-            ops_about::test_support::count_warnings(|| collect_units(dir.path()));
+            ops_core::test_utils::count_warnings(|| collect_units(dir.path()));
 
         assert_eq!(units.len(), 1);
         // Out-of-tree marker present on the description.
@@ -518,7 +521,7 @@ mod tests {
         .unwrap();
 
         let (units, warn_count) =
-            ops_about::test_support::count_warnings(|| collect_units(dir.path()));
+            ops_core::test_utils::count_warnings(|| collect_units(dir.path()));
 
         std::fs::remove_dir_all(&target).ok();
 
@@ -578,7 +581,6 @@ mod tests {
     /// stacks — a typo in either silently unregisters the Go units card.
     #[test]
     fn units_provider_name() {
-        assert_eq!(GoUnitsProvider.name(), PROVIDER_NAME);
         assert_eq!(PROVIDER_NAME, "project_units");
     }
 

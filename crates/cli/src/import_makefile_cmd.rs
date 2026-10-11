@@ -29,6 +29,8 @@ pub struct MakeTarget {
     pub description: Option<String>,
 }
 
+/// Run `ops import-makefile`: turn a Makefile's targets into `.ops.toml`
+/// commands, picking targets interactively when on a tty.
 pub fn run_import_makefile(
     workspace_root: &Path,
     file: Option<PathBuf>,
@@ -194,8 +196,7 @@ const DIRECTIVES: &[&str] = &[
 
 /// True when `line` is a recipe line under the current `.RECIPEPREFIX`.
 /// Shared by [`parse_targets`] and [`count_include_directives`] so the two
-/// scanners cannot diverge on what counts as a recipe line (PATTERN-1 /
-/// TASK-1653).
+/// scanners cannot diverge on what counts as a recipe line.
 fn is_recipe_line(line: &str, recipe_prefix: char) -> bool {
     line.starts_with('\t') || line.starts_with(recipe_prefix)
 }
@@ -536,7 +537,7 @@ clean: ## Remove build artifacts
 
     #[test]
     fn count_include_directives_honours_recipeprefix() {
-        // PATTERN-1 / TASK-1653: under `.RECIPEPREFIX = >`, `>include …` is
+        // Under `.RECIPEPREFIX = >`, `>include …` is
         // a recipe line, not an include directive.
         assert_eq!(
             count_include_directives(".RECIPEPREFIX = >\ndeploy:\n>include extra.conf\n"),
@@ -758,7 +759,7 @@ clean: ## Remove build artifacts
         assert!(out.ends_with('\n'));
     }
 
-    /// TASK-1746: Esc / Ctrl-C at the target picker is a user cancel. This
+    /// Esc / Ctrl-C at the target picker is a user cancel. This
     /// command handles it itself (prints `Cancelled; .ops.toml left
     /// untouched.` and returns `SIGINT_EXIT`), so the shared classifier must
     /// hand it back as `Ok(None)` rather than an error.

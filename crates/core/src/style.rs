@@ -1,10 +1,10 @@
 //! ANSI terminal styling helpers for CLI output.
 //!
-//! READ-9 / TASK-0950: helpers gate on `stdout().is_terminal() && !NO_COLOR`
+//! Helpers gate on `stdout().is_terminal() && !NO_COLOR`
 //! before emitting SGR escape codes so redirected output (CI logs, pipes,
 //! captured test buffers) stays plain text.
 //!
-//! CL-3 / TASK-1976: the two colour subsystems share the per-stream
+//! The two colour subsystems share the per-stream
 //! [`stdout_is_terminal`] / [`stderr_is_terminal`] probes and the
 //! [`no_color_env`] reading, but not the stream they gate on — these helpers
 //! write to stdout, while `theme::style::sgr` renders to stderr and gates on
@@ -14,12 +14,13 @@ use std::borrow::Cow;
 use std::io::IsTerminal;
 use std::sync::OnceLock;
 
-/// DUP-3 / TASK-1188: shared color-enablement resolver.
+/// Shared color-enablement resolver.
 ///
 /// Both `core::style::cyan` (stdout-bound) and
-/// `theme::style::sgr::apply_style` (stderr-bound) used to compute their
-/// own `OnceLock<bool>` cache against different streams, so a terminal
-/// where stdout is a TTY but stderr is piped (or vice versa) silently
+/// `theme::style::sgr::apply_style` (stderr-bound) share this one probe
+/// instead of separate `OnceLock<bool>` caches against different streams,
+/// so a terminal where stdout is a TTY but stderr is piped (or vice versa)
+/// silently
 /// disagreed on whether to emit SGR codes. The shared resolver caches
 /// `is_terminal()` for **both** streams once per process and enables color
 /// when **either** is a TTY (and `NO_COLOR` is unset). Either stream being
@@ -27,7 +28,7 @@ use std::sync::OnceLock;
 /// emitting SGR into the other stream is the same risk the per-stream-only
 /// gate already accepted on the styled branch.
 ///
-/// CL-3 / TASK-1976: this OR is the right answer for the stdout-bound
+/// This OR is the right answer for the stdout-bound
 /// helpers in this module. It is *not* the right answer for the theme crate,
 /// which renders exclusively to stderr and now gates on
 /// [`stderr_is_terminal`] alone — sharing the probes, not the OR.
@@ -39,21 +40,21 @@ pub fn color_enabled() -> bool {
 /// Pure resolver behind [`color_enabled`].
 ///
 /// Split out so the rule is testable without a real terminal on either
-/// stream — and so the theme crate's stderr-only gate (CL-3 / TASK-1976) can
+/// stream — and so the theme crate's stderr-only gate can
 /// be pinned against it.
 #[must_use]
 pub const fn color_enabled_from(stdout_tty: bool, stderr_tty: bool, no_color: bool) -> bool {
     (stdout_tty || stderr_tty) && !no_color
 }
 
-/// PERF-3 / TASK-1439: shared, memoised `stdout().is_terminal()` probe.
+/// Shared, memoised `stdout().is_terminal()` probe.
 ///
-/// `OpsTable::new` and the legacy `color_enabled` resolver share this cache
+/// `OpsTable::new` and the `color_enabled` resolver share this cache
 /// so the `isatty` syscall fires once per process regardless of how many
 /// tables (or styled lines) are emitted, and the two subsystems cannot
 /// disagree mid-render after a redirect.
 ///
-/// TEST-1 / TASK-1856: [`STDOUT_TTY_QUERIES`] counts calls to **this
+/// [`STDOUT_TTY_QUERIES`] counts calls to **this
 /// accessor**, not initialisations of the cache behind it. The counter used
 /// to live inside the `get_or_init` closure, where `OnceLock` caps it at 1 by
 /// construction — so the regression test reading it could not fail whatever
@@ -75,14 +76,14 @@ pub fn stderr_is_terminal() -> bool {
     *STDERR_TTY.get_or_init(|| std::io::stderr().is_terminal())
 }
 
-/// TEST-1 / TASK-1856: counts calls to [`stdout_is_terminal`], the shared
+/// Counts calls to [`stdout_is_terminal`], the shared
 /// accessor every stdout TTY gate must route through. Exposed for the
 /// regression test that asserts `OpsTable::new` consults the cache rather
 /// than issuing its own `isatty`.
 static STDOUT_TTY_QUERIES: std::sync::atomic::AtomicUsize = std::sync::atomic::AtomicUsize::new(0);
 use std::sync::atomic::Ordering;
 
-/// TEST-1 / TASK-1856: number of [`stdout_is_terminal`] calls so far in this
+/// Number of [`stdout_is_terminal`] calls so far in this
 /// process.
 #[must_use]
 #[doc(hidden)]
@@ -116,9 +117,9 @@ macro_rules! ansi_style {
     };
 }
 
-// PERF-5 / TASK-1397: color-disabled output is the dominant CI / piped case;
+// Color-disabled output is the dominant CI / piped case;
 // returning `Cow::Borrowed` then skips the per-call heap allocation that
-// `s.to_string()` previously forced on every `cyan`/`grey`/`dim` invocation.
+// `s.to_string()` would force on every `cyan`/`grey`/`dim` invocation.
 fn style_gated(s: &str, code: u8, enabled: bool) -> Cow<'_, str> {
     if enabled {
         Cow::Owned(format!("\x1b[{code}m{s}\x1b[0m"))

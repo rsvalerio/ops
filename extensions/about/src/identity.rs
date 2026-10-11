@@ -24,22 +24,39 @@ use ops_extension::DataProviderError;
 #[derive(Debug, Default)]
 #[non_exhaustive]
 pub struct ParsedManifest {
+    /// Project display name from the manifest.
     pub name: Option<String>,
+    /// Project version, as declared.
     pub version: Option<String>,
+    /// Short project description.
     pub description: Option<String>,
+    /// License identifier (e.g. `MIT` or `Apache-2.0`).
     pub license: Option<String>,
+    /// Author entries, as written in the manifest.
     pub authors: Vec<String>,
+    /// Project homepage URL.
     pub homepage: Option<String>,
+    /// Repository URL.
     pub repository: Option<String>,
+    /// Short label naming the stack (e.g. `Rust`).
     pub stack_label: &'static str,
+    /// Extra stack context (e.g. toolchain or workspace shape).
     pub stack_detail: Option<String>,
+    /// Label for what a module is in this stack (e.g. `crates`).
     pub module_label: &'static str,
+    /// Number of modules found, when counted.
     pub module_count: Option<usize>,
+    /// Total lines of code, when counted.
     pub loc: Option<i64>,
+    /// Number of source files, when counted.
     pub file_count: Option<i64>,
+    /// Minimum supported toolchain version, as declared.
     pub msrv: Option<String>,
+    /// Number of direct dependencies, when counted.
     pub dependency_count: Option<usize>,
+    /// Test coverage percentage, when measured.
     pub coverage_percent: Option<f64>,
+    /// Per-language LOC breakdown.
     pub languages: Vec<LanguageStat>,
 }
 

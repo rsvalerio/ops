@@ -53,7 +53,7 @@ pub fn install_hook(
 
 /// Refuse to install over a symlinked hook file.
 ///
-/// SEC-25: the hook file is the last component of the write path, and every
+/// The hook file is the last component of the write path, and every
 /// component is checked — `canonical_git_dir` refuses a symlinked `.git`,
 /// `canonical_subdir` a symlinked `hooks/`, `looks_like_git_dir` a symlinked
 /// `HEAD`, and this function the hook itself.
@@ -84,7 +84,7 @@ fn reject_symlinked_hook(hook_path: &Path) -> anyhow::Result<()> {
 
 /// Create the hook for the first time, atomically.
 ///
-/// SEC-25: nothing is ever written through `hook_path`, so the destination
+/// Nothing is ever written through `hook_path`, so the destination
 /// only ever appears complete. Like [`upgrade_legacy_hook`], the payload is
 /// staged in a randomised sibling, fsynced, made executable, then linked into
 /// place. Writing the script straight into the live path would let a failure
@@ -132,7 +132,7 @@ enum ExistingHook {
     Legacy,
     /// Empty, whitespace-only, or a strict prefix of the current ops script.
     ///
-    /// SEC-25: this is the shape a write that died mid-stream, or a
+    /// This is the shape a write that died mid-stream, or a
     /// truncating filesystem error, leaves behind. It is ops's own artefact,
     /// not user content, so replacing it is safe — reporting it as a foreign
     /// user-authored hook would tell the operator to "remove it manually"
@@ -154,7 +154,7 @@ fn classify_existing_hook(content: &str, config: &HookConfig) -> ExistingHook {
     }
 }
 
-/// SEC-33: byte cap for reading an existing hook during
+/// Byte cap for reading an existing hook during
 /// classification, mirroring the bounded-read posture of `git.rs`'s
 /// `read_capped_to_string` (and its `MAX_GITDIR_BACKREFERENCE_BYTES`).
 /// Classification never needs more than
@@ -179,7 +179,7 @@ fn existing_hook_read_cap(config: &HookConfig) -> u64 {
 /// Read the existing hook for classification, bounded by
 /// [`existing_hook_read_cap`].
 ///
-/// SEC-33: the hook file is operator- or attacker-controlled
+/// The hook file is operator- or attacker-controlled
 /// content on a path ops does not own, so it is read through a `take()`
 /// bound rather than slurped whole. Returns `Ok(None)` — meaning "can only
 /// be [`ExistingHook::Foreign`]" — when the content is over the cap or not
@@ -305,7 +305,7 @@ fn has_legacy_marker(content: &str, config: &HookConfig) -> bool {
 /// Replace a legacy ops hook with the current script via a sibling temp file
 /// and an atomic rename.
 ///
-/// SEC-25: the upgrade (a) stages the new content in a temp file with a
+/// The upgrade (a) stages the new content in a temp file with a
 /// randomised sibling name, (b) re-reads the original and re-verifies the
 /// legacy marker right before the rename, and (c) `rename(2)`s over the
 /// target (atomic on POSIX). A user-authored hook written between the first
@@ -419,7 +419,7 @@ fn sync_parent_dir(path: &Path) {
 /// Stage the hook payload in a randomised sibling of `hook_path`, fsynced and
 /// already executable, ready to be renamed into place.
 ///
-/// SEC-25: the name is randomised rather than a fixed
+/// The name is randomised rather than a fixed
 /// `.{file_name}.ops-tmp` sibling. Prefix with `.` so the partial write is
 /// hidden by typical directory listings, and tag with the hook filename so an
 /// orphan from a crashed install is recognisable in a post-mortem `ls -la`.
@@ -532,7 +532,7 @@ mod tests {
         assert!(output.contains("Installed hook"));
     }
 
-    /// ERR-13: an install failure must name the offending path.
+    /// An install failure must name the offending path.
     /// A regular file squatting where `.git/hooks` should be makes
     /// `create_dir_all` fail deterministically regardless of euid; the
     /// error must then carry the hooks directory path so an operator with
@@ -560,7 +560,7 @@ mod tests {
         );
     }
 
-    /// SEC-25: if the create path fails, nothing may be left at
+    /// If the create path fails, nothing may be left at
     /// `.git/hooks/<hook>`. A zero-byte hook is a file git runs and that
     /// exits 0, silently disabling the gate; staging in a sibling makes the
     /// failure path leave the destination untouched.
@@ -605,7 +605,7 @@ mod tests {
         );
     }
 
-    /// SEC-25: an install killed between staging and the rename
+    /// An install killed between staging and the rename
     /// leaves a randomised `.pre-commit.ops-tmp.*` orphan and *no* hook. The
     /// next install must ignore the orphan and complete normally.
     #[test]
@@ -631,10 +631,10 @@ mod tests {
         assert!(output.contains("Installed hook"), "unexpected: {output}");
     }
 
-    /// SEC-25: a truncated hook is ops's own artefact, not a
-    /// user-authored hook. Before the fix the installer read it, found no
-    /// legacy marker, and told the operator to remove "a hook not installed
-    /// by ops" — about a file ops itself had half-written, wedging reinstall.
+    /// A truncated hook is ops's own artefact, not a
+    /// user-authored hook: it must be replaced rather than reported as "a
+    /// hook not installed by ops", which would wedge reinstall over a file
+    /// ops itself half-wrote.
     #[test]
     fn install_hook_replaces_truncated_hook_rather_than_calling_it_foreign() {
         let cfg = commit_config();
@@ -680,7 +680,7 @@ mod tests {
         );
     }
 
-    /// SEC-33: a hook that is not valid UTF-8 (a
+    /// A hook that is not valid UTF-8 (a
     /// compiled binary, a latin-1 script) is refused as a foreign hook with
     /// the actionable "not installed by ops" message — not an opaque
     /// `InvalidData` read error with no path — and is left byte-for-byte
@@ -719,7 +719,7 @@ mod tests {
         );
     }
 
-    /// SEC-33: a hook larger than the classification
+    /// A hook larger than the classification
     /// read cap is refused as foreign rather than read whole into memory,
     /// and is left intact.
     #[test]
@@ -816,7 +816,7 @@ mod tests {
         assert!(output.contains("Updating outdated"));
     }
 
-    /// PATTERN-1: a user-authored hook whose only mention of an
+    /// A user-authored hook whose only mention of an
     /// ops legacy marker lives inside a shell comment must NOT be classified
     /// as an ops legacy hook. The installer must refuse to overwrite it.
     #[test]
@@ -851,7 +851,7 @@ mod tests {
         );
     }
 
-    /// PATTERN-1: a user-authored hook that mentions the
+    /// A user-authored hook that mentions the
     /// marker only inside an `echo`/`printf` argument or a here-doc body
     /// must NOT be classified as an ops legacy hook. The leading-word
     /// contract ensures the marker is matched only when it is the head of
@@ -896,7 +896,7 @@ mod tests {
         assert!(has_legacy_marker(with_args, &cfg));
     }
 
-    /// PATTERN-1: integration-level analogue of the marker unit tests — a
+    /// Integration-level analogue of the marker unit tests — a
     /// user-authored hook whose only mention of the marker lives inside an
     /// `echo` argument must be refused, not silently overwritten.
     #[test]
@@ -927,7 +927,7 @@ mod tests {
         );
     }
 
-    /// PATTERN-1: unit-level coverage of `has_legacy_marker`
+    /// Unit-level coverage of `has_legacy_marker`
     /// covering the comment-skip and indented-comment paths.
     #[test]
     fn has_legacy_marker_skips_commented_lines() {
@@ -987,7 +987,7 @@ mod tests {
         );
     }
 
-    /// SEC-25: a symlinked `pre-commit` pointing at a file whose
+    /// A symlinked `pre-commit` pointing at a file whose
     /// content *is* the ops script must not be reported as "Hook already
     /// installed" — the body git executes lives outside the repository and is
     /// owned by whoever owns that file.
@@ -1022,7 +1022,7 @@ mod tests {
             .is_symlink());
     }
 
-    /// SEC-25: `rename(2)` does not follow symlinks, so upgrading through a
+    /// `rename(2)` does not follow symlinks, so upgrading through a
     /// deliberately symlinked hook would replace the link with a regular
     /// file. The install refuses instead, leaving the operator's wiring
     /// intact.
@@ -1057,7 +1057,7 @@ mod tests {
         assert_eq!(std::fs::read_to_string(&outside).unwrap(), legacy);
     }
 
-    /// SEC-25: HEAD must be a real regular file. A symlinked HEAD
+    /// HEAD must be a real regular file. A symlinked HEAD
     /// is the simplest swap an attacker can stage between the shape check and
     /// the hook write, so the substance check rejects it outright.
     #[cfg(unix)]
@@ -1079,7 +1079,7 @@ mod tests {
         );
     }
 
-    /// SEC-14: a directory named `.git` that lacks `HEAD` is not a real git
+    /// A directory named `.git` that lacks `HEAD` is not a real git
     /// repo. The installer must refuse it so an attacker-controlled path
     /// canonicalising to `.../.git` cannot pass the filename heuristic alone.
     #[test]
@@ -1113,7 +1113,7 @@ mod tests {
         );
     }
 
-    /// SEC-25 regression: if the on-disk file is replaced with non-ops
+    /// If the on-disk file is replaced with non-ops
     /// content between the initial legacy-marker check and the rename, the
     /// upgrade path must bail without clobbering the user's content.
     #[test]
@@ -1152,7 +1152,7 @@ mod tests {
         assert_eq!(stray, 0, "staged temp file must be removed on bail");
     }
 
-    /// SEC-25: an install that crashes between staging and the rename
+    /// An install that crashes between staging and the rename
     /// leaves a **randomised** orphan (e.g. `.pre-commit.ops-tmp.AbCxYz`),
     /// and stage names never collide, so no orphan can block an upgrade.
     /// That holds for a file with the bare `.pre-commit.ops-tmp` name too:
@@ -1212,7 +1212,7 @@ mod tests {
         );
     }
 
-    /// SEC-25: two concurrent `upgrade_legacy_hook`
+    /// Two concurrent `upgrade_legacy_hook`
     /// calls against the same `hook_path` must not collide on a fixed
     /// temp-file name. With randomised stages the two writers get
     /// disjoint files and the rename serialises atomically — exactly

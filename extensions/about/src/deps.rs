@@ -61,6 +61,7 @@ pub const DEPS_JSON_SCHEMA_VERSION: u32 = 1;
 /// One direct dependency in the `ops about dependencies --json` document.
 #[derive(Debug, Clone, PartialEq, Eq, serde::Serialize)]
 pub struct DependencyRecord {
+    /// Dependency crate name.
     pub name: String,
     /// The version requirement as declared (e.g. `^1.0`).
     pub requirement: String,
@@ -69,7 +70,9 @@ pub struct DependencyRecord {
 /// One unit's direct dependencies.
 #[derive(Debug, Clone, PartialEq, Eq, serde::Serialize)]
 pub struct UnitDepsRecord {
+    /// Unit name.
     pub name: String,
+    /// The unit's direct dependencies, sorted by name.
     pub dependencies: Vec<DependencyRecord>,
 }
 
@@ -77,8 +80,11 @@ pub struct UnitDepsRecord {
 #[derive(Debug, Clone, PartialEq, Eq, serde::Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct DepsDocument {
+    /// Version of this JSON document's schema.
     pub schema_version: u32,
+    /// Document discriminator; always `"about-dependencies"`.
     pub kind: &'static str,
+    /// One record per unit, including units with no dependencies.
     pub units: Vec<UnitDepsRecord>,
 }
 
@@ -156,12 +162,14 @@ pub const DUPLICATES_JSON_SCHEMA_VERSION: u32 = 1;
 /// Crates the build links at more than one distinct version.
 #[derive(Debug, Clone, Default, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub struct DuplicateReport {
+    /// One entry per crate locked at two or more distinct versions.
     pub crates: Vec<DuplicateCrate>,
 }
 
 /// One duplicated crate.
 #[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub struct DuplicateCrate {
+    /// Crate name.
     pub name: String,
     /// Every distinct locked version, ascending.
     pub versions: Vec<String>,
@@ -173,6 +181,7 @@ pub struct DuplicateCrate {
 #[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct OlderVersion {
+    /// The locked older version.
     pub version: String,
     /// The workspace's direct dependencies whose (non-dev) dependency tree
     /// contains this version.
@@ -195,8 +204,11 @@ pub struct PullingDependency {
 #[derive(Debug, Clone, PartialEq, Eq, serde::Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct DuplicatesDocument<'a> {
+    /// Version of this JSON document's schema.
     pub schema_version: u32,
+    /// Document discriminator; always `"about-dependency-duplicates"`.
     pub kind: &'static str,
+    /// The duplicated crates.
     pub crates: &'a [DuplicateCrate],
 }
 

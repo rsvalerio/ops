@@ -28,8 +28,8 @@ mod go_syntax;
 mod go_work;
 mod modules;
 
-use ops_about::identity::{provide_identity_from_manifest, ParsedManifest};
-use ops_core::project_identity::{base_about_fields, AboutFieldDef};
+use ops_about::identity::{ParsedManifest, provide_identity_from_manifest};
+use ops_core::project_identity::{AboutFieldDef, base_about_fields};
 use ops_extension::{Context, DataProvider, DataProviderError, ExtensionType};
 
 const NAME: &str = "about-go";
@@ -49,7 +49,7 @@ ops_extension::impl_extension! {
     description: DESCRIPTION,
     shortname: SHORTNAME,
     types: ExtensionType::DATASOURCE,
-    stack: Some(ops_extension::Stack::Go),
+    stack: Some(ops_core::stack::Stack::Go),
     data_provider_name: Some(DATA_PROVIDER_NAME),
     register_data_providers: |_self, registry| {
         let _ = registry.register(DATA_PROVIDER_NAME, Box::new(GoIdentityProvider));
@@ -152,15 +152,29 @@ mod tests {
         assert_eq!(provider.name(), "project_identity");
     }
 
+    /// The Go provider exposes exactly the base about fields, in the base
+    /// order — no stack-specific extras and none missing. The expected ids
+    /// are pinned here rather than read back from `base_about_fields()`
+    /// (which the implementation delegates to), so a change on either side
+    /// of that delegation fails this test.
     #[test]
     fn provider_about_fields_match_base() {
         let provider = GoIdentityProvider;
         let fields = provider.about_fields();
-        let base = base_about_fields();
-        assert_eq!(fields.len(), base.len());
-        for (a, b) in fields.iter().zip(base.iter()) {
-            assert_eq!(a.id, b.id);
-        }
+        let ids: Vec<&str> = fields.iter().map(|f| f.id).collect();
+        assert_eq!(
+            ids,
+            vec![
+                "stack",
+                "license",
+                "project",
+                "modules",
+                "codebase",
+                "repository",
+                "authors",
+                "coverage",
+            ]
+        );
     }
 
     #[test]
