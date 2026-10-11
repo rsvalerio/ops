@@ -580,7 +580,7 @@ mod tests {
     use ops_sqlite::Sqlite;
     use std::sync::Arc;
 
-    /// TEST-5 / TASK-1776 AC #2.
+    /// The provider name matches the registered constant.
     #[test]
     fn provider_name_matches_the_registered_constant() {
         assert_eq!(RustDepsProvider.name(), PROVIDER_NAME);
@@ -599,7 +599,7 @@ mod tests {
         (value, logs)
     }
 
-    /// TEST-5 / TASK-1776 AC #1: no `SQLite` in the context serialises a
+    /// No `SQLite` in the context serialises a
     /// default (empty but well-formed) `ProjectDependencies`, not an error.
     #[test]
     fn provide_without_sqlite_yields_empty_dependencies() {
@@ -615,7 +615,7 @@ mod tests {
         );
     }
 
-    /// TEST-5 / TASK-1776 AC #1: the ERR-2 / TASK-0376 contract — a `SQLite`
+    /// A `SQLite`
     /// schema/migration error must warn before falling back, not surface as a
     /// silently empty deps list. The seeded `crate_dependencies` table is
     /// missing the `dependency_name`, `version_req` and `dependency_kind`
@@ -644,7 +644,7 @@ mod tests {
         );
     }
 
-    /// TEST-5 / TASK-1776 AC #1: a successful multi-crate result is mapped
+    /// A successful multi-crate result is mapped
     /// into one `UnitDeps` per crate, carrying `(name, version_req)` pairs.
     /// Only `dependency_kind = 'normal'` rows are included.
     #[test]
@@ -732,7 +732,7 @@ mod tests {
         })
     }
 
-    /// TASK-2288 AC #1/#2: only distinct-version, non-dev duplicates are
+    /// Only distinct-version, non-dev duplicates are
     /// listed; the older version names its pulling direct dependency and
     /// the dry-run verdict.
     #[test]
@@ -794,7 +794,7 @@ mod tests {
         );
     }
 
-    /// TASK-2299 AC #2: with `include_dev` the dev-only `old` duplicate
+    /// With `include_dev` the dev-only `old` duplicate
     /// (pulled by the dev-dependency `mock`) is listed next to `term`.
     #[test]
     fn find_duplicates_include_dev_lists_dev_only_duplicates() {
@@ -919,7 +919,7 @@ mod tests {
         }
     }
 
-    /// TASK-2319 AC #1: beneath a build-dependency, a non-host `--target`
+    /// Beneath a build-dependency, a non-host `--target`
     /// gates edges against the host — the `unix`-only `jobs 1.0.0` is a
     /// duplicate and the `windows`-only `winjobs 1.0.0` is not.
     #[test]
@@ -932,7 +932,7 @@ mod tests {
         assert_eq!(report.crates[0].older[0].pulled_by[0].name, "cc");
     }
 
-    /// TASK-2319 AC #1: a proc-macro is compiled for the host, so its own
+    /// A proc-macro is compiled for the host, so its own
     /// dependencies are gated against the host too.
     #[test]
     fn edges_below_a_proc_macro_are_gated_on_the_host() {
@@ -950,7 +950,7 @@ mod tests {
         assert_eq!(names_in(&host_metadata("build"), &linux), ["jobs", "term"]);
     }
 
-    /// TASK-2310 AC #1: a Linux target leaves out crates reachable only
+    /// A Linux target leaves out crates reachable only
     /// through other targets' `cfg(..)` / triple edges.
     #[test]
     fn find_duplicates_drops_crates_gated_on_other_targets() {
@@ -961,7 +961,7 @@ mod tests {
         assert_eq!(duplicate_names(&linux), ["term"]);
     }
 
-    /// TASK-2310 AC #2/#3: a Windows target and `all` both keep the
+    /// A Windows target and `all` both keep the
     /// target-gated duplicate, and its older version names the gated puller.
     #[test]
     fn find_duplicates_keeps_gated_crates_for_their_target_and_for_all() {
@@ -993,7 +993,7 @@ mod tests {
         }
     }
 
-    /// TASK-2310: an edge counts when any listed target admits it, and a
+    /// An edge counts when any listed target admits it, and a
     /// cfg the target does not set never matches.
     #[test]
     fn platform_filter_admits_ungated_matching_cfg_and_matching_triple() {
@@ -1018,7 +1018,7 @@ mod tests {
         assert!(!filter.admits(Some("wasm32-wasip1"), super::Side::Host));
     }
 
-    /// TASK-2310 AC #2: `all` (alone or among triples) disables the filter
+    /// `all` (alone or among triples) disables the filter
     /// without probing rustc.
     #[test]
     fn platform_filter_all_needs_no_rustc() {

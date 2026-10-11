@@ -69,7 +69,7 @@ impl DataProvider for RustIdentityProvider {
                 m.stack_label = "Rust";
                 m.stack_detail = fields.edition.as_ref().map(|e| format!("Edition {e}"));
                 m.module_label = "crates";
-                // ERR-1 / TASK-1076: count the resolved members (post glob
+                // Count the resolved members (post glob
                 // expansion) rather than the raw `[workspace].members` spec,
                 // which may be a single `["crates/*"]` glob entry.
                 m.module_count = manifest
@@ -219,8 +219,8 @@ repository = "https://example.com/manifest-wins"
         let id: ProjectIdentity =
             serde_json::from_value(provider.provide(&mut ctx).unwrap()).unwrap();
 
-        // PATTERN-1 (TASK-1237): scp-style remote synthesises ssh:// URL,
-        // not https — the original transport is preserved.
+        // An scp-style remote synthesises an ssh:// URL, not https —
+        // the original transport is preserved.
         assert_eq!(id.repository.as_deref(), Some("ssh://github.com/o/r"));
     }
 
@@ -305,7 +305,7 @@ members = ["crates/*"]
         assert_eq!(id.module_count, Some(2));
     }
 
-    /// TASK-0375 AC#2: verify `[workspace].exclude` filters members through
+    /// Verify `[workspace].exclude` filters members through
     /// the identity provider (which feeds the same resolver as units/coverage).
     #[test]
     #[serial_test::serial(typed_manifest_cache)]

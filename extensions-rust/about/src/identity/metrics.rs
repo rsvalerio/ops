@@ -53,7 +53,7 @@ fn query_dependency_count(db: &Sqlite) -> Option<usize> {
 }
 
 fn query_coverage_and_languages(db: &Sqlite) -> (Option<f64>, Vec<LanguageStat>) {
-    // DUP-1 / TASK-1079: share the single `query_project_coverage` result
+    // Share the single `query_project_coverage` result
     // with `RustCoverageProvider` via the per-process cache rather than
     // dispatching our own query. The cache memoizes `Option<CrateCoverage>`
     // so a hard failure here is also already logged (or about to be) by
@@ -119,7 +119,7 @@ mod tests {
         db
     }
 
-    /// TEST-5 / TASK-1776 AC #3: with no `SQLite` attached every metric falls
+    /// With no `SQLite` attached every metric falls
     /// back to `None` / empty rather than erroring.
     #[test]
     fn metrics_fall_back_to_none_without_sqlite() {
@@ -133,7 +133,7 @@ mod tests {
         assert!(metrics.languages.is_empty());
     }
 
-    /// TEST-5 / TASK-1776 AC #4: the `lines_count > 0` guard decides whether a
+    /// The `lines_count > 0` guard decides whether a
     /// project with zero measurable lines reports `Some(0.0)` (a real 0%
     /// coverage figure) or `None` (no coverage data at all). Pin both sides.
     #[test]

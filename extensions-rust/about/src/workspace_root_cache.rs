@@ -20,7 +20,7 @@
 //! - **Maximum size**: [`MAX_WORKSPACE_ROOT_CACHE_ENTRIES`], enforced on insert
 //!   with LRU eviction via the shared [`ops_about::lru`] primitives, so a
 //!   long-running host visiting an unbounded set of directories cannot
-//!   accumulate one entry per cwd (PERF-16 / SEC-33).
+//!   accumulate one entry per cwd.
 //! - **Invalidation**: none by elapsed time. A cwd's workspace root changes
 //!   only if a `Cargo.toml` is created or removed in its ancestor chain while
 //!   the process runs; `ctx.refresh` is the escape hatch and re-resolves,
@@ -47,12 +47,11 @@ use std::sync::{Arc, Mutex, OnceLock};
 /// host rather than trimming a realistic working set.
 pub const MAX_WORKSPACE_ROOT_CACHE_ENTRIES: usize = 64;
 
-/// DUP-1 / TASK-2150: the LRU scaffold (victim queue, compaction slack,
+/// The LRU scaffold (victim queue, compaction slack,
 /// record/evict loop, cap preamble) lives in
 /// [`ops_about::lru::BoundedLruCache`]; this struct names the key, value and
 /// cap for the cwd→root memoization. Queue keys are `Arc<PathBuf>` shared
-/// with the entry, so a hit-path restamp is an atomic bump (PERF-3 /
-/// TASK-1572).
+/// with the entry, so a hit-path restamp is an atomic bump.
 struct WorkspaceRootCache {
     cache: BoundedLruCache<PathBuf, Arc<PathBuf>, Arc<PathBuf>>,
 }
@@ -84,7 +83,7 @@ fn workspace_root_cache() -> &'static Mutex<WorkspaceRootCache> {
 /// would turn one unrelated panic into an `ops about` crash. The sibling
 /// typed-manifest cache warns on recovery because a poisoned lock there
 /// degrades a correctness-relevant freshness check; here the worst outcome is
-/// an extra ancestor walk, so recovery is silent. DUP-1 / TASK-2258: the
+/// an extra ancestor walk, so recovery is silent. The
 /// poison-recovery policy lives in `ops_core::sync`.
 fn lock() -> std::sync::MutexGuard<'static, WorkspaceRootCache> {
     ops_core::sync::lock_recover(workspace_root_cache())
@@ -182,7 +181,7 @@ mod tests {
         clear_cache();
     }
 
-    /// PERF-16 / SEC-33: the cap holds and the least-recently-used cwd is the
+    /// The cap holds and the least-recently-used cwd is the
     /// one that goes, so a host cycling through directories cannot grow this
     /// map without bound and cannot evict the entry it keeps touching.
     #[serial_test::serial(typed_manifest_cache, workspace_root_cache)]
@@ -217,7 +216,7 @@ mod tests {
         clear_cache();
     }
 
-    /// PERF-16 / TASK-1723: stamping on every hit must not leak stamps while
+    /// Stamping on every hit must not leak stamps while
     /// the map sits below the cap — the shape every CLI run has.
     #[serial_test::serial(typed_manifest_cache, workspace_root_cache)]
     #[test]
