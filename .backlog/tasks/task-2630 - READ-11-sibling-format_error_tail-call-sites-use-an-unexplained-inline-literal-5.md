@@ -1,10 +1,10 @@
 ---
 id: TASK-2630
 title: 'READ-11: sibling format_error_tail call sites use an unexplained inline literal 5'
-status: To Do
+status: Done
 assignee: []
 created_date: '2026-10-10 21:46'
-updated_date: '2026-10-11 12:18'
+updated_date: '2026-10-11 12:29'
 labels:
   - code-review-rust
   - READ
@@ -32,6 +32,7 @@ ordinal: 1000
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 Each format_error_tail tail length is a named crate-level const with a doc comment stating why that value and what it is pinned to
-- [ ] #2 All four call sites reference the const instead of the inline literal
+- [x] #1 Each format_error_tail tail length is a named crate-level const with a doc comment stating why that value and what it is pinned to
+- [x] #2 All four call sites reference the const instead of the inline literal
+
 <!-- AC:END -->

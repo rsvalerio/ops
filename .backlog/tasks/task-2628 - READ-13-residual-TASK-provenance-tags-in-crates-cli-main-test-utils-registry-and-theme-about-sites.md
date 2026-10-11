@@ -1,10 +1,10 @@
 ---
 id: TASK-2628
 title: 'READ-13: residual TASK provenance tags in crates/cli main, test utils, registry and theme/about sites'
-status: To Do
+status: Done
 assignee: []
 created_date: '2026-10-10 21:34'
-updated_date: '2026-10-11 12:18'
+updated_date: '2026-10-11 12:24'
 labels:
   - code-review-rust
   - readability
@@ -49,6 +49,7 @@ These are outside every TASK-2611 member's acceptance criteria (the nearest task
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 Every listed site describes the end state in present-tense prose; TASK/RULE provenance tags are gone (backlog-domain TASK-id examples excepted)
-- [ ] #2 No behavioural change: docs/comments only, ops verify clean
+- [x] #1 Every listed site describes the end state in present-tense prose; TASK/RULE provenance tags are gone (backlog-domain TASK-id examples excepted)
+- [x] #2 No behavioural change: docs/comments only, ops verify clean
+
 <!-- AC:END -->
