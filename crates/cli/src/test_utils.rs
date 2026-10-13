@@ -3,9 +3,9 @@
 //! Re-exports shared helpers from ops-core and ops-runner, and adds
 //! CLI-specific ones on top.
 //!
-//! DRY-1 / TASK-2034: `CwdGuard` and `CWD_MUTEX` used to be defined here.
-//! They live in `ops_core::test_utils` now — one guard for the workspace —
-//! and reach this module through the glob re-export below.
+//! `CwdGuard` and `CWD_MUTEX` live in `ops_core::test_utils` — one guard
+//! for the workspace — and reach this module through the glob re-export
+//! below.
 
 // Re-export shared test helpers from core
 pub use ops_core::test_utils::*;
@@ -13,7 +13,7 @@ pub use ops_core::test_utils::*;
 // Re-export runner test support (EventAssertions, test_runner)
 /// Resolve a tempdir root through its symlinked prefix (macOS: `/var` →
 /// `/private/var`), following the caller-canonicalizes-once rule from
-/// `ops_core::text`'s architecture note. Without this, the SEC-33
+/// `ops_core::text`'s architecture note. Without this, the
 /// `open_refusing_symlinks` guard in the config writer refuses the
 /// unresolved prefix on macOS (CI's Linux `/tmp` is not a symlink, which is
 /// why these tests only fail locally). Production callers get the same
@@ -65,8 +65,8 @@ pub fn with_temp_config(content: &str) -> (tempfile::TempDir, CwdGuard) {
 
 /// Shared tracing-event capture helper for tests across the cli crate.
 ///
-/// DUP-3 / TASK-2014: delegates to `ops_core::test_utils`, which owns the
-/// workspace's single copy of the buffer shim and of the global-dispatcher
+/// Delegates to `ops_core::test_utils`, which owns the workspace's single
+/// copy of the buffer shim and of the global-dispatcher
 /// pin. `tracing` caches each callsite's `Interest` process-wide, so with
 /// only scoped subscribers a parallel test thread can cache
 /// `Interest::never()` and a capture comes back empty at random; the pin
@@ -93,14 +93,14 @@ pub fn capture_debug<F: FnOnce()>(f: F) -> String {
 /// original value on construction and restore it on drop, **including when
 /// the test panics between the two**.
 ///
-/// TEST-23 (TASK-1752): a bare `remove_var` after a fallible assertion never
-/// runs when that assertion fails, so the variable leaks into every later
+/// A bare `remove_var` after a fallible assertion never runs when that
+/// assertion fails, so the variable leaks into every later
 /// test in the same binary. `serial_test::serial` serialises execution; it
 /// does not restore process state. Every test in this crate that touches the
 /// environment goes through this guard.
 ///
-/// DRY-1 / TASK-2059: re-exported from `ops_core::test_utils` rather than
-/// redefined. The shared guard carries every constructor this copy offered
+/// Re-exported from `ops_core::test_utils` rather than redefined. The
+/// shared guard carries every constructor this copy offered
 /// (`set`, `unset`, `set_value`, `unset_value`) and is `OsStr`-keyed, so the
 /// `EnvVarGuard::` call sites in this crate are unchanged.
 pub use ops_core::test_utils::EnvGuard as EnvVarGuard;

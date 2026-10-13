@@ -180,17 +180,16 @@ pub fn gather_available_commands(
     exclude_name: &str,
 ) -> Vec<SelectOption> {
     let mut options: Vec<SelectOption> = Vec::new();
-    // PERF-1 (TASK-1330): O(1) dedupe set alongside `options` instead of
-    // an O(N) linear scan per push. Insertion order (config > stack >
-    // extensions) is preserved by appending to `options` only on the
-    // surviving-insert branch.
+    // O(1) dedupe set alongside `options` instead of an O(N) linear scan
+    // per push. Insertion order (config > stack > extensions) is preserved
+    // by appending to `options` only on the surviving-insert branch.
     let mut seen: HashSet<String> = HashSet::new();
 
     // A single helper handles the exclude/dedup/push body so the priority
     // order (config > stack > extensions) is explicit at the call site.
     //
-    // OWN-8 (TASK-1358): `try_push` borrows the name and clones only on
-    // the surviving-insert branch. Surviving names allocate exactly once
+    // `try_push` borrows the name and clones only on the
+    // surviving-insert branch. Surviving names allocate exactly once
     // (into both `seen` and the `SelectOption`); names that match
     // `exclude_name` or collide with an already-collected option never
     // allocate.
@@ -334,8 +333,8 @@ mod tests {
         );
     }
 
-    /// OWN-8 (TASK-1358): excluded and duplicate names must not be
-    /// pushed into `options`. Asserting *zero allocation* on the reject
+    /// Excluded and duplicate names must not be pushed into `options`.
+    /// Asserting *zero allocation* on the reject
     /// path would require a custom global allocator and is not worth the
     /// fixture cost; this test pins the observable behaviour instead —
     /// the hook name is never offered for selection and the same name
@@ -387,8 +386,8 @@ mod tests {
         assert!(build.description.contains("Custom build"));
     }
 
-    /// TASK-1746: Esc / Ctrl-C at this command's picker is a user cancel —
-    /// it must reach `main` as the shared cancellation error (exit 130, no
+    /// Esc / Ctrl-C at this command's picker is a user cancel — it must
+    /// reach `main` as the shared cancellation error (exit 130, no
     /// `ops: error:` frame), not as a plain anyhow failure exiting 1.
     #[test]
     fn hook_install_selection_cancel_exits_130_without_an_error_frame() {

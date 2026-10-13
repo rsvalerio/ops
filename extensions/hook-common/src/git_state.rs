@@ -51,7 +51,7 @@ pub fn git_timeout_from_env(env_var: &str, max_secs: u64) -> Option<Duration> {
     };
     match raw.parse::<u64>() {
         Ok(0) | Err(_) => {
-            // ERR-7: `raw` is the most directly
+            // `raw` is the most directly
             // attacker-supplied string in the crate — it is logged precisely
             // *because* it failed to parse, and this warn lands in the
             // developer's terminal on every commit. Debug-format it so
@@ -90,7 +90,7 @@ pub fn read_stderr_bounded(
         Ok(bytes) => bytes,
         Err(std::sync::mpsc::RecvTimeoutError::Timeout) => Vec::new(),
         Err(std::sync::mpsc::RecvTimeoutError::Disconnected) => {
-            // ERR-7: the program name is
+            // The program name is
             // caller-supplied and reaches the same operator-facing stream.
             tracing::debug!(
                 program = ?program,

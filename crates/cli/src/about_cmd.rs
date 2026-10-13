@@ -280,8 +280,8 @@ mod tests {
         );
     }
 
-    /// TASK-1746: Esc / Ctrl-C at this command's picker is a user cancel —
-    /// it must reach `main` as the shared cancellation error (exit 130, no
+    /// Esc / Ctrl-C at this command's picker is a user cancel — it must
+    /// reach `main` as the shared cancellation error (exit 130, no
     /// `ops: error:` frame), not as a plain anyhow failure exiting 1.
     #[test]
     fn about_setup_cancel_exits_130_without_an_error_frame() {

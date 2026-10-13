@@ -1,10 +1,10 @@
 ---
 id: TASK-2629
 title: 'READ-13: residual RULE/TASK provenance tags across extensions-rust/about item and test docs'
-status: To Do
+status: Done
 assignee: []
 created_date: '2026-10-10 21:38'
-updated_date: '2026-10-11 12:18'
+updated_date: '2026-10-11 12:27'
 labels:
   - code-review-rust
   - readability
@@ -44,5 +44,6 @@ Not every hit is a finding: some name an enduring contract by its rule ID (e.g. 
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 Every in-scope site either states the end state in present-tense prose with no RULE/TASK prefix, or is a deliberate cross-reference to a named contract
+- [x] #1 Every in-scope site either states the end state in present-tense prose with no RULE/TASK prefix, or is a deliberate cross-reference to a named contract
+
 <!-- AC:END -->

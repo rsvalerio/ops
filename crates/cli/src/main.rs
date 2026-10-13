@@ -220,8 +220,8 @@ fn run() -> anyhow::Result<ExitCode> {
     // `dispatch` and the run-path (build_runner →
     // CommandRunner::from_arc_config) can share one allocation. Eliminates
     // the per-invocation deep clone in build_runner.
-    // READ-5 / TASK-1446: capture the workspace root at the CLI boundary so
-    // the config loader is not implicitly coupled to the live process cwd.
+    // Capture the workspace root at the CLI boundary so the config loader
+    // is not implicitly coupled to the live process cwd.
     let cwd = match std::env::current_dir() {
         Ok(d) => d,
         Err(e) => {
@@ -233,9 +233,9 @@ fn run() -> anyhow::Result<ExitCode> {
         std::sync::Arc::new(ops_core::config::load_config_or_default_at(&cwd, "early"));
     let detected_stack = ops_core::stack::Stack::resolve(early_config.stack.as_deref(), &cwd);
 
-    // PERF-1 (TASK-1368): `Cli::command()` walks the full derive metadata
-    // and rebuilds the clap command tree from scratch on every call.
-    // Build it exactly once for this invocation; cheap `clap::Command::clone`
+    // `Cli::command()` walks the full derive metadata and rebuilds the
+    // clap command tree from scratch on every call. Build it exactly
+    // once for this invocation; cheap `clap::Command::clone`
     // covers the rare case where both `run()` and `dispatch()` need a
     // consumed copy (parse path followed by a `None`-subcommand help
     // render).
@@ -276,8 +276,8 @@ fn dispatch(
     // early `load_config_or_default("early")`, so a malformed manifest
     // could succeed `--help` and bail later in the same run.
     //
-    // TASK-2301: a builtin that cannot preview refuses the global
-    // `--dry-run` here, before it writes or spawns anything.
+    // A builtin that cannot preview refuses the global `--dry-run` here,
+    // before it writes or spawns anything.
     if let Some(sub) = &cli.subcommand {
         dry_run::refuse_unpreviewable(sub, cli.dry_run)?;
     }
@@ -376,8 +376,8 @@ fn dispatch(
             )
         }
         None => {
-            // PERF-1 (TASK-1368): reuse the pre-built command tree from
-            // `run()` instead of re-walking the clap derive metadata.
+            // Reuse the pre-built command tree from `run()` instead of
+            // re-walking the clap derive metadata.
             print_categorized_help(built_cmd, early_config, detected_stack, false);
         }
     }

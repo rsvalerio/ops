@@ -14,14 +14,14 @@ use crate::units::resolve_crate_display_name;
 
 pub const PROVIDER_NAME: &str = "project_coverage";
 
-/// DUP-1: per-process memoization for `query_project_coverage`.
+/// Per-process memoization for `query_project_coverage`.
 ///
 /// `RustCoverageProvider::provide` and `identity::metrics::query_identity_metrics`
 /// both run during a single `ops about` invocation against the same `SQLite`.
 /// Sharing one memoized result keeps that to a single scan and a single
 /// `query_or_warn` schema-drift log line.
 ///
-/// ARCH-9: the cache is keyed by the `Sqlite` instance's stable `id()` (a
+/// The cache is keyed by the `Sqlite` instance's stable `id()` (a
 /// monotonic u64 minted on construction) rather than by its address, so a
 /// dropped-and-replaced `Sqlite` that re-allocates at the same address can
 /// never be served another instance's cached value. `Option<CrateCoverage>`
@@ -29,7 +29,7 @@ pub const PROVIDER_NAME: &str = "project_coverage";
 /// failure is also memoized — the warn fires exactly once per run regardless
 /// of how many providers consume the value.
 ///
-/// # PERF-16: cache contract
+/// # Cache contract
 ///
 /// - **Key**: `Sqlite::id()`, a monotonic per-instance counter. A key is never
 ///   reused, so an entry outlives the `Sqlite` it describes.
@@ -51,13 +51,13 @@ pub const PROVIDER_NAME: &str = "project_coverage";
 ///   figure must open a fresh `Sqlite`, which mints a fresh key.
 type CoverageSlot = Arc<OnceLock<Option<CrateCoverage>>>;
 
-/// PERF-16 / TASK-1764: soft cap on the memoization map. A single `ops about`
+/// Soft cap on the memoization map. A single `ops about`
 /// run touches exactly one `Sqlite`; the headroom exists so a host that
 /// interleaves a handful of projects still hits the cache while an unbounded
 /// producer cannot grow the map without limit.
 const MAX_COVERAGE_CACHE_ENTRIES: usize = 16;
 
-/// DUP-1 / TASK-2150: the LRU scaffold (victim queue, compaction slack,
+/// The LRU scaffold (victim queue, compaction slack,
 /// record/evict loop, cap preamble, tick-on-hit) lives in
 /// [`ops_about::lru::BoundedLruCache`]; this struct names the key, value
 /// and cap for the coverage memoization.
@@ -75,7 +75,7 @@ impl ProjectCoverageCache {
     /// Return the slot for `key`, inserting one and evicting the
     /// least-recently-used entry if the cap would otherwise be exceeded.
     ///
-    /// CONC-1 / TASK-1144, mirroring the manifest cache's `is_evictable`:
+    /// Mirroring the manifest cache's `is_evictable`:
     /// a slot whose `OnceLock` is not yet initialized is *in flight* — the
     /// caller that inserted it is still running its query outside the
     /// mutex. Evicting it would drop the memoized result and make the next
@@ -107,7 +107,7 @@ fn project_coverage_cache() -> &'static Mutex<ProjectCoverageCache> {
 /// (including the cached `None` when the query failed and `query_or_warn`
 /// already logged the warn).
 ///
-/// CONC-2: keyed by an `Arc<OnceLock<...>>` per `Sqlite` id so concurrent
+/// Keyed by an `Arc<OnceLock<...>>` per `Sqlite` id so concurrent
 /// first-callers race only on the inner `OnceLock::get_or_init`, which
 /// guarantees the closure runs exactly once. The query itself runs outside
 /// the outer mutex, so it is the `OnceLock` — not the mutex — that upholds
@@ -115,7 +115,7 @@ fn project_coverage_cache() -> &'static Mutex<ProjectCoverageCache> {
 /// the same time.
 pub fn cached_query_project_coverage(db: &Sqlite) -> Option<CrateCoverage> {
     let slot: CoverageSlot = {
-        // DUP-1 / TASK-2258: the poison-recovery policy lives in
+        // The poison-recovery policy lives in
         // `ops_core::sync::lock_recover`. Recovery is silent here: the
         // guarded value is the plain-data memoization map, and the worst
         // outcome of a missed poison is a recomputed query.
@@ -154,14 +154,14 @@ impl DataProvider for RustCoverageProvider {
             return Ok(serde_json::to_value(ProjectCoverage::default())?);
         };
 
-        // ERR-2 / TASK-0376 / PATTERN-1 (TASK-0608): route through
+        // Route through
         // `query_or_warn` so this site matches the convention used by every
         // sister SQLite call in the crate (units, identity::metrics,
         // deps_provider). Wrapping the return in `Option` preserves the
         // early-return-on-failure semantics — if the project_coverage query
         // fails we return a fully-default `ProjectCoverage` rather than
         // partial data.
-        // DUP-1 / TASK-1079: dispatched via `cached_query_project_coverage`
+        // Dispatched via `cached_query_project_coverage`
         // so the parallel call from `identity::metrics` reuses this result
         // (and any warn it already logged) instead of re-querying SQLite
         // and double-warning per `ops about`.
@@ -171,18 +171,18 @@ impl DataProvider for RustCoverageProvider {
         let total = CoverageStats::new(p.lines_percent, p.lines_covered, p.lines_count);
 
         let units = match manifest.as_ref() {
-            // ERR-1 / TASK-1076: `resolved_members()` is the post-glob-expansion
+            // `resolved_members()` is the post-glob-expansion
             // list; the cached manifest preserves the original spec verbatim.
             Some(manifest) if !manifest.resolved_members().is_empty() => {
-                // CL-3 / TASK-1762: join and key on the *resolved* workspace
+                // Join and key on the *resolved* workspace
                 // root, not `ctx.working_directory` — running from a member
                 // crate must not silently produce a blank per-crate table.
                 let root = manifest.workspace_root();
-                // READ-5 / TASK-0986: short-circuit when the workspace root is
+                // Short-circuit when the workspace root is
                 // not valid UTF-8 instead of piping a U+FFFD-replaced string
                 // into the SQL key. The lossy collapse would silently match
                 // an unrelated workspace's coverage rows. Sister policy to
-                // TASK-0946 (workspace member relpaths in members.rs).
+                // the workspace-member relpath handling in `members.rs`.
                 let Some(root_str) = root.to_str() else {
                     tracing::warn!(
                         workspace_root = ?root.display(),
@@ -217,7 +217,7 @@ fn per_crate_units(
         HashMap::<String, CrateCoverage>::new(),
         || query_crate_coverage(db, &member_strs, workspace_root_str),
     );
-    // PERF-1 (TASK-0798): resolve display names up front in one pass over
+    // Resolve display names up front in one pass over
     // members with coverage rows, so each member's Cargo.toml is read at most
     // once per provide() call.
     let mut display_names: HashMap<&str, String> = HashMap::with_capacity(per_crate.len());
@@ -233,7 +233,7 @@ fn per_crate_units(
         .iter()
         .filter_map(|member| {
             let cov = per_crate.get(member)?;
-            // TEST-5 / TASK-2154: `query_crate_coverage` zero-fills members
+            // `query_crate_coverage` zero-fills members
             // whose LEFT JOIN matched no `coverage_files` row (COALESCE over
             // NULL sums), so "no data" arrives here as an all-zero
             // `CrateCoverage` that is indistinguishable from a measured zero.
@@ -277,7 +277,7 @@ mod cache_tests {
             .contains_key(&key)
     }
 
-    /// DUP-1 / TASK-1079: the identity-metrics and coverage providers used
+    /// The identity-metrics and coverage providers used
     /// to dispatch their own `query_project_coverage` against the same
     /// `SQLite` during a single `ops about`, so any `query_or_warn`
     /// schema-drift line fired twice. Pin that the per-process cache fires
@@ -326,7 +326,7 @@ mod cache_tests {
         // than the bare substring: `query_or_warn` includes the label both
         // as a tracing field and (via the shared `query_project_row`
         // helper) inside the error context, so two substring matches per
-        // emission is the expected post-DUP-1 shape. The contract being
+        // emission is the expected post-dedup shape. The contract being
         // pinned is that the *warn event* fires once, which the field
         // count uniquely identifies.
         let warn_count = logs.matches("query=\"query_project_coverage\"").count();
@@ -336,12 +336,12 @@ mod cache_tests {
         );
     }
 
-    /// CONC-2 / TASK-1193: the AC #1 contract is that
+    /// The contract is that
     /// `cached_query_project_coverage` runs the underlying query exactly
     /// once even when two threads enter concurrently. The outer mutex must
     /// be held across the query: dropping it would let both threads observe
     /// a miss, both dispatch, and `query_or_warn` fire its warn N times. We
-    /// pin AC #2 by running the two call sites from two threads (rather
+    /// pin it by running the two call sites from two threads (rather
     /// than sequentially) and asserting the warn count is still 1.
     #[test]
     #[serial_test::serial(project_coverage_cache)]
@@ -414,14 +414,14 @@ mod cache_tests {
         );
     }
 
-    /// ARCH-9 / TASK-1155: two distinct `Sqlite` instances must receive
+    /// Two distinct `Sqlite` instances must receive
     /// distinct cache keys even when one is dropped and the next is
     /// allocated at the same memory address — an ABA hazard for any
     /// pointer-address keying. The id-keyed scheme gives each instance a
     /// fresh monotonic id, so a re-allocated address cannot
     /// silently surface a previous instance's cached value.
     ///
-    /// TEST-1 / TASK-1571: drive the contract through
+    /// Drive the contract through
     /// `cached_query_project_coverage` itself (the cache aliasing API)
     /// rather than asserting on `Sqlite::id`.
     #[test]
@@ -458,7 +458,7 @@ mod cache_tests {
         );
     }
 
-    /// PERF-16 / TASK-1764 AC #3: the memoization map is bounded. Every
+    /// The memoization map is bounded. Every
     /// `Sqlite` a process opens mints a fresh monotonic id, so without a cap
     /// this map grew one permanent slot per instance — an unbounded leak in a
     /// daemon or CI worker that opens a handle per project or per refresh.
@@ -478,7 +478,7 @@ mod cache_tests {
         );
     }
 
-    /// PERF-16 / TASK-1723: the *map* bound is pinned by the test above;
+    /// The *map* bound is pinned by the test above;
     /// this one pins the LRU victim queue. The queue's only drain runs at
     /// the cap, so a process staying below the cap — every CLI run, which
     /// memoizes exactly one project — must not accumulate one stamp per
@@ -517,7 +517,7 @@ mod cache_tests {
 #[cfg(all(test, unix))]
 mod tests {
 
-    /// READ-5 / TASK-0986 + TEST-25 / TASK-1773: a non-UTF-8 workspace root
+    /// A non-UTF-8 workspace root
     /// must NOT collapse to a U+FFFD-replaced SQL key — the lossy key would
     /// silently match an unrelated workspace's coverage rows.
     ///
@@ -673,7 +673,7 @@ mod provider_tests {
         (dir, root)
     }
 
-    /// TEST-5 / TASK-2154 AC #1: rows map onto one `UnitCoverage` per covered
+    /// Rows map onto one `UnitCoverage` per covered
     /// member with the display name from the member manifest, the member
     /// path, and the (percent, covered, count) triple in the right order —
     /// distinct magnitudes per field so a transposition cannot pass.
@@ -718,7 +718,7 @@ mod provider_tests {
         assert_eq!(bar.stats.lines_count, 10);
     }
 
-    /// TEST-5 / TASK-2154 AC #2: a member with no coverage row is omitted
+    /// A member with no coverage row is omitted
     /// from the per-crate list, not emitted with zeroed stats.
     /// `query_crate_coverage` zero-fills such members (LEFT JOIN + COALESCE),
     /// so the omission has to happen in `per_crate_units` — pin it.
@@ -752,7 +752,7 @@ mod provider_tests {
         );
     }
 
-    /// TEST-5 / TASK-2154 AC #3: `provide` end to end against a real
+    /// `provide` end to end against a real
     /// workspace fixture plus a seeded `SQLite` — project total and per-crate
     /// table both asserted.
     #[test]
@@ -798,7 +798,7 @@ mod provider_tests {
         assert_eq!(foo["stats"]["lines_count"], serde_json::json!(150));
     }
 
-    /// TEST-5 / TASK-2154 AC #4: no `SQLite` in the context serialises a
+    /// No `SQLite` in the context serialises a
     /// default (empty but well-formed) `ProjectCoverage`, not an error —
     /// matching `deps_provider`'s no-DB test.
     #[test]
@@ -827,7 +827,7 @@ mod provider_tests {
         );
     }
 
-    /// TEST-5 / TASK-2154 AC #4: a `query_project_coverage` failure warns and
+    /// A `query_project_coverage` failure warns and
     /// falls back to the default `ProjectCoverage` (ERR-2 convention shared
     /// with `deps_provider`). The seeded `coverage_files` table types
     /// `lines_count` as VARCHAR so the SUM aggregation fails while
@@ -868,7 +868,7 @@ mod provider_tests {
         );
     }
 
-    /// TEST-5 / TASK-2154: the manifest-failed arm — a `SQLite` with rows but
+    /// The manifest-failed arm — a `SQLite` with rows but
     /// no workspace manifest at cwd reports the project total with an empty
     /// per-crate table, not an error.
     #[test]
@@ -896,7 +896,7 @@ mod provider_tests {
         );
     }
 
-    /// CONC-1 / TASK-1144 (mirroring the manifest cache's pinning test): a
+    /// Mirroring the manifest cache's pinning test: a
     /// slot whose `OnceLock` is not yet initialized is in flight — its
     /// caller is still running the query outside the mutex. An insert at
     /// the cap must evict an *initialized* entry instead, or the memoized

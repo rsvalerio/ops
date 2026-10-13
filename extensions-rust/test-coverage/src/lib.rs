@@ -57,6 +57,23 @@ pub const SHORTNAME: &str = "cov";
 /// key the about coverage subpage looks the per-unit coverage table up by.
 pub const DATA_PROVIDER_NAME: &str = "coverage";
 
+/// Lines of stderr retained when a `cargo llvm-cov` invocation exits
+/// non-zero — both the hard-fail bail in `subprocess::check_llvm_cov_output`
+/// and the soft-fail warn in `parse` use it.
+///
+/// Pinned to cargo's error-report shape: the actionable summary — the
+/// final `error: could not compile ...` lines of a failed build or the
+/// closing `error:` of the invocation — is printed at the *end* of stderr,
+/// after any per-crate compile-error detail. A 5-line tail keeps that
+/// summary in the error/log line while bounding it on workspaces whose
+/// compile errors span screens (the full stderr stays in the terminal
+/// scrollback; only the surfaced message is truncated). Tool absence — a
+/// missing `cargo-llvm-cov` binary — is surfaced separately by
+/// `missing_tool_hint`, not by the tail. Lower it and the closing summary
+/// line can fall off the tail; raise it and the surfaced message carries
+/// compile-error noise the operator already scrolled past.
+pub(crate) const STDERR_TAIL_LINES: usize = 5;
+
 /// Construct via the registered extension factory only.
 #[non_exhaustive]
 pub struct CoverageExtension;

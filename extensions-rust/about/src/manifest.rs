@@ -17,15 +17,15 @@ use crate::manifest_cache;
 use crate::members::resolved_workspace_members;
 use crate::workspace_root_cache;
 
-/// ERR-1: pairs the cached parsed manifest with its resolved
+/// Pairs the cached parsed manifest with its resolved
 /// `[workspace].members` list.
 ///
 /// The resolved list lives in a sibling field, so `workspace.members` on the
 /// cached `CargoToml` stays the literal glob spec (`["crates/*"]`) exactly as
 /// the manifest wrote it, while the resolved members survive across calls
-/// without re-walking the filesystem (PERF-3).
+/// without re-walking the filesystem.
 ///
-/// OWN-12: this is an aggregate, not a smart pointer, so it does **not**
+/// This is an aggregate, not a smart pointer, so it does **not**
 /// implement `Deref<Target = CargoToml>`: the expanded list and the raw spec
 /// must not be reachable from the same receiver, where picking the wrong one
 /// is a silent wrong answer rather than a compile error. Consumers go through
@@ -37,12 +37,12 @@ use crate::workspace_root_cache;
 #[derive(Clone, Debug)]
 pub struct LoadedManifest {
     manifest: Arc<CargoToml>,
-    /// CL-3 / TASK-1762: the resolved workspace root the manifest was loaded
+    /// The resolved workspace root the manifest was loaded
     /// from. `ctx.working_directory` is the live process cwd, which may sit
     /// anywhere below this; every member join must use this root.
     workspace_root: Arc<PathBuf>,
     resolved_members: Arc<Vec<String>>,
-    /// PERF-3: lazy map from workspace member (as listed in
+    /// Lazy map from workspace member (as listed in
     /// `resolved_members`) to its canonical `Cargo.toml` path. Computed
     /// once per `LoadedManifest` instance — itself cached per workspace
     /// — so `RustUnitsProvider::provide` pays the N `std::fs::canonicalize`
@@ -56,7 +56,7 @@ pub struct LoadedManifest {
 
 impl LoadedManifest {
     fn new(manifest: CargoToml, workspace_root: Arc<PathBuf>) -> Self {
-        // ERR-1 / TASK-1076: resolve workspace members into a sibling field
+        // Resolve workspace members into a sibling field
         // instead of mutating `manifest.workspace.members` in place:
         // overwriting the spec with the expanded list on the cached Arc would
         // hide the original glob spec from any future consumer (linter, doc
@@ -75,7 +75,7 @@ impl LoadedManifest {
 
     /// The resolved workspace root this manifest was loaded from.
     ///
-    /// CL-3 / TASK-1762: providers must join member paths onto *this*, never
+    /// Providers must join member paths onto *this*, never
     /// onto `ctx.working_directory` — running `ops about` from a member crate
     /// otherwise resolves every member against the wrong directory and reports
     /// a plausible-looking empty project.
@@ -104,7 +104,7 @@ impl LoadedManifest {
     /// The **unexpanded** `[workspace].members` spec exactly as written in the
     /// manifest — e.g. `["crates/*"]`.
     ///
-    /// OWN-12 / TASK-1767: every production consumer wants
+    /// Every production consumer wants
     /// [`Self::resolved_members`] instead, and none currently needs the literal
     /// spec — so the accessor is test-gated rather than left standing as an
     /// unused public affordance. Its name is the point: when a
@@ -124,9 +124,9 @@ impl LoadedManifest {
     ///
     /// # Ordering invariant
     ///
-    /// PERF-3 / TASK-1251: this slice is produced by
-    /// [`resolved_workspace_members`] which sorts (TASK-0794) and dedups
-    /// (TASK-1042) the result before returning. Consumers (about, identity,
+    /// This slice is produced by
+    /// [`resolved_workspace_members`], which sorts and dedups the result
+    /// before returning. Consumers (about, identity,
     /// units, coverage providers) MUST consume this view directly and MUST
     /// NOT re-sort it — re-sorting allocates a fresh `Vec<&str>` on every
     /// call and adds no semantic value.
@@ -134,13 +134,13 @@ impl LoadedManifest {
         self.resolved_members.as_slice()
     }
 
-    /// PERF-3 / TASK-1569: build (or return the cached) member → canonical
+    /// Build (or return the cached) member → canonical
     /// `Cargo.toml` path map. Each member is resolved against the workspace
     /// root and then canonicalised; a failed canonicalize falls back to the
     /// unresolved path so the lookup still has a chance on platforms / paths
     /// where canonicalize errors are normal (broken symlinks). The map is
     /// keyed by member string so per-call lookups can use a `&str` borrow
-    /// without allocation (TASK-1570).
+    /// without allocation.
     pub(crate) fn canonical_member_manifests(&self) -> &HashMap<String, PathBuf> {
         self.canonical_member_manifests.get_or_init(|| {
             self.resolved_members()
@@ -166,7 +166,7 @@ impl LoadedManifest {
 
 /// Log a `load_workspace_manifest` failure differentiating "no manifest /
 /// not a Rust project" (silent debug) from a real read/parse error (warn),
-/// mirroring `read_crate_metadata` (TASK-0433).
+/// mirroring `read_crate_metadata`.
 pub fn log_manifest_load_failure(err: &DataProviderError) {
     if is_manifest_missing(err) {
         tracing::debug!(
@@ -182,7 +182,7 @@ pub fn log_manifest_load_failure(err: &DataProviderError) {
 }
 
 fn is_manifest_missing(err: &(dyn std::error::Error + 'static)) -> bool {
-    // ARCH-2 / TASK-0871: prefer the typed `FindWorkspaceRootError::NotFound`
+    // Prefer the typed `FindWorkspaceRootError::NotFound`
     // marker so wrapping context layers added by future callers don't silently
     // mask the "missing manifest" signal. The `io::ErrorKind::NotFound`
     // chain-walk below is the fallback for IO errors raised outside the
@@ -204,9 +204,9 @@ fn is_manifest_missing(err: &(dyn std::error::Error + 'static)) -> bool {
 /// `[workspace].members` globs into a sibling field on [`LoadedManifest`].
 /// Reuses any value already cached at the `cargo_toml` key; otherwise reads
 /// via [`CargoTomlProvider`]. Centralises the parse + glob-resolve step that
-/// identity / units / coverage providers all need (TASK-0381).
+/// identity / units / coverage providers all need.
 ///
-/// FN-1 / TASK-1780: the body is orchestration only — resolve the root, probe
+/// The body is orchestration only — resolve the root, probe
 /// the cache, load, insert. The cache probe and insert each own their lock
 /// scope in [`crate::manifest_cache`], so the CONC-7 "never hold the lock
 /// across IO or parsing" contract is checkable without reading this function.
@@ -217,7 +217,7 @@ fn is_manifest_missing(err: &(dyn std::error::Error + 'static)) -> bool {
 /// `Cargo.toml` in the ancestor chain, or a symlink-planting rejection) or the
 /// manifest cannot be read or parsed.
 pub fn load_workspace_manifest(ctx: &mut Context) -> Result<LoadedManifest, DataProviderError> {
-    // CL-3 / TASK-1762: resolve the workspace root ONCE and thread it through
+    // Resolve the workspace root ONCE and thread it through
     // freshness, cache key, glob expansion and every downstream member join.
     // `ctx.working_directory` is the live process cwd and may sit below the
     // root; the ancestor walk here is the proof the code already knows that.
@@ -235,7 +235,7 @@ pub fn load_workspace_manifest(ctx: &mut Context) -> Result<LoadedManifest, Data
     Ok(loaded)
 }
 
-/// SEC-25 / TASK-1204: route through the strict workspace-root finder so a
+/// Route through the strict workspace-root finder so a
 /// hostile `Cargo.toml` planted at the symlink target of an ancestor is
 /// rejected before it can redirect the about/units/coverage stack. The lenient
 /// `find_workspace_root` walk reaches each ancestor via `Path::parent` on the
@@ -272,7 +272,7 @@ fn resolve_workspace_root(ctx: &Context) -> Result<Arc<PathBuf>, DataProviderErr
     Ok(root)
 }
 
-/// PERF-1: the cache-miss path goes through
+/// The cache-miss path goes through
 /// `CargoTomlProvider::provide_typed` so the typed `CargoToml` arrives here
 /// directly, with no `serde_json::Value` round-trip. The `ctx.cached` fast
 /// path serves cross-extension consumers that may have populated the JSON
@@ -302,16 +302,16 @@ mod tests {
         std::fs::canonicalize(path).expect("canonicalize tempdir")
     }
 
-    /// PERF-3 / TASK-0969: the resolved-members list (post glob expansion)
+    /// The resolved-members list (post glob expansion)
     /// must survive across `load_workspace_manifest` calls without
-    /// re-walking the filesystem. ERR-1 / TASK-1076: the resolved view is
+    /// re-walking the filesystem. The resolved view is
     /// stored in a sibling field on `LoadedManifest` (the cached
     /// `Arc<CargoToml>` keeps the original glob spec verbatim), so
     /// subsequent providers grab the resolved members from the cached
     /// `LoadedManifest::resolved_members` snapshot — verified here by
     /// mutating a member directory between two cached loads and asserting
     /// the cached view does NOT pick up the change (proving no re-walk).
-    /// TASK-2157: that freeze is the documented cache contract, not an
+    /// That freeze is the documented cache contract, not an
     /// accident this test happens to observe — see the **Member-set freeze**
     /// bullet in `manifest_cache.rs`; a host that must observe member-set
     /// changes calls `ctx.refresh`.
@@ -367,7 +367,7 @@ mod tests {
         manifest_cache::evict(&canonical(root));
     }
 
-    /// ERR-1 / TASK-1076: `load_workspace_manifest` must NOT mutate the
+    /// `load_workspace_manifest` must NOT mutate the
     /// cached `manifest.workspace.members` to the resolved list. The
     /// original spec (e.g. `["crates/*"]`) must survive on the cached Arc
     /// across repeated calls so future consumers (linters, doc generators)
@@ -427,7 +427,7 @@ mod tests {
         manifest_cache::evict(&canonical(root));
     }
 
-    /// CL-3 / TASK-1762: a cwd below the workspace root must still resolve the
+    /// A cwd below the workspace root must still resolve the
     /// root's own glob members — glob expansion must `read_dir` the root's
     /// `crates/` directory, never `<cwd>/crates`, so a subdirectory cwd does
     /// not silently yield an empty member list.
@@ -469,7 +469,7 @@ mod tests {
         manifest_cache::evict(&canonical(root));
     }
 
-    /// CL-3 / TASK-1762: the canonical member-manifest map must be built from
+    /// The canonical member-manifest map must be built from
     /// the workspace root, so a subdirectory cwd still finds each member's
     /// `Cargo.toml`.
     #[serial_test::serial(typed_manifest_cache)]
@@ -504,7 +504,7 @@ mod tests {
         manifest_cache::evict(&canonical(root));
     }
 
-    /// PERF-1 / TASK-2028: the canonicalizing ancestor walk runs once per cwd,
+    /// The canonicalizing ancestor walk runs once per cwd,
     /// not once per `load_workspace_manifest` call. Proved by making a *nearer*
     /// ancestor declare its own `[workspace]` after the first load: a second
     /// walk would stop there, so the loader still reporting the original root
@@ -578,7 +578,7 @@ mod tests {
         );
     }
 
-    /// ERR-1 / TASK-2024: a directory that is simply not a Rust project must
+    /// A directory that is simply not a Rust project must
     /// be classified as "missing", not reported as a failure. This requires
     /// `is_manifest_missing`'s chain walk to actually reach the typed
     /// `FindWorkspaceRootError` marker through `SharedError`'s source chain;

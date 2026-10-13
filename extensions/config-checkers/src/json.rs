@@ -233,7 +233,7 @@ mod tests {
         assert!(check_json(commented.as_bytes(), true).is_ok());
     }
 
-    /// SEC-33 regression: JSON5 ends a line comment at CR, U+2028 and U+2029
+    /// JSON5 ends a line comment at CR, U+2028 and U+2029
     /// as well as LF. A scanner that knows only LF stays inside the comment
     /// for the rest of the input, measures depth 0, and hands the nested
     /// document straight to the parser this guard exists to protect.

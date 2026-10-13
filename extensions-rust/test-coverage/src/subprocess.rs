@@ -114,7 +114,7 @@ pub fn format_cargo_exit(status: ExitStatus) -> String {
 /// the non-zero exit; the caller decides whether to demote it.
 pub fn check_llvm_cov_output(output: &Output) -> Result<(), anyhow::Error> {
     if !output.status.success() {
-        let tail = format_error_tail(&output.stderr, 5);
+        let tail = format_error_tail(&output.stderr, crate::STDERR_TAIL_LINES);
         // One shape for both exits: `marker` already says whether this was a
         // regular non-zero status or a signal kill, so the signal case is
         // named exactly once and the "cargo llvm-cov exited with" prefix

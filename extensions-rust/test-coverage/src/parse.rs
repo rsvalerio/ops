@@ -318,7 +318,7 @@ pub fn format_stderr_diagnostic(stderr: &[u8]) -> Option<String> {
     if stderr.is_empty() {
         return None;
     }
-    Some(format_error_tail(stderr, 5))
+    Some(format_error_tail(stderr, crate::STDERR_TAIL_LINES))
 }
 
 /// The soft-fail predicate, named once so [`collect_coverage_with`] and its
@@ -397,7 +397,7 @@ fn recover_partial_report(
     let valid_parsed = parsed
         .as_ref()
         .filter(|raw| has_parseable_coverage_data(raw))?;
-    let tail = format_error_tail(&output.stderr, 5);
+    let tail = format_error_tail(&output.stderr, crate::STDERR_TAIL_LINES);
     let marker = format_cargo_exit(output.status);
     tracing::warn!(
         exit = %marker,
