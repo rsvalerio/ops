@@ -1,9 +1,10 @@
 ---
 id: TASK-2633
 title: 'READ-13: about crate lib.rs, units.rs and manifest_cache.rs still carry rule-ID/TASK provenance tags'
-status: Triage
+status: Done
 assignee: []
 created_date: '2026-10-11 12:34'
+updated_date: '2026-10-14 21:23'
 labels:
   - code-review-rust
   - readability
@@ -32,3 +33,9 @@ ordinal: 1000
 <!-- AC:BEGIN -->
 - [ ] #1 Every tag-prefix site in the three files states the end state in present-tense prose with no RULE/TASK prefix, or is a deliberate cross-reference to a named contract (CONC-7 cross-references updated in the same pass if the contract heading is renamed)
 <!-- AC:END -->
+
+## Implementation Notes
+
+<!-- SECTION:NOTES:BEGIN -->
+Stripped every RULE-ID/TASK-XXXX provenance prefix from lib.rs, units.rs and manifest_cache.rs (module, item and test docs), rephrasing each to present-tense end-state prose. Kept CONC-7 as the concurrency contract's name (heading is now '# CONC-7: concurrency contract'), matching how the already-cleaned manifest.rs and workspace_root_cache.rs reference it, so no cross-references needed updating. Gates: ops verify green; ops-about-rust nextest 122/122; crate doctests n/a. ops qa fails with 'unknown command: deps' on clean HEAD too (pre-existing, qax/qa-next chain references a removed deps command).
+<!-- SECTION:NOTES:END -->
