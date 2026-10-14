@@ -3,7 +3,7 @@
 //! # Cache contract
 //!
 //! - **Key**: the resolved workspace root (`find_workspace_root_strict` output,
-//!   canonicalised). CL-3 / TASK-1762: keying by the *root* rather than by
+//!   canonicalised). Keying by the *root* rather than by
 //!   `ctx.working_directory` means two cwds inside the same workspace share one
 //!   entry and one freshness key.
 //! - **Value**: [`LoadedManifest`] — the parsed `Arc<CargoToml>`, its resolved
@@ -12,7 +12,7 @@
 //!   with LRU eviction.
 //! - **Invalidation**: the `<root>/Cargo.toml` mtime+len pair is re-stat'ed on
 //!   every probe; a mismatch reparses. `ctx.refresh` evicts the entry outright.
-//! - **Member-set freeze** (TASK-2157): the freshness key covers only the root
+//! - **Member-set freeze**: the freshness key covers only the root
 //!   manifest's *bytes*. The cached [`LoadedManifest`] additionally carries two
 //!   derived views that are not functions of those bytes — `resolved_members`
 //!   (glob-expanded by `read_dir`-ing every `prefix/*` directory during
@@ -27,7 +27,7 @@
 //!   CI worker — must call `ctx.refresh` to observe it; the single-shot CLI's
 //!   process boundary hides the freeze by construction.
 //!
-//! PERF-1 / TASK-2028: keying by the root means the root must be resolved
+//! Keying by the root means the root must be resolved
 //! *before* the probe, which would otherwise put a canonicalizing ancestor walk
 //! in front of every hit and blow the one-`stat` hot-path budget the freshness
 //! design above is chosen for. [`crate::workspace_root_cache`] memoizes that
@@ -35,24 +35,24 @@
 //!
 //! # Why a cache at all
 //!
-//! PERF-1: identity, units, and coverage providers each call
+//! Identity, units, and coverage providers each call
 //! `load_workspace_manifest` during a single `ops about` invocation, and the
 //! resolved manifest is identical across them. The cache lets them share one
 //! parse instead of each deserializing its own copy.
 //!
-//! ARCH-2: the cache is a process-global `Mutex<HashMap>` rather than a
+//! The cache is a process-global `Mutex<HashMap>` rather than a
 //! `thread_local!`, so a provider scheduled on a different worker thread (e.g.
 //! a tokio fan-out) sees the same entries. The mutex is held only for the
 //! lookup / insert and never across provider work, so contention is bounded;
 //! readers clone the `Arc<CargoToml>` so the typed manifest is shared across
 //! threads with no reparse.
 //!
-//! ERR-1: the cache lock is acquired exclusively through
+//! The cache lock is acquired exclusively through
 //! [`lock_typed_manifest_cache`], which recovers from `PoisonError` via
 //! `into_inner` + `clear_poison` and warns on every recovery, so a panic in a
 //! sibling provider cannot silently degrade the cache to "always-miss".
 //!
-//! # CONC-7 / TASK-1163: concurrency contract
+//! # CONC-7: concurrency contract
 //!
 //! The wrapper is a single `Mutex<HashMap>`, which serialises every probe.
 //! This is intentional and bounded by the workload it guards:
@@ -77,7 +77,7 @@
 //! above. A new caller that opens parallel `ctx`s against distinct roots and
 //! bottlenecks here would silently undo a downstream performance fix.
 //!
-//! TASK-2157: the same rule covers member-set staleness. The freshness key
+//! The same rule covers member-set staleness. The freshness key
 //! stats only `<root>/Cargo.toml` (see **Member-set freeze** above), so a
 //! daemon that can outlive a `cargo new crates/foo` — or a member-directory
 //! removal — serves the frozen `resolved_members` and
@@ -87,7 +87,7 @@
 //! on workspace-modification events; only then may it rely on `ops about`
 //! member data.
 //!
-//! TEST-15: **every test that reaches this cache must carry
+//! **Every test that reaches this cache must carry
 //! `#[serial_test::serial(typed_manifest_cache)]`** — including the ones that
 //! reach it indirectly through a provider's `provide()` →
 //! `load_workspace_manifest` (the provider tests in `identity/mod.rs` and
@@ -104,14 +104,14 @@ use std::time::SystemTime;
 
 use crate::manifest::LoadedManifest;
 
-/// CONC-2 / TASK-0843: soft upper bound on the typed-manifest cache so a
-/// long-running daemon process that visits an unbounded set of workspaces
+/// Soft upper bound on the typed-manifest cache so a long-running daemon
+/// process that visits an unbounded set of workspaces
 /// (CI worker, language-server-style host) does not accumulate one entry
 /// per root indefinitely. When the cap is hit on insert we evict the
 /// least-recently-used entry (LRU) so steady-state hits remain warm.
 pub const MAX_TYPED_MANIFEST_CACHE_ENTRIES: usize = 64;
 
-/// CONC-2 / TASK-1198: cache freshness key. Pairs the file's mtime with
+/// Cache freshness key. Pairs the file's mtime with
 /// its byte length so two writes within the same mtime tick (HFS+, FAT,
 /// NFS with old `actimeo` all expose second-resolution mtime) cannot
 /// silently keep serving the pre-edit manifest. Length-equal collisions
@@ -132,12 +132,12 @@ struct CachedManifest {
     loaded: LoadedManifest,
 }
 
-/// PERF-1 / TASK-1240: pair the root→entry map with a min-heap of
+/// Pair the root→entry map with a min-heap of
 /// `(last_accessed, root)` so cap-bound eviction picks the LRU entry in
 /// `O(log n)` (heap pop with lazy invalidation) instead of an `O(n)`
-/// scan. DUP-1 / TASK-2150: the heap, the record/compact loop and the
+/// scan. The heap, the record/compact loop and the
 /// cap preamble live in [`ops_about::lru::BoundedLruCache`]; queue keys
-/// are `Arc<PathBuf>` shared with the entry (PERF-3 / TASK-1572), so the
+/// are `Arc<PathBuf>` shared with the entry, so the
 /// cache-hit path restamps with an atomic bump.
 pub struct TypedManifestCache {
     cache: BoundedLruCache<PathBuf, CachedManifest, Arc<PathBuf>>,
@@ -150,7 +150,7 @@ impl TypedManifestCache {
         }
     }
 
-    /// FN-1 / TASK-1780: the freshness comparison plus the LRU tick refresh,
+    /// The freshness comparison plus the LRU tick refresh,
     /// as one named operation so the probe's lock scope is verifiable in
     /// isolation.
     ///
@@ -158,7 +158,7 @@ impl TypedManifestCache {
     /// still fresh; a stale entry is left in place for the insert path to
     /// overwrite.
     fn probe(&mut self, root: &Path, current: Option<ManifestFreshness>) -> Option<LoadedManifest> {
-        // CONC-2 / TASK-0843 + TASK-1198: serve the cached Arc only
+        // Serve the cached Arc only
         // when both the mtime AND the byte length match. Pairing
         // mtime with size closes the second-resolution-mtime window
         // (HFS+, FAT, NFS with old `actimeo`): two writes inside the
@@ -167,9 +167,9 @@ impl TypedManifestCache {
         // If we couldn't stat at all, fall back to trusting the entry
         // until `ctx.refresh` evicts it.
         //
-        // CONC-2 / TASK-1023: the accepted hit restamps the entry inside
+        // The accepted hit restamps the entry inside
         // `touch_if`, so frequently accessed entries survive eviction in a
-        // daemon visiting many roots; PERF-16 / TASK-1723: the restamp
+        // daemon visiting many roots; the restamp
         // compacts the queue on a growth threshold.
         self.cache
             .touch_if(root, |cached| match (cached.freshness, current) {
@@ -179,7 +179,7 @@ impl TypedManifestCache {
             .map(|cached| cached.loaded.clone())
     }
 
-    /// FN-1 / TASK-1780: the cap check, LRU eviction, tick mint, victim-queue
+    /// The cap check, LRU eviction, tick mint, victim-queue
     /// push and map insert, as one named operation.
     fn insert(
         &mut self,
@@ -211,7 +211,7 @@ fn typed_manifest_cache() -> &'static Mutex<TypedManifestCache> {
     CACHE.get_or_init(|| Mutex::new(TypedManifestCache::new()))
 }
 
-/// ERR-1: acquire the typed-manifest cache lock, recovering from a
+/// Acquire the typed-manifest cache lock, recovering from a
 /// `PoisonError` rather than silently falling through. A poisoned mutex
 /// (caused by a panic in another provider while it held the lock) would
 /// otherwise degrade the cache to "always-miss" with zero diagnostic.
@@ -229,7 +229,7 @@ fn lock_typed_manifest_cache(
     cache: &'static Mutex<TypedManifestCache>,
 ) -> MutexGuard<'static, TypedManifestCache> {
     static POISON_RECOVERY_COUNT: AtomicU64 = AtomicU64::new(0);
-    // DUP-1 / TASK-2258: the recovery scaffold lives in
+    // The recovery scaffold lives in
     // `ops_core::sync::lock_recover_with`; this closure carries the
     // cache-specific observable — the monotonic warn.
     ops_core::sync::lock_recover_with(cache, || {
@@ -312,7 +312,7 @@ mod tests {
             .victim_queue_len()
     }
 
-    /// PERF-16 / TASK-1723: `probe` stamps a fresh `(tick, root)` pair on
+    /// `probe` stamps a fresh `(tick, root)` pair on
     /// every cache hit, but the only drain (`evict_lru`) runs solely once the
     /// map reaches `MAX_TYPED_MANIFEST_CACHE_ENTRIES`. A process below the
     /// cap — every `ops about` run, which touches one root from several
@@ -383,7 +383,7 @@ mod tests {
         evict(&canonical(dir.path()));
     }
 
-    /// ARCH-2 (TASK-0795): the cache must be visible to callers on other
+    /// The cache must be visible to callers on other
     /// threads — a `thread_local!` would key each entry to the inserting
     /// thread and silently re-parse the manifest once per worker. Drive a
     /// load on one thread, then assert a sibling `Context` on another
@@ -422,7 +422,7 @@ mod tests {
         evict(&canonical(&path));
     }
 
-    /// CL-3 / TASK-1762 AC #3: the cache is keyed by the resolved workspace
+    /// The cache is keyed by the resolved workspace
     /// root, so a load driven from a subdirectory shares the root's entry
     /// (one slot, one freshness key) rather than minting a second one.
     #[serial_test::serial(typed_manifest_cache)]
@@ -463,7 +463,7 @@ mod tests {
         clear_cache();
     }
 
-    /// TEST-12 / TASK-1162: shared body for the poison-recovery tests below.
+    /// Shared body for the poison-recovery tests below.
     /// `n_cycles` poison-and-recover iterations: each cycle panics inside a
     /// held lock on a sibling thread, then drives `load_workspace_manifest`
     /// to observe the recovery warn. Returns the captured WARN-level logs
@@ -521,7 +521,7 @@ mod tests {
         logs
     }
 
-    /// ERR-1 / TASK-0844: a poisoned cache mutex (caused by a panic in
+    /// A poisoned cache mutex (caused by a panic in
     /// another provider while it held the lock) must NOT silently degrade
     /// the cache to "always-miss". `load_workspace_manifest` must recover via
     /// `PoisonError::into_inner` and emit a warn so operators see the signal
@@ -529,7 +529,7 @@ mod tests {
     #[serial_test::serial(typed_manifest_cache)]
     #[test]
     fn typed_manifest_cache_recovers_from_poison_with_warn() {
-        // TASK-0962: poison-recovery logs every cycle (with a monotonic
+        // Poison-recovery logs every cycle (with a monotonic
         // recovery_count), so the warn is always observable here regardless
         // of sibling-test ordering.
         let logs = assert_poison_warn_after(1, "poisoned");
@@ -543,7 +543,7 @@ mod tests {
         );
     }
 
-    /// TASK-0962: a *second* poison cycle (panic in a different provider
+    /// A *second* poison cycle (panic in a different provider
     /// after the first recovery) must still produce an observable signal —
     /// every cycle emits the warn, not just the first.
     #[serial_test::serial(typed_manifest_cache)]
@@ -556,7 +556,7 @@ mod tests {
         );
     }
 
-    /// CONC-2 / TASK-1198: two writes inside the same mtime tick (HFS+,
+    /// Two writes inside the same mtime tick (HFS+,
     /// FAT, NFS with old `actimeo` all expose second-resolution mtime)
     /// must NOT serve the pre-edit manifest. The freshness key
     /// includes the file byte length, so a write that changes the
@@ -619,7 +619,7 @@ mod tests {
         evict(&root);
     }
 
-    /// CONC-2 / TASK-0843: a stale `Cargo.toml` mtime must invalidate the
+    /// A stale `Cargo.toml` mtime must invalidate the
     /// cached entry without requiring `ctx.refresh = true`.
     #[serial_test::serial(typed_manifest_cache)]
     #[test]
@@ -632,7 +632,7 @@ mod tests {
         let mut ctx = Context::test_context(dir.path().to_path_buf());
         let first = load_workspace_manifest(&mut ctx).expect("load1");
 
-        // TEST-15 / TASK-1159: bump mtime explicitly via
+        // Bump mtime explicitly via
         // `File::set_modified` instead of sleeping for >1s to outrun
         // second-resolution filesystems (HFS+, ext3). Wall-clock sleep
         // adds ~1.1s to every CI run and is unreliable on filesystems
@@ -661,7 +661,7 @@ mod tests {
         evict(&canonical(dir.path()));
     }
 
-    /// CONC-2 / TASK-0843: cache size is soft-capped so a long-running
+    /// Cache size is soft-capped so a long-running
     /// process visiting many roots never accumulates more than
     /// `MAX_TYPED_MANIFEST_CACHE_ENTRIES` entries.
     #[serial_test::serial(typed_manifest_cache)]
@@ -689,7 +689,7 @@ mod tests {
         clear_cache();
     }
 
-    /// CONC-2 / TASK-1023: eviction must pick the least-recently-used entry,
+    /// Eviction must pick the least-recently-used entry,
     /// not an arbitrary `HashMap` bucket. Insert MAX entries, touch the very
     /// first one to make it "hot", then insert one more to force eviction
     /// and assert (a) the hot key is still present, and (b) the victim is
