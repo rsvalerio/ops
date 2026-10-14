@@ -17,8 +17,8 @@ use crate::members::member_path_is_workspace_safe_or_warn;
 
 /// Subset of crate manifest metadata used by the `project_units` provider.
 ///
-/// FN-4 (TASK-0805): named struct so adding a field cannot silently shift
-/// positions in tuple destructures at call sites.
+/// Named struct so adding a field cannot silently shift positions in tuple
+/// destructures at call sites.
 #[derive(Debug, Default, Clone)]
 pub struct CrateMetadata {
     /// Crate name from `[package].name`; `None` when the member's manifest
@@ -47,8 +47,8 @@ impl DataProvider for RustUnitsProvider {
         PROVIDER_NAME
     }
 
-    /// FN-1 / TASK-1784: orchestration only — load the manifest, fetch the dep
-    /// counts, map each safe member to a [`ProjectUnit`]. The per-member work
+    /// Orchestration only — load the manifest, fetch the dep counts, map
+    /// each safe member to a [`ProjectUnit`]. The per-member work
     /// (canonical-path lookup, dep-count resolution, diagnostics) lives in
     /// named helpers below that are unit-testable without a live `SQLite`.
     fn provide(&self, ctx: &mut Context) -> Result<serde_json::Value, DataProviderError> {
@@ -65,15 +65,15 @@ impl DataProvider for RustUnitsProvider {
             .map(|metadata| crate_targets(metadata))
             .unwrap_or_default();
 
-        // PERF-3 / TASK-1569: the canonical-manifest-path map is built once per
-        // workspace (`LoadedManifest` is itself cached per workspace root), so
-        // sibling providers and later `provide()` calls reuse it.
+        // The canonical-manifest-path map is built once per workspace
+        // (`LoadedManifest` is itself cached per workspace root), so sibling
+        // providers and later `provide()` calls reuse it.
         let canonical_manifests = manifest.canonical_member_manifests();
         let workspace_version = manifest
             .workspace_package()
             .and_then(|p| p.version.as_deref());
-        // PERF-3 / TASK-1251: `resolved_members` already returns a sorted +
-        // deduplicated list (TASK-0794 + TASK-1042); consumers must not re-sort.
+        // `resolved_members` already returns a sorted + deduplicated list;
+        // consumers must not re-sort.
         let units: Vec<ProjectUnit> = manifest
             .resolved_members()
             .iter()
@@ -98,11 +98,11 @@ impl DataProvider for RustUnitsProvider {
 }
 
 /// Per-crate dep counts from `SQLite`, keyed by `crate_manifest_path`
-/// (ERR-2: a bare package name is not unique — it collides for renamed
+/// (a bare package name is not unique — it collides for renamed
 /// (`package = "alt-name"`) or duplicate-named workspace members).
 ///
-/// ERR-2 / TASK-0376: query failures route through `query_or_warn` so they
-/// don't manifest as a silent "no deps" on a misconfigured DB.
+/// Query failures route through `query_or_warn` so they don't manifest as a
+/// silent "no deps" on a misconfigured DB.
 fn crate_dep_counts(ctx: &Context) -> HashMap<String, i64> {
     ops_sqlite::get_db(ctx).map_or_else(HashMap::new, |db| {
         ops_sqlite::sql::query_or_warn(
@@ -150,14 +150,14 @@ fn crate_targets(metadata: &serde_json::Value) -> HashMap<PathBuf, Vec<UnitTarge
         .collect()
 }
 
-/// SEC-14 / TASK-1246 AC #1: defence-in-depth — even though
-/// `resolved_workspace_members` already filters absolute / `..`-segment
-/// entries, re-validate here so a future caller bypassing that helper (custom
-/// enrichment, test harness) cannot drive `root.join(member)` at arbitrary
-/// filesystem locations. The warn matches the helper's breadcrumb shape so an
-/// attacker-controlled member surfaces exactly once per provider invocation.
-/// DUP-1 / TASK-2160: the reject-and-warn wrapper is shared with
-/// `resolved_workspace_members` and `resolve_crate_display_name`.
+/// Defence-in-depth — even though `resolved_workspace_members` already
+/// filters absolute / `..`-segment entries, re-validate here so a future
+/// caller bypassing that helper (custom enrichment, test harness) cannot
+/// drive `root.join(member)` at arbitrary filesystem locations. The warn
+/// matches the helper's breadcrumb shape so an attacker-controlled member
+/// surfaces exactly once per provider invocation. The reject-and-warn
+/// wrapper is shared with `resolved_workspace_members` and
+/// `resolve_crate_display_name`.
 fn member_is_unit_safe(member: &str) -> bool {
     member_path_is_workspace_safe_or_warn(member, "units provider")
 }
@@ -174,9 +174,8 @@ struct MemberLookups<'a> {
 
 /// Assemble one [`ProjectUnit`] from a workspace member.
 ///
-/// CL-3 / TASK-1762: `workspace_root` is the *resolved* root, not the process
-/// cwd — running `ops about` from a member crate must still find each
-/// member's manifest.
+/// `workspace_root` is the *resolved* root, not the process cwd — running
+/// `ops about` from a member crate must still find each member's manifest.
 fn build_unit(
     member: &str,
     workspace_root: &Path,
@@ -195,11 +194,10 @@ fn build_unit(
         description,
         version_inherited,
     } = read_crate_metadata(&crate_toml);
-    // PERF-3 / TASK-1569: canonical `Cargo.toml` paths are cached on
-    // `LoadedManifest` so the N-syscall fan-out happens at most once per
-    // workspace, not once per provide() invocation. ERR-2 / TASK-1253: cargo
-    // metadata stores `manifest_path` as a canonicalised absolute path, so the
-    // lookup keys must match.
+    // Canonical `Cargo.toml` paths are cached on `LoadedManifest` so the
+    // N-syscall fan-out happens at most once per workspace, not once per
+    // provide() invocation. Cargo metadata stores `manifest_path` as a
+    // canonicalised absolute path, so the lookup keys must match.
     let canonical_manifest_path = canonical_manifests.get(member).cloned().unwrap_or_else(|| {
         std::fs::canonicalize(&crate_toml).unwrap_or_else(|_| crate_toml.clone())
     });
@@ -244,11 +242,11 @@ fn resolve_dep_count(
         );
         return None;
     }
-    // PERF-3 / TASK-1570: borrow the canonical path as `&str` so the HashMap
-    // lookup costs no allocation (`HashMap<String, _>` borrows via
-    // `Borrow<str>`). A non-UTF-8 canonical path skips the lookup with a debug
-    // breadcrumb rather than collapsing through `to_string_lossy` and silently
-    // keying on a U+FFFD corrupted name (sister-policy to TASK-0946).
+    // Borrow the canonical path as `&str` so the HashMap lookup costs no
+    // allocation (`HashMap<String, _>` borrows via `Borrow<str>`). A non-UTF-8
+    // canonical path skips the lookup with a debug breadcrumb rather than
+    // collapsing through `to_string_lossy` and silently keying on a U+FFFD
+    // corrupted name.
     let Some(key) = canonical_manifest_path.to_str() else {
         tracing::debug!(
             member,
@@ -274,21 +272,20 @@ fn resolve_dep_count(
 /// reads are silent (an absent member manifest is expected during workspace
 /// globbing); other read errors are logged at `debug` and parse errors at
 /// `warn` so a malformed Cargo.toml shows up in logs instead of silently
-/// producing an empty unit (TASK-0377).
+/// producing an empty unit.
 ///
-/// DUP-3 (TASK-0806): delegates to `ops_cargo_toml::CargoToml::parse` so this
-/// extension does not maintain a second TOML parser for the same manifest
-/// shape.
+/// Delegates to `ops_cargo_toml::CargoToml::parse` so this extension does not
+/// maintain a second TOML parser for the same manifest shape.
 pub fn read_crate_metadata(crate_toml_path: &Path) -> CrateMetadata {
-    // SEC-33 (TASK-0926): cap the per-crate manifest read; this fans out across
-    // every workspace member declared by the root Cargo.toml.
+    // Cap the per-crate manifest read; this fans out across every workspace
+    // member declared by the root Cargo.toml.
     let content = match ops_core::text::read_capped_to_string(crate_toml_path) {
         Ok(c) => c,
         Err(e) => {
             if e.kind() != std::io::ErrorKind::NotFound {
-                // ERR-7 (TASK-0977): Debug-format path/error so an
-                // attacker-controlled workspace member name with embedded
-                // newlines / ANSI escapes cannot forge log records.
+                // Debug-format path/error so an attacker-controlled
+                // workspace member name with embedded newlines / ANSI
+                // escapes cannot forge log records.
                 tracing::debug!(
                     path = ?crate_toml_path.display(),
                     error = ?e,
@@ -302,9 +299,9 @@ pub fn read_crate_metadata(crate_toml_path: &Path) -> CrateMetadata {
     let parsed = match CargoToml::parse(&content) {
         Ok(p) => p,
         Err(e) => {
-            // ERR-7 (TASK-0977): Debug-format path/error so an
-            // attacker-controlled workspace member name with embedded
-            // newlines / ANSI escapes cannot forge log records.
+            // Debug-format path/error so an attacker-controlled workspace
+            // member name with embedded newlines / ANSI escapes cannot
+            // forge log records.
             tracing::warn!(
                 path = ?crate_toml_path.display(),
                 error = ?e,
@@ -340,13 +337,12 @@ pub fn read_crate_metadata(crate_toml_path: &Path) -> CrateMetadata {
 /// Resolve display name for a member by reading its Cargo.toml, falling back
 /// to the capitalized last path segment.
 ///
-/// SEC-14 / TASK-1246: rejects absolute and `..`-traversal member entries
-/// before any join and falls back to the formatted member name. `Path::join`
-/// discards `workspace_root` when `member` is absolute and walks parents on
-/// `..`, which would otherwise drive `read_capped_to_string` and tracing
-/// breadcrumbs at any filesystem location. DUP-1 / TASK-2160: the
-/// reject-and-warn wrapper is shared with `resolved_workspace_members` and
-/// the units provider.
+/// Rejects absolute and `..`-traversal member entries before any join and
+/// falls back to the formatted member name. `Path::join` discards
+/// `workspace_root` when `member` is absolute and walks parents on `..`,
+/// which would otherwise drive `read_capped_to_string` and tracing
+/// breadcrumbs at any filesystem location. The reject-and-warn wrapper is
+/// shared with `resolved_workspace_members` and the units provider.
 pub fn resolve_crate_display_name(member: &str, workspace_root: &Path) -> String {
     if !member_path_is_workspace_safe_or_warn(member, "display-name resolver") {
         return format_unit_name(member);
@@ -362,8 +358,8 @@ mod tests {
     use super::*;
     use ops_core::test_utils::capture_tracing;
 
-    /// ERR-7 (TASK-0977) / TEST-25 (TASK-1773): `read_crate_metadata`'s
-    /// breadcrumbs must Debug-format the manifest path so an
+    /// `read_crate_metadata`'s breadcrumbs must Debug-format the manifest
+    /// path so an
     /// attacker-controlled workspace member name with embedded newlines /
     /// ANSI escapes cannot forge log records.
     ///
@@ -423,16 +419,15 @@ mod tests {
         );
     }
 
-    /// DUP-1 / TASK-2160 AC #3: a rejected `[workspace].members` entry
-    /// containing an embedded newline and an ANSI escape must not forge or
-    /// reformat the shared SEC-14 rejection breadcrumb — it is precisely the
-    /// hostile-shaped entries that reach it. The member value is
-    /// Debug-formatted (`member = ?member`) in the shared
-    /// `member_path_is_workspace_safe_or_warn` helper, mirroring the ERR-7 /
-    /// TASK-0941 / TASK-0977 policy `crate_metadata_breadcrumbs_debug_escape_
-    /// control_characters` pins for the sibling breadcrumbs: swapping `?` for
-    /// `%` makes this fail, because the raw newline splits the log record and
-    /// the raw ESC reaches the terminal.
+    /// A rejected `[workspace].members` entry containing an embedded newline
+    /// and an ANSI escape must not forge or reformat the shared rejection
+    /// breadcrumb — it is precisely the hostile-shaped entries that reach
+    /// it. The member value is Debug-formatted (`member = ?member`) in the
+    /// shared `member_path_is_workspace_safe_or_warn` helper, mirroring the
+    /// Debug-format policy `crate_metadata_breadcrumbs_debug_escape_
+    /// control_characters` pins for the sibling breadcrumbs: swapping `?`
+    /// for `%` makes this fail, because the raw newline splits the log
+    /// record and the raw ESC reaches the terminal.
     #[test]
     fn member_safety_breadcrumbs_debug_escape_control_characters() {
         let dir = tempfile::tempdir().expect("tempdir");
@@ -440,7 +435,7 @@ mod tests {
 
         let (logs, ()) = capture_tracing(tracing::Level::WARN, || {
             // Both units-provider entry points reject the member
-            // independently (defence in depth, AC #4), so both warn.
+            // independently (defence in depth), so both warn.
             assert!(!member_is_unit_safe(hostile));
             let _ = resolve_crate_display_name(hostile, dir.path());
         });
@@ -483,8 +478,8 @@ mod tests {
         assert_eq!(meta.description.as_deref(), Some("a foo"));
     }
 
-    /// TASK-2282: `version.workspace = true` is flagged so `build_unit`
-    /// can resolve it from `[workspace.package]`, and the unit carries its
+    /// `version.workspace = true` is flagged so `build_unit` can resolve it
+    /// from `[workspace.package]`, and the unit carries its
     /// package name for `ops about crates --json`.
     #[test]
     fn build_unit_resolves_inherited_version_and_package_name() {
@@ -515,8 +510,8 @@ mod tests {
         assert!(unit.targets.is_empty(), "no metadata → no targets");
     }
 
-    /// TASK-2299: targets come from the cargo metadata document, keyed by
-    /// the member's canonical manifest path, sorted, with kind + name only
+    /// Targets come from the cargo metadata document, keyed by the member's
+    /// canonical manifest path, sorted, with kind + name only
     /// (no checkout-dependent `src_path`).
     #[test]
     fn build_unit_attaches_targets_from_cargo_metadata() {
@@ -575,8 +570,8 @@ mod tests {
         assert!(meta.description.is_none());
     }
 
-    /// TASK-0377 AC#2: a malformed Cargo.toml returns an empty `CrateMetadata`
-    /// and should not crash.
+    /// A malformed Cargo.toml returns an empty `CrateMetadata` and should
+    /// not crash.
     #[test]
     fn read_crate_metadata_malformed_toml() {
         let dir = tempfile::tempdir().unwrap();
@@ -604,9 +599,9 @@ mod tests {
         );
     }
 
-    /// FN-1 / TASK-1784 AC #2: the dep-count resolution is reachable without a
-    /// live `SQLite`. All three branches — hit, missing row, and missing
-    /// package name — are pinned here.
+    /// The dep-count resolution is reachable without a live `SQLite`. All
+    /// three branches — hit, missing row, and missing package name — are
+    /// pinned here.
     #[test]
     fn resolve_dep_count_hits_missing_and_nameless() {
         let mut dep_counts = HashMap::new();
@@ -644,8 +639,8 @@ mod tests {
         );
     }
 
-    /// PERF-3 / TASK-1570: a non-UTF-8 canonical manifest path skips the
-    /// lookup rather than collapsing through `to_string_lossy`.
+    /// A non-UTF-8 canonical manifest path skips the lookup rather than
+    /// collapsing through `to_string_lossy`.
     #[cfg(unix)]
     #[test]
     fn resolve_dep_count_skips_non_utf8_manifest_path() {
@@ -669,16 +664,15 @@ mod tests {
         );
     }
 
-    /// SEC-14 / TASK-1246 AC #3: a workspace whose `[workspace].members`
-    /// list contains absolute (`/abs`) or `..`-traversal (`../escape`)
-    /// entries must produce zero `ProjectUnit`s and not drive any
-    /// per-crate manifest read at the hostile location. We pin the
-    /// behaviour at the units provider boundary — the AC #2 scrub in
-    /// `resolved_workspace_members` plus AC #1 re-validation in
-    /// `provide` together guarantee no `root.join(member)` reaches the
-    /// adversarial path.
+    /// A workspace whose `[workspace].members` list contains absolute
+    /// (`/abs`) or `..`-traversal (`../escape`) entries must produce zero
+    /// `ProjectUnit`s and not drive any per-crate manifest read at the
+    /// hostile location. We pin the behaviour at the units provider
+    /// boundary — the scrub in `resolved_workspace_members` plus the
+    /// re-validation in `provide` together guarantee no `root.join(member)`
+    /// reaches the adversarial path.
     ///
-    /// TEST-19 / TASK-1770: the workspace and the hostile `escape` sibling both
+    /// The workspace and the hostile `escape` sibling both
     /// live inside this test's own tempdir (`tmp/ws` and `tmp/escape`), so
     /// `../escape` from the workspace root still resolves to the planted
     /// manifest while nothing is created — or `remove_dir_all`'d — outside the
@@ -718,9 +712,9 @@ mod tests {
         );
     }
 
-    /// PERF-3 / TASK-1251: with the redundant `Vec<&str>` collect +
-    /// `sort_unstable` removed, traversal order on subsequent `provide()`
-    /// calls must match the ordering invariant declared on
+    /// With the redundant `Vec<&str>` collect + `sort_unstable` removed,
+    /// traversal order on subsequent `provide()` calls must match the
+    /// ordering invariant declared on
     /// `LoadedManifest::resolved_members`. Pin the sorted-stable order so a
     /// future regression that re-introduces a sort (or a refactor that
     /// changes `resolved_workspace_members` order) is caught here.
@@ -765,8 +759,8 @@ mod tests {
             .collect()
     }
 
-    /// ERR-2 / TASK-1253: two workspace members both named `lib` (legal in
-    /// cargo when the parent paths differ) must each resolve to a
+    /// Two workspace members both named `lib` (legal in cargo when the
+    /// parent paths differ) must each resolve to a
     /// `ProjectUnit` keyed by its path rather than colliding on the bare
     /// `package.name`. The provider doesn't fail loudly on a
     /// missing `dep_count` map (`SQLite` is optional in this provider's
@@ -808,9 +802,9 @@ mod tests {
         assert!(paths.contains("b/lib"));
     }
 
-    /// CL-3 / TASK-1762 AC #4: running the providers from a *subdirectory* of a
-    /// glob workspace must produce the same view as running them from the root.
-    /// Every member join and glob expansion keys off the *resolved* workspace
+    /// Running the providers from a *subdirectory* of a glob workspace must
+    /// produce the same view as running them from the root. Every member
+    /// join and glob expansion keys off the *resolved* workspace
     /// root, never `ctx.working_directory`: joining onto the cwd would expand
     /// `crates/*` to nothing from a member crate, silently emptying the units
     /// list, `module_count` and per-crate coverage.

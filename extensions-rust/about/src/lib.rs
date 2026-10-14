@@ -28,7 +28,7 @@
     )
 )]
 
-// API-14 / TASK-2163: the modules below are `pub(crate)`, so the `pub`
+// The modules below are `pub(crate)`, so the `pub`
 // items inside them (e.g. `units::resolve_crate_display_name`,
 // `members::expand_member_glob`) are crate-internal already and reach no
 // external caller. Re-spelling them `pub(crate)` is what
@@ -60,14 +60,14 @@ pub const DATA_PROVIDER_NAME: &str = "project_identity";
 /// shared by the about providers. See [`resolved_workspace_members`].
 pub use members::resolved_workspace_members;
 
-/// Re-exported for sibling Rust-stack extension crates (DUP-3 / TASK-1814):
-/// the shared crate-manifest reader and the SEC-14 / TASK-1246 member-path
-/// guard that protects it, so no sibling maintains a second copy of the
-/// read/parse/log policy or of the absolute-and-`..` rejection. See
+/// Re-exported for sibling Rust-stack extension crates: the shared
+/// crate-manifest reader and the member-path guard that protects it, so no
+/// sibling maintains a second copy of the read/parse/log policy or of the
+/// absolute-and-`..` rejection. See
 /// [`read_crate_metadata`] and [`member_path_is_workspace_safe`].
 pub use members::member_path_is_workspace_safe;
-/// Re-exported for sibling Rust-stack extension crates (DUP-1 / TASK-2251):
-/// the shared reject-and-warn wrapper around [`member_path_is_workspace_safe`],
+/// Re-exported for sibling Rust-stack extension crates: the shared
+/// reject-and-warn wrapper around [`member_path_is_workspace_safe`],
 /// so every surface that drops an unsafe member emits the same breadcrumb
 /// shape (`site` field, Debug-formatted member) instead of its own warn.
 pub use members::member_path_is_workspace_safe_or_warn;
