@@ -269,7 +269,8 @@ fn insert_backlog_section(
 /// are refused rather than run: the flag promises "preview without
 /// executing", and silently writing a task file (and allocating its id)
 /// under it breaks that promise. Actions with their own preview
-/// (`cleanup`, `create-review-tasks`, `wave migrate` — the global flag
+/// (`cleanup`, `create-review-tasks`, `create-coderabbit-tasks`, `wave
+/// migrate` — the global flag
 /// reaches their local field) and read-only actions return `None`.
 ///
 /// Every variant is matched explicitly, so a new mutating action fails to
@@ -294,7 +295,8 @@ const fn unpreviewable_mutation(action: &BacklogAction) -> Option<&'static str> 
         BacklogAction::Commit { .. } => Some("commit"),
         BacklogAction::Search { .. }
         | BacklogAction::Cleanup { .. }
-        | BacklogAction::CreateReviewTasks { .. } => None,
+        | BacklogAction::CreateReviewTasks { .. }
+        | BacklogAction::CreateCoderabbitTasks { .. } => None,
     }
 }
 
@@ -333,6 +335,17 @@ pub fn run_backlog(
     if let BacklogAction::CreateReviewTasks { dry_run } = action {
         return crate::subcommands::run_create_review_tasks(config, dry_run);
     }
+    // create-coderabbit-tasks without --run files a request through the
+    // same store-less engine; with --run it files findings through the store.
+    if let BacklogAction::CreateCoderabbitTasks {
+        crates,
+        run: false,
+        dry_run,
+        ..
+    } = &action
+    {
+        return crate::subcommands::run_create_coderabbit_request(config, crates, *dry_run);
+    }
     let cfg = resolve_backlog_config(cwd, Some(&config.backlog))?;
     let backlog_root = cwd.join(&cfg.backlog_directory);
     let store = Store::open(&backlog_root)?;
@@ -346,6 +359,34 @@ pub fn run_backlog(
         // the repeated call keeps the arm total if that return ever moves.
         BacklogAction::CreateReviewTasks { dry_run } => {
             crate::subcommands::run_create_review_tasks(config, dry_run)
+        }
+        BacklogAction::CreateCoderabbitTasks {
+            crates,
+            run,
+            fresh,
+            use_credits,
+            dry_run,
+        } => {
+            if !run {
+                // Unreachable past the early return above; kept total.
+                return crate::subcommands::run_create_coderabbit_request(config, &crates, dry_run);
+            }
+            let opts = ops_create_coderabbit_tasks::RunOptions {
+                only: &crates,
+                fresh,
+                use_credits,
+                mode: if dry_run {
+                    ops_create_review_tasks::RunMode::DryRun
+                } else {
+                    ops_create_review_tasks::RunMode::Write
+                },
+                program: std::ffi::OsStr::new(ops_create_coderabbit_tasks::CODERABBIT),
+            };
+            let backlog = ops_create_coderabbit_tasks::Backlog {
+                store: &store,
+                cfg: &cfg,
+            };
+            crate::subcommands::run_create_coderabbit_reviews(config, backlog, &opts)
         }
         BacklogAction::Task { action } => run_task_action(&store, &cfg, cwd, action),
         BacklogAction::Search {

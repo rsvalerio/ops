@@ -11,13 +11,8 @@ use std::ops::ControlFlow;
 use std::path::Path;
 
 use ops_backlog::clock::UtcStamp;
-use ops_backlog::model::{Body, FmValue, Frontmatter, TaskDoc};
+use ops_backlog::model::{Body, FmValue, Frontmatter, TaskDoc, render_body};
 use ops_backlog::store::{TaskFileName, walk_task_files};
-
-/// Main-task frontmatter labels, in order.
-const MAIN_LABELS: &[&str] = &["code-review-request", "code-review", "qa"];
-/// Subtask frontmatter labels, in order.
-const SUBTASK_LABELS: &[&str] = &["code-review", "qa"];
 
 /// Ordinal the backlog CLI assigns to a freshly created parent task.
 const MAIN_ORDINAL: u32 = 1_000;
@@ -70,7 +65,7 @@ pub struct NextIds {
 /// (see [`ops_backlog::store::TASK_DIRS`]): one more than the highest `task-<n>` id (dotted
 /// subtask ids share their parent's number, so the integer part alone
 /// determines allocation), and one more than the highest `<n>` in a
-/// `review-request-<date>-<n>` slug for `date`.
+/// `<stem>-<date>-<n>` slug for `date` (`stem` is e.g. `review-request`).
 ///
 /// Deriving both maxima from one listing makes them consistent with each
 /// other by construction — no concurrent writer can land between them — and
@@ -82,8 +77,8 @@ pub struct NextIds {
 /// cannot be read (see [`ops_backlog::store::walk_task_files`]); the error
 /// names the directory. Allocating from a partial listing could hand out a
 /// number or sequence that lives only in the unreadable directory.
-pub fn next_ids(workspace_root: &Path, date: &str) -> anyhow::Result<NextIds> {
-    let prefix = format!("review-request-{date}-");
+pub fn next_ids(workspace_root: &Path, stem: &str, date: &str) -> anyhow::Result<NextIds> {
+    let prefix = format!("{stem}-{date}-");
     let backlog_root = workspace_root.join(".backlog");
     let mut max_number = 0u32;
     let mut max_sequence = 0u32;
@@ -197,17 +192,16 @@ pub fn render_task_file<W: Write>(
     id: &str,
     title: &str,
     stamp: &UtcStamp,
-    subtask_of: Option<(&str, usize)>,
+    content: &TaskContent<'_>,
 ) -> std::io::Result<()> {
-    let (labels, ordinal) = match subtask_of {
-        None => (MAIN_LABELS, MAIN_ORDINAL),
-        Some((_parent_id, index)) => (
-            SUBTASK_LABELS,
-            // Ordinals only order sibling rows, so pinning an absurd `index` at
-            // `u32::MAX` (the sort-last slot) is the correct degraded value —
-            // the same one the `try_from` fallback already picks.
-            SUBTASK_ORDINAL_BASE.saturating_add(u32::try_from(index).unwrap_or(u32::MAX)),
-        ),
+    let ordinal = match content.subtask_of {
+        None => MAIN_ORDINAL,
+        // Ordinals only order sibling rows, so pinning an absurd `index` at
+        // `u32::MAX` (the sort-last slot) is the correct degraded value —
+        // the same one the `try_from` fallback already picks.
+        Some((_parent_id, index)) => {
+            SUBTASK_ORDINAL_BASE.saturating_add(u32::try_from(index).unwrap_or(u32::MAX))
+        }
     };
     let doc = TaskDoc {
         frontmatter: Frontmatter {
@@ -217,12 +211,16 @@ pub fn render_task_file<W: Write>(
             assignees: Vec::new(),
             created_date: format!("{} {}", stamp.date, stamp.minutes),
             updated_date: None,
-            labels: labels.iter().map(|label| (*label).to_string()).collect(),
+            labels: content
+                .labels
+                .iter()
+                .map(|label| (*label).to_string())
+                .collect(),
             dependencies: Vec::new(),
             priority: Some("low".to_string()),
             modified_files: Vec::new(),
             ordinal: Some(ordinal.to_string()),
-            extras: match subtask_of {
+            extras: match content.subtask_of {
                 None => Vec::new(),
                 Some((parent_id, _)) => {
                     vec![(
@@ -232,11 +230,29 @@ pub fn render_task_file<W: Write>(
                 }
             },
         },
-        // Plan tasks carry their content as subtasks; the file ends at the
-        // closing `---` with no body sections.
-        body: Body::default(),
+        // Skill-review tasks carry their content as subtasks and pass an
+        // empty description, so the file ends at the closing `---` with no
+        // body sections; a non-empty one becomes the Description section.
+        body: if content.description.is_empty() {
+            Body::default()
+        } else {
+            Body {
+                raw: render_body(content.description, &[], &[], None, None),
+            }
+        },
     };
     w.write_all(doc.render().as_bytes())
+}
+
+/// What one task file holds beyond its id and title: its place in the set
+/// and the content the request scheme decides.
+pub struct TaskContent<'a> {
+    /// Parent id plus 1-based position for a subtask; `None` for a main task.
+    pub subtask_of: Option<(&'a str, usize)>,
+    /// Frontmatter labels, in order.
+    pub labels: &'a [&'a str],
+    /// Description section text; empty writes no body at all.
+    pub description: &'a str,
 }
 
 /// Zero-padded task id string (`TASK-0042`) for a main-task number.
@@ -293,13 +309,23 @@ mod tests {
     #[test]
     fn next_number_starts_at_one_for_empty_backlog() {
         let dir = scratch_backlog(&[]);
-        assert_eq!(next_ids(dir.path(), ANY_DATE).expect("allocate").number, 1);
+        assert_eq!(
+            next_ids(dir.path(), "review-request", ANY_DATE)
+                .expect("allocate")
+                .number,
+            1
+        );
     }
 
     #[test]
     fn next_number_ignores_dotted_subtask_fraction() {
         let dir = scratch_backlog(&[("tasks", "task-0007.09 - child.md")]);
-        assert_eq!(next_ids(dir.path(), ANY_DATE).expect("allocate").number, 8);
+        assert_eq!(
+            next_ids(dir.path(), "review-request", ANY_DATE)
+                .expect("allocate")
+                .number,
+            8
+        );
     }
 
     /// Id allocation must never reuse a number that lives in `completed`
@@ -314,7 +340,9 @@ mod tests {
             ("archive/completed", "task-0003 - old.md"),
         ]);
         assert_eq!(
-            next_ids(dir.path(), ANY_DATE).expect("allocate").number,
+            next_ids(dir.path(), "review-request", ANY_DATE)
+                .expect("allocate")
+                .number,
             1671
         );
     }
@@ -329,19 +357,26 @@ mod tests {
         // A slugless name still reserves its number: allocation must never
         // hand out an id some file already carries.
         assert_eq!(
-            next_ids(dir.path(), ANY_DATE).expect("allocate").number,
+            next_ids(dir.path(), "review-request", ANY_DATE)
+                .expect("allocate")
+                .number,
             21,
             "sanity: the fixture's highest slugged id is 20"
         );
         let dir = scratch_backlog(&[("tasks", "task-0030.md"), ("tasks", "task-0020 - real.md")]);
-        assert_eq!(next_ids(dir.path(), ANY_DATE).expect("allocate").number, 31);
+        assert_eq!(
+            next_ids(dir.path(), "review-request", ANY_DATE)
+                .expect("allocate")
+                .number,
+            31
+        );
     }
 
     #[test]
     fn daily_sequence_starts_at_one() {
         let dir = scratch_backlog(&[]);
         assert_eq!(
-            next_ids(dir.path(), "2026-08-20")
+            next_ids(dir.path(), "review-request", "2026-08-20")
                 .expect("allocate")
                 .sequence,
             1
@@ -356,7 +391,7 @@ mod tests {
             ("completed", "task-1600 - review-request-2026-08-20-2.md"),
         ]);
         assert_eq!(
-            next_ids(dir.path(), "2026-08-20")
+            next_ids(dir.path(), "review-request", "2026-08-20")
                 .expect("allocate")
                 .sequence,
             3
@@ -374,7 +409,7 @@ mod tests {
             ("tasks", "task-1601 - review-request-2026-08-2-9.md"),
         ]);
         assert_eq!(
-            next_ids(dir.path(), "2026-08-20")
+            next_ids(dir.path(), "review-request", "2026-08-20")
                 .expect("allocate")
                 .sequence,
             1
@@ -385,7 +420,7 @@ mod tests {
     fn daily_sequence_skips_non_numeric_suffix() {
         let dir = scratch_backlog(&[("tasks", "task-1600 - review-request-2026-08-20-notes.md")]);
         assert_eq!(
-            next_ids(dir.path(), "2026-08-20")
+            next_ids(dir.path(), "review-request", "2026-08-20")
                 .expect("allocate")
                 .sequence,
             1
@@ -501,7 +536,11 @@ mod tests {
             "TASK-1671",
             "review-request-2026-08-20-1",
             &stamp,
-            None,
+            &TaskContent {
+                subtask_of: None,
+                labels: &["code-review-request", "code-review", "qa"],
+                description: "",
+            },
         )
         .expect("render");
         let expected = concat!(
@@ -536,7 +575,11 @@ mod tests {
             "TASK-1671.01",
             "REVIEW: Run skill code-review-rust against ops-core",
             &stamp,
-            Some(("TASK-1671", 1)),
+            &TaskContent {
+                subtask_of: Some(("TASK-1671", 1)),
+                labels: &["code-review", "qa"],
+                description: "",
+            },
         )
         .expect("render");
         let expected = concat!(
@@ -585,7 +628,7 @@ mod tests {
             ("tasks", "task-1901 - review-request-2026-08-27-1.md"),
         ]);
         assert_eq!(
-            next_ids(dir.path(), "2026-08-27")
+            next_ids(dir.path(), "review-request", "2026-08-27")
                 .expect("allocate")
                 .sequence,
             2
@@ -600,7 +643,7 @@ mod tests {
             ("tasks", "task-0010 - review-request-2026-08-20-1.md"),
             ("completed", "task-0020 - review-request-2026-08-20-4.md"),
         ]);
-        let ids = next_ids(dir.path(), "2026-08-20").expect("allocate");
+        let ids = next_ids(dir.path(), "review-request", "2026-08-20").expect("allocate");
         assert_eq!(ids.number, 21);
         assert_eq!(ids.sequence, 5);
     }
@@ -613,7 +656,7 @@ mod tests {
     fn next_ids_read_failure_names_the_directory() {
         let dir = scratch_backlog(&[("tasks", "task-0001 - live.md")]);
         std::fs::write(dir.path().join(".backlog/completed"), "not a dir").expect("write file");
-        let err = next_ids(dir.path(), ANY_DATE).expect_err("must fail");
+        let err = next_ids(dir.path(), "review-request", ANY_DATE).expect_err("must fail");
         let rendered = format!("{err:#}");
         assert!(
             rendered.contains("completed"),
@@ -650,7 +693,9 @@ mod tests {
     fn next_number_saturates_at_u32_max() {
         let dir = scratch_backlog(&[("tasks", "task-4294967295 - highest.md")]);
         assert_eq!(
-            next_ids(dir.path(), ANY_DATE).expect("allocate").number,
+            next_ids(dir.path(), "review-request", ANY_DATE)
+                .expect("allocate")
+                .number,
             u32::MAX
         );
     }
@@ -681,7 +726,18 @@ mod tests {
             minutes: "19:02".to_string(),
         };
         let mut buf = Vec::new();
-        render_task_file(&mut buf, "TASK-0001", "ops\ncore", &stamp, None).expect("render");
+        render_task_file(
+            &mut buf,
+            "TASK-0001",
+            "ops\ncore",
+            &stamp,
+            &TaskContent {
+                subtask_of: None,
+                labels: &["code-review-request", "code-review", "qa"],
+                description: "",
+            },
+        )
+        .expect("render");
         let rendered = String::from_utf8(buf).expect("utf8");
         assert!(
             rendered.contains("title: \"ops\\ncore\"\n"),

@@ -1329,6 +1329,7 @@ dependencies = [
  "ops-cargo-update",
  "ops-config-checkers",
  "ops-core",
+ "ops-create-coderabbit-tasks",
  "ops-create-review-tasks",
  "ops-create-review-tasks-rust",
  "ops-deps",
@@ -1551,6 +1552,24 @@ dependencies = [
  "tracing-subscriber",
  "unicode-width",
  "wait-timeout",
+]
+
+[[package]]
+name = "ops-create-coderabbit-tasks"
+version = "0.81.0"
+dependencies = [
+ "anyhow",
+ "hex",
+ "ops-backlog",
+ "ops-core",
+ "ops-create-review-tasks",
+ "ops-extension",
+ "serde",
+ "serde_json",
+ "sha2",
+ "signal-hook",
+ "tempfile",
+ "tracing",
 ]
 
 [[package]]

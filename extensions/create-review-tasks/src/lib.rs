@@ -75,6 +75,37 @@ pub struct ReviewTarget {
     pub path: String,
 }
 
+/// The kind of review request a run files.
+///
+/// It decides the main-task title stem and labels, and how each target's
+/// subtask is titled and described. The task set mechanics — id allocation, the claim re-check, rollback — are shared;
+/// only these strings differ between schemes.
+#[derive(Debug, Clone, Copy)]
+pub struct RequestScheme {
+    /// Main-task title stem; the title is `<stem>-<date>-<n>`, and `<n>`
+    /// counts per stem and day.
+    pub stem: &'static str,
+    /// Main-task frontmatter labels, in order.
+    pub main_labels: &'static [&'static str],
+    /// Subtask frontmatter labels, in order.
+    pub subtask_labels: &'static [&'static str],
+    /// The subtask title for one target, given the provider's `skill`.
+    pub subtask_title: fn(skill: &str, target: &ReviewTarget) -> String,
+    /// The subtask's Description section; empty writes no body.
+    pub subtask_description: fn(target: &ReviewTarget) -> String,
+}
+
+/// The `create-review-tasks` scheme: a `review-request-<date>-<n>` main task
+/// plus one body-less `REVIEW: Run skill <skill> against <target>` subtask
+/// per target.
+pub const SKILL_REVIEW: RequestScheme = RequestScheme {
+    stem: "review-request",
+    main_labels: &["code-review-request", "code-review", "qa"],
+    subtask_labels: &["code-review", "qa"],
+    subtask_title: |skill, target| format!("REVIEW: Run skill {skill} against {}", target.name),
+    subtask_description: |_target| String::new(),
+};
+
 /// Bound on allocation retries when another writer wins the race to a task
 /// filename. Every retry rescans the backlog tree, so the number it picks
 /// strictly advances past the winner; the bound only guards against a
@@ -121,6 +152,35 @@ pub fn run_create_review_tasks(
     run_create_review_tasks_with_clock(registry, workspace_root, out, mode, UtcStamp::now)
 }
 
+/// Which request to file, for which targets, and whether to write it:
+/// grouped so the entry point stays within the argument budget.
+#[derive(Debug, Clone, Copy)]
+pub struct RequestOptions<'a> {
+    /// Write the set, or only report it.
+    pub mode: RunMode,
+    /// The request scheme, e.g. [`SKILL_REVIEW`].
+    pub scheme: &'a RequestScheme,
+    /// Target names to keep, in provider order; empty keeps every target.
+    pub only: &'a [String],
+}
+
+/// [`run_create_review_tasks`] for any [`RequestScheme`], optionally narrowed
+/// to the targets named in [`RequestOptions::only`].
+///
+/// # Errors
+///
+/// As [`run_create_review_tasks`], plus a name in `only` that matches no
+/// provider target (the error lists the known names).
+pub fn run_create_request_tasks(
+    registry: &DataRegistry,
+    workspace_root: &Path,
+    out: &mut dyn Write,
+    request: &RequestOptions<'_>,
+) -> anyhow::Result<()> {
+    let stamp = UtcStamp::now()?;
+    run_create_tasks_at(registry, workspace_root, out, request, &stamp)
+}
+
 /// [`run_create_review_tasks`] against an explicit clock.
 ///
 /// The clock is read first and its failure aborts the run, in both
@@ -137,8 +197,7 @@ fn run_create_review_tasks_with_clock(
     run_create_review_tasks_at(registry, workspace_root, out, mode, &stamp)
 }
 
-/// Clock-injecting core of [`run_create_review_tasks`]; the `stamp` pins the
-/// `created_date` frontmatter and the main-task title date for tests.
+/// [`SKILL_REVIEW`] over every target at a pinned `stamp`.
 fn run_create_review_tasks_at(
     registry: &DataRegistry,
     workspace_root: &Path,
@@ -146,19 +205,36 @@ fn run_create_review_tasks_at(
     mode: RunMode,
     stamp: &UtcStamp,
 ) -> anyhow::Result<()> {
+    let request = RequestOptions {
+        mode,
+        scheme: &SKILL_REVIEW,
+        only: &[],
+    };
+    run_create_tasks_at(registry, workspace_root, out, &request, stamp)
+}
+
+/// Clock-injecting core of [`run_create_request_tasks`]; the `stamp` pins
+/// the `created_date` frontmatter and the main-task title date for tests.
+fn run_create_tasks_at(
+    registry: &DataRegistry,
+    workspace_root: &Path,
+    out: &mut dyn Write,
+    request: &RequestOptions<'_>,
+    stamp: &UtcStamp,
+) -> anyhow::Result<()> {
+    let mode = request.mode;
     backlog::require_backlog_tasks_dir(workspace_root)?;
-    let targets = fetch_review_targets(registry, workspace_root)?;
-    if targets.targets.is_empty() {
-        anyhow::bail!(
-            "review_targets provider returned no targets — nothing to create review tasks for"
-        );
-    }
+    let targets = select_targets(
+        fetch_review_targets(registry, workspace_root)?,
+        request.only,
+    )?;
+    let scheme = request.scheme;
 
     let plan = match mode {
         // A dry run allocates exactly like a real run and stops there, so the
         // ids it reports are the ones the next real run will try to take.
-        RunMode::DryRun => plan_task_set(workspace_root, &targets, stamp)?,
-        RunMode::Write => commit_task_set(workspace_root, &targets, stamp)?,
+        RunMode::DryRun => plan_task_set(workspace_root, &targets, scheme, stamp)?,
+        RunMode::Write => commit_task_set(workspace_root, &targets, scheme, stamp)?,
     };
     // Deferred until the set exists: the operator is never told a task was
     // created that a rollback then removed.
@@ -185,8 +261,47 @@ fn run_create_review_tasks_at(
     Ok(())
 }
 
-/// Query the [`DATA_PROVIDER_NAME`] provider and decode its payload.
-fn fetch_review_targets(
+/// Keep the targets named in `only`, in provider order; an empty `only`
+/// keeps them all.
+///
+/// # Errors
+///
+/// No target is left — the provider returned none, or a name in `only`
+/// matches no target (the error lists the known names).
+pub fn select_targets(
+    mut targets: ReviewTargets,
+    only: &[String],
+) -> anyhow::Result<ReviewTargets> {
+    if targets.targets.is_empty() {
+        anyhow::bail!(
+            "review_targets provider returned no targets — nothing to create review tasks for"
+        );
+    }
+    if only.is_empty() {
+        return Ok(targets);
+    }
+    if let Some(unknown) = only
+        .iter()
+        .find(|name| !targets.targets.iter().any(|target| &target.name == *name))
+    {
+        let known: Vec<&str> = targets.targets.iter().map(|t| t.name.as_str()).collect();
+        anyhow::bail!(
+            "no review target named {unknown:?}; known targets: {}",
+            known.join(", ")
+        );
+    }
+    targets.targets.retain(|target| only.contains(&target.name));
+    Ok(targets)
+}
+
+/// Query the [`DATA_PROVIDER_NAME`] provider, decode its payload and
+/// validate every string in it.
+///
+/// # Errors
+///
+/// No provider is registered, it failed, or its payload does not match
+/// [`ReviewTargets`] or fails validation.
+pub fn fetch_review_targets(
     registry: &DataRegistry,
     workspace_root: &Path,
 ) -> anyhow::Result<ReviewTargets> {
@@ -286,8 +401,10 @@ struct TaskPlan<'a> {
     main_number: u32,
     /// Zero-padded main-task id, e.g. `TASK-0042`.
     main_id: String,
-    /// Main-task title, `review-request-<date>-<n>`.
+    /// Main-task title, `<stem>-<date>-<n>`.
     main_title: String,
+    /// The scheme the set is filed under.
+    scheme: &'a RequestScheme,
     /// Subtasks, index-aligned with the provider's targets.
     subtasks: Vec<PlannedSubtask<'a>>,
 }
@@ -301,6 +418,8 @@ struct PlannedSubtask<'a> {
     id: String,
     /// Subtask title.
     title: String,
+    /// Subtask Description section; empty for none.
+    description: String,
     /// Review target path; report context only, never part of a filename.
     path: &'a str,
 }
@@ -311,12 +430,13 @@ struct PlannedSubtask<'a> {
 fn plan_task_set<'a>(
     workspace_root: &Path,
     targets: &'a ReviewTargets,
+    scheme: &'a RequestScheme,
     stamp: &UtcStamp,
 ) -> anyhow::Result<TaskPlan<'a>> {
     let backlog::NextIds {
         number: main_number,
         sequence,
-    } = backlog::next_ids(workspace_root, &stamp.date)?;
+    } = backlog::next_ids(workspace_root, scheme.stem, &stamp.date)?;
     let subtasks = targets
         .targets
         .iter()
@@ -328,10 +448,8 @@ fn plan_task_set<'a>(
             PlannedSubtask {
                 index,
                 id: backlog::subtask_id(main_number, index),
-                title: format!(
-                    "REVIEW: Run skill {} against {}",
-                    targets.skill, target.name
-                ),
+                title: (scheme.subtask_title)(&targets.skill, target),
+                description: (scheme.subtask_description)(target),
                 path: &target.path,
             }
         })
@@ -339,7 +457,8 @@ fn plan_task_set<'a>(
     let plan = TaskPlan {
         main_number,
         main_id: backlog::main_task_id(main_number),
-        main_title: format!("review-request-{}-{sequence}", stamp.date),
+        main_title: format!("{}-{}-{sequence}", scheme.stem, stamp.date),
+        scheme,
         subtasks,
     };
     Ok(plan)
@@ -361,17 +480,19 @@ fn plan_task_set<'a>(
 fn commit_task_set<'a>(
     workspace_root: &Path,
     targets: &'a ReviewTargets,
+    scheme: &'a RequestScheme,
     stamp: &UtcStamp,
 ) -> anyhow::Result<TaskPlan<'a>> {
     for _ in 0..MAX_ALLOCATION_ATTEMPTS {
-        let plan = plan_task_set(workspace_root, targets, stamp)?;
+        let plan = plan_task_set(workspace_root, targets, scheme, stamp)?;
         if write_task_set(workspace_root, &plan, stamp)? {
             return Ok(plan);
         }
     }
     anyhow::bail!(
-        "gave up allocating a free review-request id after {MAX_ALLOCATION_ATTEMPTS} attempts — \
+        "gave up allocating a free {} id after {MAX_ALLOCATION_ATTEMPTS} attempts — \
          another process is creating tasks in {} concurrently",
+        scheme.stem,
         workspace_root.join(".backlog").join("tasks").display()
     )
 }
@@ -393,7 +514,11 @@ fn write_task_set(
         name: backlog::main_task_file_name(plan.main_number, &plan.main_title),
         id: &plan.main_id,
         title: &plan.main_title,
-        subtask_of: None,
+        content: backlog::TaskContent {
+            subtask_of: None,
+            labels: plan.scheme.main_labels,
+            description: "",
+        },
     };
     if !stage_task_file(&mut staged, &tasks_dir, &main, stamp)? {
         return Ok(false);
@@ -422,7 +547,11 @@ fn write_task_set(
             name: backlog::subtask_file_name(plan.main_number, subtask.index, &subtask.title),
             id: &subtask.id,
             title: &subtask.title,
-            subtask_of: Some((&plan.main_id, subtask.index)),
+            content: backlog::TaskContent {
+                subtask_of: Some((&plan.main_id, subtask.index)),
+                labels: plan.scheme.subtask_labels,
+                description: &subtask.description,
+            },
         };
         if !stage_task_file(&mut staged, &tasks_dir, &file, stamp)? {
             return Ok(false);
@@ -432,8 +561,8 @@ fn write_task_set(
     Ok(true)
 }
 
-/// One task file to create: grouped rather than passed as five
-/// positional parameters.
+/// One task file to create: grouped rather than passed as positional
+/// parameters.
 struct TaskFile<'a> {
     /// Filename inside `.backlog/tasks/`.
     name: String,
@@ -441,8 +570,8 @@ struct TaskFile<'a> {
     id: &'a str,
     /// Task title.
     title: &'a str,
-    /// Parent id plus 1-based position for a subtask; `None` for a main task.
-    subtask_of: Option<(&'a str, usize)>,
+    /// Place in the set, labels and description.
+    content: backlog::TaskContent<'a>,
 }
 
 /// Create and render one task file, registering it with `staged` first so a
@@ -474,7 +603,7 @@ fn stage_task_file(
     // and a flush failure carries the same path-naming context as the write
     // errors above.
     let mut writer = std::io::BufWriter::new(handle);
-    backlog::render_task_file(&mut writer, file.id, file.title, stamp, file.subtask_of)
+    backlog::render_task_file(&mut writer, file.id, file.title, stamp, &file.content)
         .and_then(|()| writer.flush())
         .with_context(|| format!("writing {}", path.display()))?;
     Ok(true)
@@ -930,10 +1059,12 @@ mod tests {
             main_number: 1,
             main_id: "TASK-0001".to_string(),
             main_title: "review-request-2026-08-20-1".to_string(),
+            scheme: &SKILL_REVIEW,
             subtasks: vec![PlannedSubtask {
                 index: 1,
                 id: "TASK-0001.01".to_string(),
                 title: "REVIEW: Run skill code-review-rust against ops-core".to_string(),
+                description: String::new(),
                 path: &targets.targets[0].path,
             }],
         };

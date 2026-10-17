@@ -25,6 +25,7 @@ ops-about = { path = "extensions/about" }
 ops-about-rust = { path = "extensions-rust/about" }
 ops-create-review-tasks = { path = "extensions/create-review-tasks" }
 ops-create-review-tasks-rust = { path = "extensions-rust/create-review-tasks" }
+ops-create-coderabbit-tasks = { path = "extensions/create-coderabbit-tasks" }
 ops-about-go = { path = "extensions-go/about" }
 ops-about-node = { path = "extensions-node/about" }
 ops-about-java = { path = "extensions-java/about" }
@@ -63,6 +64,7 @@ chrono = { version = "0.4", default-features = false, features = ["std"] }
 rusqlite = { version = "0.37", features = ["bundled"] }
 sha2 = "0.10"
 hex = "0.4"
+signal-hook = "0.3"
 tokei = "14.0"
 toml = "1"
 toml_edit = "0.25"

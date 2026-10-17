@@ -1241,6 +1241,330 @@ fn cli_create_review_tasks_without_a_backlog_tree_fails() {
         .stderr(predicate::str::contains(".backlog/tasks"));
 }
 
+// -- `ops backlog create-coderabbit-tasks` (TASK-2634) --
+
+/// A git repository holding one Rust package and an empty backlog tree, on
+/// `main` with a local identity, plus a `bin/` dir holding a stub
+/// `coderabbit` — the stub logs every call to `cr.log` and answers `review`
+/// with `CR_FIXTURE`, after recording what `git status` shows in its cwd.
+#[cfg(unix)]
+fn coderabbit_fixture(review_exit: u8) -> TempDir {
+    use std::os::unix::fs::PermissionsExt as _;
+
+    let dir = temp_dir();
+    let root = dir.path().join("repo");
+    std::fs::create_dir_all(root.join("src")).expect("mkdir src");
+    std::fs::create_dir_all(root.join(".backlog/tasks")).expect("mkdir tasks");
+    std::fs::write(root.join("Cargo.toml"), SOLO_CARGO_TOML).expect("write Cargo.toml");
+    std::fs::write(root.join("src/lib.rs"), "pub fn demo() {}\n").expect("write lib.rs");
+    for args in [
+        ["init", "-q", "-b", "main"].as_slice(),
+        ["config", "user.email", "t@example.com"].as_slice(),
+        ["config", "user.name", "t"].as_slice(),
+        ["config", "commit.gpgsign", "false"].as_slice(),
+        ["add", "."].as_slice(),
+        ["commit", "-q", "-m", "init"].as_slice(),
+    ] {
+        git_in(&root, args);
+    }
+
+    let bin = dir.path().join("bin");
+    std::fs::create_dir_all(&bin).expect("mkdir bin");
+    std::fs::write(
+        dir.path().join("agent.ndjson"),
+        concat!(
+            "{\"type\":\"review_context\",\"reviewType\":\"uncommitted\"}\n",
+            "{\"type\":\"finding\",\"severity\":\"major\",\"fileName\":\"src/lib.rs\",",
+            "\"codegenInstructions\":\"Document the public function.\",\"suggestions\":[],",
+            "\"comment\":\"Public function `demo` has no doc comment.\"}\n",
+            "{\"type\":\"complete\",\"findings\":1}\n",
+        ),
+    )
+    .expect("write fixture");
+    let stub = format!(
+        "#!/bin/sh\n\
+         echo \"$*\" >> '{log}'\n\
+         case \"$1\" in\n\
+         review) git status --porcelain --untracked-files=all >> '{log}'\n\
+         cat '{fixture}'\n\
+         exit {review_exit} ;;\n\
+         *) exit 0 ;;\n\
+         esac\n",
+        log = dir.path().join("cr.log").display(),
+        fixture = dir.path().join("agent.ndjson").display(),
+    );
+    let program = bin.join("coderabbit");
+    std::fs::write(&program, stub).expect("write stub");
+    std::fs::set_permissions(&program, std::fs::Permissions::from_mode(0o755)).expect("chmod");
+    dir
+}
+
+/// `git -C <dir> <args>`, asserting success; returns stdout.
+fn git_in(dir: &Path, args: &[&str]) -> String {
+    let out = std::process::Command::new("git")
+        .arg("-C")
+        .arg(dir)
+        .args(args)
+        .output()
+        .expect("spawn git");
+    assert!(
+        out.status.success(),
+        "git {args:?}: {}",
+        String::from_utf8_lossy(&out.stderr)
+    );
+    String::from_utf8_lossy(&out.stdout).into_owned()
+}
+
+/// `ops` in the fixture repo with the stub `coderabbit` first on `PATH`.
+#[cfg(unix)]
+fn ops_with_stub(dir: &TempDir) -> Command {
+    let path = std::env::var_os("PATH").unwrap_or_default();
+    let mut paths = vec![dir.path().join("bin")];
+    paths.extend(std::env::split_paths(&path));
+    let mut cmd = ops();
+    cmd.current_dir(dir.path().join("repo"))
+        .env("PATH", std::env::join_paths(paths).expect("join PATH"));
+    cmd
+}
+
+/// The main checkout after a run: still on `main`, clean, one worktree, and
+/// no review branch left behind.
+#[cfg(unix)]
+fn assert_main_checkout_untouched(root: &Path) {
+    assert_eq!(git_in(root, &["branch", "--show-current"]).trim(), "main");
+    assert_eq!(git_in(root, &["status", "--porcelain"]), "");
+    assert_eq!(git_in(root, &["worktree", "list"]).lines().count(), 1);
+    assert_eq!(git_in(root, &["branch", "--list", "cr-full-*"]), "");
+}
+
+#[test]
+#[cfg(unix)]
+#[cfg_attr(
+    not(feature = "stack-rust"),
+    ignore = "review_targets is only registered by the rust stack provider"
+)]
+fn cli_create_coderabbit_tasks_run_files_commits_and_cleans_up() {
+    let dir = coderabbit_fixture(0);
+    let root = dir.path().join("repo");
+
+    ops_with_stub(&dir)
+        .args(["backlog", "create-coderabbit-tasks", "--run", "--fresh"])
+        .assert()
+        .success()
+        .stdout(predicate::str::contains(
+            "created TASK-0001 CodeRabbit major: Public function demo has no doc comment.",
+        ))
+        .stdout(predicate::str::contains("Committed 1 task file(s)"))
+        .stdout(predicate::str::contains(
+            "demo: 1 finding(s), 1 new, 0 already filed",
+        ));
+
+    let log = std::fs::read_to_string(dir.path().join("cr.log")).expect("cr.log");
+    assert!(
+        log.starts_with(
+            "auth status\nusage\nreview --agent --uncommitted --include-untracked --dir "
+        ),
+        "{log}"
+    );
+    assert!(log.contains(" --fresh\n"), "{log}");
+    assert!(
+        log.contains("?? src/lib.rs\n") && log.contains("?? Cargo.toml\n"),
+        "every file must be untracked in the review worktree: {log}"
+    );
+    assert_eq!(
+        git_in(&root, &["log", "-1", "--format=%s"]).trim(),
+        "chore(backlog): file CodeRabbit findings for demo"
+    );
+    let committed = git_in(&root, &["show", "--name-only", "--format=", "HEAD"]);
+    assert!(
+        committed.starts_with(".backlog/tasks/task-0001 - "),
+        "{committed}"
+    );
+    let task = std::fs::read_to_string(root.join(committed.trim())).expect("task file");
+    assert!(task.contains("status: Triage\n"), "{task}");
+    assert!(task.contains("  - src/lib.rs\n"), "{task}");
+    assert!(
+        task.contains("dedup_key: 'coderabbit:demo:src/lib.rs:"),
+        "{task}"
+    );
+    assert_main_checkout_untouched(&root);
+
+    // A re-run finds the same finding already filed: no task, no commit.
+    let head = git_in(&root, &["rev-parse", "HEAD"]);
+    ops_with_stub(&dir)
+        .args(["backlog", "create-coderabbit-tasks", "--run"])
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("exists TASK-0001"))
+        .stdout(predicate::str::contains("0 new, 1 already filed"));
+    assert_eq!(git_in(&root, &["rev-parse", "HEAD"]), head);
+    assert_main_checkout_untouched(&root);
+}
+
+#[test]
+#[cfg(unix)]
+#[cfg_attr(
+    not(feature = "stack-rust"),
+    ignore = "review_targets is only registered by the rust stack provider"
+)]
+fn cli_create_coderabbit_tasks_failed_review_still_cleans_up() {
+    let dir = coderabbit_fixture(1);
+    let root = dir.path().join("repo");
+
+    ops_with_stub(&dir)
+        .args(["backlog", "create-coderabbit-tasks", "--run"])
+        .assert()
+        .failure()
+        .stderr(predicate::str::contains("coderabbit review of demo failed"));
+
+    assert_main_checkout_untouched(&root);
+    assert_eq!(
+        std::fs::read_dir(root.join(".backlog/tasks"))
+            .expect("tasks")
+            .count(),
+        0,
+        "a failed review files nothing"
+    );
+}
+
+#[test]
+#[cfg(unix)]
+#[cfg_attr(
+    not(feature = "stack-rust"),
+    ignore = "review_targets is only registered by the rust stack provider"
+)]
+fn cli_create_coderabbit_tasks_unauthenticated_fails_before_any_worktree() {
+    use std::os::unix::fs::PermissionsExt as _;
+
+    let dir = coderabbit_fixture(0);
+    let root = dir.path().join("repo");
+    let stub = dir.path().join("bin/coderabbit");
+    std::fs::write(&stub, "#!/bin/sh\necho 'not logged in' >&2\nexit 1\n").expect("stub");
+    std::fs::set_permissions(&stub, std::fs::Permissions::from_mode(0o755)).expect("chmod");
+
+    ops_with_stub(&dir)
+        .args(["backlog", "create-coderabbit-tasks", "--run"])
+        .assert()
+        .failure()
+        .stderr(predicate::str::contains("coderabbit is not authenticated"))
+        .stderr(predicate::str::contains("not logged in"));
+    assert_main_checkout_untouched(&root);
+}
+
+/// Ctrl-C mid-review: the terminal signals the whole foreground group, so
+/// the stub sends SIGINT to `ops` and exits like an interrupted child. The
+/// run must unwind through the worktree guard instead of dying in place.
+#[test]
+#[cfg(unix)]
+#[cfg_attr(
+    not(feature = "stack-rust"),
+    ignore = "review_targets is only registered by the rust stack provider"
+)]
+fn cli_create_coderabbit_tasks_interrupt_still_cleans_up() {
+    use std::os::unix::fs::PermissionsExt as _;
+
+    let dir = coderabbit_fixture(0);
+    let root = dir.path().join("repo");
+    let stub = dir.path().join("bin/coderabbit");
+    std::fs::write(
+        &stub,
+        "#!/bin/sh\ncase \"$1\" in\nreview) kill -INT $PPID; exit 130 ;;\n*) exit 0 ;;\nesac\n",
+    )
+    .expect("stub");
+    std::fs::set_permissions(&stub, std::fs::Permissions::from_mode(0o755)).expect("chmod");
+
+    ops_with_stub(&dir)
+        .args(["backlog", "create-coderabbit-tasks", "--run"])
+        .assert()
+        .failure()
+        .stderr(predicate::str::contains("interrupted"));
+    assert_main_checkout_untouched(&root);
+}
+
+/// Both spellings of `--dry-run` preview the reviews without a worktree and
+/// without calling coderabbit at all.
+#[test]
+#[cfg(unix)]
+#[cfg_attr(
+    not(feature = "stack-rust"),
+    ignore = "review_targets is only registered by the rust stack provider"
+)]
+fn cli_create_coderabbit_tasks_run_dry_run_calls_nothing() {
+    let dir = coderabbit_fixture(0);
+    let root = dir.path().join("repo");
+    for argv in [
+        ["backlog", "create-coderabbit-tasks", "--run", "--dry-run"].as_slice(),
+        ["--dry-run", "backlog", "create-coderabbit-tasks", "--run"].as_slice(),
+    ] {
+        ops_with_stub(&dir)
+            .args(argv)
+            .assert()
+            .success()
+            .stdout(predicate::str::contains(
+            "would review demo (.) with coderabbit in a throwaway worktree on branch cr-full-demo",
+        ));
+    }
+    assert!(
+        !dir.path().join("cr.log").exists(),
+        "coderabbit must not run"
+    );
+    assert_main_checkout_untouched(&root);
+}
+
+/// Without `--run` the command files the request: a main task plus one
+/// subtask whose body carries the worktree / orphan-branch steps.
+#[test]
+#[cfg_attr(
+    not(feature = "stack-rust"),
+    ignore = "review_targets is only registered by the rust stack provider"
+)]
+fn cli_create_coderabbit_tasks_files_the_review_request() {
+    let dir = temp_dir();
+    std::fs::write(dir.path().join("Cargo.toml"), SOLO_CARGO_TOML).expect("write Cargo.toml");
+    let tasks = dir.path().join(".backlog/tasks");
+    std::fs::create_dir_all(&tasks).expect("create .backlog/tasks");
+
+    ops()
+        .args(["backlog", "create-coderabbit-tasks", "--crate", "demo"])
+        .current_dir(dir.path())
+        .assert()
+        .success()
+        .stdout(predicate::str::contains(
+            "created TASK-0001 coderabbit-review-request-",
+        ))
+        .stdout(predicate::str::contains(
+            "created TASK-0001.01 REVIEW: Run CodeRabbit full review against demo",
+        ));
+
+    let subtask = std::fs::read_dir(&tasks)
+        .expect("read tasks")
+        .map(|e| e.expect("entry").path())
+        .find(|p| p.to_string_lossy().contains("task-0001.01 - "))
+        .expect("subtask file");
+    let body = std::fs::read_to_string(subtask).expect("subtask");
+    assert!(
+        body.contains("git checkout --orphan cr-full-demo"),
+        "{body}"
+    );
+    assert!(body.contains("--uncommitted --include-untracked"), "{body}");
+    assert!(body.contains("  - coderabbit\n"), "{body}");
+
+    ops()
+        .args([
+            "backlog",
+            "create-coderabbit-tasks",
+            "--crate",
+            "nope",
+            "--dry-run",
+        ])
+        .current_dir(dir.path())
+        .assert()
+        .failure()
+        .stderr(predicate::str::contains(
+            "no review target named \"nope\"; known targets: demo",
+        ));
+}
+
 /// `ops` clears every `OPS_*` variable already; `SKIP_OPS_RUN_BEFORE_PUSH`
 /// does not match that prefix, so an ambient bypass in the developer's shell
 /// would turn both exit-code assertions below into vacuous successes.
