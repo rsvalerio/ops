@@ -2,6 +2,25 @@
 All notable changes to this project will be documented in this file. See [conventional commits](https://www.conventionalcommits.org/) for commit guidelines.
 
 - - -
+## [v0.82.0](https://github.com/rsvalerio/ops/compare/68369f32278fd0fe615d383e659a863449364b16..v0.82.0) - 2026-10-17
+#### 🚀 Features
+- (**backlog**) add create-coderabbit-tasks for whole-crate CodeRabbit reviews - ([d4ff7d2](https://github.com/rsvalerio/ops/commit/d4ff7d2dd9cebe6000beea7b890509e024632322)) - Claude, Claude Opus 5.5
+#### 📚 Documentation
+- (**about**) strip rule-ID provenance tags from lib, units and manifest_cache - ([8e3d5a5](https://github.com/rsvalerio/ops/commit/8e3d5a567c4a892592568622ce0d4cb44362bf76)) - [@rsvalerio](https://github.com/rsvalerio)
+- (**about**) strip rule-ID provenance prefixes from item and test docs - ([43e84b3](https://github.com/rsvalerio/ops/commit/43e84b3267ee2fecc15be5372611b1f1f81a3c0b)) - [@rsvalerio](https://github.com/rsvalerio)
+- (**cli**) strip residual provenance tags from comments and test docs - ([f600eb9](https://github.com/rsvalerio/ops/commit/f600eb9a2c00a8aee500fd8a424521418e0713b6)) - [@rsvalerio](https://github.com/rsvalerio)
+- (**config-checkers**) strip rule-ID tag from the line-comment test doc - ([f71ad2f](https://github.com/rsvalerio/ops/commit/f71ad2f95d79263bcae423ee925ae5151279d336)) - [@rsvalerio](https://github.com/rsvalerio)
+- (**hook-common**) strip rule-ID tags from inline comments and tracing messages - ([59e4854](https://github.com/rsvalerio/ops/commit/59e485423d2b3666abc5e940bd9f47c047ad0953)) - [@rsvalerio](https://github.com/rsvalerio)
+#### 🚜 Refactoring
+- (**extensions-rust**) name and document the stderr tail-length constants - ([4250ba5](https://github.com/rsvalerio/ops/commit/4250ba5d65014e454edb5b1b786d3e94c0ce19fb)) - [@rsvalerio](https://github.com/rsvalerio)
+#### ⚙️ Miscellaneous
+- (**backlog**) add TASK-2634 for create-coderabbit-tasks command - ([3582f6c](https://github.com/rsvalerio/ops/commit/3582f6c234350096fe75c394e70c337815247c42)) - [@rsvalerio](https://github.com/rsvalerio)
+- (**backlog**) close TASK-2633 - ([fc2e072](https://github.com/rsvalerio/ops/commit/fc2e072fe9e57e1cfe055113be9b178edc2687b3)) - [@rsvalerio](https://github.com/rsvalerio)
+- (**backlog**) close code-review wave 74 - ([307cb5e](https://github.com/rsvalerio/ops/commit/307cb5e81ee301f57758dfd5b6049596369e4581)) - [@rsvalerio](https://github.com/rsvalerio)
+- (**backlog**) triage code-review tasks into wave 74 - ([68369f3](https://github.com/rsvalerio/ops/commit/68369f32278fd0fe615d383e659a863449364b16)) - [@rsvalerio](https://github.com/rsvalerio)
+
+- - -
+
 ## [v0.81.0](https://github.com/rsvalerio/ops/compare/0352900933a673031ea3ee3d85ce55a81b55ea4a..v0.81.0) - 2026-10-11
 #### 🚀 Features
 - (**ops-tfplan**) derive Debug and Clone for ClassifiedChange - ([8baf98b](https://github.com/rsvalerio/ops/commit/8baf98b771da6935e20cc25603d376cc9dbe53f0)) - [@rsvalerio](https://github.com/rsvalerio)
