@@ -92,6 +92,7 @@ vulnerabilities as described in [SECURITY.md](SECURITY.md).
 - `crates/cli/src/sec_cmd.rs`: Trivy-based security scans (`ops sec`).
 - `crates/cli/src/lock_cmd.rs`: `ops lock` — named `flock` locks under the common git dir, shared by all worktrees.
 - `extensions-rust/foundation/`: the Rust foundation templates and the `ops init --rust` scaffold and drift check — see `docs/foundation.md`.
+- `extensions/create-coderabbit-tasks/`: `ops backlog create-coderabbit-tasks` — whole-crate CodeRabbit reviews in throwaway orphan worktrees, findings filed as Triage tasks — see `docs/backlog.md`.
 - `extensions/`: generic extensions.
 - `extensions-<stack>/`: Each stack have its own code folder, e.g. extensions-java.
 

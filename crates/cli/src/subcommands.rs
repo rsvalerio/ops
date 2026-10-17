@@ -144,6 +144,49 @@ pub fn run_create_review_tasks(config: &Config, dry_run: bool) -> anyhow::Result
     ops_create_review_tasks::run_create_review_tasks(&registry, &cwd, &mut std::io::stdout(), mode)
 }
 
+/// Run `ops backlog create-coderabbit-tasks` without `--run`: file a
+/// `coderabbit-review-request` task set for the selected review targets.
+pub fn run_create_coderabbit_request(
+    config: &Config,
+    crates: &[String],
+    dry_run: bool,
+) -> anyhow::Result<()> {
+    let (cwd, registry) = cli_data_context(config)?;
+    let mode = if dry_run {
+        ops_create_review_tasks::RunMode::DryRun
+    } else {
+        ops_create_review_tasks::RunMode::Write
+    };
+    let request = ops_create_review_tasks::RequestOptions {
+        mode,
+        scheme: &ops_create_coderabbit_tasks::CODERABBIT_REQUEST,
+        only: crates,
+    };
+    ops_create_review_tasks::run_create_request_tasks(
+        &registry,
+        &cwd,
+        &mut std::io::stdout(),
+        &request,
+    )
+}
+
+/// Run `ops backlog create-coderabbit-tasks --run`: review each selected
+/// target with CodeRabbit and file its findings in `backlog`.
+pub fn run_create_coderabbit_reviews(
+    config: &Config,
+    backlog: ops_create_coderabbit_tasks::Backlog<'_>,
+    opts: &ops_create_coderabbit_tasks::RunOptions<'_>,
+) -> anyhow::Result<()> {
+    let (cwd, registry) = cli_data_context(config)?;
+    ops_create_coderabbit_tasks::run_coderabbit_reviews(
+        &registry,
+        backlog,
+        &cwd,
+        opts,
+        &mut std::io::stdout(),
+    )
+}
+
 /// Dispatch `ops theme list` / `ops theme select`.
 pub fn run_theme(config: &Config, action: ThemeAction) -> anyhow::Result<()> {
     match action {

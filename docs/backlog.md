@@ -23,6 +23,8 @@ ops backlog search [query] [flags]
 ops backlog wave list|members|overlap|create|claim|park|migrate [flags]
 ops backlog commit <taskId>... -m <msg>        # commit exactly these tasks' files
 ops backlog cleanup [flags]
+ops backlog create-review-tasks [--dry-run]
+ops backlog create-coderabbit-tasks [--crate <name>...] [--run [--fresh] [--use-credits]] [--dry-run]
 ```
 
 ### `init`
@@ -277,6 +279,53 @@ between leaves both names on one file, and a retry reports the leftover
 destination as a collision to resolve by hand. A late collision, or any
 other per-file failure, aborts the run with the earlier moves kept — there
 is no rollback. Git staging stays with the caller.
+
+### `create-coderabbit-tasks`
+
+| Flag | Meaning |
+|------|---------|
+| `--crate <name>` | Only these review targets (comma-separated or repeatable); default every target |
+| `--run` | Run the reviews now and file their findings, instead of filing review-request tasks |
+| `--fresh`, `--use-credits` | Passed to `coderabbit review` (need `--run`) |
+| `--dry-run` | Preview without writing; with `--run`, never creates a worktree or calls coderabbit |
+
+A CodeRabbit review of each crate's **whole** content, not a diff. The
+CodeRabbit CLI only reviews changes (`--dir` narrows a review to the changes
+inside a folder), so each crate is made to look new: a throwaway worktree of
+`HEAD` switched to an orphan branch `cr-full-<crate>` whose only commit is
+empty, leaving every file untracked. Review targets come from the same
+`review_targets` provider as `create-review-tasks` (Cargo workspace members
+for Rust).
+
+Without `--run` it files a `coderabbit-review-request-<date>-<n>` main task
+plus one `REVIEW: Run CodeRabbit full review against <crate>` subtask per
+target, each body spelling out the steps below for an agent or a person.
+
+With `--run`, after checking that the index holds no staged changes and that
+`coderabbit auth status` and `coderabbit usage` succeed — all before any
+worktree exists — each crate in turn:
+
+1. `git worktree add --detach <tmp>/ops-cr-<crate> HEAD`, then
+   `checkout --orphan cr-full-<crate>`, `rm -r --cached .` and an empty
+   commit;
+2. `coderabbit review --agent --uncommitted --include-untracked --dir <crate>`
+   (plus `-c AGENTS.md` when the workspace has one) in that worktree;
+3. files one Triage task per `finding` event in the **main checkout's**
+   backlog — labels `coderabbit`, `code-review`, `coderabbit-<severity>`;
+   `modified_files` the finding's file; body File / What / Why it matters /
+   Suggested fix — keyed with `--unless-exists`-style
+   `coderabbit:<crate>:<file>:<hash>`, so a re-run files no duplicates;
+4. commits the new task files as `chore(backlog): file CodeRabbit findings
+   for <crate>` (via `backlog commit`);
+5. removes the worktree and deletes the branch — also when a step fails or
+   on Ctrl-C (the first SIGINT/SIGTERM is caught so the run unwinds; a second
+   one kills it). A branch left by a killed run is refused with the commands
+   that remove it.
+
+Only committed content is reviewed: the worktree is checked out from `HEAD`.
+The `--agent` stream is parsed per its documented shape (`type` plus
+`severity`, `fileName`, `codegenInstructions`, `suggestions`, `comment`);
+an `error` event or a stream without `complete` fails the crate.
 
 ---
 

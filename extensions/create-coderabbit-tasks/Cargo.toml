@@ -1,0 +1,25 @@
+[package]
+name = "ops-create-coderabbit-tasks"
+publish = false
+version.workspace = true
+edition = "2024"
+license.workspace = true
+
+[dependencies]
+ops-backlog = { workspace = true }
+ops-core = { workspace = true }
+ops-create-review-tasks = { workspace = true }
+ops-extension = { workspace = true }
+anyhow = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+sha2 = { workspace = true }
+hex = { workspace = true }
+# Ctrl-C during a review must still reach the worktree guard's `Drop`: a
+# flag handler keeps the process alive while the coderabbit child exits.
+signal-hook = { workspace = true }
+tempfile = { workspace = true }
+tracing = { workspace = true }
+
+[lints]
+workspace = true

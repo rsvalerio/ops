@@ -29,6 +29,7 @@ stack ships. How to define your own is in [Configuration](configuration.md).
 | `ops backlog wave list\|members\|migrate` | Inspect code-review waves and their member tasks |
 | `ops backlog cleanup` | Move terminal-status tasks older than a cutoff to `completed/` (`--older-than <days>`, `--dry-run` to preview) |
 | `ops backlog create-review-tasks` | Create `review-request-<date>-<n>` backlog tasks with one review subtask per workspace target (`--dry-run` to preview) |
+| `ops backlog create-coderabbit-tasks` | Create `coderabbit-review-request-<date>-<n>` tasks for a whole-crate CodeRabbit review per target; `--run` runs the reviews in throwaway orphan worktrees and files each finding as a Triage task (`--crate`, `--dry-run`) |
 
 Global flags: `--dry-run` (preview the resolved plan — never executes: `run-before-commit` /
 `run-before-push` print their plan, and backlog actions that cannot preview — `backlog init`,

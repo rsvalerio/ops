@@ -109,7 +109,7 @@ pub fn branch_exists(dir: &Path, name: &str) -> anyhow::Result<bool> {
 
 /// Scratch-repository helpers shared by the git-backed command tests.
 #[cfg(test)]
-pub mod test_support {
+pub(crate) mod test_support {
     use std::path::Path;
     use std::process::Command;
 
