@@ -14,7 +14,7 @@ into the CLI at `crates/cli/src/backlog_cmd.rs`.
 ## Commands
 
 ```
-ops backlog init [--backlog.md]               # bootstrap config + tasks tree
+ops backlog init [--backlog-md]               # bootstrap config + tasks tree
 ops backlog task create "<title>" [flags]     # prints `Created TASK-NNNN`
 ops backlog task edit <taskId> [flags]        # prints `Updated TASK-NNNN`
 ops backlog task list [flags]
@@ -35,7 +35,7 @@ destructive — no backlog.md init-wizard parity.
 
 | Flag | Meaning |
 |------|---------|
-| `--backlog.md` | Write `backlog.config.yml` instead of the `.ops.toml` section — for workspaces where the npm `backlog` CLI also reads the config |
+| `--backlog-md` | Write `backlog.config.yml` instead of the `.ops.toml` section — for workspaces where the npm `backlog` CLI also reads the config |
 
 - Default (no flag): insert a `[backlog]` section (see [Config](#config))
   with the sane defaults into `.ops.toml` when the section is absent —
@@ -45,7 +45,7 @@ destructive — no backlog.md init-wizard parity.
   keeps ownership: no section is written beside it, because the section
   would win at resolve time and its defaults would shadow the yml's
   values.
-- `--backlog.md`: write `backlog.config.yml` — exactly the five-key subset
+- `--backlog-md`: write `backlog.config.yml` — exactly the five-key subset
   above with the sane defaults — when absent; `.ops.toml` is never touched.
 - Then create `<backlog_directory>/tasks/` under the config that now
   applies. Every skipped step says so (`already exists, left unchanged` /

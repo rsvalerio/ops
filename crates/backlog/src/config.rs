@@ -136,7 +136,7 @@ impl BacklogConfig {
 /// Write `<dir>/backlog.config.yml` with `cfg`'s five keys.
 ///
 /// Refuses to touch an existing file (the error names it) — the
-/// `ops backlog init --backlog.md` path. Never destructive, matching every
+/// `ops backlog init --backlog-md` path. Never destructive, matching every
 /// other init step: the name is claimed with a no-clobber atomic link, so a
 /// concurrent creator can never be silently replaced by this write.
 ///
