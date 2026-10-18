@@ -1943,20 +1943,20 @@ fn cli_backlog_init_bootstraps_then_task_create_works() {
     );
 }
 
-/// `ops backlog init --backlog.md` writes `backlog.config.yml` (the
+/// `ops backlog init --backlog-md` writes `backlog.config.yml` (the
 /// five-key subset) instead of `.ops.toml` — for workspaces where the npm
 /// backlog CLI also reads the config.
 #[test]
 fn cli_backlog_init_backlog_md_writes_the_yml() {
     let dir = temp_dir();
 
-    ops_in(dir.path(), &["backlog", "init", "--backlog.md"])
+    ops_in(dir.path(), &["backlog", "init", "--backlog-md"])
         .success()
         .stdout(predicate::str::contains("Created backlog.config.yml"))
         .stdout(predicate::str::contains("Created .backlog/tasks/"));
     assert!(
         !dir.path().join(".ops.toml").exists(),
-        "--backlog.md must not create .ops.toml"
+        "--backlog-md must not create .ops.toml"
     );
 
     let yml = std::fs::read_to_string(dir.path().join("backlog.config.yml")).expect("read yml");

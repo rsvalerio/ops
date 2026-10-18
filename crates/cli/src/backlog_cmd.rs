@@ -97,7 +97,7 @@ pub fn run_backlog_init_to(
     ensure_tasks_tree_to(cwd, out)
 }
 
-/// The config half of init. `--backlog.md`: write `backlog.config.yml`
+/// The config half of init. `--backlog-md`: write `backlog.config.yml`
 /// (the five-key subset ops honors) when absent; `.ops.toml` is untouched.
 /// Without the flag: insert a `[backlog]` section with the sane defaults
 /// into `.ops.toml` — but only when the backlog is not already configured
@@ -824,7 +824,7 @@ mod tests {
         );
     }
 
-    /// `--backlog.md` writes the yml instead — `.ops.toml` is never created —
+    /// `--backlog-md` writes the yml instead — `.ops.toml` is never created —
     /// and the file carries exactly the five-key subset.
     #[test]
     fn backlog_md_writes_the_yml_and_never_touches_ops_toml() {
@@ -835,7 +835,7 @@ mod tests {
         assert!(text.contains("Created .backlog/tasks/"), "got: {text}");
         assert!(
             !root.join(".ops.toml").exists(),
-            "--backlog.md must not create .ops.toml"
+            "--backlog-md must not create .ops.toml"
         );
         let yml = std::fs::read_to_string(root.join("backlog.config.yml")).expect("read");
         assert_eq!(
