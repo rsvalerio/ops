@@ -2,6 +2,16 @@
 All notable changes to this project will be documented in this file. See [conventional commits](https://www.conventionalcommits.org/) for commit guidelines.
 
 - - -
+## [v0.83.0](https://github.com/rsvalerio/ops/compare/1451af5c3c4413c0d7c7ca6aef4adc0c4206ed7f..v0.83.0) - 2026-10-18
+#### 🚀 Features
+- (**about**) enrich codebase regions and totals from rust-loc - ([c9df78d](https://github.com/rsvalerio/ops/commit/c9df78d554cca102a58b72ccbcea961d76f3dfad)) - [@rsvalerio](https://github.com/rsvalerio)
+- (**core**) render production/test/example split on the about card - ([1451af5](https://github.com/rsvalerio/ops/commit/1451af5c3c4413c0d7c7ca6aef4adc0c4206ed7f)) - [@rsvalerio](https://github.com/rsvalerio)
+#### 📚 Documentation
+- (**about**) document rust-loc sources for loc and file_count - ([5bcce29](https://github.com/rsvalerio/ops/commit/5bcce2911db5ea4a8f04bf2a8a9f1f6f2165a933)) - [@rsvalerio](https://github.com/rsvalerio)
+- (**about**) describe the card's rust-loc codebase split - ([61e01fb](https://github.com/rsvalerio/ops/commit/61e01fb68dbeddda73c9b9d2af5f29039de67795)) - [@rsvalerio](https://github.com/rsvalerio)
+
+- - -
+
 ## [v0.82.0](https://github.com/rsvalerio/ops/compare/68369f32278fd0fe615d383e659a863449364b16..v0.82.0) - 2026-10-17
 #### 🚀 Features
 - (**backlog**) add create-coderabbit-tasks for whole-crate CodeRabbit reviews - ([d4ff7d2](https://github.com/rsvalerio/ops/commit/d4ff7d2dd9cebe6000beea7b890509e024632322)) - Claude, Claude Opus 5.5
