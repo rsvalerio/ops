@@ -151,7 +151,7 @@ pub fn run_about(
     if identity.loc.is_none()
         || identity.dependency_count.is_none()
         || identity.coverage_percent.is_none()
-        || identity.languages.is_empty()
+        || identity.regions.is_empty()
     {
         enrich_from_db(&ctx, &mut identity);
     }
@@ -170,7 +170,7 @@ fn warm_generic_providers(
     // Sqlite/tokei warm-up failures are warn-logged, like the coverage
     // branch below, so a real provider error (permissions, disk full) is
     // not silently rendered as zeros.
-    crate::providers::warm_providers(ctx, data_registry, &["sqlite", "tokei"], "main");
+    crate::providers::warm_providers(ctx, data_registry, &["sqlite", "tokei", "rust-loc"], "main");
     if refresh {
         match ctx.get_or_provide("coverage", data_registry) {
             Ok(_) | Err(DataProviderError::NotFound(_)) => {}
@@ -199,12 +199,12 @@ fn resolve_identity(
 
 /// Enrich identity with LOC/file count from `SQLite` if available.
 ///
-/// Each of the five underlying queries acquires `db.lock()` independently,
+/// Each of the six underlying queries acquires `db.lock()` independently,
 /// so a concurrent ingestion that runs between samples can produce an
 /// identity whose `loc`, `file_count`, `dependency_count`,
-/// `coverage_percent`, and `languages` describe different snapshots. This is
+/// `coverage_percent`, and `regions` describe different snapshots. This is
 /// accepted as a render-time visual artefact, as in
-/// `units::enrich_from_db`: holding a single lock across all five queries
+/// `units::enrich_from_db`: holding a single lock across all six queries
 /// would require the helper layer to take an already-held `&Connection`,
 /// and the about card re-renders on every invocation, so a stale frame is
 /// self-correcting.
@@ -213,6 +213,36 @@ fn enrich_from_db(ctx: &ops_extension::Context, identity: &mut ProjectIdentity) 
     let Some(db) = ops_sqlite::get_db(ctx) else {
         return;
     };
+
+    // The Rust region split is the card's codebase breakdown, and when it
+    // exists it also supplies the totals: tokei counts every language while
+    // the split counts only `.rs` code, so an all-language total must not
+    // sit above a `.rs`-only split. Region-derived `loc`/`file_count`
+    // therefore override whatever the provider or the tokei queries below
+    // would set (the `is_none()` guards below are what keep the tokei
+    // fills skipped). The file count is the distinct-file figure —
+    // per-region `files` overlap, so summing them would double-count a file
+    // holding both production code and a `#[cfg(test)]` block.
+    if identity.regions.is_empty() {
+        match ops_sqlite::sql::query_rust_loc_summary(db) {
+            Ok(regions) if !regions.is_empty() => {
+                identity.loc = Some(regions.iter().map(|r| r.code).sum());
+                identity.regions = regions
+                    .iter()
+                    .map(|r| {
+                        ops_core::project_identity::RegionStat::new(&r.region, r.files, r.code)
+                    })
+                    .collect();
+                match ops_sqlite::sql::query_rust_loc_file_count(db) {
+                    Ok(files) if files > 0 => identity.file_count = Some(files),
+                    Ok(_) => {}
+                    Err(e) => tracing::warn!(error = ?e, "about: query_rust_loc_file_count failed"),
+                }
+            }
+            Ok(_) => {}
+            Err(e) => tracing::warn!(error = ?e, "about: query_rust_loc_summary failed"),
+        }
+    }
 
     if identity.loc.is_none() {
         match ops_sqlite::sql::query_project_loc(db) {
@@ -244,12 +274,9 @@ fn enrich_from_db(ctx: &ops_extension::Context, identity: &mut ProjectIdentity) 
             Err(e) => tracing::warn!(error = ?e, "about: query_project_coverage failed"),
         }
     }
-    if identity.languages.is_empty() {
-        match ops_sqlite::sql::query_project_languages(db) {
-            Ok(langs) => identity.languages = langs,
-            Err(e) => tracing::warn!(error = ?e, "about: query_project_languages failed"),
-        }
-    }
+    // `languages` is deliberately not enriched: the card no longer renders
+    // a language mix, and the `about code` page reads
+    // `query_project_languages` itself.
 }
 
 #[cfg(not(feature = "sqlite"))]
@@ -464,6 +491,7 @@ mod tests {
         assert!(identity.dependency_count.is_none());
         assert!(identity.coverage_percent.is_none());
         assert!(identity.languages.is_empty());
+        assert!(identity.regions.is_empty());
     }
 
     #[cfg(feature = "sqlite")]
@@ -501,8 +529,10 @@ mod tests {
         identity.languages = vec![ops_core::project_identity::LanguageStat::new(
             "Rust", 100, 10, 100.0, 100.0,
         )];
+        identity.regions = vec![ops_core::project_identity::RegionStat::new("main", 10, 100)];
 
         let lang_count_before = identity.languages.len();
+        let region_count_before = identity.regions.len();
 
         enrich_from_db(&ctx, &mut identity);
 
@@ -511,6 +541,53 @@ mod tests {
         assert_eq!(identity.dependency_count, Some(5));
         assert_eq!(identity.coverage_percent, Some(85.0));
         assert_eq!(identity.languages.len(), lang_count_before);
+        assert_eq!(identity.regions.len(), region_count_before);
+    }
+
+    /// A populated `rust_loc_summary` view supplies the region split and
+    /// overrides `loc`/`file_count` — tokei's all-language totals must not
+    /// sit above a `.rs`-only split. The file count is the distinct-file
+    /// figure (3 files), not the sum of per-region rows (4).
+    #[cfg(feature = "sqlite")]
+    #[test]
+    fn enrich_from_db_regions_override_loc_and_file_count() {
+        let db = ops_sqlite::Sqlite::open_in_memory().expect("open in-memory db");
+        ops_sqlite::init_schema(&db).expect("init_schema");
+        {
+            let conn = db.lock().expect("lock");
+            conn.execute_batch(
+                "CREATE TABLE rust_loc_files (file VARCHAR, region VARCHAR, code BIGINT, \
+                 docs BIGINT, comments BIGINT, blanks BIGINT, lines BIGINT); \
+                 INSERT INTO rust_loc_files VALUES ('src/lib.rs', 'main', 300, 40, 10, 50, 400); \
+                 INSERT INTO rust_loc_files VALUES ('src/util.rs', 'main', 200, 10, 5, 25, 240); \
+                 INSERT INTO rust_loc_files VALUES ('src/lib.rs', 'test', 120, 0, 4, 16, 140); \
+                 INSERT INTO rust_loc_files VALUES ('examples/demo.rs', 'example', 30, 2, 1, 7, 40); \
+                 CREATE VIEW rust_loc_summary AS \
+                 SELECT region, COUNT(*) AS files, SUM(code) AS code, SUM(docs) AS docs, \
+                 SUM(comments) AS comments, SUM(blanks) AS blanks, SUM(lines) AS lines \
+                 FROM rust_loc_files GROUP BY region ORDER BY code DESC",
+            )
+            .expect("rust loc fixture");
+        }
+
+        let config = std::sync::Arc::new(ops_core::config::Config::empty());
+        let mut ctx = ops_extension::Context::new(config, std::path::PathBuf::from("/tmp"));
+        ctx.attach_db(std::sync::Arc::new(db));
+
+        let mut identity = ProjectIdentity::default();
+        identity.loc = Some(999_999);
+        identity.file_count = Some(9_999);
+        enrich_from_db(&ctx, &mut identity);
+
+        assert_eq!(identity.loc, Some(650), "summed region code");
+        assert_eq!(identity.file_count, Some(3), "distinct files, not 4");
+        assert_eq!(identity.regions.len(), 3);
+        let main = identity
+            .regions
+            .iter()
+            .find(|r| r.region == "main")
+            .expect("main region");
+        assert_eq!((main.files, main.code), (2, 500));
     }
 
     #[cfg(not(feature = "sqlite"))]

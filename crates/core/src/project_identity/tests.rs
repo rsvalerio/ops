@@ -21,6 +21,7 @@ fn about_card_from_identity_full() {
         dependency_count: None,
         coverage_percent: None,
         languages: vec![],
+        regions: vec![],
     };
     let card = AboutCard::from_identity(&id);
     assert_eq!(card.description, Some("Task runner".to_string()));
@@ -70,6 +71,7 @@ fn about_card_from_identity_minimal() {
         dependency_count: None,
         coverage_percent: None,
         languages: vec![],
+        regions: vec![],
     };
     let card = AboutCard::from_identity(&id);
     assert!(card.description.is_none());
@@ -85,8 +87,11 @@ fn about_card_from_identity_minimal() {
     assert_eq!(card.fields[1], ("stack".to_string(), "Generic".to_string()));
 }
 
+/// Without a region split (every non-Rust stack — `rust-loc` only
+/// registers on Rust) the codebase field is bare totals; the language mix
+/// no longer renders even when `languages` is populated.
 #[test]
-fn about_card_codebase_with_languages() {
+fn about_card_codebase_without_regions_renders_bare_totals() {
     let id = ProjectIdentity {
         name: "openbao".to_string(),
         version: None,
@@ -105,42 +110,48 @@ fn about_card_codebase_with_languages() {
         msrv: None,
         dependency_count: None,
         coverage_percent: None,
-        languages: vec![
-            LanguageStat {
-                name: "Go".into(),
-                loc: 432_000,
-                files: 3_800,
-                loc_pct: 77.7,
-                files_pct: 77.1,
-            },
-            LanguageStat {
-                name: "JavaScript".into(),
-                loc: 64_000,
-                files: 600,
-                loc_pct: 11.5,
-                files_pct: 12.2,
-            },
-            LanguageStat {
-                name: "Handlebars".into(),
-                loc: 21_600,
-                files: 300,
-                loc_pct: 3.9,
-                files_pct: 6.1,
-            },
-            LanguageStat {
-                name: "YAML".into(),
-                loc: 14_500,
-                files: 150,
-                loc_pct: 2.6,
-                files_pct: 3.0,
-            },
-            LanguageStat {
-                name: "SVG".into(),
-                loc: 6_700,
-                files: 79,
-                loc_pct: 1.2,
-                files_pct: 1.6,
-            },
+        languages: vec![LanguageStat::new("Go", 432_000, 3_800, 77.7, 77.1)],
+        regions: vec![],
+    };
+    let card = AboutCard::from_identity(&id);
+    let codebase = card
+        .fields
+        .iter()
+        .find(|(k, _)| k == "codebase")
+        .expect("codebase field")
+        .1
+        .clone();
+    assert_eq!(codebase, "555,910 loc\n4,929 files");
+}
+
+/// With a region split, the field renders that split — the header total is
+/// the summed region code, not `loc`, so the two can never disagree —
+/// followed by the distinct file total.
+#[test]
+fn about_card_codebase_with_regions() {
+    let id = ProjectIdentity {
+        name: "ops".to_string(),
+        version: None,
+        description: None,
+        stack_label: "Rust".to_string(),
+        stack_detail: None,
+        license: None,
+        project_path: "/p".to_string(),
+        module_count: Some(29),
+        module_label: "crates".to_string(),
+        loc: Some(999_999),
+        file_count: Some(1_324),
+        authors: vec![],
+        repository: None,
+        homepage: None,
+        msrv: None,
+        dependency_count: None,
+        coverage_percent: None,
+        languages: vec![],
+        regions: vec![
+            RegionStat::new("test", 1_074, 191_430),
+            RegionStat::new("main", 936, 268_548),
+            RegionStat::new("example", 66, 7_932),
         ],
     };
     let card = AboutCard::from_identity(&id);
@@ -151,14 +162,17 @@ fn about_card_codebase_with_languages() {
         .expect("codebase field")
         .1
         .clone();
-    // Two-block layout: total LOC + top-3 breakdown, then files + top-3 breakdown.
-    assert!(codebase.starts_with("555,910 loc\n"), "got: {codebase}");
-    assert!(codebase.contains("Go  "), "got: {codebase}");
-    assert!(codebase.contains("(77.7%)"), "got: {codebase}");
-    assert!(codebase.contains("JS  "), "got: {codebase}");
-    assert!(codebase.contains("HBS "), "got: {codebase}");
-    assert!(codebase.contains("(+2 more)"), "got: {codebase}");
-    assert!(codebase.contains("4,929 files"), "got: {codebase}");
+    let lines: Vec<&str> = codebase.split('\n').collect();
+    assert_eq!(lines[0], "467,910 loc", "got: {codebase}");
+    // Canonical order regardless of input order: production, test, example.
+    assert!(lines[1].contains("production"), "got: {codebase}");
+    assert!(lines[1].contains("268,548 (57.4%)"), "got: {codebase}");
+    assert!(lines[1].contains("936 files"), "got: {codebase}");
+    assert!(lines[2].contains("test"), "got: {codebase}");
+    assert!(lines[2].contains("191,430 (40.9%)"), "got: {codebase}");
+    assert!(lines[3].contains("example"), "got: {codebase}");
+    assert!(lines[3].contains("7,932 (1.7%)"), "got: {codebase}");
+    assert_eq!(lines[4], "1,324 files", "got: {codebase}");
 }
 
 #[test]
@@ -217,6 +231,7 @@ fn sample_identity() -> ProjectIdentity {
         dependency_count: None,
         coverage_percent: None,
         languages: vec![],
+        regions: vec![],
     }
 }
 
@@ -289,6 +304,7 @@ fn render_minimal_card_no_description() {
         dependency_count: None,
         coverage_percent: None,
         languages: vec![],
+        regions: vec![],
     };
     let card = AboutCard::from_identity(&id);
     let output = card.render(false);
