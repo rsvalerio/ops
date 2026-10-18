@@ -376,6 +376,7 @@ Each field in `ProjectIdentity` maps to a specific data source per stack. Stacks
 | `module_label` | `"crates"` | `"packages"` | `"modules"` | `"packages"` | `"modules"` | `"subprojects"` | `"modules"` |
 | `loc` | tokei | tokei | tokei | tokei | tokei | tokei | tokei |
 | `file_count` | tokei | tokei | tokei | tokei | tokei | tokei | tokei |
+| `regions` | `rust-loc` | — | — | — | — | — | — |
 | `authors` | `[package].authors` / `[workspace.package].authors` | `author` + `contributors` | — | `[project].authors` | `<developers>` | — | — |
 | `repository` | `[package].repository` / `[workspace.package].repository` | `repository.url` | — | `[project].urls.Repository` | `<scm><url>` | — | — |
 
@@ -396,10 +397,10 @@ Each stack has its own term for sub-projects within a workspace/monorepo:
 
 ### Data Flow
 
-1. Generic about extension (`extensions/about/`) pre-initializes `sqlite` and `tokei` providers (best-effort)
+1. Generic about extension (`extensions/about/`) pre-initializes `sqlite`, `tokei` and `rust-loc` providers (best-effort; `rust-loc` only registers on the Rust stack)
 2. Queries `"project_identity"` from the data registry (stack-specific provider)
 3. If no provider is registered, builds a fallback identity from filesystem detection (directory name, detected stack)
-4. If `loc` is still missing, enriches from SQLite/tokei (works for all stacks when compiled with `sqlite`+`tokei` features)
+4. Enriches from `SQLite`: the Rust production/test/example split from `rust-loc` when present (its summed code lines and distinct file count become `loc`/`file_count`, so the totals always agree with the split), otherwise tokei totals when `loc` is still missing
 5. Converts `ProjectIdentity` to `AboutCard` and renders
 
 ### Implementing a Stack Provider

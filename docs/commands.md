@@ -216,3 +216,5 @@ rustup component add llvm-tools-preview
 When they are missing, the coverage warning/error includes these same install commands as a hint.
 
 `about code` and `about loc` answer different questions and are not expected to agree: tokei reports every language but has no model for test versus production code, while `rust-loc` parses only `.rs` files and splits `#[cfg(test)]` blocks out of the file that contains them, counting doc comments separately from ordinary ones. On a non-Rust workspace `ops about loc` prints `No Rust LOC data available.`
+
+The `ops about` card's codebase field renders the `rust-loc` split on Rust workspaces (its totals come from the split itself, so they match `ops about loc`) and bare tokei totals everywhere else; the per-language mix lives in `ops about code`.
