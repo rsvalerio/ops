@@ -517,6 +517,30 @@ pub enum BacklogAction {
         #[arg(long = "dry-run")]
         dry_run: bool,
     },
+    /// Request a CodeRabbit review of each crate's whole content: a
+    /// `coderabbit-review-request-<date>-<n>` main task plus one subtask per
+    /// review target. With `--run`, review each crate now (throwaway orphan
+    /// worktree, `coderabbit review --agent`) and file every finding as a
+    /// Triage task, committed on the current branch.
+    CreateCoderabbitTasks {
+        /// Only these review targets (comma-separated or repeatable).
+        #[arg(long = "crate", value_name = "NAME", value_delimiter = ',')]
+        crates: Vec<String>,
+        /// Run the reviews now and file their findings, instead of filing
+        /// review-request tasks.
+        #[arg(long)]
+        run: bool,
+        /// Pass `--fresh` to `coderabbit review`.
+        #[arg(long, requires = "run")]
+        fresh: bool,
+        /// Pass `--use-credits` to `coderabbit review`.
+        #[arg(long, requires = "run")]
+        use_credits: bool,
+        /// Report what would be created or reviewed, touching nothing on
+        /// disk and never calling coderabbit.
+        #[arg(long = "dry-run")]
+        dry_run: bool,
+    },
 }
 
 /// `ops backlog wave …` subcommands. A wave is a parent task carrying the
@@ -1456,6 +1480,49 @@ mod tests {
         assert!(dry_run);
     }
 
+    #[test]
+    fn parse_create_coderabbit_tasks() {
+        let cli = Cli::parse_from([
+            "ops",
+            "backlog",
+            "create-coderabbit-tasks",
+            "--crate",
+            "ops-core,ops-cli",
+            "--crate",
+            "ops",
+            "--run",
+            "--fresh",
+            "--use-credits",
+        ]);
+        let Some(CoreSubcommand::Backlog {
+            action:
+                BacklogAction::CreateCoderabbitTasks {
+                    crates,
+                    run,
+                    fresh,
+                    use_credits,
+                    dry_run,
+                },
+        }) = cli.subcommand
+        else {
+            panic!("must parse as backlog create-coderabbit-tasks");
+        };
+        assert_eq!(crates, ["ops-core", "ops-cli", "ops"]);
+        assert!(run && fresh && use_credits && !dry_run);
+    }
+
+    /// `--fresh` and `--use-credits` only mean something to a review that
+    /// runs now.
+    #[test]
+    fn coderabbit_review_flags_require_run() {
+        for flag in ["--fresh", "--use-credits"] {
+            assert!(
+                Cli::try_parse_from(["ops", "backlog", "create-coderabbit-tasks", flag]).is_err(),
+                "{flag} without --run must be rejected"
+            );
+        }
+    }
+
     /// The global `--dry-run` spelled *before* the subcommand must still
     /// reach the backlog actions' local flag: clap propagates global args
     /// down, and the local field shares the global's arg id. Dispatch reads
@@ -1486,6 +1553,24 @@ mod tests {
             panic!("must parse as backlog cleanup");
         };
         assert!(dry_run, "cleanup shares the same propagation contract");
+
+        let cli = Cli::parse_from([
+            "ops",
+            "--dry-run",
+            "backlog",
+            "create-coderabbit-tasks",
+            "--run",
+        ]);
+        let Some(CoreSubcommand::Backlog {
+            action: BacklogAction::CreateCoderabbitTasks { dry_run, .. },
+        }) = cli.subcommand
+        else {
+            panic!("must parse as backlog create-coderabbit-tasks");
+        };
+        assert!(
+            dry_run,
+            "create-coderabbit-tasks shares the same propagation contract"
+        );
     }
 
     #[test]

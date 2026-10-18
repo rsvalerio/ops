@@ -63,7 +63,7 @@ pub fn run_create<W: Write>(
 
 /// What [`create_task`] did.
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub(crate) enum Created {
+pub enum Created {
     /// A new task file was written under this id.
     New(String),
     /// `unless_exists` matched this open task; nothing was written.
@@ -76,7 +76,7 @@ pub(crate) enum Created {
 /// # Errors
 ///
 /// As [`run_create`].
-pub(crate) fn create_task(
+pub fn create_task(
     store: &Store,
     cfg: &BacklogConfig,
     opts: &CreateOptions,

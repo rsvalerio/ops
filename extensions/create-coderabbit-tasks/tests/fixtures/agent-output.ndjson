@@ -1,0 +1,6 @@
+{"type":"review_context","reviewType":"uncommitted","baseBranch":"cr-full-ops-core","workingDirectory":"/tmp/ops-cr-abc/ops-cr-ops-core"}
+{"type":"status","phase":"analyzing","status":"Reviewing files"}
+{"type":"heartbeat"}
+{"type":"finding","severity":"major","fileName":"crates/core/src/config/mod.rs","codegenInstructions":"In crates/core/src/config/mod.rs, `load` indexes `parts[1]` without checking the split produced two parts. Return a parse error when the separator is missing instead of panicking.","suggestions":["let Some((key, value)) = line.split_once('=') else { bail!(\"missing '=' in {line:?}\") };"],"comment":"Possible panic when a config line has no `=` separator."}
+{"type":"finding","severity":"minor","fileName":"crates/core/src/output.rs","codegenInstructions":"","suggestions":[],"comment":"The doc comment on `display_width` says it counts bytes, but the function counts grapheme clusters."}
+{"type":"complete","status":"review_completed","findings":2}

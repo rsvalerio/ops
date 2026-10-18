@@ -33,6 +33,7 @@ ops-tokei = { workspace = true, optional = true }
 ops-about = { workspace = true }
 ops-backlog = { workspace = true }
 ops-create-review-tasks = { workspace = true }
+ops-create-coderabbit-tasks = { workspace = true }
 ops-create-review-tasks-rust = { workspace = true, optional = true }
 ops-git = { workspace = true }
 ops-tfplan = { workspace = true, optional = true }
