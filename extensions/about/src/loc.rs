@@ -11,37 +11,13 @@
 
 use std::io::Write;
 
+use ops_core::project_identity::region_display;
 use ops_core::table::{Cell, OpsTable};
 use ops_core::text::{capitalize, format_number};
 use ops_extension::{Context, DataRegistry};
 use ops_sqlite::sql::RustLocStat;
 
 use crate::providers::warm_providers;
-
-/// Region keys the `rust-loc` provider emits, in display order.
-///
-/// The provider's own key (`main`) is spelled "production" here because
-/// that is what the split is *for*; the raw key stays the wire format.
-/// A region outside this list still renders — it sorts last, under its
-/// own capitalised name — so a region added upstream shows up on the page
-/// instead of silently vanishing from the totals.
-const REGION_ORDER: &[(&str, &str)] = &[
-    ("main", "production"),
-    ("test", "test"),
-    ("example", "example"),
-];
-
-/// The lower-case display name for a region key, and its rank in
-/// [`REGION_ORDER`]. Unknown regions rank last and keep their raw name.
-fn region_display(region: &str) -> (usize, &str) {
-    REGION_ORDER
-        .iter()
-        .enumerate()
-        .find(|(_, (key, _))| *key == region)
-        .map_or((REGION_ORDER.len(), region), |(i, (_, display))| {
-            (i, *display)
-        })
-}
 
 /// Everything the page renders, read from one `SQLite` snapshot.
 ///
@@ -558,7 +534,8 @@ mod tests {
     /// known ones, so upstream additions surface instead of disappearing.
     #[test]
     fn region_display_passes_through_unknown_region() {
-        assert_eq!(region_display("bench"), (REGION_ORDER.len(), "bench"));
+        assert_eq!(region_display("bench").0, region_display("example").0 + 1);
+        assert_eq!(region_display("bench").1, "bench");
     }
 
     /// The view orders by code descending; the page must not inherit that
