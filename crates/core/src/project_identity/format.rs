@@ -3,7 +3,7 @@
 //! These helpers translate identity fields into emoji-prefixed, multi-line
 //! text blocks used by [`super::AboutCard`].
 
-use super::{LanguageStat, ProjectIdentity};
+use super::{region_display, ProjectIdentity, RegionStat};
 use crate::output::{display_width, pad_to_display_width};
 use crate::text::format_number;
 
@@ -69,19 +69,9 @@ fn stack_emoji(value: &str) -> &'static str {
     }
 }
 
-/// Shorten long language names for the compact codebase field.
-fn short_language_name(name: &str) -> &str {
-    match name {
-        "JavaScript" => "JS",
-        "TypeScript" => "TS",
-        "Protocol Buffers" => "Protobuf",
-        "Handlebars" => "HBS",
-        other => other,
-    }
-}
-
-/// Per-language glyph for the codebase breakdown. Falls back to a generic
-/// document icon when no specific mapping is known.
+/// Canonical language-to-glyph mapping, consumed by [`stack_emoji`] for the
+/// stack field. Falls back to a generic document icon when no specific
+/// mapping is known.
 // "Markdown" resolves to the same glyph as the fallback, but the explicit arm
 // records that it is a deliberate choice rather than a missing mapping.
 #[allow(clippy::match_same_arms)]
@@ -118,54 +108,82 @@ fn language_emoji(name: &str) -> &'static str {
     }
 }
 
-/// Render per-language breakdown lines for a single metric. Keeps top-N and
-/// rolls the rest into a "+N more" line. `value_fn` extracts either loc or
-/// file count, `pct_fn` extracts the matching percentage.
-fn format_language_breakdown(
-    langs: &[LanguageStat],
-    top_n: usize,
-    value_fn: impl Fn(&LanguageStat) -> i64,
-    pct_fn: impl Fn(&LanguageStat) -> f64,
-) -> Vec<String> {
-    if langs.is_empty() {
-        return Vec::new();
+/// Per-region glyph for the codebase breakdown, keyed by the display name
+/// [`region_display`] returns. Unrecognised regions fall back to the ▸
+/// generic, matching [`field_emoji`]'s fallback.
+fn region_emoji(name: &str) -> &'static str {
+    match name {
+        "production" => "\u{1f3ed}", // 🏭
+        "test" => "\u{1f9ea}",       // 🧪
+        "example" => "\u{1f4d6}",    // 📖
+        _ => "\u{25b8}",             // ▸ fallback
     }
-    // Align by display width, not byte length —
-    // `short_language_name` falls back to the original name verbatim, so a
-    // future non-ASCII LanguageStat would otherwise misalign the column.
-    // Pattern mirrors theme_cmd / help.rs.
-    let name_width = langs
+}
+
+/// Render the production / test / example split: a header with the summed
+/// code lines, then one line per region with its code lines, share of the
+/// total, and file count. Regions render in [`REGION_ORDER`](super::REGION_ORDER)
+/// order regardless of the input order.
+///
+/// The header total is computed from the regions themselves so it always
+/// agrees with the lines under it. The share clause is omitted when the
+/// total is zero — every percentage would be a division by zero dressed up
+/// as `0.0%` (the same guard `about loc`'s totals line applies).
+fn format_region_breakdown(regions: &[RegionStat]) -> Vec<String> {
+    let mut sorted: Vec<&RegionStat> = regions.iter().collect();
+    sorted.sort_by(|a, b| {
+        region_display(&a.region)
+            .0
+            .cmp(&region_display(&b.region).0)
+            .then_with(|| a.region.cmp(&b.region))
+    });
+
+    let total_code: i64 = sorted.iter().map(|r| r.code).sum();
+    let mut lines = vec![format!("{} loc", format_number(total_code))];
+
+    // Align by display width, not byte length — an unknown region keeps its
+    // raw key verbatim, so a future non-ASCII key would otherwise misalign
+    // the column. Pattern mirrors theme_cmd / help.rs.
+    let name_width = sorted
         .iter()
-        .take(top_n)
-        .map(|l| display_width(short_language_name(&l.name)))
+        .map(|r| display_width(region_display(&r.region).1))
         .max()
         .unwrap_or(0);
-    let value_width = langs
+    let code_width = sorted
         .iter()
-        .take(top_n)
-        .map(|l| format_number(value_fn(l)).len())
+        .map(|r| format_number(r.code).len())
         .max()
         .unwrap_or(0);
-    let mut lines: Vec<String> = langs
-        .iter()
-        .take(top_n)
-        .map(|l| {
-            // Route through the shared pad helper so a
-            // future tightening (tab/ZWJ handling) lands once.
-            let padded_name = pad_to_display_width(short_language_name(&l.name), name_width);
-            format!(
-                "  {} {}  {:>val_w$} ({:.1}%)",
-                language_emoji(&l.name),
-                padded_name,
-                format_number(value_fn(l)),
-                pct_fn(l),
-                val_w = value_width,
-            )
-        })
-        .collect();
-    if langs.len() > top_n {
-        // Guarded by `langs.len() > top_n`, so the subtraction is exact.
-        lines.push(format!("  (+{} more)", langs.len().saturating_sub(top_n)));
+
+    for region in sorted {
+        let (_, name) = region_display(&region.region);
+        let share = if total_code > 0 {
+            // `i64 -> f64` has no `From` impl, so these two casts stay.
+            // Line counts never approach f64's 2^53 exact-integer range
+            // (~9e15 lines), so both conversions are exact, and the result
+            // is rendered to one decimal place anyway.
+            #[allow(clippy::cast_precision_loss, clippy::as_conversions)]
+            let pct = region.code as f64 * 100.0 / total_code as f64;
+            format!(" ({pct:.1}%)")
+        } else {
+            String::new()
+        };
+        // Pad the glyph to a fixed two-cell slot (the same `EMOJI_COLS`
+        // contract as `card::render_field`) so the width-1 ▸ fallback for
+        // an unknown region does not shift that row's columns; pad the
+        // name through the shared helper so a future tightening
+        // (tab/ZWJ handling) lands once.
+        let padded_emoji = pad_to_display_width(region_emoji(name), 2);
+        let padded_name = pad_to_display_width(name, name_width);
+        lines.push(format!(
+            "  {} {}  {:>code_w$}{share} \u{b7} {} file{}",
+            padded_emoji,
+            padded_name,
+            format_number(region.code),
+            format_number(region.files),
+            if region.files == 1 { "" } else { "s" },
+            code_w = code_width,
+        ));
     }
     lines
 }
@@ -202,19 +220,19 @@ pub(super) fn compose_project_value(id: &ProjectIdentity) -> Option<String> {
     }
 }
 
-/// Compose the `codebase` field value as two blocks: total LOC with a
-/// per-language breakdown, then total file count with a per-language
-/// breakdown. Returns `None` when none of the inputs are present.
+/// Compose the `codebase` field value. With a region split available the
+/// value is that split — total code lines, one line per region, then the
+/// distinct file count — matching the `about loc` page's data. Without one
+/// (every non-Rust stack: `rust-loc` only registers on Rust) the value is
+/// bare totals. Returns `None` when none of the inputs are present.
 pub(super) fn compose_codebase_value(id: &ProjectIdentity) -> Option<String> {
     let mut parts: Vec<String> = Vec::new();
-    if let Some(loc) = id.loc {
-        parts.push(format!("{} loc", format_number(loc)));
-        parts.extend(format_language_breakdown(
-            &id.languages,
-            3,
-            |l| l.loc,
-            |l| l.loc_pct,
-        ));
+    if id.regions.is_empty() {
+        if let Some(loc) = id.loc {
+            parts.push(format!("{} loc", format_number(loc)));
+        }
+    } else {
+        parts.extend(format_region_breakdown(&id.regions));
     }
     if let Some(f) = id.file_count {
         if f > 0 {
@@ -222,12 +240,6 @@ pub(super) fn compose_codebase_value(id: &ProjectIdentity) -> Option<String> {
                 "{} file{}",
                 format_number(f),
                 if f == 1 { "" } else { "s" }
-            ));
-            parts.extend(format_language_breakdown(
-                &id.languages,
-                3,
-                |l| l.files,
-                |l| l.files_pct,
             ));
         }
     }
@@ -272,17 +284,18 @@ mod tests {
         assert_eq!(language_emoji("Brainfuck"), "\u{1f4c4}");
     }
 
-    /// READ-5 / TASK-1187: language column must align by display width, so a
-    /// non-ASCII fallback name lines up under an ASCII sibling at the same
-    /// terminal column.
+    /// READ-5 / TASK-1187 (ported from the language breakdown): the region
+    /// name column must align by display width, so a non-ASCII unknown
+    /// region key lines up under an ASCII sibling at the same terminal
+    /// column.
     #[test]
-    fn language_breakdown_aligns_non_ascii_names_by_display_width() {
-        let langs = vec![
-            LanguageStat::new("日本語", 100, 1, 50.0, 50.0),
-            LanguageStat::new("Rust", 100, 1, 50.0, 50.0),
+    fn region_breakdown_aligns_non_ascii_names_by_display_width() {
+        let regions = vec![
+            RegionStat::new("日本語", 1, 100),
+            RegionStat::new("main", 1, 100),
         ];
-        let lines = format_language_breakdown(&langs, 5, |l| l.loc, |l| l.loc_pct);
-        assert_eq!(lines.len(), 2);
+        let lines = format_region_breakdown(&regions);
+        assert_eq!(lines.len(), 3);
 
         // The numeric value column starts after "  <emoji> <name><pad>  "; using
         // display_width on the prefix preceding the value gives the column
@@ -293,6 +306,43 @@ mod tests {
                 .expect("value digit present");
             display_width(line.get(..idx).expect("find returns a char boundary"))
         };
-        assert_eq!(col(&lines[0]), col(&lines[1]));
+        assert_eq!(col(&lines[1]), col(&lines[2]));
+    }
+
+    /// The split renders in canonical production / test / example order
+    /// whatever order the input arrives in, with each region's code lines,
+    /// share of the summed total, and file count.
+    #[test]
+    fn region_breakdown_sorts_canonically_and_renders_share() {
+        let regions = vec![
+            RegionStat::new("test", 5, 250),
+            RegionStat::new("example", 2, 50),
+            RegionStat::new("main", 10, 700),
+        ];
+        let lines = format_region_breakdown(&regions);
+        // Canonical order is positional: the input arrived test, example,
+        // main; the output must be production, test, example. The header
+        // total is the sum of the regions, not any caller-supplied `loc`.
+        assert_eq!(lines[0], "1,000 loc");
+        assert!(lines[1].contains("production"), "got: {}", lines[1]);
+        assert!(lines[1].contains("700 (70.0%)"), "got: {}", lines[1]);
+        assert!(lines[1].contains("10 files"), "got: {}", lines[1]);
+        assert!(lines[2].contains("test"), "got: {}", lines[2]);
+        assert!(lines[2].contains("250 (25.0%)"), "got: {}", lines[2]);
+        assert!(lines[3].contains("example"), "got: {}", lines[3]);
+        assert!(lines[3].contains("50 (5.0%)"), "got: {}", lines[3]);
+    }
+
+    /// A zero-code split drops the share clause instead of printing `NaN%`
+    /// or a row of meaningless zeroes — the same guard `about loc`'s totals
+    /// line applies.
+    #[test]
+    fn region_breakdown_omits_shares_when_no_code() {
+        let regions = vec![RegionStat::new("main", 2, 0)];
+        let lines = format_region_breakdown(&regions);
+        assert_eq!(lines[0], "0 loc");
+        assert_eq!(lines.len(), 2);
+        assert!(!lines[1].contains('%'), "no share clause: {}", lines[1]);
+        assert!(!lines[1].contains("NaN"), "no NaN: {}", lines[1]);
     }
 }

@@ -23,8 +23,9 @@ use serde::{Deserialize, Serialize};
 /// stack-native manifest fields to this struct. See `docs/components.md` §10
 /// for the full field reference per stack.
 ///
-/// Fields like `loc` and `file_count` come from tokei (via `DuckDB`) and are
-/// enriched by the generic about command when the provider doesn't set them.
+/// Fields like `loc`, `file_count` and `regions` come from the `SQLite`
+/// cache (tokei / `rust-loc`) and are enriched by the generic about command
+/// when the provider doesn't set them.
 // Downstream extensions cannot use struct-literal or `..Default::default()`
 // syntax once this type is `#[non_exhaustive]`; call [`ProjectIdentity::new`]
 // and mutate the returned value via its `pub` fields instead.
@@ -73,6 +74,11 @@ pub struct ProjectIdentity {
     /// Ordered by LOC descending.
     #[serde(default)]
     pub languages: Vec<LanguageStat>,
+    /// Production / test / example code split, when the stack models one
+    /// (Rust: from the `rust-loc` provider). Empty for stacks without a
+    /// region model — the card then renders bare totals.
+    #[serde(default)]
+    pub regions: Vec<RegionStat>,
 }
 
 impl ProjectIdentity {
@@ -140,6 +146,70 @@ impl LanguageStat {
             files_pct,
         }
     }
+}
+
+/// One region of a project's production / test / example code split.
+///
+/// Carries only the figures the about card renders — `code` for the share
+/// math, `files` for the per-region file count. Fuller per-line-kind counts
+/// live in the `rust_loc_summary` view behind the `about loc` page.
+///
+/// `#[non_exhaustive]` mirrors [`LanguageStat`] so a future field (e.g.
+/// `docs`) is additive across the extension boundary. Construct via
+/// [`RegionStat::new`].
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[non_exhaustive]
+pub struct RegionStat {
+    /// Raw region key (`main`, `test`, `example`); renderers map it through
+    /// [`region_display`].
+    pub region: String,
+    /// Distinct files with code in this region. Regions overlap within a
+    /// file, so summing this column across regions double-counts a file
+    /// holding both production code and a `#[cfg(test)]` block.
+    pub files: i64,
+    /// Lines of executable code.
+    pub code: i64,
+}
+
+impl RegionStat {
+    /// Construct a [`RegionStat`] with all current fields set.
+    ///
+    /// External extensions must use this instead of struct-literal syntax
+    /// because the type is `#[non_exhaustive]`.
+    #[must_use]
+    pub fn new(region: impl Into<String>, files: i64, code: i64) -> Self {
+        Self {
+            region: region.into(),
+            files,
+            code,
+        }
+    }
+}
+
+/// Region keys the `rust-loc` provider emits, in display order.
+///
+/// The provider's own key (`main`) is spelled "production" here because
+/// that is what the split is *for*; the raw key stays the wire format.
+/// A region outside this list still renders — it sorts last, under its
+/// own capitalised name — so a region added upstream shows up instead of
+/// silently vanishing from the totals.
+pub const REGION_ORDER: &[(&str, &str)] = &[
+    ("main", "production"),
+    ("test", "test"),
+    ("example", "example"),
+];
+
+/// The lower-case display name for a region key, and its rank in
+/// [`REGION_ORDER`]. Unknown regions rank last and keep their raw name.
+#[must_use]
+pub fn region_display(region: &str) -> (usize, &str) {
+    REGION_ORDER
+        .iter()
+        .enumerate()
+        .find(|(_, (key, _))| *key == region)
+        .map_or((REGION_ORDER.len(), region), |(i, (_, display))| {
+            (i, *display)
+        })
 }
 
 /// A sub-unit of a project (crate, module, package, workspace member).
@@ -382,7 +452,7 @@ pub const BASE_ABOUT_FIELDS: &[AboutFieldDef] = &[
     AboutFieldDef::new(
         "codebase",
         "Codebase",
-        "LOC, file count, and language mix (from tokei)",
+        "LOC, file count, and production/test/example split",
     ),
     AboutFieldDef::new("repository", "Repository", "Repository URL"),
     AboutFieldDef::new("authors", "Authors", "Project author(s)"),
