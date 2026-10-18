@@ -374,8 +374,8 @@ Each field in `ProjectIdentity` maps to a specific data source per stack. Stacks
 | `project_path` | `cwd` | `cwd` | `cwd` | `cwd` | `cwd` | `cwd` | `cwd` |
 | `module_count` | `[workspace].members` count | `workspaces` count | `use` in `go.work` | — | `<modules>` count | `include` count | — |
 | `module_label` | `"crates"` | `"packages"` | `"modules"` | `"packages"` | `"modules"` | `"subprojects"` | `"modules"` |
-| `loc` | tokei | tokei | tokei | tokei | tokei | tokei | tokei |
-| `file_count` | tokei | tokei | tokei | tokei | tokei | tokei | tokei |
+| `loc` | summed `rust-loc` split code lines (tokei when no split) | tokei | tokei | tokei | tokei | tokei | tokei |
+| `file_count` | distinct `.rs` files from `rust-loc` (tokei when no split) | tokei | tokei | tokei | tokei | tokei | tokei |
 | `regions` | `rust-loc` | — | — | — | — | — | — |
 | `authors` | `[package].authors` / `[workspace.package].authors` | `author` + `contributors` | — | `[project].authors` | `<developers>` | — | — |
 | `repository` | `[package].repository` / `[workspace.package].repository` | `repository.url` | — | `[project].urls.Repository` | `<scm><url>` | — | — |
