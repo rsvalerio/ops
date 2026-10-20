@@ -6,6 +6,10 @@
 //! `backlog.config.yml`; otherwise the defaults. ops-backlog knows nothing
 //! about `.ops.toml`, so this crate — which depends on both — owns the
 //! resolution and the init flow that writes either file.
+//!
+//! No config and no tree are required: the resolution falls back to the
+//! built-in defaults, and every action that adds tasks creates
+//! `<backlog_directory>/tasks/` on first use.
 
 use std::io::Write;
 use std::path::Path;
@@ -70,43 +74,56 @@ fn effective_backlog_config(cwd: &Path) -> anyhow::Result<BacklogConfig> {
     resolve_backlog_config(cwd, overlay.as_ref().and_then(|o| o.backlog.as_ref()))
 }
 
-/// `ops backlog init`: bootstrap the backlog config and tasks tree. See
-/// [`run_backlog_init_to`] for the steps; this is the stdout-facing shell.
+/// Which config file `ops backlog init` writes beside the tasks tree.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum InitConfig {
+    /// The default: only the tasks tree; no config file is written.
+    TreeOnly,
+    /// `--ops-toml`: a `[backlog]` section in `.ops.toml`.
+    OpsToml,
+    /// `--backlog-md`: a `backlog.config.yml` for the npm `backlog` CLI.
+    BacklogMd,
+}
+
+/// `ops backlog init`: bootstrap the tasks tree and, on request, a config
+/// file. See [`run_backlog_init_to`] for the steps; this is the
+/// stdout-facing shell.
 ///
 /// # Errors
 ///
 /// As [`run_backlog_init_to`].
-pub fn run_backlog_init(cwd: &Path, backlog_md: bool) -> anyhow::Result<()> {
-    run_backlog_init_to(cwd, backlog_md, &mut std::io::stdout())
+pub fn run_backlog_init(cwd: &Path, config: InitConfig) -> anyhow::Result<()> {
+    run_backlog_init_to(cwd, config, &mut std::io::stdout())
 }
 
 /// The init flow, writer-injectable for tests (`run_init_to` idiom):
-/// ensure the config ([`ensure_backlog_config_to`]) then the tasks tree
-/// ([`ensure_tasks_tree_to`]). Every step is idempotent and never
-/// destructive; reruns report what they skipped.
+/// ensure the requested config ([`ensure_backlog_config_to`]) then the
+/// tasks tree ([`ensure_tasks_tree_to`]). Every step is idempotent and
+/// never destructive; reruns report what they skipped.
 ///
 /// # Errors
 ///
 /// As the two steps.
 pub fn run_backlog_init_to(
     cwd: &Path,
-    backlog_md: bool,
+    config: InitConfig,
     out: &mut dyn Write,
 ) -> anyhow::Result<()> {
-    ensure_backlog_config_to(cwd, backlog_md, out)?;
+    ensure_backlog_config_to(cwd, config, out)?;
     ensure_tasks_tree_to(cwd, out)
 }
 
-/// The config half of init. `--backlog-md`: write `backlog.config.yml`
-/// (the five-key subset ops honors) when absent; `.ops.toml` is untouched.
-/// Without the flag: insert a `[backlog]` section with the sane defaults
-/// into `.ops.toml` — but only when the backlog is not already configured
-/// somewhere: an existing `.ops.toml` section is left byte-unchanged, and
-/// an existing `backlog.config.yml` keeps ownership (writing the section
-/// anyway would let its defaults shadow the yml's real values, since the
-/// section wins at resolve time). The file's formatting and comments
-/// survive the edit (`toml_edit`); a missing `.ops.toml` is created
-/// carrying only the section.
+/// The config half of init. [`InitConfig::TreeOnly`] writes nothing.
+/// [`InitConfig::BacklogMd`]: write `backlog.config.yml` (the five-key
+/// subset ops honors) when absent; `.ops.toml` is untouched.
+/// [`InitConfig::OpsToml`]: insert a `[backlog]` section with the sane
+/// defaults into `.ops.toml` — but only when the backlog is not already
+/// configured somewhere: an existing `.ops.toml` section is left
+/// byte-unchanged, and an existing `backlog.config.yml` keeps ownership
+/// (writing the section anyway would let its defaults shadow the yml's
+/// real values, since the section wins at resolve time). The file's
+/// formatting and comments survive the edit (`toml_edit`); a missing
+/// `.ops.toml` is created carrying only the section.
 ///
 /// # Errors
 ///
@@ -115,10 +132,13 @@ pub fn run_backlog_init_to(
 /// failed — each names the path.
 pub fn ensure_backlog_config_to(
     cwd: &Path,
-    backlog_md: bool,
+    config: InitConfig,
     out: &mut dyn Write,
 ) -> anyhow::Result<()> {
-    if backlog_md {
+    if config == InitConfig::TreeOnly {
+        return Ok(());
+    }
+    if config == InitConfig::BacklogMd {
         let yml = cwd.join("backlog.config.yml");
         if yml
             .try_exists()
@@ -178,8 +198,7 @@ pub fn ensure_backlog_config_to(
 }
 
 /// The tree half of init: create `<backlog_directory>/tasks/` under the
-/// config that now applies (`Store::open`'s one requirement), saying so
-/// only when it did not already exist.
+/// config that now applies, saying so only when it did not already exist.
 ///
 /// # Errors
 ///
@@ -190,11 +209,13 @@ pub fn ensure_tasks_tree_to(cwd: &Path, out: &mut dyn Write) -> anyhow::Result<(
     ensure_tasks_tree_with(cwd, &cfg, out)
 }
 
-/// The tree-creation step with the config already resolved — the fallback
-/// `ops init` drives when the backlog bootstrap cannot read `.ops.toml`
-/// (malformed TOML): the location comes from the yml-or-defaults config
-/// instead, so the tree still lands while the broken manifest is only
-/// reported, matching `ops init`'s keep-working contract.
+/// The tree-creation step with the config already resolved: what every
+/// task-adding backlog action runs before opening the store (see
+/// [`bootstraps_tree`]), and the fallback `ops init` drives when the
+/// backlog bootstrap cannot read `.ops.toml` (malformed TOML): the location
+/// comes from the yml-or-defaults config instead, so the tree still lands
+/// while the broken manifest is only reported, matching `ops init`'s
+/// keep-working contract.
 ///
 /// # Errors
 ///
@@ -259,11 +280,6 @@ fn insert_backlog_section(
 /// already-loaded ops config — threading it keeps one config load per
 /// invocation; only its `[backlog]` section feeds the backlog resolution.
 ///
-/// # Errors
-///
-/// The cwd is unreadable, a config file is present but unparseable, the
-/// `.backlog/tasks` tree is missing (the error names it), or a handler
-/// failed — all bubble as anyhow context for `ops: error: …`.
 /// The backlog actions that write the tree but have no preview
 /// mode, named as the user typed them. Under the global `--dry-run` these
 /// are refused rather than run: the flag promises "preview without
@@ -300,14 +316,49 @@ const fn unpreviewable_mutation(action: &BacklogAction) -> Option<&'static str> 
     }
 }
 
+/// The actions that add task files to the tree, and so create
+/// `<backlog_directory>/tasks/` on first use instead of requiring
+/// `ops backlog init`. Actions that only read, or only rewrite files that
+/// must already exist (`task edit`, `commit`, `cleanup`), leave a missing
+/// tree alone: it reads as an empty backlog. A local `--dry-run` writes
+/// nothing, the directory included.
+///
+/// Every variant is matched explicitly, so a new action fails to compile
+/// here until it is classified.
+const fn bootstraps_tree(action: &BacklogAction) -> bool {
+    match action {
+        BacklogAction::Task { action } => matches!(action, BacklogTaskAction::Create(_)),
+        BacklogAction::Wave { action } => match action {
+            BacklogWaveAction::Create { .. }
+            | BacklogWaveAction::Claim { .. }
+            | BacklogWaveAction::Park { .. } => true,
+            BacklogWaveAction::Migrate { dry_run, .. } => !*dry_run,
+            BacklogWaveAction::List { .. }
+            | BacklogWaveAction::Members { .. }
+            | BacklogWaveAction::Overlap { .. } => false,
+        },
+        BacklogAction::CreateReviewTasks { dry_run }
+        | BacklogAction::CreateCoderabbitTasks { dry_run, .. } => !*dry_run,
+        // init creates the tree itself.
+        BacklogAction::Init { .. }
+        | BacklogAction::Commit { .. }
+        | BacklogAction::Search { .. }
+        | BacklogAction::Cleanup { .. } => false,
+    }
+}
+
 /// Dispatch one `ops backlog` action. `dry_run` is the global `--dry-run`;
 /// a mutating action without a preview mode fails under it (see
-/// [`unpreviewable_mutation`]) before anything is read or written.
+/// [`unpreviewable_mutation`]) before anything is read or written. A
+/// task-adding action (see [`bootstraps_tree`]) creates the tasks tree
+/// first, announcing it on stdout; a read-only action on a missing tree
+/// sees an empty backlog.
 ///
 /// # Errors
 ///
-/// `--dry-run` on an action that cannot preview, or any error of the
-/// dispatched handler.
+/// `--dry-run` on an action that cannot preview, a config file that is
+/// present but unparseable, a tasks tree that cannot be created, or any
+/// error of the dispatched handler.
 pub fn run_backlog(
     cwd: &Path,
     config: &Config,
@@ -323,15 +374,21 @@ pub fn run_backlog(
             );
         }
     }
-    // init is the one action that runs without a store — creating the tree
-    // (which Store::open requires) is its job.
-    if let BacklogAction::Init { backlog_md } = action {
-        return run_backlog_init(cwd, backlog_md);
+    // init runs without a store — creating the tree is its job.
+    if let BacklogAction::Init {
+        ops_toml,
+        backlog_md,
+    } = action
+    {
+        return run_backlog_init(cwd, init_config(ops_toml, backlog_md));
     }
-    // create-review-tasks runs without a store too — the engine scans the
+    let cfg = resolve_backlog_config(cwd, Some(&config.backlog))?;
+    if bootstraps_tree(&action) {
+        ensure_tasks_tree_with(cwd, &cfg, &mut std::io::stdout())?;
+    }
+    // create-review-tasks runs without a store — the engine scans the
     // tree and writes the task files itself — and it needs the full config
-    // to build the data registry holding the review_targets provider, so it
-    // dispatches before the backlog-only config resolution below.
+    // to build the data registry holding the review_targets provider.
     if let BacklogAction::CreateReviewTasks { dry_run } = action {
         return crate::subcommands::run_create_review_tasks(config, dry_run);
     }
@@ -346,15 +403,33 @@ pub fn run_backlog(
     {
         return crate::subcommands::run_create_coderabbit_request(config, crates, *dry_run);
     }
-    let cfg = resolve_backlog_config(cwd, Some(&config.backlog))?;
     let backlog_root = cwd.join(&cfg.backlog_directory);
     let store = Store::open(&backlog_root)?;
+    run_with_store(&store, &cfg, cwd, config, action)
+}
+
+/// The store-backed half of [`run_backlog`]: every action once the tree
+/// is resolved and the store is open.
+///
+/// # Errors
+///
+/// Any error of the dispatched handler.
+fn run_with_store(
+    store: &Store,
+    cfg: &BacklogConfig,
+    cwd: &Path,
+    config: &Config,
+    action: BacklogAction,
+) -> anyhow::Result<()> {
     match action {
-        // Unreachable past the early return above — the type cannot express
-        // "not Init" — so the arm repeats the idempotent call rather than
-        // panicking; if a refactor ever drops the early return, init still
-        // lands here (after a spurious store-open failure).
-        BacklogAction::Init { backlog_md } => run_backlog_init(cwd, backlog_md),
+        // Unreachable past the early returns in `run_backlog` — the type
+        // cannot express "not Init" — so the arm repeats the idempotent
+        // call rather than panicking; if a refactor ever drops the early
+        // return, init still lands here.
+        BacklogAction::Init {
+            ops_toml,
+            backlog_md,
+        } => run_backlog_init(cwd, init_config(ops_toml, backlog_md)),
         // Same shape as Init: unreachable past the early return above, and
         // the repeated call keeps the arm total if that return ever moves.
         BacklogAction::CreateReviewTasks { dry_run } => {
@@ -382,13 +457,10 @@ pub fn run_backlog(
                 },
                 program: std::ffi::OsStr::new(ops_create_coderabbit_tasks::CODERABBIT),
             };
-            let backlog = ops_create_coderabbit_tasks::Backlog {
-                store: &store,
-                cfg: &cfg,
-            };
+            let backlog = ops_create_coderabbit_tasks::Backlog { store, cfg };
             crate::subcommands::run_create_coderabbit_reviews(config, backlog, &opts)
         }
-        BacklogAction::Task { action } => run_task_action(&store, &cfg, cwd, action),
+        BacklogAction::Task { action } => run_task_action(store, cfg, cwd, action),
         BacklogAction::Search {
             query,
             modified_file,
@@ -408,12 +480,12 @@ pub fn run_backlog(
                     cmd::OutputFormat::Plain
                 },
             };
-            cmd::run_search(&store, &opts, &mut std::io::stdout())
+            cmd::run_search(store, &opts, &mut std::io::stdout())
         }
-        BacklogAction::Wave { action } => run_wave_action(&store, &cfg, cwd, action),
+        BacklogAction::Wave { action } => run_wave_action(store, cfg, cwd, action),
         BacklogAction::Commit { task_ids, message } => {
             let opts = cmd::CommitOptions { task_ids, message };
-            cmd::run_commit(&store, cwd, &opts, &mut std::io::stdout())
+            cmd::run_commit(store, cwd, &opts, &mut std::io::stdout())
         }
         BacklogAction::Cleanup {
             older_than,
@@ -423,20 +495,31 @@ pub fn run_backlog(
                 older_than_days: older_than,
                 dry_run,
             };
-            cmd::run_cleanup(&store, &cfg, &opts, &mut std::io::stdout())
+            cmd::run_cleanup(store, cfg, &opts, &mut std::io::stdout())
         }
     }
 }
 
+/// Map the two `init` flags (clap keeps them exclusive) onto the mode.
+const fn init_config(ops_toml: bool, backlog_md: bool) -> InitConfig {
+    if backlog_md {
+        InitConfig::BacklogMd
+    } else if ops_toml {
+        InitConfig::OpsToml
+    } else {
+        InitConfig::TreeOnly
+    }
+}
+
 /// `ops about backlog`: the same config + store preamble as [`run_backlog`],
-/// then the read-only overview. Kept here so every path into the backlog
-/// tree resolves `.backlog` through one config load.
+/// then the read-only overview (a missing tree is an empty backlog). Kept
+/// here so every path into the backlog tree resolves `.backlog` through one
+/// config load.
 ///
 /// # Errors
 ///
-/// A config file is present but unparseable, the `.backlog/tasks` tree is
-/// missing (the error names it), a task file anywhere in the tree does not
-/// parse, or writing stdout failed.
+/// A config file is present but unparseable, a task file anywhere in the
+/// tree does not parse, or writing stdout failed.
 pub fn run_about_backlog(cwd: &Path, section: &BacklogSection) -> anyhow::Result<()> {
     let cfg = resolve_backlog_config(cwd, Some(section))?;
     let backlog_root = cwd.join(&cfg.backlog_directory);
@@ -686,10 +769,135 @@ fn run_task_action(
 mod tests {
     use super::*;
 
-    fn run_init(dir: &std::path::Path, backlog_md: bool) -> String {
+    fn run_init(dir: &std::path::Path, config: InitConfig) -> String {
         let mut out = Vec::new();
-        run_backlog_init_to(dir, backlog_md, &mut out).expect("init");
+        run_backlog_init_to(dir, config, &mut out).expect("init");
         String::from_utf8(out).expect("utf8")
+    }
+
+    /// Dispatch one `ops backlog …` argv against `root` with the config
+    /// loaded from it (defaults when the workspace carries none).
+    fn run_in(root: &Path, argv: &[&str]) -> anyhow::Result<()> {
+        let config = ops_core::config::load_config_or_default_at(root, "test");
+        run_backlog(root, &config, parse_backlog(argv), false)
+    }
+
+    /// No `.ops.toml`, no `backlog.config.yml`, no `.backlog/`: `task
+    /// create` creates the tree on first use and the task is readable
+    /// through the store afterwards.
+    #[test]
+    fn task_create_in_an_empty_workspace_bootstraps_the_tree() {
+        let dir = tempfile::tempdir().expect("tempdir");
+        let root = crate::test_utils::canonical_root(&dir);
+        run_in(
+            root.as_path(),
+            &["ops", "backlog", "task", "create", "first"],
+        )
+        .expect("create without init");
+        assert!(root.join(".backlog/tasks").is_dir(), "the tree is created");
+        assert!(!root.join(".ops.toml").exists(), "no config is written");
+        assert!(!root.join("backlog.config.yml").exists());
+        let store = Store::open(&root.join(".backlog")).expect("open");
+        let task = store
+            .find("TASK-0001")
+            .expect("find")
+            .expect("the created task is readable");
+        assert_eq!(task.doc.frontmatter.title, "first");
+    }
+
+    /// Read-only actions on a missing tree see an empty backlog: no error,
+    /// and nothing is created.
+    #[test]
+    fn read_only_actions_in_an_empty_workspace_succeed_without_creating_it() {
+        let dir = tempfile::tempdir().expect("tempdir");
+        let root = crate::test_utils::canonical_root(&dir);
+        for argv in [
+            ["ops", "backlog", "task", "list"].as_slice(),
+            ["ops", "backlog", "search", "x"].as_slice(),
+            ["ops", "backlog", "wave", "list"].as_slice(),
+        ] {
+            run_in(root.as_path(), argv).unwrap_or_else(|e| panic!("{argv:?}: {e:#}"));
+        }
+        assert!(!root.join(".backlog").exists(), "reading must not create");
+        let err = run_in(
+            root.as_path(),
+            &["ops", "backlog", "task", "view", "TASK-1"],
+        )
+        .expect_err("view of a missing task must fail");
+        let msg = format!("{err:#}");
+        assert!(
+            msg.contains("TASK-1"),
+            "the error names the task, got: {msg}"
+        );
+    }
+
+    /// Only task-adding actions bootstrap the tree; a local `--dry-run`
+    /// never does.
+    #[test]
+    fn bootstraps_tree_classifies_every_action() {
+        for (argv, expected) in [
+            (["ops", "backlog", "task", "create", "x"].as_slice(), true),
+            (
+                [
+                    "ops",
+                    "backlog",
+                    "wave",
+                    "create",
+                    "w",
+                    "--members",
+                    "TASK-1",
+                ]
+                .as_slice(),
+                true,
+            ),
+            (
+                ["ops", "backlog", "wave", "claim", "TASK-1"].as_slice(),
+                true,
+            ),
+            (["ops", "backlog", "wave", "migrate"].as_slice(), true),
+            (
+                ["ops", "backlog", "wave", "migrate", "--dry-run"].as_slice(),
+                false,
+            ),
+            (["ops", "backlog", "create-review-tasks"].as_slice(), true),
+            (
+                ["ops", "backlog", "create-review-tasks", "--dry-run"].as_slice(),
+                false,
+            ),
+            (
+                ["ops", "backlog", "task", "edit", "TASK-1", "-s", "Done"].as_slice(),
+                false,
+            ),
+            (["ops", "backlog", "task", "list"].as_slice(), false),
+            (["ops", "backlog", "search"].as_slice(), false),
+            (
+                ["ops", "backlog", "commit", "TASK-1", "-m", "x"].as_slice(),
+                false,
+            ),
+            (["ops", "backlog", "cleanup"].as_slice(), false),
+            (["ops", "backlog", "init"].as_slice(), false),
+        ] {
+            assert_eq!(bootstraps_tree(&parse_backlog(argv)), expected, "{argv:?}");
+        }
+    }
+
+    /// The default init writes only the tasks tree — no `.ops.toml`, no
+    /// `backlog.config.yml` — and the defaults still resolve.
+    #[test]
+    fn init_default_writes_only_the_tasks_tree() {
+        let dir = tempfile::tempdir().expect("tempdir");
+        let root = crate::test_utils::canonical_root(&dir);
+        let text = run_init(root.as_path(), InitConfig::TreeOnly);
+        assert_eq!(text, "Created .backlog/tasks/\n");
+        assert!(root.join(".backlog/tasks").is_dir());
+        assert!(!root.join(".ops.toml").exists(), "no .ops.toml by default");
+        assert!(!root.join("backlog.config.yml").exists());
+        assert_eq!(
+            effective_backlog_config(root.as_path()).expect("resolve"),
+            BacklogConfig::default()
+        );
+        // The rerun is silent and changes nothing.
+        assert_eq!(run_init(root.as_path(), InitConfig::TreeOnly), "");
     }
 
     /// The two crates each own a copy of the sane defaults; init writes the
@@ -761,13 +969,13 @@ mod tests {
         );
     }
 
-    /// Fresh init in an empty workspace: `.ops.toml` with the sane-default
-    /// section, plus the tasks tree.
+    /// `--ops-toml` in an empty workspace: `.ops.toml` with the
+    /// sane-default section, plus the tasks tree.
     #[test]
-    fn init_creates_ops_toml_section_and_tasks_tree() {
+    fn init_ops_toml_creates_the_section_and_tasks_tree() {
         let dir = tempfile::tempdir().expect("tempdir");
         let root = crate::test_utils::canonical_root(&dir);
-        let text = run_init(root.as_path(), false);
+        let text = run_init(root.as_path(), InitConfig::OpsToml);
         assert!(
             text.contains("Created .ops.toml with a [backlog] section"),
             "got: {text}"
@@ -792,7 +1000,7 @@ mod tests {
         let root = crate::test_utils::canonical_root(&dir);
         let existing = "# my config\n[output]\ntheme = \"compact\"\n";
         std::fs::write(root.join(".ops.toml"), existing).expect("seed");
-        let text = run_init(root.as_path(), false);
+        let text = run_init(root.as_path(), InitConfig::OpsToml);
         assert!(text.contains("Added [backlog] to .ops.toml"), "got: {text}");
         let toml = std::fs::read_to_string(root.join(".ops.toml")).expect("read");
         assert!(
@@ -809,9 +1017,9 @@ mod tests {
     fn rerun_reports_and_changes_nothing() {
         let dir = tempfile::tempdir().expect("tempdir");
         let root = crate::test_utils::canonical_root(&dir);
-        run_init(root.as_path(), false);
+        run_init(root.as_path(), InitConfig::OpsToml);
         let first = std::fs::read_to_string(root.join(".ops.toml")).expect("read");
-        let text = run_init(root.as_path(), false);
+        let text = run_init(root.as_path(), InitConfig::OpsToml);
         assert!(
             text.contains(".ops.toml already configures [backlog], left unchanged"),
             "got: {text}"
@@ -830,7 +1038,7 @@ mod tests {
     fn backlog_md_writes_the_yml_and_never_touches_ops_toml() {
         let dir = tempfile::tempdir().expect("tempdir");
         let root = crate::test_utils::canonical_root(&dir);
-        let text = run_init(root.as_path(), true);
+        let text = run_init(root.as_path(), InitConfig::BacklogMd);
         assert!(text.contains("Created backlog.config.yml"), "got: {text}");
         assert!(text.contains("Created .backlog/tasks/"), "got: {text}");
         assert!(
@@ -845,7 +1053,7 @@ mod tests {
         );
         // And the rerun refuses to overwrite it.
         std::fs::write(root.join("backlog.config.yml"), "kept").expect("seed");
-        let text = run_init(root.as_path(), true);
+        let text = run_init(root.as_path(), InitConfig::BacklogMd);
         assert!(
             text.contains("backlog.config.yml already exists, left unchanged"),
             "got: {text}"
@@ -868,15 +1076,15 @@ mod tests {
             "[backlog]\nbacklog_directory = \"tasks-tree\"\n",
         )
         .expect("seed");
-        let text = run_init(root.as_path(), false);
+        let text = run_init(root.as_path(), InitConfig::TreeOnly);
         assert!(
             root.join("tasks-tree/tasks").is_dir(),
             "tree must honour the section, got: {text}"
         );
     }
 
-    /// An existing `backlog.config.yml` keeps ownership: plain init must not
-    /// write a `.ops.toml` section whose sane defaults would shadow the
+    /// An existing `backlog.config.yml` keeps ownership: `--ops-toml` must
+    /// not write a `.ops.toml` section whose sane defaults would shadow the
     /// yml's real values (the section wins at resolve time).
     #[test]
     fn existing_yml_keeps_ownership_of_the_config() {
@@ -887,7 +1095,7 @@ mod tests {
             "default_status: \"To Do\"\ntask_prefix: \"ISSUE\"\n",
         )
         .expect("seed yml");
-        let text = run_init(root.as_path(), false);
+        let text = run_init(root.as_path(), InitConfig::OpsToml);
         assert!(
             text.contains("backlog.config.yml already configures the backlog"),
             "got: {text}"
@@ -914,7 +1122,8 @@ mod tests {
         let root = crate::test_utils::canonical_root(&dir);
         std::fs::write(root.join(".ops.toml"), "not [ valid toml").expect("seed");
         let mut out = Vec::new();
-        let err = run_backlog_init_to(root.as_path(), false, &mut out).expect_err("must fail");
+        let err = run_backlog_init_to(root.as_path(), InitConfig::OpsToml, &mut out)
+            .expect_err("must fail");
         let rendered = format!("{err:#}");
         assert!(
             rendered.contains("refusing to overwrite"),
@@ -945,7 +1154,7 @@ mod tests {
     fn dry_run_refuses_every_unpreviewable_mutation_and_writes_nothing() {
         let dir = tempfile::tempdir().expect("tempdir");
         let root = crate::test_utils::canonical_root(&dir);
-        run_init(root.as_path(), false);
+        run_init(root.as_path(), InitConfig::OpsToml);
         let config = ops_core::config::load_config_or_default_at(root.as_path(), "test");
         run_backlog(
             root.as_path(),

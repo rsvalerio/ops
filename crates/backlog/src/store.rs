@@ -19,7 +19,8 @@ use crate::model::TaskDoc;
 /// backlog.md directories (relative to the backlog root) that can hold task
 /// markdown files.
 ///
-/// `tasks` is the only one required to exist; the others are scanned when
+/// None is required to exist — a missing `tasks/` is an empty backlog, and
+/// the writing commands create it on first use. The others are scanned when
 /// present because id allocation must never collide with an archived or
 /// completed task.
 pub const TASK_DIRS: &[&str] = &["tasks", "completed", "archive/tasks", "archive/completed"];
@@ -102,39 +103,38 @@ pub struct Store {
 }
 
 impl Store {
-    /// Open the store, requiring the `tasks/` directory to exist.
+    /// Open the store rooted at `backlog_root`. The tree need not exist:
+    /// a missing `tasks/` scans as empty, and the writing commands create
+    /// it on first use (`ops backlog init` does too).
     ///
     /// # Errors
     ///
-    /// No `<root>/tasks` directory (ERR-13: the error names the missing
-    /// directory so the operator knows what to create).
+    /// `<backlog_root>/tasks` exists but is not a directory; the error
+    /// names the path.
     pub fn open(backlog_root: &Path) -> anyhow::Result<Self> {
         let tasks_dir = backlog_root.join("tasks");
-        if tasks_dir.is_dir() {
-            Ok(Self {
-                backlog_root: backlog_root.to_path_buf(),
-            })
-        } else {
-            anyhow::bail!(
-                "no {} directory found — run `ops backlog init` in the workspace before \
-                 managing tasks",
-                tasks_dir.display()
-            )
+        if tasks_dir.exists() && !tasks_dir.is_dir() {
+            anyhow::bail!("{} exists but is not a directory", tasks_dir.display());
         }
+        Ok(Self {
+            backlog_root: backlog_root.to_path_buf(),
+        })
     }
 
     /// Every parseable task in `tasks/`, sorted by numeric id ascending.
+    /// A missing `tasks/` is an empty backlog.
     ///
     /// # Errors
     ///
-    /// `tasks/` or one of its entries cannot be read (the error names the
-    /// directory), or a task file that exists does not parse (the error
-    /// names the file).
+    /// `tasks/` exists but it, or one of its entries, cannot be read (the
+    /// error names the directory), or a task file that exists does not
+    /// parse (the error names the file).
     pub fn scan_tasks(&self) -> anyhow::Result<Vec<TaskEntry>> {
         let mut entries = Vec::new();
         let dir = self.backlog_root.join("tasks");
-        let read = std::fs::read_dir(&dir)
-            .map_err(|e| anyhow::anyhow!("reading {}: {e}", dir.display()))?;
+        let Some(read) = read_existing_dir(&dir)? else {
+            return Ok(entries);
+        };
         for entry in read {
             let path = readable_entry(entry, &dir)?.path();
             if path.extension().and_then(|e| e.to_str()) != Some("md") {
@@ -151,8 +151,8 @@ impl Store {
     }
 
     /// Every parseable task in every [`TASK_DIRS`] directory that exists,
-    /// each tagged with its location. Absent directories are skipped (only
-    /// `tasks/` is required, by [`Store::open`]); within each directory the
+    /// each tagged with its location. Absent directories are skipped;
+    /// within each directory the
     /// same rules as [`Store::scan_tasks`] apply — non-`.md` files skipped,
     /// a read or parse failure errors naming the file. Order is
     /// [`TASK_DIRS`] declaration order, then numeric id ascending within
@@ -202,8 +202,8 @@ impl Store {
     /// Resolve one task id across [`LOOKUP_DIRS`] in precedence order.
     /// Matching is case-insensitive on the full `TASK-NNNN` id.
     ///
-    /// Tolerance rule: a lookup directory that is merely absent is skipped
-    /// (only `tasks/` is required, by [`Store::open`]), and a task file that
+    /// Tolerance rule: a lookup directory that is merely absent is skipped,
+    /// and a task file that
     /// exists but fails to read or parse is skipped — a damaged neighbour
     /// file must not hide an intact task elsewhere in the tree.
     ///
@@ -487,14 +487,32 @@ mod tests {
         dir
     }
 
+    /// No tree at all is an empty backlog, not an error: `open` succeeds,
+    /// `scan_tasks` is empty, and `find` resolves nothing.
     #[test]
-    fn open_rejects_missing_tasks_dir_naming_it() {
+    fn open_tolerates_a_missing_tree_as_an_empty_backlog() {
         let dir = tempfile::tempdir().expect("tempdir");
-        let err = Store::open(&dir.path().join(".backlog")).expect_err("must fail");
+        let store = Store::open(&dir.path().join(".backlog")).expect("open");
+        assert!(store.scan_tasks().expect("scan").is_empty());
+        assert!(store.find("TASK-0001").expect("find").is_none());
+        assert!(
+            !dir.path().join(".backlog").exists(),
+            "open must not create the tree"
+        );
+    }
+
+    /// A `tasks` entry that is not a directory is refused, naming the path.
+    #[test]
+    fn open_rejects_a_tasks_file_naming_it() {
+        let dir = tempfile::tempdir().expect("tempdir");
+        let root = dir.path().join(".backlog");
+        std::fs::create_dir_all(&root).expect("root");
+        std::fs::write(root.join("tasks"), "not a dir").expect("seed");
+        let err = Store::open(&root).expect_err("must fail");
         let rendered = format!("{err:#}");
         assert!(
-            rendered.contains("tasks"),
-            "error must name the missing directory, got: {rendered}"
+            rendered.contains("tasks") && rendered.contains("not a directory"),
+            "error must name the path, got: {rendered}"
         );
     }
 
