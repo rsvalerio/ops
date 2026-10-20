@@ -2,6 +2,20 @@
 All notable changes to this project will be documented in this file. See [conventional commits](https://www.conventionalcommits.org/) for commit guidelines.
 
 - - -
+## [v0.84.0](https://github.com/rsvalerio/ops/compare/2bcff1e53c2c9659ab25aaf25bf5848cd7eea159..v0.84.0) - 2026-10-20
+#### 🚀 Features
+- ![BREAKING](https://img.shields.io/badge/BREAKING-red) (**backlog**) work without config or init, make init --ops-toml opt-in - ([26087dd](https://github.com/rsvalerio/ops/commit/26087dd4298b7c68fd1b6a03dfed2b5a667ebe73)) - [@rsvalerio](https://github.com/rsvalerio)
+#### 🐛 Bug Fixes
+- (**backlog**) never bootstrap the tasks tree under the global --dry-run - ([064a8e8](https://github.com/rsvalerio/ops/commit/064a8e846d0604b9d95f5b1fef77ee133b26b85c)) - [@rsvalerio](https://github.com/rsvalerio)
+#### 📚 Documentation
+- (**backlog**) describe the no-config flow and the init --ops-toml flag - ([da301de](https://github.com/rsvalerio/ops/commit/da301de465c36b3471894415b70967b271a3dc27)) - [@rsvalerio](https://github.com/rsvalerio)
+#### 🚜 Refactoring
+- ![BREAKING](https://img.shields.io/badge/BREAKING-red) (**backlog**) rename init --backlog.md flag to --backlog-md - ([2bcff1e](https://github.com/rsvalerio/ops/commit/2bcff1e53c2c9659ab25aaf25bf5848cd7eea159)) - [@rsvalerio](https://github.com/rsvalerio)
+#### ⚙️ Miscellaneous
+- (**backlog**) file TASK-2635, Rust verify runs no doctests - ([0995c17](https://github.com/rsvalerio/ops/commit/0995c1769fa0fb62da08a7ac1d878af013e56fbc)) - [@rsvalerio](https://github.com/rsvalerio)
+
+- - -
+
 ## [v0.83.0](https://github.com/rsvalerio/ops/compare/1451af5c3c4413c0d7c7ca6aef4adc0c4206ed7f..v0.83.0) - 2026-10-18
 #### 🚀 Features
 - (**about**) enrich codebase regions and totals from rust-loc - ([c9df78d](https://github.com/rsvalerio/ops/commit/c9df78d554cca102a58b72ccbcea961d76f3dfad)) - [@rsvalerio](https://github.com/rsvalerio)
