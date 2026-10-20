@@ -351,8 +351,9 @@ const fn bootstraps_tree(action: &BacklogAction) -> bool {
 /// a mutating action without a preview mode fails under it (see
 /// [`unpreviewable_mutation`]) before anything is read or written. A
 /// task-adding action (see [`bootstraps_tree`]) creates the tasks tree
-/// first, announcing it on stdout; a read-only action on a missing tree
-/// sees an empty backlog.
+/// first, announcing it on stdout — but never under the global `--dry-run`,
+/// which promises that nothing is written; a read-only action on a missing
+/// tree sees an empty backlog.
 ///
 /// # Errors
 ///
@@ -383,7 +384,9 @@ pub fn run_backlog(
         return run_backlog_init(cwd, init_config(ops_toml, backlog_md));
     }
     let cfg = resolve_backlog_config(cwd, Some(&config.backlog))?;
-    if bootstraps_tree(&action) {
+    // The global --dry-run promises nothing is written, the tasks tree
+    // included, even for actions whose local preview flag is unset.
+    if !dry_run && bootstraps_tree(&action) {
         ensure_tasks_tree_with(cwd, &cfg, &mut std::io::stdout())?;
     }
     // create-review-tasks runs without a store — the engine scans the
