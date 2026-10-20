@@ -40,7 +40,7 @@ fn run_init_to(
             // asymmetric with the `--force` path that does write to stdout.
             writeln!(w, ".ops.toml already exists; pass --force to overwrite")?;
             // The backlog bootstrap still runs on the existing file: the
-            // shared init step inserts `[backlog]` when the section is
+            // shared init step (`--ops-toml` mode) inserts `[backlog]` when the section is
             // absent and then ensures the tasks tree. A `.ops.toml` that
             // step cannot parse must not abort `ops init` — the early-load
             // contract in `run()` keeps `ops init` working over a broken
@@ -49,7 +49,11 @@ fn run_init_to(
             // and the tree is created from the yml-or-defaults config,
             // which does not read `.ops.toml`. Standalone
             // `ops backlog init` keeps the hard error.
-            if let Err(err) = crate::backlog_cmd::run_backlog_init_to(&cwd, false, w) {
+            if let Err(err) = crate::backlog_cmd::run_backlog_init_to(
+                &cwd,
+                crate::backlog_cmd::InitConfig::OpsToml,
+                w,
+            ) {
                 tracing::warn!(
                     error = %format!("{err:#}"),
                     "backlog bootstrap during ops init failed; creating the tasks tree from the yml-or-defaults config"

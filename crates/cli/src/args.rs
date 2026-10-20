@@ -451,13 +451,18 @@ pub enum LockAction {
 /// `ops backlog …` subcommands.
 #[derive(clap::Subcommand, Debug, Clone)]
 pub enum BacklogAction {
-    /// Bootstrap the backlog: a `[backlog]` section in `.ops.toml` (or,
-    /// with `--backlog-md`, a `backlog.config.yml` for the external
-    /// backlog.md CLI) plus the tasks tree. Idempotent — existing files are
-    /// left unchanged. `ops init` runs this too.
+    /// Bootstrap the backlog tasks tree; optional, since every command that
+    /// adds tasks creates it on first use. `--ops-toml` also writes a
+    /// `[backlog]` section into `.ops.toml`, `--backlog-md` a
+    /// `backlog.config.yml` for the external backlog.md CLI. Idempotent —
+    /// existing files are left unchanged.
     Init {
-        /// Write `backlog.config.yml` instead of the `.ops.toml` section —
-        /// for workspaces where the npm `backlog` CLI also reads the config.
+        /// Also write a `[backlog]` section with the defaults into
+        /// `.ops.toml` (created when missing).
+        #[arg(long = "ops-toml", conflicts_with = "backlog_md")]
+        ops_toml: bool,
+        /// Also write `backlog.config.yml` with the defaults — for
+        /// workspaces where the npm `backlog` CLI also reads the config.
         #[arg(long = "backlog-md")]
         backlog_md: bool,
     },

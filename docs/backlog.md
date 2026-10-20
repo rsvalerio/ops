@@ -14,7 +14,7 @@ into the CLI at `crates/cli/src/backlog_cmd.rs`.
 ## Commands
 
 ```
-ops backlog init [--backlog-md]               # bootstrap config + tasks tree
+ops backlog init [--ops-toml|--backlog-md]    # optional: bootstrap the tasks tree (+ a config file)
 ops backlog task create "<title>" [flags]     # prints `Created TASK-NNNN`
 ops backlog task edit <taskId> [flags]        # prints `Updated TASK-NNNN`
 ops backlog task list [flags]
@@ -27,32 +27,46 @@ ops backlog create-review-tasks [--dry-run]
 ops backlog create-coderabbit-tasks [--crate <name>...] [--run [--fresh] [--use-credits]] [--dry-run]
 ```
 
+No config and no setup are required. In a workspace with no `.ops.toml`,
+no `backlog.config.yml` and no `.backlog/` directory, the built-in defaults
+(see [Config](#config)) apply: every command that adds tasks (`task
+create`, `wave create`/`claim`/`park`/`migrate`, `create-review-tasks`,
+`create-coderabbit-tasks`) creates `<backlog_directory>/tasks/` on first
+use and prints `Created .backlog/tasks/` once; a local `--dry-run` creates
+nothing. Read-only commands (`task list`, `search`, `wave list`, …) on a
+missing tree see an empty backlog and exit 0, printing nothing; `task view
+<id>` keeps its not-found error, as do `task edit`, `commit` and `cleanup`,
+which only rewrite files that must already exist.
+
 ### `init`
 
-Bootstraps a workspace: the backlog config and the `.backlog/tasks/` tree
-(`Store::open`'s one requirement). Non-interactive, idempotent, never
-destructive — no backlog.md init-wizard parity.
+Optionally bootstraps a workspace up front: the `.backlog/tasks/` tree and,
+on request, a config file. Non-interactive, idempotent, never destructive —
+no backlog.md init-wizard parity.
 
 | Flag | Meaning |
 |------|---------|
-| `--backlog-md` | Write `backlog.config.yml` instead of the `.ops.toml` section — for workspaces where the npm `backlog` CLI also reads the config |
+| `--ops-toml` | Also insert a `[backlog]` section with the sane defaults into `.ops.toml` |
+| `--backlog-md` | Also write `backlog.config.yml` — for workspaces where the npm `backlog` CLI also reads the config |
 
-- Default (no flag): insert a `[backlog]` section (see [Config](#config))
-  with the sane defaults into `.ops.toml` when the section is absent —
-  existing section or file content is left byte-unchanged and the file's
-  formatting and comments survive the edit. A missing `.ops.toml` is
-  created carrying only the section. An existing `backlog.config.yml`
-  keeps ownership: no section is written beside it, because the section
-  would win at resolve time and its defaults would shadow the yml's
-  values.
+- Default (no flag): create `<backlog_directory>/tasks/` under the config
+  that applies (section → yml → defaults); no config file is written.
+- `--ops-toml`: insert a `[backlog]` section (see [Config](#config)) with
+  the sane defaults into `.ops.toml` when the section is absent — existing
+  section or file content is left byte-unchanged and the file's formatting
+  and comments survive the edit. A missing `.ops.toml` is created carrying
+  only the section. An existing `backlog.config.yml` keeps ownership: no
+  section is written beside it, because the section would win at resolve
+  time and its defaults would shadow the yml's values.
 - `--backlog-md`: write `backlog.config.yml` — exactly the five-key subset
   above with the sane defaults — when absent; `.ops.toml` is never touched.
-- Then create `<backlog_directory>/tasks/` under the config that now
-  applies. Every skipped step says so (`already exists, left unchanged` /
-  `already configures [backlog], left unchanged`); a rerun changes nothing.
+- The two flags are exclusive. Then the tasks tree is created under the
+  config that now applies. Every skipped step says so (`already exists,
+  left unchanged` / `already configures [backlog], left unchanged`); a
+  rerun changes nothing.
 
-`ops init` runs the same bootstrap: the generated `.ops.toml` always
-carries `[backlog]`, and over an existing `.ops.toml` the section is
+`ops init` runs the `--ops-toml` bootstrap: the generated `.ops.toml`
+always carries `[backlog]`, and over an existing `.ops.toml` the section is
 inserted in place. A malformed `.ops.toml` is a hard error for
 `ops backlog init` — it never edits a file it cannot parse — while
 `ops init` reports the problem and still creates the tasks tree from the
@@ -411,8 +425,9 @@ back to the built-in defaults, never to the yml:
 The built-in defaults both sources fall back to: statuses
 `Triage / To Do / In Progress / Done`, `default_status` `Triage`,
 `backlog_directory` `.backlog`, `task_prefix` `TASK`, `zero_padded_ids` 4.
-`ops backlog init` writes exactly these into whichever file it bootstraps
-(see [`init`](#init)).
+`ops backlog init --ops-toml` / `--backlog-md` write exactly these into the
+file they bootstrap (see [`init`](#init)); with neither config file present
+they apply as-is.
 
 ## Output contracts
 

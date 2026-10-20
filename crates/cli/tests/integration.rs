@@ -1895,23 +1895,92 @@ fn cli_backlog_view_plain_json_conflict_fails() {
     .failure();
 }
 
-/// A missing `.backlog/tasks` tree is an error naming the directory.
+/// No `.ops.toml`, no `backlog.config.yml`, no `.backlog/`: reading is an
+/// empty backlog (exit 0, the same output as an empty tree, nothing
+/// created) and `task view` keeps its not-found error.
 #[test]
-fn cli_backlog_missing_tree_names_the_directory() {
+fn cli_backlog_read_without_a_tree_is_an_empty_backlog() {
     let dir = temp_dir();
     ops_in(dir.path(), &["backlog", "task", "list", "--plain"])
-        .failure()
-        .stderr(predicate::str::contains("tasks"));
+        .success()
+        .stdout(predicate::str::is_empty());
+    ops_in(dir.path(), &["backlog", "search", "anything", "--plain"])
+        .success()
+        .stdout(predicate::str::contains("TASK-").not());
+    assert!(
+        !dir.path().join(".backlog").exists(),
+        "reading must not create the tree"
+    );
+    ops_in(
+        dir.path(),
+        &["backlog", "task", "view", "TASK-1", "--plain"],
+    )
+    .failure()
+    .stderr(predicate::str::contains("TASK-1"));
 }
 
-/// `ops backlog init` is the only prerequisite: after it, `task create`
-/// works in a workspace that had neither config nor tree. Rerunning is a
-/// no-op that changes nothing.
+/// No config and no tree: `task create` bootstraps `.backlog/tasks/` on
+/// first use, says so once, and the task is readable afterwards. No config
+/// file is written.
 #[test]
-fn cli_backlog_init_bootstraps_then_task_create_works() {
+fn cli_backlog_task_create_without_init_bootstraps_the_tree() {
+    let dir = temp_dir();
+    ops_in(
+        dir.path(),
+        &["backlog", "task", "create", "first", "--plain"],
+    )
+    .success()
+    .stdout(predicate::str::contains("Created .backlog/tasks/"))
+    .stdout(predicate::str::contains("Created TASK-0001"));
+    assert!(dir.path().join(".backlog/tasks").is_dir());
+    assert!(
+        !dir.path().join(".ops.toml").exists(),
+        "no config is written"
+    );
+    assert!(!dir.path().join("backlog.config.yml").exists());
+
+    ops_in(
+        dir.path(),
+        &["backlog", "task", "create", "second", "--plain"],
+    )
+    .success()
+    .stdout(predicate::str::contains("Created .backlog/tasks/").not())
+    .stdout(predicate::str::contains("Created TASK-0002"));
+    ops_in(
+        dir.path(),
+        &["backlog", "task", "view", "TASK-0001", "--plain"],
+    )
+    .success()
+    .stdout(predicate::str::contains("first"));
+}
+
+/// `ops backlog init` by default writes only the tasks tree — no
+/// `.ops.toml` — and a rerun is a silent no-op.
+#[test]
+fn cli_backlog_init_default_writes_only_the_tree() {
+    let dir = temp_dir();
+    ops_in(dir.path(), &["backlog", "init"])
+        .success()
+        .stdout(predicate::str::contains("Created .backlog/tasks/"))
+        .stdout(predicate::str::contains(".ops.toml").not());
+    assert!(dir.path().join(".backlog/tasks").is_dir());
+    assert!(
+        !dir.path().join(".ops.toml").exists(),
+        "init must not write .ops.toml by default"
+    );
+    assert!(!dir.path().join("backlog.config.yml").exists());
+    ops_in(dir.path(), &["backlog", "init"])
+        .success()
+        .stdout(predicate::str::is_empty());
+}
+
+/// `ops backlog init --ops-toml` also writes the `[backlog]` section into
+/// `.ops.toml`; afterwards `task create` works and a rerun changes nothing.
+#[test]
+fn cli_backlog_init_ops_toml_writes_the_section() {
     let dir = temp_dir();
 
-    ops_in(dir.path(), &["backlog", "init"])
+    ops_in(dir.path(), &["backlog", "init", "--ops-toml"])
         .success()
         .stdout(predicate::str::contains(
             "Created .ops.toml with a [backlog] section",
@@ -1931,7 +2000,7 @@ fn cli_backlog_init_bootstraps_then_task_create_works() {
     .stdout(predicate::str::contains("Created TASK-0001"));
 
     // Rerun: everything exists, nothing is rewritten.
-    ops_in(dir.path(), &["backlog", "init"])
+    ops_in(dir.path(), &["backlog", "init", "--ops-toml"])
         .success()
         .stdout(predicate::str::contains(
             ".ops.toml already configures [backlog], left unchanged",
@@ -1941,6 +2010,17 @@ fn cli_backlog_init_bootstraps_then_task_create_works() {
         toml,
         "rerun must be byte-unchanged"
     );
+}
+
+/// The two config flags are exclusive.
+#[test]
+fn cli_backlog_init_rejects_both_config_flags() {
+    let dir = temp_dir();
+    ops_in(
+        dir.path(),
+        &["backlog", "init", "--ops-toml", "--backlog-md"],
+    )
+    .failure();
 }
 
 /// `ops backlog init --backlog-md` writes `backlog.config.yml` (the
@@ -2011,8 +2091,7 @@ fn cli_backlog_default_status_precedence() {
     ops_in(yml_dir.path(), &["backlog", "init"]).success();
     assert!(
         !yml_dir.path().join(".ops.toml").exists(),
-        "no .ops.toml was seeded, so init's run must not have created one here — \
-         the yml already satisfied the config step"
+        "init writes no .ops.toml by default"
     );
     ops_in(
         yml_dir.path(),
@@ -2442,14 +2521,15 @@ fn cli_about_backlog_empty_tree_is_the_notice() {
         .stdout(predicate::str::contains("No backlog tasks found."));
 }
 
-/// A missing `.backlog/tasks` tree is the same error the backlog commands
-/// give, naming the directory.
+/// A missing `.backlog/tasks` tree is an empty backlog, as for the
+/// backlog commands: the overview reports no tasks and creates nothing.
 #[test]
-fn cli_about_backlog_missing_tree_names_the_directory() {
+fn cli_about_backlog_missing_tree_is_an_empty_backlog() {
     let dir = temp_dir();
     ops_in(dir.path(), &["about", "backlog"])
-        .failure()
-        .stderr(predicate::str::contains("tasks"));
+        .success()
+        .stdout(predicate::str::contains("No backlog tasks found."));
+    assert!(!dir.path().join(".backlog").exists());
 }
 
 /// `--refresh` parses and is a no-op for the backlog page (no cache).
