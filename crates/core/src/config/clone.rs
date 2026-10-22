@@ -214,6 +214,9 @@ fn materialize(
             if let Some(exclusive) = decl.exclusive {
                 copy.exclusive = exclusive;
             }
+            if let Some(raw) = decl.raw {
+                copy.raw = raw;
+            }
             // A strategy beside `clone` replaces the copied one
             // wholesale, like `env`; without one the source's is copied.
             if decl.strategy.is_some() {
@@ -243,6 +246,11 @@ fn materialize(
             // inherited from the source.
             copy.aliases.clone_from(&decl.aliases);
             copy.category = decl.category.clone().or(copy.category);
+            // `raw` is the one behavioural override a composite clone takes:
+            // both variants carry the field.
+            if let Some(raw) = decl.raw {
+                copy.raw = raw;
+            }
             CommandSpec::Composite(copy)
         }
         // `apply` only passes specs `resolve_source` deemed concrete;
@@ -389,6 +397,31 @@ mod tests {
         assert_eq!(fmt.help.as_deref(), Some("Format the fuzz targets"));
         assert_eq!(fmt.timeout_secs, Some(120));
         assert!(fmt.exclusive);
+    }
+
+    /// `raw` overrides the copy on both exec and composite sources — it is
+    /// the one behavioural override a composite clone takes.
+    #[test]
+    fn raw_overrides_apply_to_exec_and_composite_copies() {
+        let dir = rust_workspace();
+        let mut exec_decl = CloneCommandSpec::new("fmt");
+        exec_decl.raw = Some(true);
+        let mut config = config_with_clone("fuzz-fmt", exec_decl);
+        let mut composite_decl = CloneCommandSpec::new("verify");
+        composite_decl.raw = Some(true);
+        config
+            .commands
+            .insert("my-verify".to_string(), CommandSpec::Clone(composite_decl));
+        apply(&mut config, dir.path()).unwrap();
+
+        let Some(CommandSpec::Exec(fmt)) = config.commands.get("fuzz-fmt") else {
+            panic!("exec clone must materialize");
+        };
+        assert!(fmt.raw, "raw = true must override the source's default");
+        let Some(CommandSpec::Composite(verify)) = config.commands.get("my-verify") else {
+            panic!("composite clone must materialize");
+        };
+        assert!(verify.raw, "raw = true must override a composite source's");
     }
 
     /// AC #2: `program`/`args`/`commands` beside `clone` are parse errors

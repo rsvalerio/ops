@@ -776,18 +776,28 @@ mod run_command_dry_run_tests {
 }
 
 mod raw_warnings_tests {
-    use crate::run_cmd::emit_raw_warnings;
+    use crate::run_cmd::{emit_raw_warnings, RawFlagConflicts};
     use crate::test_utils::capture_warnings as capture;
 
     #[test]
     fn raw_with_tap_emits_warning() {
-        let logs = capture(|| emit_raw_warnings(false, true, false));
+        let logs = capture(|| {
+            emit_raw_warnings(RawFlagConflicts {
+                has_tap: true,
+                ..RawFlagConflicts::default()
+            });
+        });
         assert!(logs.contains("--tap is ignored under --raw"), "got: {logs}");
     }
 
     #[test]
     fn raw_with_parallel_emits_warning() {
-        let logs = capture(|| emit_raw_warnings(true, false, false));
+        let logs = capture(|| {
+            emit_raw_warnings(RawFlagConflicts {
+                any_parallel: true,
+                ..RawFlagConflicts::default()
+            });
+        });
         assert!(
             logs.contains("--raw forces sequential execution"),
             "got: {logs}"
@@ -796,15 +806,38 @@ mod raw_warnings_tests {
 
     #[test]
     fn raw_with_both_emits_two_warnings() {
-        let logs = capture(|| emit_raw_warnings(true, true, false));
+        let logs = capture(|| {
+            emit_raw_warnings(RawFlagConflicts {
+                any_parallel: true,
+                has_tap: true,
+                ..RawFlagConflicts::default()
+            });
+        });
         assert!(logs.contains("--tap is ignored"), "got: {logs}");
         assert!(logs.contains("--raw forces sequential"), "got: {logs}");
     }
 
     #[test]
     fn raw_clean_emits_nothing() {
-        let logs = capture(|| emit_raw_warnings(false, false, false));
+        let logs = capture(|| emit_raw_warnings(RawFlagConflicts::default()));
         assert!(logs.is_empty(), "unexpected output: {logs}");
+    }
+
+    /// `--junit` is rejected beside the `--raw` *flag* by clap, but a
+    /// command's own `raw = true` reaches the raw path with `--junit` clap
+    /// never saw — this runtime warning is the only guard on that path.
+    #[test]
+    fn raw_with_junit_emits_warning() {
+        let logs = capture(|| {
+            emit_raw_warnings(RawFlagConflicts {
+                has_junit: true,
+                ..RawFlagConflicts::default()
+            });
+        });
+        assert!(
+            logs.contains("--junit is ignored under --raw"),
+            "got: {logs}"
+        );
     }
 
     /// `--raw -v` previously emitted nothing — raw mode
@@ -813,7 +846,12 @@ mod raw_warnings_tests {
     /// no effect. Mirrors the existing parallel/tap warning shape.
     #[test]
     fn raw_with_verbose_emits_warning() {
-        let logs = capture(|| emit_raw_warnings(false, false, true));
+        let logs = capture(|| {
+            emit_raw_warnings(RawFlagConflicts {
+                verbose: true,
+                ..RawFlagConflicts::default()
+            });
+        });
         assert!(
             logs.contains("--verbose is ignored under --raw"),
             "got: {logs}"
@@ -856,6 +894,169 @@ mod raw_warnings_tests {
         assert_eq!(
             tap_warnings, 1,
             "single-command raw path with --tap must emit the warning exactly once; got: {logs}"
+        );
+    }
+}
+
+/// A command's `raw = true` promotes the invocation to raw mode — the
+/// config-side twin of the `--raw` flag.
+mod config_raw_tests {
+    use super::*;
+    use crate::test_utils::{capture_warnings, TestConfigBuilder};
+    use ops_core::config::{CommandSpec, CompositeCommandSpec};
+
+    fn runner_with(config: ops_core::config::Config) -> ops_runner::command::CommandRunner {
+        ops_runner::command::CommandRunner::new(config, PathBuf::from("."))
+    }
+
+    #[test]
+    fn command_tree_is_raw_direct_exec() {
+        let mut raw_spec = exec_spec("echo", &["hi"]);
+        raw_spec.raw = true;
+        let config = TestConfigBuilder::new()
+            .command("raw-cmd", CommandSpec::Exec(raw_spec))
+            .exec("plain", "echo", &["hi"])
+            .build();
+        let runner = runner_with(config);
+        assert!(command_tree_is_raw(&runner, "raw-cmd"));
+        assert!(!command_tree_is_raw(&runner, "plain"));
+    }
+
+    /// A raw step inside a composite promotes the group's whole invocation —
+    /// raw mode is a property of the run, not of the single step.
+    #[test]
+    fn command_tree_is_raw_nested_child() {
+        let mut raw_spec = exec_spec("echo", &["hi"]);
+        raw_spec.raw = true;
+        let mut config = TestConfigBuilder::new()
+            .command("raw-cmd", CommandSpec::Exec(raw_spec))
+            .exec("plain", "echo", &["hi"])
+            .build();
+        config.commands.insert(
+            "group".to_string(),
+            CommandSpec::Composite(CompositeCommandSpec::new(["plain", "raw-cmd"])),
+        );
+        let runner = runner_with(config);
+        assert!(command_tree_is_raw(&runner, "group"));
+    }
+
+    #[test]
+    fn command_tree_is_raw_composite_itself() {
+        let mut config = TestConfigBuilder::new()
+            .exec("plain", "echo", &["hi"])
+            .build();
+        let mut group = CompositeCommandSpec::new(["plain"]);
+        group.raw = true;
+        config
+            .commands
+            .insert("group".to_string(), CommandSpec::Composite(group));
+        assert!(command_tree_is_raw(&runner_with(config), "group"));
+    }
+
+    #[test]
+    fn command_tree_is_raw_handles_cycles_without_panicking() {
+        let a = CompositeCommandSpec::new(["b"]);
+        let b = CompositeCommandSpec::new(["a"]);
+        let mut config = ops_core::config::Config::empty();
+        config
+            .commands
+            .insert("a".to_string(), CommandSpec::Composite(a));
+        config
+            .commands
+            .insert("b".to_string(), CommandSpec::Composite(b));
+        assert!(!command_tree_is_raw(&runner_with(config), "a"));
+    }
+
+    /// Under `--dry-run` the "--raw is ignored" warning keys off the CLI
+    /// flag alone: a config-raw command previews without warning (the user
+    /// supplied no flag to ignore), while `--dry-run --raw` still warns.
+    #[test]
+    fn dry_run_raw_warning_reflects_only_the_cli_flag() {
+        let logs = {
+            let (_dir, _guard) = crate::test_utils::with_temp_config(
+                r#"
+[commands.echo_test]
+program = "echo"
+args = ["test"]
+raw = true
+"#,
+            );
+            capture_warnings(|| {
+                run_commands(
+                    std::sync::Arc::new(ops_core::config::load_config_or_default("test")),
+                    &["echo_test"],
+                    RunOptions {
+                        dry_run: true,
+                        ..RunOptions::default()
+                    },
+                )
+                .expect("dry run should succeed");
+            })
+        };
+        assert!(
+            !logs.contains("--raw is ignored under --dry-run"),
+            "config raw must not trigger the --raw-flag warning: {logs}"
+        );
+    }
+
+    /// The flag-side counterpart: `--dry-run --raw` still warns, whether or
+    /// not the command also sets `raw = true`.
+    #[test]
+    fn dry_run_raw_flag_still_warns_on_a_config_raw_command() {
+        let (_dir, _guard) = crate::test_utils::with_temp_config(
+            r#"
+[commands.echo_test]
+program = "echo"
+args = ["test"]
+raw = true
+"#,
+        );
+        let logs = capture_warnings(|| {
+            run_commands(
+                std::sync::Arc::new(ops_core::config::load_config_or_default("test")),
+                &["echo_test"],
+                RunOptions {
+                    dry_run: true,
+                    raw: true,
+                    ..RunOptions::default()
+                },
+            )
+            .expect("dry run should succeed");
+        });
+        assert!(
+            logs.contains("--raw is ignored under --dry-run"),
+            "the supplied --raw flag must still warn: {logs}"
+        );
+    }
+
+    /// End-to-end: `ops <cmd>` with `raw = true` and no `--raw` flag must
+    /// take the raw path — asserted through the `--tap` warning only the raw
+    /// path emits.
+    #[test]
+    fn run_commands_config_raw_bypasses_the_display_path() {
+        let (_dir, _guard) = crate::test_utils::with_temp_config(
+            r#"
+[commands.echo_test]
+program = "echo"
+args = ["test"]
+raw = true
+"#,
+        );
+        let logs = capture_warnings(|| {
+            let exit = run_commands(
+                std::sync::Arc::new(ops_core::config::load_config_or_default("test")),
+                &["echo_test"],
+                RunOptions {
+                    tap: Some(PathBuf::from("tap.log")),
+                    ..RunOptions::default()
+                },
+            )
+            .expect("raw run should succeed");
+            assert_eq!(exit, ExitCode::SUCCESS);
+        });
+        assert!(
+            logs.contains("--tap is ignored under --raw"),
+            "the config raw flag must route through the raw path: {logs}"
         );
     }
 }

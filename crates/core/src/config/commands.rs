@@ -155,6 +155,21 @@ impl CommandSpec {
         self.meta().aliases()
     }
 
+    /// Whether this command asks for raw mode (see [`ExecCommandSpec::raw`]).
+    ///
+    /// The [`CommandSpec::Clone`] arm reads the declaration's own override;
+    /// on the load path clones are materialized into Exec/Composite before
+    /// any consumer calls this, so the arm only matters for direct
+    /// deserialization that bypassed the loader.
+    #[must_use]
+    pub fn raw(&self) -> bool {
+        match self {
+            Self::Exec(e) => e.raw,
+            Self::Composite(c) => c.raw,
+            Self::Clone(c) => c.raw.unwrap_or(false),
+        }
+    }
+
     /// Fallback description when no `help` text is set.
     #[must_use]
     pub fn display_cmd_fallback(&self) -> String {
@@ -199,6 +214,16 @@ pub struct ExecCommandSpec {
     /// starts. No effect in a sequential plan.
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     pub exclusive: bool,
+    /// Run the invocation in raw mode (inherited child stdio, no progress
+    /// display, sequential), as if `--raw` was passed. For commands that need
+    /// the terminal — an interactive prompt, a pager, a password read.
+    ///
+    /// Raw mode is a property of the whole run, so this flag promotes the
+    /// invocation that names the command (directly or through a composite):
+    /// every step of that run inherits stdio and the display/tap/junit paths
+    /// are bypassed. No effect under `--dry-run`.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub raw: bool,
     /// Display-only program name that overrides `program` in rendered
     /// command lines (see [`Self::display_cmd`]). Spawn behaviour is
     /// unchanged — `program` is still what executes.
@@ -249,7 +274,7 @@ impl ExecCommandSpec {
     /// `#[non_exhaustive]`: downstream crates cannot use `..Default::default()`
     /// syntax and must go through this constructor. Adjust the remaining
     /// fields (`env`, `cwd`, `timeout_secs`, `help`, `aliases`, `category`,
-    /// `exclusive`)
+    /// `exclusive`, `raw`)
     /// via direct field access — they remain `pub`.
     #[must_use]
     pub fn new(
@@ -680,6 +705,11 @@ pub struct CompositeCommandSpec {
     /// Category for grouping in help output.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub category: Option<String>,
+    /// Run the invocation in raw mode (inherited child stdio, no progress
+    /// display, sequential), as if `--raw` was passed — promotes the whole
+    /// run that names this group. See [`ExecCommandSpec::raw`].
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub raw: bool,
 }
 
 impl CommandMeta for CompositeCommandSpec {
@@ -699,7 +729,7 @@ impl CompositeCommandSpec {
     ///
     /// Preferred over struct-literal syntax because [`CompositeCommandSpec`]
     /// is `#[non_exhaustive]`. Adjust `parallel`, `fail_fast`, `help`,
-    /// `aliases`, `category` via direct field access.
+    /// `aliases`, `category`, `raw` via direct field access.
     #[must_use]
     pub fn new(commands: impl IntoIterator<Item = impl Into<String>>) -> Self {
         Self {
@@ -709,6 +739,7 @@ impl CompositeCommandSpec {
             help: None,
             aliases: Vec::new(),
             category: None,
+            raw: false,
         }
     }
 }
@@ -727,7 +758,7 @@ impl CompositeCommandSpec {
 ///
 /// Exec-only overrides (`env`, `cwd`, `timeout_secs`, `exclusive`, `strategy`) set beside
 /// a composite source are load errors; a composite clone can only override
-/// `help`, `category` and `aliases`.
+/// `help`, `category`, `aliases` and `raw` (both variants take it).
 #[derive(Debug, Clone, PartialEq, Eq, Deserialize, Serialize)]
 #[serde(deny_unknown_fields)]
 #[non_exhaustive]
@@ -762,6 +793,10 @@ pub struct CloneCommandSpec {
     /// (exec sources only).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub exclusive: Option<bool>,
+    /// Raw-mode flag; overrides the source's `raw` when set (both exec and
+    /// composite sources — both variants take the field).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub raw: Option<bool>,
     /// Matrix strategy; replaces the source's `strategy` wholesale when set
     /// (exec sources only). Without it the clone copies the source's.
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -798,6 +833,7 @@ impl CloneCommandSpec {
             cwd: None,
             timeout_secs: None,
             exclusive: None,
+            raw: None,
             strategy: None,
         }
     }

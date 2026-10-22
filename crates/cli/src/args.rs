@@ -54,7 +54,8 @@ pub struct Cli {
     /// propagated verbatim.
     ///
     /// Composite commands run sequentially under `--raw` (parallel is ignored).
-    /// Cannot be combined with `--tap`.
+    /// Cannot be combined with `--tap`. A command's own `raw = true` config
+    /// flag forces the same mode without passing `--raw`.
     #[arg(long, global = true, conflicts_with = "tap")]
     pub raw: bool,
 

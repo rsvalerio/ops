@@ -38,7 +38,9 @@ builtins that write or run tools without a preview mode: `init`, `new-command`,
 `import-makefile`, `trailing-whitespace`, `end-of-file-fixer`, `theme select`, `lock` /
 `lock break`, `about` (except `about backlog`), `deps` and `plans`), `--verbose` (full stderr on
 failure), `--tap <file>` (capture raw output), `--junit <file>` (JUnit XML report of the run's
-steps), `--raw` (inherit child stdio, no ops output).
+steps), `--raw` (inherit child stdio, no ops output; the same mode can be
+forced per command with `raw = true` in `[commands.<name>]` — see
+[Configuration](configuration.md#raw-commands)).
 
 JUnit: `--junit <file>` writes a JUnit XML report when the run finishes, one `<testcase>` per
 plan step (`classname` is `ops.<step id>`). A failed step carries a `<failure>` whose message is

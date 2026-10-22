@@ -222,10 +222,26 @@ fn run_commands(
     } = opts;
     let runner = build_runner(config, cwd_escape_policy)?;
 
+    // A command's own `raw = true` promotes the whole invocation to raw
+    // mode, exactly as the `--raw` flag does. Raw mode is a property of the
+    // run (inherited stdio, no display), not of a single step, so any raw
+    // command in any named tree promotes every named plan.
+    let config_raw = names.iter().any(|n| command_tree_is_raw(&runner, n));
+    if config_raw && !raw {
+        tracing::debug!(
+            "raw mode forced by a command's `raw = true`; the progress display, --tap and --junit are bypassed"
+        );
+    }
+
     if dry_run {
         // Extend the execute path's `emit_raw_warnings` contract to dry-run
         // so users invoking `ops <cmd> --dry-run --raw --tap=path` see that
-        // --raw/--tap have no effect, instead of a silent override.
+        // --raw/--tap have no effect, instead of a silent override. The
+        // warning keys off the CLI flag alone: `config_raw` is deliberately
+        // not folded in yet, because the user who did not type `--raw`
+        // should not be told their (unsupplied) flag was ignored — the
+        // config flag needs no warning, it simply does not apply to a
+        // preview that executes nothing.
         emit_dry_run_warnings(raw, tap.is_some(), verbose);
         if junit.is_some() {
             tracing::warn!(
@@ -239,14 +255,48 @@ fn run_commands(
         return Ok(ExitCode::SUCCESS);
     }
 
+    let raw = raw || config_raw;
+
     let plans = plans_for_names(&runner, names)?;
 
     let results = if raw {
-        run_commands_raw(&runner, &plans, tap.as_deref(), verbose)?
+        run_commands_raw(&runner, &plans, tap.as_deref(), junit.is_some(), verbose)?
     } else {
         run_commands_with_display(&runner, &plans, tap.as_deref(), junit, verbose)?
     };
     Ok(summarize(&results))
+}
+
+/// Whether `name`, or any command reachable through its composite tree,
+/// sets `raw = true` — the config-side twin of the `--raw` flag (see
+/// [`ops_core::config::ExecCommandSpec::raw`]).
+///
+/// Walks the tree rather than the expanded plan because raw mode is decided
+/// before planning: a matrix command's cell labels do not resolve, but the
+/// named command's own spec does. Cycle-safe through the visited set, though
+/// the planner rejects cycles before a run ever starts.
+fn command_tree_is_raw(runner: &ops_runner::command::CommandRunner, name: &str) -> bool {
+    let mut visited: std::collections::HashSet<&str> = std::collections::HashSet::new();
+    let mut stack: Vec<&str> = vec![name];
+    while let Some(current) = stack.pop() {
+        if !visited.insert(current) {
+            continue;
+        }
+        let Some(spec) = runner.resolve(current) else {
+            continue;
+        };
+        if spec.raw() {
+            return true;
+        }
+        if let ops_core::config::CommandSpec::Composite(c) = spec {
+            for child in &c.commands {
+                if !visited.contains(child.as_str()) {
+                    stack.push(child.as_str());
+                }
+            }
+        }
+    }
+    false
 }
 
 /// Run each named command as its own plan, one after another.
@@ -331,13 +381,15 @@ fn run_commands_raw(
     runner: &ops_runner::command::CommandRunner,
     plans: &[NamePlan],
     tap: Option<&Path>,
+    has_junit: bool,
     verbose: bool,
 ) -> anyhow::Result<Vec<StepResult>> {
-    emit_raw_warnings(
-        plans.iter().any(|p| p.plan.any_parallel()),
-        tap.is_some(),
+    emit_raw_warnings(RawFlagConflicts {
+        any_parallel: plans.iter().any(|p| p.plan.any_parallel()),
+        has_tap: tap.is_some(),
+        has_junit,
         verbose,
-    );
+    });
     // Raw mode has no EchoGuard to restore, but a
     // SIGTERM still has to cancel the plan rather than leave its children
     // behind. Ctrl-C additionally reaches raw children through the tty
@@ -400,22 +452,44 @@ fn emit_dry_run_warnings(raw: bool, has_tap: bool, verbose: bool) {
     }
 }
 
-/// Warnings emitted when `--raw` is combined with otherwise-incompatible
-/// flags. Extracted from `run_commands_raw` so the warning logic itself can
-/// be unit-tested without spinning up a full runner.
-fn emit_raw_warnings(any_parallel: bool, has_tap: bool, verbose: bool) {
+/// The flag combinations raw mode can contradict, as one value instead of
+/// four positional bools a call site could swap.
+#[derive(Debug, Clone, Copy, Default)]
+struct RawFlagConflicts {
+    any_parallel: bool,
+    has_tap: bool,
+    has_junit: bool,
+    verbose: bool,
+}
+
+/// Warnings emitted when raw mode (`--raw`, or a command's `raw = true`) is
+/// combined with otherwise-incompatible flags. Extracted from
+/// `run_commands_raw` so the warning logic itself can be unit-tested without
+/// spinning up a full runner.
+///
+/// `--junit` needs this runtime guard as well as clap's `conflicts_with`:
+/// the CLI-level conflict only catches the `--raw` flag, while a command's
+/// own `raw = true` reaches this path with `--junit` untouched by clap.
+fn emit_raw_warnings(c: RawFlagConflicts) {
     // Raw mode forces sequential execution; `parallel = true` composites
     // are ignored.
-    if any_parallel {
+    if c.any_parallel {
         tracing::warn!("--raw forces sequential execution; composite `parallel = true` is ignored");
     }
     // There is no stream to tap in raw mode (child stdio is
     // inherited directly). Warn so users combining the flags see the
     // contradiction rather than getting a silent no-op or an empty file
     // somewhere.
-    if has_tap {
+    if c.has_tap {
         tracing::warn!(
             "--tap is ignored under --raw because raw mode inherits child stdio; no tap file will be written"
+        );
+    }
+    // Same shape as `--tap`: no report can be written from inherited
+    // stdio.
+    if c.has_junit {
+        tracing::warn!(
+            "--junit is ignored under --raw because raw mode inherits child stdio; no JUnit report will be written"
         );
     }
     // `--verbose` controls the stderr-tail rendering on
@@ -423,7 +497,7 @@ fn emit_raw_warnings(any_parallel: bool, has_tap: bool, verbose: bool) {
     // inherits child stdio directly and never buffers stderr, so the flag
     // has nothing to act on. Warn for parity with the `--tap`/`--parallel`
     // branches above so the user is not left guessing why `-v` was a no-op.
-    if verbose {
+    if c.verbose {
         tracing::warn!(
             "--verbose is ignored under --raw because raw mode inherits child stdio directly; \
              there is no buffered stderr tail to expand"
@@ -701,7 +775,12 @@ fn run_command_raw(
     // message strings live in exactly one place. Earlier the tap warning
     // was inlined here while parallel-detection went through a separate
     // helper, leaving the two raw paths free to drift.
-    emit_raw_warnings(composite_tree_has_parallel(runner, name), has_tap, verbose);
+    emit_raw_warnings(RawFlagConflicts {
+        any_parallel: composite_tree_has_parallel(runner, name),
+        has_tap,
+        verbose,
+        ..RawFlagConflicts::default()
+    });
     let results: Vec<StepResult> = run_with_runtime(async { runner.run_raw(name).await })?;
     log_step_results(&results);
     Ok(results.iter().all(|r| r.success))
