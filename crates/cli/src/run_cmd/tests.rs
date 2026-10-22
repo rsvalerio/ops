@@ -967,6 +967,68 @@ mod config_raw_tests {
         assert!(!command_tree_is_raw(&runner_with(config), "a"));
     }
 
+    /// Under `--dry-run` the "--raw is ignored" warning keys off the CLI
+    /// flag alone: a config-raw command previews without warning (the user
+    /// supplied no flag to ignore), while `--dry-run --raw` still warns.
+    #[test]
+    fn dry_run_raw_warning_reflects_only_the_cli_flag() {
+        let logs = {
+            let (_dir, _guard) = crate::test_utils::with_temp_config(
+                r#"
+[commands.echo_test]
+program = "echo"
+args = ["test"]
+raw = true
+"#,
+            );
+            capture_warnings(|| {
+                run_commands(
+                    std::sync::Arc::new(ops_core::config::load_config_or_default("test")),
+                    &["echo_test"],
+                    RunOptions {
+                        dry_run: true,
+                        ..RunOptions::default()
+                    },
+                )
+                .expect("dry run should succeed");
+            })
+        };
+        assert!(
+            !logs.contains("--raw is ignored under --dry-run"),
+            "config raw must not trigger the --raw-flag warning: {logs}"
+        );
+    }
+
+    /// The flag-side counterpart: `--dry-run --raw` still warns, whether or
+    /// not the command also sets `raw = true`.
+    #[test]
+    fn dry_run_raw_flag_still_warns_on_a_config_raw_command() {
+        let (_dir, _guard) = crate::test_utils::with_temp_config(
+            r#"
+[commands.echo_test]
+program = "echo"
+args = ["test"]
+raw = true
+"#,
+        );
+        let logs = capture_warnings(|| {
+            run_commands(
+                std::sync::Arc::new(ops_core::config::load_config_or_default("test")),
+                &["echo_test"],
+                RunOptions {
+                    dry_run: true,
+                    raw: true,
+                    ..RunOptions::default()
+                },
+            )
+            .expect("dry run should succeed");
+        });
+        assert!(
+            logs.contains("--raw is ignored under --dry-run"),
+            "the supplied --raw flag must still warn: {logs}"
+        );
+    }
+
     /// End-to-end: `ops <cmd>` with `raw = true` and no `--raw` flag must
     /// take the raw path — asserted through the `--tap` warning only the raw
     /// path emits.

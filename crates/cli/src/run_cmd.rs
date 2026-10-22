@@ -232,12 +232,16 @@ fn run_commands(
             "raw mode forced by a command's `raw = true`; the progress display, --tap and --junit are bypassed"
         );
     }
-    let raw = raw || config_raw;
 
     if dry_run {
         // Extend the execute path's `emit_raw_warnings` contract to dry-run
         // so users invoking `ops <cmd> --dry-run --raw --tap=path` see that
-        // --raw/--tap have no effect, instead of a silent override.
+        // --raw/--tap have no effect, instead of a silent override. The
+        // warning keys off the CLI flag alone: `config_raw` is deliberately
+        // not folded in yet, because the user who did not type `--raw`
+        // should not be told their (unsupplied) flag was ignored — the
+        // config flag needs no warning, it simply does not apply to a
+        // preview that executes nothing.
         emit_dry_run_warnings(raw, tap.is_some(), verbose);
         if junit.is_some() {
             tracing::warn!(
@@ -250,6 +254,8 @@ fn run_commands(
         }
         return Ok(ExitCode::SUCCESS);
     }
+
+    let raw = raw || config_raw;
 
     let plans = plans_for_names(&runner, names)?;
 
