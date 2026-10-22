@@ -2,6 +2,16 @@
 All notable changes to this project will be documented in this file. See [conventional commits](https://www.conventionalcommits.org/) for commit guidelines.
 
 - - -
+## [v0.85.0](https://github.com/rsvalerio/ops/compare/dd11b369b07b6794e27dd75b7ea8e8027e110a23..v0.85.0) - 2026-10-22
+#### 🚀 Features
+- (**run**) force raw mode from a command's raw = true config flag - ([dd11b36](https://github.com/rsvalerio/ops/commit/dd11b369b07b6794e27dd75b7ea8e8027e110a23)) - [@rsvalerio](https://github.com/rsvalerio)
+#### 🐛 Bug Fixes
+- (**run**) dry-run raw warning reflects only the CLI flag - ([f3b8531](https://github.com/rsvalerio/ops/commit/f3b85315d4d849938313f2195f2274c56b0992ec)) - [@rsvalerio](https://github.com/rsvalerio)
+#### 📚 Documentation
+- describe the per-command raw = true flag - ([0617121](https://github.com/rsvalerio/ops/commit/0617121d9c4b22308270c1657eb1159207f30a47)) - [@rsvalerio](https://github.com/rsvalerio)
+
+- - -
+
 ## [v0.84.0](https://github.com/rsvalerio/ops/compare/2bcff1e53c2c9659ab25aaf25bf5848cd7eea159..v0.84.0) - 2026-10-20
 #### 🚀 Features
 - ![BREAKING](https://img.shields.io/badge/BREAKING-red) (**backlog**) work without config or init, make init --ops-toml opt-in - ([26087dd](https://github.com/rsvalerio/ops/commit/26087dd4298b7c68fd1b6a03dfed2b5a667ebe73)) - [@rsvalerio](https://github.com/rsvalerio)
