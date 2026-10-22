@@ -190,6 +190,7 @@ pub fn composite_cmd(commands: &[&str]) -> CompositeCommandSpec {
         help: None,
         aliases: Vec::new(),
         category: None,
+        raw: false,
     }
 }
 
@@ -206,6 +207,7 @@ pub fn parallel_cmd(commands: &[&str]) -> CompositeCommandSpec {
         help: None,
         aliases: Vec::new(),
         category: None,
+        raw: false,
     }
 }
 

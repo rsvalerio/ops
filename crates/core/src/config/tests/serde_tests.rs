@@ -64,6 +64,52 @@ program = "cargo"
     );
 }
 
+/// `raw = true` parses on an exec command, defaults to false, and a false
+/// flag is not serialized — same shape as `exclusive`.
+#[test]
+fn parse_exec_command_raw_flag() {
+    let toml_str = r#"
+[commands.deploy]
+program = "scripts/cf-zone.sh"
+args = ["apply"]
+raw = true
+
+[commands.build]
+program = "cargo"
+"#;
+    let config: Config = toml::from_str(toml_str).unwrap();
+    let Some(CommandSpec::Exec(deploy)) = config.commands.get("deploy") else {
+        panic!("deploy must parse as an exec command");
+    };
+    assert!(deploy.raw);
+    let Some(CommandSpec::Exec(build)) = config.commands.get("build") else {
+        panic!("build must parse as an exec command");
+    };
+    assert!(!build.raw, "raw defaults to false");
+    let rendered = toml::to_string(build).unwrap();
+    assert!(
+        !rendered.contains("raw"),
+        "a false flag must not be serialized: {rendered}"
+    );
+}
+
+/// `raw = true` parses on a composite too — a group whose whole invocation
+/// should inherit stdio.
+#[test]
+fn parse_composite_command_raw_flag() {
+    let toml_str = r#"
+[commands.console]
+commands = ["cf-check", "cf-apply"]
+raw = true
+"#;
+    let config: Config = toml::from_str(toml_str).unwrap();
+    let Some(CommandSpec::Composite(console)) = config.commands.get("console") else {
+        panic!("console must parse as a composite command");
+    };
+    assert!(console.raw);
+    assert!(CommandSpec::Composite(console.clone()).raw());
+}
+
 #[test]
 fn ops_subcommand_spec_is_exclusive_and_displays_as_ops() {
     let spec = ExecCommandSpec::ops_subcommand("sec");
