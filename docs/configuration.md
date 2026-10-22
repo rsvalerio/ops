@@ -89,7 +89,7 @@ args = ["--manifest-path", "fuzz/Cargo.toml"]
 `fuzz-clippy` is a copy of the resolved Rust `clippy` default (program and args included), and `[extend.fuzz-clippy]` adds the fuzz-specific flag — so the variant tracks the default's flags as they evolve. Composites clone the same way (`clone = "verify"` copies the `commands` list). The extras are materialized at load time, so `ops --dry-run fuzz-clippy` shows the resolved program and args. Rules:
 
 - The source resolves like an `[extend]` target: your `[commands]` entry if you defined one, otherwise the detected stack's default. Extension-registered commands cannot be cloned — they register after config load — and naming one is an unknown-source load error.
-- Scalar fields beside `clone` (`help`, `category`, `aliases`, and for exec sources `env`, `cwd`, `timeout_secs`, `exclusive`, `strategy`) override the copy; fields left unset keep the source's value. Given maps and lists replace the copy (`env` replaces, it does not merge). `aliases` are the exception: they are never inherited — a clone with no `aliases` has none, because inheriting the source's would either collide at load or silently redirect the source's alias to the clone. `program`, `args` and `commands` beside `clone` are load errors — extra args go through `[extend.<name>]`.
+- Scalar fields beside `clone` (`help`, `category`, `aliases`, `raw`, and for exec sources `env`, `cwd`, `timeout_secs`, `exclusive`, `strategy`) override the copy; fields left unset keep the source's value. Given maps and lists replace the copy (`env` replaces, it does not merge). `aliases` are the exception: they are never inherited — a clone with no `aliases` has none, because inheriting the source's would either collide at load or silently redirect the source's alias to the clone. `program`, `args` and `commands` beside `clone` are load errors — extra args go through `[extend.<name>]`.
 - A clone copies the source **before** the source's own `[extend.<source>]` applies: extends stay per-name, so the clone never inherits them. `[extend.<clone>]` applies to the materialized copy.
 - Unknown sources, clone cycles (including self-clones; non-cyclic clone-of-clone chains do resolve), cloning into an existing stack-default name, and exec-only fields beside a composite source are load errors naming the command and the source.
 
@@ -171,6 +171,32 @@ The list order is the schedule. With `a` and `c` exclusive,
 `a → c → (b | d)`. Under `fail_fast = true` a failing stage stops the plan and
 later stages never start. `exclusive` has no effect in a sequential group or
 under `--raw`, which always runs sequentially.
+
+## Raw commands
+
+Some commands need the terminal: an interactive confirmation, a password
+read, a pager. The captured-output display path breaks those — the prompt
+never reaches your tty. Mark such a command `raw = true` and `ops` runs it
+as if you had passed `--raw`: child stdio is inherited directly (the prompt
+works), execution is sequential, and no progress display, `--tap` file or
+`--junit` report is produced:
+
+```toml
+[commands.cf-apply]
+program = "scripts/cf-zone.sh"
+args = ["apply"]
+help = "Apply the drift cf-check found: dry-run, confirm, write (never deletes)"
+raw = true          # the confirmation prompt needs the terminal
+category = "Cloudflare"
+```
+
+Raw mode is a property of the whole run, not of one step: `raw = true` on
+any command in the invocation's composite tree — including one reached
+through nested groups — promotes every named command of that run to raw
+mode. `--tap` and `--junit` beside it are ignored with a warning, and
+`parallel = true` groups run sequentially, exactly as under the `--raw`
+flag. A group can set `raw = true` itself to promote anything that names it.
+No effect under `--dry-run`, which never executes children.
 
 ## Running one command over a matrix
 
