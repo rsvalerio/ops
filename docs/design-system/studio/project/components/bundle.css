@@ -1,0 +1,77 @@
+/* ops theme design systems: terminal specimen styles, shared by every theme.
+   The `design_specimens` example copies this file to each theme's
+   project/components/bundle.css; edit it here. */
+html, body { margin: 0; background: var(--term-bg); color: var(--term-fg); }
+body { padding: 12px; font-family: var(--font-mono); }
+
+.ops-term {
+  font-family: var(--font-mono);
+  font-size: 14px;
+  line-height: var(--row);
+  font-variant-ligatures: none;
+  font-feature-settings: "liga" 0, "calt" 0;
+  background: var(--term-bg);
+  color: var(--term-fg);
+  border: 1px solid var(--term-border);
+  border-radius: var(--radius-md);
+  overflow-x: auto;
+}
+.ops-term__bar {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 12px;
+  background: var(--term-surface);
+  border-bottom: 1px solid var(--term-border);
+  border-radius: var(--radius-md) var(--radius-md) 0 0;
+  font-size: 12px;
+  line-height: 16px;
+  color: var(--term-dim);
+}
+.ops-term__body { padding: var(--frame-pad); }
+.ops-line { display: block; white-space: pre; min-height: var(--row); }
+
+/* Every non-ASCII glyph sits in a fixed terminal cell: fallback faces for
+   box-drawing, braille and emoji have their own advances, which would drift
+   a line off the column grid. */
+.ops-c, .ops-c2, [data-cell] { display: inline-block; }
+.ops-c, [data-cell] { width: 1ch; }
+.ops-c2 { width: 2ch; }
+
+/* One class per SGR code a theme's colour spec compiles to. */
+.sgr-1 { font-weight: 700; }
+.sgr-2 { color: var(--term-dim); }
+.sgr-3 { font-style: italic; }
+.sgr-4 { text-decoration: underline; }
+.sgr-30 { color: var(--ansi-black); }
+.sgr-31 { color: var(--ansi-red); }
+.sgr-32 { color: var(--ansi-green); }
+.sgr-33 { color: var(--ansi-yellow); }
+.sgr-34 { color: var(--ansi-blue); }
+.sgr-35 { color: var(--ansi-magenta); }
+.sgr-36 { color: var(--ansi-cyan); }
+.sgr-37 { color: var(--ansi-white); }
+.sgr-90 { color: var(--ansi-bright-black); }
+.sgr-91 { color: var(--ansi-bright-red); }
+.sgr-92 { color: var(--ansi-bright-green); }
+.sgr-93 { color: var(--ansi-bright-yellow); }
+.sgr-94 { color: var(--ansi-bright-blue); }
+.sgr-95 { color: var(--ansi-bright-magenta); }
+.sgr-96 { color: var(--ansi-bright-cyan); }
+.sgr-97 { color: var(--ansi-bright-white); }
+/* `dim` on a colour is its own token (ansi-<colour>-dim). */
+.sgr-31.sgr-2 { color: var(--ansi-red-dim); }
+.sgr-32.sgr-2 { color: var(--ansi-green-dim); }
+.sgr-33.sgr-2 { color: var(--ansi-yellow-dim); }
+.sgr-34.sgr-2 { color: var(--ansi-blue-dim); }
+.sgr-35.sgr-2 { color: var(--ansi-magenta-dim); }
+.sgr-36.sgr-2 { color: var(--ansi-cyan-dim); }
+
+.ops-caption {
+  font-family: var(--font-mono);
+  font-size: 12px;
+  line-height: 16px;
+  color: var(--term-dim);
+  margin: 8px 2px 0;
+}
+.ops-stack { display: grid; gap: 12px; }

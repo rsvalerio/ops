@@ -14,6 +14,8 @@ unicode-width = { workspace = true }
 
 [dev-dependencies]
 ops-core = { workspace = true, features = ["test-support"] }
+# The `design_specimens` example draws running rows through indicatif, as the runner does.
+indicatif = { workspace = true }
 proptest = { workspace = true }
 serial_test = { workspace = true }
 tempfile = { workspace = true }
