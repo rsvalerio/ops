@@ -147,3 +147,5 @@ color = "red dim"
 # [commands.my-custom-command]
 # program = "echo"
 # args = ["hello"]
+# raw = true   # force raw mode for this command (inherited stdio, no progress
+#              # display) — for interactive prompts, pagers, password reads
