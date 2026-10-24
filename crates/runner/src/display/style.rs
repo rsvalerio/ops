@@ -40,7 +40,7 @@ pub fn build_running_style(
             let _ = write!(
                 w,
                 "{}",
-                theme::format_duration(state.elapsed().as_secs_f64())
+                theme::format_running_elapsed(state.elapsed().as_secs_f64())
             );
         });
     Ok(style)
@@ -140,7 +140,9 @@ mod tests {
     /// `running_template_overhead` of a built-in theme once assumed a
     /// three-column `{elapsed}` while `format_duration` prints at least five
     /// (`0.00s`), so compact and classic ran 2 columns past a 72-column
-    /// terminal and flux 4, wrapping every running row.
+    /// terminal and flux 4, wrapping every running row; and past an hour
+    /// `format_duration` grows to 8 columns, overflowing even studio's
+    /// six-column field until running times got their own formatter.
     #[test]
     fn builtin_running_rows_fit_their_column_budget() {
         let long_label = "cargo test --workspace --all-features -- ".repeat(4);
@@ -149,6 +151,12 @@ mod tests {
             Duration::from_millis(9_990),
             Duration::from_millis(59_990),
             Duration::from_secs(59 * 60 + 59),
+            // Past an hour `format_duration` would print `1h0m10s` and
+            // `1h10m10s` (7 and 8 columns); the running formatter keeps six.
+            Duration::from_secs(3_610),
+            Duration::from_secs(4_210),
+            Duration::from_mins(99 * 60 + 59),
+            Duration::from_hours(1_000),
         ];
         for (name, config) in builtin_themes() {
             let theme = theme::ConfigurableTheme::new(config);

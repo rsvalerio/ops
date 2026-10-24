@@ -112,3 +112,45 @@ fn above_u64_max_finite_does_not_overflow() {
     let out = format_duration(above);
     assert!(out.contains('h'), "expected hours form, got: {out}");
 }
+
+/// `format_running_elapsed` is `format_duration` under an hour.
+#[test]
+fn running_elapsed_matches_format_duration_under_an_hour() {
+    for secs in [0.0, 0.74, 59.99, 60.0, 134.0, 3599.0] {
+        assert_eq!(format_running_elapsed(secs), format_duration(secs));
+    }
+}
+
+/// Past an hour a running time drops its seconds instead of growing past
+/// the six-column `{elapsed:>6}` field: `format_duration` prints `1h0m10s`
+/// (7 columns) and `1h10m10s` (8), which wrapped hour-long running rows.
+#[test]
+fn running_elapsed_past_an_hour_is_hours_then_days() {
+    assert_eq!(format_running_elapsed(3600.0), "1h00m");
+    assert_eq!(format_running_elapsed(3610.0), "1h00m");
+    assert_eq!(format_running_elapsed(4210.0), "1h10m");
+    assert_eq!(format_running_elapsed(35_999.0), "9h59m");
+    assert_eq!(format_running_elapsed(359_999.0), "99h59m");
+    assert_eq!(format_running_elapsed(360_000.0), "4d04h");
+    assert_eq!(format_running_elapsed(8_639_999.0), "99d23h");
+    assert_eq!(format_running_elapsed(8_640_000.0), "100d");
+}
+
+#[test]
+fn running_elapsed_rejects_non_finite_and_negative_input() {
+    assert_eq!(format_running_elapsed(f64::NAN), "--");
+    assert_eq!(format_running_elapsed(f64::INFINITY), "--");
+    assert_eq!(format_running_elapsed(-1.0), "--");
+}
+
+proptest::proptest! {
+    /// Every running time up to 99999 days fits the six-column field.
+    #[test]
+    fn running_elapsed_fits_the_running_field(secs in 0.0f64..8_639_913_600.0) {
+        let formatted = format_running_elapsed(secs);
+        proptest::prop_assert!(
+            formatted.chars().count() <= RUNNING_ELAPSED_WIDTH,
+            "{secs}s formatted as {formatted:?}"
+        );
+    }
+}
