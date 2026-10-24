@@ -16,13 +16,65 @@ pub fn format_duration(secs: f64) -> String {
     if secs < 60.0 {
         return format!("{secs:.2}s");
     }
-    // Explicit clamp into the f64-representable u64 range before the lossy
-    // `as u64` cast, so huge values saturate to `u64::MAX` visibly rather
-    // than by accident. NaN was already rejected above; only finite, ≥ 0
-    // values reach here.
+    let total_secs = whole_secs(secs);
+    if total_secs < 3600 {
+        let mins = total_secs / 60;
+        let remaining = total_secs % 60;
+        format!("{mins}m{remaining}s")
+    } else {
+        let hours = total_secs / 3600;
+        let remaining = total_secs % 3600;
+        let mins = remaining / 60;
+        let secs_part = remaining % 60;
+        format!("{hours}h{mins}m{secs_part}s")
+    }
+}
+
+/// Columns [`format_running_elapsed`] never exceeds: the fixed
+/// `{elapsed:>6}` field every built-in `running_template` reserves.
+pub const RUNNING_ELAPSED_WIDTH: usize = 6;
+
+/// Format the live elapsed time of a running step in at most
+/// [`RUNNING_ELAPSED_WIDTH`] columns.
+///
+/// Under an hour this is [`format_duration`] (`"0.74s"` .. `"59m59s"`, all
+/// six columns or fewer). Past an hour `format_duration` grows to eight
+/// columns (`"9h59m59s"`), which would push a running row past its column
+/// budget, and a live counter needs no seconds at that scale, so:
+///
+/// - `< 100h` → `"1h00m"` .. `"99h59m"` (hours + minutes)
+/// - `< 100d` → `"4d04h"` .. `"99d23h"` (days + hours)
+/// - beyond → whole days, `"100d"` (six columns up to 99999 days)
+///
+/// Finished durations keep [`format_duration`]'s full precision; NaN,
+/// negative and infinite inputs render as `"--"` as there.
+#[must_use]
+pub fn format_running_elapsed(secs: f64) -> String {
+    if !secs.is_finite() || secs < 3600.0 {
+        return format_duration(secs);
+    }
+    let total_secs = whole_secs(secs);
+    let hours = total_secs / 3600;
+    if hours < 100 {
+        return format!("{hours}h{:02}m", (total_secs % 3600) / 60);
+    }
+    let days = total_secs / 86_400;
+    if days < 100 {
+        format!("{days}d{:02}h", (total_secs % 86_400) / 3600)
+    } else {
+        format!("{days}d")
+    }
+}
+
+/// Whole seconds in `secs`, for a finite, non-negative `secs`.
+///
+/// Explicit clamp into the f64-representable u64 range before the lossy
+/// `as u64` cast, so huge values saturate to `u64::MAX` visibly rather
+/// than by accident. Callers reject NaN, negative and infinite input first.
+const fn whole_secs(secs: f64) -> u64 {
     // The casts are the point: `u64::MAX as f64` rounds up to the nearest
     // representable f64 (the clamp bound), and `clamped as u64` saturates
-    // there. Both directions are intended and bounded by the guards above.
+    // there. Both directions are intended and bounded by the callers' guards.
     // `as_conversions` is allowed for the same reason: no `From`/`TryFrom` pair
     // expresses "round `u64::MAX` up to the nearest representable f64" or
     // "saturate an already-clamped f64 down to u64", so the `as` casts are the
@@ -37,17 +89,7 @@ pub fn format_duration(secs: f64) -> String {
         let clamped = secs.trunc().clamp(0.0, u64::MAX as f64);
         clamped as u64
     };
-    if total_secs < 3600 {
-        let mins = total_secs / 60;
-        let remaining = total_secs % 60;
-        format!("{mins}m{remaining}s")
-    } else {
-        let hours = total_secs / 3600;
-        let remaining = total_secs % 3600;
-        let mins = remaining / 60;
-        let secs_part = remaining % 60;
-        format!("{hours}h{mins}m{secs_part}s")
-    }
+    total_secs
 }
 
 /// Snapshot of run-plan progress passed to the boxed layout border methods.
