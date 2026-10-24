@@ -68,7 +68,7 @@ Running: build, clippy, test
 
 Both cycle at 80ms via `enable_steady_tick`.
 
-**Width budget:** the runner prepends `left_pad` to the template, and `{elapsed}` is formatted by `format_duration` (at least 5 columns, `0.00s`). Every built-in template right-aligns it in a fixed 6-column field (`{elapsed:>6}`), so `running_template_overhead` is the template's literal text + the spinner glyph + 6, and a running row fills `output.columns` exactly, ending in the same column as a finished step's duration. `builtin_running_rows_fit_their_column_budget` in `crates/runner/src/display/style.rs` draws every built-in theme's running row through indicatif and checks it.
+**Width budget:** the runner prepends `left_pad` to the template, and `{elapsed}` is formatted by `format_running_elapsed`: at least 5 columns (`0.00s`) and never more than 6 (`RUNNING_ELAPSED_WIDTH`). Every built-in template right-aligns it in a fixed 6-column field (`{elapsed:>6}`), so `running_template_overhead` is the template's literal text + the spinner glyph + 6, and a running row fills `output.columns` exactly, ending in the same column as a finished step's duration. `builtin_running_rows_fit_their_column_budget` in `crates/runner/src/display/style.rs` draws every built-in theme's running row through indicatif and checks it, up to a 1000-hour step.
 
 **Configuration:** Spinner characters and template are defined per theme in `ThemeConfig` (`crates/core/src/config/theme_types.rs`, `ThemeConfig::classic()` / `ThemeConfig::compact()`).
 
@@ -137,7 +137,7 @@ Icons are right-padded to `icon_column_width()` so labels stay vertically aligne
  3.12s       (running step, rendered by indicatif {elapsed:>6.dim})
 ```
 
-**Format:** `format_duration` in both cases: `0.74s` (two decimals) under a minute, then `2m14s`, `1h2m3s`. While running, the runner overrides indicatif's `{elapsed}` key with the same formatter (`build_running_style`), right-aligned in six columns.
+**Format:** `format_duration` in both cases: `0.74s` (two decimals) under a minute, then `2m14s`, `1h2m3s`. While running, the runner overrides indicatif's `{elapsed}` key with `format_running_elapsed` (`build_running_style`): the same up to `59m59s`, then hours and minutes (`1h00m` .. `99h59m`), then days (`4d04h`, `100d`), so it never exceeds the six-column field it is right-aligned in. Finished steps keep the seconds (`1h2m3s`).
 
 **Theme variations:** None.
 

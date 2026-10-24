@@ -19,8 +19,9 @@ icon_failed = "✖"
 icon_skipped = "⊘"
 separator_char = "─"
 step_indent = "├── "
-# `{elapsed:>6}` reserves a fixed 6-column field for the elapsed time
-# (`0.74s` .. `59m59s`), so the row ends in the same column as a finished
+# `{elapsed:>6}` reserves a fixed 6-column field for the running time, which
+# the runner formats in at most six columns (`0.74s` .. `59m59s`, then
+# `1h00m` .. `99h59m`), so the row ends in the same column as a finished
 # step's duration. Overhead = `├── ` (4) + spinner (1) + ` ` (1) + elapsed (6) = 12.
 running_template = "├── {spinner:.cyan}{msg} {elapsed:>6.dim}"
 tick_chars = "|/-\\ "
@@ -100,9 +101,9 @@ icon_skipped = "⊘"
 separator_char = "."
 step_indent = "  "
 # Running rows include both left and right rails. `{elapsed:>6}` reserves a
-# fixed 6-column field for indicatif's human-duration output (covers `1s` ..
-# `99m59s` / `999d`), so the right border stays at the same column regardless
-# of how long the step has been running.
+# fixed 6-column field for the running time, which the runner formats in at
+# most six columns (`0.74s` .. `59m59s`, then `1h00m` .. `99h59m`, then days),
+# so the right border stays at the same column however long the step runs.
 # Overhead = chrome (`│ ▓  ` + ` ` + ` │` = 8) + spinner (1) + elapsed (6) = 15.
 running_template = "│ ▓  {spinner:.magenta}{msg:.cyan} {elapsed:>6.yellow.dim} │"
 tick_chars = "⠁⠂⠄⡀⢀⠠⠐⠈ "
