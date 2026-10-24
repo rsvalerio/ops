@@ -1,0 +1,43 @@
+<!-- @dsCard height=288 -->
+<!doctype html>
+<html><head><style>
+  html, body { margin: 0; background: var(--term-bg); }
+  .cover { position: relative; width: 960px; height: 288px; overflow: hidden; background: var(--term-bg); }
+  .cover svg { position: absolute; inset: 0; }
+  .cyan { fill: var(--ansi-cyan); }
+  .magenta { fill: var(--ansi-magenta); }
+  .green { fill: var(--ansi-green); }
+  .ink { fill: var(--term-fg); }
+  .dim { fill: var(--term-dim); }
+  .text { position: absolute; left: 40px; bottom: 32px; max-width: 440px; font-family: var(--font-mono); }
+  .name { margin: 0; font-size: 96px; line-height: .95; font-weight: 700; color: var(--term-fg); letter-spacing: -0.02em; }
+  .tag { margin: 16px 0 0; font-size: 14px; line-height: 20px; color: var(--term-dim); }
+</style></head><body>
+<div class="cover">
+  <svg width="960" height="288" viewBox="0 0 960 288" aria-hidden="true">
+    <!--
+      blocks: ansi-cyan 268x136, ansi-magenta 140x136, ansi-green 168x132, term-fg 240x132 (radius-none: square)
+      arrangement: a flush modular grid, like the boxed frame's panes, bleeding off the top, right and bottom edges
+      pattern: tiles, "geometric, modular, dense UI": the vertical progress column, nine done (term-fg) and five pending (term-dim)
+      steps: tiles 16px on a 20px pitch, 20px gutters between blocks; radius-none
+    -->
+    <g class="ink">
+      <rect x="500" y="4" width="16" height="16"/><rect x="500" y="24" width="16" height="16"/><rect x="500" y="44" width="16" height="16"/>
+      <rect x="500" y="64" width="16" height="16"/><rect x="500" y="84" width="16" height="16"/><rect x="500" y="104" width="16" height="16"/>
+      <rect x="500" y="124" width="16" height="16"/><rect x="500" y="144" width="16" height="16"/><rect x="500" y="164" width="16" height="16"/>
+    </g>
+    <g class="dim">
+      <rect x="500" y="184" width="16" height="16"/><rect x="500" y="204" width="16" height="16"/><rect x="500" y="224" width="16" height="16"/>
+      <rect x="500" y="244" width="16" height="16"/><rect x="500" y="264" width="16" height="16"/>
+    </g>
+    <rect class="cyan" x="536" y="0" width="264" height="136"/>
+    <rect class="magenta" x="820" y="0" width="140" height="136"/>
+    <rect class="green" x="536" y="156" width="164" height="132"/>
+    <rect class="ink" x="720" y="156" width="240" height="132"/>
+  </svg>
+  <div class="text">
+    <h1 class="name">ops<br>studio</h1>
+    <p class="tag">Boxed frame, live summary, vertical progress column.</p>
+  </div>
+</div>
+</body></html>

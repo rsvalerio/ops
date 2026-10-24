@@ -1833,6 +1833,7 @@ name = "ops-theme"
 version = "0.85.1"
 dependencies = [
  "indexmap",
+ "indicatif",
  "ops-core",
  "proptest",
  "serial_test",

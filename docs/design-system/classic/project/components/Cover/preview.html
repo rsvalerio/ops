@@ -1,0 +1,38 @@
+<!-- @dsCard height=288 -->
+<!doctype html>
+<html><head><style>
+  html, body { margin: 0; background: var(--term-bg); }
+  .cover { position: relative; width: 960px; height: 288px; overflow: hidden; background: var(--term-bg); }
+  .cover svg { position: absolute; inset: 0; }
+  .ink { fill: var(--term-fg); }
+  .cyan { fill: var(--ansi-cyan); }
+  .green { fill: var(--ansi-green); }
+  .red { fill: var(--ansi-red); }
+  .dim { fill: var(--term-dim); }
+  .rule { stroke: var(--term-fg); stroke-width: 2; fill: none; }
+  .text { position: absolute; left: 40px; bottom: 32px; max-width: 440px; font-family: var(--font-mono); }
+  .name { margin: 0; font-size: 96px; line-height: .95; font-weight: 700; color: var(--term-fg); letter-spacing: -0.02em; }
+  .tag { margin: 16px 0 0; font-size: 14px; line-height: 20px; color: var(--term-dim); }
+</style></head><body>
+<div class="cover">
+  <svg width="960" height="288" viewBox="0 0 960 288" aria-hidden="true">
+    <!--
+      blocks: term-fg band 380x48, ansi-cyan band 420x48, ansi-green band 260x48, term-dim band 180x48, ansi-red 48x48 (radius-none: square)
+      arrangement: a strip of unequal bands stacked like step lines, cyan bleeding off the right edge
+      pattern: hairline rules drawn as the tree, "the run is a tree": one trunk and four ├── branches, ending in └──
+      steps: bands 48px tall with 20px between; branches 28px long; radius-none
+    -->
+    <path class="rule" d="M512 0 V246"/>
+    <path class="rule" d="M512 42 H540 M512 110 H540 M512 178 H540 M512 246 H540"/>
+    <rect class="ink" x="540" y="18" width="380" height="48"/>
+    <rect class="cyan" x="540" y="86" width="420" height="48"/>
+    <rect class="green" x="540" y="154" width="260" height="48"/>
+    <rect class="dim" x="540" y="222" width="180" height="48"/>
+    <rect class="red" x="740" y="222" width="48" height="48"/>
+  </svg>
+  <div class="text">
+    <h1 class="name">ops<br>classic</h1>
+    <p class="tag">Bold tree-style with box-drawing chars.</p>
+  </div>
+</div>
+</body></html>
