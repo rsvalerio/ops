@@ -57,8 +57,14 @@ A run fails instead of writing a theme's previews when:
 
 - a specimen line is wider than the 72-column budget,
 - a running row's layout disagrees with what its `running_template` places, or
-- the theme uses a colour its `tokens.json` does not define (`bundle.css` would
-  silently fall back to the default foreground).
+- the theme uses a colour its `tokens.json` does not define, or that
+  `bundle.css` has no rule for (the page would silently fall back to the
+  default foreground).
+
+The example's tests run with the workspace tests (`[[example]] test = true`
+in `crates/theme/Cargo.toml`). One of them, `committed_previews_are_up_to_date`,
+renders everything and compares it with the files here, so a theme or
+renderer change that skips regeneration fails `ops next` / CI.
 
 Then update the hand-written files if the change affects them: the
 `[themes.<name>]` block quoted in each `README.md`, and the component READMEs

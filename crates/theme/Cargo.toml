@@ -21,5 +21,11 @@ serial_test = { workspace = true }
 tempfile = { workspace = true }
 toml = { workspace = true }
 
+# Run the generator's tests, including the check that the committed
+# docs/design-system previews are up to date, with the crate's tests.
+[[example]]
+name = "design_specimens"
+test = true
+
 [lints]
 workspace = true

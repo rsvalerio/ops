@@ -59,13 +59,24 @@ body { padding: 12px; font-family: var(--font-mono); }
 .sgr-95 { color: var(--ansi-bright-magenta); }
 .sgr-96 { color: var(--ansi-bright-cyan); }
 .sgr-97 { color: var(--ansi-bright-white); }
-/* `dim` on a colour is its own token (ansi-<colour>-dim). */
+/* `dim` on a colour is its own token (ansi-<colour>-dim), for every colour
+   above: the generator requires the token and a rule here for each pair. */
+.sgr-30.sgr-2 { color: var(--ansi-black-dim); }
 .sgr-31.sgr-2 { color: var(--ansi-red-dim); }
 .sgr-32.sgr-2 { color: var(--ansi-green-dim); }
 .sgr-33.sgr-2 { color: var(--ansi-yellow-dim); }
 .sgr-34.sgr-2 { color: var(--ansi-blue-dim); }
 .sgr-35.sgr-2 { color: var(--ansi-magenta-dim); }
 .sgr-36.sgr-2 { color: var(--ansi-cyan-dim); }
+.sgr-37.sgr-2 { color: var(--ansi-white-dim); }
+.sgr-90.sgr-2 { color: var(--ansi-bright-black-dim); }
+.sgr-91.sgr-2 { color: var(--ansi-bright-red-dim); }
+.sgr-92.sgr-2 { color: var(--ansi-bright-green-dim); }
+.sgr-93.sgr-2 { color: var(--ansi-bright-yellow-dim); }
+.sgr-94.sgr-2 { color: var(--ansi-bright-blue-dim); }
+.sgr-95.sgr-2 { color: var(--ansi-bright-magenta-dim); }
+.sgr-96.sgr-2 { color: var(--ansi-bright-cyan-dim); }
+.sgr-97.sgr-2 { color: var(--ansi-bright-white-dim); }
 
 .ops-caption {
   font-family: var(--font-mono);

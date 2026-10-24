@@ -39,7 +39,8 @@ use ops_core::output::{ErrorDetail, StepLine, StepStatus};
 use ops_core::report::{Report, ReportRow, ReportStatus};
 use ops_theme::style::precompute_sgr_prefix;
 use ops_theme::{
-    format_duration, strip_ansi, BoxSnapshot, ConfigurableTheme, PlanHeaderStyle, ThemeConfig,
+    format_duration, format_running_elapsed, strip_ansi, BoxSnapshot, ConfigurableTheme,
+    PlanHeaderStyle, ThemeConfig,
 };
 use unicode_width::UnicodeWidthChar;
 
@@ -50,30 +51,48 @@ const COLUMNS: u16 = 72;
 const COMMAND_IDS: [&str; 3] = ["build", "lint", "test"];
 
 fn main() -> Result<()> {
-    let out_dir = std::env::args_os().nth(1).map_or_else(
-        || Path::new(env!("CARGO_MANIFEST_DIR")).join("../../docs/design-system"),
-        PathBuf::from,
-    );
+    let out_dir = std::env::args_os()
+        .nth(1)
+        .map_or_else(default_out_dir, PathBuf::from);
+    for (path, contents) in render_all(&out_dir)? {
+        if let Some(dir) = path.parent() {
+            fs::create_dir_all(dir)?;
+        }
+        fs::write(&path, contents)?;
+    }
+    println!("wrote the specimens under {}", out_dir.display());
+    Ok(())
+}
+
+/// `docs/design-system` in this checkout.
+fn default_out_dir() -> PathBuf {
+    Path::new(env!("CARGO_MANIFEST_DIR")).join("../../docs/design-system")
+}
+
+/// Every file the generator writes under `out_dir`, with its contents:
+/// each theme's previews and its copy of the shared `bundle.css`. Writes
+/// nothing; fails on the first theme that does not pass its checks.
+fn render_all(out_dir: &Path) -> Result<Vec<(PathBuf, String)>> {
     let bundle_css = fs::read_to_string(out_dir.join("bundle.css"))
         .map_err(|e| format!("reading {}: {e}", out_dir.join("bundle.css").display()))?;
     let config: Config = toml::from_str(default_ops_toml())?;
+    let mut files = Vec::new();
     for (name, theme_config) in config.themes {
         let project = out_dir.join(&name).join("project");
         let tokens = fs::read_to_string(project.join("tokens.json"))
             .map_err(|e| format!("theme '{name}': reading tokens.json: {e}"))?;
-        let specimens = Specimens::new(&name, theme_config);
-        let cards = specimens.cards()?;
-        check_tokens(&name, &cards, &tokens)?;
+        let cards = Specimens::new(&name, theme_config).cards()?;
+        check_tokens(&name, &cards, &tokens, &bundle_css)?;
         let components = project.join("components");
         for card in &cards {
-            let dir = components.join(card.component);
-            fs::create_dir_all(&dir)?;
-            fs::write(dir.join("preview.html"), card.html())?;
+            files.push((
+                components.join(card.component).join("preview.html"),
+                card.html(),
+            ));
         }
-        fs::write(components.join("bundle.css"), &bundle_css)?;
-        println!("{name}: {} previews", cards.len());
+        files.push((components.join("bundle.css"), bundle_css.clone()));
     }
-    Ok(())
+    Ok(files)
 }
 
 // ---------------------------------------------------------------- lines
@@ -398,7 +417,11 @@ impl Specimens {
             .with_key(
                 "elapsed",
                 |state: &ProgressState, w: &mut dyn std::fmt::Write| {
-                    let _ = write!(w, "{}", format_duration(state.elapsed().as_secs_f64()));
+                    let _ = write!(
+                        w,
+                        "{}",
+                        format_running_elapsed(state.elapsed().as_secs_f64())
+                    );
                 },
             );
         let term = RecordingTerm::default();
@@ -426,7 +449,9 @@ impl Specimens {
                     let len = match name.as_str() {
                         "spinner" => 1,
                         "msg" => chars(&msg),
-                        "elapsed" => chars(&format_duration(elapsed.as_secs_f64())).max(width),
+                        "elapsed" => {
+                            chars(&format_running_elapsed(elapsed.as_secs_f64())).max(width)
+                        }
                         other => return Err(format!("unexpected placeholder {{{other}}}").into()),
                     };
                     line.paint(pos, len, &classes(&style));
@@ -1091,9 +1116,10 @@ impl TermLike for RecordingTerm {
 
 // --------------------------------------------------------------- tokens
 
-/// Every colour a theme's specimens use must exist in its `tokens.json`, or
-/// the published page would fall back to the default foreground silently.
-fn check_tokens(name: &str, cards: &[Card], tokens: &str) -> Result<()> {
+/// Every colour a theme's specimens use must exist in its `tokens.json`, and
+/// `bundle.css` must have a rule that reads that token, or the published page
+/// would fall back to the default foreground silently.
+fn check_tokens(name: &str, cards: &[Card], tokens: &str, bundle_css: &str) -> Result<()> {
     let mut used: Vec<String> = cards
         .iter()
         .flat_map(|card| card.terms.iter())
@@ -1109,6 +1135,12 @@ fn check_tokens(name: &str, cards: &[Card], tokens: &str) -> Result<()> {
             if !tokens.contains(&format!("\"name\": \"{token}\"")) {
                 return Err(format!(
                     "theme '{name}' uses `{set}` but its tokens.json defines no `{token}`"
+                )
+                .into());
+            }
+            if !bundle_css.contains(&format!("var(--{token})")) {
+                return Err(format!(
+                    "theme '{name}' uses `{set}` but bundle.css has no rule reading `{token}`"
                 )
                 .into());
             }
@@ -1150,5 +1182,173 @@ fn token_for(set: &str) -> Option<String> {
         (Some(c), false) => Some(format!("ansi-{c}")),
         (None, true) => Some("term-dim".to_string()),
         (None, false) => None,
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    const RUN_HINT: &str = "run `cargo run -p ops-theme --example design_specimens`";
+
+    fn builtin(name: &str) -> Specimens {
+        let config: Config = toml::from_str(default_ops_toml()).unwrap();
+        let theme = config.themes.get(name).unwrap().clone();
+        Specimens::new(name, theme)
+    }
+
+    fn painted(classes: &str) -> Card {
+        let mut line = Line::plain("x");
+        line.paint(0, 1, classes);
+        Card {
+            component: "Test",
+            group: "Test",
+            height: 40,
+            subtitle: None,
+            terms: vec![(String::new(), vec![line])],
+            caption: None,
+            spinner_frames: None,
+        }
+    }
+
+    /// The committed previews are what the generator renders from the
+    /// current themes, so a theme or renderer change cannot land without
+    /// its specimens.
+    #[test]
+    fn committed_previews_are_up_to_date() {
+        let files = render_all(&default_out_dir()).unwrap();
+        assert!(!files.is_empty());
+        for (path, expected) in files {
+            let committed = fs::read_to_string(&path)
+                .unwrap_or_else(|e| panic!("{} is missing ({e}); {RUN_HINT}", path.display()));
+            assert!(
+                committed == expected,
+                "{} is stale; {RUN_HINT}",
+                path.display()
+            );
+        }
+    }
+
+    /// A running row fills the budget exactly in every built-in theme, from
+    /// a fresh step to an hour-long one.
+    #[test]
+    fn running_rows_fill_the_column_budget() {
+        let config: Config = toml::from_str(default_ops_toml()).unwrap();
+        for name in config.themes.keys() {
+            let specimens = builtin(name);
+            for secs in [0, 3_610, 4_210, 359_940] {
+                let line = specimens
+                    .running("cargo build", Duration::from_secs(secs))
+                    .unwrap();
+                assert_eq!(
+                    line.columns(),
+                    usize::from(COLUMNS),
+                    "theme '{name}' at {secs}s: {:?}",
+                    line.text()
+                );
+            }
+        }
+    }
+
+    // `{spinner}` / `{msg}` / `{elapsed}` are indicatif template placeholders
+    // under test, not Rust format arguments (docs/clippy.md layer 3).
+    #[allow(clippy::literal_string_with_formatting_args)]
+    #[test]
+    fn parse_template_reads_placeholders_widths_and_styles() {
+        let tokens = parse_template("│ ▓  {spinner:.magenta}{msg:.cyan} {elapsed:>6.yellow.dim} │");
+        let shape: Vec<String> = tokens
+            .iter()
+            .map(|t| match t {
+                Token::Literal(text) => format!("lit {text:?}"),
+                Token::Placeholder { name, width, style } => format!("{name} {width} {style:?}"),
+            })
+            .collect();
+        assert_eq!(
+            shape,
+            [
+                r#"lit "│ ▓  ""#,
+                r#"spinner 0 "magenta""#,
+                r#"msg 0 "cyan""#,
+                r#"lit " ""#,
+                r#"elapsed 6 "yellow dim""#,
+                r#"lit " │""#,
+            ]
+        );
+    }
+
+    #[test]
+    fn parse_template_keeps_an_unclosed_brace_as_text() {
+        let tokens = parse_template("  {msg} {elapsed");
+        assert!(matches!(tokens.last(), Some(Token::Literal(t)) if t == "{elapsed"));
+    }
+
+    /// Classes come from the renderer's own spec parser, aliases included.
+    #[test]
+    fn classes_compile_specs_through_the_renderer_parser() {
+        assert_eq!(classes("bold green"), "sgr-1 sgr-32");
+        assert_eq!(classes("yellow dim"), "sgr-33 sgr-2");
+        assert_eq!(classes("bright_black"), "sgr-90");
+        assert_eq!(classes(""), "");
+        assert_eq!(classes("not-a-colour"), "");
+    }
+
+    #[test]
+    fn token_for_maps_colour_and_dim_codes_to_tokens() {
+        assert_eq!(token_for("sgr-36").as_deref(), Some("ansi-cyan"));
+        assert_eq!(
+            token_for("sgr-33 sgr-2").as_deref(),
+            Some("ansi-yellow-dim")
+        );
+        assert_eq!(
+            token_for("sgr-1 sgr-97").as_deref(),
+            Some("ansi-bright-white")
+        );
+        assert_eq!(token_for("sgr-2").as_deref(), Some("term-dim"));
+        assert_eq!(token_for("sgr-1"), None);
+    }
+
+    #[test]
+    fn check_tokens_rejects_a_colour_the_tokens_do_not_define() {
+        let card = painted("sgr-35");
+        let css = ".sgr-35 { color: var(--ansi-magenta); }";
+        let err = check_tokens("t", &[card], r#"{"name": "ansi-cyan"}"#, css).unwrap_err();
+        assert!(
+            err.to_string().contains("defines no `ansi-magenta`"),
+            "{err}"
+        );
+    }
+
+    #[test]
+    fn check_tokens_rejects_a_colour_bundle_css_cannot_draw() {
+        let card = painted("sgr-97 sgr-2");
+        let tokens = r#"{"name": "ansi-bright-white-dim"}"#;
+        let err = check_tokens("t", &[card], tokens, ".sgr-97 {}").unwrap_err();
+        assert!(err.to_string().contains("no rule reading"), "{err}");
+    }
+
+    #[test]
+    fn check_tokens_accepts_a_defined_and_drawn_colour() {
+        let card = painted("sgr-33 sgr-2");
+        let tokens = r#"{"name": "ansi-yellow-dim"}"#;
+        let css = ".sgr-33.sgr-2 { color: var(--ansi-yellow-dim); }";
+        assert!(check_tokens("t", &[card], tokens, css).is_ok());
+    }
+
+    /// `bundle.css` draws every colour `token_for` can ask for, plain and dim.
+    #[test]
+    fn bundle_css_has_a_rule_for_every_colour_and_dim_pair() {
+        let css = fs::read_to_string(default_out_dir().join("bundle.css")).unwrap();
+        let codes = [
+            30, 31, 32, 33, 34, 35, 36, 37, 90, 91, 92, 93, 94, 95, 96, 97,
+        ];
+        for code in codes {
+            for set in [format!("sgr-{code}"), format!("sgr-{code} sgr-2")] {
+                let token = token_for(&set).unwrap();
+                assert!(
+                    css.contains(&format!("var(--{token})")),
+                    "bundle.css has no rule for `{set}` (`{token}`)"
+                );
+            }
+        }
     }
 }

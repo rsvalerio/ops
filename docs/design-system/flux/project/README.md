@@ -44,7 +44,7 @@ ops speaks in short terminal phrases, sentence case, no punctuation at the end. 
 
 Every other text token holds 4.5:1 on `term-bg` in both themes.
 
-**Type.** One monospace face on one grid. `cell` (14/17) is the reference; `cell-bold` marks header, summary and report title. The stack prefers JetBrains Mono (hosted on Google Fonts) and falls back to the system mono. Emoji come from the system emoji font and must be held to two cells (the specimens pin them with `.ops-w2`).
+**Type.** One monospace face on one grid. `cell` (14/17) is the reference; `cell-bold` marks header, summary and report title. The stack prefers JetBrains Mono (hosted on Google Fonts) and falls back to the system mono. Emoji come from the system emoji font and must be held to two cells (the specimens pin them with `.ops-c2`).
 
 **Layout.** One terminal row is `row` (17px at the reference cell). Lines are composed: left pad (`cell-1`), `  ▸ ` (`cell-4`), icon column (`cell-2`), one space, label, rule, one space, trailing slot. The error gutter is `cell-5`.
 
