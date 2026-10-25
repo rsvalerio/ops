@@ -2,6 +2,19 @@
 All notable changes to this project will be documented in this file. See [conventional commits](https://www.conventionalcommits.org/) for commit guidelines.
 
 - - -
+## [v0.86.0](https://github.com/rsvalerio/ops/compare/b5cfb94d2f7844d8685ea924c1b37d2aa7c6ec5a..v0.86.0) - 2026-10-25
+#### 🚀 Features
+- (**config**) append args set beside clone to the source's args - ([6cdd9f9](https://github.com/rsvalerio/ops/commit/6cdd9f98a914b84545e1ca2fc5516e1d7bb3ca66)) - [@rsvalerio](https://github.com/rsvalerio)
+#### 🐛 Bug Fixes
+- (**deps**) bump tokio to 1.54.1 for RUSTSEC-2026-0386 - ([b3f6888](https://github.com/rsvalerio/ops/commit/b3f6888b0fc38c7de2193c6353b29e8731bdb22b)) - [@rsvalerio](https://github.com/rsvalerio)
+#### 📚 Documentation
+- (**theme**) add the theme design systems and a generator for their specimens - ([b5cfb94](https://github.com/rsvalerio/ops/commit/b5cfb94d2f7844d8685ea924c1b37d2aa7c6ec5a)) - [@rsvalerio](https://github.com/rsvalerio)
+- describe args beside clone - ([c5a2dc7](https://github.com/rsvalerio/ops/commit/c5a2dc72a584ad9ec10faec97a89c52fdce49a46)) - [@rsvalerio](https://github.com/rsvalerio)
+#### 🧪 Testing
+- (**theme**) test the design_specimens generator and close its CSS gaps - ([d916edd](https://github.com/rsvalerio/ops/commit/d916edd5408e0e24c9b31a805e97edc3470fd228)) - [@rsvalerio](https://github.com/rsvalerio)
+
+- - -
+
 ## [v0.85.1](https://github.com/rsvalerio/ops/compare/70147f62e69b2ed9fbe73f3a6267b28afb675b74..v0.85.1) - 2026-10-24
 #### 🐛 Bug Fixes
 - (**deps**) update tokio to 1.53.3 for RUSTSEC-2026-0386 - ([55246de](https://github.com/rsvalerio/ops/commit/55246de052bf5834991b2ce07edb6af1a01053f2)) - [@rsvalerio](https://github.com/rsvalerio)
