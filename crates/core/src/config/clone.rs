@@ -5,15 +5,17 @@
 //! needs `fuzz-clippy`, `fuzz-build`, `fuzz-fmt` — the stack `clippy`/`build`
 //! /`fmt` plus `--manifest-path fuzz/Cargo.toml`. Hand-writing each exec spec
 //! silently diverges when the stack default's flags change; a clone tracks
-//! the source, and the extra flag goes through `[extend.<clone>]`:
+//! the source, and the extra flag is appended by `args` beside `clone`:
 //!
 //! ```toml
 //! [commands.fuzz-clippy]
 //! clone = "clippy"
-//!
-//! [extend.fuzz-clippy]
 //! args = ["--manifest-path", "fuzz/Cargo.toml"]
 //! ```
+//!
+//! `args` beside `clone` appends (before `--`), exactly like
+//! `[extend.fuzz-clippy] args`; if both are set, the inline args land
+//! first and the extend's after them.
 //!
 //! [`apply`] runs **before** [`super::extend::apply`] (see
 //! `loader::load_config_at`), so the copy is made from the source *before*
@@ -50,7 +52,7 @@ use super::Config;
 ///
 /// If a clone source is defined nowhere, a clone cycle exists, the clone
 /// target names an existing stack-default command, or an exec-only override
-/// (`env`, `cwd`, `timeout_secs`, `exclusive`, `strategy`) is set beside a composite
+/// (`args`, `env`, `cwd`, `timeout_secs`, `exclusive`, `strategy`) is set beside a composite
 /// source — each naming the clone and the source.
 pub(super) fn apply(config: &mut Config, workspace_root: &Path) -> anyhow::Result<()> {
     let mut pending: Vec<String> = config
@@ -173,7 +175,8 @@ fn resolve_source(
 /// Copy `source` and apply the declaration's scalar overrides.
 ///
 /// Given fields replace the copied field wholesale (`env` replaces, it does
-/// not merge). Fields left unset keep the source's value. TOML has no null,
+/// not merge), except `args`, which is appended before any `--` with the
+/// `[extend]` rule. Fields left unset keep the source's value. TOML has no null,
 /// so `cwd`/`timeout_secs` cannot be cleared, only replaced. `aliases` are
 /// the exception: they are identity, never behaviour, so a clone starts with
 /// no aliases and takes `decl.aliases` verbatim — inheriting the source's
@@ -183,7 +186,7 @@ fn resolve_source(
 ///
 /// # Errors
 ///
-/// If an exec-only override (`env`, `cwd`, `timeout_secs`, `exclusive`, `strategy`) is
+/// If an exec-only override (`args`, `env`, `cwd`, `timeout_secs`, `exclusive`, `strategy`) is
 /// set beside a composite source — silently dropping it would hide a
 /// copy-paste mistake behind a clone that quietly ignores it.
 fn materialize(
@@ -194,6 +197,7 @@ fn materialize(
     let spec = match source {
         CommandSpec::Exec(e) => {
             let mut copy = e.clone();
+            super::extend::append_exec_args(&mut copy.args, &decl.args);
             copy.help = decl.help.clone().or(copy.help);
             // Aliases identify a command; copying the source's would either
             // collide at `validate_aliases` (config-defined source) or
@@ -226,6 +230,7 @@ fn materialize(
         }
         CommandSpec::Composite(c) => {
             for (field, is_set) in [
+                ("args", !decl.args.is_empty()),
                 ("env", decl.env.is_some()),
                 ("cwd", decl.cwd.is_some()),
                 ("timeout_secs", decl.timeout_secs.is_some()),
@@ -424,14 +429,13 @@ mod tests {
         assert!(verify.raw, "raw = true must override a composite source's");
     }
 
-    /// AC #2: `program`/`args`/`commands` beside `clone` are parse errors
+    /// AC #2: `program`/`commands` beside `clone` are parse errors
     /// pointing at `[extend.<name>]` — pinned here at the [`CommandSpec`]
     /// deserialization layer, where the discriminator lives.
     #[test]
     fn payload_fields_beside_clone_are_parse_errors() {
         for toml in [
             "[commands.x]\nclone = \"clippy\"\nprogram = \"cargo\"\n",
-            "[commands.x]\nclone = \"clippy\"\nargs = [\"--locked\"]\n",
             "[commands.x]\nclone = \"verify\"\ncommands = [\"fmt\"]\n",
         ] {
             let err = toml::from_str::<crate::config::Config>(toml)
@@ -442,6 +446,63 @@ mod tests {
                 "error must point at [extend.<name>]: {msg}"
             );
         }
+    }
+
+    /// `args` beside `clone` parses into the declaration rather than being
+    /// rejected: it is the inline form of `[extend.<name>] args`.
+    #[test]
+    fn args_beside_clone_parse() {
+        let config: crate::config::Config =
+            toml::from_str("[commands.x]\nclone = \"clippy\"\nargs = [\"--locked\"]\n")
+                .expect("args beside clone must parse");
+        let Some(CommandSpec::Clone(decl)) = config.commands.get("x") else {
+            panic!("must parse as a clone declaration");
+        };
+        assert_eq!(decl.args, vec!["--locked".to_string()]);
+    }
+
+    /// `args` beside `clone` appends to the copied args, before the source's
+    /// `--` separator — the `[extend]` rule, not a replacement.
+    #[test]
+    fn args_beside_clone_append_before_separator() {
+        let dir = rust_workspace();
+        let mut decl = CloneCommandSpec::new("clippy");
+        decl.args = vec!["--manifest-path".to_string(), "fuzz/Cargo.toml".to_string()];
+        let mut config = config_with_clone("fuzz-clippy", decl);
+        apply(&mut config, dir.path()).expect("clone must apply");
+
+        let Some(CommandSpec::Exec(fuzz_clippy)) = config.commands.get("fuzz-clippy") else {
+            panic!("clone must materialize as a config exec");
+        };
+        let Some(CommandSpec::Exec(default)) = crate::stack::Stack::Rust
+            .default_commands_ref()
+            .get("clippy")
+        else {
+            panic!("rust clippy default must be exec");
+        };
+        let mut expected = default.args.clone();
+        crate::config::extend::append_exec_args(
+            &mut expected,
+            &["--manifest-path".to_string(), "fuzz/Cargo.toml".to_string()],
+        );
+        assert_eq!(
+            fuzz_clippy.args, expected,
+            "source args are kept and the inline args land before `--`"
+        );
+    }
+
+    /// `args` beside a composite source is a load error like the other
+    /// exec-only overrides.
+    #[test]
+    fn args_on_composite_clone_error() {
+        let dir = rust_workspace();
+        let mut decl = CloneCommandSpec::new("verify");
+        decl.args = vec!["--locked".to_string()];
+        let mut config = config_with_clone("my-verify", decl);
+        let err = apply(&mut config, dir.path()).expect_err("args on a composite must error");
+        let msg = format!("{err:#}");
+        assert!(msg.contains("`args`"), "error must name the field: {msg}");
+        assert!(msg.contains("verify"), "error must name the source: {msg}");
     }
 
     /// AC #4: unknown source is a load error naming both names.
