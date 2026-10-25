@@ -19,7 +19,7 @@ Running: build, clippy, test
 
 **Configuration:** None. Content is derived from the command IDs in the run plan.
 
-**Implementation:** `ConfigurableTheme::render_plan_header()` in `crates/theme/src/configurable.rs`. Joins command IDs with `, ` and wraps in blank lines.
+**Implementation:** `ConfigurableTheme::render_plan_header()` in `crates/theme/src/configurable.rs`. Joins command IDs with `, ` and wraps in blank lines. A header wider than the terminal wraps between IDs onto continuation lines indented under the first ID; the tree style keeps its `│` rail on them.
 
 ---
 
