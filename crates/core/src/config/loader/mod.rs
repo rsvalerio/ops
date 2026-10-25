@@ -914,6 +914,33 @@ mod tests {
         );
     }
 
+    /// Inline `args` beside `clone` and `[extend.<clone>] args` both append:
+    /// inline first (at materialization), then the extend's.
+    #[test]
+    #[serial_test::serial]
+    fn clone_inline_args_compose_with_extend_args() {
+        let dir = tempfile::tempdir().unwrap();
+        let root = crate::test_utils::canonical_root(&dir);
+        let _xdg = crate::test_utils::isolate_global_config(&root);
+        std::fs::write(root.join("Cargo.toml"), "[package]\nname = \"x\"\n").unwrap();
+        std::fs::write(
+            root.join(".ops.toml"),
+            "[commands.fuzz-fmt]\nclone = \"fmt\"\nargs = [\"--manifest-path\", \"fuzz/Cargo.toml\"]\n\n[extend.fuzz-fmt]\nargs = [\"--verbose\"]\n",
+        )
+        .unwrap();
+
+        let config = load_config_at(&root).expect("clone config must load");
+        let Some(super::super::CommandSpec::Exec(fuzz_fmt)) = config.commands.get("fuzz-fmt")
+        else {
+            panic!("clone must materialize into config.commands");
+        };
+        let tail: Vec<&str> = fuzz_fmt.args.iter().map(String::as_str).collect();
+        assert!(
+            tail.ends_with(&["--manifest-path", "fuzz/Cargo.toml", "--verbose"]),
+            "inline clone args then extend args, got {tail:?}"
+        );
+    }
+
     /// TASK-2273: composites clone too, and `[extend.<clone>] commands`
     /// applies to the copy (AC #3's composite half).
     #[test]

@@ -47,12 +47,13 @@ impl<'de> Deserialize<'de> for CommandSpec {
         let has_program = table.contains_key("program");
         let has_commands = table.contains_key("commands");
         // `clone` is a third discriminator. It is mutually
-        // exclusive with the copied payload fields — `program`/`args` come
-        // from the source, and extras belong in `[extend.<name>]` — so the
-        // combination is a named error rather than a serde "unknown field"
-        // that leaves the user guessing where the override goes.
+        // exclusive with the copied payload fields — `program`/`commands`
+        // come from the source, and extra entries belong in
+        // `[extend.<name>]` — so the combination is a named error rather
+        // than a serde "unknown field" that leaves the user guessing where
+        // the override goes. `args` is allowed: beside `clone` it appends.
         if table.contains_key("clone") {
-            for key in ["program", "args", "commands"] {
+            for key in ["program", "commands"] {
                 if table.contains_key(key) {
                     return Err(D::Error::custom(format!(
                         "command spec sets both `clone` and `{key}`; a clone copies the \
@@ -751,12 +752,12 @@ impl CompositeCommandSpec {
 /// The source is resolved against `[commands]` and the detected stack's
 /// defaults (the same lookup `[extend.<target>]` uses), and the *resolved*
 /// spec is copied. Scalar fields set beside `clone` override the copy;
-/// `program`/`args`/`commands` are rejected at parse time (see
-/// [`CommandSpec::deserialize`]) — extra args go through
-/// `[extend.<name>] args = [...]`, so the two features compose and there is
-/// one rule for where appended args land (before `--`).
+/// `args` beside `clone` is the exception — it *appends* to the copied args
+/// with the same rule as `[extend.<name>] args` (before `--`), since
+/// replacing them would leave little worth cloning. `program`/`commands` are
+/// rejected at parse time (see [`CommandSpec::deserialize`]).
 ///
-/// Exec-only overrides (`env`, `cwd`, `timeout_secs`, `exclusive`, `strategy`) set beside
+/// Exec-only overrides (`args`, `env`, `cwd`, `timeout_secs`, `exclusive`, `strategy`) set beside
 /// a composite source are load errors; a composite clone can only override
 /// `help`, `category`, `aliases` and `raw` (both variants take it).
 #[derive(Debug, Clone, PartialEq, Eq, Deserialize, Serialize)]
@@ -765,6 +766,11 @@ impl CompositeCommandSpec {
 pub struct CloneCommandSpec {
     /// Name of the command to copy: a `[commands]` entry or a stack default.
     pub clone: String,
+    /// Extra arguments appended to the source's args, inserted before any
+    /// `--` like `[extend.<name>] args` (exec sources only). Unlike the
+    /// other fields beside `clone`, this appends rather than replaces.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub args: Vec<String>,
     /// Short help text shown in `ops --help`; replaces the source's.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub help: Option<String>,
@@ -819,13 +825,14 @@ impl CloneCommandSpec {
     /// Build a bare clone declaration from its source name.
     ///
     /// Preferred over struct-literal syntax because [`CloneCommandSpec`] is
-    /// `#[non_exhaustive]`. Adjust the override fields (`help`, `aliases`,
+    /// `#[non_exhaustive]`. Adjust the override fields (`args`, `help`, `aliases`,
     /// `category`, `env`, `cwd`, `timeout_secs`, `exclusive`, `strategy`) via direct
     /// field access.
     #[must_use]
     pub fn new(clone: impl Into<String>) -> Self {
         Self {
             clone: clone.into(),
+            args: Vec::new(),
             help: None,
             aliases: Vec::new(),
             category: None,
