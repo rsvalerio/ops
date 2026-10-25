@@ -2,6 +2,16 @@
 All notable changes to this project will be documented in this file. See [conventional commits](https://www.conventionalcommits.org/) for commit guidelines.
 
 - - -
+## [v0.85.1](https://github.com/rsvalerio/ops/compare/70147f62e69b2ed9fbe73f3a6267b28afb675b74..v0.85.1) - 2026-10-24
+#### 🐛 Bug Fixes
+- (**deps**) update tokio to 1.53.3 for RUSTSEC-2026-0386 - ([55246de](https://github.com/rsvalerio/ops/commit/55246de052bf5834991b2ce07edb6af1a01053f2)) - [@rsvalerio](https://github.com/rsvalerio)
+- (**theme**) keep hour-long running rows within the column budget - ([34b2505](https://github.com/rsvalerio/ops/commit/34b2505fd575b4fbf0ed9058dde0e9df31e6d681)) - [@rsvalerio](https://github.com/rsvalerio)
+- (**theme**) keep compact, classic and flux running rows within the column budget - ([70147f6](https://github.com/rsvalerio/ops/commit/70147f62e69b2ed9fbe73f3a6267b28afb675b74)) - [@rsvalerio](https://github.com/rsvalerio)
+#### ⚙️ Miscellaneous
+- add the new option  to the default file - ([3c0ca2d](https://github.com/rsvalerio/ops/commit/3c0ca2d9e3b98d20029fddb807ab55884b0e8011)) - [@rsvalerio](https://github.com/rsvalerio)
+
+- - -
+
 ## [v0.85.0](https://github.com/rsvalerio/ops/compare/dd11b369b07b6794e27dd75b7ea8e8027e110a23..v0.85.0) - 2026-10-22
 #### 🚀 Features
 - (**run**) force raw mode from a command's raw = true config flag - ([dd11b36](https://github.com/rsvalerio/ops/commit/dd11b369b07b6794e27dd75b7ea8e8027e110a23)) - [@rsvalerio](https://github.com/rsvalerio)
