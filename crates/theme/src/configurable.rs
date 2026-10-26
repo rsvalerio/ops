@@ -175,8 +175,10 @@ impl ConfigurableTheme {
     /// header), then a closing line (blank, or the `Tree` style's `│`). A
     /// header wider than `columns` wraps between ids onto continuation lines
     /// indented under the first id; the `Tree` style keeps its `│` rail on
-    /// them. An id too wide for a line on its own is truncated. `columns == 0`
-    /// means "no budget known": the ids stay on one line.
+    /// them. An id too wide for a line on its own is truncated, and every line
+    /// is clamped to `columns`, so a terminal narrower than the header's lead
+    /// still gets no line past its last column. `columns == 0` means "no
+    /// budget known": the ids stay on one line.
     #[must_use]
     pub fn render_plan_header(&self, command_ids: &[String], columns: u16) -> Vec<String> {
         // Resolve the colour gate (which reads
@@ -212,6 +214,11 @@ impl ConfigurableTheme {
             lines.push(format!("{pad}{line}"));
         }
         lines.push(closing);
+        if columns > 0 {
+            for line in &mut lines {
+                *line = truncate_to_width(line, usize::from(columns)).into_owned();
+            }
+        }
         lines
     }
 
@@ -528,8 +535,8 @@ fn template_literal_width(template: &str) -> usize {
 ///
 /// Lines break only between ids, and every line but the last keeps the
 /// trailing `,` that joins it to the next. An id that does not fit a line on
-/// its own gets a line to itself, truncated to `width`. Always returns at
-/// least one line, empty when `ids` is.
+/// its own gets a line to itself, truncated to `width` (keeping its `,`).
+/// Always returns at least one line, empty when `ids` is.
 fn wrap_ids(ids: &[String], width: usize) -> Vec<String> {
     let mut lines = Vec::new();
     let mut current = String::new();
@@ -547,8 +554,9 @@ fn wrap_ids(ids: &[String], width: usize) -> Vec<String> {
             current.push_str(", ");
             current.push_str(id);
         } else {
-            current.push(',');
-            lines.push(truncate_to_width(&current, width).into_owned());
+            // Only a lone over-wide id needs the cut; the `,` survives it.
+            let kept = truncate_to_width(&current, width.saturating_sub(1));
+            lines.push(format!("{kept},"));
             current.clone_from(id);
         }
     }

@@ -143,7 +143,8 @@ fn plain_plan_header_wraps_under_first_id() {
 fn plan_header_lines_fit_columns() {
     let theme = ConfigurableTheme::new(ThemeConfig::classic());
     let ids: Vec<String> = (0..40).map(|i| format!("step-{i}")).collect();
-    for columns in [20u16, 40, 72] {
+    // 5 and 10 are narrower than the left pad plus `┌ Running: `.
+    for columns in [5u16, 10, 20, 40, 72] {
         for line in theme.render_plan_header(&ids, columns) {
             assert!(
                 ops_core::output::display_width(&line) <= usize::from(columns),
@@ -159,7 +160,7 @@ fn plan_header_truncates_an_id_wider_than_the_line() {
     let ids = vec!["a".repeat(40), "b".into()];
     let lines = theme.render_plan_header(&ids, 24);
     assert_eq!(lines.len(), 4);
-    assert!(lines[1].ends_with('…'), "{:?}", lines[1]);
+    assert!(lines[1].ends_with("…,"), "{:?}", lines[1]);
     assert_eq!(lines[2], " │          b");
 }
 
