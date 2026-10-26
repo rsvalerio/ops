@@ -2,6 +2,16 @@
 All notable changes to this project will be documented in this file. See [conventional commits](https://www.conventionalcommits.org/) for commit guidelines.
 
 - - -
+## [v0.87.0](https://github.com/rsvalerio/ops/compare/28e8567ebbf31ff91bf8c2b8a67bc800e4c5c595..v0.87.0) - 2026-10-26
+#### 🚀 Features
+- (**theme**) wrap the plan header to the terminal width - ([28e8567](https://github.com/rsvalerio/ops/commit/28e8567ebbf31ff91bf8c2b8a67bc800e4c5c595)) - [@rsvalerio](https://github.com/rsvalerio)
+#### 🐛 Bug Fixes
+- (**theme**) clamp narrow plan headers and keep commas on truncated ids - ([622cb4f](https://github.com/rsvalerio/ops/commit/622cb4fb337c1a097fd9dd522864dda545c5845d)) - [@rsvalerio](https://github.com/rsvalerio)
+#### 📚 Documentation
+- (**design-system**) describe plan header wrapping - ([c7fcd49](https://github.com/rsvalerio/ops/commit/c7fcd496fa08ae50c0d4cb6e732797eedbaa8209)) - [@rsvalerio](https://github.com/rsvalerio)
+
+- - -
+
 ## [v0.86.0](https://github.com/rsvalerio/ops/compare/b5cfb94d2f7844d8685ea924c1b37d2aa7c6ec5a..v0.86.0) - 2026-10-25
 #### 🚀 Features
 - (**config**) append args set beside clone to the source's args - ([6cdd9f9](https://github.com/rsvalerio/ops/commit/6cdd9f98a914b84545e1ca2fc5516e1d7bb3ca66)) - [@rsvalerio](https://github.com/rsvalerio)
