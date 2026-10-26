@@ -49,6 +49,21 @@ type Result<T> = std::result::Result<T, Box<dyn Error>>;
 /// The column budget every specimen is rendered at.
 const COLUMNS: u16 = 72;
 const COMMAND_IDS: [&str; 3] = ["build", "lint", "test"];
+/// A plan too long for one header line, to show the plan header wrapping.
+const LONG_COMMAND_IDS: [&str; 12] = [
+    "fmt-check",
+    "trailing-whitespace-check",
+    "end-of-file-fixer-check",
+    "clippy",
+    "build",
+    "check-json",
+    "check-yaml",
+    "doc",
+    "doc-default [crate=core]",
+    "doc-default [crate=cli]",
+    "deps",
+    "test",
+];
 
 fn main() -> Result<()> {
     let out_dir = std::env::args_os()
@@ -511,7 +526,11 @@ impl Specimens {
     }
 
     fn header(&self) -> Vec<Line> {
-        let ids: Vec<String> = COMMAND_IDS.iter().map(ToString::to_string).collect();
+        self.header_for(&COMMAND_IDS)
+    }
+
+    fn header_for(&self, command_ids: &[&str]) -> Vec<Line> {
+        let ids: Vec<String> = command_ids.iter().map(ToString::to_string).collect();
         let header = classes(&self.config.header_color);
         if self.boxed() {
             let mut line = Line::plain(
@@ -529,14 +548,27 @@ impl Specimens {
             line.paint(start, chars(&title), &header);
             return vec![line];
         }
-        self.theme
-            .render_plan_header(&ids)
+        let rendered = self.theme.render_plan_header(&ids, COLUMNS);
+        // Every line between the leading blank and the closing line carries
+        // the header colour: the first from the left pad, a continuation from
+        // its first id (past the left pad, the `Tree` rail and the indent).
+        let last = rendered.len().saturating_sub(1);
+        rendered
             .iter()
             .enumerate()
             .map(|(i, text)| {
                 let mut line = Line::plain(text);
-                if i == 1 {
-                    let start = chars(self.theme.left_pad_str());
+                if (1..last).contains(&i) {
+                    let pad = chars(self.theme.left_pad_str());
+                    let start = if i == 1 {
+                        pad
+                    } else {
+                        line.0
+                            .iter()
+                            .skip(pad)
+                            .position(|c| c.ch != ' ' && c.ch != '│')
+                            .map_or(line.len(), |p| p.saturating_add(pad))
+                    };
                     line.paint(start, line.len().saturating_sub(start), &header);
                 }
                 line
@@ -684,17 +716,16 @@ impl Specimens {
         Card {
             component: "PlanHeader",
             group: "Run output",
-            height: if self.boxed() { 120 } else { 150 },
+            height: if self.boxed() { 120 } else { 260 },
             subtitle: None,
-            terms: vec![(
-                if self.boxed() {
-                    "top border"
-                } else {
-                    "ops verify"
-                }
-                .into(),
-                self.header(),
-            )],
+            terms: if self.boxed() {
+                vec![("top border".into(), self.header())]
+            } else {
+                vec![
+                    ("ops verify".into(), self.header()),
+                    ("a long plan".into(), self.header_for(&LONG_COMMAND_IDS)),
+                ]
+            },
             caption: Some(format!(
                 "plan_header_style = {style:?} · plan_header_prefix = {:?} · header_color = {:?}",
                 self.config.plan_header_prefix, self.config.header_color

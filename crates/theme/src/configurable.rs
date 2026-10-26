@@ -169,35 +169,57 @@ impl ConfigurableTheme {
         self.icon_column_width
     }
 
-    /// Render the plan-header lines announcing `command_ids`.
+    /// Render the plan-header lines announcing `command_ids`, wrapped to `columns`.
     ///
-    /// Always three lines: a blank, the styled header (`Plain` style, or the
-    /// `Tree` style's `┌` header plus a `│` continuation line) and the line
-    /// after it, coloured through the header prefix when the gate is on.
+    /// A blank, the styled header (`Plain` style, or the `Tree` style's `┌`
+    /// header), then a closing line (blank, or the `Tree` style's `│`). A
+    /// header wider than `columns` wraps between ids onto continuation lines
+    /// indented under the first id; the `Tree` style keeps its `│` rail on
+    /// them. An id too wide for a line on its own is truncated, and every line
+    /// is clamped to `columns`, so a terminal narrower than the header's lead
+    /// still gets no line past its last column. `columns == 0` means "no
+    /// budget known": the ids stay on one line.
     #[must_use]
-    pub fn render_plan_header(&self, command_ids: &[String]) -> Vec<String> {
+    pub fn render_plan_header(&self, command_ids: &[String], columns: u16) -> Vec<String> {
         // Resolve the colour gate (which reads
         // `NO_COLOR`) once per entry point, not once per styled segment.
         let color = color_enabled();
         let pad = self.left_pad_str();
-        let ids = command_ids.join(", ");
-        match self.config.plan_header_style {
-            PlanHeaderStyle::Plain => {
-                let body = format!("{}Running: {}", self.config.plan_header_prefix, ids);
-                let colored = apply_with_prefix_gated(&body, self.header_prefix.as_deref(), color);
-                let header = format!("{pad}{colored}");
-                vec![String::new(), header, String::new()]
-            }
-            PlanHeaderStyle::Tree => {
-                let body = format!("┌ Running: {ids}");
-                let colored = apply_with_prefix_gated(&body, self.header_prefix.as_deref(), color);
-                vec![
-                    String::new(),
-                    format!("{}{}", pad, colored),
-                    format!("{}│", pad),
-                ]
+        let (lead, rail, closing) = match self.config.plan_header_style {
+            PlanHeaderStyle::Plain => (
+                format!("{}Running: ", self.config.plan_header_prefix),
+                "",
+                String::new(),
+            ),
+            PlanHeaderStyle::Tree => ("┌ Running: ".to_string(), "│", format!("{pad}│")),
+        };
+        let lead_width = visible_width(&lead);
+        let budget = if columns == 0 {
+            usize::MAX
+        } else {
+            usize::from(columns)
+                .saturating_sub(visible_width(pad).saturating_add(lead_width))
+                .max(1)
+        };
+        let indent = " ".repeat(lead_width.saturating_sub(visible_width(rail)));
+        let mut lines = vec![String::new()];
+        for (i, text) in wrap_ids(command_ids, budget).iter().enumerate() {
+            let line = if i == 0 {
+                let body = format!("{lead}{text}");
+                apply_with_prefix_gated(&body, self.header_prefix.as_deref(), color).into_owned()
+            } else {
+                let colored = apply_with_prefix_gated(text, self.header_prefix.as_deref(), color);
+                format!("{rail}{indent}{colored}")
+            };
+            lines.push(format!("{pad}{line}"));
+        }
+        lines.push(closing);
+        if columns > 0 {
+            for line in &mut lines {
+                *line = truncate_to_width(line, usize::from(columns)).into_owned();
             }
         }
+        lines
     }
 
     /// Render the configured summary separator line, clamped to `columns`.
@@ -507,4 +529,37 @@ fn template_literal_width(template: &str) -> usize {
         }
     }
     visible_width(&literal)
+}
+
+/// Join `ids` with `, `, breaking into lines of at most `width` columns.
+///
+/// Lines break only between ids, and every line but the last keeps the
+/// trailing `,` that joins it to the next. An id that does not fit a line on
+/// its own gets a line to itself, truncated to `width` (keeping its `,`).
+/// Always returns at least one line, empty when `ids` is.
+fn wrap_ids(ids: &[String], width: usize) -> Vec<String> {
+    let mut lines = Vec::new();
+    let mut current = String::new();
+    for (i, id) in ids.iter().enumerate() {
+        // Every id but the last is followed by a `,` on its line.
+        let comma = usize::from(i.saturating_add(1) < ids.len());
+        let needed = visible_width(id).saturating_add(comma);
+        if current.is_empty() {
+            current.push_str(id);
+        } else if visible_width(&current)
+            .saturating_add(2)
+            .saturating_add(needed)
+            <= width
+        {
+            current.push_str(", ");
+            current.push_str(id);
+        } else {
+            // Only a lone over-wide id needs the cut; the `,` survives it.
+            let kept = truncate_to_width(&current, width.saturating_sub(1));
+            lines.push(format!("{kept},"));
+            current.clone_from(id);
+        }
+    }
+    lines.push(truncate_to_width(&current, width).into_owned());
+    lines
 }

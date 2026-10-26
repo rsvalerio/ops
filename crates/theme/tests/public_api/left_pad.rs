@@ -20,7 +20,7 @@ fn left_pad_prepends_spaces_to_step_line() {
 #[test]
 fn left_pad_prepends_spaces_to_plan_header() {
     let theme = theme_with_pad(2);
-    let lines = theme.render_plan_header(&["build".into()]);
+    let lines = theme.render_plan_header(&["build".into()], 0);
     assert_eq!(lines[1], "  Running: build");
 }
 

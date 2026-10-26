@@ -51,7 +51,7 @@ fn plan_header_style_tree_renders_correctly() {
     let mut theme = ThemeConfig::compact();
     theme.plan_header_style = PlanHeaderStyle::Tree;
     let configurable = ConfigurableTheme::new(theme);
-    let lines = configurable.render_plan_header(&["a".into(), "b".into()]);
+    let lines = configurable.render_plan_header(&["a".into(), "b".into()], 0);
     assert_eq!(lines[1], " ┌ Running: a, b");
     assert_eq!(lines[2], " │");
 }

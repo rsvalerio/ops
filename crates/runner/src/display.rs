@@ -352,7 +352,7 @@ impl ProgressDisplay {
             let header_lines = self
                 .render
                 .theme
-                .render_plan_header(&self.state.plan_command_ids);
+                .render_plan_header(&self.state.plan_command_ids, self.render.columns);
             for line in &header_lines {
                 self.emit_line(line);
             }

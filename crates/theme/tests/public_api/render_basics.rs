@@ -95,7 +95,7 @@ fn compact_theme_running_status() {
 fn classic_plan_header_tree() {
     let theme = ConfigurableTheme::new(ThemeConfig::classic());
     let ids = vec!["build".into(), "clippy".into(), "test".into()];
-    let lines = theme.render_plan_header(&ids);
+    let lines = theme.render_plan_header(&ids, 0);
     assert_eq!(lines.len(), 3);
     assert!(lines[0].is_empty(), "upper space");
     assert_eq!(lines[1], " ┌ Running: build, clippy, test");
@@ -103,11 +103,73 @@ fn classic_plan_header_tree() {
 }
 
 #[test]
+fn classic_plan_header_wraps_under_rail() {
+    let theme = ConfigurableTheme::new(ThemeConfig::classic());
+    let ids: Vec<String> = ["fmt-check", "clippy", "build", "check-json", "doc"]
+        .map(String::from)
+        .into();
+    let lines = theme.render_plan_header(&ids, 30);
+    assert_eq!(
+        lines,
+        vec![
+            "",
+            " ┌ Running: fmt-check, clippy,",
+            " │          build, check-json,",
+            " │          doc",
+            " │",
+        ]
+    );
+}
+
+#[test]
+fn plain_plan_header_wraps_under_first_id() {
+    let mut cfg = ThemeConfig::compact();
+    cfg.plan_header_prefix = "🚀 ".into();
+    let theme = ConfigurableTheme::new(cfg);
+    let ids: Vec<String> = ["fmt-check", "clippy", "build"].map(String::from).into();
+    let lines = theme.render_plan_header(&ids, 31);
+    assert_eq!(
+        lines,
+        vec![
+            "",
+            " 🚀 Running: fmt-check, clippy,",
+            "             build",
+            ""
+        ]
+    );
+}
+
+#[test]
+fn plan_header_lines_fit_columns() {
+    let theme = ConfigurableTheme::new(ThemeConfig::classic());
+    let ids: Vec<String> = (0..40).map(|i| format!("step-{i}")).collect();
+    // 5 and 10 are narrower than the left pad plus `┌ Running: `.
+    for columns in [5u16, 10, 20, 40, 72] {
+        for line in theme.render_plan_header(&ids, columns) {
+            assert!(
+                ops_core::output::display_width(&line) <= usize::from(columns),
+                "{line:?} exceeds {columns} columns"
+            );
+        }
+    }
+}
+
+#[test]
+fn plan_header_truncates_an_id_wider_than_the_line() {
+    let theme = ConfigurableTheme::new(ThemeConfig::classic());
+    let ids = vec!["a".repeat(40), "b".into()];
+    let lines = theme.render_plan_header(&ids, 24);
+    assert_eq!(lines.len(), 4);
+    assert!(lines[1].ends_with("…,"), "{:?}", lines[1]);
+    assert_eq!(lines[2], " │          b");
+}
+
+#[test]
 fn plain_header_with_prefix_emits_prefix() {
     let mut cfg = ThemeConfig::compact();
     cfg.plan_header_prefix = "🚀 ".into();
     let theme = ConfigurableTheme::new(cfg);
-    let lines = theme.render_plan_header(&["build".into(), "test".into()]);
+    let lines = theme.render_plan_header(&["build".into(), "test".into()], 0);
     assert_eq!(lines[1], " 🚀 Running: build, test");
 }
 
@@ -196,7 +258,7 @@ fn summary_color_does_not_affect_non_tty_output() {
 fn compact_plan_header_plain() {
     let theme = ConfigurableTheme::new(ThemeConfig::compact());
     let ids = vec!["build".into(), "test".into()];
-    let lines = theme.render_plan_header(&ids);
+    let lines = theme.render_plan_header(&ids, 0);
     assert_eq!(lines.len(), 3);
     assert!(lines[0].is_empty());
     assert_eq!(lines[1], " Running: build, test");
