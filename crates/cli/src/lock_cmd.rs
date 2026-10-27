@@ -25,11 +25,15 @@
 //!
 //! # Signals
 //!
-//! While the command runs, SIGINT and SIGTERM delivered to `ops` are
-//! forwarded to the child and `ops` keeps waiting for it, so the lock is held
-//! for exactly the child's lifetime and released — record cleared — once it
-//! exits. `ops` then exits `128 + signo`. If `ops` itself is killed
-//! outright, the kernel releases the lock and the record reads as stale.
+//! SIGINT and SIGTERM are caught from before the lock is taken until `ops`
+//! exits, so neither can kill `ops` with its record still written. While
+//! waiting for the lock, a signal ends the wait. Between taking the lock and
+//! starting the command, it releases the lock and the command never runs.
+//! While the command runs, it is forwarded to the child and `ops` keeps
+//! waiting for it, so the lock is held for exactly the child's lifetime and
+//! released — record cleared — once it exits. In every case `ops` exits
+//! `128 + signo`. If `ops` itself is killed outright, the kernel releases
+//! the lock and the record reads as stale.
 
 use std::ffi::OsString;
 use std::fs::{File, OpenOptions};
@@ -239,72 +243,152 @@ impl Drop for Guard {
     }
 }
 
-/// Take the lock `name` in `dir`, waiting while another process holds it.
-/// `timeout: None` waits indefinitely. Writes a one-line notice to `notice`
-/// when it has to wait.
+/// How [`acquire`] ended: holding the lock, or stopped by a signal while
+/// waiting for it.
+#[derive(Debug)]
+pub enum Acquired {
+    /// The lock is held and the holder recorded.
+    Held(Guard),
+    /// SIGINT or SIGTERM (the number) arrived first; nothing was recorded.
+    Signalled(i32),
+}
+
+/// How [`acquire`] waits for a held lock.
+pub struct Wait<'a> {
+    /// `None` waits indefinitely.
+    pub timeout: Option<Duration>,
+    /// Gets a one-line notice when the lock is held by someone else.
+    pub notice: &'a mut (dyn Write + Send),
+    /// A signal from these ends the wait.
+    pub signals: &'a mut Signals,
+}
+
+/// Take the lock `name` in `dir`, waiting as `wait` says while another
+/// process holds it.
 ///
 /// # Errors
 ///
 /// The name is invalid, the lock file cannot be opened or locked, the
 /// timeout elapsed (the error names the holder), or the record cannot be
 /// written.
-pub fn acquire(
+pub async fn acquire(
     dir: &Path,
     name: &str,
     holder: &Holder,
-    timeout: Option<Duration>,
-    notice: &mut dyn Write,
-) -> anyhow::Result<Guard> {
+    wait: Wait<'_>,
+) -> anyhow::Result<Acquired> {
+    let Wait {
+        timeout,
+        notice,
+        signals,
+    } = wait;
     validate_name(name)?;
     let path = lock_path(dir, name);
     let mut file = open_lock_file(&path)?;
-    match file.try_lock() {
-        Ok(()) => {}
-        Err(std::fs::TryLockError::WouldBlock) => {
-            let who = read_record(&mut file).map_or_else(
-                || "another process".to_string(),
-                |h| format!("pid {} ({})", h.pid, h.command),
-            );
-            writeln!(notice, "ops lock: waiting for {name}, held by {who}").ok();
-            match timeout {
-                None => file
-                    .lock()
-                    .with_context(|| format!("locking {}", path.display()))?,
-                Some(limit) => wait_with_timeout(&file, &path, name, &who, limit)?,
+    if !try_take(&file, &path)? {
+        let who = read_record(&mut file).map_or_else(
+            || "another process".to_string(),
+            |h| format!("pid {} ({})", h.pid, h.command),
+        );
+        writeln!(notice, "ops lock: waiting for {name}, held by {who}").ok();
+        // Polled rather than a blocking `lock()`, so a signal can end the
+        // wait without leaving a thread that might still take the lock.
+        let deadline = timeout.and_then(|limit| Instant::now().checked_add(limit));
+        loop {
+            tokio::select! {
+                biased;
+                signo = signals.recv() => return Ok(Acquired::Signalled(signo)),
+                () = tokio::time::sleep(POLL) => {}
             }
-        }
-        Err(std::fs::TryLockError::Error(err)) => {
-            return Err(err).with_context(|| format!("locking {}", path.display()));
+            if try_take(&file, &path)? {
+                break;
+            }
+            if deadline.is_some_and(|d| Instant::now() >= d) {
+                anyhow::bail!(
+                    "timed out after {}s waiting for lock {name}, held by {who}",
+                    timeout.unwrap_or_default().as_secs()
+                );
+            }
         }
     }
     write_record(&mut file, &holder.render())
         .with_context(|| format!("recording the holder in {}", path.display()))?;
-    Ok(Guard { file })
+    Ok(Acquired::Held(Guard { file }))
 }
 
-fn wait_with_timeout(
-    file: &File,
-    path: &Path,
-    name: &str,
-    who: &str,
-    limit: Duration,
-) -> anyhow::Result<()> {
-    let deadline = Instant::now().checked_add(limit);
-    loop {
-        match file.try_lock() {
-            Ok(()) => return Ok(()),
-            Err(std::fs::TryLockError::WouldBlock) => {}
-            Err(std::fs::TryLockError::Error(err)) => {
-                return Err(err).with_context(|| format!("locking {}", path.display()));
-            }
+/// One non-blocking attempt: `true` once the lock is ours.
+fn try_take(file: &File, path: &Path) -> anyhow::Result<bool> {
+    match file.try_lock() {
+        Ok(()) => Ok(true),
+        Err(std::fs::TryLockError::WouldBlock) => Ok(false),
+        Err(std::fs::TryLockError::Error(err)) => {
+            Err(err).with_context(|| format!("locking {}", path.display()))
         }
-        if deadline.is_some_and(|d| Instant::now() >= d) {
-            anyhow::bail!(
-                "timed out after {}s waiting for lock {name}, held by {who}",
-                limit.as_secs()
-            );
+    }
+}
+
+/// SIGINT and SIGTERM, caught for the whole of `ops lock <name> -- …` so a
+/// signal at any point — waiting, holding the lock before the child starts,
+/// or while it runs — is handled rather than killing `ops` with the record
+/// still written.
+#[derive(Debug)]
+pub struct Signals {
+    #[cfg(unix)]
+    streams: Option<(tokio::signal::unix::Signal, tokio::signal::unix::Signal)>,
+}
+
+impl Signals {
+    /// Catch SIGTERM and SIGINT from now on. Must run inside a tokio
+    /// runtime.
+    ///
+    /// # Errors
+    ///
+    /// A handler cannot be installed.
+    pub fn install() -> anyhow::Result<Self> {
+        #[cfg(unix)]
+        {
+            use tokio::signal::unix::{signal, SignalKind};
+            let term = signal(SignalKind::terminate()).context("installing the SIGTERM handler")?;
+            let int = signal(SignalKind::interrupt()).context("installing the SIGINT handler")?;
+            Ok(Self {
+                streams: Some((term, int)),
+            })
         }
-        std::thread::sleep(POLL);
+        #[cfg(not(unix))]
+        {
+            Ok(Self {})
+        }
+    }
+
+    /// Catch nothing: [`Self::recv`] never resolves.
+    #[cfg(test)]
+    #[must_use]
+    pub const fn none() -> Self {
+        Self {
+            #[cfg(unix)]
+            streams: None,
+        }
+    }
+
+    /// The next caught signal's number.
+    async fn recv(&mut self) -> i32 {
+        #[cfg(unix)]
+        if let Some((term, int)) = &mut self.streams {
+            return tokio::select! {
+                _ = term.recv() => libc::SIGTERM,
+                _ = int.recv() => libc::SIGINT,
+            };
+        }
+        std::future::pending().await
+    }
+
+    /// A signal that has already arrived, without waiting for one.
+    async fn pending(&mut self) -> Option<i32> {
+        tokio::select! {
+            biased;
+            signo = self.recv() => Some(signo),
+            () = std::future::ready(()) => None,
+        }
     }
 }
 
@@ -458,10 +542,15 @@ pub fn break_to(dir: &Path, name: &str, out: &mut dyn Write) -> anyhow::Result<(
 /// `ops lock <name> [--timeout SECS] -- <cmd…>`: hold the lock for the
 /// command's lifetime and exit with the command's status.
 ///
+/// SIGINT and SIGTERM are caught before the lock is taken: one that arrives
+/// while waiting ends the wait, and one that arrives before the command
+/// starts releases the lock without running it. Either way `ops` exits
+/// `128 + signo`.
+///
 /// # Errors
 ///
-/// No command was given, the lock cannot be taken, or the command cannot be
-/// spawned.
+/// No command was given, the runtime cannot be built, the lock cannot be
+/// taken, or the command cannot be spawned.
 pub fn run_locked(
     cwd: &Path,
     name: &str,
@@ -474,9 +563,30 @@ pub fn run_locked(
     let dir = locks_dir(cwd)?;
     let worktree = git_toplevel(cwd).unwrap_or_else(|| cwd.to_path_buf());
     let holder = Holder::current(&worktree, command);
-    let guard = acquire(&dir, name, &holder, timeout, &mut std::io::stderr())?;
-    let code = run_child(program, args)?;
-    drop(guard);
+    let runtime = tokio::runtime::Builder::new_current_thread()
+        .enable_all()
+        .build()
+        .context("building the lock runtime")?;
+    let code = runtime.block_on(async {
+        let mut signals = Signals::install()?;
+        let wait = Wait {
+            timeout,
+            notice: &mut std::io::stderr(),
+            signals: &mut signals,
+        };
+        let acquired = acquire(&dir, name, &holder, wait).await?;
+        let guard = match acquired {
+            Acquired::Held(guard) => guard,
+            Acquired::Signalled(signo) => return Ok(signal_code(signo)),
+        };
+        if let Some(signo) = signals.pending().await {
+            drop(guard);
+            return Ok(signal_code(signo));
+        }
+        let code = run_child(program, args, &mut signals).await?;
+        drop(guard);
+        anyhow::Ok(code)
+    })?;
     Ok(ExitCode::from(code))
 }
 
@@ -498,34 +608,22 @@ fn git_toplevel(cwd: &Path) -> Option<PathBuf> {
     })
 }
 
-/// Run the child to completion, forwarding SIGINT/SIGTERM to it, and map
+/// Run the child to completion, forwarding caught signals to it, and map
 /// its end to an exit code: its own code, or `128 + signo` when it (or
 /// `ops`) was signalled.
 ///
 /// # Errors
 ///
-/// The runtime cannot be built or the child cannot be spawned.
-fn run_child(program: &OsString, args: &[OsString]) -> anyhow::Result<u8> {
-    let runtime = tokio::runtime::Builder::new_current_thread()
-        .enable_all()
-        .build()
-        .context("building the lock runtime")?;
-    runtime.block_on(async {
-        let mut child = tokio::process::Command::new(program)
-            .args(args)
-            .spawn()
-            .with_context(|| format!("spawning {}", program.to_string_lossy()))?;
-        let signalled = forward_signals_until_exit(&mut child).await?;
-        Ok(signalled)
-    })
-}
-
-#[cfg(unix)]
-async fn forward_signals_until_exit(child: &mut tokio::process::Child) -> anyhow::Result<u8> {
-    use tokio::signal::unix::{signal, SignalKind};
-
-    let mut term = signal(SignalKind::terminate()).context("installing the SIGTERM handler")?;
-    let mut int = signal(SignalKind::interrupt()).context("installing the SIGINT handler")?;
+/// The child cannot be spawned or waited for.
+async fn run_child(
+    program: &OsString,
+    args: &[OsString],
+    signals: &mut Signals,
+) -> anyhow::Result<u8> {
+    let mut child = tokio::process::Command::new(program)
+        .args(args)
+        .spawn()
+        .with_context(|| format!("spawning {}", program.to_string_lossy()))?;
     let mut received: Option<i32> = None;
     loop {
         tokio::select! {
@@ -533,25 +631,12 @@ async fn forward_signals_until_exit(child: &mut tokio::process::Child) -> anyhow
                 let status = status.context("waiting for the locked command")?;
                 return Ok(exit_code(status, received));
             }
-            _ = term.recv() => {
-                received = Some(libc::SIGTERM);
-                forward(child, libc::SIGTERM);
-            }
-            _ = int.recv() => {
-                received = Some(libc::SIGINT);
-                forward(child, libc::SIGINT);
+            signo = signals.recv() => {
+                received = Some(signo);
+                forward(&child, signo);
             }
         }
     }
-}
-
-#[cfg(not(unix))]
-async fn forward_signals_until_exit(child: &mut tokio::process::Child) -> anyhow::Result<u8> {
-    let status = child
-        .wait()
-        .await
-        .context("waiting for the locked command")?;
-    Ok(exit_code(status, None))
 }
 
 /// Send `signo` to the child, if it is still running.
@@ -568,6 +653,10 @@ fn forward(child: &tokio::process::Child, signo: i32) {
         libc::kill(pid, signo);
     }
 }
+
+/// No signals are caught off unix, so there is nothing to forward.
+#[cfg(not(unix))]
+const fn forward(_child: &tokio::process::Child, _signo: i32) {}
 
 /// The child's exit code; a signal death — the child's own, or `ops`'s
 /// forwarded one — maps to the shell's `128 + signo`.
@@ -586,8 +675,13 @@ fn exit_code(status: std::process::ExitStatus, received: Option<i32>) -> u8 {
     if let Some(code) = status.code() {
         return u8::try_from(code).unwrap_or(1);
     }
-    by_signal
-        .and_then(|signo| u8::try_from(signo).ok())
+    by_signal.map_or(1, signal_code)
+}
+
+/// The shell's exit code for a death by `signo`: `128 + signo`.
+fn signal_code(signo: i32) -> u8 {
+    u8::try_from(signo)
+        .ok()
         .and_then(|signo| signo.checked_add(128))
         .unwrap_or(1)
 }
@@ -607,13 +701,23 @@ mod tests {
     }
 
     fn take(dir: &Path, name: &str) -> anyhow::Result<Guard> {
-        acquire(
+        let runtime = tokio::runtime::Builder::new_current_thread()
+            .enable_all()
+            .build()?;
+        let acquired = runtime.block_on(acquire(
             dir,
             name,
             &holder(std::process::id()),
-            Some(Duration::from_millis(300)),
-            &mut std::io::sink(),
-        )
+            Wait {
+                timeout: Some(Duration::from_millis(300)),
+                notice: &mut std::io::sink(),
+                signals: &mut Signals::none(),
+            },
+        ))?;
+        match acquired {
+            Acquired::Held(guard) => Ok(guard),
+            Acquired::Signalled(signo) => anyhow::bail!("signal {signo} without signal handling"),
+        }
     }
 
     fn status(dir: &Path, name: Option<&str>) -> String {
