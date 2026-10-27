@@ -407,13 +407,20 @@ fn remove_path(doc: &mut toml_edit::DocumentMut, path: &[&str]) {
 /// such as `Cargo.toml:workspace.lints.clippy`) to the reason the divergence
 /// is deliberate.
 ///
+/// `workspaces` is `.ops.toml`'s `[cargo] workspaces` list, compared with
+/// the cargo workspaces nested in the tree (see [`check_workspaces`]).
+///
 /// # Errors
 ///
 /// If `root` has no parseable `Cargo.toml`, its workspace members cannot be
 /// resolved, or a file exists but cannot be read. A file that is missing or
 /// does not parse is drift, not an error, and so is a member manifest that
 /// does not parse; a member manifest that is missing is skipped.
-pub fn check(root: &Path, waivers: &IndexMap<String, String>) -> anyhow::Result<Report> {
+pub fn check(
+    root: &Path,
+    waivers: &IndexMap<String, String>,
+    workspaces: &[String],
+) -> anyhow::Result<Report> {
     let manifest = Root::load(root)?;
     let mut drift = Vec::new();
     for file in &FILES {
@@ -423,7 +430,52 @@ pub fn check(root: &Path, waivers: &IndexMap<String, String>) -> anyhow::Result<
     for member in &manifest.members {
         check_member_opt_in(root, member, &mut drift)?;
     }
+    check_workspaces(root, workspaces, &mut drift);
     Ok(apply_waivers(drift, waivers))
+}
+
+/// Where `[cargo] workspaces` drift is reported, one location per directory
+/// so a waiver can leave out a single nested workspace on purpose.
+const WORKSPACES_LOCATION: &str = ".ops.toml:cargo.workspaces";
+
+/// Compare `[cargo] workspaces` with the cargo workspaces nested in the tree.
+///
+/// A nested workspace the list leaves out is drift, because the Rust
+/// built-ins skip it — whether or not the list is set at all. So is a
+/// listed directory that is no separate workspace: one without a
+/// `Cargo.toml`, or a member of the root workspace, which
+/// `--manifest-path` would only run over the root again.
+fn check_workspaces(root: &Path, configured: &[String], out: &mut Vec<Drift>) {
+    let found = ops_cargo_toml::nested_workspaces(root);
+    let listed: Vec<&str> = configured
+        .iter()
+        .map(|d| ops_cargo_toml::normalize_dir(d))
+        .filter(|d| !d.is_empty() && *d != ".")
+        .collect();
+    for nested in &found {
+        if !listed.contains(&nested.dir.as_str()) {
+            out.push(Drift::new(
+                format!("{WORKSPACES_LOCATION}.{}", nested.dir),
+                format!(
+                    "'{}' is a cargo workspace ({}) missing from [cargo] workspaces, so the \
+                     Rust built-ins skip it",
+                    nested.dir,
+                    nested.reason()
+                ),
+            ));
+        }
+    }
+    for dir in listed {
+        if found.iter().any(|n| n.dir == dir) {
+            continue;
+        }
+        let message = if root.join(dir).join("Cargo.toml").is_file() {
+            format!("lists '{dir}', which is not a separate cargo workspace")
+        } else {
+            format!("lists '{dir}', which has no Cargo.toml")
+        };
+        out.push(Drift::new(format!("{WORKSPACES_LOCATION}.{dir}"), message));
+    }
 }
 
 fn check_file(root: &Path, file: &ConfigFile, out: &mut Vec<Drift>) -> anyhow::Result<()> {

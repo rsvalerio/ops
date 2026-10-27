@@ -23,7 +23,9 @@ fn run_init_to(
     // small TOCTOU window between the two filesystem ops.
     let cwd = crate::cwd()?;
     let path = cwd.join(".ops.toml");
-    let content = ops_core::config::init_template(&cwd, sections)?;
+    let workspaces = nested_cargo_workspaces(&cwd);
+    let mut content = ops_core::config::init_template(&cwd, sections)?;
+    append_cargo_workspaces(&mut content, &workspaces);
     match write_init(&path, content.as_bytes(), force) {
         Ok(()) => {}
         Err(e) if e.kind() == ErrorKind::AlreadyExists => {
@@ -88,7 +90,73 @@ fn run_init_to(
     } else {
         writeln!(w, "Created .ops.toml with output settings. Use `ops init --commands --themes` to include more sections.")?;
     }
+    if !workspaces.is_empty() {
+        let dirs: Vec<String> = workspaces.iter().map(|(dir, _)| audit_dir(dir)).collect();
+        writeln!(
+            w,
+            "Detected {} cargo workspaces (., {}); the Rust built-ins run over each, see [cargo] workspaces.",
+            dirs.len().saturating_add(1),
+            dirs.join(", ")
+        )?;
+    }
     Ok(())
+}
+
+/// The cargo workspaces nested in a Rust project at `root`, each with the
+/// reason it counts as one; empty outside a Rust project.
+#[cfg(feature = "stack-rust")]
+fn nested_cargo_workspaces(root: &Path) -> Vec<(String, &'static str)> {
+    if ops_core::stack::Stack::detect(root) != Some(ops_core::stack::Stack::Rust) {
+        return Vec::new();
+    }
+    ops_cargo_toml::nested_workspaces(root)
+        .into_iter()
+        .map(|w| {
+            let reason = w.reason();
+            (w.dir, reason)
+        })
+        .collect()
+}
+
+#[cfg(not(feature = "stack-rust"))]
+fn nested_cargo_workspaces(_root: &Path) -> Vec<(String, &'static str)> {
+    Vec::new()
+}
+
+/// Append `[cargo] workspaces` naming the root and every nested workspace,
+/// each commented with why it was picked. Written as text because the
+/// template serializer cannot emit comments; the template never carries a
+/// `[cargo]` table of its own.
+fn append_cargo_workspaces(content: &mut String, workspaces: &[(String, &str)]) {
+    use std::fmt::Write as _;
+    if workspaces.is_empty() {
+        return;
+    }
+    if !content.is_empty() && !content.ends_with('\n') {
+        content.push('\n');
+    }
+    content.push_str(
+        "\n[cargo]\n\
+         # Cargo workspaces the Rust built-ins (fmt, fmt-check, check, clippy, build,\n\
+         # deps) run over, found by `ops init`; `ops init --rust --check` reports\n\
+         # drift; to leave one out, delete it and waive\n\
+         # `.ops.toml:cargo.workspaces.<dir>` in [foundation.waivers].\n\
+         workspaces = [\n    \".\",\n",
+    );
+    for (dir, reason) in workspaces {
+        let quoted = toml::Value::String(dir.clone()).to_string();
+        // Writing to a String cannot fail.
+        let _ = writeln!(content, "    {quoted}, # {reason}");
+    }
+    content.push_str("]\n");
+}
+
+/// A detected directory as printed to the terminal: control characters in a
+/// hostile directory name cannot reach it.
+fn audit_dir(dir: &str) -> String {
+    let mut out = String::with_capacity(dir.len());
+    ops_core::ui::sanitise_line(dir, &mut out);
+    out
 }
 
 /// Collapse the prior `path.exists()` + `fs::write` pair into atomic
@@ -189,6 +257,48 @@ mod tests {
 
     fn default_sections() -> ops_core::config::InitSections {
         ops_core::config::InitSections::from_flags(false, false, false)
+    }
+
+    /// A Rust project with a nested workspace gets `[cargo] workspaces`
+    /// listing it, commented, whatever the section flags.
+    #[cfg(feature = "stack-rust")]
+    #[test]
+    fn run_init_writes_detected_cargo_workspaces() {
+        let dir = tempfile::tempdir().expect("tempdir");
+        std::fs::write(
+            dir.path().join("Cargo.toml"),
+            "[workspace]\nmembers = []\nexclude = [\"fuzz\"]\n",
+        )
+        .unwrap();
+        std::fs::create_dir(dir.path().join("fuzz")).unwrap();
+        std::fs::write(
+            dir.path().join("fuzz/Cargo.toml"),
+            "[package]\nname = \"f\"\n[workspace]\nmembers = [\".\"]\n",
+        )
+        .unwrap();
+        let _guard = CwdGuard::new(dir.path()).expect("CwdGuard");
+        let mut buf = Vec::new();
+        run_init_to(false, &default_sections(), &mut buf).expect("run_init_to");
+
+        let content = std::fs::read_to_string(dir.path().join(".ops.toml")).unwrap();
+        assert!(
+            content.contains("\"fuzz\", # own [workspace], excluded from the root workspace\n"),
+            "{content}"
+        );
+        let parsed: ops_core::config::Config = toml::from_str(&content).expect("valid config");
+        assert_eq!(parsed.cargo.workspaces(), [".", "fuzz"]);
+        let output = String::from_utf8(buf).unwrap();
+        assert!(
+            output.contains("Detected 2 cargo workspaces (., fuzz)"),
+            "{output}"
+        );
+    }
+
+    #[test]
+    fn append_cargo_workspaces_is_a_no_op_without_nested_workspaces() {
+        let mut content = "[output]\n".to_string();
+        append_cargo_workspaces(&mut content, &[]);
+        assert_eq!(content, "[output]\n");
     }
 
     #[test]
