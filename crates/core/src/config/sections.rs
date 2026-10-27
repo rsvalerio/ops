@@ -84,11 +84,24 @@ pub struct CargoSection {
     /// defaults and config commands alike; see `config::locked`.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub locked: Option<bool>,
+    /// The cargo workspaces the workspace-wide Rust stack defaults run over,
+    /// as directories relative to the project root (`"."` is the root
+    /// workspace), e.g. `[".", "fuzz"]` for cargo-fuzz's separate workspace.
+    /// `fmt`, `fmt-check`, `check`, `clippy` and `build` become one matrix
+    /// cell per entry, and `ops deps` reports each; see `config::workspaces`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub workspaces: Option<Vec<String>>,
 }
 
 impl CargoSection {
     pub(crate) const fn is_default(&self) -> bool {
-        self.locked.is_none()
+        self.locked.is_none() && self.workspaces.is_none()
+    }
+
+    /// The configured workspace directories; empty when unset.
+    #[must_use]
+    pub fn workspaces(&self) -> &[String] {
+        self.workspaces.as_deref().unwrap_or_default()
     }
 }
 

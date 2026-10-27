@@ -37,6 +37,9 @@
 //!   existing composite at load time.
 //! - `locked` — the `[cargo] locked = true` switch, adding `--locked` to
 //!   every lockfile-resolving cargo command after `[extend]`.
+//! - `workspaces` — the `[cargo] workspaces` list, turning the
+//!   workspace-wide Rust stack defaults into one matrix cell per cargo
+//!   workspace after `[extend]`.
 //! - `clone` — the `[commands.<name>] clone = "<source>"` declarations,
 //!   materialized into concrete specs at load time before `[extend]` runs.
 //! - [`overlay`] / [`merge`] — the partial-config mirror types and their merge.
@@ -61,6 +64,7 @@ pub(crate) mod root;
 pub(crate) mod sections;
 pub(crate) mod strategy;
 pub mod theme_types;
+mod workspaces;
 
 pub use command_id::CommandId;
 pub use commands::{
@@ -86,6 +90,7 @@ pub use strategy::{
     substitute as substitute_matrix_refs, Matrix, MatrixCell, MatrixEntry, MatrixExpandError,
     MatrixRefError, Strategy, MAX_MATRIX_CELLS,
 };
+pub use workspaces::WORKSPACE_COMMANDS;
 
 #[cfg(test)]
 pub(crate) use loader::resolve_global_config_path;
