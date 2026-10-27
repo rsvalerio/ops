@@ -44,6 +44,13 @@ create a missing `Cargo.lock`. Set `[cargo] locked = true` (or
 `OPS__CARGO__LOCKED=true` in CI) to add it to every lockfile-resolving cargo
 command — see [Locked cargo commands](configuration.md#locked-cargo-commands).
 
+**Several cargo workspaces:** `fmt`, `fmt-check`, `check`, `clippy` and `build`
+act on the root workspace only. List a second workspace, such as cargo-fuzz's
+`fuzz/`, in `[cargo] workspaces = [".", "fuzz"]` and each of them runs once per
+workspace with `--manifest-path`, as one step labelled per workspace; `ops deps`
+reports each workspace too. The test commands stay root-only — see
+[Several cargo workspaces](configuration.md#several-cargo-workspaces).
+
 **`--all-targets` on `test`:** deliberately absent. For `cargo test` the flag
 *disables* doctests ("Test all targets (does not include doctests)"), so adding
 it for symmetry would silently drop doctest coverage.

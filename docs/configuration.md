@@ -74,6 +74,52 @@ locked = true
 
 Like any key it can come from the environment instead, which keeps local runs free to update the lockfile: `OPS__CARGO__LOCKED=true`. The flag goes before any `--` separator, commands already passing `--locked` or `--frozen` are left alone, and it applies after `[extend]`. It is off by default because `--locked` refuses to create a missing `Cargo.lock`.
 
+## Several cargo workspaces
+
+A repository can hold more than one cargo workspace: cargo-fuzz's `fuzz/` is
+its own `[workspace]`, listed in the root's `exclude`, so `cargo fmt --all` and
+`cargo clippy --workspace` never reach it. Name every workspace the Rust
+defaults should cover, as directories relative to the project root (`.` is the
+root):
+
+```toml
+[cargo]
+workspaces = [".", "fuzz"]
+```
+
+- `fmt`, `fmt-check`, `check`, `clippy` and `build` each become a
+  [matrix](#running-one-command-over-a-matrix) over a `workspace` axis, with
+  `--manifest-path ${matrix.workspace}/Cargo.toml` added before any `--`
+  separator. Each stays one step in `verify` and `verify-fix`, and runs once
+  per workspace in rows labelled `clippy [workspace=.]`,
+  `clippy [workspace=fuzz]`. `ops explain verify` names every cell, and
+  `ops --dry-run clippy` shows each one's args.
+- `ops deps` (and `ops deps --check`) runs its tools in each workspace's
+  directory and prints one report per workspace, titled with it. cargo-deny
+  finds the root `deny.toml` from a nested workspace by walking up. Every
+  workspace is reported before the command fails, naming the ones with issues.
+- The test commands (`test`, `test-doc`, `next`, …) and `doc` stay root-only.
+- A command you define yourself under one of those names is left alone,
+  because its args may already name a package or manifest. A stack default
+  you extend with `[extend.<name>] args` is expanded with your args kept.
+  `[cargo] locked` applies to every cell.
+
+An entry must be a relative directory inside the project: an empty entry, an
+absolute path or a `..` component fails the load. A list that is empty or
+names only `.` changes nothing.
+
+You rarely write the list by hand. `ops init` in a Rust project looks for
+nested workspaces and writes the list with a comment on each entry, and
+`ops init --rust --check` reports when the list and the tree disagree (see
+[Rust foundation](foundation.md#cargo-workspaces)). A `Cargo.toml` below the
+root counts as a workspace when it declares its own `[workspace]` table, or
+when it is a package that the root's `[workspace].exclude` names (matched
+literally, not as a glob). The search honours `.gitignore`, skips hidden
+directories, `target/` and `vendor/`, and goes 8 levels deep. Other nested
+manifests are root members or fixtures. ops only searches when you run those
+two commands, never on an ordinary run: the plan changes when `.ops.toml`
+changes, not when a directory appears.
+
 ## Cloning existing commands
 
 To define a command as a variant of an existing one — typically a stack default — without copying (and going stale on) its whole spec, use `clone`:
