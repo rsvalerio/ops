@@ -135,8 +135,10 @@ pub fn nested_workspaces(root: &Path) -> Vec<NestedWorkspace> {
             continue;
         };
         let own_workspace = table.get("workspace").is_some_and(toml::Value::is_table);
-        let excluded_by_root = table.contains_key("package") && excluded(&exclude, &dir);
-        if own_workspace || excluded_by_root {
+        let excluded_by_root = excluded(&exclude, &dir);
+        // An excluded package is a standalone root; an excluded manifest
+        // with neither table is nothing cargo builds.
+        if own_workspace || (excluded_by_root && table.contains_key("package")) {
             found.push(NestedWorkspace {
                 dir,
                 own_workspace,
@@ -144,6 +146,22 @@ pub fn nested_workspaces(root: &Path) -> Vec<NestedWorkspace> {
             });
         }
     }
+    // A package below a nested `[workspace]` belongs to that workspace (cargo
+    // resolves a package to its nearest enclosing workspace root), even when
+    // the root's `exclude` also covers it.
+    let roots: Vec<String> = found
+        .iter()
+        .filter(|w| w.own_workspace)
+        .map(|w| w.dir.clone())
+        .collect();
+    found.retain(|w| {
+        w.own_workspace
+            || !roots.iter().any(|r| {
+                w.dir
+                    .strip_prefix(r.as_str())
+                    .is_some_and(|rest| rest.starts_with('/'))
+            })
+    });
     found.sort_by(|a, b| a.dir.cmp(&b.dir));
     found
 }
@@ -193,6 +211,32 @@ mod tests {
                 ("bench", "own [workspace]"),
                 ("fuzz", "own [workspace], excluded from the root workspace"),
                 ("tools/gen", "excluded from the root workspace"),
+            ]
+        );
+    }
+
+    /// A member of an excluded nested workspace belongs to that workspace,
+    /// not to a workspace of its own.
+    #[test]
+    fn members_of_a_nested_workspace_are_not_workspaces() {
+        let dir = tempfile::tempdir().unwrap();
+        let root = dir.path();
+        write(root, "Cargo.toml", "[workspace]\nexclude = [\"tools\"]\n");
+        write(root, "tools/Cargo.toml", "[workspace]\nmembers = [\"a\"]\n");
+        write(root, "tools/a/Cargo.toml", "[package]\nname = \"a\"\n");
+        write(
+            root,
+            "tools/b/Cargo.toml",
+            "[package]\nname = \"b\"\n[workspace]\n",
+        );
+        assert_eq!(
+            dirs(&nested_workspaces(root)),
+            [
+                ("tools", "own [workspace], excluded from the root workspace"),
+                (
+                    "tools/b",
+                    "own [workspace], excluded from the root workspace"
+                ),
             ]
         );
     }
