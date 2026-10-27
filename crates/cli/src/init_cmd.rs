@@ -105,7 +105,7 @@ fn run_init_to(
 /// The cargo workspaces nested in a Rust project at `root`, each with the
 /// reason it counts as one; empty outside a Rust project.
 #[cfg(feature = "stack-rust")]
-fn nested_cargo_workspaces(root: &Path) -> Vec<(String, &'static str)> {
+fn nested_cargo_workspaces(root: &Path) -> Vec<(String, String)> {
     if ops_core::stack::Stack::detect(root) != Some(ops_core::stack::Stack::Rust) {
         return Vec::new();
     }
@@ -119,7 +119,7 @@ fn nested_cargo_workspaces(root: &Path) -> Vec<(String, &'static str)> {
 }
 
 #[cfg(not(feature = "stack-rust"))]
-fn nested_cargo_workspaces(_root: &Path) -> Vec<(String, &'static str)> {
+const fn nested_cargo_workspaces(_root: &Path) -> Vec<(String, String)> {
     Vec::new()
 }
 
@@ -127,7 +127,7 @@ fn nested_cargo_workspaces(_root: &Path) -> Vec<(String, &'static str)> {
 /// each commented with why it was picked. Written as text because the
 /// template serializer cannot emit comments; the template never carries a
 /// `[cargo]` table of its own.
-fn append_cargo_workspaces(content: &mut String, workspaces: &[(String, &str)]) {
+fn append_cargo_workspaces(content: &mut String, workspaces: &[(String, String)]) {
     use std::fmt::Write as _;
     if workspaces.is_empty() {
         return;
