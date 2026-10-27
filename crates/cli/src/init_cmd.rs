@@ -146,7 +146,9 @@ fn append_cargo_workspaces(content: &mut String, workspaces: &[(String, String)]
     for (dir, reason) in workspaces {
         let quoted = toml::Value::String(dir.clone()).to_string();
         // Writing to a String cannot fail.
-        let _ = writeln!(content, "    {quoted}, # {reason}");
+        // The reason can name a directory; a newline in it would end the
+        // comment and leave bare text inside the array.
+        let _ = writeln!(content, "    {quoted}, # {}", audit_dir(reason));
     }
     content.push_str("]\n");
 }
@@ -322,6 +324,26 @@ mod tests {
             let cells = exec.matrix_cells(name).expect("cells");
             assert_eq!(cells.len(), 2, "{name} must run over . and fuzz");
         }
+    }
+
+    /// A control character in a detected directory cannot break the
+    /// generated TOML: the value is quoted and the comment escaped.
+    #[test]
+    fn append_cargo_workspaces_survives_a_newline_in_a_directory() {
+        let mut content = String::new();
+        append_cargo_workspaces(
+            &mut content,
+            &[(
+                "a\nb/c".to_string(),
+                "excluded from the a\nb workspace".to_string(),
+            )],
+        );
+        let parsed: ops_core::config::Config = toml::from_str(&content).expect("valid TOML");
+        assert_eq!(parsed.cargo.workspaces(), [".", "a\nb/c"]);
+        assert!(
+            content.contains("# excluded from the a\\x0ab workspace"),
+            "{content}"
+        );
     }
 
     #[test]
