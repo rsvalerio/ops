@@ -4,6 +4,7 @@ title: 'Rust stack: run fmt, fmt-check, clippy and deps over extra workspaces su
 status: To Do
 assignee: []
 created_date: '2026-10-26 22:12'
+updated_date: '2026-10-27 09:32'
 labels:
   - feature
   - config
@@ -28,8 +29,15 @@ Phase 2, maybe: options for the drift between a nested workspace and the root, w
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 A configured extra workspace gets fmt, fmt-check, clippy and deps steps without any [commands] entry
-- [ ] #2 ops explain verify shows one labelled step per workspace
-- [ ] #3 dbsec's fuzz-fmt, fuzz-fmt-check, fuzz-clippy, fuzz-deny, fmt-workspace, fmt and deny definitions can be deleted with an unchanged resolved plan
-- [ ] #4 docs/configuration.md and command-mappings.md describe the setting
+- [x] #1 A configured extra workspace gets fmt, fmt-check, clippy and deps steps without any [commands] entry
+- [x] #2 ops explain verify shows one labelled step per workspace
+- [x] #3 dbsec's fuzz-fmt, fuzz-fmt-check, fuzz-clippy, fuzz-deny, fmt-workspace, fmt and deny definitions can be deleted with an unchanged resolved plan
+- [x] #4 docs/configuration.md and command-mappings.md describe the setting
+
 <!-- AC:END -->
+
+## Implementation Notes
+
+<!-- SECTION:NOTES:BEGIN -->
+Setting lives in [cargo] beside `locked`: `[cargo] workspaces = [".", "fuzz"]`. fmt, fmt-check, check, clippy and build become a matrix over a `workspace` axis with `--manifest-path ${matrix.workspace}/Cargo.toml` (config::workspaces, applied after [extend], before locked). `deps` is an extension command the loader cannot reshape, so `ops deps` iterates the list itself, one titled report per workspace. `ops explain` text names each matrix cell. AC3 checked against a scratch copy of dbsec: deleting the seven definitions keeps the same coverage; fuzz clippy now runs in verify stage 1 rather than after fuzz-lock, and its explicit --locked comes from `[cargo] locked` instead.
+<!-- SECTION:NOTES:END -->
