@@ -115,8 +115,10 @@ nested workspaces and writes the list with a comment on each entry, and
 `ops init --rust --check` reports when the list and the tree disagree (see
 [Rust foundation](foundation.md#cargo-workspaces)). A `Cargo.toml` below the
 root counts as a workspace when it declares its own `[workspace]` table, or
-when it is a package that the root's `[workspace].exclude` names (matched
-literally, not as a glob). The search honours `.gitignore`, skips hidden
+when it is a package that its nearest enclosing workspace (a nested one, else
+the root) names in `[workspace].exclude` (matched literally, not as a glob).
+A package inside a nested workspace that does not exclude it is that
+workspace's member. The search honours `.gitignore`, skips hidden
 directories, `target/` and `vendor/`, and goes 8 levels deep. Other nested
 manifests are root members or fixtures. ops only searches when you run those
 two commands, never on an ordinary run: the plan changes when `.ops.toml`

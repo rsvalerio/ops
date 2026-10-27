@@ -5,9 +5,10 @@
 //! the manifests say enough. A `Cargo.toml` below the root is a workspace of
 //! its own when it declares a `[workspace]` table (cargo-fuzz's
 //! `fuzz/Cargo.toml` carries `[workspace] members = ["."]` for exactly this
-//! reason), or when it is a package the root's `[workspace].exclude` names:
-//! cargo then treats it as a standalone root. Any other nested manifest is a
-//! member of the root workspace or a fixture, not a workspace.
+//! reason), or when it is a package that the nearest enclosing workspace —
+//! a nested one, else the root — names in its `[workspace].exclude`: cargo
+//! then treats it as a standalone root. Any other nested manifest is a member
+//! of an enclosing workspace or a fixture, not a workspace.
 //!
 //! The walk honours `.gitignore` and skips hidden directories, `target/`
 //! and `vendor/`, never follows symlinks, and stops at [`MAX_DEPTH`]. It runs
@@ -34,21 +35,35 @@ pub struct NestedWorkspace {
     pub dir: String,
     /// Its manifest declares a `[workspace]` table.
     pub own_workspace: bool,
-    /// The root manifest's `[workspace].exclude` names it.
-    pub excluded_by_root: bool,
+    /// The enclosing workspace whose `[workspace].exclude` names it: `"."`
+    /// for the root, else the nested workspace's directory.
+    pub excluded_from: Option<String>,
 }
 
 impl NestedWorkspace {
     /// Why it counts as a workspace, for `ops init` comments and drift
     /// messages.
     #[must_use]
-    pub const fn reason(&self) -> &'static str {
-        match (self.own_workspace, self.excluded_by_root) {
-            (true, true) => "own [workspace], excluded from the root workspace",
-            (true, false) => "own [workspace]",
-            _ => "excluded from the root workspace",
+    pub fn reason(&self) -> String {
+        let excluded = self.excluded_from.as_deref().map(|from| match from {
+            "." => "excluded from the root workspace".to_string(),
+            dir => format!("excluded from the {dir} workspace"),
+        });
+        match (self.own_workspace, excluded) {
+            (true, Some(excluded)) => format!("own [workspace], {excluded}"),
+            (true, None) => "own [workspace]".to_string(),
+            (false, Some(excluded)) => excluded,
+            (false, None) => String::new(),
         }
     }
+}
+
+/// One nested manifest as the walk read it.
+struct Manifest {
+    dir: String,
+    own_workspace: bool,
+    package: bool,
+    exclude: Vec<String>,
 }
 
 /// Normalize a manifest-relative directory for comparison: no leading `./`
@@ -62,7 +77,7 @@ pub fn normalize_dir(dir: &str) -> &str {
     dir.trim_end_matches('/')
 }
 
-/// Whether the root's `exclude` entries name `dir` or one of its ancestors
+/// Whether `exclude` entries name `dir` or one of its ancestors
 /// (cargo excludes a path together with everything under it). Entries are
 /// matched literally; a glob entry matches nothing here.
 fn excluded(exclude: &[String], dir: &str) -> bool {
@@ -98,14 +113,8 @@ fn table_of(path: &Path) -> Option<toml::Table> {
 /// unparseable nested manifests are skipped.
 #[must_use]
 pub fn nested_workspaces(root: &Path) -> Vec<NestedWorkspace> {
-    let exclude: Vec<String> = table_of(&root.join("Cargo.toml"))
-        .and_then(|t| t.get("workspace")?.get("exclude")?.as_array().cloned())
-        .map(|entries| {
-            entries
-                .iter()
-                .filter_map(|e| e.as_str().map(str::to_string))
-                .collect()
-        })
+    let root_exclude = table_of(&root.join("Cargo.toml"))
+        .map(|t| exclude_of(&t))
         .unwrap_or_default();
 
     let walker = WalkBuilder::new(root)
@@ -120,7 +129,7 @@ pub fn nested_workspaces(root: &Path) -> Vec<NestedWorkspace> {
         })
         .build();
 
-    let mut found = Vec::new();
+    let mut manifests = Vec::new();
     for entry in walker.flatten() {
         if entry.depth() < 2
             || entry.file_name() != "Cargo.toml"
@@ -134,36 +143,66 @@ pub fn nested_workspaces(root: &Path) -> Vec<NestedWorkspace> {
         let Some(table) = table_of(entry.path()) else {
             continue;
         };
-        let own_workspace = table.get("workspace").is_some_and(toml::Value::is_table);
-        let excluded_by_root = excluded(&exclude, &dir);
-        // An excluded package is a standalone root; an excluded manifest
-        // with neither table is nothing cargo builds.
-        if own_workspace || (excluded_by_root && table.contains_key("package")) {
-            found.push(NestedWorkspace {
-                dir,
-                own_workspace,
-                excluded_by_root,
-            });
-        }
+        manifests.push(Manifest {
+            dir,
+            own_workspace: table.get("workspace").is_some_and(toml::Value::is_table),
+            package: table.contains_key("package"),
+            exclude: exclude_of(&table),
+        });
     }
-    // A package below a nested `[workspace]` belongs to that workspace (cargo
-    // resolves a package to its nearest enclosing workspace root), even when
-    // the root's `exclude` also covers it.
-    let roots: Vec<String> = found
+
+    let mut found: Vec<NestedWorkspace> = manifests
         .iter()
-        .filter(|w| w.own_workspace)
-        .map(|w| w.dir.clone())
-        .collect();
-    found.retain(|w| {
-        w.own_workspace
-            || !roots.iter().any(|r| {
-                w.dir
-                    .strip_prefix(r.as_str())
-                    .is_some_and(|rest| rest.starts_with('/'))
+        .filter_map(|m| {
+            // Cargo resolves a manifest to its nearest enclosing workspace
+            // root: the deepest nested `[workspace]` above it, else the root.
+            let enclosing = manifests
+                .iter()
+                .filter(|w| w.own_workspace && is_under(&m.dir, &w.dir))
+                .max_by_key(|w| w.dir.len());
+            let (from, exclude, rel) =
+                enclosing.map_or((".", &root_exclude, m.dir.as_str()), |w| {
+                    (
+                        w.dir.as_str(),
+                        &w.exclude,
+                        m.dir
+                            .get(w.dir.len().saturating_add(1)..)
+                            .unwrap_or_default(),
+                    )
+                });
+            let excluded_from = excluded(exclude, rel).then(|| from.to_string());
+            // An excluded package is a standalone root; an excluded manifest
+            // with neither table is nothing cargo builds.
+            (m.own_workspace || (m.package && excluded_from.is_some())).then(|| NestedWorkspace {
+                dir: m.dir.clone(),
+                own_workspace: m.own_workspace,
+                excluded_from,
             })
-    });
+        })
+        .collect();
     found.sort_by(|a, b| a.dir.cmp(&b.dir));
     found
+}
+
+/// A manifest's `[workspace].exclude` entries.
+fn exclude_of(table: &toml::Table) -> Vec<String> {
+    table
+        .get("workspace")
+        .and_then(|w| w.get("exclude"))
+        .and_then(toml::Value::as_array)
+        .map(|entries| {
+            entries
+                .iter()
+                .filter_map(|e| e.as_str().map(str::to_string))
+                .collect()
+        })
+        .unwrap_or_default()
+}
+
+/// Whether `dir` lies strictly below `ancestor` (both `/`-separated).
+fn is_under(dir: &str, ancestor: &str) -> bool {
+    dir.strip_prefix(ancestor)
+        .is_some_and(|rest| rest.starts_with('/'))
 }
 
 /// `dir` relative to `root`, `/`-separated; `None` for a non-UTF-8 path.
@@ -183,8 +222,11 @@ mod tests {
         std::fs::write(path, body).unwrap();
     }
 
-    fn dirs(found: &[NestedWorkspace]) -> Vec<(&str, &'static str)> {
-        found.iter().map(|w| (w.dir.as_str(), w.reason())).collect()
+    fn dirs(found: &[NestedWorkspace]) -> Vec<String> {
+        found
+            .iter()
+            .map(|w| format!("{}: {}", w.dir, w.reason()))
+            .collect()
     }
 
     #[test]
@@ -208,9 +250,9 @@ mod tests {
         assert_eq!(
             dirs(&nested_workspaces(root)),
             [
-                ("bench", "own [workspace]"),
-                ("fuzz", "own [workspace], excluded from the root workspace"),
-                ("tools/gen", "excluded from the root workspace"),
+                "bench: own [workspace]",
+                "fuzz: own [workspace], excluded from the root workspace",
+                "tools/gen: excluded from the root workspace",
             ]
         );
     }
@@ -232,11 +274,30 @@ mod tests {
         assert_eq!(
             dirs(&nested_workspaces(root)),
             [
-                ("tools", "own [workspace], excluded from the root workspace"),
-                (
-                    "tools/b",
-                    "own [workspace], excluded from the root workspace"
-                ),
+                "tools: own [workspace], excluded from the root workspace",
+                "tools/b: own [workspace]",
+            ]
+        );
+    }
+
+    /// A package the nested workspace itself excludes is a standalone root.
+    #[test]
+    fn a_package_a_nested_workspace_excludes_is_a_workspace() {
+        let dir = tempfile::tempdir().unwrap();
+        let root = dir.path();
+        write(root, "Cargo.toml", "[workspace]\nexclude = [\"tools\"]\n");
+        write(
+            root,
+            "tools/Cargo.toml",
+            "[workspace]\nmembers = [\"a\"]\nexclude = [\"b\"]\n",
+        );
+        write(root, "tools/a/Cargo.toml", "[package]\nname = \"a\"\n");
+        write(root, "tools/b/Cargo.toml", "[package]\nname = \"b\"\n");
+        assert_eq!(
+            dirs(&nested_workspaces(root)),
+            [
+                "tools: own [workspace], excluded from the root workspace",
+                "tools/b: excluded from the tools workspace",
             ]
         );
     }
@@ -272,7 +333,7 @@ mod tests {
         write(dir.path(), "fuzz/Cargo.toml", "[workspace]\n");
         assert_eq!(
             dirs(&nested_workspaces(dir.path())),
-            [("fuzz", "own [workspace]")]
+            ["fuzz: own [workspace]"]
         );
     }
 
