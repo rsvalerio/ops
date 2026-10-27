@@ -295,6 +295,10 @@ pub fn load_config_at(workspace_root: &Path) -> anyhow::Result<Config> {
     super::extend::apply(&mut config, workspace_root)
         .context("applying [extend] command sections")?;
 
+    // After `[extend]`, so an extended stack default fans out in its
+    // materialized copy; before `locked`, so every cell is locked too.
+    super::workspaces::apply(&mut config, workspace_root).context("applying [cargo] workspaces")?;
+
     // After `[extend]`, so an extended stack default is locked
     // in its materialized copy rather than re-copied from the default.
     super::locked::apply(&mut config, workspace_root);
@@ -628,6 +632,46 @@ mod tests {
             build.args.iter().any(|a| a == "--locked"),
             "{:?}",
             build.args
+        );
+    }
+
+    /// `[cargo] workspaces` fans out after `[extend]` and before `locked`:
+    /// an extended stack default keeps its extra args, and every cell is
+    /// locked.
+    #[test]
+    #[serial_test::serial]
+    fn cargo_workspaces_compose_with_extend_and_locked() {
+        let dir = tempfile::tempdir().unwrap();
+        let root = crate::test_utils::canonical_root(&dir);
+        let _xdg = crate::test_utils::isolate_global_config(&root);
+        let _env = crate::test_utils::EnvGuard::remove("OPS__CARGO__LOCKED");
+        fs::write(root.join("Cargo.toml"), "[package]\nname = \"x\"\n").unwrap();
+        fs::write(
+            root.join(".ops.toml"),
+            "[cargo]\nlocked = true\nworkspaces = [\".\", \"fuzz\"]\n\n\
+             [extend.clippy]\nargs = [\"--no-deps\"]\n",
+        )
+        .unwrap();
+
+        let config = load_config_at(&root).expect("load must succeed");
+        let Some(super::super::CommandSpec::Exec(clippy)) = config.commands.get("clippy") else {
+            panic!("clippy must be materialized");
+        };
+        let cells = clippy.matrix_cells("clippy").expect("cells");
+        assert_eq!(cells.len(), 2);
+        let sep = clippy.args.iter().position(|a| a == "--").unwrap();
+        for flag in ["--no-deps", "--manifest-path", "--locked"] {
+            let at = clippy.args.iter().position(|a| a == flag);
+            assert!(at.is_some_and(|i| i < sep), "{flag}: {:?}", clippy.args);
+        }
+        assert_eq!(
+            config
+                .provenance
+                .extended_stack_defaults
+                .iter()
+                .filter(|n| *n == "clippy")
+                .count(),
+            1
         );
     }
 

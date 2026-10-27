@@ -193,6 +193,7 @@ pub fn merge_config(base: &mut Config, overlay: ConfigOverlay) {
     }
     if let Some(cargo) = cargo.as_ref() {
         copy_optional_field(&mut base.cargo.locked, Some(&cargo.locked));
+        copy_optional_field(&mut base.cargo.workspaces, Some(&cargo.workspaces));
     }
     if let Some(s) = stack {
         base.stack = Some(s);

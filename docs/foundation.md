@@ -61,6 +61,22 @@ The comparison is semantic, not textual. Each template is a baseline:
 - In a workspace, every member must have `[lints] workspace = true`, or the policy
   silently does not apply to it.
 
+## Cargo workspaces
+
+The check also compares `[cargo] workspaces` in `.ops.toml` (see
+[Several cargo workspaces](configuration.md#several-cargo-workspaces)) with the
+cargo workspaces nested in the tree, such as cargo-fuzz's `fuzz/`:
+
+- A nested workspace missing from the list is drift at
+  `.ops.toml:cargo.workspaces.<dir>`, because the Rust built-ins skip it. This
+  includes a repo that never set the list. Leaving one out on purpose is a
+  waiver on that location.
+- A listed directory with no `Cargo.toml`, or one that is only a member of the
+  root workspace, is drift at the same kind of location.
+
+`ops init` writes the list it finds, so a fresh `.ops.toml` starts with no drift
+here.
+
 ## Waivers
 
 A deliberate divergence is recorded in `.ops.toml` with its reason:

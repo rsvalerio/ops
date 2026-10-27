@@ -384,6 +384,23 @@ pub fn write_text(
     Ok(())
 }
 
+/// A step as the text view names it: a matrix step by its labelled cells
+/// (`clippy [workspace=.], clippy [workspace=fuzz]`), so the plan shows
+/// everything that runs; anything else by its id. A matrix whose cells do
+/// not expand falls back to the id — the JSON view and the run itself
+/// report that error.
+fn step_text(runner: &CommandRunner, id: &str) -> String {
+    if let Some(CommandSpec::Exec(e)) = runner.resolve(id) {
+        if let Ok(cells) = e.matrix_cells(id) {
+            if !cells.is_empty() {
+                let ids: Vec<String> = cells.iter().map(|c| audit_safe(&c.id)).collect();
+                return ids.join(", ");
+            }
+        }
+    }
+    audit_safe(id)
+}
+
 fn write_node(
     runner: &CommandRunner,
     plan: &CommandPlan,
@@ -410,7 +427,7 @@ fn write_node(
                 } else {
                     "alone"
                 };
-                let steps: Vec<String> = batch.iter().map(|id| audit_safe(id)).collect();
+                let steps: Vec<String> = batch.iter().map(|id| step_text(runner, id)).collect();
                 writeln!(
                     w,
                     "{indent}  stage {} [{label}]: {}",
@@ -724,6 +741,34 @@ commands = ["pair", "one"]
         let text = explain(&["seq"], false);
         assert!(text.contains("sequence (fail_fast = true)"), "{text}");
         assert!(text.contains("stage 1 [concurrent]: one, two"), "{text}");
+    }
+
+    /// A matrix step is one entry in its stage, named by every cell.
+    #[test]
+    #[serial_test::serial]
+    fn explain_text_names_each_matrix_cell() {
+        let (_dir, _guard) = crate::test_utils::with_temp_config(
+            r#"
+[commands.lint]
+program = "echo"
+args = ["${matrix.workspace}"]
+
+[commands.lint.strategy]
+matrix = { workspace = [".", "fuzz"] }
+
+[commands.other]
+program = "echo"
+
+[commands.gate]
+commands = ["lint", "other"]
+parallel = true
+"#,
+        );
+        let text = explain(&["gate"], false);
+        assert!(
+            text.contains("stage 1 [concurrent]: lint [workspace=.], lint [workspace=fuzz], other"),
+            "{text}"
+        );
     }
 
     /// An unknown command fails the whole explain rather than printing a

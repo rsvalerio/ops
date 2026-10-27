@@ -336,11 +336,17 @@ impl DepsOptions {
 
 /// Run the deps command: check tool availability, collect data, print report.
 ///
+/// With `[cargo] workspaces` listing more than the root, the same report runs
+/// once per workspace — the tools resolve the workspace in the directory they
+/// run in, and cargo-deny finds the root `deny.toml` from a nested one by
+/// walking up — each report titled with its workspace. Every workspace is
+/// reported before the command fails naming the ones with issues.
+///
 /// # Errors
 ///
 /// If a required cargo tool is missing, if `cargo deny` / `cargo upgrade`
-/// cannot be run or returns output that fails to parse, or if writing the
-/// report fails.
+/// cannot be run or returns output that fails to parse, if writing the
+/// report fails, or if any workspace's report carries actionable issues.
 pub fn run_deps(
     data_registry: &ops_extension::DataRegistry,
     opts: &DepsOptions,
@@ -348,17 +354,66 @@ pub fn run_deps(
     // The context comes from the same config-loading path as the sibling
     // subcommands (`run_about`, `run_extension_show`), so `[deps]` and global
     // settings apply identically to `ops deps` and `ops about deps`.
-    // `refresh` goes through the consuming builder rather than field
-    // assignment: it changes cache semantics for every provider that runs on
-    // this context afterwards.
-    let mut ctx = build_user_context()?;
-    if opts.check {
-        return run_deps_check(&ctx);
+    let root = build_user_context()?;
+    let workspaces = workspace_dirs(root.config());
+    let mut failed = Vec::new();
+    for workspace in &workspaces {
+        // `refresh` goes through the consuming builder rather than field
+        // assignment: it changes cache semantics for every provider that
+        // runs on this context afterwards.
+        let mut ctx = Context::new(
+            std::sync::Arc::clone(root.config_arc()),
+            root.working_directory().join(workspace),
+        );
+        if opts.refresh {
+            ctx = ctx.with_refresh();
+        }
+        let title = (workspaces.len() > 1).then_some(workspace.as_str());
+        let issues = if opts.check {
+            run_deps_check(&ctx, title)?
+        } else {
+            run_deps_report(ctx, title, data_registry)?
+        };
+        if issues {
+            failed.push(workspace.as_str());
+        }
     }
-    if opts.refresh {
-        ctx = ctx.with_refresh();
+    match failed.as_slice() {
+        [] => Ok(()),
+        _ if workspaces.len() == 1 => anyhow::bail!("dependency issues found"),
+        names => anyhow::bail!("dependency issues found in {}", names.join(", ")),
     }
+}
 
+/// The workspace directories `ops deps` reports on: `[cargo] workspaces`, or
+/// the root alone when the list is unset or empty.
+fn workspace_dirs(config: &ops_core::config::Config) -> Vec<String> {
+    let listed = config.cargo.workspaces();
+    if listed.is_empty() {
+        vec![".".to_string()]
+    } else {
+        listed.to_vec()
+    }
+}
+
+/// Retitle `report` with its workspace when `ops deps` covers several.
+fn titled(
+    mut report: ops_core::report::Report,
+    workspace: Option<&str>,
+) -> ops_core::report::Report {
+    if let Some(workspace) = workspace {
+        report.title = format!("{} ({workspace})", report.title);
+    }
+    report
+}
+
+/// The full `ops deps` report for one workspace; `Ok(true)` when it carries
+/// actionable issues.
+fn run_deps_report(
+    mut ctx: Context,
+    workspace: Option<&str>,
+    data_registry: &ops_extension::DataRegistry,
+) -> anyhow::Result<bool> {
     // Probe the tools in the *context's* directory, so the probe and the
     // collection calls in `DepsProvider::provide` are answered by the same
     // cargo workspace. The context is built first for that reason; it only
@@ -392,24 +447,20 @@ pub fn run_deps(
              cached payload and re-collect it",
         )?;
 
-    for line in theme.render_report(&build_report(&report), columns) {
+    for line in theme.render_report(&titled(build_report(&report), workspace), columns) {
         println!("{line}");
     }
-
-    if has_issues(&report) {
-        anyhow::bail!("dependency issues found");
-    }
-
-    Ok(())
+    Ok(has_issues(&report))
 }
 
-/// `ops deps --check`: the non-mutating CI gate (see the crate docs).
+/// `ops deps --check` for one workspace: the non-mutating CI gate (see the
+/// crate docs); `Ok(true)` when the report carries actionable issues.
 ///
 /// Collects straight from the tools rather than through the data provider,
 /// so a cached payload can neither stand in for a fresh check nor be
 /// written by one, and skips the upgrade scan — the only step that needs
 /// cargo-edit, and not a gate: available upgrades never fail `ops deps`.
-fn run_deps_check(ctx: &Context) -> anyhow::Result<()> {
+fn run_deps_check(ctx: &Context, workspace: Option<&str>) -> anyhow::Result<bool> {
     let working_dir = ctx.working_directory();
     check_tool_in(&CARGO_DENY, working_dir)?;
 
@@ -423,14 +474,11 @@ fn run_deps_check(ctx: &Context) -> anyhow::Result<()> {
         unused: collect_unused(working_dir).context("cargo machete failed")?,
     };
 
-    for line in theme.render_report(&format::build_check_report(&report), columns) {
+    let rendered = titled(format::build_check_report(&report), workspace);
+    for line in theme.render_report(&rendered, columns) {
         println!("{line}");
     }
-
-    if has_issues(&report) {
-        anyhow::bail!("dependency issues found");
-    }
-    Ok(())
+    Ok(has_issues(&report))
 }
 
 /// Decide whether one cargo-deny severity string fails the gate.

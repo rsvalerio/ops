@@ -20,7 +20,12 @@ pub fn run_init_rust(force: bool, check: bool, config: &Config) -> anyhow::Resul
     let cwd = crate::cwd()?;
     let mut out = std::io::stdout().lock();
     if check {
-        run_check_to(&cwd, &config.foundation.waivers, &mut out)
+        run_check_to(
+            &cwd,
+            &config.foundation.waivers,
+            config.cargo.workspaces(),
+            &mut out,
+        )
     } else {
         run_scaffold_to(&cwd, force, &mut out)?;
         Ok(ExitCode::SUCCESS)
@@ -50,9 +55,10 @@ fn run_scaffold_to(root: &Path, force: bool, w: &mut dyn Write) -> anyhow::Resul
 fn run_check_to(
     root: &Path,
     waivers: &IndexMap<String, String>,
+    workspaces: &[String],
     w: &mut dyn Write,
 ) -> anyhow::Result<ExitCode> {
-    let report = ops_rust_foundation::check(root, waivers)?;
+    let report = ops_rust_foundation::check(root, waivers, workspaces)?;
     render_report(&report, w)?;
     Ok(if report.drift.is_empty() {
         ExitCode::SUCCESS
@@ -134,7 +140,7 @@ mod tests {
         assert!(text.contains("added    Cargo.toml:lints\n"), "{text}");
 
         let mut buf = Vec::new();
-        let code = run_check_to(dir.path(), &IndexMap::new(), &mut buf).expect("check");
+        let code = run_check_to(dir.path(), &IndexMap::new(), &[], &mut buf).expect("check");
         assert_eq!(code, ExitCode::SUCCESS);
         assert!(String::from_utf8(buf)
             .expect("utf8")
@@ -157,7 +163,7 @@ mod tests {
     fn check_fails_on_drift_and_names_the_escape_hatches() {
         let dir = rust_project();
         let mut buf = Vec::new();
-        let code = run_check_to(dir.path(), &IndexMap::new(), &mut buf).expect("check");
+        let code = run_check_to(dir.path(), &IndexMap::new(), &[], &mut buf).expect("check");
         let text = String::from_utf8(buf).expect("utf8");
         assert_eq!(code, ExitCode::FAILURE);
         assert!(text.contains("drift   clippy.toml: missing\n"), "{text}");
@@ -177,7 +183,7 @@ mod tests {
             ("deny.toml:nope".to_owned(), "stale".to_owned()),
         ]);
         let mut buf = Vec::new();
-        let code = run_check_to(dir.path(), &waivers, &mut buf).expect("check");
+        let code = run_check_to(dir.path(), &waivers, &[], &mut buf).expect("check");
         let text = String::from_utf8(buf).expect("utf8");
         assert_eq!(code, ExitCode::SUCCESS);
         assert!(

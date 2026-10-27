@@ -8,8 +8,8 @@ stack ships. How to define your own is in [Configuration](configuration.md).
 | Command | Description |
 |---------|-------------|
 | `ops <name>` | Run a configured command or command group |
-| `ops init` | Create `.ops.toml` (minimal by default; `--force` to overwrite; `--output`/`--themes`/`--commands` add those sections, with stack-detected commands under `--commands`) |
-| `ops init --rust` | Write the Rust foundation config (clippy.toml, deny.toml, rustfmt.toml, .config/nextest.toml, mise.toml, the lint policy); `--force` replaces, `--check` reports drift and exits 1 — see [foundation.md](foundation.md) |
+| `ops init` | Create `.ops.toml` (minimal by default; `--force` to overwrite; `--output`/`--themes`/`--commands` add those sections, with stack-detected commands under `--commands`; in a Rust project with nested cargo workspaces, such as `fuzz/`, it also writes `[cargo] workspaces`) |
+| `ops init --rust` | Write the Rust foundation config (clippy.toml, deny.toml, rustfmt.toml, .config/nextest.toml, mise.toml, the lint policy); `--force` replaces, `--check` reports drift, including nested cargo workspaces missing from `[cargo] workspaces`, and exits 1 — see [foundation.md](foundation.md) |
 | `ops explain <cmd>... [--json [--tool-versions]]` | Show the resolved plan without running anything: each composite's `parallel`/`fail_fast`, the stages a parallel group splits into at its `exclusive` steps, and each step's program, args, env, cwd and origin (stack default, config, `clone`, `[extend]`, extension, builtin). `--json` emits a versioned (`schemaVersion`) document whose `tools` list names every external binary the plan needs on `PATH` (with `requiredBy` steps, `optional`, and an `install` hint when known) — cargo plugins such as `cargo-nextest`, and what builtins spawn (`sec` → Trivy, `deps` → cargo-edit/cargo-deny/cargo-machete); it is derived statically, never probed, so CI can build its install list from it. ops pins no minimum tool versions; `--json --tool-versions` opts in to running each listed tool's `--version` (a `cargo-<sub>` plugin as `cargo <sub> --version`) and adds its first output line as `installedVersion` (`null` when the tool is missing or fails), and so refuses `--dry-run`. Named `explain` because the terraform stack ships a `plan` command |
 | `ops new-command` | Add a new command from a command line string |
 | `ops import-makefile` | Import Makefile targets as `.ops.toml` commands (interactive picker) |
@@ -112,8 +112,9 @@ The Rust stack default goes beyond the contract: it also ships `next` / `next-ig
 `qa-next` composite (alias `qax`) that runs the test legs through nextest. The Rust `qa`
 runs `deps`, `test`, `test-doc`, and `sec` — `sec` requires the
 [Trivy](https://trivy.dev) CLI on `PATH`. Its `verify` also answers to
-`verify-check`, and `[cargo] locked = true` / `OPS__CARGO__LOCKED=true` runs its
-cargo commands with `--locked`.
+`verify-check`, `[cargo] locked = true` / `OPS__CARGO__LOCKED=true` runs its
+cargo commands with `--locked`, and `[cargo] workspaces = [".", "fuzz"]` runs its
+workspace-wide commands and `ops deps` over every listed cargo workspace.
 
 In every stack `verify` only checks: formatters and text fixers run in their
 check form (`fmt-check` where the stack has one, `trailing-whitespace-check`,

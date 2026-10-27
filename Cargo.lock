@@ -1487,6 +1487,7 @@ name = "ops-cargo-toml"
 version = "0.87.0"
 dependencies = [
  "anyhow",
+ "ignore",
  "linkme",
  "ops-core",
  "ops-extension",
