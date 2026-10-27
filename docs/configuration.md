@@ -100,12 +100,14 @@ workspaces = [".", "fuzz"]
   workspace is reported before the command fails, naming the ones with issues.
 - The test commands (`test`, `test-doc`, `next`, …) and `doc` stay root-only.
 - A command you define yourself under one of those names is left alone,
-  because its args may already name a package or manifest. A stack default
-  you extend with `[extend.<name>] args` is expanded with your args kept.
-  `[cargo] locked` applies to every cell.
+  because its args may already name a package or manifest. A verbatim copy of
+  the default, as `ops init --commands` writes it, still counts as the default
+  and is expanded. A stack default you extend with `[extend.<name>] args` is
+  expanded with your args kept. `[cargo] locked` applies to every cell.
 
 An entry must be a relative directory inside the project: an empty entry, an
-absolute path or a `..` component fails the load. A list that is empty or
+absolute path, a `..` component, or a directory or `Cargo.toml` that resolves
+outside the project through a symlink fails the load. A list that is empty or
 names only `.` changes nothing.
 
 You rarely write the list by hand. `ops init` in a Rust project looks for

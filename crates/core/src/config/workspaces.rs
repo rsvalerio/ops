@@ -20,14 +20,22 @@
 //! `clippy` runs once per workspace as one plan step whose cells are
 //! labelled `clippy [workspace=fuzz]`. Stack defaults are materialized into
 //! `Config::commands` the way `[extend]` materializes them; a stack default
-//! `[extend]` already materialized is expanded in place. A command the
-//! config defines itself under one of these names is left alone: its args
-//! are the author's, and may already name a package or manifest. Test
-//! commands stay root-only. `ops deps` reads the same list itself.
+//! `[extend]` already materialized is expanded in place, and so is a config
+//! command identical to the default — what `ops init --commands` writes. A
+//! command the config defines differently under one of these names is left
+//! alone: its args are the author's, and may already name a package or
+//! manifest. Test commands stay root-only. `ops deps` reads the same list
+//! itself.
+//!
+//! Every entry, and its `Cargo.toml`, must resolve inside the project: a
+//! symlink out of it is a load error, so neither cargo nor `ops deps`
+//! follows one.
 //!
 //! A list that is empty or names only `"."` changes nothing.
 
 use std::path::{Component, Path};
+
+use anyhow::Context as _;
 
 use indexmap::IndexMap;
 
@@ -61,6 +69,44 @@ fn validate_entry(entry: &str) -> anyhow::Result<()> {
     Ok(())
 }
 
+/// Refuse an entry whose directory or manifest resolves outside `root` (the
+/// canonical project root) through a symlink. A path that does not exist
+/// yet is left for cargo to report.
+fn validate_resolved(root: &Path, entry: &str) -> anyhow::Result<()> {
+    let dir = root.join(entry);
+    for path in [dir.join("Cargo.toml"), dir] {
+        match std::fs::canonicalize(&path) {
+            Ok(resolved) => anyhow::ensure!(
+                resolved.starts_with(root),
+                "[cargo] workspaces: '{entry}' resolves outside the project ({}); ops does not \
+                 follow symlinks out of the workspace",
+                resolved.display()
+            ),
+            Err(e) if e.kind() == std::io::ErrorKind::NotFound => {}
+            Err(e) => {
+                return Err(e).with_context(|| {
+                    format!(
+                        "[cargo] workspaces: resolving '{entry}' ({})",
+                        path.display()
+                    )
+                })
+            }
+        }
+    }
+    Ok(())
+}
+
+/// Whether a config command is a verbatim copy of the stack default, as
+/// `ops init --commands` writes it. Compared through the serialized form:
+/// the spec has no `PartialEq`, and the serialized fields are exactly what a
+/// config file can express.
+fn is_default_copy(exec: &ExecCommandSpec, default: &ExecCommandSpec) -> bool {
+    match (toml::Value::try_from(exec), toml::Value::try_from(default)) {
+        (Ok(a), Ok(b)) => a == b,
+        _ => false,
+    }
+}
+
 fn fan_out(spec: &mut ExecCommandSpec, workspaces: &[String]) {
     super::extend::append_exec_args(
         &mut spec.args,
@@ -79,11 +125,16 @@ fn fan_out(spec: &mut ExecCommandSpec, workspaces: &[String]) {
 ///
 /// # Errors
 ///
-/// An entry is empty, absolute, or climbs out of the project with `..`.
+/// An entry is empty, absolute, climbs out of the project with `..`, or
+/// resolves outside it through a symlink; or resolving one fails for a
+/// reason other than its absence.
 pub(super) fn apply(config: &mut Config, workspace_root: &Path) -> anyhow::Result<()> {
     let workspaces = config.cargo.workspaces().to_vec();
+    let root =
+        std::fs::canonicalize(workspace_root).unwrap_or_else(|_| workspace_root.to_path_buf());
     for entry in &workspaces {
         validate_entry(entry)?;
+        validate_resolved(&root, entry)?;
     }
     if workspaces.is_empty() || workspaces == ["."] {
         return Ok(());
@@ -102,7 +153,9 @@ pub(super) fn apply(config: &mut Config, workspace_root: &Path) -> anyhow::Resul
             .iter()
             .any(|n| n == name);
         match config.commands.get_mut(name) {
-            Some(CommandSpec::Exec(exec)) if materialized && exec.strategy.is_none() => {
+            Some(CommandSpec::Exec(exec))
+                if exec.strategy.is_none() && (materialized || is_default_copy(exec, default)) =>
+            {
                 fan_out(exec, &workspaces);
             }
             Some(_) => {}
@@ -252,6 +305,68 @@ mod tests {
                 .count(),
             1
         );
+    }
+
+    /// `ops init --commands` writes each default verbatim; such a copy
+    /// fans out like the default it copies.
+    #[test]
+    fn verbatim_copy_of_the_default_fans_out() {
+        let dir = rust_workspace();
+        let mut config = with_workspaces(&[".", "fuzz"]);
+        let default = crate::stack::Stack::Rust
+            .default_commands_ref()
+            .get("clippy")
+            .cloned()
+            .unwrap();
+        let written = toml::to_string(&default).unwrap();
+        let copy: CommandSpec = toml::from_str(&written).unwrap();
+        config.commands.insert("clippy".into(), copy);
+        apply(&mut config, dir.path()).unwrap();
+        assert!(exec(&config, "clippy").strategy.is_some());
+        assert!(
+            !config
+                .provenance
+                .extended_stack_defaults
+                .iter()
+                .any(|n| n == "clippy"),
+            "a config command stays a config command"
+        );
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn rejects_an_entry_that_symlinks_out_of_the_project() {
+        let dir = rust_workspace();
+        let outside = tempfile::tempdir().unwrap();
+        std::fs::write(outside.path().join("Cargo.toml"), "[workspace]\n").unwrap();
+        std::os::unix::fs::symlink(outside.path(), dir.path().join("fuzz")).unwrap();
+        let mut config = with_workspaces(&[".", "fuzz"]);
+        let err = apply(&mut config, dir.path()).unwrap_err().to_string();
+        assert!(err.contains("resolves outside the project"), "{err}");
+
+        let inner = dir.path().join("real-fuzz");
+        std::fs::create_dir(&inner).unwrap();
+        std::fs::write(inner.join("Cargo.toml"), "[workspace]\n").unwrap();
+        std::os::unix::fs::symlink(&inner, dir.path().join("alias")).unwrap();
+        let mut config = with_workspaces(&[".", "alias"]);
+        apply(&mut config, dir.path()).unwrap();
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn rejects_a_manifest_that_symlinks_out_of_the_project() {
+        let dir = rust_workspace();
+        let outside = tempfile::tempdir().unwrap();
+        std::fs::write(outside.path().join("Cargo.toml"), "[workspace]\n").unwrap();
+        std::fs::create_dir(dir.path().join("fuzz")).unwrap();
+        std::os::unix::fs::symlink(
+            outside.path().join("Cargo.toml"),
+            dir.path().join("fuzz/Cargo.toml"),
+        )
+        .unwrap();
+        let mut config = with_workspaces(&[".", "fuzz"]);
+        let err = apply(&mut config, dir.path()).unwrap_err().to_string();
+        assert!(err.contains("resolves outside the project"), "{err}");
     }
 
     #[test]

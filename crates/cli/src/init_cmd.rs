@@ -294,6 +294,36 @@ mod tests {
         );
     }
 
+    /// `--commands` writes the defaults verbatim; on load those copies must
+    /// still run over every listed workspace.
+    #[cfg(feature = "stack-rust")]
+    #[test]
+    fn run_init_with_commands_still_fans_out_over_workspaces() {
+        let dir = tempfile::tempdir().expect("tempdir");
+        std::fs::write(
+            dir.path().join("Cargo.toml"),
+            "[workspace]\nmembers = []\nexclude = [\"fuzz\"]\n",
+        )
+        .unwrap();
+        std::fs::create_dir(dir.path().join("fuzz")).unwrap();
+        std::fs::write(
+            dir.path().join("fuzz/Cargo.toml"),
+            "[package]\nname = \"f\"\n[workspace]\nmembers = [\".\"]\n",
+        )
+        .unwrap();
+        let _guard = CwdGuard::new(dir.path()).expect("CwdGuard");
+        run_init_to(false, &all_sections(), &mut Vec::new()).expect("run_init_to");
+
+        let config = ops_core::config::load_config_at(dir.path()).expect("load");
+        for name in ops_core::config::WORKSPACE_COMMANDS {
+            let Some(ops_core::config::CommandSpec::Exec(exec)) = config.commands.get(*name) else {
+                panic!("{name} must be written by --commands");
+            };
+            let cells = exec.matrix_cells(name).expect("cells");
+            assert_eq!(cells.len(), 2, "{name} must run over . and fuzz");
+        }
+    }
+
     #[test]
     fn append_cargo_workspaces_is_a_no_op_without_nested_workspaces() {
         let mut content = "[output]\n".to_string();
