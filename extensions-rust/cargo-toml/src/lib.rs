@@ -66,12 +66,14 @@
 )]
 
 mod inheritance;
+mod nested;
 #[cfg(test)]
 mod tests;
 mod types;
 mod workspace_root;
 
 pub use inheritance::InheritanceError;
+pub use nested::{nested_workspaces, normalize_dir, NestedWorkspace, MAX_DEPTH};
 // This block is the crate's whole public surface.
 //
 // `InheritableField` / `InheritableString` / `InheritableVec` are
