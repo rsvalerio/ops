@@ -153,6 +153,69 @@ esac"#,
         );
     }
 
+    /// `[cargo] workspaces` runs the check once per listed workspace, each
+    /// in its own directory.
+    #[cfg(unix)]
+    #[test]
+    #[serial]
+    fn run_deps_check_runs_in_every_configured_workspace() {
+        let dir = tempfile::tempdir().expect("tempdir");
+        let root = dir.path().canonicalize().expect("canonicalize tempdir");
+        std::fs::create_dir(root.join("fuzz")).expect("mkdir fuzz");
+        std::fs::write(
+            root.join(".ops.toml"),
+            "[cargo]\nworkspaces = [\".\", \"fuzz\"]\n",
+        )
+        .expect("write .ops.toml");
+        let log = root.join("calls");
+        let script = format!(
+            r#"case "$1" in
+  deny) echo "$(pwd)" >> '{}'; exit 0 ;;
+  machete) exit 101 ;;
+  *) exit 0 ;;
+esac"#,
+            log.display()
+        );
+        let _cargo = EnvVarGuard::set("CARGO", fake_cargo(&root, &script));
+        let _cwd = CwdGuard::new(&root).expect("CwdGuard");
+
+        let (registry, _) = stub_registry(clean_report_json());
+        run_deps(&registry, &DepsOptions::new(false).with_check(true))
+            .expect("clean workspaces must pass");
+
+        let dirs: Vec<std::path::PathBuf> = std::fs::read_to_string(&log)
+            .expect("cargo deny must have run")
+            .lines()
+            .filter(|l| !l.is_empty())
+            .map(|l| std::path::Path::new(l).canonicalize().expect("logged dir"))
+            .collect::<std::collections::BTreeSet<_>>()
+            .into_iter()
+            .collect();
+        assert_eq!(dirs, [root.clone(), root.join("fuzz")]);
+    }
+
+    /// Every workspace is reported before the gate fails, and the failure
+    /// names each workspace with issues.
+    #[cfg(unix)]
+    #[test]
+    #[serial]
+    fn run_deps_names_every_failing_workspace() {
+        let dir = tempfile::tempdir().expect("tempdir");
+        std::fs::create_dir(dir.path().join("fuzz")).expect("mkdir fuzz");
+        std::fs::write(
+            dir.path().join(".ops.toml"),
+            "[cargo]\nworkspaces = [\".\", \"fuzz\"]\n",
+        )
+        .expect("write .ops.toml");
+        let _cargo = EnvVarGuard::set("CARGO", fake_cargo(dir.path(), "exit 0"));
+        let _cwd = CwdGuard::new(dir.path()).expect("CwdGuard");
+
+        let (registry, _) = stub_registry(advisory_report_json());
+        let err = run_deps(&registry, &DepsOptions::new(false))
+            .expect_err("advisories in both workspaces must fail the gate");
+        assert_eq!(err.to_string(), "dependency issues found in ., fuzz");
+    }
+
     /// The product's contract: `ops deps` fails CI when there are dependency
     /// issues. `has_issues` → `bail!` is the only place "fail loudly" becomes
     /// a non-zero exit, so without this test a refactor that rendered the
