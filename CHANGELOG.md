@@ -2,6 +2,27 @@
 All notable changes to this project will be documented in this file. See [conventional commits](https://www.conventionalcommits.org/) for commit guidelines.
 
 - - -
+## [v0.88.0](https://github.com/rsvalerio/ops/compare/0ccceb232472bec7499412e195bd3eca5c000768..v0.88.0) - 2026-10-27
+#### 🚀 Features
+- (**cargo-toml**) detect cargo workspaces nested in a project - ([3871f7d](https://github.com/rsvalerio/ops/commit/3871f7de0a35519517fb34217c182a13602912f0)) - [@rsvalerio](https://github.com/rsvalerio)
+- (**config**) run the workspace-wide Rust defaults over [cargo] workspaces - ([b7e6a47](https://github.com/rsvalerio/ops/commit/b7e6a4778c835530304fbd1adbeff0c56c6a7789)) - [@rsvalerio](https://github.com/rsvalerio)
+- (**deps**) report every configured cargo workspace - ([150ab01](https://github.com/rsvalerio/ops/commit/150ab0142ca7f27f84d5ac64e56c9fb17bc4ef8d)) - [@rsvalerio](https://github.com/rsvalerio)
+- (**explain**) name each matrix cell in the text plan - ([e78976d](https://github.com/rsvalerio/ops/commit/e78976d4cff0cc5504f37d0e787f278546877170)) - [@rsvalerio](https://github.com/rsvalerio)
+- (**init**) write detected cargo workspaces and check them for drift - ([9d0dbdb](https://github.com/rsvalerio/ops/commit/9d0dbdb52939c3abe9c07922ee972a0fa04f3394)) - [@rsvalerio](https://github.com/rsvalerio)
+#### 🐛 Bug Fixes
+- (**cargo-toml**) resolve each package to its nearest enclosing workspace - ([33abd57](https://github.com/rsvalerio/ops/commit/33abd570741cf9baaf9d554025336ce5e08154d7)) - [@rsvalerio](https://github.com/rsvalerio)
+- (**cargo-toml**) count members of a nested workspace as part of it - ([9598889](https://github.com/rsvalerio/ops/commit/959888997bfdd36c188a4ffdf55cd6d4cda9252e)) - [@rsvalerio](https://github.com/rsvalerio)
+- (**config**) expand verbatim default copies and refuse workspace symlinks out of the project - ([13af416](https://github.com/rsvalerio/ops/commit/13af416151b9963db57dd0d5ae6ffe4871411ffa)) - [@rsvalerio](https://github.com/rsvalerio)
+- (**init**) escape control characters in generated workspace comments - ([0b07ceb](https://github.com/rsvalerio/ops/commit/0b07ceb678182d354fcc3ed8ec21fd7714a69a61)) - [@rsvalerio](https://github.com/rsvalerio)
+- (**init**) make the non-rust workspace stub const for default-feature clippy - ([6356eb1](https://github.com/rsvalerio/ops/commit/6356eb13f81d373505f97aee14779b238cc5d676)) - [@rsvalerio](https://github.com/rsvalerio)
+#### 📚 Documentation
+- describe [cargo] workspaces and their detection - ([3263a88](https://github.com/rsvalerio/ops/commit/3263a8834e1101e494b17344bb1995807318868d)) - [@rsvalerio](https://github.com/rsvalerio)
+#### ⚙️ Miscellaneous
+- (**backlog**) record TASK-2636 and TASK-2642 progress - ([cb995ae](https://github.com/rsvalerio/ops/commit/cb995ae09a106a8fa14470e65bba34c7d5fa7c2a)) - [@rsvalerio](https://github.com/rsvalerio)
+- update backlogs tasks - ([0ccceb2](https://github.com/rsvalerio/ops/commit/0ccceb232472bec7499412e195bd3eca5c000768)) - [@rsvalerio](https://github.com/rsvalerio)
+
+- - -
+
 ## [v0.87.0](https://github.com/rsvalerio/ops/compare/28e8567ebbf31ff91bf8c2b8a67bc800e4c5c595..v0.87.0) - 2026-10-26
 #### 🚀 Features
 - (**theme**) wrap the plan header to the terminal width - ([28e8567](https://github.com/rsvalerio/ops/commit/28e8567ebbf31ff91bf8c2b8a67bc800e4c5c595)) - [@rsvalerio](https://github.com/rsvalerio)
