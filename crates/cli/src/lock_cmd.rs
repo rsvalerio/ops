@@ -754,18 +754,21 @@ mod tests {
     }
 
     /// A zero timeout on a held lock fails on the first attempt, without
-    /// sleeping a poll interval during which the holder could release.
+    /// sleeping a poll interval during which the holder could release. The
+    /// runtime clock is paused, so it moves only if `acquire` sleeps — file
+    /// access, however slow, does not advance it.
     #[test]
     fn a_zero_timeout_fails_without_polling() {
         let dir = tempfile::tempdir().expect("tempdir");
         let _first = take(dir.path(), "merge").expect("first");
         let runtime = tokio::runtime::Builder::new_current_thread()
             .enable_all()
+            .start_paused(true)
             .build()
             .expect("runtime");
-        let started = Instant::now();
-        let err = runtime
-            .block_on(acquire(
+        let (err, slept) = runtime.block_on(async {
+            let started = tokio::time::Instant::now();
+            let err = acquire(
                 dir.path(),
                 "merge",
                 &holder(std::process::id()),
@@ -774,10 +777,13 @@ mod tests {
                     notice: &mut std::io::sink(),
                     signals: &mut Signals::none(),
                 },
-            ))
+            )
+            .await
             .expect_err("contended");
+            (err, started.elapsed())
+        });
         assert!(format!("{err:#}").contains("timed out"), "got: {err:#}");
-        assert!(started.elapsed() < POLL, "slept before failing");
+        assert_eq!(slept, Duration::ZERO, "slept before failing");
     }
 
     /// A stale holder: a record left behind with the lock free (the holder
