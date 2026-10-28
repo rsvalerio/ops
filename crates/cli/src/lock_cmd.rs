@@ -295,6 +295,14 @@ pub async fn acquire(
         // wait without leaving a thread that might still take the lock.
         let deadline = timeout.and_then(|limit| Instant::now().checked_add(limit));
         loop {
+            // Checked before sleeping, so `--timeout 0` fails on the first
+            // attempt instead of polling once more.
+            if deadline.is_some_and(|d| Instant::now() >= d) {
+                anyhow::bail!(
+                    "timed out after {}s waiting for lock {name}, held by {who}",
+                    timeout.unwrap_or_default().as_secs()
+                );
+            }
             tokio::select! {
                 biased;
                 signo = signals.recv() => return Ok(Acquired::Signalled(signo)),
@@ -302,12 +310,6 @@ pub async fn acquire(
             }
             if try_take(&file, &path)? {
                 break;
-            }
-            if deadline.is_some_and(|d| Instant::now() >= d) {
-                anyhow::bail!(
-                    "timed out after {}s waiting for lock {name}, held by {who}",
-                    timeout.unwrap_or_default().as_secs()
-                );
             }
         }
     }
@@ -749,6 +751,33 @@ mod tests {
         assert!(text.contains("worktree /wt"), "got: {text}");
         drop(first);
         take(dir.path(), "merge").expect("free after release");
+    }
+
+    /// A zero timeout on a held lock fails on the first attempt, without
+    /// sleeping a poll interval during which the holder could release.
+    #[test]
+    fn a_zero_timeout_fails_without_polling() {
+        let dir = tempfile::tempdir().expect("tempdir");
+        let _first = take(dir.path(), "merge").expect("first");
+        let runtime = tokio::runtime::Builder::new_current_thread()
+            .enable_all()
+            .build()
+            .expect("runtime");
+        let started = Instant::now();
+        let err = runtime
+            .block_on(acquire(
+                dir.path(),
+                "merge",
+                &holder(std::process::id()),
+                Wait {
+                    timeout: Some(Duration::ZERO),
+                    notice: &mut std::io::sink(),
+                    signals: &mut Signals::none(),
+                },
+            ))
+            .expect_err("contended");
+        assert!(format!("{err:#}").contains("timed out"), "got: {err:#}");
+        assert!(started.elapsed() < POLL, "slept before failing");
     }
 
     /// A stale holder: a record left behind with the lock free (the holder
