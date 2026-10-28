@@ -99,7 +99,6 @@ fn wait_until(what: &str, mut cond: impl FnMut() -> bool) {
 /// held from the linked worktree, blocks an acquirer there, and is released
 /// — record cleared — when the holder is sent SIGTERM.
 #[test]
-#[expect(unsafe_code, reason = "libc::kill FFI to signal the child under test")]
 fn lock_is_shared_across_worktrees_and_released_on_sigterm() {
     let (_dir, repo, wt) = repo_with_worktree();
     let mut holder = ops(&repo)
@@ -121,11 +120,7 @@ fn lock_is_shared_across_worktrees_and_released_on_sigterm() {
         .expect("contender");
     assert!(!contended.status.success(), "must not acquire a held lock");
 
-    let pid = libc::pid_t::try_from(holder.id()).expect("pid");
-    // SAFETY: `kill(2)` on our own child with a plain signal number.
-    unsafe {
-        libc::kill(pid, libc::SIGTERM);
-    }
+    signal(&holder, libc::SIGTERM);
     let exit = holder.wait().expect("holder exit");
     assert_eq!(exit.code(), Some(143), "128 + SIGTERM");
     assert!(status(&wt, "merge").contains("merge: free"));
@@ -169,4 +164,86 @@ fn a_killed_holder_is_reported_stale_and_does_not_block() {
         .output()
         .expect("reacquire");
     assert!(out.status.success(), "stale record must not block: {out:?}");
+}
+
+/// Send `signo` to `child`.
+#[expect(unsafe_code, reason = "libc::kill FFI to signal the child under test")]
+fn signal(child: &std::process::Child, signo: libc::c_int) {
+    let pid = libc::pid_t::try_from(child.id()).expect("pid");
+    // SAFETY: `kill(2)` on our own not-yet-reaped child with a plain signal
+    // number.
+    unsafe {
+        libc::kill(pid, signo);
+    }
+}
+
+/// TASK-2643: a SIGTERM sent the moment the holder's record appears —
+/// before `ops` has started the command — still exits `128 + SIGTERM` and
+/// leaves the lock free, not stale. The record file is polled directly
+/// (spawning `ops lock status` is too slow to land in that window), and the
+/// run is repeated to hit it reliably.
+#[test]
+fn sigterm_right_after_the_lock_is_taken_still_releases_it() {
+    let (_dir, repo, _wt) = repo_with_worktree();
+    let record = repo.join(".git/ops/locks/merge.lock");
+    for _ in 0..20 {
+        let mut holder = ops(&repo)
+            .args(["lock", "merge", "--", "sleep", "30"])
+            .stdout(Stdio::null())
+            .stderr(Stdio::null())
+            .spawn()
+            .expect("spawn holder");
+        let deadline = Instant::now()
+            .checked_add(Duration::from_secs(20))
+            .expect("deadline");
+        while !std::fs::metadata(&record).is_ok_and(|m| m.len() > 0) {
+            assert!(Instant::now() < deadline, "the holder never took the lock");
+        }
+        signal(&holder, libc::SIGTERM);
+        let exit = holder.wait().expect("holder exit");
+        assert_eq!(exit.code(), Some(143), "128 + SIGTERM");
+        let seen = status(&repo, "merge");
+        assert!(seen.contains("merge: free"), "got: {seen}");
+    }
+}
+
+/// TASK-2643: a signal while waiting for a held lock ends the wait with
+/// `128 + signo`; the command never runs and the holder keeps the lock.
+#[test]
+fn a_signal_while_waiting_ends_the_wait_without_running_the_command() {
+    use std::io::BufRead as _;
+
+    let (dir, repo, wt) = repo_with_worktree();
+    let mut holder = ops(&repo)
+        .args(["lock", "merge", "--", "sleep", "30"])
+        .stdout(Stdio::null())
+        .stderr(Stdio::null())
+        .spawn()
+        .expect("spawn holder");
+    wait_until("the holder to take the lock", || {
+        status(&wt, "merge").contains("held (alive)")
+    });
+
+    let marker = dir.path().join("ran");
+    let mut waiter = ops(&wt)
+        .args(["lock", "merge", "--", "touch"])
+        .arg(&marker)
+        .stdout(Stdio::null())
+        .stderr(Stdio::piped())
+        .spawn()
+        .expect("spawn waiter");
+    let mut notice = String::new();
+    std::io::BufReader::new(waiter.stderr.take().expect("stderr"))
+        .read_line(&mut notice)
+        .expect("read notice");
+    assert!(notice.contains("waiting for merge"), "got: {notice}");
+
+    signal(&waiter, libc::SIGINT);
+    let exit = waiter.wait().expect("waiter exit");
+    assert_eq!(exit.code(), Some(130), "128 + SIGINT");
+    assert!(!marker.exists(), "the command must not run");
+    assert!(status(&wt, "merge").contains("sleep 30"), "holder keeps it");
+
+    signal(&holder, libc::SIGTERM);
+    holder.wait().expect("holder exit");
 }
