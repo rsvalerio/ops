@@ -87,6 +87,9 @@ predicates = { workspace = true }
 serial_test = { workspace = true }
 # TASK-2297: `Stack::iter()` enumerates every stack's defaults in tests.
 strum = { workspace = true }
+# A paused clock lets the lock tests check that no poll sleep happened
+# without a wall-clock bound.
+tokio = { workspace = true, features = ["test-util"] }
 
 [[bin]]
 name = "ops"
