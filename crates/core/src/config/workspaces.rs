@@ -100,8 +100,8 @@ fn validate_resolved(root: &Path, entry: &str) -> anyhow::Result<()> {
 /// `ops init --commands` writes it. Compared through the serialized form:
 /// the spec has no `PartialEq`, and the serialized fields are exactly what a
 /// config file can express.
-fn is_default_copy(exec: &ExecCommandSpec, default: &ExecCommandSpec) -> bool {
-    match (toml::Value::try_from(exec), toml::Value::try_from(default)) {
+pub(super) fn is_default_copy<T: serde::Serialize>(spec: &T, default: &T) -> bool {
+    match (toml::Value::try_from(spec), toml::Value::try_from(default)) {
         (Ok(a), Ok(b)) => a == b,
         _ => false,
     }

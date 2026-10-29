@@ -8,38 +8,63 @@
 //! gate over doctests it cannot have.
 //!
 //! [`apply`] runs after `[extend]` and `[cargo] workspaces`. When the root
-//! `Cargo.toml` is a single `[package]` (no `[workspace]` table) with no
-//! library target — no `[lib]` table, and no `src/lib.rs` or `autolib =
-//! false` — each of those composites loses its `test-doc` step: a stack
-//! default `[extend]` already materialized is edited in place, any other is
-//! materialized without it. Composites the config defines are the author's
-//! and are left alone, and so is every composite when the config defines
-//! `test-doc` itself. A workspace keeps `test-doc`: cargo only fails when no
-//! selected package has a library, and telling that apart needs every
+//! `Cargo.toml` is a single `[package]` with no library target — no `[lib]`
+//! table, and no `src/lib.rs` or `autolib = false` — and no `Cargo.toml`
+//! above it declares a `[workspace]`, each of those composites loses its
+//! `test-doc` step and the step's mention in its help. A stack default
+//! `[extend]` already materialized is edited in place, and so is a config
+//! composite identical to the default (what `ops init --commands` writes);
+//! any other default is materialized without it. Composites the config
+//! defines differently are the author's and are left alone, and so is every
+//! composite when the config defines its own `test-doc`.
+//!
+//! A workspace keeps `test-doc`, including when ops runs from a lib-less
+//! member: `--workspace` then reaches the sibling libraries, and cargo only
+//! fails when no selected package has one — telling that apart needs every
 //! member manifest, which is not worth reading on each dispatch. A manifest
 //! that cannot be read or parsed also keeps it, so cargo reports the real
 //! error.
 
 use std::path::Path;
 
+use super::workspaces::is_default_copy;
 use super::{CommandSpec, Config};
 
 /// The stack-default step this module removes.
 const TEST_DOC: &str = "test-doc";
 
+/// How the default composites' help names the step, e.g. "build, test-doc,
+/// check-json".
+const TEST_DOC_IN_HELP: &str = "test-doc, ";
+
+fn read_manifest(dir: &Path) -> Option<toml::Table> {
+    let text = std::fs::read_to_string(dir.join("Cargo.toml")).ok()?;
+    text.parse().ok()
+}
+
+/// Whether a `Cargo.toml` above `workspace_root` declares a `[workspace]`
+/// (or cannot be read, which is treated the same), so the root package may
+/// be a member whose siblings have doctests.
+fn has_enclosing_workspace(workspace_root: &Path) -> bool {
+    workspace_root.ancestors().skip(1).any(|dir| {
+        dir.join("Cargo.toml").exists()
+            && read_manifest(dir).is_none_or(|m| m.contains_key("workspace"))
+    })
+}
+
 /// Whether the root manifest is a lone package with no library target.
 /// `false` whenever that cannot be established.
 fn is_lib_less_package(workspace_root: &Path) -> bool {
-    let Ok(text) = std::fs::read_to_string(workspace_root.join("Cargo.toml")) else {
-        return false;
-    };
-    let Ok(manifest) = text.parse::<toml::Table>() else {
+    let Some(manifest) = read_manifest(workspace_root) else {
         return false;
     };
     let Some(package) = manifest.get("package").and_then(toml::Value::as_table) else {
         return false;
     };
-    if manifest.contains_key("workspace") || manifest.contains_key("lib") {
+    if manifest.contains_key("workspace")
+        || manifest.contains_key("lib")
+        || has_enclosing_workspace(workspace_root)
+    {
         return false;
     }
     let autolib = package
@@ -49,21 +74,34 @@ fn is_lib_less_package(workspace_root: &Path) -> bool {
     !(autolib && workspace_root.join("src/lib.rs").exists())
 }
 
+fn drop_test_doc(composite: &mut super::CompositeCommandSpec) {
+    composite.commands.retain(|c| c != TEST_DOC);
+    if let Some(help) = &mut composite.help {
+        *help = help.replace(TEST_DOC_IN_HELP, "");
+    }
+}
+
 /// Remove `test-doc` from the Rust stack-default composites of a project
 /// without a library target; a no-op otherwise.
 pub(super) fn apply(config: &mut Config, workspace_root: &Path) {
-    if config.commands.contains_key(TEST_DOC) {
-        return;
-    }
     if crate::stack::Stack::resolve(config.stack.as_deref(), workspace_root)
         != Some(crate::stack::Stack::Rust)
     {
         return;
     }
+    let defaults = crate::stack::Stack::Rust.default_commands_ref();
+    if let Some(own) = config.commands.get(TEST_DOC) {
+        let Some(default) = defaults.get(TEST_DOC) else {
+            return;
+        };
+        if !is_default_copy(own, default) {
+            return;
+        }
+    }
     if !is_lib_less_package(workspace_root) {
         return;
     }
-    for (name, spec) in crate::stack::Stack::Rust.default_commands_ref() {
+    for (name, spec) in defaults {
         let CommandSpec::Composite(default) = spec else {
             continue;
         };
@@ -76,13 +114,15 @@ pub(super) fn apply(config: &mut Config, workspace_root: &Path) {
             .iter()
             .any(|n| n == name);
         match config.commands.get_mut(name) {
-            Some(CommandSpec::Composite(composite)) if materialized => {
-                composite.commands.retain(|c| c != TEST_DOC);
+            Some(CommandSpec::Composite(composite))
+                if materialized || is_default_copy(&*composite, default) =>
+            {
+                drop_test_doc(composite);
             }
             Some(_) => {}
             None => {
                 let mut composite = default.clone();
-                composite.commands.retain(|c| c != TEST_DOC);
+                drop_test_doc(&mut composite);
                 config
                     .commands
                     .insert(name.clone(), CommandSpec::Composite(composite));
@@ -185,6 +225,60 @@ mod tests {
             .insert(TEST_DOC.into(), CommandSpec::Composite(own));
         apply(&mut config, dir.path());
         assert!(!config.commands.contains_key("verify"));
+    }
+
+    /// Greptile on PR #118: `ops init --commands` writes verbatim copies of
+    /// the defaults, `test-doc` included, and a bin-only scaffold must still
+    /// get a passing `verify`.
+    #[test]
+    fn verbatim_default_copies_from_init_are_treated_as_defaults() {
+        let dir = project(PACKAGE, false);
+        let mut config = Config::empty();
+        for (name, spec) in crate::stack::Stack::Rust.default_commands_ref() {
+            config.commands.insert(name.clone(), spec.clone());
+        }
+        apply(&mut config, dir.path());
+        for name in ["verify", "verify-fix", "qa", "qa-next"] {
+            assert!(
+                !steps(&config, name).iter().any(|s| s == TEST_DOC),
+                "{name}"
+            );
+        }
+    }
+
+    /// Greptile on PR #118: from a bin-only member, `--workspace` still
+    /// reaches the sibling libraries' doctests.
+    #[test]
+    fn a_member_of_an_enclosing_workspace_keeps_test_doc() {
+        let dir = tempfile::tempdir().unwrap();
+        std::fs::write(
+            dir.path().join("Cargo.toml"),
+            "[workspace]\nmembers = [\"app\", \"lib\"]\n",
+        )
+        .unwrap();
+        let member = dir.path().join("app");
+        std::fs::create_dir_all(member.join("src")).unwrap();
+        std::fs::write(member.join("Cargo.toml"), PACKAGE).unwrap();
+        std::fs::write(member.join("src/main.rs"), "").unwrap();
+
+        let mut config = Config::empty();
+        apply(&mut config, &member);
+        assert!(config.commands.is_empty());
+    }
+
+    #[test]
+    fn help_no_longer_names_the_dropped_step() {
+        let dir = project(PACKAGE, false);
+        let mut config = Config::empty();
+        apply(&mut config, dir.path());
+        for name in ["verify", "verify-fix", "qa", "qa-next"] {
+            let Some(CommandSpec::Composite(c)) = config.commands.get(name) else {
+                panic!("{name} must be materialized");
+            };
+            let help = c.help.as_deref().unwrap_or_default();
+            assert!(!help.contains(TEST_DOC), "{name}: {help}");
+            assert!(help.contains("Run "), "{name} lost its help: {help}");
+        }
     }
 
     #[test]
