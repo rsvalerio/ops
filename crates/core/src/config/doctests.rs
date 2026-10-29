@@ -19,7 +19,8 @@
 //! composite when the config defines its own `test-doc`.
 //!
 //! A workspace keeps `test-doc`, including when ops runs from a lib-less
-//! member: `--workspace` then reaches the sibling libraries, and cargo only
+//! member (one the nearest enclosing `[workspace]` does not `exclude`):
+//! `--workspace` then reaches the sibling libraries, and cargo only
 //! fails when no selected package has one — telling that apart needs every
 //! member manifest, which is not worth reading on each dispatch. A manifest
 //! that cannot be read or parsed also keeps it, so cargo reports the real
@@ -42,14 +43,37 @@ fn read_manifest(dir: &Path) -> Option<toml::Table> {
     text.parse().ok()
 }
 
-/// Whether a `Cargo.toml` above `workspace_root` declares a `[workspace]`
-/// (or cannot be read, which is treated the same), so the root package may
-/// be a member whose siblings have doctests.
+/// Whether the root package belongs to a workspace declared above it, so its
+/// siblings may have doctests. Like cargo, this looks at the nearest
+/// `Cargo.toml` above with a `[workspace]` table: a package one of its
+/// `exclude` entries covers is a standalone root. A manifest above that
+/// cannot be read counts as an enclosing workspace.
 fn has_enclosing_workspace(workspace_root: &Path) -> bool {
-    workspace_root.ancestors().skip(1).any(|dir| {
-        dir.join("Cargo.toml").exists()
-            && read_manifest(dir).is_none_or(|m| m.contains_key("workspace"))
-    })
+    for dir in workspace_root.ancestors().skip(1) {
+        if !dir.join("Cargo.toml").exists() {
+            continue;
+        }
+        let Some(manifest) = read_manifest(dir) else {
+            return true;
+        };
+        let Some(workspace) = manifest.get("workspace").and_then(toml::Value::as_table) else {
+            continue;
+        };
+        let Ok(relative) = workspace_root.strip_prefix(dir) else {
+            return true;
+        };
+        let excluded = workspace
+            .get("exclude")
+            .and_then(toml::Value::as_array)
+            .is_some_and(|entries| {
+                entries
+                    .iter()
+                    .filter_map(toml::Value::as_str)
+                    .any(|entry| relative.starts_with(entry.trim_start_matches("./")))
+            });
+        return !excluded;
+    }
+    false
 }
 
 /// Whether the root manifest is a lone package with no library target.
@@ -264,6 +288,31 @@ mod tests {
         let mut config = Config::empty();
         apply(&mut config, &member);
         assert!(config.commands.is_empty());
+    }
+
+    /// Greptile on PR #118: a package the enclosing workspace excludes is
+    /// its own root, so `--workspace` reaches no sibling library.
+    #[test]
+    fn a_package_the_enclosing_workspace_excludes_drops_test_doc() {
+        for exclude in ["tools", "./tools/app"] {
+            let dir = tempfile::tempdir().unwrap();
+            std::fs::write(
+                dir.path().join("Cargo.toml"),
+                format!("[workspace]\nmembers = [\"lib\"]\nexclude = [\"{exclude}\"]\n"),
+            )
+            .unwrap();
+            let member = dir.path().join("tools/app");
+            std::fs::create_dir_all(member.join("src")).unwrap();
+            std::fs::write(member.join("Cargo.toml"), PACKAGE).unwrap();
+            std::fs::write(member.join("src/main.rs"), "").unwrap();
+
+            let mut config = Config::empty();
+            apply(&mut config, &member);
+            assert!(
+                !steps(&config, "verify").iter().any(|s| s == TEST_DOC),
+                "exclude = {exclude:?}"
+            );
+        }
     }
 
     #[test]

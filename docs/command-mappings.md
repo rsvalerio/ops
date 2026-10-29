@@ -81,7 +81,8 @@ test --doc` fails on it ("no library targets found"), so when the root
 defines differently, and a `test-doc` of your own, are left as written. A
 workspace keeps the leg, and so does a lib-less member run from its own
 directory, since `--workspace` still reaches its sibling libraries: cargo fails
-only when no member has a library.
+only when no member has a library. A package the enclosing workspace lists in
+`exclude` is its own root and is treated as standalone.
 
 **`deps`:** not defined in the embedded TOML; it is supplied by the **Rust `deps` extension** when built in. That command runs seven dependency health checks: compatible and breaking upgrades (`cargo upgrade --dry-run`), advisories, licenses, duplicate crates and sources (`cargo deny check`), and unused dependencies (`cargo machete`). `cargo-edit` and `cargo-deny` are required. `ops deps --check` is the CI-safe gate: only `cargo deny check` and (when installed) `cargo machete`, collected fresh without the data cache, so `cargo-edit` is not needed; it fails on the same findings. `cargo-machete` is optional: without it the Unused Dependencies row shows as skipped with the install hint. Unused dependencies are a warning and never fail the gate, because cargo-machete is heuristic; suppress a false positive with `[package.metadata.cargo-machete] ignored = ["name"]`. See `extensions-rust/deps`.
 
