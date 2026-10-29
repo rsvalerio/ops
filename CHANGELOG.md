@@ -2,6 +2,18 @@
 All notable changes to this project will be documented in this file. See [conventional commits](https://www.conventionalcommits.org/) for commit guidelines.
 
 - - -
+## [v0.88.1](https://github.com/rsvalerio/ops/compare/91df3ef39d34f9f2b779d20bfd6017c21be24d8a..v0.88.1) - 2026-10-28
+#### 🐛 Bug Fixes
+- (**lock**) fail a zero timeout before polling - ([6bd277a](https://github.com/rsvalerio/ops/commit/6bd277a9467920246cffcde5d1a86aecb5f54525)) - [@rsvalerio](https://github.com/rsvalerio)
+- (**lock**) catch SIGINT/SIGTERM from before the lock is taken - ([972b0d6](https://github.com/rsvalerio/ops/commit/972b0d67876dba3277d4a30798342bf59772806b)) - [@rsvalerio](https://github.com/rsvalerio)
+#### 🧪 Testing
+- (**lock**) check the zero-timeout poll on a paused clock - ([d583959](https://github.com/rsvalerio/ops/commit/d583959018d86efe6bf72ebebcc3204390d159c0)) - [@rsvalerio](https://github.com/rsvalerio)
+#### ⚙️ Miscellaneous
+- (**backlog**) add TASK-2643 for the lock signal race - ([65b8693](https://github.com/rsvalerio/ops/commit/65b8693210531e8b88e622382c356ec6e66522e8)) - [@rsvalerio](https://github.com/rsvalerio)
+- add dependabot version updates (cargo, github-actions) - ([91df3ef](https://github.com/rsvalerio/ops/commit/91df3ef39d34f9f2b779d20bfd6017c21be24d8a)) - [@rsvalerio](https://github.com/rsvalerio)
+
+- - -
+
 ## [v0.88.0](https://github.com/rsvalerio/ops/compare/0ccceb232472bec7499412e195bd3eca5c000768..v0.88.0) - 2026-10-27
 #### 🚀 Features
 - (**cargo-toml**) detect cargo workspaces nested in a project - ([3871f7d](https://github.com/rsvalerio/ops/commit/3871f7de0a35519517fb34217c182a13602912f0)) - [@rsvalerio](https://github.com/rsvalerio)
