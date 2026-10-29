@@ -1,10 +1,10 @@
 ---
 id: TASK-2643
 title: 'fix(lock): close the SIGTERM window between recording the holder and installing the handler'
-status: Triage
+status: Done
 assignee: []
 created_date: '2026-10-27 11:52'
-updated_date: '2026-10-27 15:55'
+updated_date: '2026-10-29 21:04'
 labels:
   - bug
   - lock
@@ -39,4 +39,7 @@ Fix direction: install the signal handlers before the lock is acquired/recorded 
 
 <!-- SECTION:NOTES:BEGIN -->
 SIGINT/SIGTERM are now caught (tokio signal streams in a Signals struct) before the lock is taken, inside the one current-thread runtime run_locked builds. acquire is async: a held lock is polled every 100ms (no blocking lock(), so a signal can end the wait without leaving a thread that might still take the lock) and a signal while waiting returns Acquired::Signalled with nothing recorded. A signal that arrived after the lock was taken but before the child is spawned drops the guard (record cleared) without starting the command. All three paths exit 128+signo. New tests in crates/cli/tests/lock.rs: sigterm_right_after_the_lock_is_taken_still_releases_it polls the record file directly and signals at once, 20 rounds — it fails every run on the old code (exit None) and passes with the fix; a_signal_while_waiting_ends_the_wait_without_running_the_command. ops verify qax 12/12.
+
+Shipped in PR #117 (fix/lock-signal-window, v0.88.1); status closed 2026-10-29.
+
 <!-- SECTION:NOTES:END -->

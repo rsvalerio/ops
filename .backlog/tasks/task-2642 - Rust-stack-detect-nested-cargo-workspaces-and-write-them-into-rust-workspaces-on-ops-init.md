@@ -1,10 +1,10 @@
 ---
 id: TASK-2642
 title: 'Rust stack: detect nested cargo workspaces and write them into [rust] workspaces on ops init'
-status: Triage
+status: Done
 assignee: []
 created_date: '2026-10-27 09:14'
-updated_date: '2026-10-27 09:32'
+updated_date: '2026-10-29 21:04'
 labels:
   - feature
   - config
@@ -46,4 +46,7 @@ init stays non-interactive; an interactive picker can follow if writing-then-del
 
 <!-- SECTION:NOTES:BEGIN -->
 Detection is ops_cargo_toml::nested_workspaces (ignore-crate walk, depth 8). `ops init` writes [cargo] workspaces whenever a Rust project has nested workspaces, not only under --commands: the stack defaults run without --commands, so the setting matters either way. Foundation drift is reported per directory at `.ops.toml:cargo.workspaces.<dir>`, so a waiver can leave one out deliberately.
+
+Shipped in PR #105 (feat/cargo-workspaces, v0.88.0); status closed 2026-10-29.
+
 <!-- SECTION:NOTES:END -->
