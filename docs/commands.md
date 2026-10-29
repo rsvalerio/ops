@@ -109,7 +109,9 @@ and is detected before Node via `vite.config.*` so Vite/TypeScript projects get 
 
 The Rust stack default goes beyond the contract: it also ships `next` / `next-ignored`
 (cargo-nextest; nextest does not run doctests), `test-doc` for those doctests, and a
-`qa-next` composite (alias `qax`) that runs the test legs through nextest. The Rust `qa`
+`qa-next` composite (alias `qax`) that runs the test legs through nextest. Its `verify`
+and `verify-fix` run `test-doc` too, so a doctest that does not compile fails the
+commit-time gate rather than only `qa`. The Rust `qa`
 runs `deps`, `test`, `test-doc`, and `sec` — `sec` requires the
 [Trivy](https://trivy.dev) CLI on `PATH`. Its `verify` also answers to
 `verify-check`, `[cargo] locked = true` / `OPS__CARGO__LOCKED=true` runs its
