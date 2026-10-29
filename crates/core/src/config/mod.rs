@@ -53,6 +53,7 @@
 mod clone;
 pub(crate) mod command_id;
 pub(crate) mod commands;
+mod doctests;
 mod edit;
 pub(crate) mod extend;
 mod init;

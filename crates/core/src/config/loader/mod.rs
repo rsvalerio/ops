@@ -299,6 +299,10 @@ pub fn load_config_at(workspace_root: &Path) -> anyhow::Result<Config> {
     // materialized copy; before `locked`, so every cell is locked too.
     super::workspaces::apply(&mut config, workspace_root).context("applying [cargo] workspaces")?;
 
+    // After `[extend]`, so an extended stack-default composite loses
+    // `test-doc` in its materialized copy rather than being re-copied.
+    super::doctests::apply(&mut config, workspace_root);
+
     // After `[extend]`, so an extended stack default is locked
     // in its materialized copy rather than re-copied from the default.
     super::locked::apply(&mut config, workspace_root);

@@ -946,7 +946,14 @@ mod tests {
                 .unwrap_or_else(|| panic!("verify-fix must run {name}"))
         };
         for rewriter in ["fmt", "trailing-whitespace", "end-of-file-fixer"] {
-            for reader in ["clippy", "build", "check-json", "check-yaml", "doc"] {
+            for reader in [
+                "clippy",
+                "build",
+                "test-doc",
+                "check-json",
+                "check-yaml",
+                "doc",
+            ] {
                 assert!(
                     pos(rewriter) < pos(reader),
                     "{rewriter} must precede {reader}, got: {:?}",

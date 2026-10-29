@@ -87,29 +87,37 @@ category = "Build"
 # `check` is deliberately absent — `build --all-targets` subsumes it and clippy
 # type-checks independently, so including it compiled the workspace a third
 # time under a third fingerprint. It remains available as a standalone command.
+#
+# `test-doc` is here (TASK-2635) because nothing else compiles doc-comment
+# code: `build --all-targets` and clippy skip doctests and `doc` renders them
+# without compiling. `cargo test --doc --no-run` would be the cheaper leg, but
+# cargo refuses it ("can't skip running doc tests with --no-run"), so the
+# doctests run. They link against the same dev-profile libraries `build`
+# compiles, so in the parallel stage one waits on cargo's build lock and
+# reuses the other's artifacts rather than compiling the workspace again.
 [commands.verify]
-commands = ["fmt-check", "trailing-whitespace-check", "end-of-file-fixer-check", "clippy", "build", "check-json", "check-yaml", "doc"]
+commands = ["fmt-check", "trailing-whitespace-check", "end-of-file-fixer-check", "clippy", "build", "test-doc", "check-json", "check-yaml", "doc"]
 aliases = ["verify-check"]
 parallel = true
 fail_fast = true
-help = "Run fmt-check, trailing-whitespace-check, end-of-file-fixer-check, clippy, build, check-json, check-yaml, doc in parallel; fixes nothing in place"
+help = "Run fmt-check, trailing-whitespace-check, end-of-file-fixer-check, clippy, build, test-doc, check-json, check-yaml, doc in parallel; fixes nothing in place"
 category = "Code Quality"
 
 # `verify` with the rewriters. Staged: the steps that rewrite files run alone
 # and in order, then the readers run together:
 #
 #   fmt → trailing-whitespace → end-of-file-fixer
-#       → (clippy | build | check-json | check-yaml | doc)
+#       → (clippy | build | test-doc | check-json | check-yaml | doc)
 #
 # `fmt` is exclusive above; the two text fixers are exclusive in their own
 # definitions (`ExecCommandSpec::ops_subcommand`). trailing-whitespace must
 # precede end-of-file-fixer: the EOF fixer strips only newlines, so running it
 # first leaves a double newline where a whitespace-only last line was.
 [commands.verify-fix]
-commands = ["fmt", "trailing-whitespace", "end-of-file-fixer", "clippy", "build", "check-json", "check-yaml", "doc"]
+commands = ["fmt", "trailing-whitespace", "end-of-file-fixer", "clippy", "build", "test-doc", "check-json", "check-yaml", "doc"]
 parallel = true
 fail_fast = true
-help = "Run fmt, trailing-whitespace, end-of-file-fixer, then clippy, build, check-json, check-yaml, doc in parallel; rewrites files in place"
+help = "Run fmt, trailing-whitespace, end-of-file-fixer, then clippy, build, test-doc, check-json, check-yaml, doc in parallel; rewrites files in place"
 category = "Code Quality"
 
 [commands.qa]
