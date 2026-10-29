@@ -2,6 +2,23 @@
 All notable changes to this project will be documented in this file. See [conventional commits](https://www.conventionalcommits.org/) for commit guidelines.
 
 - - -
+## [v0.89.0](https://github.com/rsvalerio/ops/compare/922f71f652c7261a022a5cbaebe60b31937a9cca..v0.89.0) - 2026-10-29
+#### 🚀 Features
+- (**config**) run doctests in the default Rust verify (#118) - ([0c6ceed](https://github.com/rsvalerio/ops/commit/0c6ceedf53b381f823de229fa86b76fe4930c98f)) - [@rsvalerio](https://github.com/rsvalerio)
+#### 🔧 Build System
+- (**deps**) bump actions/checkout from 6.1.0 to 7.0.1 (#113) - ([56aeaaa](https://github.com/rsvalerio/ops/commit/56aeaaa0c8c03dfd1078917e568be1b1054b87ce)) - dependabot[bot], dependabot[bot]
+- (**deps**) bump actions/create-github-app-token from 3.2.0 to 3.3.0 (#109) - ([5c8d1fe](https://github.com/rsvalerio/ops/commit/5c8d1fe9799b70b2a75a3993113b40e3e8d07d6e)) - dependabot[bot], dependabot[bot], [@rsvalerio](https://github.com/rsvalerio)
+- (**deps**) bump actions/download-artifact from 7.0.0 to 8.0.2 (#108) - ([c8638c3](https://github.com/rsvalerio/ops/commit/c8638c3b1ccddd4d29fa5fe104e429574cce4e6d)) - dependabot[bot], dependabot[bot], [@rsvalerio](https://github.com/rsvalerio)
+- (**deps**) bump actions/upload-artifact from 6.0.0 to 7.0.2 (#107) - ([529abd6](https://github.com/rsvalerio/ops/commit/529abd629bb26d5e1fe615a8bb97e8be6c0a770b)) - dependabot[bot], dependabot[bot], [@rsvalerio](https://github.com/rsvalerio)
+- (**deps**) bump unicode-ident from 1.0.24 to 1.0.27 (#116) - ([aee0d45](https://github.com/rsvalerio/ops/commit/aee0d451216d85c4406b0f8c56760bf06cfcb874)) - dependabot[bot], dependabot[bot]
+- (**deps**) bump sha2 from 0.10.9 to 0.11.1 (#115) - ([94f9ace](https://github.com/rsvalerio/ops/commit/94f9ace02710890a2e4fe1e2bfd9bfe228b838a2)) - dependabot[bot], dependabot[bot]
+- (**deps**) bump indexmap from 2.14.0 to 2.14.2 (#114) - ([3989783](https://github.com/rsvalerio/ops/commit/3989783693382c4fbd8810f4ae846982518c7ff5)) - dependabot[bot], dependabot[bot]
+- (**deps**) bump jdx/mise-action from 4.3.0 to 5.2.3 (#112) - ([0c17588](https://github.com/rsvalerio/ops/commit/0c1758892fb3ed802e1df27951037c6abb2a8347)) - dependabot[bot], dependabot[bot]
+- (**deps**) bump ignore from 0.4.31 to 0.4.33 (#111) - ([06b13a4](https://github.com/rsvalerio/ops/commit/06b13a42da5fa2f6f4859c9a70d605a1a97626cc)) - dependabot[bot], dependabot[bot]
+- (**deps**) bump serde_json from 1.0.151 to 1.0.154 (#110) - ([922f71f](https://github.com/rsvalerio/ops/commit/922f71f652c7261a022a5cbaebe60b31937a9cca)) - dependabot[bot], dependabot[bot]
+
+- - -
+
 ## [v0.88.1](https://github.com/rsvalerio/ops/compare/91df3ef39d34f9f2b779d20bfd6017c21be24d8a..v0.88.1) - 2026-10-28
 #### 🐛 Bug Fixes
 - (**lock**) fail a zero timeout before polling - ([6bd277a](https://github.com/rsvalerio/ops/commit/6bd277a9467920246cffcde5d1a86aecb5f54525)) - [@rsvalerio](https://github.com/rsvalerio)
