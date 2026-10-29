@@ -4,7 +4,7 @@ default-members = ["crates/cli"]
 resolver = "2"
 
 [workspace.package]
-version = "0.88.0"
+version = "0.88.1"
 edition = "2021"
 license = "Apache-2.0"
 authors = ["Rodrigo Valeri"]
@@ -62,7 +62,7 @@ tempfile = "3"
 chrono = { version = "0.4", default-features = false, features = ["std"] }
 # Bundled SQLite: plain-C build, no link env, JSON1 built in (>= 3.38).
 rusqlite = { version = "0.37", features = ["bundled"] }
-sha2 = "0.10"
+sha2 = "0.11"
 hex = "0.4"
 signal-hook = "0.3"
 tokei = "14.0"
