@@ -2,6 +2,12 @@
 All notable changes to this project will be documented in this file. See [conventional commits](https://www.conventionalcommits.org/) for commit guidelines.
 
 - - -
+## [v0.90.0](https://github.com/rsvalerio/ops/compare/7ed6e625f7ff61478933c8f95abfc20ff5917190..v0.90.0) - 2026-10-31
+#### 🚀 Features
+- (**config**) drop test-doc from the default Rust verify (#119) - ([7ed6e62](https://github.com/rsvalerio/ops/commit/7ed6e625f7ff61478933c8f95abfc20ff5917190)) - [@rsvalerio](https://github.com/rsvalerio)
+
+- - -
+
 ## [v0.89.0](https://github.com/rsvalerio/ops/compare/922f71f652c7261a022a5cbaebe60b31937a9cca..v0.89.0) - 2026-10-29
 #### 🚀 Features
 - (**config**) run doctests in the default Rust verify (#118) - ([0c6ceed](https://github.com/rsvalerio/ops/commit/0c6ceedf53b381f823de229fa86b76fe4930c98f)) - [@rsvalerio](https://github.com/rsvalerio)
