@@ -3,9 +3,8 @@
 //!
 //! Doctests live only in a library, and `cargo test --doc` on a package
 //! without one fails ("no library targets found in package") instead of
-//! running nothing. The default `verify`, `verify-fix`, `qa` and `qa-next`
-//! all name `test-doc` (TASK-2635), so a binary-only crate would fail every
-//! gate over doctests it cannot have.
+//! running nothing. The default `qa` and `qa-next` both name `test-doc`, so
+//! a binary-only crate would fail both gates over doctests it cannot have.
 //!
 //! [`apply`] runs after `[extend]` and `[cargo] workspaces`. When the root
 //! `Cargo.toml` is a single `[package]` with no library target — no `[lib]`
@@ -185,7 +184,7 @@ mod tests {
         let mut config = Config::empty();
         apply(&mut config, dir.path());
 
-        for name in ["verify", "verify-fix", "qa", "qa-next"] {
+        for name in ["qa", "qa-next"] {
             let steps = steps(&config, name);
             assert!(!steps.iter().any(|s| s == TEST_DOC), "{name}: {steps:?}");
             assert!(
@@ -201,7 +200,7 @@ mod tests {
                 "{name} must be recorded as a stack default"
             );
         }
-        assert!(steps(&config, "verify").iter().any(|s| s == "build"));
+        assert!(steps(&config, "qa").iter().any(|s| s == "deps"));
     }
 
     #[test]
@@ -228,7 +227,7 @@ mod tests {
         let dir = project("[package]\nname = \"x\"\nautolib = false\n", true);
         let mut config = Config::empty();
         apply(&mut config, dir.path());
-        assert!(!steps(&config, "verify").iter().any(|s| s == TEST_DOC));
+        assert!(!steps(&config, "qa").iter().any(|s| s == TEST_DOC));
     }
 
     #[test]
@@ -239,21 +238,21 @@ mod tests {
         let mut config = Config::empty();
         config
             .commands
-            .insert("verify".into(), CommandSpec::Composite(own.clone()));
+            .insert("qa".into(), CommandSpec::Composite(own.clone()));
         apply(&mut config, dir.path());
-        assert_eq!(steps(&config, "verify"), ["build", TEST_DOC]);
+        assert_eq!(steps(&config, "qa"), ["build", TEST_DOC]);
 
         let mut config = Config::empty();
         config
             .commands
             .insert(TEST_DOC.into(), CommandSpec::Composite(own));
         apply(&mut config, dir.path());
-        assert!(!config.commands.contains_key("verify"));
+        assert!(!config.commands.contains_key("qa"));
     }
 
     /// Greptile on PR #118: `ops init --commands` writes verbatim copies of
     /// the defaults, `test-doc` included, and a bin-only scaffold must still
-    /// get a passing `verify`.
+    /// get a passing `qa`.
     #[test]
     fn verbatim_default_copies_from_init_are_treated_as_defaults() {
         let dir = project(PACKAGE, false);
@@ -262,7 +261,7 @@ mod tests {
             config.commands.insert(name.clone(), spec.clone());
         }
         apply(&mut config, dir.path());
-        for name in ["verify", "verify-fix", "qa", "qa-next"] {
+        for name in ["qa", "qa-next"] {
             assert!(
                 !steps(&config, name).iter().any(|s| s == TEST_DOC),
                 "{name}"
@@ -309,7 +308,7 @@ mod tests {
             let mut config = Config::empty();
             apply(&mut config, &member);
             assert!(
-                !steps(&config, "verify").iter().any(|s| s == TEST_DOC),
+                !steps(&config, "qa").iter().any(|s| s == TEST_DOC),
                 "exclude = {exclude:?}"
             );
         }
@@ -320,7 +319,7 @@ mod tests {
         let dir = project(PACKAGE, false);
         let mut config = Config::empty();
         apply(&mut config, dir.path());
-        for name in ["verify", "verify-fix", "qa", "qa-next"] {
+        for name in ["qa", "qa-next"] {
             let Some(CommandSpec::Composite(c)) = config.commands.get(name) else {
                 panic!("{name} must be materialized");
             };
@@ -335,14 +334,11 @@ mod tests {
         let dir = project(PACKAGE, false);
         let mut config = Config::empty();
         config.commands.insert(
-            "verify".into(),
+            "qa".into(),
             CommandSpec::Composite(CompositeCommandSpec::new(["build", TEST_DOC, "extra"])),
         );
-        config
-            .provenance
-            .extended_stack_defaults
-            .push("verify".into());
+        config.provenance.extended_stack_defaults.push("qa".into());
         apply(&mut config, dir.path());
-        assert_eq!(steps(&config, "verify"), ["build", "extra"]);
+        assert_eq!(steps(&config, "qa"), ["build", "extra"]);
     }
 }

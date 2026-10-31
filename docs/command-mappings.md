@@ -26,8 +26,8 @@ Below, **exec** lines are `program` plus `args` from config. **Composite** comma
 | `next` | `cargo nextest run --workspace --all-features` |
 | `next-ignored` | `cargo nextest run --workspace --all-features --run-ignored ignored-only` |
 | `clean` | `cargo clean` |
-| `verify` (`verify-check`) | composite: `fmt-check`, `trailing-whitespace-check`, `end-of-file-fixer-check`, `clippy`, `build`, `test-doc`, `check-json`, `check-yaml`, `doc` (parallel, fail-fast); fixes nothing in place |
-| `verify-fix` | composite: `fmt`, `trailing-whitespace`, `end-of-file-fixer`, `clippy`, `build`, `test-doc`, `check-json`, `check-yaml`, `doc` (staged parallel, fail-fast); rewrites files in place |
+| `verify` (`verify-check`) | composite: `fmt-check`, `trailing-whitespace-check`, `end-of-file-fixer-check`, `clippy`, `build`, `check-json`, `check-yaml`, `doc` (parallel, fail-fast); fixes nothing in place |
+| `verify-fix` | composite: `fmt`, `trailing-whitespace`, `end-of-file-fixer`, `clippy`, `build`, `check-json`, `check-yaml`, `doc` (staged parallel, fail-fast); rewrites files in place |
 | `qa` | composite: `deps`, `test`, `test-doc`, `sec` (sequential, fail-fast) |
 | `qa-next` (`qax`) | composite: `deps`, `next`, `test-doc`, `sec` (sequential, fail-fast) |
 
@@ -58,25 +58,22 @@ it for symmetry would silently drop doctest coverage.
 **`verify-fix` is staged:** `fmt`, `trailing-whitespace` and `end-of-file-fixer`
 rewrite files the checks read, so each is exclusive and runs alone, in that
 order (`fmt` is marked in the stack TOML, the fixers in their definitions).
-`clippy`, `build`, `test-doc`, `check-json`, `check-yaml` and `doc` then run concurrently.
+`clippy`, `build`, `check-json`, `check-yaml` and `doc` then run concurrently.
 See [Exclusive steps in a parallel group](configuration.md#exclusive-steps-in-a-parallel-group).
 
 **`check` is not in `verify`:** `build --all-targets` subsumes it and `clippy`
 type-checks independently, so including it compiled the workspace a third time
 under a third fingerprint. It remains available standalone.
 
-**`test-doc` is in `verify`:** nothing else compiles doc-comment code — `build
---all-targets` and `clippy` skip doctests and `doc` renders them without
-compiling — so without it a doctest that does not compile passes `verify` and
-fails only in `qa`/CI. Cargo rejects the cheaper compile-only form (`cargo test
---doc --no-run`: "can't skip running doc tests with --no-run"), so the doctests
-run. They link against the dev-profile libraries `build` produces, so the leg
-waits on cargo's build lock and reuses those artifacts instead of compiling the
-workspace again. A package with no library target has no doctests and `cargo
+**`test-doc` is not in `verify`:** doctests run in `qa` and `qa-next`, so nothing
+in `verify` compiles doc-comment code — `build --all-targets` and `clippy` skip
+doctests and `doc` renders them without compiling — and a doctest that does not
+compile passes `verify` and fails only in `qa`/CI.
+
+**`test-doc` on a package without a library:** A package with no library target has no doctests and `cargo
 test --doc` fails on it ("no library targets found"), so when the root
 `Cargo.toml` is a single `[package]` with no `[lib]` table and no `src/lib.rs`,
-`test-doc` is dropped from the default `verify`, `verify-fix`, `qa` and
-`qa-next` (and from their help). Verbatim copies of those defaults, as `ops init
+`test-doc` is dropped from the default `qa` and `qa-next` (and from their help). Verbatim copies of those defaults, as `ops init
 --commands` writes them, are treated the same; composites your `.ops.toml`
 defines differently, and a `test-doc` of your own, are left as written. A
 workspace keeps the leg, and so does a lib-less member run from its own
@@ -88,7 +85,7 @@ only when no member has a library. A package the enclosing workspace lists in
 
 **`sec`:** also not defined in the embedded TOML; it is the built-in `ops sec` subcommand (Trivy security scans — secrets always, vulnerability/misconfig auto-selected). Requires the `trivy` CLI on `PATH`.
 
-**`next` / `next-ignored` vs `test` / `test-ignored`:** the `next*` commands run the same legs through cargo-nextest, which is faster but does not run doctests — hence `test-doc` in `qa`, `qa-next` and `verify`. Requires `cargo nextest` installed.
+**`next` / `next-ignored` vs `test` / `test-ignored`:** the `next*` commands run the same legs through cargo-nextest, which is faster but does not run doctests — hence `test-doc` in `qa` and `qa-next`. Requires `cargo nextest` installed.
 
 ---
 

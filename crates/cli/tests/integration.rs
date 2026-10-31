@@ -213,56 +213,6 @@ fn cli_init_in_rust_project_with_commands_flag_writes_stack_commands() {
     );
 }
 
-/// TASK-2635: `build`, clippy and `doc` all pass over a doc comment whose code
-/// does not compile, so the default Rust `verify` must run the doctests too —
-/// otherwise the break surfaces only in `qa`/CI.
-#[test]
-fn cli_verify_in_rust_project_fails_on_a_doctest_that_does_not_compile() {
-    let dir = temp_dir();
-    std::fs::write(
-        dir.path().join("Cargo.toml"),
-        "[package]\nname = \"broken_doctest\"\nversion = \"0.1.0\"\nedition = \"2021\"\n",
-    )
-    .expect("write Cargo.toml");
-    std::fs::create_dir(dir.path().join("src")).expect("mkdir src");
-    std::fs::write(
-        dir.path().join("src/lib.rs"),
-        "/// ```\n/// let n: u32 = \"not a number\";\n/// ```\npub fn f() {}\n",
-    )
-    .expect("write src/lib.rs");
-
-    ops()
-        .arg("verify")
-        .current_dir(dir.path())
-        .env("CARGO_TARGET_DIR", dir.path().join("target"))
-        .assert()
-        .failure()
-        .stderr(predicate::str::contains("doctest failed"));
-}
-
-/// TASK-2635: `cargo test --doc` fails on a package with no library target,
-/// so the default `verify` must skip `test-doc` there rather than fail a
-/// binary-only crate over doctests it cannot have.
-#[test]
-fn cli_verify_in_bin_only_rust_project_skips_doctests_and_passes() {
-    let dir = temp_dir();
-    std::fs::write(
-        dir.path().join("Cargo.toml"),
-        "[package]\nname = \"bin_only\"\nversion = \"0.1.0\"\nedition = \"2021\"\n",
-    )
-    .expect("write Cargo.toml");
-    std::fs::create_dir(dir.path().join("src")).expect("mkdir src");
-    std::fs::write(dir.path().join("src/main.rs"), "fn main() {}\n").expect("write src/main.rs");
-
-    ops()
-        .arg("verify")
-        .current_dir(dir.path())
-        .env("CARGO_TARGET_DIR", dir.path().join("target"))
-        .assert()
-        .success()
-        .stderr(predicate::str::contains("test --workspace --all-features --doc").not());
-}
-
 #[test]
 fn cli_init_default_writes_minimal_output_only() {
     let dir = temp_dir();
