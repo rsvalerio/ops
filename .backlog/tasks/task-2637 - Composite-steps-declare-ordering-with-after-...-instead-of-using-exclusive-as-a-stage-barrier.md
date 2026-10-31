@@ -4,11 +4,13 @@ title: 'Composite steps: declare ordering with after = [...] instead of using ex
 status: To Do
 assignee: []
 created_date: '2026-10-26 22:12'
+updated_date: '2026-10-31 23:55'
 labels:
   - feature
   - config
   - scheduling
 dependencies: []
+parent_task_id: 'TASK-2644'
 modified_files: []
 priority: high
 ordinal: 1000

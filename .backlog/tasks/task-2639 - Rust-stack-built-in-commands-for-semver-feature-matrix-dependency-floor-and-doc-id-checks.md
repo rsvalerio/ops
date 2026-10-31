@@ -4,11 +4,13 @@ title: 'Rust stack: built-in commands for semver, feature-matrix, dependency-flo
 status: To Do
 assignee: []
 created_date: '2026-10-26 22:12'
+updated_date: '2026-10-31 23:55'
 labels:
   - feature
   - rust
   - stack-defaults
 dependencies: []
+parent_task_id: 'TASK-2645'
 modified_files: []
 priority: low
 ordinal: 1000

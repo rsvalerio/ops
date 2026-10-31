@@ -4,10 +4,12 @@ title: 'Small .ops.toml ergonomics: built-in foundation command and a default ca
 status: To Do
 assignee: []
 created_date: '2026-10-26 22:12'
+updated_date: '2026-10-31 23:55'
 labels:
   - feature
   - config
 dependencies: []
+parent_task_id: 'TASK-2645'
 modified_files: []
 priority: low
 ordinal: 1000

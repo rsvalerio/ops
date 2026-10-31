@@ -4,11 +4,13 @@ title: 'Check .ops.toml against the ops version a project pins, not only the run
 status: To Do
 assignee: []
 created_date: '2026-10-26 22:12'
+updated_date: '2026-10-31 23:55'
 labels:
   - feature
   - config
   - ci
 dependencies: []
+parent_task_id: 'TASK-2646'
 modified_files: []
 priority: medium
 ordinal: 1000
