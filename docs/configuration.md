@@ -33,6 +33,31 @@ fail_fast = true
 
 Config is merged in order (later overrides earlier): built-in defaults → global config (`~/.config/ops/config.toml`) → local `.ops.toml` → `.ops.d/*.toml` fragments (sorted by filename) → `OPS__*` environment variables. When run inside a project with a detected stack (e.g. Rust), `ops init` pre-fills stack-specific commands.
 
+## Checking a config against an ops version
+
+CI usually installs the `ops` pinned in `mise.toml`, while a local `ops` built from source
+can be newer. A field newer than the pin then passes every local gate and fails every `ops`
+step in CI. `ops config check` finds that without installing the pinned version:
+
+```console
+$ ops config check --as 0.85.1
+.ops.toml: commands.lint-all.args (beside clone) needs ops 0.86.0
+ops 0.85.1 (--as) rejects 1 field(s).
+Minimum ops version for this config: 0.86.0
+```
+
+Without `--as` it targets the `ops` pin under `[tools]` in `mise.toml`. A pin that names no
+exact release, such as `latest` or `0.85`, is an error until you pass `--as`. With no pin
+and no `--as` it prints only the minimum. It exits non-zero when the target rejects a field.
+
+The check reads `.ops.toml` and `.ops.d/*.toml`, the files a project commits. It knows the
+release each field became loadable, including a field that gained a new place (`args` beside
+`clone`). It does not check values, such as a theme name, and it cannot see a behaviour
+change that no field marks.
+
+`ops` records each field's release in `crates/core/src/config/history.rs`, and a test fails
+until a new field is listed there.
+
 ## Extending existing commands
 
 To add steps to a command that already exists — typically a stack default like the Rust `verify` — without copying (and going stale on) its whole `commands` list, use an `[extend.<name>]` section:

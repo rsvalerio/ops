@@ -58,6 +58,9 @@ The comparison is semantic, not textual. Each template is a baseline:
   exception: the template's version is a floor, so any `x.y.z` release from it on
   passes, including the ops running the check. A pin below the floor, or one that is
   not a plain version such as `latest`, is drift at `mise.toml:tools.ops`.
+- A config field newer than the ops pin is drift at `<file>:<field>`, such as
+  `.ops.toml:commands.build.raw`, because CI runs the pin and fails on it. This is the
+  same check as [`ops config check`](configuration.md#checking-a-config-against-an-ops-version).
 - Lint levels only need to be at least as strict: `deny` or `forbid` satisfies the
   template's `warn`.
 - `unsafe_code` is policed. The template sets it to `warn`, so a repo with no

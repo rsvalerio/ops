@@ -51,6 +51,7 @@ mod args;
 mod backlog_cmd;
 mod cargo_check_cmd;
 mod clippy_findings_cmd;
+mod config_cmd;
 mod doc_ids_cmd;
 mod dry_run;
 mod extension_cmd;
@@ -285,6 +286,7 @@ fn dispatch(
     }
     match cli.subcommand {
         Some(CoreSubcommand::Init(args)) => return run_init(&args, early_config),
+        Some(CoreSubcommand::Config { action }) => return config_cmd::run_config(&cwd()?, &action),
         Some(CoreSubcommand::Theme { action }) => run_theme(early_config, action)?,
         Some(CoreSubcommand::Backlog { action }) => {
             let cwd = cwd()?;
@@ -292,10 +294,7 @@ fn dispatch(
         }
         Some(CoreSubcommand::Lock(args)) => return run_lock(args),
         Some(CoreSubcommand::Extension { action }) => run_extension(early_config, action)?,
-        Some(CoreSubcommand::NewCommand) => {
-            let cwd = cwd()?;
-            new_command_cmd::run_new_command(&cwd)?;
-        }
+        Some(CoreSubcommand::NewCommand) => new_command_cmd::run_new_command(&cwd()?)?,
         Some(CoreSubcommand::ImportMakefile { file }) => {
             let cwd = cwd()?;
             // Forward the exit code: Esc at the picker is a user cancel

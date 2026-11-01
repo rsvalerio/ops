@@ -80,7 +80,7 @@ vulnerabilities as described in [SECURITY.md](SECURITY.md).
 
 ## Code map
 
-- `crates/core/src/config/`: TOML config parsing and theme config types.
+- `crates/core/src/config/`: TOML config parsing and theme config types. A new config field also needs a row in `history.rs` (the release it arrives in, behind `ops config check`).
 - `crates/core/src/stack/`: stack detection (`detect.rs`) and the embedded `.default.<stack>.ops.toml` command templates.
 - `crates/core/src/output.rs`: step line data types and display width behavior.
 - `crates/theme/src/`: `ConfigurableTheme` (`configurable.rs`) and the step-line theme types (`step_line_theme.rs`).

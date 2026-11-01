@@ -33,6 +33,7 @@
 //! - [`root`] — the root [`Config`] type and its validation.
 //! - [`sections`] — the `[extensions]`, `[about]`, `[data]`, `[output]` sections.
 //! - [`commands`] / [`command_id`] — command specs and the [`CommandId`] newtype.
+//! - `history` — the release each field arrived in, behind `ops config check`.
 //! - [`extend`] — the `[extend.<target>]` sections appending commands to an
 //!   existing composite at load time.
 //! - `locked` — the `[cargo] locked = true` switch, adding `--locked` to
@@ -56,6 +57,7 @@ pub(crate) mod commands;
 mod doctests;
 mod edit;
 pub(crate) mod extend;
+mod history;
 mod init;
 mod loader;
 mod locked;
@@ -77,6 +79,9 @@ pub use edit::{
     write_ops_toml,
 };
 pub use extend::ExtendEntry;
+pub use history::{
+    fields_used, minimum_version, mise_ops_pin, OpsVersion, ParseOpsVersionError, UsedField,
+};
 pub use init::{default_ops_toml, init_template, InitSections};
 pub use overlay::{
     AboutConfigOverlay, ConfigOverlay, DataConfigOverlay, ExtensionConfigOverlay,

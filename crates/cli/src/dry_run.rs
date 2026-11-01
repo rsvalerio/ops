@@ -56,6 +56,7 @@ pub const fn unpreviewable_builtin(sub: &CoreSubcommand) -> Option<&'static str>
         #[cfg(feature = "stack-terraform")]
         CoreSubcommand::Plans(_) => Some("plans"),
         CoreSubcommand::Extension { .. }
+        | CoreSubcommand::Config { .. }
         | CoreSubcommand::CheckJson { .. }
         | CoreSubcommand::CheckYaml { .. }
         | CoreSubcommand::Explain(_)
@@ -124,6 +125,7 @@ mod tests {
             #[cfg(feature = "stack-terraform")]
             (&["plans"], true),
             (&["extension", "list"], false),
+            (&["config", "check"], false),
             (&["check-json"], false),
             (&["check-yaml"], false),
             (&["explain", "build"], false),

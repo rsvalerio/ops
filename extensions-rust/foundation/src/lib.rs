@@ -23,7 +23,7 @@ use std::path::Path;
 
 use anyhow::Context;
 use indexmap::IndexMap;
-use ops_core::config::atomic_write;
+use ops_core::config::{atomic_write, fields_used, mise_ops_pin};
 use toml::Value;
 
 pub use compare::{Drift, Rule};
@@ -431,7 +431,27 @@ pub fn check(
         check_member_opt_in(root, member, &mut drift)?;
     }
     check_workspaces(root, workspaces, &mut drift);
+    check_config_against_pin(root, &mut drift);
     Ok(apply_waivers(drift, waivers))
+}
+
+/// Report each field of the project's config that its own `ops` pin would
+/// reject, at `<file>:<field>`: CI runs the pin, so those fail every step
+/// there. A pin naming no release is already [`check_ops_pin`]'s drift, and
+/// a `mise.toml` that does not parse is [`check_file`]'s.
+fn check_config_against_pin(root: &Path, out: &mut Vec<Drift>) {
+    let Ok(Some(pin)) = mise_ops_pin(root) else {
+        return;
+    };
+    match fields_used(root) {
+        Ok(fields) => out.extend(fields.iter().filter(|used| used.since > pin).map(|used| {
+            Drift::new(
+                format!("{}:{}", used.file, used.field),
+                format!("needs ops {}, but {MISE} pins {pin}", used.since),
+            )
+        })),
+        Err(e) => out.push(Drift::new(".ops.toml", format!("{e:#}"))),
+    }
 }
 
 /// Where `[cargo] workspaces` drift is reported, one location per directory

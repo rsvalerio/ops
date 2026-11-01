@@ -105,6 +105,11 @@ pub enum CoreSubcommand {
     /// `--rust` writes the Rust foundation config instead, and `--rust --check`
     /// reports where the project has drifted from this ops version's copy.
     Init(InitArgs),
+    /// Check `.ops.toml` against the ops version a project pins.
+    Config {
+        #[command(subcommand)]
+        action: ConfigAction,
+    },
     /// Manage output themes.
     Theme {
         #[command(subcommand)]
@@ -392,6 +397,22 @@ pub enum CoreSubcommand {
     /// Catch-all for dynamic config-defined commands (e.g. `ops verify`).
     #[command(external_subcommand)]
     External(Vec<OsString>),
+}
+
+/// `ops config` actions.
+#[derive(clap::Subcommand, Debug, Clone)]
+pub enum ConfigAction {
+    /// Name the fields an ops version would reject, and print the minimum
+    /// version that accepts `.ops.toml` and `.ops.d/*.toml`.
+    ///
+    /// Exits non-zero when the target version rejects a field. Field values
+    /// are not checked.
+    Check {
+        /// The ops version to check against; defaults to the `ops` pin in
+        /// `mise.toml`, when there is one.
+        #[arg(long = "as", value_name = "VERSION")]
+        target: Option<ops_core::config::OpsVersion>,
+    },
 }
 
 /// Arguments of `ops explain`.

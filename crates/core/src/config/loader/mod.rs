@@ -21,6 +21,7 @@
 //! `std::env::set_current_dir`.
 
 mod conf_d;
+pub(super) use conf_d::read_conf_d_files;
 mod env;
 mod global;
 

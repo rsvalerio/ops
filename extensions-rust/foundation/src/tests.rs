@@ -433,6 +433,40 @@ fn the_ops_pin_is_a_floor_so_the_running_ops_passes_unwaived() {
 }
 
 #[test]
+fn a_config_field_newer_than_the_ops_pin_is_drift_and_waivable() {
+    let dir = workspace();
+    scaffold(dir.path(), false).expect("scaffold");
+    std::fs::write(
+        dir.path().join(".ops.toml"),
+        "[commands.a]\nprogram = \"x\"\nraw = true\n",
+    )
+    .expect("write");
+    let location = ".ops.toml:commands.a.raw";
+    let report = check(dir.path(), &no_waivers(), &[]).expect("check");
+    assert_eq!(
+        report.drift,
+        vec![Drift::new(
+            location,
+            "needs ops 0.85.0, but mise.toml pins 0.77.0"
+        )]
+    );
+
+    let waivers = IndexMap::from([(location.to_owned(), "held back".to_owned())]);
+    let report = check(dir.path(), &waivers, &[]).expect("check");
+    assert!(report.drift.is_empty(), "{:?}", report.drift);
+}
+
+#[test]
+fn a_config_that_does_not_parse_is_drift_against_the_pin_not_an_error() {
+    let dir = workspace();
+    scaffold(dir.path(), false).expect("scaffold");
+    std::fs::write(dir.path().join(".ops.toml"), "not = = toml").expect("write");
+    let report = check(dir.path(), &no_waivers(), &[]).expect("check");
+    assert_eq!(report.drift.len(), 1, "{:?}", report.drift);
+    assert_eq!(report.drift[0].location, ".ops.toml");
+}
+
+#[test]
 fn an_ops_pin_below_the_floor_or_unversioned_is_drift() {
     for pin in [
         "\"0.76.9\"",
