@@ -80,7 +80,8 @@ pub use edit::{
 };
 pub use extend::ExtendEntry;
 pub use history::{
-    fields_used, minimum_version, mise_ops_pin, OpsVersion, ParseOpsVersionError, UsedField,
+    fields_used, minimum_version, mise_ops_pin, MiseOpsPin, OpsVersion, ParseOpsVersionError,
+    UsedField,
 };
 pub use init::{default_ops_toml, init_template, InitSections};
 pub use overlay::{

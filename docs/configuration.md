@@ -46,14 +46,22 @@ ops 0.85.1 (--as) rejects 1 field(s).
 Minimum ops version for this config: 0.86.0
 ```
 
-Without `--as` it targets the `ops` pin under `[tools]` in `mise.toml`. A pin that names no
-exact release, such as `latest` or `0.85`, is an error until you pass `--as`. With no pin
-and no `--as` it prints only the minimum. It exits non-zero when the target rejects a field.
+Without `--as` it targets the `ops` pin in the project's mise configuration: `[tools]` in
+`mise.toml`, `.mise.toml`, `mise/config.toml`, `.mise/config.toml`, `.config/mise.toml` or
+`.config/mise/config.toml` — in mise's precedence order, the last file naming a pin wins —
+under the `ops` key or, when the project has no `[tool_alias]`, its backend key
+`github:rsvalerio/ops`. Local (`*.local.toml`), `conf.d`, parent-directory, global and
+`.tool-versions` pins are not read: they are not committed, so CI never installs them. A pin
+that names no exact release, such as `latest` or `0.85`, is an error until you pass `--as`.
+With no pin and no `--as` it prints only the minimum. It exits non-zero when the target
+rejects a field.
 
 The check reads `.ops.toml` and `.ops.d/*.toml`, the files a project commits. It knows the
 release each field became loadable, including a field that gained a new place (`args` beside
-`clone`). It does not check values, such as a theme name, and it cannot see a behaviour
-change that no field marks.
+`clone`), and the release a value arrived where its field is older (`theme = "flux"` needs
+0.17.0; a theme your own `[themes]` defines is yours and needs nothing). A behaviour change
+that no field or value marks is deliberately out of the check's scope: no record of one
+exists to read, so where behaviour matters, run the pinned `ops` itself.
 
 `ops` records each field's release in `crates/core/src/config/history.rs`, and a test fails
 until a new field is listed there.

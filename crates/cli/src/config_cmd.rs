@@ -23,13 +23,14 @@ pub fn run_config(root: &Path, action: &ConfigAction) -> anyhow::Result<ExitCode
     }
 }
 
-/// `ops config check`: compare the config against `--as`, else `mise.toml`'s
-/// `ops` pin, and always print the minimum accepting version. Without a
-/// target there is nothing to reject, so that is all it reports.
+/// `ops config check`: compare the config against `--as`, else the
+/// project's mise `ops` pin, and always print the minimum accepting
+/// version. Without a target there is nothing to reject, so that is all it
+/// reports.
 ///
 /// # Errors
 ///
-/// A config file or `mise.toml` cannot be read or parsed, or the pin names
+/// A config file or mise file cannot be read or parsed, or the pin names
 /// no exact release and `--as` was not given.
 fn run_config_check(root: &Path, target: Option<OpsVersion>) -> anyhow::Result<ExitCode> {
     run_check_to(root, target, &mut std::io::stdout().lock())
@@ -41,8 +42,8 @@ fn run_check_to(
     w: &mut dyn Write,
 ) -> anyhow::Result<ExitCode> {
     let target = match target {
-        Some(version) => Some((version, "--as")),
-        None => mise_ops_pin(root)?.map(|version| (version, "mise.toml pin")),
+        Some(version) => Some((version, "--as".to_owned())),
+        None => mise_ops_pin(root)?.map(|pin| (pin.version, format!("{} pin", pin.file))),
     };
     let fields = fields_used(root)?;
     let minimum = minimum_version(&fields);
