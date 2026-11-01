@@ -295,6 +295,11 @@ parallel = true
   Cycles fail the config load, naming the commands. Unknown names and groups
   fail any plan expansion (`ops <cmd>`, `--dry-run`, `ops explain`) before a
   step starts, because extension commands only register after the config loads.
+  Commands that expand no plan (`ops about`, `ops config`, …) do not check
+  `after` names at all — a deliberate limit: validating the names needs the
+  extension and builtin stores, which those commands never load, and a typo in
+  one step's list would otherwise fail commands that run nothing from the
+  plan. The typo surfaces on the first plan-expanding invocation instead.
 - `ops explain` prints the edges (`next after build`), and `--json` lists them
   as `edges` on the stage.
 
@@ -329,10 +334,20 @@ lifetime across several steps, wrap an `ops` invocation of a sequential group:
 commands = ["release-nextest", "embedded-example"]
 
 [commands.release-tests]
-program = "ops"
+program = "${OPS_BIN}"
 args = ["release-steps"]
 wrap = ["./scripts/e2e-services.sh", "--pg", "--bao", "--"]
 ```
+
+`${OPS_BIN}` is a builtin variable (like `OPS_ROOT`) that expands to the
+absolute path of the *running* `ops` binary — the same resolution ops uses for
+its own internal re-invocations. A bare `program = "ops"` would instead resolve
+through `PATH` at spawn time, so a stale `~/.cargo/bin` copy, a direnv shim, or
+a wrapper that prepends directories to `PATH` before re-invoking it silently
+substitutes a different ops version; `${OPS_BIN}` names this one, and it cannot
+be overridden from the environment. `${VAR}` expands in `program` as in `args`
+(spawn and `--dry-run` both show the resolved path; step lines show the
+reference).
 
 The services outlive both steps, and each step stays a real command that can be
 cloned and run on its own. ops deliberately has no `setup`/`teardown` commands

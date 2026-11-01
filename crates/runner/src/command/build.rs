@@ -740,6 +740,30 @@ mod tests {
         assert_eq!(args, ["--pg", "--", "cargo", "nextest", "run"]);
     }
 
+    /// TASK-2649: `program = "${OPS_BIN}"` is the config-side spelling for
+    /// re-invoking the running ops (e.g. wrapping a group). The spawn head
+    /// must expand to the running binary's absolute path — never a bare
+    /// name `PATH` (or a wrapper that rewrote it) resolves.
+    #[test]
+    fn ops_bin_program_spawns_the_running_binary() {
+        let spec = exec_spec("${OPS_BIN}", &["some-group"]);
+        let cache = WorkspaceCanonicalCache::new();
+        let cmd = build_command_with(
+            &cache,
+            &spec,
+            std::path::Path::new("."),
+            &Variables::from_env(std::path::Path::new(".")).expect("UTF-8 path"),
+            CwdEscapePolicy::WarnAndAllow,
+        )
+        .expect("builds");
+        assert_eq!(
+            cmd.as_std().get_program().to_string_lossy(),
+            ops_core::config::current_ops_program()
+        );
+        let args: Vec<_> = cmd.as_std().get_args().collect();
+        assert_eq!(args, ["some-group"]);
+    }
+
     /// The async variant dispatches its canonicalize work to the blocking
     /// pool, so a single-threaded runtime can still drive other tasks while
     /// `build_command` runs.

@@ -69,6 +69,38 @@ pub struct Variables {
     poison: Option<ExpandError>,
 }
 
+/// Cached absolute path of the running `ops` binary — the value behind the
+/// `OPS_BIN` builtin. Computed once per process from
+/// [`crate::config::current_ops_program`] (itself a `current_exe()` lookup
+/// with a `"ops"` fallback for unusual sandboxing): the running executable
+/// cannot change mid-process, so repeat `Variables::from_env` calls hand out
+/// an `Arc::clone` instead of re-reading `/proc/self/exe` and re-allocating.
+///
+/// `OPS_BIN` exists so a `.ops.toml` can re-invoke *this* binary —
+/// `program = "${OPS_BIN}"`, args = `["<group>"]` under a `wrap` — without
+/// resolving a bare `"ops"` through `PATH`, where a stale `~/.cargo/bin`
+/// copy, a direnv shim, or a wrapper that prepends directories to `PATH`
+/// silently substitutes a different ops version (the same reason the
+/// internal registrations spawn `current_ops_program()`). As a builtin it
+/// shadows any ambient `OPS_BIN` in the environment, matching the
+/// `OPS_ROOT` policy: an inherited variable cannot redirect what
+/// "the running ops" means.
+static OPS_BIN_CACHE: OnceLock<Arc<str>> = OnceLock::new();
+
+/// Hand out the cached [`OPS_BIN_CACHE`] value, initialising it on first
+/// use. Infallible: [`crate::config::current_ops_program`] has a `"ops"`
+/// fallback, so there is no error path to surface (unlike `OPS_ROOT`,
+/// whose non-UTF-8 rendering must fail the strict contract).
+fn cached_ops_bin_arc() -> Arc<str> {
+    if let Some(arc) = OPS_BIN_CACHE.get() {
+        return Arc::clone(arc);
+    }
+    let arc: Arc<str> = Arc::from(crate::config::current_ops_program());
+    // A concurrent caller may win the race; both computed the same
+    // value, so either is correct.
+    Arc::clone(OPS_BIN_CACHE.get_or_init(|| arc))
+}
+
 /// Cached `std::env::temp_dir()` rendering. Computed once per process: the
 /// value depends on `TMPDIR` / OS defaults that do not change after startup,
 /// and `temp_dir()` itself performs a syscall on Unix. Reused across every
@@ -488,6 +520,10 @@ impl Variables {
     /// `TMPDIR`, set it before any `Variables::from_env` runs in that
     /// process.
     ///
+    /// `OPS_BIN` (the running binary's absolute path) is cached the same
+    /// way in [`OPS_BIN_CACHE`]; it is a builtin, so an ambient `OPS_BIN`
+    /// in the environment is always shadowed.
+    ///
     /// # Errors
     ///
     /// An [`ExpandError`] carrying `VarError::NotUnicode` if `ops_root` or
@@ -495,13 +531,14 @@ impl Variables {
     /// rather than lossily rendered so a corrupt path cannot flow into a
     /// spawned subprocess.
     pub fn from_env(ops_root: &Path) -> Result<Self, ExpandError> {
-        let mut builtins: HashMap<&'static str, Arc<str>> = HashMap::with_capacity(2);
+        let mut builtins: HashMap<&'static str, Arc<str>> = HashMap::with_capacity(3);
         // Surface a non-UTF-8 workspace root as a typed
         // `ExpandError` instead of lossy-rendering through
         // `Path::display()`. Strict callers (the command-build path)
         // propagate this so a corrupt OPS_ROOT cannot silently flow into
         // spawned subprocess argv / cwd / env.
         builtins.insert("OPS_ROOT", cached_ops_root_arc(ops_root)?);
+        builtins.insert("OPS_BIN", cached_ops_bin_arc());
         builtins.insert("TMPDIR", cached_tmpdir_arc()?);
         Ok(Self {
             builtins,
@@ -673,6 +710,50 @@ mod tests {
         assert!(
             Arc::ptr_eq(a, b),
             "TMPDIR must be the same Arc across from_env calls"
+        );
+    }
+
+    /// TASK-2649: `${OPS_BIN}` expands to the running binary's absolute
+    /// path — the config-side spelling for re-invoking *this* ops (see
+    /// `current_ops_program`) without resolving a bare `"ops"` through
+    /// `PATH`. Both reference forms must work, like every other builtin.
+    #[test]
+    fn ops_bin_expands_to_the_running_binary() {
+        let vars = test_vars();
+        let expected = crate::config::current_ops_program();
+        assert_eq!(vars.expand("${OPS_BIN}"), expected);
+        assert_eq!(vars.expand("$OPS_BIN"), expected);
+    }
+
+    /// TASK-2649: `OPS_BIN` is a builtin, so an ambient `OPS_BIN` in the
+    /// environment can never redirect what "the running ops" means — the
+    /// same shadowing policy `OPS_ROOT` applies. Pin it: a hostile or
+    /// accidentally-exported `OPS_BIN` is ignored.
+    #[test]
+    #[serial_test::serial]
+    fn ops_bin_shadows_ambient_environment() {
+        // `set_var` is process-global; save and restore the prior value so
+        // the window is invisible to tests that are not party to this one.
+        let saved = std::env::var("OPS_BIN").ok();
+        // SAFETY: test-only mutation, serialised against other `#[serial]`
+        // tests by the attribute above and restored before any assertion.
+        unsafe {
+            std::env::set_var("OPS_BIN", "/nonexistent/ops-shim");
+        }
+        let vars = test_vars();
+        let expanded = vars.expand("${OPS_BIN}");
+        // Restore before asserting so a panic does not leak state.
+        // SAFETY: same test-only window as the swap above.
+        unsafe {
+            match saved {
+                Some(v) => std::env::set_var("OPS_BIN", v),
+                None => std::env::remove_var("OPS_BIN"),
+            }
+        }
+        assert_eq!(
+            expanded,
+            crate::config::current_ops_program(),
+            "ambient OPS_BIN must be shadowed by the builtin"
         );
     }
 

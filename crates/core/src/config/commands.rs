@@ -121,6 +121,12 @@ pub trait CommandMeta {
 /// resolves safely. Set
 /// [`ExecCommandSpec::display_program`] to `"ops"` alongside it so the
 /// rendered step line stays `ops <subcommand>`.
+///
+/// Config-side spelling: a `.ops.toml` cannot call this function, but it
+/// gets the same resolution through the `OPS_BIN` builtin —
+/// `program = "${OPS_BIN}"` expands to this value at spawn time (see the
+/// "Running a command inside a wrapper" section of `docs/configuration.md`
+/// and [`crate::expand::Variables`]).
 #[must_use]
 pub fn current_ops_program() -> String {
     std::env::current_exe()
