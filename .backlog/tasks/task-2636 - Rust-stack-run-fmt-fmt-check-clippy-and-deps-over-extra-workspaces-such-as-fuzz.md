@@ -1,10 +1,10 @@
 ---
 id: TASK-2636
 title: 'Rust stack: run fmt, fmt-check, clippy and deps over extra workspaces such as fuzz/'
-status: To Do
+status: Done
 assignee: []
 created_date: '2026-10-26 22:12'
-updated_date: '2026-10-27 09:32'
+updated_date: '2026-11-01 17:39'
 labels:
   - feature
   - config
@@ -40,4 +40,7 @@ Phase 2, maybe: options for the drift between a nested workspace and the root, w
 
 <!-- SECTION:NOTES:BEGIN -->
 Setting lives in [cargo] beside `locked`: `[cargo] workspaces = [".", "fuzz"]`. fmt, fmt-check, check, clippy and build become a matrix over a `workspace` axis with `--manifest-path ${matrix.workspace}/Cargo.toml` (config::workspaces, applied after [extend], before locked). `deps` is an extension command the loader cannot reshape, so `ops deps` iterates the list itself, one titled report per workspace. `ops explain` text names each matrix cell. AC3 checked against a scratch copy of dbsec: deleting the seven definitions keeps the same coverage; fuzz clippy now runs in verify stage 1 rather than after fuzz-lock, and its explicit --locked comes from `[cargo] locked` instead.
+
+Closed 2026-11-01: shipped in v0.88.0 (#105). Verified live on main and in dbsec (a41b34c): its seven hand definitions are deleted and ops explain verify shows one labelled step per workspace. Phase 2 (lock agreement, lints sync) filed separately in Triage.
+
 <!-- SECTION:NOTES:END -->
