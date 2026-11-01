@@ -1,10 +1,10 @@
 ---
 id: TASK-2651
 title: 'ops config check reads only mise.toml''s bare ops key'
-status: To Do
+status: Done
 assignee: []
 created_date: '2026-11-01 00:41'
-updated_date: '2026-11-01 10:31'
+updated_date: '2026-11-01 13:45'
 labels:
   - code-review-rust
   - config
@@ -31,5 +31,12 @@ ordinal: 1000
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 Every pin location mise honours for ops is read, or the supported set is documented
+- [x] #1 Every pin location mise honours for ops is read, or the supported set is documented
+
 <!-- AC:END -->
+
+## Implementation Notes
+
+<!-- SECTION:NOTES:BEGIN -->
+mise_ops_pin now reads every committed single-file mise location mise honours at the project root - mise.toml, .mise.toml, mise/config.toml, .mise/config.toml, .config/mise.toml, .config/mise/config.toml - in mise's precedence order (last file naming a pin wins, as in mise), under both the ops key and the backend key github:rsvalerio/ops. The winning file is reported (new MiseOpsPin struct; ops config check prints '<file> pin', foundation drift names the file). Deliberately not read, documented in docs/configuration.md and the MISE_FILES doc comment: *.local.toml (uncommitted, CI never installs it), conf.d directories, parent directories, the user's global config and .tool-versions. Ripple: crates/core/src/config/mod.rs re-export and crates/cli/src/config_cmd.rs source label.
+<!-- SECTION:NOTES:END -->
