@@ -2,6 +2,12 @@
 All notable changes to this project will be documented in this file. See [conventional commits](https://www.conventionalcommits.org/) for commit guidelines.
 
 - - -
+## [v0.90.1](https://github.com/rsvalerio/ops/compare/17dbf6f83da4216ebc8881f6628ef81a4f5e5bb8..v0.90.1) - 2026-11-01
+#### 🐛 Bug Fixes
+- (**release**) build aarch64-apple-darwin on macos-15 (#121) - ([58bbe68](https://github.com/rsvalerio/ops/commit/58bbe6823e2fedee647cf5ea3650b4c35e2e4030)) - [@rsvalerio](https://github.com/rsvalerio)
+
+- - -
+
 ## [v0.90.0](https://github.com/rsvalerio/ops/compare/7ed6e625f7ff61478933c8f95abfc20ff5917190..v0.90.0) - 2026-10-31
 #### 🚀 Features
 - (**config**) drop test-doc from the default Rust verify (#119) - ([7ed6e62](https://github.com/rsvalerio/ops/commit/7ed6e625f7ff61478933c8f95abfc20ff5917190)) - [@rsvalerio](https://github.com/rsvalerio)
