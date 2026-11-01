@@ -62,3 +62,8 @@ allow-dirty = ["ci"]
 # Dispatching decouples them: the marker keeps suppressing CI, and the bump job asks
 # for the release explicitly once the tag exists. See docs/releasing.md.
 dispatch-releases = true
+
+# dist's default for this target is macos-14, which GitHub retires on 2026-11-02.
+# The matrix is computed at plan time from this file, so release.yml needs no edit.
+[dist.github-custom-runners]
+aarch64-apple-darwin = "macos-15"
