@@ -1,10 +1,10 @@
 ---
 id: TASK-2647
 title: 'ops''s own tree fails ops doc-ids: 989 ids left in doc comments'
-status: To Do
+status: Done
 assignee: []
 created_date: '2026-11-01 00:09'
-updated_date: '2026-11-01 10:31'
+updated_date: '2026-11-01 13:32'
 labels:
   - code-review-rust
   - READ
@@ -30,6 +30,7 @@ ordinal: 1000
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 ops doc-ids exits 0 on this repo
-- [ ] #2 doc-ids is part of a local gate (verify or qa)
+- [x] #1 ops doc-ids exits 0 on this repo
+- [x] #2 doc-ids is part of a local gate (verify or qa)
+
 <!-- AC:END -->
