@@ -69,6 +69,7 @@ pub const fn unpreviewable_builtin(sub: &CoreSubcommand) -> Option<&'static str>
         | CoreSubcommand::Semver
         | CoreSubcommand::FeatureMatrix
         | CoreSubcommand::DocIds
+        | CoreSubcommand::CheckWorkspaces
         | CoreSubcommand::LintActions { .. }
         | CoreSubcommand::External(_) => None,
     }
@@ -138,6 +139,7 @@ mod tests {
             (&["semver"], false),
             (&["feature-matrix"], false),
             (&["doc-ids"], false),
+            (&["check-workspaces"], false),
             (&["lint-actions"], false),
             (&["build"], false),
         ]

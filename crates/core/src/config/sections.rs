@@ -91,11 +91,18 @@ pub struct CargoSection {
     /// cell per entry, and `ops deps` reports each; see `config::workspaces`.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub workspaces: Option<Vec<String>>,
+    /// Lints a workspace named in `workspaces` may differ in or omit, as
+    /// `<workspace> -> <group>.<lint> -> the reason the exception exists`.
+    /// `ops check-workspaces` holds each nested `[lints]` table to the root
+    /// `[workspace.lints]`; an entry here is the one deliberate difference,
+    /// written down by whoever allowed it.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub lint_exemptions: Option<IndexMap<String, IndexMap<String, String>>>,
 }
 
 impl CargoSection {
     pub(crate) const fn is_default(&self) -> bool {
-        self.locked.is_none() && self.workspaces.is_none()
+        self.locked.is_none() && self.workspaces.is_none() && self.lint_exemptions.is_none()
     }
 
     /// The configured workspace directories; empty when unset.

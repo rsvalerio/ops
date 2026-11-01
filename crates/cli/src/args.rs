@@ -353,6 +353,13 @@ pub enum CoreSubcommand {
     /// current directory, nested workspaces included. Needs no external tool.
     #[command(name = "doc-ids")]
     DocIds,
+    /// Check the nested workspaces in `[cargo] workspaces` against the root.
+    ///
+    /// Each nested `Cargo.lock` must agree with the root one on every shared
+    /// crate and its dependency edges, and each nested `[lints]` table must
+    /// be the root `[workspace.lints]`, modulo `[cargo] lint_exemptions`.
+    #[command(name = "check-workspaces")]
+    CheckWorkspaces,
     /// Lint GitHub workflows: full-SHA action pins, no `secrets: inherit`.
     ///
     /// Every `uses:` under `.github/workflows/` and in composite action
@@ -1007,6 +1014,7 @@ const fn stack_specific_commands() -> &'static [(&'static str, Stack)] {
         ("semver", Stack::Rust),
         ("feature-matrix", Stack::Rust),
         ("doc-ids", Stack::Rust),
+        ("check-workspaces", Stack::Rust),
     ]
 }
 

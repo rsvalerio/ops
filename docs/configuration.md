@@ -145,6 +145,40 @@ absolute path, a `..` component, or a directory or `Cargo.toml` that resolves
 outside the project through a symlink fails the load. A list that is empty or
 names only `.` changes nothing.
 
+### `ops check-workspaces`
+
+A nested workspace is a workspace root of its own and inherits nothing: it
+resolves its own `Cargo.lock` from scratch and copies the root lint policy by
+hand, and nothing makes cargo keep either in step. `ops check-workspaces`
+holds each one to the root, read-only:
+
+- **Lock agreement.** Every `(name, version, source)` the nested `Cargo.lock`
+  pins for a crate the root `Cargo.lock` also holds must be the triple the
+  root pins — the nested graph may be smaller and carry crates the root has
+  none of, but not resolve a different release of a shared crate. Beyond
+  versions, the dependency edges of a shared package must agree: an edge the
+  nested lockfile records and the root does not is drift, and for a crate
+  whose manifest is in the repo every required (non-optional, non-dev)
+  dependency the manifest declares must be an edge in both lockfiles.
+- **Lints sync.** The nested `[lints]` tables must be the root
+  `[workspace.lints]` tables, in both directions, compared as policies so a
+  reflowed copy of a table is the same table.
+
+A deliberate difference is recorded, with its reason, under
+`[cargo] lint_exemptions` — an exemption licenses the named workspace
+*omitting* the lint, never setting it to something else, and never keeping a
+lint the root has dropped:
+
+```toml
+[cargo.lint_exemptions.fuzz]
+"rust.unsafe_code" = "libfuzzer's fuzz_target! expands to an extern \"C\" entry point that is unsafe by construction"
+```
+
+Lockfile drift is fixed by re-seeding: `cp Cargo.lock fuzz/Cargo.lock`, then
+any cargo command inside `fuzz/` to re-resolve. The command is not part of
+the default gates; add `check-workspaces` to `verify` or `qa` as a step, the
+way any other check is wired.
+
 You rarely write the list by hand. `ops init` in a Rust project looks for
 nested workspaces and writes the list with a comment on each entry, and
 `ops init --rust --check` reports when the list and the tree disagree (see
