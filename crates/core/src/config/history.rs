@@ -27,6 +27,7 @@
 //! deliberately not tracked: no enumerable record of one exists to read, so
 //! where behaviour matters, run the pinned `ops` itself.
 
+use std::collections::HashMap;
 use std::fmt;
 use std::path::Path;
 use std::str::FromStr;
@@ -324,6 +325,16 @@ pub fn fields_used(workspace_root: &Path) -> anyhow::Result<Vec<UsedField>> {
     for (file, table) in &tables {
         walk(table, "", "", &mut WalkCtx { file, custom_themes: &custom_themes, out: &mut out });
     }
+    // A value a later file replaces never reaches the loader — `.ops.d`
+    // fragments load above `.ops.toml`, so for each key only the last file
+    // that sets it is in effect. Keep only that file's rows for the key: a
+    // replaced value must not drive the minimum version or the pin check.
+    let path_of = |field: &str| field.split_once(" = \"").map_or(field, |(p, _)| p).to_owned();
+    let mut last_file: HashMap<String, String> = HashMap::with_capacity(out.len());
+    for used in &out {
+        last_file.insert(path_of(&used.field), used.file.clone());
+    }
+    out.retain(|used| last_file.get(&path_of(&used.field)).is_some_and(|f| *f == used.file));
     Ok(out)
 }
 
@@ -639,6 +650,26 @@ mod tests {
         let fields = fields_used(dir.path()).expect("fields");
         let found = fields.iter().find(|f| f.field == "cargo.workspaces").expect("fragment field");
         assert_eq!(found.file, Path::new(".ops.d").join("x.toml").display().to_string());
+    }
+
+    /// Only the value a later fragment leaves in effect counts: the loader
+    /// replaces an earlier file's `theme`, so `flux` must not drive the
+    /// minimum version even though `.ops.toml` still names it.
+    #[test]
+    fn a_value_a_later_fragment_replaces_does_not_count() {
+        let dir = project("[output]\ntheme = \"flux\"\n");
+        let conf_d = dir.path().join(".ops.d");
+        std::fs::create_dir(&conf_d).expect("mkdir");
+        std::fs::write(conf_d.join("ci.toml"), "[output]\ntheme = \"classic\"\n").expect("write");
+        let fields = fields_used(dir.path()).expect("fields");
+        assert!(!fields.iter().any(|f| f.field.contains("flux")), "{fields:?}");
+        let theme = fields.iter().find(|f| f.field == "output.theme").expect("theme row");
+        assert_eq!(theme.file, Path::new(".ops.d").join("ci.toml").display().to_string());
+        let dir = project("[output]\ntheme = \"flux\"\n");
+        assert!(
+            fields_used(dir.path()).expect("fields").iter().any(|f| f.field.contains("flux")),
+            "a value nothing replaces still counts"
+        );
     }
 
     #[test]

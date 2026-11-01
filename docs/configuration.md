@@ -59,9 +59,11 @@ rejects a field.
 The check reads `.ops.toml` and `.ops.d/*.toml`, the files a project commits. It knows the
 release each field became loadable, including a field that gained a new place (`args` beside
 `clone`), and the release a value arrived where its field is older (`theme = "flux"` needs
-0.17.0; a theme your own `[themes]` defines is yours and needs nothing). A behaviour change
-that no field or value marks is deliberately out of the check's scope: no record of one
-exists to read, so where behaviour matters, run the pinned `ops` itself.
+0.17.0; a theme your own `[themes]` defines is yours and needs nothing). Only the value in
+effect counts: a later file replaces an earlier one's setting — a fragment's
+`theme = "classic"` makes `.ops.toml`'s `"flux"` the loader's, and the check's too. A
+behaviour change that no field or value marks is deliberately out of the check's scope: no
+record of one exists to read, so where behaviour matters, run the pinned `ops` itself.
 
 `ops` records each field's release in `crates/core/src/config/history.rs`, and a test fails
 until a new field is listed there.
