@@ -1,10 +1,10 @@
 ---
 id: TASK-2646
 title: 'code-review-plan-wave77'
-status: To Do
+status: Done
 assignee: []
 created_date: '2026-10-31 23:55'
-updated_date: '2026-10-31 23:55'
+updated_date: '2026-11-01 00:41'
 labels:
   - code-review-wave
 dependencies:
@@ -42,4 +42,8 @@ Standalone: a release history of config fields and ops config check --as. A new 
 
 <!-- SECTION:NOTES:BEGIN -->
 Overlaps: TASK-2644 (docs/configuration.md); TASK-2645 (crates/cli/src/args.rs, crates/cli/src/main.rs, docs/configuration.md, docs/foundation.md)
+
+Branch: code-review/TASK-2646
+Worktree: /home/rsvalerio/projects/.wave-TASK-2646
+
 <!-- SECTION:NOTES:END -->
