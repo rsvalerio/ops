@@ -82,13 +82,7 @@ pub fn plan_document(
     let mut tools: Vec<(Tool, Vec<String>)> = Vec::new();
 
     for plan in plans {
-        collect_composites(
-            runner,
-            config,
-            &plan.name,
-            &mut seen_composites,
-            &mut composites,
-        );
+        collect_composites(runner, config, &plan.name, &mut seen_composites, &mut composites);
         for id in plan.plan.leaf_ids() {
             if seen_steps.insert(id.to_string()) {
                 let (step, step_tools) = step_json(runner, config, vars, &id)?;
@@ -149,11 +143,7 @@ fn record_tool(tools: &mut Vec<(Tool, Vec<String>)>, tool: Tool, id: &str) {
 /// executor splits them into; a sequence lists its children in run order.
 fn node_json(runner: &CommandRunner, plan: &CommandPlan) -> Value {
     match plan {
-        CommandPlan::Stage {
-            leaf_ids,
-            parallel,
-            fail_fast,
-        } => json!({
+        CommandPlan::Stage { leaf_ids, parallel, fail_fast } => json!({
             "type": "stage",
             "parallel": parallel,
             "failFast": fail_fast,
@@ -170,10 +160,7 @@ fn node_json(runner: &CommandRunner, plan: &CommandPlan) -> Value {
                 }))
                 .collect::<Vec<_>>(),
         }),
-        CommandPlan::Sequence {
-            children,
-            fail_fast,
-        } => json!({
+        CommandPlan::Sequence { children, fail_fast } => json!({
             "type": "sequence",
             "failFast": fail_fast,
             "children": children.iter().map(|c| node_json(runner, c)).collect::<Vec<_>>(),
@@ -196,10 +183,7 @@ fn stages(
     }
     let lengths = stage_lengths(ids.iter().map(|id| is_exclusive(runner, id)));
     let mut rest = ids.into_iter();
-    lengths
-        .into_iter()
-        .map(|len| rest.by_ref().take(len).collect())
-        .collect()
+    lengths.into_iter().map(|len| rest.by_ref().take(len).collect()).collect()
 }
 
 /// The `after` edges a stage honours, as `(step, steps it waits for)`: only
@@ -212,10 +196,8 @@ fn after_edges(
     if !parallel {
         return Vec::new();
     }
-    let in_stage: HashSet<&str> = leaf_ids
-        .iter()
-        .map(ops_core::config::CommandId::as_str)
-        .collect();
+    let in_stage: HashSet<&str> =
+        leaf_ids.iter().map(ops_core::config::CommandId::as_str).collect();
     let mut seen = HashSet::new();
     let mut edges = Vec::new();
     for id in leaf_ids {
@@ -357,10 +339,7 @@ fn exec_fields(
         None => Vec::new(),
     };
     merge_tools(&mut tools, exec_tools(e, &program, &args));
-    obj.insert(
-        "tools".into(),
-        json!(tools.iter().map(|t| &t.name).collect::<Vec<_>>()),
-    );
+    obj.insert("tools".into(), json!(tools.iter().map(|t| &t.name).collect::<Vec<_>>()));
     obj.insert("wrap".into(), json!(wrap));
     obj.insert("program".into(), json!(program));
     obj.insert("args".into(), json!(args));
@@ -398,11 +377,7 @@ fn origin_json(runner: &CommandRunner, config: &Config, id: &str) -> Value {
     }
     let source = match source {
         CommandSource::Config
-            if config
-                .provenance
-                .extended_stack_defaults
-                .iter()
-                .any(|n| n == name) =>
+            if config.provenance.extended_stack_defaults.iter().any(|n| n == name) =>
         {
             "stack"
         }
@@ -459,11 +434,7 @@ fn write_node(
 ) -> anyhow::Result<()> {
     let indent = "  ".repeat(depth);
     match plan {
-        CommandPlan::Stage {
-            leaf_ids,
-            parallel,
-            fail_fast,
-        } => {
+        CommandPlan::Stage { leaf_ids, parallel, fail_fast } => {
             writeln!(
                 w,
                 "{indent}{} (fail_fast = {fail_fast})",
@@ -487,12 +458,7 @@ fn write_node(
             }
             for (step, after) in after_edges(runner, leaf_ids, *parallel) {
                 let after: Vec<String> = after.iter().map(|id| audit_safe(id)).collect();
-                writeln!(
-                    w,
-                    "{indent}  {} after {}",
-                    audit_safe(&step),
-                    after.join(", ")
-                )?;
+                writeln!(w, "{indent}  {} after {}", audit_safe(&step), after.join(", "))?;
             }
             for id in leaf_ids {
                 if let Some(CommandSpec::Exec(e)) = runner.resolve(id) {
@@ -507,10 +473,7 @@ fn write_node(
                 }
             }
         }
-        CommandPlan::Sequence {
-            children,
-            fail_fast,
-        } => {
+        CommandPlan::Sequence { children, fail_fast } => {
             writeln!(w, "{indent}sequence (fail_fast = {fail_fast})")?;
             for child in children {
                 write_node(runner, child, depth.saturating_add(1), w)?;
@@ -527,11 +490,7 @@ mod tests {
     use super::super::ExplainOutput;
 
     fn explain(names: &[&str], json: bool) -> String {
-        let output = if json {
-            ExplainOutput::Json
-        } else {
-            ExplainOutput::Text
-        };
+        let output = if json { ExplainOutput::Json } else { ExplainOutput::Text };
         explain_as(names, output)
     }
 
@@ -580,10 +539,7 @@ commands = ["touch-a"]
             explain(names, true);
             explain(names, false);
         }
-        assert!(
-            !dir.path().join("ran-marker").exists(),
-            "ops explain must never run a step"
-        );
+        assert!(!dir.path().join("ran-marker").exists(), "ops explain must never run a step");
     }
 
     /// The JSON document carries the schema version, each composite's
@@ -663,14 +619,9 @@ args = ["--locked"]
             })
         );
         let build = step("build");
-        assert_eq!(
-            build["origin"],
-            serde_json::json!({ "source": "stack", "extended": true })
-        );
+        assert_eq!(build["origin"], serde_json::json!({ "source": "stack", "extended": true }));
         assert!(
-            build["args"]
-                .as_array()
-                .is_some_and(|a| a.iter().any(|v| v == "--locked")),
+            build["args"].as_array().is_some_and(|a| a.iter().any(|v| v == "--locked")),
             "the extended args must show up: {build}"
         );
     }
@@ -711,15 +662,8 @@ commands = ["nt", "lint", "bld", "script", "sec", "end-of-file-fixer"]
             .iter()
             .filter_map(|t| t["name"].as_str())
             .collect();
-        assert_eq!(
-            names,
-            ["cargo", "cargo-nextest", "cargo-clippy", "trivy"],
-            "{doc}"
-        );
-        assert_eq!(
-            doc["tools"][0]["requiredBy"],
-            serde_json::json!(["nt", "lint", "bld"])
-        );
+        assert_eq!(names, ["cargo", "cargo-nextest", "cargo-clippy", "trivy"], "{doc}");
+        assert_eq!(doc["tools"][0]["requiredBy"], serde_json::json!(["nt", "lint", "bld"]));
         assert_eq!(doc["tools"][3]["requiredBy"], serde_json::json!(["sec"]));
         assert_eq!(doc["tools"][3]["optional"], false);
         assert_eq!(doc["tools"][2]["install"], "rustup component add clippy");
@@ -769,12 +713,7 @@ commands = ["bld", "missing"]
                 .unwrap_or_else(|| panic!("tool {name} missing from {doc}"))["installedVersion"]
                 .clone()
         };
-        assert!(
-            version("cargo")
-                .as_str()
-                .is_some_and(|v| v.starts_with("cargo ")),
-            "{doc}"
-        );
+        assert!(version("cargo").as_str().is_some_and(|v| v.starts_with("cargo ")), "{doc}");
         assert_eq!(version("ops-no-such-tool-2335"), serde_json::Value::Null);
     }
 
@@ -871,10 +810,7 @@ parallel = true
             serde_json::from_str(&explain(&["gate"], true)).expect("valid JSON");
         let plan = &doc["commands"][0]["plan"];
         assert_eq!(plan["steps"], serde_json::json!(["build", "next"]));
-        assert_eq!(
-            plan["edges"],
-            serde_json::json!([{ "step": "next", "after": ["build"] }])
-        );
+        assert_eq!(plan["edges"], serde_json::json!([{ "step": "next", "after": ["build"] }]));
         let next = doc["steps"]
             .as_array()
             .and_then(|s| s.iter().find(|s| s["id"] == "next"))
@@ -888,10 +824,7 @@ parallel = true
         let text = explain(&["gate"], false);
         assert!(text.contains("stage 1 [concurrent]: build, next"), "{text}");
         assert!(text.contains("next after build\n"), "{text}");
-        assert!(
-            text.contains("next wrapped by ./svc.sh --pg --\n"),
-            "{text}"
-        );
+        assert!(text.contains("next wrapped by ./svc.sh --pg --\n"), "{text}");
     }
 
     /// A wrapper named on `PATH` is a tool the plan needs; a script path is

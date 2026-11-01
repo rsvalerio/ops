@@ -84,10 +84,7 @@ repository = "https://github.com/example/repo"
     assert_eq!(pkg.edition.as_str(), Some("2024"));
     assert_eq!(pkg.description.as_str(), Some("Shared description"));
     assert_eq!(pkg.license.as_str(), Some("MIT"));
-    assert_eq!(
-        pkg.repository.as_str(),
-        Some("https://github.com/example/repo")
-    );
+    assert_eq!(pkg.repository.as_str(), Some("https://github.com/example/repo"));
 }
 
 #[test]
@@ -144,19 +141,13 @@ publish = false
         pkg.keywords,
         crate::InheritableField::Value(vec!["a".to_string(), "b".to_string()])
     );
-    assert_eq!(
-        pkg.categories,
-        crate::InheritableField::Value(vec!["dev-tools".to_string()])
-    );
+    assert_eq!(pkg.categories, crate::InheritableField::Value(vec!["dev-tools".to_string()]));
     match pkg.readme.as_ref().expect("readme set") {
         crate::ReadmeSpec::Path(p) => assert_eq!(p, "README.md"),
         other => panic!("expected ReadmeSpec::Path after inheritance, got {other:?}"),
     }
     assert_eq!(
-        pkg.license_file
-            .as_ref()
-            .expect("license_file set")
-            .as_str(),
+        pkg.license_file.as_ref().expect("license_file set").as_str(),
         Some("LICENSE.shared")
     );
     assert_eq!(pkg.publish.is_publishable(), Some(false));
@@ -177,10 +168,7 @@ members = []
 
     // Version should remain inherited (unresolved) since no workspace.package exists
     let pkg = manifest.package.as_ref().unwrap();
-    assert_eq!(
-        pkg.version,
-        crate::InheritableField::Inherited { workspace: true }
-    );
+    assert_eq!(pkg.version, crate::InheritableField::Inherited { workspace: true });
 }
 
 #[test]
@@ -236,9 +224,7 @@ cc = { version = "1.0", features = ["parallel"] }
 
     assert_eq!(manifest.dev_dependencies["tempfile"].version(), Some("3.0"));
     assert_eq!(manifest.build_dependencies["cc"].version(), Some("1.0"));
-    assert!(manifest.build_dependencies["cc"]
-        .features()
-        .contains(&"parallel".to_string()));
+    assert!(manifest.build_dependencies["cc"].features().contains(&"parallel".to_string()));
 }
 
 #[test]
@@ -373,9 +359,7 @@ fn inheritable_field_absent_round_trips_through_json() {
     // alone would stay green if the field stopped being serialised at all —
     // which is a different (and also wrong) outcome from "serialised as
     // null". Pin the key's presence first.
-    let package = json["package"]
-        .as_object()
-        .expect("package must serialise as an object");
+    let package = json["package"].as_object().expect("package must serialise as an object");
     assert!(
         package.contains_key("version"),
         "an absent field must still be emitted, got keys {:?}",
@@ -389,12 +373,7 @@ fn inheritable_field_absent_round_trips_through_json() {
 
     let back: CargoToml = serde_json::from_value(json).expect("deserialize");
     assert_eq!(back.package_version(), None);
-    assert!(back
-        .package
-        .as_ref()
-        .expect("package exists")
-        .version
-        .is_absent());
+    assert!(back.package.as_ref().expect("package exists").version.is_absent());
 }
 
 /// SEC-31 / TASK-1789: `publish = { workspace = true }` against a
@@ -424,10 +403,7 @@ version = "1.0.0"
 
     let pkg = manifest.package.as_ref().unwrap();
     assert!(
-        matches!(
-            pkg.publish,
-            crate::PublishSpec::Inherited { workspace: true }
-        ),
+        matches!(pkg.publish, crate::PublishSpec::Inherited { workspace: true }),
         "an undeclared workspace publish must leave the member unresolved, got {:?}",
         pkg.publish
     );
@@ -530,10 +506,7 @@ my-crate = { git = "https://github.com/example/repo", branch = "main", tag = "v1
 
     let dep = &manifest.dependencies["my-crate"];
     let detail = dep.detail().expect("should be detailed");
-    assert_eq!(
-        detail.git.as_deref(),
-        Some("https://github.com/example/repo")
-    );
+    assert_eq!(detail.git.as_deref(), Some("https://github.com/example/repo"));
     assert_eq!(detail.branch.as_deref(), Some("main"));
     assert_eq!(detail.tag.as_deref(), Some("v1"));
     assert_eq!(detail.rev.as_deref(), Some("abc"));
@@ -602,10 +575,7 @@ license = "Apache-2.0"
     assert_eq!(pkg.description.as_str(), Some("Shared desc"));
     assert_eq!(pkg.documentation.as_str(), Some("https://docs.example.com"));
     assert_eq!(pkg.homepage.as_str(), Some("https://example.com"));
-    assert_eq!(
-        pkg.repository.as_str(),
-        Some("https://github.com/example/repo")
-    );
+    assert_eq!(pkg.repository.as_str(), Some("https://github.com/example/repo"));
     assert_eq!(pkg.license.as_str(), Some("Apache-2.0"));
 }
 
@@ -628,10 +598,7 @@ edition = "2024"
 
     let pkg = manifest.package.as_ref().unwrap();
     // version has workspace=true but ws.package has no version → stays inherited
-    assert_eq!(
-        pkg.version,
-        crate::InheritableField::Inherited { workspace: true }
-    );
+    assert_eq!(pkg.version, crate::InheritableField::Inherited { workspace: true });
     // edition was already a direct value, should remain unchanged
     assert_eq!(pkg.edition.as_str(), Some("2021"));
 }

@@ -36,10 +36,7 @@ pub fn install_hook(
     let git_dir = canonical_git_dir(git_dir)?;
     let hooks_dir = git_dir.join("hooks");
     std::fs::create_dir_all(&hooks_dir).with_context(|| {
-        format!(
-            "failed to create .git/hooks directory {}",
-            hooks_dir.display()
-        )
+        format!("failed to create .git/hooks directory {}", hooks_dir.display())
     })?;
     let hooks_dir = canonical_subdir(&git_dir, &hooks_dir)?;
     let hook_path = hooks_dir.join(config.hook_filename);
@@ -74,10 +71,7 @@ pub fn install_hook(
 /// correctness bug on its own.
 fn reject_symlinked_hook(hook_path: &Path) -> anyhow::Result<()> {
     if std::fs::symlink_metadata(hook_path).is_ok_and(|m| m.file_type().is_symlink()) {
-        anyhow::bail!(
-            "refusing to install hook: {} is a symlink",
-            hook_path.display()
-        );
+        anyhow::bail!("refusing to install hook: {} is a symlink", hook_path.display());
     }
     Ok(())
 }
@@ -167,13 +161,8 @@ const EXISTING_HOOK_READ_MARGIN_BYTES: usize = 4 * 1024;
 /// The classification read cap: no existing hook needs more bytes than
 /// this to be classified, so no existing hook is read beyond it.
 fn existing_hook_read_cap(config: &HookConfig) -> u64 {
-    u64::try_from(
-        config
-            .hook_script
-            .len()
-            .saturating_add(EXISTING_HOOK_READ_MARGIN_BYTES),
-    )
-    .unwrap_or(u64::MAX)
+    u64::try_from(config.hook_script.len().saturating_add(EXISTING_HOOK_READ_MARGIN_BYTES))
+        .unwrap_or(u64::MAX)
 }
 
 /// Read the existing hook for classification, bounded by
@@ -443,10 +432,7 @@ fn stage_hook_payload(
         .prefix(&format!(".{file_name}.ops-tmp."))
         .tempfile_in(parent)
         .with_context(|| {
-            format!(
-                "failed to create temp hook in {} for atomic rename",
-                parent.display()
-            )
+            format!("failed to create temp hook in {} for atomic rename", parent.display())
         })?;
     let tmp_path = tmp.path().to_path_buf();
     write_hook_payload(tmp.as_file(), &tmp_path, config).inspect_err(|_| {
@@ -465,8 +451,7 @@ fn write_hook_payload(file: &File, tmp_path: &Path, config: &HookConfig) -> anyh
     let mut file = file;
     file.write_all(config.hook_script.as_bytes())
         .with_context(|| format!("failed to write temp hook {}", tmp_path.display()))?;
-    file.sync_all()
-        .with_context(|| format!("failed to fsync temp hook {}", tmp_path.display()))?;
+    file.sync_all().with_context(|| format!("failed to fsync temp hook {}", tmp_path.display()))?;
     Ok(())
 }
 
@@ -595,14 +580,8 @@ mod tests {
         // Restore permissions so tempdir cleanup succeeds.
         std::fs::set_permissions(&hooks, std::fs::Permissions::from_mode(0o755)).unwrap();
 
-        assert!(
-            result.is_err(),
-            "install must fail on an unwritable hooks dir"
-        );
-        assert!(
-            !leftover,
-            "no file — in particular no empty file — may remain at the hook path"
-        );
+        assert!(result.is_err(), "install must fail on an unwritable hooks dir");
+        assert!(!leftover, "no file — in particular no empty file — may remain at the hook path");
     }
 
     /// An install killed between staging and the rename
@@ -661,10 +640,7 @@ mod tests {
     #[test]
     fn classify_existing_hook_separates_partial_from_foreign() {
         let cfg = commit_config();
-        assert_eq!(
-            classify_existing_hook(cfg.hook_script, &cfg),
-            ExistingHook::Current
-        );
+        assert_eq!(classify_existing_hook(cfg.hook_script, &cfg), ExistingHook::Current);
         assert_eq!(classify_existing_hook("", &cfg), ExistingHook::Partial);
         assert_eq!(
             classify_existing_hook(truncated_hook_script(&cfg), &cfg),
@@ -674,10 +650,7 @@ mod tests {
             classify_existing_hook("#!/bin/sh\nexec ops before-commit\n", &cfg),
             ExistingHook::Legacy
         );
-        assert_eq!(
-            classify_existing_hook("#!/bin/sh\necho mine\n", &cfg),
-            ExistingHook::Foreign
-        );
+        assert_eq!(classify_existing_hook("#!/bin/sh\necho mine\n", &cfg), ExistingHook::Foreign);
     }
 
     /// A hook that is not valid UTF-8 (a
@@ -742,10 +715,7 @@ mod tests {
             msg.contains("was not installed by ops"),
             "must refuse with the foreign-hook message, got: {msg}"
         );
-        assert!(
-            msg.contains("read cap"),
-            "must say why it could not be classified, got: {msg}"
-        );
+        assert!(msg.contains("read cap"), "must say why it could not be classified, got: {msg}");
         assert_eq!(
             std::fs::read_to_string(&hook_path).unwrap(),
             content,
@@ -800,11 +770,8 @@ mod tests {
         let git_dir = dir.path().join(".git");
         std::fs::create_dir_all(git_dir.join("hooks")).unwrap();
         std::fs::write(git_dir.join("HEAD"), "ref: refs/heads/main\n").unwrap();
-        std::fs::write(
-            git_dir.join("hooks/pre-commit"),
-            "#!/bin/sh\nexec ops before-commit\n",
-        )
-        .unwrap();
+        std::fs::write(git_dir.join("hooks/pre-commit"), "#!/bin/sh\nexec ops before-commit\n")
+            .unwrap();
 
         let mut buf = Vec::new();
         let path = install_hook(&cfg, &git_dir, &mut buf).expect("install_hook");
@@ -839,16 +806,10 @@ mod tests {
             result.is_err(),
             "installer must refuse user hook whose marker is only in a comment"
         );
-        assert!(result
-            .unwrap_err()
-            .to_string()
-            .contains("not installed by ops"));
+        assert!(result.unwrap_err().to_string().contains("not installed by ops"));
 
         // User's hook content must be preserved verbatim.
-        assert_eq!(
-            std::fs::read_to_string(git_dir.join("hooks/pre-commit")).unwrap(),
-            user_hook
-        );
+        assert_eq!(std::fs::read_to_string(git_dir.join("hooks/pre-commit")).unwrap(), user_hook);
     }
 
     /// A user-authored hook that mentions the
@@ -861,10 +822,7 @@ mod tests {
         let cfg = commit_config();
 
         let echo_arg = "#!/bin/sh\necho \"Tip: run 'ops run-before-commit' manually\"\n";
-        assert!(
-            !has_legacy_marker(echo_arg, &cfg),
-            "marker inside echo argument must not match"
-        );
+        assert!(!has_legacy_marker(echo_arg, &cfg), "marker inside echo argument must not match");
 
         let printf_arg =
             "#!/bin/sh\nprintf 'see: ops run-before-commit\\n'\nexec /usr/local/bin/my-checks\n";
@@ -874,10 +832,7 @@ mod tests {
         );
 
         let heredoc = "#!/bin/sh\ncat <<'NOTE'\nrun ops run-before-commit when ready\nNOTE\n";
-        assert!(
-            !has_legacy_marker(heredoc, &cfg),
-            "marker inside here-doc body must not match"
-        );
+        assert!(!has_legacy_marker(heredoc, &cfg), "marker inside here-doc body must not match");
 
         // Word boundary: a marker followed by an identifier continuation is
         // not a hit either.
@@ -911,20 +866,11 @@ mod tests {
 
         let mut buf = Vec::new();
         let result = install_hook(&cfg, &git_dir, &mut buf);
-        assert!(
-            result.is_err(),
-            "marker inside echo arg must not trigger upgrade"
-        );
-        assert!(result
-            .unwrap_err()
-            .to_string()
-            .contains("not installed by ops"));
+        assert!(result.is_err(), "marker inside echo arg must not trigger upgrade");
+        assert!(result.unwrap_err().to_string().contains("not installed by ops"));
 
         // User content preserved verbatim.
-        assert_eq!(
-            std::fs::read_to_string(git_dir.join("hooks/pre-commit")).unwrap(),
-            user_hook
-        );
+        assert_eq!(std::fs::read_to_string(git_dir.join("hooks/pre-commit")).unwrap(), user_hook);
     }
 
     /// Unit-level coverage of `has_legacy_marker`
@@ -952,19 +898,12 @@ mod tests {
         let git_dir = dir.path().join(".git");
         std::fs::create_dir_all(git_dir.join("hooks")).unwrap();
         std::fs::write(git_dir.join("HEAD"), "ref: refs/heads/main\n").unwrap();
-        std::fs::write(
-            git_dir.join("hooks/pre-commit"),
-            "#!/bin/sh\necho foreign\n",
-        )
-        .unwrap();
+        std::fs::write(git_dir.join("hooks/pre-commit"), "#!/bin/sh\necho foreign\n").unwrap();
 
         let mut buf = Vec::new();
         let result = install_hook(&cfg, &git_dir, &mut buf);
         assert!(result.is_err());
-        assert!(result
-            .unwrap_err()
-            .to_string()
-            .contains("not installed by ops"));
+        assert!(result.unwrap_err().to_string().contains("not installed by ops"));
     }
 
     #[cfg(unix)]
@@ -1007,19 +946,13 @@ mod tests {
         let mut buf = Vec::new();
         let err = install_hook(&cfg, &git_dir, &mut buf).unwrap_err();
 
-        assert!(
-            err.to_string().contains("is a symlink"),
-            "unexpected: {err}"
-        );
+        assert!(err.to_string().contains("is a symlink"), "unexpected: {err}");
         let output = String::from_utf8(buf).unwrap();
         assert!(
             !output.contains("already installed"),
             "must not claim the hook is installed: {output}"
         );
-        assert!(std::fs::symlink_metadata(&hook_path)
-            .unwrap()
-            .file_type()
-            .is_symlink());
+        assert!(std::fs::symlink_metadata(&hook_path).unwrap().file_type().is_symlink());
     }
 
     /// `rename(2)` does not follow symlinks, so upgrading through a
@@ -1043,15 +976,9 @@ mod tests {
         let mut buf = Vec::new();
         let err = install_hook(&cfg, &git_dir, &mut buf).unwrap_err();
 
+        assert!(err.to_string().contains("is a symlink"), "unexpected: {err}");
         assert!(
-            err.to_string().contains("is a symlink"),
-            "unexpected: {err}"
-        );
-        assert!(
-            std::fs::symlink_metadata(&hook_path)
-                .unwrap()
-                .file_type()
-                .is_symlink(),
+            std::fs::symlink_metadata(&hook_path).unwrap().file_type().is_symlink(),
             "the symlink must not be replaced by a regular file"
         );
         assert_eq!(std::fs::read_to_string(&outside).unwrap(), legacy);
@@ -1073,10 +1000,7 @@ mod tests {
 
         let mut buf = Vec::new();
         let err = install_hook(&cfg, &git_dir, &mut buf).unwrap_err();
-        assert!(
-            err.to_string().contains("not a .git directory"),
-            "unexpected: {err}"
-        );
+        assert!(err.to_string().contains("not a .git directory"), "unexpected: {err}");
     }
 
     /// A directory named `.git` that lacks `HEAD` is not a real git
@@ -1092,10 +1016,7 @@ mod tests {
 
         let mut buf = Vec::new();
         let err = install_hook(&cfg, &git_dir, &mut buf).unwrap_err();
-        assert!(
-            err.to_string().contains("not a .git directory"),
-            "unexpected: {err}"
-        );
+        assert!(err.to_string().contains("not a .git directory"), "unexpected: {err}");
     }
 
     #[test]
@@ -1107,10 +1028,7 @@ mod tests {
 
         let mut buf = Vec::new();
         let err = install_hook(&cfg, &bogus, &mut buf).unwrap_err();
-        assert!(
-            err.to_string().contains("not a .git directory"),
-            "unexpected: {err}"
-        );
+        assert!(err.to_string().contains("not a .git directory"), "unexpected: {err}");
     }
 
     /// If the on-disk file is replaced with non-ops
@@ -1132,10 +1050,7 @@ mod tests {
 
         let mut buf = Vec::new();
         let err = upgrade_legacy_hook(&hook_path, &cfg, &mut buf).unwrap_err();
-        assert!(
-            err.to_string().contains("file changed during install"),
-            "unexpected: {err}"
-        );
+        assert!(err.to_string().contains("file changed during install"), "unexpected: {err}");
 
         // User's hook is preserved.
         assert_eq!(std::fs::read_to_string(&hook_path).unwrap(), foreign);
@@ -1173,11 +1088,8 @@ mod tests {
         // disk. It is not a name this code creates, so it is not ours to
         // remove, and the install must not block on it.
         let legacy_orphan = hooks.join(".pre-commit.ops-tmp");
-        std::fs::write(
-            &legacy_orphan,
-            "garbage from a crashed install of an older release",
-        )
-        .unwrap();
+        std::fs::write(&legacy_orphan, "garbage from a crashed install of an older release")
+            .unwrap();
 
         let mut buf = Vec::new();
         let path = upgrade_legacy_hook(&hook_path, &cfg, &mut buf)
@@ -1187,10 +1099,7 @@ mod tests {
         let content = std::fs::read_to_string(&hook_path).unwrap();
         assert_eq!(content, cfg.hook_script);
         // Legacy fixed-name orphan is left in place (not ours to remove).
-        assert!(
-            legacy_orphan.exists(),
-            "the fixed-name orphan must not be touched"
-        );
+        assert!(legacy_orphan.exists(), "the fixed-name orphan must not be touched");
         // The randomised stage created by this install was consumed by
         // `persist`; no `.pre-commit.ops-tmp.*` siblings should remain
         // *aside from* the legacy orphan we explicitly seeded.
@@ -1200,16 +1109,10 @@ mod tests {
             .map(|e| e.file_name().to_string_lossy().into_owned())
             .filter(|n| n.starts_with(".pre-commit.ops-tmp."))
             .count();
-        assert_eq!(
-            stray_random_stages, 0,
-            "randomised stage from this install must not leak"
-        );
+        assert_eq!(stray_random_stages, 0, "randomised stage from this install must not leak");
 
         let output = String::from_utf8(buf).unwrap();
-        assert!(
-            output.contains("Updating outdated"),
-            "unexpected output: {output}"
-        );
+        assert!(output.contains("Updating outdated"), "unexpected output: {output}");
     }
 
     /// Two concurrent `upgrade_legacy_hook`
@@ -1268,17 +1171,11 @@ mod tests {
             n,
             "every caller must return a typed result, no panics or AlreadyExists leaks"
         );
-        assert!(
-            wins >= 1,
-            "at least one caller must observe a successful upgrade"
-        );
+        assert!(wins >= 1, "at least one caller must observe a successful upgrade");
 
         // Final on-disk content is the ops payload (one of the wins
         // committed it).
-        assert_eq!(
-            std::fs::read_to_string(&*hook_path).unwrap(),
-            cfg.hook_script
-        );
+        assert_eq!(std::fs::read_to_string(&*hook_path).unwrap(), cfg.hook_script);
 
         // No randomised stage files should remain — every staged file
         // is either renamed (winner) or dropped (loser).
@@ -1288,9 +1185,6 @@ mod tests {
             .map(|e| e.file_name().to_string_lossy().into_owned())
             .filter(|n| n.starts_with(".pre-commit.ops-tmp."))
             .count();
-        assert_eq!(
-            stray, 0,
-            "no randomised stage may leak after concurrent upgrade"
-        );
+        assert_eq!(stray, 0, "no randomised stage may leak after concurrent upgrade");
     }
 }

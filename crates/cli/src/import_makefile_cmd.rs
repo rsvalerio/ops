@@ -109,10 +109,7 @@ fn load_importable_targets<W: Write>(
     }
     write_skipped_notes(stdout, &skipped)?;
     if importable.is_empty() {
-        anyhow::bail!(
-            "no importable targets left in {} (all skipped)",
-            makefile_path.display()
-        );
+        anyhow::bail!("no importable targets left in {} (all skipped)", makefile_path.display());
     }
     Ok(importable)
 }
@@ -126,10 +123,7 @@ fn prompt_target_selection(importable: &[MakeTarget]) -> anyhow::Result<Option<V
         .iter()
         .map(|t| SelectOption {
             name: t.name.clone(),
-            description: t
-                .description
-                .clone()
-                .unwrap_or_else(|| format!("make {}", t.name)),
+            description: t.description.clone().unwrap_or_else(|| format!("make {}", t.name)),
         })
         .collect();
     // Preselect everything — unchecking is cheaper than re-checking a long list.
@@ -163,27 +157,21 @@ fn prompt_target_selection(importable: &[MakeTarget]) -> anyhow::Result<Option<V
 /// first of `GNUmakefile` / `makefile` / `Makefile` under `workspace_root`.
 fn resolve_makefile_path(workspace_root: &Path, file: Option<PathBuf>) -> anyhow::Result<PathBuf> {
     if let Some(file) = file {
-        let path = if file.is_absolute() {
-            file
-        } else {
-            workspace_root.join(file)
-        };
+        let path = if file.is_absolute() { file } else { workspace_root.join(file) };
         if !path.is_file() {
             anyhow::bail!("Makefile not found: {}", path.display());
         }
         return Ok(path);
     }
-    MAKEFILE_NAMES
-        .iter()
-        .map(|name| workspace_root.join(name))
-        .find(|p| p.is_file())
-        .ok_or_else(|| {
+    MAKEFILE_NAMES.iter().map(|name| workspace_root.join(name)).find(|p| p.is_file()).ok_or_else(
+        || {
             anyhow::anyhow!(
                 "no Makefile found in {} (looked for {})",
                 workspace_root.display(),
                 MAKEFILE_NAMES.join(", ")
             )
-        })
+        },
+    )
 }
 
 /// Make directives whose first token must never be parsed as a target
@@ -239,10 +227,7 @@ pub fn count_include_directives(content: &str) -> usize {
         if observe_recipe_prefix(line.trim_start(), &mut recipe_prefix) {
             continue;
         }
-        if matches!(
-            line.split_whitespace().next(),
-            Some("include" | "-include" | "sinclude")
-        ) {
+        if matches!(line.split_whitespace().next(), Some("include" | "-include" | "sinclude")) {
             count = count.saturating_add(1);
         }
     }
@@ -282,10 +267,8 @@ pub fn parse_targets(content: &str) -> Vec<MakeTarget> {
         if head.contains('=') {
             continue;
         }
-        let description = line
-            .split_once("## ")
-            .map(|(_, d)| d.trim().to_string())
-            .filter(|d| !d.is_empty());
+        let description =
+            line.split_once("## ").map(|(_, d)| d.trim().to_string()).filter(|d| !d.is_empty());
         for name in head.split_whitespace() {
             if name.starts_with('.') || name.contains('%') || name.contains('$') {
                 continue;
@@ -293,10 +276,7 @@ pub fn parse_targets(content: &str) -> Vec<MakeTarget> {
             if targets.iter().any(|t| t.name == name) {
                 continue;
             }
-            targets.push(MakeTarget {
-                name: name.to_string(),
-                description: description.clone(),
-            });
+            targets.push(MakeTarget { name: name.to_string(), description: description.clone() });
         }
     }
     targets
@@ -338,20 +318,12 @@ fn partition_importable(
     let mut skipped = Vec::new();
     for target in targets {
         if RESERVED_NAMES.contains(&target.name.as_str()) {
-            skipped.push(SkippedTarget {
-                target,
-                reason: SkipReason::Reserved,
-            });
+            skipped.push(SkippedTarget { target, reason: SkipReason::Reserved });
         } else if existing.iter().any(|n| n == &target.name) {
-            skipped.push(SkippedTarget {
-                target,
-                reason: SkipReason::AlreadyConfigured,
-            });
+            skipped.push(SkippedTarget { target, reason: SkipReason::AlreadyConfigured });
         } else if let Err(e) = crate::new_command_cmd::validate_command_name(&target.name) {
-            skipped.push(SkippedTarget {
-                target,
-                reason: SkipReason::InvalidName(format!("{e:#}")),
-            });
+            skipped
+                .push(SkippedTarget { target, reason: SkipReason::InvalidName(format!("{e:#}")) });
         } else {
             importable.push(target);
         }
@@ -362,11 +334,9 @@ fn partition_importable(
 fn write_skipped_notes<W: Write>(w: &mut W, skipped: &[SkippedTarget]) -> io::Result<()> {
     for SkippedTarget { target, reason } in skipped {
         match reason {
-            SkipReason::AlreadyConfigured => writeln!(
-                w,
-                "Skipping '{}': already defined in .ops.toml",
-                target.name
-            )?,
+            SkipReason::AlreadyConfigured => {
+                writeln!(w, "Skipping '{}': already defined in .ops.toml", target.name)?;
+            }
             SkipReason::InvalidName(msg) => {
                 writeln!(w, "Skipping '{}': {msg}", target.name)?;
             }
@@ -465,10 +435,7 @@ clean: ## Remove build artifacts
     fn parse_targets_target_with_prerequisites_keeps_description() {
         let targets = parse_targets(SAMPLE);
         let check = targets.iter().find(|t| t.name == "check").unwrap();
-        assert_eq!(
-            check.description.as_deref(),
-            Some("All gates: fmt + clippy + test")
-        );
+        assert_eq!(check.description.as_deref(), Some("All gates: fmt + clippy + test"));
     }
 
     #[test]
@@ -478,8 +445,7 @@ clean: ## Remove build artifacts
         assert!(!all.contains(&"SHELL"), "`SHELL := …` is an assignment");
         assert!(!all.contains(&".PHONY"), "special targets start with '.'");
         assert!(
-            !all.iter()
-                .any(|n| n.contains("grep") || n.contains("cargo")),
+            !all.iter().any(|n| n.contains("grep") || n.contains("cargo")),
             "recipe lines must not be parsed as targets: {all:?}"
         );
     }
@@ -563,14 +529,9 @@ clean: ## Remove build artifacts
     #[test]
     fn append_targets_writes_make_commands_with_help() {
         let dir = tempfile::tempdir().expect("tempdir");
-        let build = MakeTarget {
-            name: "build".into(),
-            description: Some("Compile (debug)".into()),
-        };
-        let fmt = MakeTarget {
-            name: "fmt".into(),
-            description: None,
-        };
+        let build =
+            MakeTarget { name: "build".into(), description: Some("Compile (debug)".into()) };
+        let fmt = MakeTarget { name: "fmt".into(), description: None };
 
         append_targets_to_config(&crate::canonical_root(&dir), &[&build, &fmt]).expect("append");
 
@@ -593,14 +554,8 @@ clean: ## Remove build artifacts
         .unwrap();
         let before = std::fs::read_to_string(dir.path().join(".ops.toml")).unwrap();
 
-        let build = MakeTarget {
-            name: "build".into(),
-            description: None,
-        };
-        let test = MakeTarget {
-            name: "test".into(),
-            description: None,
-        };
+        let build = MakeTarget { name: "build".into(), description: None };
+        let test = MakeTarget { name: "test".into(), description: None };
         let result = append_targets_to_config(&crate::canonical_root(&dir), &[&build, &test]);
 
         assert!(result.is_err());
@@ -621,26 +576,14 @@ clean: ## Remove build artifacts
         )
         .unwrap();
         let targets = vec![
-            MakeTarget {
-                name: "build".into(),
-                description: None,
-            },
-            MakeTarget {
-                name: "test".into(),
-                description: None,
-            },
+            MakeTarget { name: "build".into(), description: None },
+            MakeTarget { name: "test".into(), description: None },
             // `init` collides with the built-in `ops init` subcommand.
-            MakeTarget {
-                name: "init".into(),
-                description: None,
-            },
+            MakeTarget { name: "init".into(), description: None },
             // `help` is not a clap built-in (the `External` catch-all
             // disables clap's implicit help subcommand) but is reserved by
             // ops, so it must never be importable.
-            MakeTarget {
-                name: "help".into(),
-                description: None,
-            },
+            MakeTarget { name: "help".into(), description: None },
         ];
 
         let (importable, skipped) =
@@ -663,10 +606,7 @@ clean: ## Remove build artifacts
     fn partition_errors_on_malformed_config() {
         let dir = tempfile::tempdir().expect("tempdir");
         std::fs::write(dir.path().join(".ops.toml"), "not = = valid\n{{{").unwrap();
-        let targets = vec![MakeTarget {
-            name: "build".into(),
-            description: None,
-        }];
+        let targets = vec![MakeTarget { name: "build".into(), description: None }];
         assert!(partition_importable(dir.path(), targets).is_err());
     }
 
@@ -701,10 +641,7 @@ clean: ## Remove build artifacts
         let dir = tempfile::tempdir().expect("tempdir");
         let result = run_import_makefile_with_tty_check(dir.path(), None, || false);
         assert!(result.is_err());
-        assert!(result
-            .unwrap_err()
-            .to_string()
-            .contains("interactive terminal"));
+        assert!(result.unwrap_err().to_string().contains("interactive terminal"));
     }
 
     #[test]
@@ -712,24 +649,15 @@ clean: ## Remove build artifacts
         let mut buf: Vec<u8> = Vec::new();
         let skipped = vec![
             SkippedTarget {
-                target: MakeTarget {
-                    name: "test".into(),
-                    description: None,
-                },
+                target: MakeTarget { name: "test".into(), description: None },
                 reason: SkipReason::AlreadyConfigured,
             },
             SkippedTarget {
-                target: MakeTarget {
-                    name: "init".into(),
-                    description: None,
-                },
+                target: MakeTarget { name: "init".into(), description: None },
                 reason: SkipReason::InvalidName("collides with a built-in".into()),
             },
             SkippedTarget {
-                target: MakeTarget {
-                    name: "help".into(),
-                    description: None,
-                },
+                target: MakeTarget { name: "help".into(), description: None },
                 reason: SkipReason::Reserved,
             },
         ];
@@ -743,14 +671,8 @@ clean: ## Remove build artifacts
     #[test]
     fn write_imported_confirmation_lists_names_and_run_hints() {
         let mut buf: Vec<u8> = Vec::new();
-        let build = MakeTarget {
-            name: "build".into(),
-            description: None,
-        };
-        let release = MakeTarget {
-            name: "release".into(),
-            description: None,
-        };
+        let build = MakeTarget { name: "build".into(), description: None };
+        let release = MakeTarget { name: "release".into(), description: None };
         write_imported_confirmation(&mut buf, &[&build, &release]).expect("write");
         let out = String::from_utf8(buf).expect("utf8");
         assert!(out.contains("Imported 2 command(s)"));
@@ -765,10 +687,9 @@ clean: ## Remove build artifacts
     /// hand it back as `Ok(None)` rather than an error.
     #[test]
     fn target_selection_cancel_is_ok_none() {
-        for err in [
-            inquire::InquireError::OperationCanceled,
-            inquire::InquireError::OperationInterrupted,
-        ] {
+        for err in
+            [inquire::InquireError::OperationCanceled, inquire::InquireError::OperationInterrupted]
+        {
             let out = crate::prompt::classify_prompt_result(
                 Err::<Vec<SelectOption>, _>(err),
                 "target selection",
@@ -786,9 +707,6 @@ clean: ## Remove build artifacts
             "target selection",
         )
         .expect_err("real prompt errors must propagate");
-        assert!(
-            format!("{err:#}").contains("target selection prompt failed"),
-            "got: {err:#}"
-        );
+        assert!(format!("{err:#}").contains("target selection prompt failed"), "got: {err:#}");
     }
 }

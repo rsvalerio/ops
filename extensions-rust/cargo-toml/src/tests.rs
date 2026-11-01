@@ -37,18 +37,13 @@ impl PermGuard {
     ) -> Option<Self> {
         use std::os::unix::fs::PermissionsExt as _;
 
-        let restore_mode = std::fs::metadata(path)
-            .expect("stat target before chmod")
-            .permissions()
-            .mode();
+        let restore_mode =
+            std::fs::metadata(path).expect("stat target before chmod").permissions().mode();
         // Not `.ok()`: the test's correctness depends on this having taken
         // effect, so a failure must surface rather than be swallowed.
         std::fs::set_permissions(path, std::fs::Permissions::from_mode(0o000))
             .expect("chmod 0o000 must succeed");
-        let guard = Self {
-            path: path.to_path_buf(),
-            restore_mode,
-        };
+        let guard = Self { path: path.to_path_buf(), restore_mode };
 
         if probe(path).is_ok() {
             // Dropping `guard` restores the mode.

@@ -68,11 +68,7 @@ impl Strategy {
     /// `#[non_exhaustive]`; adjust `max_parallel` / `fail_fast` directly.
     #[must_use]
     pub const fn new(matrix: Matrix) -> Self {
-        Self {
-            matrix,
-            max_parallel: None,
-            fail_fast: true,
-        }
+        Self { matrix, max_parallel: None, fail_fast: true }
     }
 }
 
@@ -111,10 +107,7 @@ impl Matrix {
     /// matrix entries across config layers.
     pub fn append(&mut self, other: &Self) {
         for (key, values) in &other.axes {
-            self.axes
-                .entry(key.clone())
-                .or_default()
-                .extend(values.iter().cloned());
+            self.axes.entry(key.clone()).or_default().extend(values.iter().cloned());
         }
         self.include.extend(other.include.iter().cloned());
         self.exclude.extend(other.exclude.iter().cloned());
@@ -261,10 +254,7 @@ impl MatrixCell {
     /// The value of `key` in this cell.
     #[must_use]
     pub fn get(&self, key: &str) -> Option<&str> {
-        self.values
-            .iter()
-            .find(|(k, _)| k == key)
-            .map(|(_, v)| v.as_str())
+        self.values.iter().find(|(k, _)| k == key).map(|(_, v)| v.as_str())
     }
 
     fn set(&mut self, key: &str, value: &str) {
@@ -276,20 +266,14 @@ impl MatrixCell {
     }
 
     fn matches_all(&self, entry: &MatrixEntry) -> bool {
-        entry
-            .iter()
-            .all(|(key, value)| self.get(key) == Some(value.as_str()))
+        entry.iter().all(|(key, value)| self.get(key) == Some(value.as_str()))
     }
 
     /// `key=value` pairs joined by `, ` — the cell's name in labels and
     /// failure messages.
     #[must_use]
     pub fn describe(&self) -> String {
-        self.values
-            .iter()
-            .map(|(k, v)| format!("{k}={v}"))
-            .collect::<Vec<_>>()
-            .join(", ")
+        self.values.iter().map(|(k, v)| format!("{k}={v}")).collect::<Vec<_>>().join(", ")
     }
 
     /// The cell's step id / progress label: `name [key=value, ...]`.
@@ -300,14 +284,8 @@ impl MatrixCell {
 }
 
 fn check_key(key: &str) -> Result<(), MatrixExpandError> {
-    if key.is_empty()
-        || !key
-            .chars()
-            .all(|c| c.is_ascii_alphanumeric() || c == '_' || c == '-')
-    {
-        return Err(MatrixExpandError::InvalidKey {
-            key: key.to_string(),
-        });
+    if key.is_empty() || !key.chars().all(|c| c.is_ascii_alphanumeric() || c == '_' || c == '-') {
+        return Err(MatrixExpandError::InvalidKey { key: key.to_string() });
     }
     Ok(())
 }
@@ -325,9 +303,7 @@ fn check_value(key: &str, value: &str) -> Result<(), MatrixExpandError> {
 fn check_entry(entry: &MatrixEntry) -> Result<(), MatrixExpandError> {
     for (key, value) in entry {
         let checked = check_key(key).and_then(|()| check_value(key, value));
-        checked.map_err(|e| MatrixExpandError::IncludeEntry {
-            source: Box::new(e),
-        })?;
+        checked.map_err(|e| MatrixExpandError::IncludeEntry { source: Box::new(e) })?;
     }
     Ok(())
 }
@@ -417,10 +393,9 @@ impl std::fmt::Display for MatrixExpandError {
             Self::DuplicateValue { key, value } => {
                 write!(f, "matrix axis `{key}` lists {value:?} twice")
             }
-            Self::TooManyCells { count } => write!(
-                f,
-                "matrix produces {count} cells, more than the {MAX_MATRIX_CELLS} allowed"
-            ),
+            Self::TooManyCells { count } => {
+                write!(f, "matrix produces {count} cells, more than the {MAX_MATRIX_CELLS} allowed")
+            }
             Self::EmptyExcludeEntry => {
                 f.write_str("an `exclude` entry is empty and would exclude every cell")
             }
@@ -430,14 +405,12 @@ impl std::fmt::Display for MatrixExpandError {
             Self::NoCells => {
                 f.write_str("matrix produces no cells (every combination is excluded)")
             }
-            Self::InvalidKey { key } => write!(
-                f,
-                "matrix key {key:?} must be non-empty ASCII letters, digits, `_` or `-`"
-            ),
-            Self::ControlCharInValue { key, value } => write!(
-                f,
-                "matrix value {value:?} of `{key}` contains a control character"
-            ),
+            Self::InvalidKey { key } => {
+                write!(f, "matrix key {key:?} must be non-empty ASCII letters, digits, `_` or `-`")
+            }
+            Self::ControlCharInValue { key, value } => {
+                write!(f, "matrix value {value:?} of `{key}` contains a control character")
+            }
             Self::IncludeEntry { .. } => f.write_str("`include` entry is invalid"),
         }
     }
@@ -474,9 +447,7 @@ pub fn substitute<'a, 'v>(
     let mut rest = template;
     while let Some((before, after_open)) = rest.split_once(REF_OPEN) {
         out.push_str(before);
-        let (key, after) = after_open
-            .split_once('}')
-            .ok_or(MatrixRefError::Unterminated)?;
+        let (key, after) = after_open.split_once('}').ok_or(MatrixRefError::Unterminated)?;
         let value = lookup(key).ok_or_else(|| MatrixRefError::Unknown(key.to_string()))?;
         out.push_str(value);
         rest = after;
@@ -494,11 +465,7 @@ mod tests {
     }
 
     fn described(m: &Matrix) -> Vec<String> {
-        m.cells()
-            .expect("cells")
-            .iter()
-            .map(MatrixCell::describe)
-            .collect()
+        m.cells().expect("cells").iter().map(MatrixCell::describe).collect()
     }
 
     #[test]
@@ -510,12 +477,7 @@ crate = ["a", "b"]"#,
         );
         assert_eq!(
             described(&m),
-            [
-                "crate=a, os=linux",
-                "crate=a, os=mac",
-                "crate=b, os=linux",
-                "crate=b, os=mac"
-            ]
+            ["crate=a, os=linux", "crate=a, os=mac", "crate=b, os=linux", "crate=b, os=mac"]
         );
     }
 
@@ -526,10 +488,7 @@ crate = ["a", "b"]"#,
 crate = ["a", "b"]
 exclude = [{ os = "mac", crate = "b" }]"#,
         );
-        assert_eq!(
-            described(&m),
-            ["crate=a, os=linux", "crate=a, os=mac", "crate=b, os=linux"]
-        );
+        assert_eq!(described(&m), ["crate=a, os=linux", "crate=a, os=mac", "crate=b, os=linux"]);
     }
 
     #[test]
@@ -596,16 +555,11 @@ include = [{ crate = "b", features = "x" }]"#,
         assert_eq!(matrix("").cells().unwrap_err(), MatrixExpandError::NoAxes);
         assert_eq!(
             matrix("crate = []").cells().unwrap_err(),
-            MatrixExpandError::EmptyAxis {
-                key: "crate".into()
-            }
+            MatrixExpandError::EmptyAxis { key: "crate".into() }
         );
         assert_eq!(
             matrix(r#"crate = ["a", "a"]"#).cells().unwrap_err(),
-            MatrixExpandError::DuplicateValue {
-                key: "crate".into(),
-                value: "a".into()
-            }
+            MatrixExpandError::DuplicateValue { key: "crate".into(), value: "a".into() }
         );
         assert_eq!(
             matrix(
@@ -619,10 +573,7 @@ exclude = [{ crate = "a" }]"#
         let values: Vec<String> = (0..17).map(|i| format!("\"v{i}\"")).collect();
         let list = values.join(", ");
         let big = matrix(&format!("a = [{list}]\nb = [{list}]"));
-        assert_eq!(
-            big.cells().unwrap_err(),
-            MatrixExpandError::TooManyCells { count: 289 }
-        );
+        assert_eq!(big.cells().unwrap_err(), MatrixExpandError::TooManyCells { count: 289 });
     }
 
     #[test]
@@ -642,15 +593,10 @@ exclude = [{ crate = "a" }]"#
     #[test]
     fn substitute_replaces_every_reference() {
         let cell = MatrixCell {
-            values: vec![
-                ("crate".into(), "core".into()),
-                ("os".into(), "linux".into()),
-            ],
+            values: vec![("crate".into(), "core".into()), ("os".into(), "linux".into())],
         };
-        let out = substitute("-p=${matrix.crate}/${matrix.os}/${matrix.crate}", |k| {
-            cell.get(k)
-        })
-        .unwrap();
+        let out =
+            substitute("-p=${matrix.crate}/${matrix.os}/${matrix.crate}", |k| cell.get(k)).unwrap();
         assert_eq!(out, "-p=core/linux/core");
     }
 
@@ -666,10 +612,7 @@ exclude = [{ crate = "a" }]"#
             substitute("${matrix.crat}", |_| None),
             Err(MatrixRefError::Unknown("crat".into()))
         );
-        assert_eq!(
-            substitute("${matrix.crate", |_| Some("x")),
-            Err(MatrixRefError::Unterminated)
-        );
+        assert_eq!(substitute("${matrix.crate", |_| Some("x")), Err(MatrixRefError::Unterminated));
     }
 
     /// Axis-name order holds for a matrix built in code too, where the map

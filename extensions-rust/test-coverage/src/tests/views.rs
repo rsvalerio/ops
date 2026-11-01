@@ -101,28 +101,19 @@ const COUNT_COLUMNS: &[&str] = &[
     "branches_notcovered",
 ];
 
-const PERCENT_COLUMNS: &[&str] = &[
-    "lines_percent",
-    "functions_percent",
-    "regions_percent",
-    "branches_percent",
-];
+const PERCENT_COLUMNS: &[&str] =
+    &["lines_percent", "functions_percent", "regions_percent", "branches_percent"];
 
 #[test]
 fn coverage_summary_view_computes_percentages() {
     let (_data_dir, _dir, db) = setup_loaded_db();
     let conn = db.lock().expect("lock");
     let lines_percent: f64 = conn
-        .query_row("SELECT lines_percent FROM coverage_summary", [], |row| {
-            row.get(0)
-        })
+        .query_row("SELECT lines_percent FROM coverage_summary", [], |row| row.get(0))
         .expect("lines_percent query");
     drop(conn);
     // 270 covered / 300 total = 90.0%
-    assert!(
-        (lines_percent - 90.0).abs() < 0.01,
-        "expected ~90.0%, got {lines_percent}"
-    );
+    assert!((lines_percent - 90.0).abs() < 0.01, "expected ~90.0%, got {lines_percent}");
 }
 
 /// **Zero rows**, not one row of zeros. An ungrouped aggregate over an
@@ -145,22 +136,15 @@ fn coverage_summary_view_empty_table_yields_zero_counts() {
     let conn = db.lock().expect("lock");
     for col in COUNT_COLUMNS {
         let value: i64 = conn
-            .query_row(&format!("SELECT {col} FROM coverage_summary"), [], |row| {
-                row.get(0)
-            })
+            .query_row(&format!("SELECT {col} FROM coverage_summary"), [], |row| row.get(0))
             .unwrap_or_else(|e| panic!("{col} must decode as an integer over an empty table: {e}"));
         assert_eq!(value, 0, "{col} over zero rows must be 0, not NULL");
     }
     for col in PERCENT_COLUMNS {
         let value: f64 = conn
-            .query_row(&format!("SELECT {col} FROM coverage_summary"), [], |row| {
-                row.get(0)
-            })
+            .query_row(&format!("SELECT {col} FROM coverage_summary"), [], |row| row.get(0))
             .unwrap_or_else(|e| panic!("{col} must decode as a float over an empty table: {e}"));
-        assert!(
-            value.abs() < f64::EPSILON,
-            "{col} over zero rows must be 0.0, got {value}"
-        );
+        assert!(value.abs() < f64::EPSILON, "{col} over zero rows must be 0.0, got {value}");
     }
     drop(conn);
 }
@@ -190,25 +174,18 @@ fn coverage_summary_view_handles_zero_counts() {
     // path `write_coverage_fixture` and production's `provide_via_ingestor`
     // use — not a raw `std::fs::write` on a bare `entry_path`, which
     // bypasses the anchored, atomic staging under test.
-    dir.write_atomic("coverage_files.json", &json_bytes)
-        .expect("write");
-    dir.write_atomic("coverage_workspace.txt", b"/test/workspace")
-        .expect("write workspace");
+    dir.write_atomic("coverage_files.json", &json_bytes).expect("write");
+    dir.write_atomic("coverage_workspace.txt", b"/test/workspace").expect("write workspace");
 
     let ingestor = CoverageIngestor;
     let _ = ingestor.load(&dir, &db).expect("load should succeed");
 
     let conn = db.lock().expect("lock");
     let lines_percent: f64 = conn
-        .query_row("SELECT lines_percent FROM coverage_summary", [], |row| {
-            row.get(0)
-        })
+        .query_row("SELECT lines_percent FROM coverage_summary", [], |row| row.get(0))
         .expect("lines_percent query");
     drop(conn);
-    assert!(
-        (lines_percent - 0.0).abs() < 0.01,
-        "zero counts should give 0% not NaN"
-    );
+    assert!((lines_percent - 0.0).abs() < 0.01, "zero counts should give 0% not NaN");
 }
 
 #[test]
@@ -218,55 +195,30 @@ fn coverage_summary_view_all_metric_percentages() {
 
     // functions: 27/30 = 90%
     let functions_percent: f64 = conn
-        .query_row(
-            "SELECT functions_percent FROM coverage_summary",
-            [],
-            |row| row.get(0),
-        )
+        .query_row("SELECT functions_percent FROM coverage_summary", [], |row| row.get(0))
         .expect("functions_percent");
-    assert!(
-        (functions_percent - 90.0).abs() < 0.01,
-        "expected ~90%, got {functions_percent}"
-    );
+    assert!((functions_percent - 90.0).abs() < 0.01, "expected ~90%, got {functions_percent}");
 
     // regions: 54/60 = 90%
     let regions_percent: f64 = conn
-        .query_row("SELECT regions_percent FROM coverage_summary", [], |row| {
-            row.get(0)
-        })
+        .query_row("SELECT regions_percent FROM coverage_summary", [], |row| row.get(0))
         .expect("regions_percent");
-    assert!(
-        (regions_percent - 90.0).abs() < 0.01,
-        "expected ~90%, got {regions_percent}"
-    );
+    assert!((regions_percent - 90.0).abs() < 0.01, "expected ~90%, got {regions_percent}");
 
     // branches: 12/15 = 80%
     let branches_percent: f64 = conn
-        .query_row("SELECT branches_percent FROM coverage_summary", [], |row| {
-            row.get(0)
-        })
+        .query_row("SELECT branches_percent FROM coverage_summary", [], |row| row.get(0))
         .expect("branches_percent");
-    assert!(
-        (branches_percent - 80.0).abs() < 0.01,
-        "expected ~80%, got {branches_percent}"
-    );
+    assert!((branches_percent - 80.0).abs() < 0.01, "expected ~80%, got {branches_percent}");
 
     // notcovered aggregations
     let regions_notcovered: i64 = conn
-        .query_row(
-            "SELECT regions_notcovered FROM coverage_summary",
-            [],
-            |row| row.get(0),
-        )
+        .query_row("SELECT regions_notcovered FROM coverage_summary", [], |row| row.get(0))
         .expect("regions_notcovered");
     assert_eq!(regions_notcovered, 6);
 
     let branches_notcovered: i64 = conn
-        .query_row(
-            "SELECT branches_notcovered FROM coverage_summary",
-            [],
-            |row| row.get(0),
-        )
+        .query_row("SELECT branches_notcovered FROM coverage_summary", [], |row| row.get(0))
         .expect("branches_notcovered");
     drop(conn);
     assert_eq!(branches_notcovered, 3);

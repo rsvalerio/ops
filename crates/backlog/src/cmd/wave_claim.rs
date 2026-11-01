@@ -68,18 +68,11 @@ pub fn run_wave_claim<W: Write>(
         .find(&opts.wave_id)?
         .ok_or_else(|| anyhow::anyhow!("task {} not found", opts.wave_id))?;
     if !super::wave::is_wave(&wave, &opts.marker) {
-        anyhow::bail!(
-            "{} is not a wave (no {} label)",
-            wave.doc.frontmatter.id,
-            opts.marker
-        );
+        anyhow::bail!("{} is not a wave (no {} label)", wave.doc.frontmatter.id, opts.marker);
     }
     let wave_id = wave.doc.frontmatter.id;
     let top = git::toplevel(cwd)?;
-    let branch = opts
-        .branch
-        .clone()
-        .unwrap_or_else(|| default_branch(&wave_id));
+    let branch = opts.branch.clone().unwrap_or_else(|| default_branch(&wave_id));
     if branch.starts_with('-') || branch.trim().is_empty() {
         anyhow::bail!("invalid branch name {branch:?}");
     }
@@ -90,22 +83,15 @@ pub fn run_wave_claim<W: Write>(
     let edit = EditOptions {
         task_id: wave_id.clone(),
         status: Some("In Progress".to_string()),
-        append_notes: vec![format!(
-            "Branch: {branch}\nWorktree: {}",
-            worktree.display()
-        )],
+        append_notes: vec![format!("Branch: {branch}\nWorktree: {}", worktree.display())],
         ..EditOptions::default()
     };
     if let Err(err) = run_edit(store, &edit, &mut std::io::sink()) {
         return Err(undo_failed_claim(err, &top, &worktree, &branch, &wave_id));
     }
 
-    writeln!(
-        out,
-        "Claimed {wave_id}: branch {branch}, worktree {}",
-        worktree.display()
-    )
-    .context("printing the claim summary")?;
+    writeln!(out, "Claimed {wave_id}: branch {branch}, worktree {}", worktree.display())
+        .context("printing the claim summary")?;
     Ok(())
 }
 
@@ -140,14 +126,8 @@ fn ensure_claimable(
              or resume the parked one from its worktree"
         );
     }
-    if worktree
-        .try_exists()
-        .with_context(|| format!("checking {}", worktree.display()))?
-    {
-        anyhow::bail!(
-            "{} already exists; refusing to claim {wave_id} over it",
-            worktree.display()
-        );
+    if worktree.try_exists().with_context(|| format!("checking {}", worktree.display()))? {
+        anyhow::bail!("{} already exists; refusing to claim {wave_id} over it", worktree.display());
     }
     Ok(())
 }
@@ -234,10 +214,7 @@ pub fn run_wave_park<W: Write>(
         .ok_or_else(|| anyhow::anyhow!("task {} not found", opts.wave_id))?;
     let wave_id = wave.doc.frontmatter.id;
     let top = git::toplevel(cwd)?;
-    let branch = opts
-        .branch
-        .clone()
-        .unwrap_or_else(|| default_branch(&wave_id));
+    let branch = opts.branch.clone().unwrap_or_else(|| default_branch(&wave_id));
 
     let resume = if git::branch_exists(&top, &branch)? {
         worktree_of(&top, &branch)?.map_or_else(
@@ -300,11 +277,8 @@ mod tests {
         let root = dir.path().join("repo");
         std::fs::create_dir_all(root.join(".backlog/tasks")).expect("tasks");
         crate::cmd::git::test_support::init_repo(&root);
-        std::fs::write(
-            root.join(".backlog/tasks/task-1 - wave.md"),
-            wave_task("TASK-1"),
-        )
-        .expect("seed");
+        std::fs::write(root.join(".backlog/tasks/task-1 - wave.md"), wave_task("TASK-1"))
+            .expect("seed");
         git(&root, &["add", "."]);
         git(&root, &["commit", "-q", "-m", "seed"]);
         let store = Store::open(&root.join(".backlog")).expect("open");
@@ -353,10 +327,7 @@ mod tests {
             std::fs::read_to_string(root.join(".backlog/tasks/task-1 - wave.md")).expect("read");
         let err =
             run_wave_claim(&store, &root, &claim_opts(), &mut Vec::new()).expect_err("must refuse");
-        assert!(
-            format!("{err:#}").contains("already claimed"),
-            "got: {err:#}"
-        );
+        assert!(format!("{err:#}").contains("already claimed"), "got: {err:#}");
         assert!(!dir.path().join(".wave-TASK-1").exists());
         assert_eq!(
             std::fs::read_to_string(root.join(".backlog/tasks/task-1 - wave.md")).expect("read"),
@@ -372,10 +343,7 @@ mod tests {
         run_wave_claim(&store, &root, &claim_opts(), &mut Vec::new()).expect("first");
         let err =
             run_wave_claim(&store, &root, &claim_opts(), &mut Vec::new()).expect_err("second");
-        assert!(
-            format!("{err:#}").contains("already claimed"),
-            "got: {err:#}"
-        );
+        assert!(format!("{err:#}").contains("already claimed"), "got: {err:#}");
     }
 
     #[test]
@@ -418,14 +386,8 @@ mod tests {
         assert_eq!(wave_doc(&root).frontmatter.status, "To Do");
         let text =
             std::fs::read_to_string(root.join(".backlog/tasks/task-1 - wave.md")).expect("read");
-        assert!(
-            text.contains("Parked: integration verify failed"),
-            "got: {text}"
-        );
-        assert!(
-            text.contains(".wave-TASK-1"),
-            "resume path recorded: {text}"
-        );
+        assert!(text.contains("Parked: integration verify failed"), "got: {text}");
+        assert!(text.contains(".wave-TASK-1"), "resume path recorded: {text}");
     }
 
     #[test]

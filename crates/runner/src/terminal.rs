@@ -114,9 +114,7 @@ impl EchoGuard {
                 return Self { original: None };
             }
 
-            Self {
-                original: Some(original),
-            }
+            Self { original: Some(original) }
         }
 
         #[cfg(not(unix))]
@@ -185,10 +183,7 @@ mod tests {
             return;
         }
         let guard = EchoGuard::disable_echo();
-        assert!(
-            guard.is_noop(),
-            "non-TTY stderr should yield a no-op EchoGuard"
-        );
+        assert!(guard.is_noop(), "non-TTY stderr should yield a no-op EchoGuard");
         drop(guard);
     }
 }

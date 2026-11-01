@@ -227,12 +227,8 @@ impl Config {
     pub fn validate_commands(&self, externals: &[&str]) -> anyhow::Result<()> {
         self.validate()?;
 
-        let known: std::collections::HashSet<&str> = self
-            .commands
-            .keys()
-            .map(String::as_str)
-            .chain(externals.iter().copied())
-            .collect();
+        let known: std::collections::HashSet<&str> =
+            self.commands.keys().map(String::as_str).chain(externals.iter().copied()).collect();
 
         // `state.validated` is the third DFS colour and is
         // deliberately carried across the sibling roots — that is what makes
@@ -268,10 +264,9 @@ impl Config {
             .commands
             .iter()
             .filter_map(|(name, spec)| match spec {
-                CommandSpec::Exec(e) if !e.after.is_empty() => Some((
-                    name.as_str(),
-                    e.after.iter().filter_map(|a| canonical(a)).collect(),
-                )),
+                CommandSpec::Exec(e) if !e.after.is_empty() => {
+                    Some((name.as_str(), e.after.iter().filter_map(|a| canonical(a)).collect()))
+                }
                 _ => None,
             })
             .collect();

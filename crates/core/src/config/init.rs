@@ -9,10 +9,7 @@ use std::path::Path;
 /// Build fails if the file is missing.
 #[must_use]
 pub const fn default_ops_toml() -> &'static str {
-    include_str!(concat!(
-        env!("CARGO_MANIFEST_DIR"),
-        "/src/.default.ops.toml"
-    ))
+    include_str!(concat!(env!("CARGO_MANIFEST_DIR"), "/src/.default.ops.toml"))
 }
 
 /// Controls which sections are included in `ops init` output.
@@ -28,17 +25,9 @@ impl InitSections {
     #[must_use]
     pub const fn from_flags(output: bool, themes: bool, commands: bool) -> Self {
         if !output && !themes && !commands {
-            Self {
-                output: true,
-                themes: false,
-                commands: false,
-            }
+            Self { output: true, themes: false, commands: false }
         } else {
-            Self {
-                output,
-                themes,
-                commands,
-            }
+            Self { output, themes, commands }
         }
     }
 }

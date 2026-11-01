@@ -49,15 +49,10 @@ icon_running = ""
 
 #[test]
 fn theme_config_deserialize_invalid_field_type() {
-    let toml = MINIMAL_THEME_TOML.replace(
-        "separator_char = '.'",
-        "separator_char = \"should_be_char_not_string\"",
-    );
+    let toml = MINIMAL_THEME_TOML
+        .replace("separator_char = '.'", "separator_char = \"should_be_char_not_string\"");
     let result: Result<ThemeConfig, _> = toml::from_str(&toml);
-    assert!(
-        result.is_err(),
-        "should fail with invalid separator_char type"
-    );
+    assert!(result.is_err(), "should fail with invalid separator_char type");
 }
 
 #[test]
@@ -71,10 +66,7 @@ fn theme_config_deserialize_unknown_field() {
 fn theme_config_deserialize_invalid_plan_header_style() {
     let toml = format!("{MINIMAL_THEME_TOML}\nplan_header_style = \"invalid_style\"\n");
     let result: Result<ThemeConfig, _> = toml::from_str(&toml);
-    assert!(
-        result.is_err(),
-        "should fail with invalid plan_header_style"
-    );
+    assert!(result.is_err(), "should fail with invalid plan_header_style");
 }
 
 #[test]

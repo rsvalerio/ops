@@ -193,13 +193,9 @@ impl FileCounts {
 
     /// Iterate the non-empty regions, for row emission.
     pub fn non_empty(&self) -> impl Iterator<Item = (Region, Locs)> {
-        [
-            (Region::Main, self.main),
-            (Region::Test, self.test),
-            (Region::Example, self.example),
-        ]
-        .into_iter()
-        .filter(|(_, locs)| !locs.is_empty())
+        [(Region::Main, self.main), (Region::Test, self.test), (Region::Example, self.example)]
+            .into_iter()
+            .filter(|(_, locs)| !locs.is_empty())
     }
 }
 
@@ -300,18 +296,13 @@ pub(crate) fn count_source(src: &str, base: Region) -> FileCounts {
 /// worth restructuring the lexing pass around, so it keeps the
 /// re-lexing path.
 fn parse_file(src: &str, stream: TokenStream) -> syn::Result<syn::File> {
-    if has_shebang(src) {
-        syn::parse_file(src)
-    } else {
-        syn::parse2(stream)
-    }
+    if has_shebang(src) { syn::parse_file(src) } else { syn::parse2(stream) }
 }
 
 /// Does `src` open with a `#!...` shebang line rather than an inner
 /// attribute (`#![...]`)?
 fn has_shebang(src: &str) -> bool {
-    src.strip_prefix("#!")
-        .is_some_and(|rest| !rest.trim_start().starts_with('['))
+    src.strip_prefix("#!").is_some_and(|rest| !rest.trim_start().starts_with('['))
 }
 
 /// Degraded counting for input the lexer or parser rejects.
@@ -482,11 +473,7 @@ fn item_is_test_gated(item: &syn::Item) -> bool {
 /// it as test would misattribute the whole item.
 fn attr_is_test_gate(attr: &syn::Attribute) -> bool {
     let path = attr.path();
-    if path
-        .segments
-        .last()
-        .is_some_and(|segment| segment.ident == "test")
-    {
+    if path.segments.last().is_some_and(|segment| segment.ident == "test") {
         return true;
     }
     if path.is_ident("cfg") {

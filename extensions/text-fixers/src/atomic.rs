@@ -89,18 +89,14 @@ pub const STAGE_PREFIX: &str = ".ops-text-fixers.";
 /// is unlinked.
 pub fn replace(path: &Path, contents: &[u8], original: &Metadata) -> io::Result<()> {
     // A bare filename has an empty parent; stage alongside it in the cwd.
-    let parent = path
-        .parent()
-        .filter(|p| !p.as_os_str().is_empty())
-        .unwrap_or_else(|| Path::new("."));
+    let parent =
+        path.parent().filter(|p| !p.as_os_str().is_empty()).unwrap_or_else(|| Path::new("."));
     refuse_symlinked_directory(parent)?;
 
     // Same directory, so the rename is within one filesystem (a cross-device
     // rename fails with EXDEV) and a randomised name so two concurrent fixer
     // runs over a shared worktree stage into disjoint paths.
-    let mut tmp = tempfile::Builder::new()
-        .prefix(STAGE_PREFIX)
-        .tempfile_in(parent)?;
+    let mut tmp = tempfile::Builder::new().prefix(STAGE_PREFIX).tempfile_in(parent)?;
 
     tmp.write_all(contents)?;
     // The content must be durable before the rename, or a crash can leave the
@@ -132,16 +128,10 @@ pub const CHANGED_SINCE_READ: &str = "changed on disk since it was read; left un
 /// refused for a symlink above that root.
 fn refuse_symlinked_directory(dir: &Path) -> io::Result<()> {
     for component in dir.ancestors().filter(|a| !a.as_os_str().is_empty()) {
-        if std::fs::symlink_metadata(component)?
-            .file_type()
-            .is_symlink()
-        {
+        if std::fs::symlink_metadata(component)?.file_type().is_symlink() {
             return Err(io::Error::new(
                 io::ErrorKind::InvalidInput,
-                format!(
-                    "refusing to write through symlinked directory {:?}",
-                    component.display()
-                ),
+                format!("refusing to write through symlinked directory {:?}", component.display()),
             ));
         }
     }
@@ -238,10 +228,8 @@ mod tests {
     }
 
     fn entry_names(dir: &Path) -> Vec<std::ffi::OsString> {
-        let mut names: Vec<_> = std::fs::read_dir(dir)
-            .unwrap()
-            .map(|e| e.unwrap().file_name())
-            .collect();
+        let mut names: Vec<_> =
+            std::fs::read_dir(dir).unwrap().map(|e| e.unwrap().file_name()).collect();
         names.sort();
         names
     }
@@ -271,12 +259,7 @@ mod tests {
 
         std::fs::write(&path, b"bbbb\n").unwrap();
         let later = md.modified().unwrap() + std::time::Duration::from_secs(5);
-        File::options()
-            .write(true)
-            .open(&path)
-            .unwrap()
-            .set_modified(later)
-            .unwrap();
+        File::options().write(true).open(&path).unwrap().set_modified(later).unwrap();
 
         let err = replace(&path, b"cccc\n", &md).unwrap_err();
         assert_eq!(err.to_string(), CHANGED_SINCE_READ);
@@ -357,14 +340,8 @@ mod tests {
 
         let err = replace(&path, b"new\n", &md).unwrap_err();
         assert_eq!(err.kind(), io::ErrorKind::InvalidInput);
-        assert!(
-            err.to_string().contains("symlinked directory"),
-            "unexpected error: {err}"
-        );
-        assert_eq!(
-            std::fs::read(root.join("elsewhere").join("a.txt")).unwrap(),
-            b"old\n"
-        );
+        assert!(err.to_string().contains("symlinked directory"), "unexpected error: {err}");
+        assert_eq!(std::fs::read(root.join("elsewhere").join("a.txt")).unwrap(), b"old\n");
         assert_eq!(
             entry_names(&root.join("elsewhere")),
             ["a.txt"],

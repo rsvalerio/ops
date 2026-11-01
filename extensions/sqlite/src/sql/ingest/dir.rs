@@ -67,28 +67,18 @@ pub(super) fn create_ingest_dir(data_dir: &Path) -> std::io::Result<()> {
     if let Some(parent) = data_dir.parent() {
         if !parent.as_os_str().is_empty() {
             std::fs::create_dir_all(parent).map_err(|e| {
-                io_context(
-                    format!("creating ingest dir parent {}", parent.display()),
-                    e,
-                )
+                io_context(format!("creating ingest dir parent {}", parent.display()), e)
             })?;
         }
     }
     #[cfg(unix)]
     {
         use std::os::unix::fs::DirBuilderExt;
-        match std::fs::DirBuilder::new()
-            .recursive(false)
-            .mode(0o700)
-            .create(data_dir)
-        {
+        match std::fs::DirBuilder::new().recursive(false).mode(0o700).create(data_dir) {
             Ok(()) => {}
             Err(e) if e.kind() == std::io::ErrorKind::AlreadyExists => {}
             Err(e) => {
-                return Err(io_context(
-                    format!("creating ingest dir {}", data_dir.display()),
-                    e,
-                ))
+                return Err(io_context(format!("creating ingest dir {}", data_dir.display()), e))
             }
         }
         harden_existing_ingest_dir(data_dir)
@@ -113,10 +103,7 @@ pub(super) fn create_ingest_dir(data_dir: &Path) -> std::io::Result<()> {
 fn vanished(dir: &Path) -> std::io::Error {
     std::io::Error::new(
         std::io::ErrorKind::NotFound,
-        format!(
-            "ingest dir {} vanished before it could be verified",
-            dir.display()
-        ),
+        format!("ingest dir {} vanished before it could be verified", dir.display()),
     )
 }
 
@@ -125,10 +112,7 @@ fn vanished(dir: &Path) -> std::io::Error {
 fn changed_identity(dir: &Path) -> std::io::Error {
     std::io::Error::new(
         std::io::ErrorKind::InvalidInput,
-        format!(
-            "ingest dir {} changed identity between inspection and open",
-            dir.display()
-        ),
+        format!("ingest dir {} changed identity between inspection and open", dir.display()),
     )
 }
 
@@ -146,10 +130,7 @@ fn reject_untrusted_ingest_dir(data_dir: &Path) -> std::io::Result<Option<std::f
         Ok(m) => m,
         Err(e) if e.kind() == ErrorKind::NotFound => return Ok(None),
         Err(e) => {
-            return Err(io_context(
-                format!("inspecting ingest dir {}", data_dir.display()),
-                e,
-            ))
+            return Err(io_context(format!("inspecting ingest dir {}", data_dir.display()), e))
         }
     };
     let file_type = lstat.file_type();
@@ -165,10 +146,7 @@ fn reject_untrusted_ingest_dir(data_dir: &Path) -> std::io::Result<Option<std::f
     if !file_type.is_dir() {
         return Err(Error::new(
             ErrorKind::InvalidInput,
-            format!(
-                "ingest dir {} exists but is not a directory",
-                data_dir.display()
-            ),
+            format!("ingest dir {} exists but is not a directory", data_dir.display()),
         ));
     }
     Ok(Some(lstat))
@@ -211,14 +189,9 @@ fn harden_existing_ingest_dir(data_dir: &Path) -> std::io::Result<()> {
         return Err(changed_identity(data_dir));
     }
 
-    handle
-        .set_permissions(std::fs::Permissions::from_mode(0o700))
-        .map_err(|e| {
-            io_context(
-                format!("restricting ingest dir {} to mode 0700", data_dir.display()),
-                e,
-            )
-        })
+    handle.set_permissions(std::fs::Permissions::from_mode(0o700)).map_err(|e| {
+        io_context(format!("restricting ingest dir {} to mode 0700", data_dir.display()), e)
+    })
 }
 
 /// A verified, anchored handle on the ingest staging directory.
@@ -316,10 +289,7 @@ impl IngestDir {
                 ),
             ));
         }
-        Ok(Self {
-            path: data_dir.to_path_buf(),
-            handle,
-        })
+        Ok(Self { path: data_dir.to_path_buf(), handle })
     }
 
     #[cfg(not(unix))]
@@ -332,15 +302,10 @@ impl IngestDir {
         if reject_untrusted_ingest_dir(data_dir)?.is_none() {
             return Err(Error::new(
                 ErrorKind::NotFound,
-                format!(
-                    "ingest dir {} vanished before it could be opened",
-                    data_dir.display()
-                ),
+                format!("ingest dir {} vanished before it could be opened", data_dir.display()),
             ));
         }
-        Ok(Self {
-            path: data_dir.to_path_buf(),
-        })
+        Ok(Self { path: data_dir.to_path_buf() })
     }
 
     /// The directory's path, for the `data_sources` provenance row and log
@@ -412,8 +377,7 @@ impl IngestDir {
     /// [`DbError::Io`] if `name` is not a single path component, or if any of
     /// the create / write / fsync / rename steps fails.
     pub fn write_atomic(&self, name: &str, bytes: &[u8]) -> DbResult<()> {
-        self.write_atomic_io(name, bytes)
-            .map_err(|e| self.entry_error("writing", name, e))
+        self.write_atomic_io(name, bytes).map_err(|e| self.entry_error("writing", name, e))
     }
 
     #[cfg(unix)]
@@ -424,13 +388,10 @@ impl IngestDir {
         let tmp_name = Self::tmp_name(name);
         let mut tmp = self.create_exclusive(&tmp_name)?;
 
-        let published = tmp
-            .write_all(bytes)
-            .and_then(|()| tmp.sync_all())
-            .and_then(|()| {
-                drop(tmp);
-                self.rename_io(&tmp_name, name)
-            });
+        let published = tmp.write_all(bytes).and_then(|()| tmp.sync_all()).and_then(|()| {
+            drop(tmp);
+            self.rename_io(&tmp_name, name)
+        });
         if published.is_err() {
             // Best-effort: a leaked temp is disk hygiene, not a correctness
             // problem, and the original error is the one worth reporting.
@@ -488,8 +449,7 @@ impl IngestDir {
     /// [`DbError::Io`] if `name` is not a single path component or the entry
     /// cannot be opened.
     pub fn open_read(&self, name: &str) -> DbResult<std::fs::File> {
-        self.open_read_io(name)
-            .map_err(|e| self.entry_error("opening", name, e))
+        self.open_read_io(name).map_err(|e| self.entry_error("opening", name, e))
     }
 
     #[cfg(unix)]
@@ -542,10 +502,7 @@ impl IngestDir {
     pub fn rename(&self, from: &str, to: &str) -> DbResult<()> {
         self.rename_io(from, to).map_err(|e| {
             DbError::Io(io_context(
-                format!(
-                    "renaming staged entry {} to {to:?}",
-                    self.entry_path(from).display()
-                ),
+                format!("renaming staged entry {} to {to:?}", self.entry_path(from).display()),
                 e,
             ))
         })
@@ -586,8 +543,7 @@ impl IngestDir {
     /// fails (a missing entry surfaces as [`std::io::ErrorKind::NotFound`], as
     /// with `std::fs::remove_file`).
     pub fn remove_file(&self, name: &str) -> DbResult<()> {
-        self.remove_file_io(name)
-            .map_err(|e| self.entry_error("removing", name, e))
+        self.remove_file_io(name).map_err(|e| self.entry_error("removing", name, e))
     }
 
     #[cfg(unix)]
@@ -715,19 +671,12 @@ mod tests {
         let leaf = tmp.path().join("a/b/data.db.ingest");
         create_ingest_dir(&leaf).expect("create");
 
-        let leaf_mode = std::fs::metadata(&leaf)
-            .expect("leaf meta")
-            .permissions()
-            .mode()
-            & 0o777;
+        let leaf_mode = std::fs::metadata(&leaf).expect("leaf meta").permissions().mode() & 0o777;
         assert_eq!(leaf_mode, 0o700, "leaf must be 0o700; got {leaf_mode:o}");
 
         for parent in [tmp.path().join("a"), tmp.path().join("a/b")] {
-            let mode = std::fs::metadata(&parent)
-                .expect("parent meta")
-                .permissions()
-                .mode()
-                & 0o777;
+            let mode =
+                std::fs::metadata(&parent).expect("parent meta").permissions().mode() & 0o777;
             assert_ne!(
                 mode,
                 0o700,
@@ -755,11 +704,7 @@ mod tests {
                 .expect("ingest must not fail under a shared-writable parent");
             dir.write_atomic("staged.json", b"{}").expect("stage");
 
-            let mode = std::fs::metadata(&parent)
-                .expect("meta")
-                .permissions()
-                .mode()
-                & 0o7777;
+            let mode = std::fs::metadata(&parent).expect("meta").permissions().mode() & 0o7777;
             assert_eq!(
                 mode, shared_mode,
                 "the database directory must keep its mode; got {mode:o}"
@@ -803,15 +748,8 @@ mod tests {
 
         create_ingest_dir(&parent.join("data.db.ingest")).expect("create");
 
-        let mode = std::fs::metadata(&parent)
-            .expect("meta")
-            .permissions()
-            .mode()
-            & 0o7777;
-        assert_eq!(
-            mode, 0o1777,
-            "a sticky shared parent must keep its mode; got {mode:o}"
-        );
+        let mode = std::fs::metadata(&parent).expect("meta").permissions().mode() & 0o7777;
+        assert_eq!(mode, 0o1777, "a sticky shared parent must keep its mode; got {mode:o}");
     }
 
     /// SEC-25: a symlink planted at the ingest-dir path must be rejected, and
@@ -830,25 +768,13 @@ mod tests {
 
         let err = create_ingest_dir(&link).expect_err("symlinked ingest dir must be rejected");
         assert_eq!(err.kind(), std::io::ErrorKind::InvalidInput);
-        assert!(
-            err.to_string().contains("symlink"),
-            "error should name the symlink: {err}"
-        );
+        assert!(err.to_string().contains("symlink"), "error should name the symlink: {err}");
 
-        let target_mode = std::fs::metadata(&target)
-            .expect("target meta")
-            .permissions()
-            .mode()
-            & 0o777;
-        assert_eq!(
-            target_mode, 0o755,
-            "symlink target must keep its mode; got {target_mode:o}"
-        );
+        let target_mode =
+            std::fs::metadata(&target).expect("target meta").permissions().mode() & 0o777;
+        assert_eq!(target_mode, 0o755, "symlink target must keep its mode; got {target_mode:o}");
         assert!(
-            std::fs::symlink_metadata(&link)
-                .expect("link meta")
-                .file_type()
-                .is_symlink(),
+            std::fs::symlink_metadata(&link).expect("link meta").file_type().is_symlink(),
             "the planted symlink must be left in place, not replaced"
         );
     }
@@ -871,8 +797,7 @@ mod tests {
         let data_dir = link.join("data.db.ingest");
 
         let dir = IngestDir::open(&data_dir).expect("ingest must work through a symlinked parent");
-        dir.write_atomic("stage.json", b"{}")
-            .expect("staged write through the symlinked parent");
+        dir.write_atomic("stage.json", b"{}").expect("staged write through the symlinked parent");
 
         let leaf = target.join("data.db.ingest");
         let mode = std::fs::metadata(&leaf)
@@ -881,15 +806,9 @@ mod tests {
             .mode()
             & 0o777;
         assert_eq!(mode, 0o700, "leaf must be 0700 where it landed");
+        assert!(leaf.join("stage.json").exists(), "staged entry must exist inside the target");
         assert!(
-            leaf.join("stage.json").exists(),
-            "staged entry must exist inside the target"
-        );
-        assert!(
-            std::fs::symlink_metadata(&link)
-                .expect("link meta")
-                .file_type()
-                .is_symlink(),
+            std::fs::symlink_metadata(&link).expect("link meta").file_type().is_symlink(),
             "the user's symlink must be left in place"
         );
     }
@@ -904,17 +823,13 @@ mod tests {
 
         let missing = tmp.path().join("absent.ingest");
         assert!(
-            reject_untrusted_ingest_dir(&missing)
-                .expect("absent path is not an error")
-                .is_none(),
+            reject_untrusted_ingest_dir(&missing).expect("absent path is not an error").is_none(),
             "an absent path must report 'nothing here', not a rejection"
         );
 
         let real = tmp.path().join("real.ingest");
         std::fs::create_dir(&real).expect("mkdir");
-        assert!(reject_untrusted_ingest_dir(&real)
-            .expect("real dir accepted")
-            .is_some());
+        assert!(reject_untrusted_ingest_dir(&real).expect("real dir accepted").is_some());
 
         let file = tmp.path().join("file.ingest");
         std::fs::write(&file, b"x").expect("write");
@@ -931,10 +846,7 @@ mod tests {
             std::os::unix::fs::symlink(&real, &link).expect("symlink");
             let err = reject_untrusted_ingest_dir(&link).expect_err("a symlink must be rejected");
             assert_eq!(err.kind(), std::io::ErrorKind::InvalidInput);
-            assert!(
-                err.to_string().contains("symlink"),
-                "error should name the symlink: {err}"
-            );
+            assert!(err.to_string().contains("symlink"), "error should name the symlink: {err}");
         }
     }
 
@@ -958,10 +870,7 @@ mod tests {
     fn data_dir_for_db_appends_ingest() {
         let path = PathBuf::from("/home/proj/target/ops/data.db");
         let result = data_dir_for_db(&path).expect("file-backed path");
-        assert_eq!(
-            result,
-            PathBuf::from("/home/proj/target/ops/data.db.ingest")
-        );
+        assert_eq!(result, PathBuf::from("/home/proj/target/ops/data.db.ingest"));
     }
 
     /// The `:memory:` sentinel is a connection string, not a path; deriving
@@ -995,18 +904,12 @@ mod tests {
     fn external_err_preserves_anyhow_context_chain() {
         use anyhow::Context;
         let leaf = anyhow::Error::msg("leaf cause");
-        let chained: anyhow::Error = Err::<(), _>(leaf)
-            .context("wrap one")
-            .context("wrap two")
-            .unwrap_err();
+        let chained: anyhow::Error =
+            Err::<(), _>(leaf).context("wrap one").context("wrap two").unwrap_err();
         let err = external_err(chained);
         let msg = format!("{:#}", anyhow::Error::new(err));
         for link in ["wrap two", "wrap one", "leaf cause"] {
-            assert_eq!(
-                msg.matches(link).count(),
-                1,
-                "`{link}` must appear exactly once: {msg}"
-            );
+            assert_eq!(msg.matches(link).count(), 1, "`{link}` must appear exactly once: {msg}");
         }
     }
 
@@ -1048,8 +951,7 @@ mod tests {
     fn checksum_returns_sha256_hex() {
         let tmp = tempfile::tempdir().expect("tempdir");
         let dir = staged_dir(&tmp);
-        dir.write_atomic("test.json", br#"{"test": "data"}"#)
-            .expect("stage");
+        dir.write_atomic("test.json", br#"{"test": "data"}"#).expect("stage");
         let checksum = dir.checksum("test.json").expect("checksum");
         assert_eq!(checksum.len(), 64, "SHA-256 hex should be 64 chars");
         assert!(checksum.chars().all(|c| c.is_ascii_hexdigit()));
@@ -1088,8 +990,7 @@ mod tests {
         std::fs::create_dir(&attacker).expect("create attacker dir");
         std::os::unix::fs::symlink(&attacker, &staging).expect("plant symlink at the ingest path");
 
-        dir.write_atomic("staged.json", b"secret")
-            .expect("staged write through the anchor");
+        dir.write_atomic("staged.json", b"secret").expect("staged write through the anchor");
 
         assert_eq!(
             std::fs::read(moved_aside.join("staged.json")).expect("read from the verified dir"),
@@ -1103,8 +1004,7 @@ mod tests {
         // And the anchored read path agrees: it still sees the file it wrote,
         // not whatever the swapped name now resolves to.
         assert_eq!(
-            dir.checksum("staged.json")
-                .expect("checksum through the anchor"),
+            dir.checksum("staged.json").expect("checksum through the anchor"),
             checksum_reader(
                 std::fs::File::open(moved_aside.join("staged.json")).expect("open by path")
             )
@@ -1120,9 +1020,7 @@ mod tests {
         let tmp = tempfile::tempdir().expect("tempdir");
         let dir = IngestDir::open(&tmp.path().join("data.db.ingest")).expect("open");
         for bad in ["..", ".", "", "../escape.json", "sub/escape.json"] {
-            let err = dir
-                .write_atomic(bad, b"x")
-                .expect_err("escaping entry name must be refused");
+            let err = dir.write_atomic(bad, b"x").expect_err("escaping entry name must be refused");
             match err {
                 DbError::Io(e) => assert_eq!(
                     e.kind(),
@@ -1147,10 +1045,7 @@ mod tests {
         std::os::unix::fs::symlink(&elsewhere, &staging).expect("plant symlink");
 
         let err = IngestDir::open(&staging).expect_err("a symlinked ingest dir must be refused");
-        assert!(
-            matches!(err, DbError::Io(_)),
-            "expected DbError::Io, got {err:?}"
-        );
+        assert!(matches!(err, DbError::Io(_)), "expected DbError::Io, got {err:?}");
     }
 
     /// SEC-25 / TASK-2054: the anchored rename/unlink pair used by
@@ -1167,10 +1062,7 @@ mod tests {
             .filter_map(Result::ok)
             .map(|e| e.file_name().to_string_lossy().into_owned())
             .find(|name| name.contains(".tmp."));
-        assert!(
-            leftover.is_none(),
-            "anchored write left a temp: {leftover:?}"
-        );
+        assert!(leftover.is_none(), "anchored write left a temp: {leftover:?}");
 
         dir.rename("data.json", "data.json.done").expect("rename");
         assert!(!dir.entry_path("data.json").exists());
@@ -1179,9 +1071,8 @@ mod tests {
         dir.remove_file("data.json.done").expect("unlink");
         assert!(!dir.entry_path("data.json.done").exists());
 
-        let err = dir
-            .remove_file("data.json.done")
-            .expect_err("a second unlink must report NotFound");
+        let err =
+            dir.remove_file("data.json.done").expect_err("a second unlink must report NotFound");
         match err {
             DbError::Io(e) => assert_eq!(e.kind(), std::io::ErrorKind::NotFound),
             other => panic!("expected DbError::Io, got {other:?}"),
@@ -1235,14 +1126,9 @@ mod tests {
                 panic!("expected DbError::Io");
             };
             assert_eq!(io.kind(), std::io::ErrorKind::NotFound);
+            assert!(io.to_string().contains(&missing), "error must name the staged entry: {io}");
             assert!(
-                io.to_string().contains(&missing),
-                "error must name the staged entry: {io}"
-            );
-            assert!(
-                io.source()
-                    .and_then(|s| s.downcast_ref::<std::io::Error>())
-                    .is_some(),
+                io.source().and_then(|s| s.downcast_ref::<std::io::Error>()).is_some(),
                 "the OS error must stay reachable as the source: {io:?}"
             );
         }

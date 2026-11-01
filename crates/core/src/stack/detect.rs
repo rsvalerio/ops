@@ -40,10 +40,7 @@ static CANONICALIZE_CACHE: OnceLock<Mutex<CanonicalizeCache>> = OnceLock::new();
 
 fn canonicalize_cached(start: &Path) -> PathBuf {
     let cache = CANONICALIZE_CACHE.get_or_init(|| {
-        Mutex::new(CanonicalizeCache {
-            map: HashMap::new(),
-            order: VecDeque::new(),
-        })
+        Mutex::new(CanonicalizeCache { map: HashMap::new(), order: VecDeque::new() })
     });
     // Poisoning here is recoverable
     // — the protected cache has no invariant a panicking caller could have
@@ -91,18 +88,14 @@ fn canonicalize_cached(start: &Path) -> PathBuf {
 /// tests' `detect()` calls.
 #[cfg(test)]
 pub(super) fn canonicalize_cache_contains(start: &Path) -> bool {
-    CANONICALIZE_CACHE
-        .get()
-        .is_some_and(|c| crate::sync::lock_recover(c).map.contains_key(start))
+    CANONICALIZE_CACHE.get().is_some_and(|c| crate::sync::lock_recover(c).map.contains_key(start))
 }
 
 /// Test seam for the bounded-cache regression test —
 /// mirrors `ops_root_cache_len` in `expand.rs`.
 #[cfg(test)]
 pub(super) fn canonicalize_cache_len() -> usize {
-    CANONICALIZE_CACHE
-        .get()
-        .map_or(0, |c| crate::sync::lock_recover(c).map.len())
+    CANONICALIZE_CACHE.get().map_or(0, |c| crate::sync::lock_recover(c).map.len())
 }
 
 /// Test seam clearing the cache between assertions —
@@ -145,11 +138,7 @@ const fn manifest_extensions(stack: Stack) -> &'static [&'static str] {
 
 /// Whether `stack` has a manifest (exact filename or extension match) in `dir`.
 pub(super) fn has_manifest_in_dir(stack: Stack, dir: &Path) -> bool {
-    if stack
-        .manifest_files()
-        .iter()
-        .any(|f| manifest_present(&dir.join(f)))
-    {
+    if stack.manifest_files().iter().any(|f| manifest_present(&dir.join(f))) {
         return true;
     }
     let extensions = manifest_extensions(stack);
@@ -217,11 +206,8 @@ fn detect_recovers_from_poisoned_canonicalize_cache() {
     let dir = tempfile::tempdir().expect("tempdir");
     let _ = detect(dir.path());
 
-    let cache: Arc<&'static Mutex<CanonicalizeCache>> = Arc::new(
-        CANONICALIZE_CACHE
-            .get()
-            .expect("cache populated by detect() above"),
-    );
+    let cache: Arc<&'static Mutex<CanonicalizeCache>> =
+        Arc::new(CANONICALIZE_CACHE.get().expect("cache populated by detect() above"));
     let poisoner = std::thread::spawn({
         let cache = Arc::clone(&cache);
         move || {
@@ -231,10 +217,7 @@ fn detect_recovers_from_poisoned_canonicalize_cache() {
     });
     // Join must report Err — confirming the thread panicked and left the
     // mutex poisoned.
-    assert!(
-        poisoner.join().is_err(),
-        "poisoner thread must have panicked to poison the lock"
-    );
+    assert!(poisoner.join().is_err(), "poisoner thread must have panicked to poison the lock");
 
     // Production policy: poison must not propagate. `detect` should
     // continue to resolve.

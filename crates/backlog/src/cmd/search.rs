@@ -44,10 +44,7 @@ pub fn run_search<W: Write>(
         .filter(|e| modified_file_matches(opts, &e.doc.frontmatter.modified_files))
         .filter(|e| !excluded_status(opts, &e.doc.frontmatter.status))
         .filter(|e| query.is_empty() || render::score_entry(e, &query) > 0.0)
-        .map(|e| render::SearchHit {
-            entry: e,
-            score: render::score_entry(e, &query),
-        })
+        .map(|e| render::SearchHit { entry: e, score: render::score_entry(e, &query) })
         .collect();
     render::sort_hits(&mut hits);
     match opts.format {
@@ -62,17 +59,14 @@ pub fn run_search<W: Write>(
 
 fn modified_file_matches(opts: &SearchOptions, modified_files: &[String]) -> bool {
     opts.modified_file.is_empty()
-        || opts.modified_file.iter().any(|wanted| {
-            modified_files
-                .iter()
-                .any(|file| file.contains(wanted.as_str()))
-        })
+        || opts
+            .modified_file
+            .iter()
+            .any(|wanted| modified_files.iter().any(|file| file.contains(wanted.as_str())))
 }
 
 fn excluded_status(opts: &SearchOptions, status: &str) -> bool {
-    opts.exclude_status
-        .iter()
-        .any(|excluded| excluded.eq_ignore_ascii_case(status))
+    opts.exclude_status.iter().any(|excluded| excluded.eq_ignore_ascii_case(status))
 }
 
 #[cfg(test)]
@@ -149,10 +143,7 @@ mod tests {
         let text = String::from_utf8_lossy(&out);
         assert!(text.contains("TASK-0001"));
         assert!(!text.contains("TASK-0002"));
-        assert!(
-            !text.contains("[score"),
-            "no query means no score suffix, got: {text}"
-        );
+        assert!(!text.contains("[score"), "no query means no score suffix, got: {text}");
     }
 
     /// TASK-2282: pins the `search --json` document shape.
@@ -232,9 +223,6 @@ mod tests {
         )
         .expect("search");
         let text = String::from_utf8_lossy(&out);
-        assert_eq!(
-            text, "Tasks:\n",
-            "the only hit was Done and must be excluded"
-        );
+        assert_eq!(text, "Tasks:\n", "the only hit was Done and must be excluded");
     }
 }

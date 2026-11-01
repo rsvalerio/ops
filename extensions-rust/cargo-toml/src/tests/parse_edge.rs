@@ -106,10 +106,7 @@ fn parse_absent_inheritable_string_fields_are_all_absent() {
         assert!(field.is_absent(), "{label} should be Absent when omitted");
         assert_eq!(field.as_str(), None, "{label}.as_str() should be None");
     }
-    assert!(
-        a.authors.is_absent(),
-        "authors should be Absent when omitted"
-    );
+    assert!(a.authors.is_absent(), "authors should be Absent when omitted");
 
     let declared = CargoToml::parse(
         r#"
@@ -150,10 +147,7 @@ name = ""
 version = "0.1.0"
 "#;
     let manifest = CargoToml::parse(toml);
-    assert!(
-        manifest.is_ok(),
-        "empty name should parse (validation is Cargo's job)"
-    );
+    assert!(manifest.is_ok(), "empty name should parse (validation is Cargo's job)");
     let m = manifest.unwrap();
     assert_eq!(m.package_name(), Some(""));
 }
@@ -267,10 +261,7 @@ my-git = { git = "https://github.com/example/repo", branch = "dev", tag = "v1.0"
     let manifest = CargoToml::parse(toml).expect("should parse");
     let dep = &manifest.dependencies["my-git"];
     let detail = dep.detail().expect("should be detailed");
-    assert_eq!(
-        detail.git.as_deref(),
-        Some("https://github.com/example/repo")
-    );
+    assert_eq!(detail.git.as_deref(), Some("https://github.com/example/repo"));
     assert_eq!(detail.branch.as_deref(), Some("dev"));
     assert_eq!(detail.tag.as_deref(), Some("v1.0"));
     assert_eq!(detail.rev.as_deref(), Some("abc123"));
@@ -346,10 +337,7 @@ version = "0.1.0"
 publish = true
 "#;
     let manifest = CargoToml::parse(toml).expect("should parse");
-    assert_eq!(
-        manifest.package.unwrap().publish.is_publishable(),
-        Some(true)
-    );
+    assert_eq!(manifest.package.unwrap().publish.is_publishable(), Some(true));
 }
 
 #[test]

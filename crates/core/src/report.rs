@@ -47,12 +47,7 @@ impl ReportRow {
     /// Construct a row with no detail lines.
     #[must_use]
     pub fn new(status: ReportStatus, label: impl Into<String>, result: impl Into<String>) -> Self {
-        Self {
-            status,
-            label: label.into(),
-            result: result.into(),
-            details: Vec::new(),
-        }
+        Self { status, label: label.into(), result: result.into(), details: Vec::new() }
     }
 
     /// Attach pre-formatted detail lines (rendered verbatim below the row).
@@ -77,10 +72,7 @@ impl Report {
     /// Construct an empty report with the given title.
     #[must_use]
     pub fn new(title: impl Into<String>) -> Self {
-        Self {
-            title: title.into(),
-            rows: Vec::new(),
-        }
+        Self { title: title.into(), rows: Vec::new() }
     }
 
     /// Append a row.
@@ -91,19 +83,13 @@ impl Report {
     /// Number of [`ReportStatus::Warning`] rows.
     #[must_use]
     pub fn warning_count(&self) -> usize {
-        self.rows
-            .iter()
-            .filter(|r| r.status == ReportStatus::Warning)
-            .count()
+        self.rows.iter().filter(|r| r.status == ReportStatus::Warning).count()
     }
 
     /// Number of [`ReportStatus::Error`] rows.
     #[must_use]
     pub fn error_count(&self) -> usize {
-        self.rows
-            .iter()
-            .filter(|r| r.status == ReportStatus::Error)
-            .count()
+        self.rows.iter().filter(|r| r.status == ReportStatus::Error).count()
     }
 
     /// Summary footer text mirroring the runner's "Done in …" line, but
@@ -124,10 +110,7 @@ impl Report {
             issues.push(format!("{errors} {}", pluralize(errors, "error", "errors")));
         }
         if warnings > 0 {
-            issues.push(format!(
-                "{warnings} {}",
-                pluralize(warnings, "warning", "warnings")
-            ));
+            issues.push(format!("{warnings} {}", pluralize(warnings, "warning", "warnings")));
         }
         if !issues.is_empty() {
             text.push_str(" \u{b7} ");
@@ -183,10 +166,7 @@ mod tests {
             ReportStatus::Warning,
             ReportStatus::Ok,
         ]);
-        assert_eq!(
-            report.footer_text(),
-            "Done 4 checks \u{b7} 2 errors, 1 warning"
-        );
+        assert_eq!(report.footer_text(), "Done 4 checks \u{b7} 2 errors, 1 warning");
     }
 
     #[test]

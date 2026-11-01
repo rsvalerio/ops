@@ -65,11 +65,7 @@ impl std::fmt::Display for SharedError {
         // so it is delegated wholesale rather than walked a second time —
         // walking it here would print its first link twice.
         if let Inner::Anyhow(err) = &self.0 {
-            return if f.alternate() {
-                write!(f, "{err:#}")
-            } else {
-                write!(f, "{err}")
-            };
+            return if f.alternate() { write!(f, "{err:#}") } else { write!(f, "{err}") };
         }
         let inner = self.as_error();
         std::fmt::Display::fmt(inner, f)?;
@@ -337,9 +333,7 @@ mod tests {
         // The first link is the *wrapped error itself*, not its "root cause"
         // source: skipping it would leave the wrapped `Outer` unreachable by
         // any chain walk or downcast.
-        let first = shared
-            .source()
-            .expect("the wrapped error is the first link");
+        let first = shared.source().expect("the wrapped error is the first link");
         assert_eq!(first.to_string(), "outer");
         assert!(
             first.downcast_ref::<Outer>().is_some(),
@@ -384,10 +378,7 @@ mod tests {
         assert_eq!(format!("{shared:#}"), "outer context: root cause");
 
         let e = DataProviderError::ComputationFailed(shared);
-        assert_eq!(
-            e.to_string(),
-            "data computation failed: outer context: root cause"
-        );
+        assert_eq!(e.to_string(), "data computation failed: outer context: root cause");
     }
 
     #[test]

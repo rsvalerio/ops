@@ -29,10 +29,7 @@ impl DataProvider for RustIdentityProvider {
         insert_homepage_field(&mut fields);
         // Insert Rust-specific `dependencies` right after the homepage slot,
         // before `coverage` so the field ordering stays stable.
-        let deps_pos = fields
-            .iter()
-            .position(|f| f.id == "coverage")
-            .unwrap_or(fields.len());
+        let deps_pos = fields.iter().position(|f| f.id == "coverage").unwrap_or(fields.len());
         fields.insert(
             deps_pos,
             AboutFieldDef {
@@ -72,9 +69,8 @@ impl DataProvider for RustIdentityProvider {
                 // Count the resolved members (post glob
                 // expansion) rather than the raw `[workspace].members` spec,
                 // which may be a single `["crates/*"]` glob entry.
-                m.module_count = manifest
-                    .declares_workspace()
-                    .then(|| manifest.resolved_members().len());
+                m.module_count =
+                    manifest.declares_workspace().then(|| manifest.resolved_members().len());
                 m.loc = metrics.loc;
                 m.file_count = metrics.file_count;
                 m.msrv = fields.msrv;
@@ -153,10 +149,7 @@ authors = ["Alice <alice@example.com>"]
         assert_eq!(id.stack_label, "Rust");
         assert_eq!(id.stack_detail.as_deref(), Some("Edition 2021"));
         assert_eq!(id.license.as_deref(), Some("MIT"));
-        assert_eq!(
-            id.repository.as_deref(),
-            Some("https://github.com/test/my-crate")
-        );
+        assert_eq!(id.repository.as_deref(), Some("https://github.com/test/my-crate"));
         assert_eq!(id.homepage.as_deref(), Some("https://my-crate.dev"));
         assert_eq!(id.msrv.as_deref(), Some("1.70"));
         assert_eq!(id.authors, vec!["Alice <alice@example.com>"]);
@@ -191,10 +184,7 @@ repository = "https://example.com/manifest-wins"
         let id: ProjectIdentity =
             serde_json::from_value(provider.provide(&mut ctx).unwrap()).unwrap();
 
-        assert_eq!(
-            id.repository.as_deref(),
-            Some("https://example.com/manifest-wins")
-        );
+        assert_eq!(id.repository.as_deref(), Some("https://example.com/manifest-wins"));
     }
 
     #[test]
@@ -369,22 +359,12 @@ rust-version = "1.80"
         let id: ops_core::project_identity::ProjectIdentity =
             serde_json::from_value(value).unwrap();
 
-        assert_eq!(
-            id.name,
-            dir.path()
-                .file_name()
-                .unwrap()
-                .to_string_lossy()
-                .to_string()
-        );
+        assert_eq!(id.name, dir.path().file_name().unwrap().to_string_lossy().to_string());
         assert_eq!(id.version.as_deref(), Some("3.0.0"));
         assert_eq!(id.description.as_deref(), Some("Virtual workspace desc"));
         assert_eq!(id.stack_detail.as_deref(), Some("Edition 2024"));
         assert_eq!(id.license.as_deref(), Some("Apache-2.0"));
-        assert_eq!(
-            id.repository.as_deref(),
-            Some("https://github.com/test/vws")
-        );
+        assert_eq!(id.repository.as_deref(), Some("https://github.com/test/vws"));
         assert_eq!(id.homepage.as_deref(), Some("https://vws.dev"));
         assert_eq!(id.msrv.as_deref(), Some("1.80"));
         assert_eq!(id.authors, vec!["Bob"]);

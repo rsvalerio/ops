@@ -128,11 +128,8 @@ mod tests {
     #[test]
     fn block_opener_accepts_no_space_before_paren() {
         let dir = tempfile::tempdir().unwrap();
-        std::fs::write(
-            dir.path().join("go.work"),
-            "go 1.21\n\nuse(\n\t./api\n\t./cmd\n)\n",
-        )
-        .unwrap();
+        std::fs::write(dir.path().join("go.work"), "go 1.21\n\nuse(\n\t./api\n\t./cmd\n)\n")
+            .unwrap();
         let dirs = parse_use_dirs(dir.path()).unwrap();
         assert_eq!(dirs, vec!["./api", "./cmd"]);
     }
@@ -200,11 +197,8 @@ mod tests {
     #[test]
     fn blank_lines_in_use_block() {
         let dir = tempfile::tempdir().unwrap();
-        std::fs::write(
-            dir.path().join("go.work"),
-            "go 1.21\n\nuse (\n\n\t./a\n\n\t./b\n\n)\n",
-        )
-        .unwrap();
+        std::fs::write(dir.path().join("go.work"), "go 1.21\n\nuse (\n\n\t./a\n\n\t./b\n\n)\n")
+            .unwrap();
         let dirs = parse_use_dirs(dir.path()).unwrap();
         assert_eq!(dirs, vec!["./a", "./b"]);
     }
@@ -292,11 +286,7 @@ mod tests {
     #[test]
     fn multiple_single_line_uses() {
         let dir = tempfile::tempdir().unwrap();
-        std::fs::write(
-            dir.path().join("go.work"),
-            "go 1.21\nuse ./first\nuse ./second\n",
-        )
-        .unwrap();
+        std::fs::write(dir.path().join("go.work"), "go 1.21\nuse ./first\nuse ./second\n").unwrap();
         let dirs = parse_use_dirs(dir.path()).unwrap();
         assert_eq!(dirs, vec!["./first", "./second"]);
     }
@@ -333,18 +323,9 @@ mod tests {
         let rendered = ops_core::test_utils::capture_warn(|| {
             parse_use_dirs(dir.path());
         });
-        assert!(
-            rendered.contains("go.work"),
-            "warn should name the manifest: {rendered}"
-        );
-        assert!(
-            rendered.contains("unterminated"),
-            "warn should say what is wrong: {rendered}"
-        );
-        assert!(
-            rendered.contains("use"),
-            "warn should name the directive: {rendered}"
-        );
+        assert!(rendered.contains("go.work"), "warn should name the manifest: {rendered}");
+        assert!(rendered.contains("unterminated"), "warn should say what is wrong: {rendered}");
+        assert!(rendered.contains("use"), "warn should name the directive: {rendered}");
     }
 
     /// A closed block followed by an unterminated one keeps the closed

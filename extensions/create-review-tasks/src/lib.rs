@@ -205,11 +205,7 @@ fn run_create_review_tasks_at(
     mode: RunMode,
     stamp: &UtcStamp,
 ) -> anyhow::Result<()> {
-    let request = RequestOptions {
-        mode,
-        scheme: &SKILL_REVIEW,
-        only: &[],
-    };
+    let request = RequestOptions { mode, scheme: &SKILL_REVIEW, only: &[] };
     run_create_tasks_at(registry, workspace_root, out, &request, stamp)
 }
 
@@ -224,10 +220,7 @@ fn run_create_tasks_at(
 ) -> anyhow::Result<()> {
     let mode = request.mode;
     backlog::require_backlog_tasks_dir(workspace_root)?;
-    let targets = select_targets(
-        fetch_review_targets(registry, workspace_root)?,
-        request.only,
-    )?;
+    let targets = select_targets(fetch_review_targets(registry, workspace_root)?, request.only)?;
     let scheme = request.scheme;
 
     let plan = match mode {
@@ -280,15 +273,11 @@ pub fn select_targets(
     if only.is_empty() {
         return Ok(targets);
     }
-    if let Some(unknown) = only
-        .iter()
-        .find(|name| !targets.targets.iter().any(|target| &target.name == *name))
+    if let Some(unknown) =
+        only.iter().find(|name| !targets.targets.iter().any(|target| &target.name == *name))
     {
         let known: Vec<&str> = targets.targets.iter().map(|t| t.name.as_str()).collect();
-        anyhow::bail!(
-            "no review target named {unknown:?}; known targets: {}",
-            known.join(", ")
-        );
+        anyhow::bail!("no review target named {unknown:?}; known targets: {}", known.join(", "));
     }
     targets.targets.retain(|target| only.contains(&target.name));
     Ok(targets)
@@ -347,16 +336,8 @@ fn validate(targets: &ReviewTargets) -> anyhow::Result<()> {
     for (position, target) in targets.targets.iter().enumerate() {
         // `position` indexes an in-memory slice, so `saturating_add` is exact.
         let index = position.saturating_add(1);
-        validate_field(
-            &format!("targets[{index}].name"),
-            &target.name,
-            MAX_NAME_CHARS,
-        )?;
-        validate_field(
-            &format!("targets[{index}].path"),
-            &target.path,
-            MAX_PATH_CHARS,
-        )?;
+        validate_field(&format!("targets[{index}].name"), &target.name, MAX_NAME_CHARS)?;
+        validate_field(&format!("targets[{index}].path"), &target.path, MAX_PATH_CHARS)?;
     }
     Ok(())
 }
@@ -375,10 +356,7 @@ fn validate_field(field: &str, value: &str, max_chars: usize) -> anyhow::Result<
     if chars > max_chars {
         anyhow::bail!("{field} is {chars} characters long, over the {max_chars}-character bound");
     }
-    if let Some(rejected) = value
-        .chars()
-        .find(|&ch| ops_core::text::is_unsafe_display_char(ch))
-    {
+    if let Some(rejected) = value.chars().find(|&ch| ops_core::text::is_unsafe_display_char(ch)) {
         // LINE SEPARATOR and PARAGRAPH SEPARATOR are `Zl` and `Zp`, neither
         // control nor format, so they are named for what they are.
         let class = match rejected {
@@ -433,10 +411,8 @@ fn plan_task_set<'a>(
     scheme: &'a RequestScheme,
     stamp: &UtcStamp,
 ) -> anyhow::Result<TaskPlan<'a>> {
-    let backlog::NextIds {
-        number: main_number,
-        sequence,
-    } = backlog::next_ids(workspace_root, scheme.stem, &stamp.date)?;
+    let backlog::NextIds { number: main_number, sequence } =
+        backlog::next_ids(workspace_root, scheme.stem, &stamp.date)?;
     let subtasks = targets
         .targets
         .iter()
@@ -624,10 +600,7 @@ struct StagedTasks {
 impl StagedTasks {
     /// An attempt with nothing staged yet.
     const fn new() -> Self {
-        Self {
-            paths: Vec::new(),
-            committed: false,
-        }
+        Self { paths: Vec::new(), committed: false }
     }
 
     /// Register a file this attempt created.
@@ -681,19 +654,11 @@ fn report(out: &mut dyn Write, plan: &TaskPlan<'_>, mode: RunMode) -> anyhow::Re
         plan.subtasks.len()
     )?;
     for subtask in &plan.subtasks {
-        writeln!(
-            out,
-            "{verb} {} {} ({})",
-            subtask.id, subtask.title, subtask.path
-        )?;
+        writeln!(out, "{verb} {} {} ({})", subtask.id, subtask.title, subtask.path)?;
     }
     // Printed in both modes: even a dry run shows the id the eventual real
     // run will allocate, so the filter is usable as soon as the tasks exist.
-    writeln!(
-        out,
-        "list subtasks: backlog task list --parent {}",
-        plan.main_id
-    )?;
+    writeln!(out, "list subtasks: backlog task list --parent {}", plan.main_id)?;
     Ok(())
 }
 
@@ -733,10 +698,7 @@ mod tests {
     }
 
     fn fixed_stamp() -> UtcStamp {
-        UtcStamp {
-            date: "2026-08-20".to_string(),
-            minutes: "19:02".to_string(),
-        }
+        UtcStamp { date: "2026-08-20".to_string(), minutes: "19:02".to_string() }
     }
 
     fn scratch_backlog() -> tempfile::TempDir {
@@ -813,14 +775,10 @@ mod tests {
             "got: {out2}"
         );
         assert!(
-            dir.path()
-                .join(".backlog/tasks/task-0002 - review-request-2026-08-20-2.md")
-                .exists()
+            dir.path().join(".backlog/tasks/task-0002 - review-request-2026-08-20-2.md").exists()
         );
         assert!(
-            dir.path()
-                .join(".backlog/tasks/task-0001 - review-request-2026-08-20-1.md")
-                .exists()
+            dir.path().join(".backlog/tasks/task-0001 - review-request-2026-08-20-1.md").exists()
         );
     }
 
@@ -830,16 +788,10 @@ mod tests {
 
     impl std::io::Write for FailingWriter {
         fn write(&mut self, _buf: &[u8]) -> std::io::Result<usize> {
-            Err(std::io::Error::new(
-                std::io::ErrorKind::BrokenPipe,
-                "failing writer",
-            ))
+            Err(std::io::Error::new(std::io::ErrorKind::BrokenPipe, "failing writer"))
         }
         fn flush(&mut self) -> std::io::Result<()> {
-            Err(std::io::Error::new(
-                std::io::ErrorKind::BrokenPipe,
-                "failing writer",
-            ))
+            Err(std::io::Error::new(std::io::ErrorKind::BrokenPipe, "failing writer"))
         }
     }
 
@@ -860,11 +812,7 @@ mod tests {
         );
         result.expect("run must succeed once the set is committed");
         let tasks_dir = dir.path().join(".backlog").join("tasks");
-        assert!(
-            tasks_dir
-                .join("task-0001 - review-request-2026-08-20-1.md")
-                .is_file()
-        );
+        assert!(tasks_dir.join("task-0001 - review-request-2026-08-20-1.md").is_file());
         assert!(
             tasks_dir
                 .join("task-0001.01 - REVIEW-Run-skill-code-review-rust-against-ops-core.md")
@@ -1026,9 +974,7 @@ mod tests {
             "got: {out}"
         );
         assert!(
-            !tasks_dir
-                .join("task-0001 - review-request-2026-08-20-1.md")
-                .exists(),
+            !tasks_dir.join("task-0001 - review-request-2026-08-20-1.md").exists(),
             "the abandoned attempt's main task must be rolled back"
         );
         assert!(
@@ -1070,10 +1016,7 @@ mod tests {
         };
 
         let committed = write_task_set(dir.path(), &plan, &fixed_stamp()).expect("no io error");
-        assert!(
-            !committed,
-            "a title another main number already claims must be rejected"
-        );
+        assert!(!committed, "a title another main number already claims must be rejected");
         assert_eq!(
             std::fs::read_dir(&tasks_dir).expect("tasks dir").count(),
             1,
@@ -1192,9 +1135,7 @@ mod tests {
         /// `created TASK-0002 review-request-2026-08-20-1 (2 subtasks)` → the
         /// whitespace-separated field at `field`.
         fn reported(out: &str, field: usize) -> &str {
-            out.split_whitespace()
-                .nth(field)
-                .expect("report names the id and title")
+            out.split_whitespace().nth(field).expect("report names the id and title")
         }
 
         // Every run reported a distinct main id...
@@ -1224,10 +1165,7 @@ mod tests {
             "each run must leave exactly one main task plus two subtasks"
         );
         for main_id in main_ids {
-            let number = main_id
-                .strip_prefix("TASK-")
-                .expect("zero-padded main id")
-                .to_string();
+            let number = main_id.strip_prefix("TASK-").expect("zero-padded main id").to_string();
             let main = std::fs::read_dir(&tasks_dir)
                 .expect("tasks dir")
                 .flatten()
@@ -1305,24 +1243,15 @@ mod tests {
         run_create_review_tasks(&registry, dir.path(), &mut out, RunMode::Write)
             .expect("run must succeed");
         let report = String::from_utf8(out).expect("utf8");
-        assert!(
-            report.starts_with("created TASK-0001 review-request-"),
-            "got: {report}"
-        );
+        assert!(report.starts_with("created TASK-0001 review-request-"), "got: {report}");
         let names: Vec<String> = std::fs::read_dir(dir.path().join(".backlog").join("tasks"))
             .expect("tasks dir")
             .flatten()
             .map(|entry| entry.file_name().into_string().expect("utf8 name"))
             .collect();
-        assert_eq!(
-            names.len(),
-            3,
-            "one main task plus two subtasks, got: {names:?}"
-        );
+        assert_eq!(names.len(), 3, "one main task plus two subtasks, got: {names:?}");
         assert!(
-            names
-                .iter()
-                .any(|name| name.starts_with("task-0001 - review-request-")),
+            names.iter().any(|name| name.starts_with("task-0001 - review-request-")),
             "got: {names:?}"
         );
     }
@@ -1475,10 +1404,7 @@ mod tests {
         }));
         let (_out, result) = run(&dir, &registry, RunMode::Write);
         let err = result.expect_err("an empty skill must fail the run");
-        assert!(
-            format!("{err:#}").contains("skill is empty"),
-            "got: {err:#}"
-        );
+        assert!(format!("{err:#}").contains("skill is empty"), "got: {err:#}");
 
         let registry = registry_with(serde_json::json!({
             "skill": "code-review-rust",
@@ -1486,9 +1412,6 @@ mod tests {
         }));
         let (_out, result) = run(&dir, &registry, RunMode::Write);
         let err = result.expect_err("an over-long target name must fail the run");
-        assert!(
-            format!("{err:#}").contains("over the 200-character bound"),
-            "got: {err:#}"
-        );
+        assert!(format!("{err:#}").contains("over the 200-character bound"), "got: {err:#}");
     }
 }

@@ -186,14 +186,8 @@ mod tests {
             LanguageStat::new("TOML", 1500, 30, 15.0, 30.0),
         ];
         let output = format_language_stats_section(Some(&stats)).join("\n");
-        assert!(
-            output.contains("60.0%"),
-            "stored loc_pct expected: {output}"
-        );
-        assert!(
-            output.contains("15.0%"),
-            "stored loc_pct expected: {output}"
-        );
+        assert!(output.contains("60.0%"), "stored loc_pct expected: {output}");
+        assert!(output.contains("15.0%"), "stored loc_pct expected: {output}");
         assert!(output.contains("30.0%"), "files_pct expected: {output}");
         assert!(
             !output.contains("80.0%"),

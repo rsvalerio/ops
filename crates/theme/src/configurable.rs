@@ -94,11 +94,8 @@ impl ConfigurableTheme {
     #[must_use]
     pub fn new(config: ThemeConfig) -> Self {
         let left_pad_str = " ".repeat(config.left_pad);
-        let icon_column_width = ALL_STATUSES
-            .iter()
-            .map(|s| visible_width(config.status_icon(*s)))
-            .max()
-            .unwrap_or(0);
+        let icon_column_width =
+            ALL_STATUSES.iter().map(|s| visible_width(config.status_icon(*s))).max().unwrap_or(0);
         // A zero-width tick or separator glyph would make the column budget
         // meaningless (and divide by zero below), so both floor at one cell.
         let spinner_reserve_cols = config
@@ -186,11 +183,9 @@ impl ConfigurableTheme {
         let color = color_enabled();
         let pad = self.left_pad_str();
         let (lead, rail, closing) = match self.config.plan_header_style {
-            PlanHeaderStyle::Plain => (
-                format!("{}Running: ", self.config.plan_header_prefix),
-                "",
-                String::new(),
-            ),
+            PlanHeaderStyle::Plain => {
+                (format!("{}Running: ", self.config.plan_header_prefix), "", String::new())
+            }
             PlanHeaderStyle::Tree => ("┌ Running: ".to_string(), "│", format!("{pad}│")),
         };
         let lead_width = visible_width(&lead);
@@ -270,11 +265,8 @@ impl ConfigurableTheme {
         let max_icon_width = self.icon_column_width();
         // The running row's spinner cell is as wide as
         // the widest configured tick glyph, not a hardcoded single column.
-        let (indent, spinner_cols) = if is_running {
-            ("", self.spinner_reserve_cols)
-        } else {
-            (self.step_indent(), 0usize)
-        };
+        let (indent, spinner_cols) =
+            if is_running { ("", self.spinner_reserve_cols) } else { (self.step_indent(), 0usize) };
         let pad =
             " ".repeat(max_icon_width.saturating_sub(icon_width.saturating_add(spinner_cols)));
         StepPrefixParts { indent, icon, pad }
@@ -304,11 +296,7 @@ impl ConfigurableTheme {
     ) -> String {
         // Reservations taken out of the total `columns` budget before we can
         // spend anything on the separator itself.
-        let template_overhead = if is_running {
-            self.running_template_overhead()
-        } else {
-            0
-        };
+        let template_overhead = if is_running { self.running_template_overhead() } else { 0 };
         let reserved_chrome = template_overhead.saturating_add(self.left_pad());
         let line_budget = columns.saturating_sub(reserved_chrome);
 
@@ -316,9 +304,8 @@ impl ConfigurableTheme {
         // (when present), and one leading space before the separator.
         let prefix_width = visible_width(prefix);
         let leading_space = 1usize;
-        let fixed_inside = prefix_width
-            .saturating_add(visible_width(duration_str))
-            .saturating_add(leading_space);
+        let fixed_inside =
+            prefix_width.saturating_add(visible_width(duration_str)).saturating_add(leading_space);
 
         let space_for_sep = line_budget.saturating_sub(fixed_inside);
         // Columns the separator run may occupy, including its leading space.
@@ -334,10 +321,8 @@ impl ConfigurableTheme {
         // full-width separator (U+FF0E, U+3002, …) configured in `.ops.toml`
         // therefore yields half as many repetitions and the same total width,
         // instead of a line twice as wide as the budget it was derived from.
-        let dots_count = sep_cols
-            .saturating_sub(1)
-            .checked_div(self.separator_char_cols)
-            .unwrap_or(0);
+        let dots_count =
+            sep_cols.saturating_sub(1).checked_div(self.separator_char_cols).unwrap_or(0);
         let trailing_space = duration_str.is_empty();
         let sep_len = sep.len_utf8();
         let mut out = String::with_capacity(
@@ -366,10 +351,7 @@ impl ConfigurableTheme {
     #[must_use]
     pub fn render(&self, step: &StepLine, columns: u16) -> String {
         let is_running = step.status == StepStatus::Running;
-        let trailing = step
-            .elapsed
-            .map(|d| self.format_elapsed(d))
-            .unwrap_or_default();
+        let trailing = step.elapsed.map(|d| self.format_elapsed(d)).unwrap_or_default();
         self.render_slot(
             &SlotLine {
                 icon: self.status_icon(step.status),
@@ -400,11 +382,7 @@ impl ConfigurableTheme {
     fn render_slot_gated(&self, slot: &SlotLine<'_>, columns: u16, color: bool) -> String {
         let parts = self.icon_prefix_parts(slot.icon, slot.is_running);
         let budget = usize::from(columns);
-        let template_overhead = if slot.is_running {
-            self.running_template_overhead()
-        } else {
-            0
-        };
+        let template_overhead = if slot.is_running { self.running_template_overhead() } else { 0 };
         // Spend the budget on chrome, the trailing slot and
         // the minimum separator run first; the label gets the remainder and is
         // truncated to it. See the module-level truncation policy.
@@ -412,17 +390,11 @@ impl ConfigurableTheme {
         let plain_prefix = format!("{}{}{} {}", parts.indent, parts.icon, parts.pad, label);
         let plain_separator =
             self.render_separator(&plain_prefix, slot.trailing, budget, slot.is_running);
-        let pad = if slot.is_running {
-            ""
-        } else {
-            self.left_pad_str()
-        };
+        let pad = if slot.is_running { "" } else { self.left_pad_str() };
 
         let colored_label = apply_with_prefix_gated(&label, self.label_prefix.as_deref(), color);
-        let colored_prefix = format!(
-            "{}{}{} {}",
-            parts.indent, parts.icon, parts.pad, colored_label
-        );
+        let colored_prefix =
+            format!("{}{}{} {}", parts.indent, parts.icon, parts.pad, colored_label);
         let colored_separator =
             apply_with_prefix_gated(&plain_separator, self.separator_prefix.as_deref(), color);
 
@@ -458,11 +430,7 @@ impl ConfigurableTheme {
             // control-character stripping in `truncate_to_width`.
             return usize::MAX;
         }
-        let template_overhead = if slot.is_running {
-            self.running_template_overhead()
-        } else {
-            0
-        };
+        let template_overhead = if slot.is_running { self.running_template_overhead() } else { 0 };
         // The space between the icon column and the label, plus the space
         // that precedes the trailing slot (or the separator's own trailing
         // space when there is none).
@@ -503,12 +471,7 @@ impl ConfigurableTheme {
     /// `render_report` can resolve the gate once for its whole output.
     fn render_summary_text_gated(&self, body: &str, color: bool) -> String {
         let colored = apply_with_prefix_gated(body, self.summary_prefix.as_deref(), color);
-        format!(
-            "{}{}{}",
-            self.left_pad_str(),
-            self.summary_prefix(),
-            colored
-        )
+        format!("{}{}{}", self.left_pad_str(), self.summary_prefix(), colored)
     }
 }
 
@@ -546,11 +509,7 @@ fn wrap_ids(ids: &[String], width: usize) -> Vec<String> {
         let needed = visible_width(id).saturating_add(comma);
         if current.is_empty() {
             current.push_str(id);
-        } else if visible_width(&current)
-            .saturating_add(2)
-            .saturating_add(needed)
-            <= width
-        {
+        } else if visible_width(&current).saturating_add(2).saturating_add(needed) <= width {
             current.push_str(", ");
             current.push_str(id);
         } else {

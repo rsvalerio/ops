@@ -5,19 +5,13 @@ use super::{Fallback, discover, walk};
 use crate::test_support::{git_add, git_available, git_init, is_inside_repo};
 
 fn names(paths: &[std::path::PathBuf]) -> Vec<String> {
-    paths
-        .iter()
-        .map(|p| p.file_name().unwrap().to_string_lossy().into_owned())
-        .collect()
+    paths.iter().map(|p| p.file_name().unwrap().to_string_lossy().into_owned()).collect()
 }
 
 /// Paths relative to `root`, as a set, so the two discovery modes can be
 /// compared regardless of order.
 fn relative_set(paths: &[std::path::PathBuf], root: &Path) -> BTreeSet<std::path::PathBuf> {
-    paths
-        .iter()
-        .map(|p| p.strip_prefix(root).unwrap_or(p).to_path_buf())
-        .collect()
+    paths.iter().map(|p| p.strip_prefix(root).unwrap_or(p).to_path_buf()).collect()
 }
 
 #[test]
@@ -222,10 +216,7 @@ fn a_genuine_git_failure_is_an_error_not_a_silent_fallback() {
     std::fs::write(root.join(".git/index"), b"not an index").unwrap();
 
     let err = discover(root, true).expect_err("a corrupt index must not fall back");
-    assert!(
-        err.to_string().contains("git ls-files"),
-        "the error must say what failed: {err}"
-    );
+    assert!(err.to_string().contains("git ls-files"), "the error must say what failed: {err}");
 }
 
 #[cfg(unix)]
@@ -268,10 +259,7 @@ fn tracked_mode_keeps_a_tracked_file_inside_a_skip_dirs_directory() {
     std::fs::create_dir_all(root.join("dist")).unwrap();
     std::fs::write(root.join("dist/vendored.txt"), b"a").unwrap();
     std::fs::write(root.join("keep.txt"), b"a").unwrap();
-    git_add(
-        root,
-        &[Path::new("dist/vendored.txt"), Path::new("keep.txt")],
-    );
+    git_add(root, &[Path::new("dist/vendored.txt"), Path::new("keep.txt")]);
 
     let tracked = discover(root, true).unwrap();
     assert_eq!(
@@ -358,10 +346,7 @@ fn tracked_mode_keeps_a_non_utf8_filename_and_agrees_with_the_walk() {
 
     let tracked = discover(root, true).unwrap();
     let walked = discover(root, false).unwrap();
-    assert_eq!(
-        tracked.undecodable_paths, 0,
-        "unix decodes bytes losslessly"
-    );
+    assert_eq!(tracked.undecodable_paths, 0, "unix decodes bytes losslessly");
     assert_eq!(
         relative_set(&tracked.files, root),
         BTreeSet::from([std::path::PathBuf::from(raw)]),
@@ -385,14 +370,9 @@ fn walk_never_returns_a_stale_stage_file() {
     std::fs::write(root.join(".ops-text-fixers.abc123"), b"stale stage").unwrap();
 
     let names = names(&walk(root).unwrap().0);
+    assert!(names.contains(&"keep.txt".to_string()), "ordinary files stay in scope");
     assert!(
-        names.contains(&"keep.txt".to_string()),
-        "ordinary files stay in scope"
-    );
-    assert!(
-        !names
-            .iter()
-            .any(|n| n.starts_with(crate::atomic::STAGE_PREFIX)),
+        !names.iter().any(|n| n.starts_with(crate::atomic::STAGE_PREFIX)),
         "a stale stage file must not be a candidate: {names:?}"
     );
 }
@@ -411,10 +391,7 @@ fn tracked_mode_never_returns_a_staged_stage_file() {
     std::fs::write(root.join("keep.txt"), b"a").unwrap();
     std::fs::write(root.join(".ops-text-fixers.abc123"), b"stale stage").unwrap();
     // The post-interrupt `git add -A`: both files land in the index.
-    git_add(
-        root,
-        &[Path::new("keep.txt"), Path::new(".ops-text-fixers.abc123")],
-    );
+    git_add(root, &[Path::new("keep.txt"), Path::new(".ops-text-fixers.abc123")]);
 
     let tracked = discover(root, true).unwrap();
     assert_eq!(

@@ -50,13 +50,8 @@ fn render_handles_emoji_in_label() {
 #[test]
 fn render_handles_mixed_width_unicode() {
     let theme = ConfigurableTheme::new(ThemeConfig::compact());
-    let line = render_within_budget(
-        &theme,
-        StepStatus::Succeeded,
-        "测试 🚀 😀 test",
-        Some(1.0),
-        80,
-    );
+    let line =
+        render_within_budget(&theme, StepStatus::Succeeded, "测试 🚀 😀 test", Some(1.0), 80);
     assert!(line.contains("测试"));
     assert!(line.contains("🚀"));
 }
@@ -71,14 +66,8 @@ fn render_handles_very_long_unicode_label() {
     let label = "构建".repeat(50);
     let line = render_within_budget(&theme, StepStatus::Succeeded, &label, Some(1.0), 80);
     assert!(line.contains("构建"));
-    assert!(
-        !line.contains(&label),
-        "the 200-column label must not be echoed verbatim: {line:?}"
-    );
-    assert!(
-        line.contains(ops_theme::style::ELLIPSIS),
-        "truncation must be marked: {line:?}"
-    );
+    assert!(!line.contains(&label), "the 200-column label must not be echoed verbatim: {line:?}");
+    assert!(line.contains(ops_theme::style::ELLIPSIS), "truncation must be marked: {line:?}");
 }
 
 #[test]

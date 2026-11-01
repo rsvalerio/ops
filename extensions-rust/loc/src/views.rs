@@ -54,14 +54,8 @@ mod tests {
     #[test]
     fn rust_loc_summary_view_sql_quotes_identifiers() {
         let sql = rust_loc_summary_view_sql().to_string();
-        assert!(
-            sql.contains("\"rust_loc_summary\""),
-            "view name should be double-quoted: {sql}"
-        );
-        assert!(
-            sql.contains("\"rust_loc_files\""),
-            "table name should be double-quoted: {sql}"
-        );
+        assert!(sql.contains("\"rust_loc_summary\""), "view name should be double-quoted: {sql}");
+        assert!(sql.contains("\"rust_loc_files\""), "table name should be double-quoted: {sql}");
     }
 
     /// The load spec's DDL quotes the table name and declares typed

@@ -73,11 +73,7 @@ static OPS_TOML_MAX_BYTES: OnceLock<u64> = OnceLock::new();
 /// `tracing::warn!`. Tests that need to override the cap must set the env
 /// var before the first call (directly or via [`read_capped_toml_file`]).
 pub fn ops_toml_max_bytes() -> u64 {
-    cached_byte_cap_env(
-        &OPS_TOML_MAX_BYTES,
-        OPS_TOML_MAX_BYTES_ENV,
-        DEFAULT_OPS_TOML_MAX_BYTES,
-    )
+    cached_byte_cap_env(&OPS_TOML_MAX_BYTES, OPS_TOML_MAX_BYTES_ENV, DEFAULT_OPS_TOML_MAX_BYTES)
 }
 
 /// Which trust boundary a config path sits on, and therefore whether a
@@ -421,10 +417,7 @@ mod tests {
 
         let err = result.expect_err("oversized .ops.toml must error");
         let msg = format!("{err:#}");
-        assert!(
-            msg.contains("exceeds 64 bytes"),
-            "error must name the cap, got: {msg}"
-        );
+        assert!(msg.contains("exceeds 64 bytes"), "error must name the cap, got: {msg}");
         assert!(
             msg.contains(OPS_TOML_MAX_BYTES_ENV),
             "error must name the override env var, got: {msg}"
@@ -448,10 +441,7 @@ mod tests {
 
         let msg = format!("{err:#}");
         assert!(msg.contains("exceeds 4 bytes"), "must name the cap: {msg}");
-        assert!(
-            msg.contains(OPS_TOML_MAX_BYTES_ENV),
-            "must name the override env var, got: {msg}"
-        );
+        assert!(msg.contains(OPS_TOML_MAX_BYTES_ENV), "must name the override env var, got: {msg}");
         assert!(
             !msg.contains("valid UTF-8"),
             "the cap message must not be replaced by the decode error: {msg}"
@@ -473,10 +463,7 @@ mod tests {
             !msg.contains("exceeds"),
             "an under-cap file must not report the size cap, got: {msg}"
         );
-        assert!(
-            msg.contains(".ops.toml"),
-            "error must name the file, got: {msg}"
-        );
+        assert!(msg.contains(".ops.toml"), "error must name the file, got: {msg}");
     }
 
     /// SEC-25 / TASK-1468: a planted `.ops.toml -> /etc/passwd` (or any
@@ -497,10 +484,7 @@ mod tests {
         let err = read_capped_toml_file_with(&link, 1024)
             .expect_err("symlinked .ops.toml must be rejected");
         let msg = format!("{err:#}");
-        assert!(
-            msg.contains("symlink"),
-            "error should mention symlink, got: {msg}"
-        );
+        assert!(msg.contains("symlink"), "error should mention symlink, got: {msg}");
         assert!(
             !msg.contains("sentinel-must-not-leak"),
             "target contents must not leak through the error, got: {msg}"
@@ -523,18 +507,9 @@ mod tests {
         let err = read_capped_toml_file_with(&path, 16)
             .expect_err("oversize payload must error so we see the bail!");
         let msg = format!("{err:#}");
-        assert!(
-            !msg.contains('\n'),
-            "raw newline must be Debug-escaped, got: {msg}"
-        );
-        assert!(
-            !msg.contains('\u{1b}'),
-            "ANSI escape must be Debug-escaped, got: {msg}"
-        );
-        assert!(
-            msg.contains("\\n"),
-            "newline must render as escape sequence, got: {msg}"
-        );
+        assert!(!msg.contains('\n'), "raw newline must be Debug-escaped, got: {msg}");
+        assert!(!msg.contains('\u{1b}'), "ANSI escape must be Debug-escaped, got: {msg}");
+        assert!(msg.contains("\\n"), "newline must render as escape sequence, got: {msg}");
     }
 
     /// ERR-1 / TASK-1421: a parse failure in any single load layer must
@@ -544,11 +519,8 @@ mod tests {
     #[serial_test::serial]
     fn load_config_local_parse_error_names_layer() {
         let dir = tempfile::tempdir().unwrap();
-        fs::write(
-            crate::test_utils::canonical_root(&dir).join(".ops.toml"),
-            "not = = valid {{{",
-        )
-        .unwrap();
+        fs::write(crate::test_utils::canonical_root(&dir).join(".ops.toml"), "not = = valid {{{")
+            .unwrap();
 
         // READ-1 / TASK-1475: clear the cached `GLOBAL_CONFIG_PATH` so the
         // env mutation below is observed by `global_config_path()` rather
@@ -600,10 +572,7 @@ mod tests {
         let config = load_config_at(&crate::test_utils::canonical_root(&dir))
             .expect("layered load must succeed");
 
-        assert_eq!(
-            config.output.theme, "from-env",
-            "the OPS__ env layer must override .ops.toml"
-        );
+        assert_eq!(config.output.theme, "from-env", "the OPS__ env layer must override .ops.toml");
     }
 
     /// TASK-2323: `[cargo] locked` is one switch, reachable from CI as
@@ -633,11 +602,7 @@ mod tests {
         let Some(super::super::CommandSpec::Exec(build)) = config.commands.get("build") else {
             panic!("the locked build must be materialized");
         };
-        assert!(
-            build.args.iter().any(|a| a == "--locked"),
-            "{:?}",
-            build.args
-        );
+        assert!(build.args.iter().any(|a| a == "--locked"), "{:?}", build.args);
     }
 
     /// `[cargo] workspaces` fans out after `[extend]` and before `locked`:
@@ -670,12 +635,7 @@ mod tests {
             assert!(at.is_some_and(|i| i < sep), "{flag}: {:?}", clippy.args);
         }
         assert_eq!(
-            config
-                .provenance
-                .extended_stack_defaults
-                .iter()
-                .filter(|n| *n == "clippy")
-                .count(),
+            config.provenance.extended_stack_defaults.iter().filter(|n| *n == "clippy").count(),
             1
         );
     }
@@ -696,19 +656,12 @@ mod tests {
         .unwrap();
         let ops_d = crate::test_utils::canonical_root(&dir).join(".ops.d");
         fs::create_dir(&ops_d).unwrap();
-        fs::write(
-            ops_d.join("override.toml"),
-            "[output]\ntheme = \"from-conf-d\"\n",
-        )
-        .unwrap();
+        fs::write(ops_d.join("override.toml"), "[output]\ntheme = \"from-conf-d\"\n").unwrap();
 
         let config = load_config_at(&crate::test_utils::canonical_root(&dir))
             .expect("layered load must succeed");
 
-        assert_eq!(
-            config.output.theme, "from-conf-d",
-            ".ops.d must override .ops.toml"
-        );
+        assert_eq!(config.output.theme, "from-conf-d", ".ops.d must override .ops.toml");
     }
 
     /// ARCH-11 / TASK-1851: the env layer is last, so it beats `.ops.d` too.
@@ -722,20 +675,13 @@ mod tests {
             crate::test_utils::isolate_global_config(&crate::test_utils::canonical_root(&dir));
         let ops_d = crate::test_utils::canonical_root(&dir).join(".ops.d");
         fs::create_dir(&ops_d).unwrap();
-        fs::write(
-            ops_d.join("override.toml"),
-            "[output]\ntheme = \"from-conf-d\"\n",
-        )
-        .unwrap();
+        fs::write(ops_d.join("override.toml"), "[output]\ntheme = \"from-conf-d\"\n").unwrap();
         let _env = crate::test_utils::EnvGuard::set("OPS__OUTPUT__THEME", "from-env");
 
         let config = load_config_at(&crate::test_utils::canonical_root(&dir))
             .expect("layered load must succeed");
 
-        assert_eq!(
-            config.output.theme, "from-env",
-            "the OPS__ env layer must override .ops.d"
-        );
+        assert_eq!(config.output.theme, "from-env", "the OPS__ env layer must override .ops.d");
     }
 
     /// SEC-14 / TASK-1847: a symlinked `~/.config/ops/config.toml` — the normal
@@ -755,9 +701,8 @@ mod tests {
         let xdg = crate::test_utils::canonical_root(&dir).join("xdg");
         let ops_dir = xdg.join("ops");
         fs::create_dir_all(&ops_dir).unwrap();
-        let real_global = crate::test_utils::canonical_root(&dir)
-            .join("dotfiles")
-            .join("ops-config.toml");
+        let real_global =
+            crate::test_utils::canonical_root(&dir).join("dotfiles").join("ops-config.toml");
         fs::create_dir_all(real_global.parent().unwrap()).unwrap();
         fs::write(&real_global, "[commands.from_global]\nprogram = \"echo\"\n").unwrap();
         std::os::unix::fs::symlink(&real_global, ops_dir.join("config.toml")).unwrap();
@@ -800,10 +745,7 @@ mod tests {
         );
         let result = config.validate();
         assert!(result.is_err());
-        assert!(result
-            .unwrap_err()
-            .to_string()
-            .contains("program must not be empty"));
+        assert!(result.unwrap_err().to_string().contains("program must not be empty"));
     }
 
     #[test]
@@ -819,10 +761,7 @@ mod tests {
         );
         let result = config.validate();
         assert!(result.is_err());
-        assert!(result
-            .unwrap_err()
-            .to_string()
-            .contains("timeout_secs must be greater than 0"));
+        assert!(result.unwrap_err().to_string().contains("timeout_secs must be greater than 0"));
     }
 
     #[test]
@@ -880,11 +819,7 @@ mod tests {
         let root = crate::test_utils::canonical_root(&dir);
         let _xdg = crate::test_utils::isolate_global_config(&root);
         std::fs::write(root.join("Cargo.toml"), "[package]\nname = \"x\"\n").unwrap();
-        std::fs::write(
-            root.join(".ops.toml"),
-            "[extend.clippy]\nargs = [\"--locked\"]\n",
-        )
-        .unwrap();
+        std::fs::write(root.join(".ops.toml"), "[extend.clippy]\nargs = [\"--locked\"]\n").unwrap();
 
         let config = load_config_at(&root).expect("extend config must load");
         let Some(super::super::CommandSpec::Exec(clippy)) = config.commands.get("clippy") else {
@@ -911,11 +846,8 @@ mod tests {
         let dir = tempfile::tempdir().unwrap();
         let root = crate::test_utils::canonical_root(&dir);
         let _xdg = crate::test_utils::isolate_global_config(&root);
-        std::fs::write(
-            root.join(".ops.toml"),
-            "[extend.verify]\ncommands = [\"extra\"]\n",
-        )
-        .unwrap();
+        std::fs::write(root.join(".ops.toml"), "[extend.verify]\ncommands = [\"extra\"]\n")
+            .unwrap();
 
         let err = load_config_at(&root).expect_err("unknown extend target must fail the load");
         let msg = format!("{err:#}");
@@ -1026,11 +958,8 @@ mod tests {
         let dir = tempfile::tempdir().unwrap();
         let root = crate::test_utils::canonical_root(&dir);
         let _xdg = crate::test_utils::isolate_global_config(&root);
-        std::fs::write(
-            root.join(".ops.toml"),
-            "[commands.fuzz-clippy]\nclone = \"nope\"\n",
-        )
-        .unwrap();
+        std::fs::write(root.join(".ops.toml"), "[commands.fuzz-clippy]\nclone = \"nope\"\n")
+            .unwrap();
 
         let err = load_config_at(&root).expect_err("unknown clone source must fail the load");
         let msg = format!("{err:#}");
@@ -1038,10 +967,7 @@ mod tests {
             msg.starts_with("applying [commands.<name>] clone sections"),
             "error chain must start with the layer breadcrumb, got: {msg}"
         );
-        assert!(
-            msg.contains("fuzz-clippy"),
-            "error must name the clone: {msg}"
-        );
+        assert!(msg.contains("fuzz-clippy"), "error must name the clone: {msg}");
         assert!(msg.contains("nope"), "error must name the source: {msg}");
     }
 }

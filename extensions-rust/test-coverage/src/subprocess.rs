@@ -21,14 +21,8 @@ pub const CARGO_LLVM_COV_TIMEOUT: Duration = Duration::from_mins(15);
 /// guard for the argv contract (`--no-fail-fast` must remain present;
 /// `--json` must remain the last flag) can assert against the authoritative
 /// slice instead of grepping the source text.
-pub const LLVM_COV_ARGS: &[&str] = &[
-    "llvm-cov",
-    "--workspace",
-    "--no-cfg-coverage",
-    "--tests",
-    "--no-fail-fast",
-    "--json",
-];
+pub const LLVM_COV_ARGS: &[&str] =
+    &["llvm-cov", "--workspace", "--no-cfg-coverage", "--tests", "--no-fail-fast", "--json"];
 
 /// Build the full argv for one `cargo llvm-cov` invocation: the static
 /// [`LLVM_COV_ARGS`] plus `--output-path` pointing at `output_path`.

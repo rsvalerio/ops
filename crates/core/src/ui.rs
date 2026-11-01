@@ -258,18 +258,9 @@ mod tests {
         let err = inner.context("init failed");
         let assembled = format!("{err:#}");
         let out = render("error", &assembled);
-        assert!(
-            !out.contains('\u{1b}'),
-            "ESC must be escaped end-to-end: {out:?}"
-        );
-        assert!(
-            out.contains("\\x1b"),
-            "ESC must be rendered as \\x1b: {out:?}"
-        );
-        assert!(
-            out.contains("init failed"),
-            "outer context preserved: {out:?}"
-        );
+        assert!(!out.contains('\u{1b}'), "ESC must be escaped end-to-end: {out:?}");
+        assert!(out.contains("\\x1b"), "ESC must be rendered as \\x1b: {out:?}");
+        assert!(out.contains("init failed"), "outer context preserved: {out:?}");
         assert!(out.contains("loading"), "inner message preserved: {out:?}");
     }
 }

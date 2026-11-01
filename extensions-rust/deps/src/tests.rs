@@ -52,8 +52,7 @@ mod command_path_tests {
         }
 
         fn provide(&self, ctx: &mut Context) -> Result<serde_json::Value, DataProviderError> {
-            self.saw_refresh
-                .store(ctx.is_refreshing(), std::sync::atomic::Ordering::SeqCst);
+            self.saw_refresh.store(ctx.is_refreshing(), std::sync::atomic::Ordering::SeqCst);
             Ok(self.payload.clone())
         }
 
@@ -70,10 +69,7 @@ mod command_path_tests {
         let mut registry = DataRegistry::new();
         let _ = registry.register(
             DATA_PROVIDER_NAME,
-            Box::new(StubProvider {
-                payload,
-                saw_refresh: std::sync::Arc::clone(&saw_refresh),
-            }),
+            Box::new(StubProvider { payload, saw_refresh: std::sync::Arc::clone(&saw_refresh) }),
         );
         (registry, saw_refresh)
     }
@@ -146,9 +142,7 @@ esac"#,
             "check mode must never invoke cargo upgrade: {calls}"
         );
         assert!(
-            calls
-                .lines()
-                .any(|l| l.starts_with("deny ") && l.ends_with(" check")),
+            calls.lines().any(|l| l.starts_with("deny ") && l.ends_with(" check")),
             "check mode must run cargo deny check: {calls}"
         );
     }
@@ -162,11 +156,8 @@ esac"#,
         let dir = tempfile::tempdir().expect("tempdir");
         let root = dir.path().canonicalize().expect("canonicalize tempdir");
         std::fs::create_dir(root.join("fuzz")).expect("mkdir fuzz");
-        std::fs::write(
-            root.join(".ops.toml"),
-            "[cargo]\nworkspaces = [\".\", \"fuzz\"]\n",
-        )
-        .expect("write .ops.toml");
+        std::fs::write(root.join(".ops.toml"), "[cargo]\nworkspaces = [\".\", \"fuzz\"]\n")
+            .expect("write .ops.toml");
         let log = root.join("calls");
         let script = format!(
             r#"case "$1" in
@@ -202,11 +193,8 @@ esac"#,
     fn run_deps_names_every_failing_workspace() {
         let dir = tempfile::tempdir().expect("tempdir");
         std::fs::create_dir(dir.path().join("fuzz")).expect("mkdir fuzz");
-        std::fs::write(
-            dir.path().join(".ops.toml"),
-            "[cargo]\nworkspaces = [\".\", \"fuzz\"]\n",
-        )
-        .expect("write .ops.toml");
+        std::fs::write(dir.path().join(".ops.toml"), "[cargo]\nworkspaces = [\".\", \"fuzz\"]\n")
+            .expect("write .ops.toml");
         let _cargo = EnvVarGuard::set("CARGO", fake_cargo(dir.path(), "exit 0"));
         let _cwd = CwdGuard::new(dir.path()).expect("CwdGuard");
 
@@ -292,10 +280,7 @@ esac"#,
             chain.contains("data cache"),
             "error must say the payload may come from the data cache; got: {chain}"
         );
-        assert!(
-            chain.contains("--refresh"),
-            "error must point at --refresh; got: {chain}"
-        );
+        assert!(chain.contains("--refresh"), "error must point at --refresh; got: {chain}");
         assert!(
             chain.contains("upgrades"),
             "serde's own diagnosis must be preserved in the chain; got: {chain}"
@@ -345,10 +330,7 @@ esac"#,
             msg.contains("cargo upgrade is not installed"),
             "must name the first missing tool: {msg}"
         );
-        assert!(
-            msg.contains("cargo install cargo-edit"),
-            "must carry the install hint: {msg}"
-        );
+        assert!(msg.contains("cargo install cargo-edit"), "must carry the install hint: {msg}");
     }
 
     /// The probe is spawned in the directory the caller named, not in the
@@ -364,10 +346,7 @@ esac"#,
         let record = dir.path().join("probe-cwd");
         let _cargo = EnvVarGuard::set(
             "CARGO",
-            fake_cargo(
-                dir.path(),
-                &format!("pwd >> '{}'\nexit 0", record.display()),
-            ),
+            fake_cargo(dir.path(), &format!("pwd >> '{}'\nexit 0", record.display())),
         );
 
         ensure_tools(&probe_dir).expect("probes exiting 0 report every tool as installed");
@@ -375,9 +354,7 @@ esac"#,
         let logged = std::fs::read_to_string(&record).expect("the probe must have run");
         assert!(
             logged.lines().count() == REQUIRED_CARGO_TOOLS.len()
-                && logged
-                    .lines()
-                    .all(|line| std::path::Path::new(line) == probe_dir),
+                && logged.lines().all(|line| std::path::Path::new(line) == probe_dir),
             "every probe must run in {}; got: {logged}",
             probe_dir.display()
         );
@@ -438,10 +415,7 @@ esac"#;
         };
         assert_eq!(entries.len(), 1);
         assert_eq!(entries[0].dependency, "serde");
-        assert!(
-            !has_issues(&report),
-            "a clean deny run must pass the gate, unused deps included"
-        );
+        assert!(!has_issues(&report), "a clean deny run must pass the gate, unused deps included");
     }
 
     /// cargo-machete is optional: a failing probe records the check as
@@ -480,10 +454,8 @@ esac"#,
 /// required, machete optional — plus cargo itself.
 #[test]
 fn external_tools_mirror_the_probed_tool_table() {
-    let tools: Vec<(String, bool)> = external_tools()
-        .into_iter()
-        .map(|t| (t.binary, t.optional))
-        .collect();
+    let tools: Vec<(String, bool)> =
+        external_tools().into_iter().map(|t| (t.binary, t.optional)).collect();
     assert_eq!(
         tools,
         [
@@ -523,10 +495,7 @@ mod extension_tests {
         );
         assert_eq!(exec.display_cmd(), "ops deps");
         assert_eq!(exec.args, vec!["deps".to_string()]);
-        assert!(
-            !exec.exclusive,
-            "deps only reads, so it may overlap other steps"
-        );
+        assert!(!exec.exclusive, "deps only reads, so it may overlap other steps");
     }
 
     ops_extension::test_datasource_extension!(
@@ -595,10 +564,7 @@ fn has_issues_warning_is_actionable_only_on_strict_gate() {
         },
         ..Default::default()
     };
-    assert!(
-        has_issues(&strict),
-        "strict gate: warning must be actionable"
-    );
+    assert!(has_issues(&strict), "strict gate: warning must be actionable");
 
     // Relaxed gate (bans): warning => not actionable.
     let relaxed = DepsReport {
@@ -612,10 +578,7 @@ fn has_issues_warning_is_actionable_only_on_strict_gate() {
         },
         ..Default::default()
     };
-    assert!(
-        !has_issues(&relaxed),
-        "relaxed gate (bans): warning must be informational"
-    );
+    assert!(!has_issues(&relaxed), "relaxed gate (bans): warning must be informational");
 }
 
 /// The gate (`severity_is_actionable`) and the renderer (`SeverityClass`)
@@ -752,10 +715,7 @@ fn has_issues_unknown_severity_fails_closed() {
         },
         ..Default::default()
     };
-    assert!(
-        has_issues(&report),
-        "unknown severities must be treated as actionable"
-    );
+    assert!(has_issues(&report), "unknown severities must be treated as actionable");
 }
 
 /// Schema drift leaves one breadcrumb per gate evaluation, not one per
@@ -779,10 +739,7 @@ fn has_issues_warns_once_across_unknown_severities() {
                     title: "future severity".into(),
                 })
                 .collect(),
-            licenses: vec![
-                LicenseEntry(unknown("lic-a")),
-                LicenseEntry(unknown("lic-b")),
-            ],
+            licenses: vec![LicenseEntry(unknown("lic-a")), LicenseEntry(unknown("lic-b"))],
             bans: vec![BanEntry(unknown("ban-a")), BanEntry(unknown("ban-b"))],
             sources: vec![SourceEntry(unknown("src-a"))],
             ..Default::default()
@@ -901,10 +858,7 @@ fn has_issues_ban_critical_severity_fails_closed() {
         },
         ..Default::default()
     };
-    assert!(
-        has_issues(&report),
-        "unknown ban severities must be treated as actionable"
-    );
+    assert!(has_issues(&report), "unknown ban severities must be treated as actionable");
 }
 
 #[test]
@@ -1034,8 +988,5 @@ fn provide_error_preserves_source_chain() {
     let provider_err = DataProviderError::from(with_context);
 
     let err: &dyn std::error::Error = &provider_err;
-    assert!(
-        err.source().is_some(),
-        "DataProviderError must preserve the error source chain"
-    );
+    assert!(err.source().is_some(), "DataProviderError must preserve the error source chain");
 }

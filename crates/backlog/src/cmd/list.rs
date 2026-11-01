@@ -68,20 +68,13 @@ pub fn run_list<W: Write>(
 
 fn status_matches(opts: &ListOptions, status: &str) -> bool {
     opts.statuses.is_empty()
-        || opts
-            .statuses
-            .iter()
-            .any(|wanted| wanted.eq_ignore_ascii_case(status))
+        || opts.statuses.iter().any(|wanted| wanted.eq_ignore_ascii_case(status))
 }
 
 /// AND semantics, matching the backlog CLI: every requested label must be
 /// present on the task (case-insensitive).
 fn labels_match(opts: &ListOptions, labels: &[String]) -> bool {
-    opts.labels.iter().all(|wanted| {
-        labels
-            .iter()
-            .any(|label| label.eq_ignore_ascii_case(wanted))
-    })
+    opts.labels.iter().all(|wanted| labels.iter().any(|label| label.eq_ignore_ascii_case(wanted)))
 }
 
 fn parent_matches(opts: &ListOptions, entry: &crate::store::TaskEntry) -> bool {
@@ -96,22 +89,16 @@ fn parent_matches(opts: &ListOptions, entry: &crate::store::TaskEntry) -> bool {
 
 fn dependents_match(opts: &ListOptions, entry: &crate::store::TaskEntry) -> bool {
     opts.dependents.as_ref().is_none_or(|wanted| {
-        entry
-            .doc
-            .frontmatter
-            .dependencies
-            .iter()
-            .any(|dep| dep.eq_ignore_ascii_case(wanted))
+        entry.doc.frontmatter.dependencies.iter().any(|dep| dep.eq_ignore_ascii_case(wanted))
     })
 }
 
 fn assignee_matches(opts: &ListOptions, assignees: &[String]) -> bool {
     opts.assignees.is_empty()
-        || opts.assignees.iter().any(|wanted| {
-            assignees
-                .iter()
-                .any(|assignee| assignee.eq_ignore_ascii_case(wanted))
-        })
+        || opts
+            .assignees
+            .iter()
+            .any(|wanted| assignees.iter().any(|assignee| assignee.eq_ignore_ascii_case(wanted)))
 }
 
 #[cfg(test)]
@@ -138,20 +125,8 @@ mod tests {
             "\n  - code-review-wave",
             "\n  - code-review-wave",
         );
-        seed(
-            "task-0002 - b.md",
-            "TASK-0002",
-            "Done",
-            "[]",
-            "\n  - code-review-rust\n  - security",
-        );
-        seed(
-            "task-0003 - c.md",
-            "TASK-0003",
-            "To Do",
-            "[]",
-            "\n  - code-review-rust",
-        );
+        seed("task-0002 - b.md", "TASK-0002", "Done", "[]", "\n  - code-review-rust\n  - security");
+        seed("task-0003 - c.md", "TASK-0003", "To Do", "[]", "\n  - code-review-rust");
         // TASK-0001 depends on TASK-0002 (reverse-query fixture); TASK-0004
         // carries a structural parent link (parent-filter fixture).
         let seeded = std::fs::read_to_string(tasks.join("task-0001 - a.md")).expect("read 1");
@@ -245,10 +220,7 @@ mod tests {
         )
         .expect("list");
         let text = String::from_utf8_lossy(&out);
-        assert!(
-            text.contains("TASK-0002"),
-            "both labels present on TASK-0002"
-        );
+        assert!(text.contains("TASK-0002"), "both labels present on TASK-0002");
         assert!(
             !text.contains("TASK-0003"),
             "TASK-0003 lacks the second label, AND semantics must drop it"
@@ -307,10 +279,7 @@ mod tests {
         run_list(
             &store,
             &cfg,
-            &ListOptions {
-                format: OutputFormat::Json,
-                ..ListOptions::default()
-            },
+            &ListOptions { format: OutputFormat::Json, ..ListOptions::default() },
             &mut out,
         )
         .expect("list");

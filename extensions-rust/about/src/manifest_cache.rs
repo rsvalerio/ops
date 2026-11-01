@@ -145,9 +145,7 @@ pub struct TypedManifestCache {
 
 impl TypedManifestCache {
     fn new() -> Self {
-        Self {
-            cache: BoundedLruCache::new(MAX_TYPED_MANIFEST_CACHE_ENTRIES),
-        }
+        Self { cache: BoundedLruCache::new(MAX_TYPED_MANIFEST_CACHE_ENTRIES) }
     }
 
     /// The freshness comparison plus the LRU tick refresh,
@@ -187,23 +185,14 @@ impl TypedManifestCache {
         freshness: Option<ManifestFreshness>,
         loaded: &LoadedManifest,
     ) {
-        self.cache.insert(
-            root.to_path_buf(),
-            CachedManifest {
-                freshness,
-                loaded: loaded.clone(),
-            },
-        );
+        self.cache.insert(root.to_path_buf(), CachedManifest { freshness, loaded: loaded.clone() });
     }
 }
 
 /// Stat `<workspace_root>/Cargo.toml` for the mtime+len freshness key.
 pub fn cargo_toml_freshness(workspace_root: &Path) -> Option<ManifestFreshness> {
     let meta = std::fs::metadata(workspace_root.join("Cargo.toml")).ok()?;
-    Some(ManifestFreshness {
-        mtime: meta.modified().ok()?,
-        len: meta.len(),
-    })
+    Some(ManifestFreshness { mtime: meta.modified().ok()?, len: meta.len() })
 }
 
 fn typed_manifest_cache() -> &'static Mutex<TypedManifestCache> {
@@ -236,9 +225,8 @@ fn lock_typed_manifest_cache(
         // `saturating_add` is exact here: the counter advances once per
         // observed poisoning, so reaching `u64::MAX` would take 2^64
         // panics inside a single process.
-        let recovery_count = POISON_RECOVERY_COUNT
-            .fetch_add(1, Ordering::Relaxed)
-            .saturating_add(1);
+        let recovery_count =
+            POISON_RECOVERY_COUNT.fetch_add(1, Ordering::Relaxed).saturating_add(1);
         tracing::warn!(
             recovery_count,
             "typed_manifest_cache mutex was poisoned by a panic in another provider; \
@@ -289,27 +277,19 @@ mod tests {
     }
 
     fn cache_len() -> usize {
-        lock_typed_manifest_cache(typed_manifest_cache())
-            .cache
-            .len()
+        lock_typed_manifest_cache(typed_manifest_cache()).cache.len()
     }
 
     fn clear_cache() {
-        lock_typed_manifest_cache(typed_manifest_cache())
-            .cache
-            .clear();
+        lock_typed_manifest_cache(typed_manifest_cache()).cache.clear();
     }
 
     fn contains(root: &Path) -> bool {
-        lock_typed_manifest_cache(typed_manifest_cache())
-            .cache
-            .contains_key(root)
+        lock_typed_manifest_cache(typed_manifest_cache()).cache.contains_key(root)
     }
 
     fn victim_queue_len() -> usize {
-        lock_typed_manifest_cache(typed_manifest_cache())
-            .cache
-            .victim_queue_len()
+        lock_typed_manifest_cache(typed_manifest_cache()).cache.victim_queue_len()
     }
 
     /// `probe` stamps a fresh `(tick, root)` pair on
@@ -323,11 +303,8 @@ mod tests {
     #[test]
     fn repeated_hits_below_cap_keep_the_victim_queue_bounded() {
         let dir = tempfile::tempdir().expect("tempdir");
-        std::fs::write(
-            dir.path().join("Cargo.toml"),
-            "[package]\nname=\"x\"\nversion=\"0.1.0\"\n",
-        )
-        .unwrap();
+        std::fs::write(dir.path().join("Cargo.toml"), "[package]\nname=\"x\"\nversion=\"0.1.0\"\n")
+            .unwrap();
         clear_cache();
 
         const PROBES: usize = 500;
@@ -358,20 +335,14 @@ mod tests {
     #[test]
     fn typed_manifest_cache_returns_same_arc_then_invalidates_on_refresh() {
         let dir = tempfile::tempdir().expect("tempdir");
-        std::fs::write(
-            dir.path().join("Cargo.toml"),
-            "[package]\nname=\"x\"\nversion=\"0.1.0\"\n",
-        )
-        .unwrap();
+        std::fs::write(dir.path().join("Cargo.toml"), "[package]\nname=\"x\"\nversion=\"0.1.0\"\n")
+            .unwrap();
         evict(&canonical(dir.path()));
 
         let mut ctx = Context::test_context(dir.path().to_path_buf());
         let first = load_workspace_manifest(&mut ctx).expect("load1");
         let second = load_workspace_manifest(&mut ctx).expect("load2");
-        assert!(
-            first.shares_manifest_with(&second),
-            "second call must reuse cached Arc"
-        );
+        assert!(first.shares_manifest_with(&second), "second call must reuse cached Arc");
 
         let mut ctx = ctx.with_refresh();
         let third = load_workspace_manifest(&mut ctx).expect("load3");
@@ -392,11 +363,8 @@ mod tests {
     #[test]
     fn typed_manifest_cache_is_shared_across_threads() {
         let dir = tempfile::tempdir().expect("tempdir");
-        std::fs::write(
-            dir.path().join("Cargo.toml"),
-            "[package]\nname=\"x\"\nversion=\"0.1.0\"\n",
-        )
-        .unwrap();
+        std::fs::write(dir.path().join("Cargo.toml"), "[package]\nname=\"x\"\nversion=\"0.1.0\"\n")
+            .unwrap();
         evict(&canonical(dir.path()));
 
         let path = dir.path().to_path_buf();
@@ -436,11 +404,7 @@ mod tests {
             "[package]\nname=\"foo\"\nversion=\"0.1.0\"\n",
         )
         .unwrap();
-        std::fs::write(
-            root.join("Cargo.toml"),
-            "[workspace]\nmembers = [\"crates/*\"]\n",
-        )
-        .unwrap();
+        std::fs::write(root.join("Cargo.toml"), "[workspace]\nmembers = [\"crates/*\"]\n").unwrap();
         clear_cache();
 
         let mut root_ctx = Context::test_context(root.to_path_buf());
@@ -453,11 +417,7 @@ mod tests {
             from_root.shares_manifest_with(&from_sub),
             "a subdirectory cwd must hit the root's cache entry"
         );
-        assert_eq!(
-            cache_len(),
-            1,
-            "two cwds inside one workspace must occupy a single cache slot"
-        );
+        assert_eq!(cache_len(), 1, "two cwds inside one workspace must occupy a single cache slot");
         assert!(contains(&canonical(root)), "the key must be the root");
 
         clear_cache();
@@ -499,10 +459,7 @@ mod tests {
             panic!("intentional poison for test");
         })
         .join();
-        assert!(
-            cache.lock().is_err(),
-            "mutex must be poisoned for the test premise"
-        );
+        assert!(cache.lock().is_err(), "mutex must be poisoned for the test premise");
 
         let mut ctx = Context::test_context(dir.path().to_path_buf());
         let (logs, result) = ops_core::test_utils::capture_tracing(tracing::Level::WARN, || {
@@ -512,10 +469,7 @@ mod tests {
 
         // After recovery the cache itself is no longer poisoned-blocking
         // (clear_poison + into_inner cleared the sticky flag).
-        assert!(
-            cache.lock().is_ok(),
-            "cache must be unpoisoned after into_inner recovery"
-        );
+        assert!(cache.lock().is_ok(), "cache must be unpoisoned after into_inner recovery");
 
         evict(&canonical(dir.path()));
         logs
@@ -533,10 +487,7 @@ mod tests {
         // recovery_count), so the warn is always observable here regardless
         // of sibling-test ordering.
         let logs = assert_poison_warn_after(1, "poisoned");
-        assert!(
-            logs.contains("poisoned"),
-            "poison warn must mention poisoning, got: {logs}"
-        );
+        assert!(logs.contains("poisoned"), "poison warn must mention poisoning, got: {logs}");
         assert!(
             logs.contains("recovery_count"),
             "poison warn must include monotonic recovery_count, got: {logs}"
@@ -598,15 +549,8 @@ mod tests {
         {
             let mut guard = lock_typed_manifest_cache(typed_manifest_cache());
             let entry = guard.cache.get_mut(&root).expect("entry");
-            let pre_len = entry
-                .freshness
-                .as_ref()
-                .map(|f| f.len)
-                .expect("freshness present");
-            entry.freshness = Some(ManifestFreshness {
-                mtime: new_mtime,
-                len: pre_len,
-            });
+            let pre_len = entry.freshness.as_ref().map(|f| f.len).expect("freshness present");
+            entry.freshness = Some(ManifestFreshness { mtime: new_mtime, len: pre_len });
             drop(guard);
         }
 
@@ -731,31 +675,18 @@ mod tests {
         // Force eviction by inserting one fresh key.
         let fresh = dir.path().join("ws-fresh");
         std::fs::create_dir_all(&fresh).unwrap();
-        std::fs::write(
-            fresh.join("Cargo.toml"),
-            "[package]\nname=\"fresh\"\nversion=\"0.1.0\"\n",
-        )
-        .unwrap();
+        std::fs::write(fresh.join("Cargo.toml"), "[package]\nname=\"fresh\"\nversion=\"0.1.0\"\n")
+            .unwrap();
         let mut fresh_ctx = Context::test_context(fresh.clone());
         let _ = load_workspace_manifest(&mut fresh_ctx).expect("fresh load");
 
-        assert_eq!(
-            cache_len(),
-            MAX_TYPED_MANIFEST_CACHE_ENTRIES,
-            "cap must hold after eviction"
-        );
+        assert_eq!(cache_len(), MAX_TYPED_MANIFEST_CACHE_ENTRIES, "cap must hold after eviction");
         assert!(contains(&hot), "hot key must survive LRU eviction");
-        assert!(
-            contains(&canonical(&fresh)),
-            "newly inserted key must remain"
-        );
+        assert!(contains(&canonical(&fresh)), "newly inserted key must remain");
         assert!(
             !contains(&coldest),
             "victim must be the coldest key (LRU), got cache keys: {:?}",
-            lock_typed_manifest_cache(typed_manifest_cache())
-                .cache
-                .keys()
-                .collect::<Vec<_>>()
+            lock_typed_manifest_cache(typed_manifest_cache()).cache.keys().collect::<Vec<_>>()
         );
 
         clear_cache();

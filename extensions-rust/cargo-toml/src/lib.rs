@@ -227,10 +227,7 @@ impl CargoTomlProvider {
             return Ok(root.clone());
         }
         find_workspace_root_strict(working_dir).with_context(|| {
-            format!(
-                "resolving cargo_toml workspace root from {}",
-                working_dir.display()
-            )
+            format!("resolving cargo_toml workspace root from {}", working_dir.display())
         })
     }
 }
@@ -267,9 +264,7 @@ impl CargoTomlProvider {
         let mut manifest: CargoToml = toml::from_str(&content)
             .with_context(|| format!("parsing {}", cargo_toml.display()))?;
 
-        manifest
-            .resolve_inheritance()
-            .context("resolving workspace inheritance")?;
+        manifest.resolve_inheritance().context("resolving workspace inheritance")?;
 
         manifest.resolve_package_inheritance();
 

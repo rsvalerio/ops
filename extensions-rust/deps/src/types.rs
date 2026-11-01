@@ -155,9 +155,7 @@ pub enum UnusedDepsResult {
 impl Default for UnusedDepsResult {
     /// A clean run, matching the other sections' empty defaults.
     fn default() -> Self {
-        Self::Checked {
-            entries: Vec::new(),
-        }
+        Self::Checked { entries: Vec::new() }
     }
 }
 

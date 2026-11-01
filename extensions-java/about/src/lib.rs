@@ -212,10 +212,8 @@ mod tests {
             .iter()
             .position(|f| f.id == "homepage")
             .expect("homepage field present on the Maven card");
-        let coverage = fields
-            .iter()
-            .position(|f| f.id == "coverage")
-            .expect("coverage field present");
+        let coverage =
+            fields.iter().position(|f| f.id == "coverage").expect("coverage field present");
         assert_eq!(
             homepage + 1,
             coverage,

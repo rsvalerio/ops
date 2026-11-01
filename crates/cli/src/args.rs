@@ -1175,9 +1175,7 @@ mod tests {
         let cli = Cli::parse_from(["ops", "extension", "list"]);
         assert!(matches!(
             cli.subcommand,
-            Some(CoreSubcommand::Extension {
-                action: ExtensionAction::List
-            })
+            Some(CoreSubcommand::Extension { action: ExtensionAction::List })
         ));
     }
 
@@ -1185,9 +1183,9 @@ mod tests {
     fn parse_extension_show_subcommand() {
         let cli = Cli::parse_from(["ops", "extension", "show", "metadata"]);
         match cli.subcommand {
-            Some(CoreSubcommand::Extension {
-                action: ExtensionAction::Show { name },
-            }) => assert_eq!(name, Some("metadata".to_string())),
+            Some(CoreSubcommand::Extension { action: ExtensionAction::Show { name } }) => {
+                assert_eq!(name, Some("metadata".to_string()))
+            }
             other => panic!("expected Extension Show, got {other:?}"),
         }
     }
@@ -1196,9 +1194,9 @@ mod tests {
     fn parse_extension_show_no_arg() {
         let cli = Cli::parse_from(["ops", "extension", "show"]);
         match cli.subcommand {
-            Some(CoreSubcommand::Extension {
-                action: ExtensionAction::Show { name },
-            }) => assert_eq!(name, None),
+            Some(CoreSubcommand::Extension { action: ExtensionAction::Show { name } }) => {
+                assert_eq!(name, None)
+            }
             other => panic!("expected Extension Show with None, got {other:?}"),
         }
     }
@@ -1243,11 +1241,7 @@ mod tests {
         let result = preprocess_args(args);
         assert_eq!(
             result,
-            vec![
-                OsString::from("ops"),
-                OsString::from("run"),
-                OsString::from("mycommand")
-            ]
+            vec![OsString::from("ops"), OsString::from("run"), OsString::from("mycommand")]
         );
     }
 
@@ -1297,10 +1291,7 @@ mod tests {
             if originally_hidden.contains(name) {
                 continue;
             }
-            assert!(
-                !sub.is_hide_set(),
-                "{name} is not stack-specific and should remain visible"
-            );
+            assert!(!sub.is_hide_set(), "{name} is not stack-specific and should remain visible");
         }
     }
 
@@ -1322,10 +1313,8 @@ mod tests {
         );
 
         let result = hide_irrelevant_commands(Cli::command(), stack);
-        let subcommand_names: std::collections::HashSet<String> = result
-            .get_subcommands()
-            .map(|s| s.get_name().to_string())
-            .collect();
+        let subcommand_names: std::collections::HashSet<String> =
+            result.get_subcommands().map(|s| s.get_name().to_string()).collect();
         for (name, _) in expected {
             assert!(
                 subcommand_names.contains(*name),
@@ -1433,9 +1422,7 @@ mod tests {
     #[test]
     fn parse_clippy_findings_rejects_unknown_schema_version() {
         for n in ["0", "3"] {
-            assert!(
-                Cli::try_parse_from(["ops", "clippy-findings", "--schema-version", n]).is_err()
-            );
+            assert!(Cli::try_parse_from(["ops", "clippy-findings", "--schema-version", n]).is_err());
         }
     }
 
@@ -1452,10 +1439,7 @@ mod tests {
     fn parse_backlog_task_create_short_d_binds_description() {
         let cli = Cli::parse_from(["ops", "backlog", "task", "create", "-d", "the body", "T"]);
         let Some(CoreSubcommand::Backlog {
-            action:
-                BacklogAction::Task {
-                    action: BacklogTaskAction::Create(create),
-                },
+            action: BacklogAction::Task { action: BacklogTaskAction::Create(create) },
         }) = cli.subcommand
         else {
             panic!("must parse as backlog task create");
@@ -1512,9 +1496,8 @@ mod tests {
     #[test]
     fn parse_create_review_tasks() {
         let cli = Cli::parse_from(["ops", "backlog", "create-review-tasks"]);
-        let Some(CoreSubcommand::Backlog {
-            action: BacklogAction::CreateReviewTasks { dry_run },
-        }) = cli.subcommand
+        let Some(CoreSubcommand::Backlog { action: BacklogAction::CreateReviewTasks { dry_run } }) =
+            cli.subcommand
         else {
             panic!("must parse as backlog create-review-tasks");
         };
@@ -1527,9 +1510,8 @@ mod tests {
     #[test]
     fn parse_create_review_tasks_dry_run() {
         let cli = Cli::parse_from(["ops", "backlog", "create-review-tasks", "--dry-run"]);
-        let Some(CoreSubcommand::Backlog {
-            action: BacklogAction::CreateReviewTasks { dry_run },
-        }) = cli.subcommand
+        let Some(CoreSubcommand::Backlog { action: BacklogAction::CreateReviewTasks { dry_run } }) =
+            cli.subcommand
         else {
             panic!("must parse as backlog create-review-tasks");
         };
@@ -1552,13 +1534,7 @@ mod tests {
         ]);
         let Some(CoreSubcommand::Backlog {
             action:
-                BacklogAction::CreateCoderabbitTasks {
-                    crates,
-                    run,
-                    fresh,
-                    use_credits,
-                    dry_run,
-                },
+                BacklogAction::CreateCoderabbitTasks { crates, run, fresh, use_credits, dry_run },
         }) = cli.subcommand
         else {
             panic!("must parse as backlog create-coderabbit-tasks");
@@ -1602,41 +1578,29 @@ mod tests {
         }
 
         let cli = Cli::parse_from(["ops", "--dry-run", "backlog", "cleanup"]);
-        let Some(CoreSubcommand::Backlog {
-            action: BacklogAction::Cleanup { dry_run, .. },
-        }) = cli.subcommand
+        let Some(CoreSubcommand::Backlog { action: BacklogAction::Cleanup { dry_run, .. } }) =
+            cli.subcommand
         else {
             panic!("must parse as backlog cleanup");
         };
         assert!(dry_run, "cleanup shares the same propagation contract");
 
-        let cli = Cli::parse_from([
-            "ops",
-            "--dry-run",
-            "backlog",
-            "create-coderabbit-tasks",
-            "--run",
-        ]);
+        let cli =
+            Cli::parse_from(["ops", "--dry-run", "backlog", "create-coderabbit-tasks", "--run"]);
         let Some(CoreSubcommand::Backlog {
             action: BacklogAction::CreateCoderabbitTasks { dry_run, .. },
         }) = cli.subcommand
         else {
             panic!("must parse as backlog create-coderabbit-tasks");
         };
-        assert!(
-            dry_run,
-            "create-coderabbit-tasks shares the same propagation contract"
-        );
+        assert!(dry_run, "create-coderabbit-tasks shares the same propagation contract");
     }
 
     #[test]
     fn parse_explain_names_and_json() {
         let cli = Cli::parse_from(["ops", "explain", "verify", "qa", "--json"]);
-        let Some(CoreSubcommand::Explain(ExplainArgs {
-            commands,
-            json,
-            tool_versions,
-        })) = cli.subcommand
+        let Some(CoreSubcommand::Explain(ExplainArgs { commands, json, tool_versions })) =
+            cli.subcommand
         else {
             panic!("must parse as explain");
         };
@@ -1649,10 +1613,7 @@ mod tests {
         );
         assert!(matches!(
             Cli::parse_from(["ops", "explain", "qa", "--json", "--tool-versions"]).subcommand,
-            Some(CoreSubcommand::Explain(ExplainArgs {
-                tool_versions: true,
-                ..
-            }))
+            Some(CoreSubcommand::Explain(ExplainArgs { tool_versions: true, .. }))
         ));
         assert!(
             Cli::try_parse_from(["ops", "explain"]).is_err(),
@@ -1682,13 +1643,8 @@ mod tests {
     #[test]
     fn about_code_not_in_help_without_sqlite_feature() {
         let cmd = Cli::command();
-        let about = cmd
-            .find_subcommand("about")
-            .expect("about subcommand must exist");
-        let names: Vec<&str> = about
-            .get_subcommands()
-            .map(clap::Command::get_name)
-            .collect();
+        let about = cmd.find_subcommand("about").expect("about subcommand must exist");
+        let names: Vec<&str> = about.get_subcommands().map(clap::Command::get_name).collect();
         assert!(
             !names.contains(&"code"),
             "about subcommands without sqlite must not include `code`: {names:?}"
@@ -1699,13 +1655,8 @@ mod tests {
     #[test]
     fn about_code_in_help_with_sqlite_feature() {
         let cmd = Cli::command();
-        let about = cmd
-            .find_subcommand("about")
-            .expect("about subcommand must exist");
-        let names: Vec<&str> = about
-            .get_subcommands()
-            .map(clap::Command::get_name)
-            .collect();
+        let about = cmd.find_subcommand("about").expect("about subcommand must exist");
+        let names: Vec<&str> = about.get_subcommands().map(clap::Command::get_name).collect();
         assert!(
             names.contains(&"code"),
             "about subcommands with sqlite must include `code`: {names:?}"
@@ -1719,13 +1670,8 @@ mod tests {
     #[test]
     fn about_loc_not_in_help_without_sqlite_feature() {
         let cmd = Cli::command();
-        let about = cmd
-            .find_subcommand("about")
-            .expect("about subcommand must exist");
-        let names: Vec<&str> = about
-            .get_subcommands()
-            .map(clap::Command::get_name)
-            .collect();
+        let about = cmd.find_subcommand("about").expect("about subcommand must exist");
+        let names: Vec<&str> = about.get_subcommands().map(clap::Command::get_name).collect();
         assert!(
             !names.contains(&"loc"),
             "about subcommands without sqlite must not include `loc`: {names:?}"
@@ -1736,13 +1682,8 @@ mod tests {
     #[test]
     fn about_loc_in_help_with_sqlite_feature() {
         let cmd = Cli::command();
-        let about = cmd
-            .find_subcommand("about")
-            .expect("about subcommand must exist");
-        let names: Vec<&str> = about
-            .get_subcommands()
-            .map(clap::Command::get_name)
-            .collect();
+        let about = cmd.find_subcommand("about").expect("about subcommand must exist");
+        let names: Vec<&str> = about.get_subcommands().map(clap::Command::get_name).collect();
         assert!(
             names.contains(&"loc"),
             "about subcommands with sqlite must include `loc`: {names:?}"
@@ -1756,17 +1697,12 @@ mod tests {
     #[test]
     fn about_help_keeps_internal_rationale_out_of_user_facing_text() {
         let mut cmd = Cli::command();
-        let about = cmd
-            .find_subcommand_mut("about")
-            .expect("about subcommand must exist");
+        let about = cmd.find_subcommand_mut("about").expect("about subcommand must exist");
         let help = about.render_help().to_string();
         let long_help = about.render_long_help().to_string();
-        for phrase in [
-            "Gating the variant",
-            "CLI surface honest",
-            "duplicating dispatch",
-            "stack-aware",
-        ] {
+        for phrase in
+            ["Gating the variant", "CLI surface honest", "duplicating dispatch", "stack-aware"]
+        {
             assert!(
                 !help.contains(phrase),
                 "`ops about --help` leaks internal rationale ({phrase}):\n{help}"
@@ -1821,13 +1757,7 @@ mod tests {
             })
         ));
         assert!(matches!(
-            action_of(&[
-                "ops",
-                "about",
-                "dependencies",
-                "--duplicates",
-                "--include-dev"
-            ]),
+            action_of(&["ops", "about", "dependencies", "--duplicates", "--include-dev"]),
             Some(AboutAction::Dependencies {
                 json: false,
                 duplicates: true,
@@ -1892,9 +1822,7 @@ mod tests {
         let cli = Cli::parse_from(["ops", "theme", "list"]);
         assert!(matches!(
             cli.subcommand,
-            Some(CoreSubcommand::Theme {
-                action: ThemeAction::List
-            })
+            Some(CoreSubcommand::Theme { action: ThemeAction::List })
         ));
     }
 
@@ -1902,10 +1830,7 @@ mod tests {
     fn parse_run_before_commit_with_changed_only() {
         let cli = Cli::parse_from(["ops", "run-before-commit", "--changed-only"]);
         match cli.subcommand {
-            Some(CoreSubcommand::RunBeforeCommit {
-                changed_only,
-                action,
-            }) => {
+            Some(CoreSubcommand::RunBeforeCommit { changed_only, action }) => {
                 assert!(changed_only);
                 assert!(action.is_none());
             }
@@ -1944,11 +1869,7 @@ mod tests {
         let result = preprocess_args(args);
         assert_eq!(
             result,
-            vec![
-                OsString::from("ops"),
-                OsString::from("build"),
-                OsString::from("ops")
-            ]
+            vec![OsString::from("ops"), OsString::from("build"), OsString::from("ops")]
         );
     }
 }

@@ -60,9 +60,7 @@ fn validate_entry(entry: &str) -> anyhow::Result<()> {
     let path = Path::new(entry);
     anyhow::ensure!(
         path.is_relative()
-            && path
-                .components()
-                .all(|c| matches!(c, Component::Normal(_) | Component::CurDir)),
+            && path.components().all(|c| matches!(c, Component::Normal(_) | Component::CurDir)),
         "[cargo] workspaces: '{entry}' must be a relative directory inside the project, \
          without '..'"
     );
@@ -85,10 +83,7 @@ fn validate_resolved(root: &Path, entry: &str) -> anyhow::Result<()> {
             Err(e) if e.kind() == std::io::ErrorKind::NotFound => {}
             Err(e) => {
                 return Err(e).with_context(|| {
-                    format!(
-                        "[cargo] workspaces: resolving '{entry}' ({})",
-                        path.display()
-                    )
+                    format!("[cargo] workspaces: resolving '{entry}' ({})", path.display())
                 })
             }
         }
@@ -110,10 +105,7 @@ pub(super) fn is_default_copy<T: serde::Serialize>(spec: &T, default: &T) -> boo
 fn fan_out(spec: &mut ExecCommandSpec, workspaces: &[String]) {
     super::extend::append_exec_args(
         &mut spec.args,
-        &[
-            "--manifest-path".to_string(),
-            format!("${{matrix.{AXIS}}}/Cargo.toml"),
-        ],
+        &["--manifest-path".to_string(), format!("${{matrix.{AXIS}}}/Cargo.toml")],
     );
     spec.strategy = Some(Strategy::new(Matrix {
         axes: IndexMap::from([(AXIS.to_string(), workspaces.to_vec())]),
@@ -147,11 +139,7 @@ pub(super) fn apply(config: &mut Config, workspace_root: &Path) -> anyhow::Resul
         let Some(CommandSpec::Exec(default)) = defaults.get(name) else {
             continue;
         };
-        let materialized = config
-            .provenance
-            .extended_stack_defaults
-            .iter()
-            .any(|n| n == name);
+        let materialized = config.provenance.extended_stack_defaults.iter().any(|n| n == name);
         match config.commands.get_mut(name) {
             Some(CommandSpec::Exec(exec))
                 if exec.strategy.is_none() && (materialized || is_default_copy(exec, default)) =>
@@ -162,13 +150,8 @@ pub(super) fn apply(config: &mut Config, workspace_root: &Path) -> anyhow::Resul
             None => {
                 let mut exec = default.clone();
                 fan_out(&mut exec, &workspaces);
-                config
-                    .commands
-                    .insert(name.to_string(), CommandSpec::Exec(exec));
-                config
-                    .provenance
-                    .extended_stack_defaults
-                    .push(name.to_string());
+                config.commands.insert(name.to_string(), CommandSpec::Exec(exec));
+                config.provenance.extended_stack_defaults.push(name.to_string());
             }
         }
     }
@@ -221,20 +204,13 @@ mod tests {
             let ids: Vec<&str> = cells.iter().map(|c| c.id.as_str()).collect();
             assert_eq!(
                 ids,
-                [
-                    format!("{name} [workspace=.]"),
-                    format!("{name} [workspace=fuzz]")
-                ],
+                [format!("{name} [workspace=.]"), format!("{name} [workspace=fuzz]")],
                 "{name}"
             );
             let fuzz = &cells[1].spec.args;
             let at = fuzz.iter().position(|a| a == "--manifest-path").unwrap();
             assert_eq!(fuzz[at + 1], "fuzz/Cargo.toml", "{name}: {fuzz:?}");
-            assert!(config
-                .provenance
-                .extended_stack_defaults
-                .iter()
-                .any(|n| n == name));
+            assert!(config.provenance.extended_stack_defaults.iter().any(|n| n == name));
         }
         for root_only in ["test", "next", "doc", "verify"] {
             assert!(!config.commands.contains_key(root_only), "{root_only}");
@@ -280,29 +256,16 @@ mod tests {
             "build".into(),
             CommandSpec::Exec(ExecCommandSpec::new("cargo", ["build", "--release"])),
         );
-        config
-            .provenance
-            .extended_stack_defaults
-            .push("build".into());
+        config.provenance.extended_stack_defaults.push("build".into());
         apply(&mut config, dir.path()).unwrap();
         let build = exec(&config, "build");
         assert_eq!(
             build.args,
-            [
-                "build",
-                "--release",
-                "--manifest-path",
-                "${matrix.workspace}/Cargo.toml"
-            ]
+            ["build", "--release", "--manifest-path", "${matrix.workspace}/Cargo.toml"]
         );
         assert!(build.strategy.is_some());
         assert_eq!(
-            config
-                .provenance
-                .extended_stack_defaults
-                .iter()
-                .filter(|n| *n == "build")
-                .count(),
+            config.provenance.extended_stack_defaults.iter().filter(|n| *n == "build").count(),
             1
         );
     }
@@ -313,22 +276,15 @@ mod tests {
     fn verbatim_copy_of_the_default_fans_out() {
         let dir = rust_workspace();
         let mut config = with_workspaces(&[".", "fuzz"]);
-        let default = crate::stack::Stack::Rust
-            .default_commands_ref()
-            .get("clippy")
-            .cloned()
-            .unwrap();
+        let default =
+            crate::stack::Stack::Rust.default_commands_ref().get("clippy").cloned().unwrap();
         let written = toml::to_string(&default).unwrap();
         let copy: CommandSpec = toml::from_str(&written).unwrap();
         config.commands.insert("clippy".into(), copy);
         apply(&mut config, dir.path()).unwrap();
         assert!(exec(&config, "clippy").strategy.is_some());
         assert!(
-            !config
-                .provenance
-                .extended_stack_defaults
-                .iter()
-                .any(|n| n == "clippy"),
+            !config.provenance.extended_stack_defaults.iter().any(|n| n == "clippy"),
             "a config command stays a config command"
         );
     }

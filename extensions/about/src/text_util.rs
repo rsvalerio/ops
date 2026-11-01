@@ -42,9 +42,7 @@ pub fn parse_terminal_width(raw: Option<&str>) -> usize {
 /// once for every stack.
 #[must_use = "use the trimmed value; discarding it drops the sanitised string"]
 pub fn trim_nonempty(value: Option<String>) -> Option<String> {
-    value
-        .map(|s| s.trim().to_string())
-        .filter(|s| !s.is_empty())
+    value.map(|s| s.trim().to_string()).filter(|s| !s.is_empty())
 }
 
 /// Detect codepoints the display-safety policy rejects in an
@@ -99,9 +97,7 @@ const ALLOWED_URL_SCHEMES: [&str; 2] = ["https://", "http://"];
 pub fn has_allowed_url_scheme(raw: &str) -> bool {
     let trimmed = raw.trim_start();
     ALLOWED_URL_SCHEMES.iter().any(|scheme| {
-        trimmed
-            .get(..scheme.len())
-            .is_some_and(|head| head.eq_ignore_ascii_case(scheme))
+        trimmed.get(..scheme.len()).is_some_and(|head| head.eq_ignore_ascii_case(scheme))
     })
 }
 
@@ -384,10 +380,7 @@ mod tests {
             contains_control_chars("https://demo.dev\u{007f}"),
             "DEL must still be rejected without the explicit clause"
         );
-        assert!(
-            contains_control_chars("https://demo.dev\u{0085}"),
-            "C1 (NEL) must be rejected"
-        );
+        assert!(contains_control_chars("https://demo.dev\u{0085}"), "C1 (NEL) must be rejected");
         assert!(!contains_control_chars("https://demo.dev/owner/repo"));
     }
 
@@ -415,9 +408,7 @@ mod tests {
         assert!(has_allowed_url_scheme("https://demo.dev"));
         assert!(has_allowed_url_scheme("http://demo.dev"));
         assert!(has_allowed_url_scheme("HTTPS://demo.dev"));
-        assert!(!has_allowed_url_scheme(
-            "javascript:fetch('https://evil.tld')"
-        ));
+        assert!(!has_allowed_url_scheme("javascript:fetch('https://evil.tld')"));
         assert!(!has_allowed_url_scheme("data:text/html;base64,AAAA"));
         assert!(!has_allowed_url_scheme("file:///etc/shadow"));
         assert!(!has_allowed_url_scheme("vbscript:x"));
@@ -465,12 +456,7 @@ mod tests {
     /// asked for no room at all.
     #[test]
     fn truncate_to_width_zero_max_emits_nothing() {
-        for s in [
-            "",
-            "a",
-            "hello",
-            "\u{1f468}\u{200d}\u{1f469}\u{200d}\u{1f467}",
-        ] {
+        for s in ["", "a", "hello", "\u{1f468}\u{200d}\u{1f469}\u{200d}\u{1f467}"] {
             let out = truncate_to_width(s, 0);
             assert_eq!(out, "", "truncate_to_width({s:?}, 0) produced {out:?}");
             assert_eq!(display_width(&out), 0);
@@ -571,9 +557,7 @@ mod tests {
         // run truncates — truncation caps the work and would hide a
         // regression behind the early break.
         fn assert_exact_ledger(words: usize) {
-            let text = std::iter::repeat_n("word", words)
-                .collect::<Vec<_>>()
-                .join(" ");
+            let text = std::iter::repeat_n("word", words).collect::<Vec<_>>().join(" ");
             let _ = take_width_chars();
             let lines = wrap_text(&text, 80, 10_000);
             assert_eq!(
@@ -604,11 +588,7 @@ mod tests {
 
     #[test]
     fn wrap_text_truncates_intermediate_overlong_lines() {
-        let result = wrap_text(
-            "https://example.com/very/long/path-that-overflows aa bb",
-            10,
-            3,
-        );
+        let result = wrap_text("https://example.com/very/long/path-that-overflows aa bb", 10, 3);
         for line in &result {
             assert!(
                 display_width(line) <= 10,

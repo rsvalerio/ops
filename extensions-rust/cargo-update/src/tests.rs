@@ -42,10 +42,7 @@ fn warn_breadcrumb_debug_escapes_control_characters() {
         );
     });
     let record = logged.trim_end();
-    assert!(
-        !record.is_empty(),
-        "the rejected line must be logged at WARN"
-    );
+    assert!(!record.is_empty(), "the rejected line must be logged at WARN");
     assert_rendered_escapes_control_chars(record);
     assert!(
         record.contains("\\u{1b}"),
@@ -258,10 +255,7 @@ fn arrow_drift_and_extra_tokens_warn_fires_with_expected_entries() {
         // Drift shape: `to` instead of `->`.
         let stderr = b"    Updating serde v1.0.0 to v1.0.1\n";
         let result = parse_update_output(stderr);
-        assert!(
-            result.entries.is_empty(),
-            "arrow-drift Updating line must produce no entry"
-        );
+        assert!(result.entries.is_empty(), "arrow-drift Updating line must produce no entry");
         assert_eq!(result.update_count, 0);
     });
     assert!(
@@ -308,10 +302,7 @@ fn parse_drops_verb_prefixed_line_with_unexpected_shape() {
     // Hypothetical future cargo format: "Updating serde from v1 to v2"
     let stderr = b"    Updating serde from v1 to v2\n";
     let result = parse_update_output(stderr);
-    assert!(
-        result.entries.is_empty(),
-        "unexpected-shape verb line should not produce an entry"
-    );
+    assert!(result.entries.is_empty(), "unexpected-shape verb line should not produce an entry");
     assert_eq!(result.update_count, 0);
 }
 
@@ -328,10 +319,7 @@ fn verb_prefix_requires_whitespace_boundary() {
     );
     let stderr = b"    Updatingxyz serde v1 -> v2\n";
     let result = parse_update_output(stderr);
-    assert!(
-        result.entries.is_empty(),
-        "Updatingxyz must not produce a parsed entry"
-    );
+    assert!(result.entries.is_empty(), "Updatingxyz must not produce a parsed entry");
 
     // Legitimate `Updating ` still works.
     assert!(starts_with_known_verb("Updating serde v1 -> v2"));
@@ -379,10 +367,7 @@ fn serialization_round_trip() {
                 from: "1.0.0".to_string(),
                 to: "1.0.1".to_string(),
             },
-            UpdateEntry::Add {
-                name: "new-crate".to_string(),
-                to: "0.1.0".to_string(),
-            },
+            UpdateEntry::Add { name: "new-crate".to_string(), to: "0.1.0".to_string() },
         ],
         update_count: 1,
         downgrade_count: 0,
@@ -418,10 +403,7 @@ fn strip_ansi_borrows_when_no_escape() {
     use std::borrow::Cow;
     let input = "    Updating serde v1.0.0 -> v1.0.1";
     let out = strip_ansi_preserving_raw(input);
-    assert!(
-        matches!(out, Cow::Borrowed(_)),
-        "expected borrow on no-escape input"
-    );
+    assert!(matches!(out, Cow::Borrowed(_)), "expected borrow on no-escape input");
     assert_eq!(out, input);
 }
 
@@ -430,10 +412,7 @@ fn strip_ansi_owns_when_escape_present() {
     use std::borrow::Cow;
     let input = "\x1b[32mhi\x1b[0m";
     let out = strip_ansi_preserving_raw(input);
-    assert!(
-        matches!(out, Cow::Owned(_)),
-        "expected owned rewrite when ANSI present"
-    );
+    assert!(matches!(out, Cow::Owned(_)), "expected owned rewrite when ANSI present");
     assert_eq!(out, "hi");
 }
 
@@ -484,10 +463,7 @@ fn osc8_wrapped_update_line_parses_with_no_escape_in_json() {
     assert_eq!(result.entries.len(), 1);
     assert_eq!(result.entries[0].name(), "serde");
     let json = serde_json::to_string(&result).expect("serialize");
-    assert!(
-        !json.contains('\u{1b}'),
-        "no ESC may reach the provider JSON: {json}"
-    );
+    assert!(!json.contains('\u{1b}'), "no ESC may reach the provider JSON: {json}");
 }
 
 /// An `ESC` that survives `strip_ansi` — a bare one that introduces no
@@ -527,30 +503,21 @@ fn control_characters_never_reach_the_serialized_json() {
 fn parse_malformed_updating_line_missing_arrow() {
     let stderr = b"    Updating serde v1.0.0\n";
     let result = parse_update_output(stderr);
-    assert!(
-        result.entries.is_empty(),
-        "incomplete update line should be skipped"
-    );
+    assert!(result.entries.is_empty(), "incomplete update line should be skipped");
 }
 
 #[test]
 fn parse_malformed_adding_line_missing_version() {
     let stderr = b"      Adding new-crate\n";
     let result = parse_update_output(stderr);
-    assert!(
-        result.entries.is_empty(),
-        "adding line without version should be skipped"
-    );
+    assert!(result.entries.is_empty(), "adding line without version should be skipped");
 }
 
 #[test]
 fn parse_malformed_removing_line_missing_version() {
     let stderr = b"    Removing old-crate\n";
     let result = parse_update_output(stderr);
-    assert!(
-        result.entries.is_empty(),
-        "removing line without version should be skipped"
-    );
+    assert!(result.entries.is_empty(), "removing line without version should be skipped");
 }
 
 #[test]
@@ -586,18 +553,12 @@ fn parse_removing_line_with_trailing_annotation_does_not_glue_into_version() {
 #[test]
 fn non_version_shaped_token_is_never_published_as_a_version() {
     for (stderr, why) in [
-        (
-            "      Adding foo v\n",
-            "a bare `v` must not become an empty version",
-        ),
+        ("      Adding foo v\n", "a bare `v` must not become an empty version"),
         (
             "      Adding new-crate (locked) v0.1.0\n",
             "an annotation in the version position must not become the version",
         ),
-        (
-            "    Updating serde v1.0.0 -> latest\n",
-            "`latest` is not a version",
-        ),
+        ("    Updating serde v1.0.0 -> latest\n", "`latest` is not a version"),
         ("    Removing old-crate ???\n", "`???` is not a version"),
     ] {
         let result = parse_update_output(stderr.as_bytes());
@@ -640,10 +601,7 @@ fn non_action_updating_lines_stay_silent() {
         let result = parse_update_output(stderr);
         assert!(result.entries.is_empty());
     });
-    assert!(
-        logged.trim().is_empty(),
-        "non-action Updating lines must not warn; got {logged:?}"
-    );
+    assert!(logged.trim().is_empty(), "non-action Updating lines must not warn; got {logged:?}");
 }
 
 #[test]
@@ -822,11 +780,7 @@ fn cargo_update_result_deserialization() {
 fn update_entry_serde_per_action() {
     let cases = [
         (
-            UpdateEntry::Update {
-                name: "serde".into(),
-                from: "1.0.0".into(),
-                to: "1.0.1".into(),
-            },
+            UpdateEntry::Update { name: "serde".into(), from: "1.0.0".into(), to: "1.0.1".into() },
             serde_json::json!({"action": "update", "name": "serde", "from": "1.0.0", "to": "1.0.1"}),
         ),
         (
@@ -838,17 +792,11 @@ fn update_entry_serde_per_action() {
             serde_json::json!({"action": "downgrade", "name": "serde", "from": "1.0.220", "to": "1.0.219"}),
         ),
         (
-            UpdateEntry::Add {
-                name: "new-crate".into(),
-                to: "0.1.0".into(),
-            },
+            UpdateEntry::Add { name: "new-crate".into(), to: "0.1.0".into() },
             serde_json::json!({"action": "add", "name": "new-crate", "to": "0.1.0"}),
         ),
         (
-            UpdateEntry::Remove {
-                name: "old-crate".into(),
-                from: "0.2.0".into(),
-            },
+            UpdateEntry::Remove { name: "old-crate".into(), from: "0.2.0".into() },
             serde_json::json!({"action": "remove", "name": "old-crate", "from": "0.2.0"}),
         ),
     ];
@@ -889,13 +837,7 @@ fn update_entry_rejects_or_normalizes_mismatched_presence() {
         "action": "add", "name": "new-crate", "from": "1.0.0", "to": "0.1.0"
     }))
     .unwrap();
-    assert_eq!(
-        normalized,
-        UpdateEntry::Add {
-            name: "new-crate".into(),
-            to: "0.1.0".into(),
-        }
-    );
+    assert_eq!(normalized, UpdateEntry::Add { name: "new-crate".into(), to: "0.1.0".into() });
     assert_eq!(normalized.from(), None);
 }
 
@@ -929,26 +871,14 @@ fn non_zero_exit_stderr_tail_debug_escapes_control_bytes() {
     let err = interpret_output(&output).expect_err("non-zero exit must be an error");
     let rendered = format!("{err:#}");
 
-    assert!(
-        rendered.contains("101"),
-        "exit status must reach the operator: {rendered}"
-    );
-    assert!(
-        !rendered.contains('\u{1b}'),
-        "ANSI ESC must not survive in: {rendered:?}"
-    );
-    assert!(
-        !rendered.contains('\u{0}'),
-        "NUL must not survive in: {rendered:?}"
-    );
+    assert!(rendered.contains("101"), "exit status must reach the operator: {rendered}");
+    assert!(!rendered.contains('\u{1b}'), "ANSI ESC must not survive in: {rendered:?}");
+    assert!(!rendered.contains('\u{0}'), "NUL must not survive in: {rendered:?}");
     assert!(
         !rendered.contains('\n'),
         "embedded stderr newlines must be Debug-escaped: {rendered:?}"
     );
-    assert!(
-        rendered.contains("hi"),
-        "expected stderr context preserved: {rendered}"
-    );
+    assert!(rendered.contains("hi"), "expected stderr context preserved: {rendered}");
 }
 
 /// A non-zero exit must never be reported as "no updates available".

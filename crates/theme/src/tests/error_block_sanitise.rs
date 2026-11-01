@@ -50,10 +50,7 @@ fn error_block_neutralises_control_bytes_from_subprocess_stderr() {
     // The text is still readable — it is escaped, not dropped.
     let joined = lines.join("\n");
     assert!(joined.contains("cleared the screen"), "{joined}");
-    assert!(
-        joined.contains("\\x1b"),
-        "escape rendered literally: {joined}"
-    );
+    assert!(joined.contains("\\x1b"), "escape rendered literally: {joined}");
 }
 
 /// In boxed layout the sanitised (and therefore wider) text is clamped,
@@ -124,10 +121,7 @@ fn boxed_error_block_keeps_frame_width_with_tabbed_stderr() {
     let columns = 60u16;
     let detail = ErrorDetail::new(
         "exit status: 101".to_string(),
-        vec![
-            "note:\tunsatisfied trait bound".to_string(),
-            "\t\tleft: 1\tright: 2".to_string(),
-        ],
+        vec!["note:\tunsatisfied trait bound".to_string(), "\t\tleft: 1\tright: 2".to_string()],
     );
     let lines = theme.render_error_detail(&detail, columns);
     assert!(!lines.is_empty());
@@ -142,9 +136,6 @@ fn boxed_error_block_keeps_frame_width_with_tabbed_stderr() {
             "tabbed detail line must match the frame width: {line:?}"
         );
         assert!(line.ends_with(" │"), "closing bar: {line:?}");
-        assert!(
-            !line.contains('\t'),
-            "tab survived into the frame: {line:?}"
-        );
+        assert!(!line.contains('\t'), "tab survived into the frame: {line:?}");
     }
 }

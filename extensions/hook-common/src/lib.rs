@@ -81,14 +81,7 @@ impl HookConfig {
         legacy_markers: &'static [&'static str],
         command_help: &'static str,
     ) -> Self {
-        Self {
-            name,
-            hook_filename,
-            hook_script,
-            skip_env_var,
-            legacy_markers,
-            command_help,
-        }
+        Self { name, hook_filename, hook_script, skip_env_var, legacy_markers, command_help }
     }
 }
 
@@ -325,9 +318,7 @@ mod tests {
         let bypass_at = script
             .find("case \"${SKIP_OPS_RUN_BEFORE_PROBE:-}\" in")
             .expect("prologue must open the bypass case");
-        let probe_at = script
-            .find("if ! command -v ops")
-            .expect("prologue must probe for ops");
+        let probe_at = script.find("if ! command -v ops").expect("prologue must probe for ops");
         assert!(
             bypass_at < probe_at,
             "the bypass must be honoured before the probe, got: {script}"
@@ -348,11 +339,8 @@ mod tests {
         let script_path = dir.path().join("pre-probe");
         std::fs::write(&script_path, probe_script!()).unwrap();
 
-        let parse = std::process::Command::new("/bin/sh")
-            .arg("-n")
-            .arg(&script_path)
-            .status()
-            .unwrap();
+        let parse =
+            std::process::Command::new("/bin/sh").arg("-n").arg(&script_path).status().unwrap();
         assert!(parse.success(), "prologue must parse under `sh -n`");
 
         // PATH deliberately excludes the ambient one so a developer's own
@@ -381,10 +369,7 @@ mod tests {
         assert_eq!(out.status.code(), Some(1), "stderr was: {stderr}");
         assert!(stderr.contains("ops"), "must name ops, got: {stderr}");
         assert!(stderr.contains(".git/hooks/pre-probe"), "got: {stderr}");
-        assert!(
-            stderr.contains("SKIP_OPS_RUN_BEFORE_PROBE"),
-            "got: {stderr}"
-        );
+        assert!(stderr.contains("SKIP_OPS_RUN_BEFORE_PROBE"), "got: {stderr}");
 
         // A value `should_skip` rejects must still reach the probe and fail.
         let out = run(&[("SKIP_OPS_RUN_BEFORE_PROBE", "maybe")]);

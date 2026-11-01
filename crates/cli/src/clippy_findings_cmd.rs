@@ -88,12 +88,7 @@ pub struct SurveyOptions {
 
 impl Default for SurveyOptions {
     fn default() -> Self {
-        Self {
-            locked: true,
-            all_features: true,
-            no_default_features: false,
-            features: Vec::new(),
-        }
+        Self { locked: true, all_features: true, no_default_features: false, features: Vec::new() }
     }
 }
 
@@ -246,17 +241,10 @@ impl Workspace {
         let meta: Metadata =
             serde_json::from_slice(json).context("parsing `cargo metadata` output")?;
         let prefix = repo_prefix(&meta.workspace_root);
-        let target_rel = meta
-            .target_directory
-            .strip_prefix(&meta.workspace_root)
-            .ok()
-            .map(Path::to_path_buf);
-        let mut ws = Self {
-            root: meta.workspace_root,
-            target_rel,
-            prefix,
-            packages: HashMap::new(),
-        };
+        let target_rel =
+            meta.target_directory.strip_prefix(&meta.workspace_root).ok().map(Path::to_path_buf);
+        let mut ws =
+            Self { root: meta.workspace_root, target_rel, prefix, packages: HashMap::new() };
         for pkg in meta.packages {
             // A member outside the checkout (`path = "../shared"`) has no
             // repo-relative directory; its diagnostics count as out of tree.
@@ -265,10 +253,7 @@ impl Workspace {
             };
             ws.packages.insert(
                 pkg.manifest_path,
-                Package {
-                    id: format!("{}@{}", pkg.name, pkg.version),
-                    dir,
-                },
+                Package { id: format!("{}@{}", pkg.name, pkg.version), dir },
             );
         }
         Ok(ws)
@@ -277,11 +262,7 @@ impl Workspace {
     /// `path` relative to the repository, or `None` when it lies outside the
     /// workspace or inside its target directory (generated sources).
     fn in_tree(&self, path: &Path) -> Option<PathBuf> {
-        let rel = if path.is_absolute() {
-            path.strip_prefix(&self.root).ok()?
-        } else {
-            path
-        };
+        let rel = if path.is_absolute() { path.strip_prefix(&self.root).ok()? } else { path };
         let rel = normalize(rel)?;
         if self.target_rel.as_ref().is_some_and(|t| rel.starts_with(t)) {
             return None;
@@ -307,10 +288,7 @@ fn normalize(rel: &Path) -> Option<PathBuf> {
 
 /// `/`-joined rendering, identical on every platform.
 fn slash(path: &Path) -> String {
-    let parts: Vec<_> = path
-        .components()
-        .map(|c| c.as_os_str().to_string_lossy())
-        .collect();
+    let parts: Vec<_> = path.components().map(|c| c.as_os_str().to_string_lossy()).collect();
     parts.join("/")
 }
 
@@ -429,14 +407,10 @@ impl Collector {
         } else {
             (slash(&pkg.dir.join("Cargo.toml")), 0, 0)
         };
-        let (target, target_kind) = msg
-            .target
-            .map_or_else(Default::default, |t| (t.name, t.kind.join(",")));
-        let manifest_dir = if pkg.dir.as_os_str().is_empty() {
-            ".".to_string()
-        } else {
-            slash(&pkg.dir)
-        };
+        let (target, target_kind) =
+            msg.target.map_or_else(Default::default, |t| (t.name, t.kind.join(",")));
+        let manifest_dir =
+            if pkg.dir.as_os_str().is_empty() { ".".to_string() } else { slash(&pkg.dir) };
         self.findings.insert(Finding {
             file,
             line,
@@ -512,9 +486,7 @@ fn clippy_args(opts: &SurveyOptions, lint_flags: &[String]) -> Vec<String> {
 /// is no repository (or the workspace is not inside it).
 fn repo_prefix(ws_root: &Path) -> PathBuf {
     let toplevel = ops_core::subprocess::run_with_timeout(
-        Command::new("git")
-            .args(["rev-parse", "--show-toplevel"])
-            .current_dir(ws_root),
+        Command::new("git").args(["rev-parse", "--show-toplevel"]).current_dir(ws_root),
         METADATA_TIMEOUT,
         "git rev-parse",
     )
@@ -586,10 +558,7 @@ pub fn run_clippy_findings(
         .stderr(Stdio::inherit())
         .spawn()
         .with_context(|| format!("failed to spawn {}", cargo.to_string_lossy()))?;
-    let stdout = child
-        .stdout
-        .take()
-        .context("cargo clippy stdout was not captured")?;
+    let stdout = child.stdout.take().context("cargo clippy stdout was not captured")?;
 
     let mut collector = Collector::default();
     let mut parse_result = Ok(());
@@ -611,9 +580,7 @@ pub fn run_clippy_findings(
 
     let report = collector.into_report(schema);
     let mut out = std::io::stdout().lock();
-    report
-        .write_json(&mut out)
-        .context("writing findings report")?;
+    report.write_json(&mut out).context("writing findings report")?;
     writeln!(out).context("writing findings report")?;
     Ok(ExitCode::SUCCESS)
 }
@@ -734,13 +701,7 @@ mod tests {
                 "warning",
                 &span("../outside/src/lib.rs", 3, 1),
             ),
-            message(
-                "/elsewhere",
-                "shared/Cargo.toml",
-                lint,
-                "warning",
-                &span("src/lib.rs", 3, 1),
-            ),
+            message("/elsewhere", "shared/Cargo.toml", lint, "warning", &span("src/lib.rs", 3, 1)),
             // Plain rustc warning, counted once across two builds.
             message(
                 root,
@@ -757,13 +718,7 @@ mod tests {
                 &span("crates/cli/src/main.rs", 2, 1),
             ),
             // Codeless summary and a non-compiler record are ignored.
-            message(
-                root,
-                "crates/cli/Cargo.toml",
-                None,
-                "warning",
-                &serde_json::json!([]),
-            ),
+            message(root, "crates/cli/Cargo.toml", None, "warning", &serde_json::json!([])),
             r#"{"reason":"build-finished","success":true}"#.to_string(),
             String::new(),
         ]
@@ -803,12 +758,8 @@ mod tests {
         let report = report("/home/a/ops");
         assert_eq!(report["schemaVersion"], 2);
         assert_eq!(report["kind"], "clippy-findings");
-        let first = report["findings"]
-            .as_array()
-            .unwrap()
-            .iter()
-            .find(|f| f["column"] == 5)
-            .unwrap();
+        let first =
+            report["findings"].as_array().unwrap().iter().find(|f| f["column"] == 5).unwrap();
         assert_eq!(first["lint"], "single_match_else");
         assert_eq!(first["package"], "ops@0.65.0");
         assert_eq!(first["manifestDir"], "crates/cli");
@@ -841,17 +792,9 @@ mod tests {
             .unwrap()
             .iter()
             .filter(|f| f["line"] == 0)
-            .map(|f| {
-                (
-                    f["file"].as_str().unwrap(),
-                    f["manifestDir"].as_str().unwrap(),
-                )
-            })
+            .map(|f| (f["file"].as_str().unwrap(), f["manifestDir"].as_str().unwrap()))
             .collect();
-        assert_eq!(
-            spanless,
-            vec![("Cargo.toml", "."), ("crates/cli/Cargo.toml", "crates/cli")]
-        );
+        assert_eq!(spanless, vec![("Cargo.toml", "."), ("crates/cli/Cargo.toml", "crates/cli")]);
     }
 
     /// Pins the v1 wire format (`--schema-version 1`): `snake_case` keys. A
@@ -863,13 +806,7 @@ mod tests {
         assert_eq!(report["schema_version"], 1);
         assert_eq!(
             keys(&report),
-            [
-                "dropped_out_of_tree",
-                "findings",
-                "kind",
-                "rustc_warnings",
-                "schema_version"
-            ]
+            ["dropped_out_of_tree", "findings", "kind", "rustc_warnings", "schema_version"]
         );
         assert_eq!(
             keys(&report["findings"][0]),
@@ -895,10 +832,7 @@ mod tests {
         assert_eq!(v1["kind"], v2["kind"]);
         assert_eq!(v1["dropped_out_of_tree"], v2["droppedOutOfTree"]);
         assert_eq!(v1["rustc_warnings"], v2["rustcWarnings"]);
-        let (f1, f2) = (
-            v1["findings"].as_array().unwrap(),
-            v2["findings"].as_array().unwrap(),
-        );
+        let (f1, f2) = (v1["findings"].as_array().unwrap(), v2["findings"].as_array().unwrap());
         assert_eq!(f1.len(), f2.len());
         for (a, b) in f1.iter().zip(f2) {
             assert_eq!(a["file"], b["file"]);
@@ -931,13 +865,7 @@ mod tests {
         let report = report("/home/a/ops");
         assert_eq!(
             keys(&report),
-            [
-                "droppedOutOfTree",
-                "findings",
-                "kind",
-                "rustcWarnings",
-                "schemaVersion"
-            ]
+            ["droppedOutOfTree", "findings", "kind", "rustcWarnings", "schemaVersion"]
         );
         assert_eq!(
             keys(&report["findings"][0]),
@@ -965,10 +893,7 @@ mod tests {
 
     #[test]
     fn output_is_identical_across_checkout_paths() {
-        assert_eq!(
-            report_json("/home/a/ops"),
-            report_json("/tmp/wt/other-name")
-        );
+        assert_eq!(report_json("/home/a/ops"), report_json("/tmp/wt/other-name"));
     }
 
     #[test]
@@ -991,9 +916,7 @@ mod tests {
     #[test]
     fn non_json_line_is_an_error() {
         let ws = workspace("/home/a/ops");
-        assert!(Collector::default()
-            .push_line(&ws, "Compiling ops")
-            .is_err());
+        assert!(Collector::default().push_line(&ws, "Compiling ops").is_err());
     }
 
     #[test]
@@ -1036,19 +959,10 @@ mod tests {
 
     #[test]
     fn unlocked_default_features_survey() {
-        let opts = SurveyOptions {
-            locked: false,
-            all_features: false,
-            ..SurveyOptions::default()
-        };
+        let opts = SurveyOptions { locked: false, all_features: false, ..SurveyOptions::default() };
         assert_eq!(
             clippy_args(&opts, &[]),
-            [
-                "clippy",
-                "--workspace",
-                "--all-targets",
-                "--message-format=json",
-            ]
+            ["clippy", "--workspace", "--all-targets", "--message-format=json",]
         );
     }
 

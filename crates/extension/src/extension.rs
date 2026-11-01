@@ -70,9 +70,7 @@ pub fn sort_compiled_extensions(
     mut pairs: Vec<(&'static str, Box<dyn Extension>)>,
 ) -> Vec<(&'static str, Box<dyn Extension>)> {
     pairs.sort_by(|(a_config, a_ext), (b_config, b_ext)| {
-        a_config
-            .cmp(b_config)
-            .then_with(|| a_ext.name().cmp(b_ext.name()))
+        a_config.cmp(b_config).then_with(|| a_ext.name().cmp(b_ext.name()))
     });
     pairs
 }
@@ -176,10 +174,7 @@ pub struct CommandRegistry {
 // see phantom warnings. Clone the data only and reset the audit trail.
 impl Clone for CommandRegistry {
     fn clone(&self) -> Self {
-        Self {
-            inner: self.inner.clone(),
-            duplicate_inserts: Vec::new(),
-        }
+        Self { inner: self.inner.clone(), duplicate_inserts: Vec::new() }
     }
 }
 

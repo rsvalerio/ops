@@ -181,9 +181,7 @@ impl Context {
         if self.in_flight.insert(key.to_string()) {
             Ok(())
         } else {
-            Err(DataProviderError::Cycle {
-                key: key.to_string(),
-            })
+            Err(DataProviderError::Cycle { key: key.to_string() })
         }
     }
 
@@ -333,11 +331,7 @@ impl Context {
         let Some(expires_at) = Instant::now().checked_add(budget) else {
             return false;
         };
-        self.deadline = Some(Deadline::from_parts(
-            provider.to_string(),
-            budget,
-            expires_at,
-        ));
+        self.deadline = Some(Deadline::from_parts(provider.to_string(), budget, expires_at));
         true
     }
 

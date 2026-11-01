@@ -168,9 +168,7 @@ pub fn config_layers(cwd: &Path, cargo_home: Option<&Path>) -> Vec<ConfigLayer> 
         // through to `config.toml`, matching cargo's refusal to load a
         // config whose chosen file does not parse.
         let base = dir.parent().map_or_else(|| dir.clone(), Path::to_path_buf);
-        let selected = ["config", "config.toml"]
-            .iter()
-            .find(|name| dir.join(name).exists());
+        let selected = ["config", "config.toml"].iter().find(|name| dir.join(name).exists());
         let layer = selected.and_then(|name| read_layer(dir.join(name), base.clone()));
         if let Some(layer) = layer {
             push_with_includes(layer, &mut layers, &mut Vec::new());
@@ -199,10 +197,8 @@ fn push_with_includes(layer: ConfigLayer, out: &mut Vec<ConfigLayer>, chain: &mu
         }
         // Cargo resolves an included file's relative paths like any other
         // config file's: against the parent of the directory holding it.
-        let base = path
-            .parent()
-            .and_then(Path::parent)
-            .map_or_else(PathBuf::new, Path::to_path_buf);
+        let base =
+            path.parent().and_then(Path::parent).map_or_else(PathBuf::new, Path::to_path_buf);
         // Optionality is decided by the read result rather than an
         // `is_file` pre-probe: the probe and the read re-resolve the path
         // separately, and a swap between them races. A missing optional
@@ -275,10 +271,8 @@ fn include_paths(layer: &ConfigLayer) -> Vec<(PathBuf, bool)> {
                         warn("table entry without a `path` string");
                         return None;
                     };
-                    let optional = t
-                        .get("optional")
-                        .and_then(toml::Value::as_bool)
-                        .unwrap_or(false);
+                    let optional =
+                        t.get("optional").and_then(toml::Value::as_bool).unwrap_or(false);
                     (path, optional)
                 }
                 _ => {
@@ -309,10 +303,7 @@ pub struct WorkspaceRoot<'a> {
 /// below every config file's. `None` (with a warning) when unreadable.
 #[must_use]
 pub fn workspace_manifest(workspace_root: &Path) -> Option<ConfigLayer> {
-    read_layer(
-        workspace_root.join("Cargo.toml"),
-        workspace_root.to_path_buf(),
-    )
+    read_layer(workspace_root.join("Cargo.toml"), workspace_root.to_path_buf())
 }
 
 /// Read and parse one TOML file. A file that is simply absent is a silent
@@ -353,9 +344,7 @@ fn lookup<'a>(
     layers: &'a [ConfigLayer],
     keys: &[&str],
 ) -> Option<(&'a toml::Value, &'a ConfigLayer)> {
-    layers
-        .iter()
-        .find_map(|layer| Some((get_path(&layer.table, keys)?, layer)))
+    layers.iter().find_map(|layer| Some((get_path(&layer.table, keys)?, layer)))
 }
 
 /// Cargo's merge of a list-valued key (rustflags) across layers, given
@@ -380,10 +369,7 @@ fn merge_list(entries: Vec<(&toml::Value, String)>) -> Result<Option<Setting>, S
         if !value.is_array() {
             parts.clear();
         }
-        parts.push(Setting {
-            value: render_value(value),
-            source,
-        });
+        parts.push(Setting { value: render_value(value), source });
     }
     Ok(join_settings(&parts))
 }
@@ -393,16 +379,8 @@ fn merge_list(entries: Vec<(&toml::Value, String)>) -> Result<Option<Setting>, S
 fn join_settings(parts: &[Setting]) -> Option<Setting> {
     let parts: Vec<&Setting> = parts.iter().filter(|p| !p.value.is_empty()).collect();
     (!parts.is_empty()).then(|| Setting {
-        value: parts
-            .iter()
-            .map(|p| p.value.as_str())
-            .collect::<Vec<_>>()
-            .join(" "),
-        source: parts
-            .iter()
-            .map(|p| p.source.as_str())
-            .collect::<Vec<_>>()
-            .join(", "),
+        value: parts.iter().map(|p| p.value.as_str()).collect::<Vec<_>>().join(" "),
+        source: parts.iter().map(|p| p.source.as_str()).collect::<Vec<_>>().join(", "),
     })
 }
 
@@ -412,10 +390,7 @@ fn from_config_list(layers: &[ConfigLayer], keys: &[&str]) -> Result<Option<Sett
         layers
             .iter()
             .filter_map(|layer| {
-                Some((
-                    get_path(&layer.table, keys)?,
-                    layer.path.display().to_string(),
-                ))
+                Some((get_path(&layer.table, keys)?, layer.path.display().to_string()))
             })
             .collect(),
     )
@@ -433,10 +408,9 @@ fn render_value(value: &toml::Value) -> String {
 
 fn from_env(env: &dyn Fn(&str) -> Option<String>, names: &[&str]) -> Option<Setting> {
     names.iter().find_map(|name| {
-        env(name).filter(|v| !v.is_empty()).map(|value| Setting {
-            value,
-            source: format!("env:{name}"),
-        })
+        env(name)
+            .filter(|v| !v.is_empty())
+            .map(|value| Setting { value, source: format!("env:{name}") })
     })
 }
 
@@ -452,13 +426,7 @@ fn from_config(layers: &[ConfigLayer], keys: &[&str]) -> Option<Setting> {
 fn triple_env_key(triple: &str) -> String {
     triple
         .chars()
-        .map(|c| {
-            if c.is_ascii_alphanumeric() {
-                c.to_ascii_uppercase()
-            } else {
-                '_'
-            }
-        })
+        .map(|c| if c.is_ascii_alphanumeric() { c.to_ascii_uppercase() } else { '_' })
         .collect()
 }
 
@@ -466,12 +434,7 @@ fn triple_env_key(triple: &str) -> String {
 /// `target_os="linux"`, ...), one per line, whitespace-trimmed.
 #[must_use]
 pub fn parse_rustc_cfg(stdout: &str) -> Vec<String> {
-    stdout
-        .lines()
-        .map(str::trim)
-        .filter(|l| !l.is_empty())
-        .map(str::to_string)
-        .collect()
+    stdout.lines().map(str::trim).filter(|l| !l.is_empty()).map(str::to_string).collect()
 }
 
 /// Whether a `target` table key like `cfg(all(unix, target_arch = "x86_64"))`
@@ -482,10 +445,7 @@ pub fn parse_rustc_cfg(stdout: &str) -> Vec<String> {
 /// does not parse, does not match.
 #[must_use]
 pub fn cfg_matches(key: &str, host_cfg: &[String]) -> bool {
-    let Some(inner) = key
-        .trim()
-        .strip_prefix("cfg(")
-        .and_then(|rest| rest.strip_suffix(')'))
+    let Some(inner) = key.trim().strip_prefix("cfg(").and_then(|rest| rest.strip_suffix(')'))
     else {
         return false;
     };
@@ -629,10 +589,7 @@ pub fn resolve_cargo_settings(
 ) -> CargoSettings {
     let workspace_root = workspace.map(|w| w.path);
     let manifest = workspace.and_then(|w| w.manifest);
-    let HostTarget {
-        triple: host,
-        cfg: host_cfg,
-    } = host;
+    let HostTarget { triple: host, cfg: host_cfg } = host;
     let jobs =
         from_env(env, &["CARGO_BUILD_JOBS"]).or_else(|| from_config(layers, &["build", "jobs"]));
     let rustc_wrapper = from_env(env, &["RUSTC_WRAPPER", "CARGO_BUILD_RUSTC_WRAPPER"])
@@ -646,16 +603,11 @@ pub fn resolve_cargo_settings(
         dev: profile_incremental(layers, env, manifest, "dev", true),
         release: profile_incremental(layers, env, manifest, "release", false),
     });
-    let incremental = global_incremental.unwrap_or_else(|| Setting {
-        value: "profile".to_string(),
-        source: "default".to_string(),
-    });
+    let incremental = global_incremental
+        .unwrap_or_else(|| Setting { value: "profile".to_string(), source: "default".to_string() });
     let (linker, target_rustflags) = resolve_target_tables(layers, env, host.as_deref(), &host_cfg);
-    let rustflags = resolve_rustflags(
-        env,
-        target_rustflags,
-        from_config_list(layers, &["build", "rustflags"]),
-    );
+    let rustflags =
+        resolve_rustflags(env, target_rustflags, from_config_list(layers, &["build", "rustflags"]));
     CargoSettings {
         host,
         jobs,
@@ -665,10 +617,7 @@ pub fn resolve_cargo_settings(
         rustflags,
         incremental,
         incremental_profiles,
-        config_files: layers
-            .iter()
-            .map(|l| l.path.display().to_string())
-            .collect(),
+        config_files: layers.iter().map(|l| l.path.display().to_string()).collect(),
     }
 }
 
@@ -684,10 +633,7 @@ fn resolve_target_dir(
     workspace_root: Option<&Path>,
 ) -> Setting {
     from_env(env, &["CARGO_TARGET_DIR", "CARGO_BUILD_TARGET_DIR"])
-        .map(|s| Setting {
-            value: cwd.join(&s.value).display().to_string(),
-            source: s.source,
-        })
+        .map(|s| Setting { value: cwd.join(&s.value).display().to_string(), source: s.source })
         .or_else(|| {
             lookup(layers, &["build", "target-dir"]).map(|(value, layer)| Setting {
                 value: layer.base.join(render_value(value)).display().to_string(),
@@ -695,11 +641,7 @@ fn resolve_target_dir(
             })
         })
         .unwrap_or_else(|| Setting {
-            value: workspace_root
-                .unwrap_or(cwd)
-                .join("target")
-                .display()
-                .to_string(),
+            value: workspace_root.unwrap_or(cwd).join("target").display().to_string(),
             source: "default".to_string(),
         })
 }
@@ -742,19 +684,10 @@ fn profile_incremental(
     default: bool,
 ) -> Setting {
     let keys = ["profile", profile, "incremental"];
-    from_env(
-        env,
-        &[&format!(
-            "CARGO_PROFILE_{}_INCREMENTAL",
-            profile.to_ascii_uppercase()
-        )],
-    )
-    .or_else(|| from_config(layers, &keys))
-    .or_else(|| from_config(std::slice::from_ref(manifest?), &keys))
-    .unwrap_or_else(|| Setting {
-        value: default.to_string(),
-        source: "default".to_string(),
-    })
+    from_env(env, &[&format!("CARGO_PROFILE_{}_INCREMENTAL", profile.to_ascii_uppercase())])
+        .or_else(|| from_config(layers, &keys))
+        .or_else(|| from_config(std::slice::from_ref(manifest?), &keys))
+        .unwrap_or_else(|| Setting { value: default.to_string(), source: "default".to_string() })
 }
 
 /// Linker and rustflags from the host's target tables: env
@@ -770,9 +703,7 @@ fn resolve_target_tables(
 ) -> (Option<Setting>, Result<Option<Setting>, String>) {
     let env_key = triple.map(triple_env_key);
     let env_setting = |suffix: &str| {
-        env_key
-            .as_deref()
-            .and_then(|key| from_env(env, &[&format!("CARGO_TARGET_{key}_{suffix}")]))
+        env_key.as_deref().and_then(|key| from_env(env, &[&format!("CARGO_TARGET_{key}_{suffix}")]))
     };
     let cfg_tables = matching_cfg_tables(layers, host_cfg);
 
@@ -797,10 +728,7 @@ fn resolve_target_tables(
         let mut by_key: BTreeMap<&str, Vec<(&toml::Value, String)>> = BTreeMap::new();
         for (table, layer, key) in &cfg_tables {
             if let Some(value) = table.get("rustflags") {
-                by_key
-                    .entry(key)
-                    .or_default()
-                    .push((value, cfg_source(layer, key)));
+                by_key.entry(key).or_default().push((value, cfg_source(layer, key)));
             }
         }
         let mut parts: Vec<Setting> = triple_flags.into_iter().collect();
@@ -879,10 +807,7 @@ pub fn parse_proc_mounts(text: &str) -> Vec<(PathBuf, String)> {
             let _device = fields.next()?;
             let mount_point = fields.next()?;
             let fs_type = fields.next()?;
-            Some((
-                PathBuf::from(unescape_octal(mount_point)),
-                fs_type.to_string(),
-            ))
+            Some((PathBuf::from(unescape_octal(mount_point)), fs_type.to_string()))
         })
         .collect()
 }
@@ -958,23 +883,16 @@ fn probe(cmd: &mut Command, label: &str) -> Option<String> {
 
 fn load_average() -> Option<[f64; 3]> {
     if cfg!(target_os = "macos") {
-        probe(
-            Command::new("sysctl").args(["-n", "vm.loadavg"]),
-            "sysctl vm.loadavg",
-        )
-        .and_then(|t| parse_sysctl_loadavg(&t))
+        probe(Command::new("sysctl").args(["-n", "vm.loadavg"]), "sysctl vm.loadavg")
+            .and_then(|t| parse_sysctl_loadavg(&t))
     } else {
-        std::fs::read_to_string("/proc/loadavg")
-            .ok()
-            .and_then(|t| parse_proc_loadavg(&t))
+        std::fs::read_to_string("/proc/loadavg").ok().and_then(|t| parse_proc_loadavg(&t))
     }
 }
 
 fn mount_table() -> Vec<(PathBuf, String)> {
     if cfg!(target_os = "macos") {
-        probe(&mut Command::new("mount"), "mount")
-            .map(|t| parse_bsd_mount(&t))
-            .unwrap_or_default()
+        probe(&mut Command::new("mount"), "mount").map(|t| parse_bsd_mount(&t)).unwrap_or_default()
     } else {
         std::fs::read_to_string("/proc/self/mounts")
             .map(|t| parse_proc_mounts(&t))
@@ -1002,9 +920,7 @@ fn fs_report(path: &Path, mounts: &[(PathBuf, String)]) -> Option<FsReport> {
 }
 
 fn is_sccache(wrapper: &str) -> bool {
-    Path::new(wrapper)
-        .file_stem()
-        .is_some_and(|s| s == "sccache")
+    Path::new(wrapper).file_stem().is_some_and(|s| s == "sccache")
 }
 
 /// Stats of the `sccache` on PATH.
@@ -1024,12 +940,9 @@ fn probe_host_target(rustc: &std::ffi::OsStr) -> HostTarget {
     HostTarget {
         triple: probe(Command::new(rustc).arg("-vV"), "rustc -vV")
             .and_then(|t| parse_rustc_host(&t)),
-        cfg: probe(
-            Command::new(rustc).args(["--print", "cfg"]),
-            "rustc --print cfg",
-        )
-        .map(|t| parse_rustc_cfg(&t))
-        .unwrap_or_default(),
+        cfg: probe(Command::new(rustc).args(["--print", "cfg"]), "rustc --print cfg")
+            .map(|t| parse_rustc_cfg(&t))
+            .unwrap_or_default(),
     }
 }
 
@@ -1058,10 +971,8 @@ pub fn collect_machine_report(cwd: &Path) -> MachineReport {
     let cargo_bin = std::env::var_os("CARGO").unwrap_or_else(|| "cargo".into());
     let workspace_root = locate_workspace_root(&cargo_bin, cwd);
     let manifest = workspace_root.as_deref().and_then(workspace_manifest);
-    let workspace = workspace_root.as_deref().map(|path| WorkspaceRoot {
-        path,
-        manifest: manifest.as_ref(),
-    });
+    let workspace =
+        workspace_root.as_deref().map(|path| WorkspaceRoot { path, manifest: manifest.as_ref() });
     let cargo = resolve_cargo_settings(&layers, &env, cwd, workspace, host);
 
     // The invoking `cargo run` (if any) is our parent, not competing work.
@@ -1088,9 +999,7 @@ pub fn collect_machine_report(cwd: &Path) -> MachineReport {
         schema_version: MACHINE_JSON_SCHEMA_VERSION,
         kind: "about-machine",
         os: std::env::consts::OS,
-        cores: std::thread::available_parallelism()
-            .ok()
-            .map(std::num::NonZeroUsize::get),
+        cores: std::thread::available_parallelism().ok().map(std::num::NonZeroUsize::get),
         load_average: load_average(),
         build_processes,
         cargo,
@@ -1131,10 +1040,9 @@ fn fs_line(label: &str, fs: Option<&FsReport>) -> String {
 /// Render the report as plain text lines.
 #[must_use]
 pub fn format_machine_report(report: &MachineReport) -> Vec<String> {
-    let load = report.load_average.map_or_else(
-        || "unknown".to_string(),
-        |[a, b, c]| format!("{a:.2} {b:.2} {c:.2}"),
-    );
+    let load = report
+        .load_average
+        .map_or_else(|| "unknown".to_string(), |[a, b, c]| format!("{a:.2} {b:.2} {c:.2}"));
     let procs = if report.build_processes.is_empty() {
         "none".to_string()
     } else {
@@ -1153,17 +1061,11 @@ pub fn format_machine_report(report: &MachineReport) -> Vec<String> {
         format!(
             "  {:<15}{}",
             "cores",
-            report
-                .cores
-                .map_or_else(|| "unknown".to_string(), |c| c.to_string())
+            report.cores.map_or_else(|| "unknown".to_string(), |c| c.to_string())
         ),
         format!("  {:<15}{load}", "load average"),
         format!("  {:<15}{procs}", "build procs"),
-        format!(
-            "  {:<15}{}",
-            "host",
-            report.cargo.host.as_deref().unwrap_or("unknown")
-        ),
+        format!("  {:<15}{}", "host", report.cargo.host.as_deref().unwrap_or("unknown")),
         setting_line("jobs", report.cargo.jobs.as_ref()),
         setting_line("rustc wrapper", report.cargo.rustc_wrapper.as_ref()),
         setting_line("target dir", Some(&report.cargo.target_dir)),
@@ -1239,16 +1141,8 @@ mod tests {
     #[test]
     fn incremental_precedence_is_env_then_config_then_default() {
         let layers = [
-            layer(
-                "/w/.cargo/config.toml",
-                "/w",
-                "[build]\nincremental = false\n",
-            ),
-            layer(
-                "/home/u/.cargo/config.toml",
-                "/home/u",
-                "[build]\nincremental = true\n",
-            ),
+            layer("/w/.cargo/config.toml", "/w", "[build]\nincremental = false\n"),
+            layer("/home/u/.cargo/config.toml", "/home/u", "[build]\nincremental = true\n"),
         ];
         let resolve = |layers: &[ConfigLayer], env: &dyn Fn(&str) -> Option<String>| {
             resolve_cargo_settings(layers, env, Path::new("/w"), None, HostTarget::default())
@@ -1263,20 +1157,11 @@ mod tests {
             "CARGO_BUILD_INCREMENTAL" => Some("true".to_string()),
             _ => None,
         };
-        assert_eq!(
-            resolve(&layers, &both_env),
-            setting("0", "env:CARGO_INCREMENTAL")
-        );
+        assert_eq!(resolve(&layers, &both_env), setting("0", "env:CARGO_INCREMENTAL"));
         let build_env =
             |name: &str| (name == "CARGO_BUILD_INCREMENTAL").then(|| "true".to_string());
-        assert_eq!(
-            resolve(&layers, &build_env),
-            setting("true", "env:CARGO_BUILD_INCREMENTAL")
-        );
-        assert_eq!(
-            resolve(&layers, &no_env),
-            setting("false", "/w/.cargo/config.toml")
-        );
+        assert_eq!(resolve(&layers, &build_env), setting("true", "env:CARGO_BUILD_INCREMENTAL"));
+        assert_eq!(resolve(&layers, &no_env), setting("false", "/w/.cargo/config.toml"));
         assert_eq!(resolve(&[], &no_env), setting("profile", "default"));
     }
 
@@ -1297,10 +1182,7 @@ mod tests {
                 layers,
                 env,
                 Path::new("/w"),
-                Some(WorkspaceRoot {
-                    path: Path::new("/w"),
-                    manifest,
-                }),
+                Some(WorkspaceRoot { path: Path::new("/w"), manifest }),
                 HostTarget::default(),
             )
             .incremental_profiles
@@ -1316,11 +1198,8 @@ mod tests {
             "/w",
             "[profile.dev]\nincremental = false\n[profile.release]\nincremental = true\n",
         );
-        let config = [layer(
-            "/w/.cargo/config.toml",
-            "/w",
-            "[profile.release]\nincremental = false\n",
-        )];
+        let config =
+            [layer("/w/.cargo/config.toml", "/w", "[profile.release]\nincremental = false\n")];
         assert_eq!(
             resolve(&config, Some(&manifest), &no_env),
             Some(IncrementalProfiles {
@@ -1331,19 +1210,13 @@ mod tests {
         let env =
             |name: &str| (name == "CARGO_PROFILE_DEV_INCREMENTAL").then(|| "true".to_string());
         assert_eq!(
-            resolve(&config, Some(&manifest), &env)
-                .expect("no global override")
-                .dev,
+            resolve(&config, Some(&manifest), &env).expect("no global override").dev,
             setting("true", "env:CARGO_PROFILE_DEV_INCREMENTAL")
         );
 
         let global = |name: &str| (name == "CARGO_INCREMENTAL").then(|| "1".to_string());
         assert_eq!(resolve(&config, Some(&manifest), &global), None);
-        let build = [layer(
-            "/w/.cargo/config.toml",
-            "/w",
-            "[build]\nincremental = true\n",
-        )];
+        let build = [layer("/w/.cargo/config.toml", "/w", "[build]\nincremental = true\n")];
         assert_eq!(resolve(&build, Some(&manifest), &no_env), None);
     }
 
@@ -1352,26 +1225,15 @@ mod tests {
     #[test]
     fn profile_incremental_is_rendered_when_no_override_applies() {
         let mut report = sample_report();
-        report.cargo.incremental = Setting {
-            value: "profile".to_string(),
-            source: "default".to_string(),
-        };
+        report.cargo.incremental =
+            Setting { value: "profile".to_string(), source: "default".to_string() };
         report.cargo.incremental_profiles = Some(IncrementalProfiles {
-            dev: Setting {
-                value: "true".to_string(),
-                source: "default".to_string(),
-            },
-            release: Setting {
-                value: "true".to_string(),
-                source: "/w/Cargo.toml".to_string(),
-            },
+            dev: Setting { value: "true".to_string(), source: "default".to_string() },
+            release: Setting { value: "true".to_string(), source: "/w/Cargo.toml".to_string() },
         });
         let text = format_machine_report(&report).join("\n");
         assert!(text.contains("    dev          true  [default]"), "{text}");
-        assert!(
-            text.contains("    release      true  [/w/Cargo.toml]"),
-            "{text}"
-        );
+        assert!(text.contains("    release      true  [/w/Cargo.toml]"), "{text}");
         let mut out = Vec::new();
         write_machine_report(&mut out, &report, true).expect("write");
         let value: serde_json::Value = serde_json::from_slice(&out).expect("json");
@@ -1391,13 +1253,8 @@ mod tests {
                 "[build]\njobs = 2\ntarget-dir = \"/elsewhere\"\nrustflags = [\"-C\", \"target-cpu=native\"]\n",
             ),
         ];
-        let s = resolve_cargo_settings(
-            &layers,
-            &no_env,
-            Path::new("/w"),
-            None,
-            HostTarget::default(),
-        );
+        let s =
+            resolve_cargo_settings(&layers, &no_env, Path::new("/w"), None, HostTarget::default());
         assert_eq!(
             s.jobs,
             Some(Setting {
@@ -1407,10 +1264,7 @@ mod tests {
         );
         assert_eq!(s.target_dir.value, "/w/out");
         assert_eq!(s.target_dir.source, "/w/.cargo/config.toml");
-        assert_eq!(
-            s.rustflags.map(|r| r.value),
-            Some("-C target-cpu=native".to_string())
-        );
+        assert_eq!(s.rustflags.map(|r| r.value), Some("-C target-cpu=native".to_string()));
         assert_eq!(s.linker, None);
     }
 
@@ -1431,22 +1285,13 @@ mod tests {
             &env,
             Path::new("/w"),
             None,
-            HostTarget {
-                triple: Some("x86_64-unknown-linux-gnu".to_string()),
-                cfg: Vec::new(),
-            },
+            HostTarget { triple: Some("x86_64-unknown-linux-gnu".to_string()), cfg: Vec::new() },
         );
-        assert_eq!(
-            s.rustc_wrapper.map(|w| w.source),
-            Some("env:RUSTC_WRAPPER".to_string())
-        );
+        assert_eq!(s.rustc_wrapper.map(|w| w.source), Some("env:RUSTC_WRAPPER".to_string()));
         assert_eq!(s.linker.map(|l| l.value), Some("gcc".to_string()));
         assert_eq!(
             s.rustflags.map(|r| (r.value, r.source)),
-            Some((
-                "-Clink-arg=-fuse-ld=mold".to_string(),
-                "/w/.cargo/config.toml".to_string()
-            ))
+            Some(("-Clink-arg=-fuse-ld=mold".to_string(), "/w/.cargo/config.toml".to_string()))
         );
         assert_eq!(s.target_dir.source, "default");
         assert_eq!(s.target_dir.value, "/w/target");
@@ -1465,24 +1310,12 @@ mod tests {
         assert!(!cfg_matches("cfg(windows)", &cfg));
         assert!(cfg_matches("cfg(target_os = \"linux\")", &cfg));
         assert!(!cfg_matches("cfg(target_os = \"macos\")", &cfg));
-        assert!(cfg_matches(
-            "cfg(all(unix, target_arch = \"x86_64\"))",
-            &cfg
-        ));
+        assert!(cfg_matches("cfg(all(unix, target_arch = \"x86_64\"))", &cfg));
         assert!(cfg_matches("cfg(any(windows, unix))", &cfg));
         assert!(cfg_matches("cfg(not(windows))", &cfg));
-        assert!(!cfg_matches(
-            "cfg(all(unix, not(target_os = \"linux\")))",
-            &cfg
-        ));
-        assert!(
-            !cfg_matches("x86_64-unknown-linux-gnu", &cfg),
-            "a triple is not a cfg"
-        );
-        assert!(
-            !cfg_matches("cfg(all(unix", &cfg),
-            "malformed never matches"
-        );
+        assert!(!cfg_matches("cfg(all(unix, not(target_os = \"linux\")))", &cfg));
+        assert!(!cfg_matches("x86_64-unknown-linux-gnu", &cfg), "a triple is not a cfg");
+        assert!(!cfg_matches("cfg(all(unix", &cfg), "malformed never matches");
         assert!(!cfg_matches("cfg(not(unix, windows))", &cfg));
     }
 
@@ -1497,10 +1330,8 @@ mod tests {
             "[target.'cfg(target_os = \"linux\")']\nlinker = \"clang\"\nrustflags = [\"-Clink-arg=-fuse-ld=mold\"]\n\
              [target.'cfg(windows)']\nlinker = \"lld-link\"\n",
         )];
-        let host = HostTarget {
-            triple: Some("x86_64-unknown-linux-gnu".to_string()),
-            cfg: linux_cfg(),
-        };
+        let host =
+            HostTarget { triple: Some("x86_64-unknown-linux-gnu".to_string()), cfg: linux_cfg() };
         let s = resolve_cargo_settings(&layers, &no_env, Path::new("/w"), None, host.clone());
         assert_eq!(
             s.linker,
@@ -1509,10 +1340,7 @@ mod tests {
                 source: "/w/.cargo/config.toml [target.'cfg(target_os = \"linux\")']".to_string(),
             })
         );
-        assert_eq!(
-            s.rustflags.map(|r| r.value),
-            Some("-Clink-arg=-fuse-ld=mold".to_string())
-        );
+        assert_eq!(s.rustflags.map(|r| r.value), Some("-Clink-arg=-fuse-ld=mold".to_string()));
 
         let layers = [layer(
             "/w/.cargo/config.toml",
@@ -1535,10 +1363,8 @@ mod tests {
     /// value replaces what lower layers contributed.
     #[test]
     fn rustflags_arrays_merge_across_config_layers() {
-        let host = HostTarget {
-            triple: Some("x86_64-unknown-linux-gnu".to_string()),
-            cfg: linux_cfg(),
-        };
+        let host =
+            HostTarget { triple: Some("x86_64-unknown-linux-gnu".to_string()), cfg: linux_cfg() };
         let layers = [
             layer(
                 "/w/.cargo/config.toml",
@@ -1555,10 +1381,7 @@ mod tests {
             .rustflags
             .expect("merged rustflags");
         assert_eq!(flags.value, "-Clink-arg=-fuse-ld=mold -Ctarget-cpu=native");
-        assert_eq!(
-            flags.source,
-            "/home/u/.cargo/config.toml, /w/.cargo/config.toml"
-        );
+        assert_eq!(flags.source, "/home/u/.cargo/config.toml, /w/.cargo/config.toml");
 
         let layers = [
             layer(
@@ -1589,11 +1412,7 @@ mod tests {
 
         // A string replaces lower layers only when they are strings too.
         let layers = [
-            layer(
-                "/w/.cargo/config.toml",
-                "/w",
-                "[build]\nrustflags = \"-Ctarget-cpu=native\"\n",
-            ),
+            layer("/w/.cargo/config.toml", "/w", "[build]\nrustflags = \"-Ctarget-cpu=native\"\n"),
             layer(
                 "/home/u/.cargo/config.toml",
                 "/home/u",
@@ -1615,11 +1434,7 @@ mod tests {
             ("\"-Ctarget-cpu=native\"", "[\"-Clink-arg=-fuse-ld=mold\"]"),
             ("[\"-Ctarget-cpu=native\"]", "\"-Clink-arg=-fuse-ld=mold\""),
         ] {
-            for table in [
-                "build",
-                "target.x86_64-unknown-linux-gnu",
-                "target.'cfg(unix)'",
-            ] {
+            for table in ["build", "target.x86_64-unknown-linux-gnu", "target.'cfg(unix)'"] {
                 let layers = [
                     layer(
                         "/w/.cargo/config.toml",
@@ -1646,10 +1461,7 @@ mod tests {
             &[],
             &no_env,
             Path::new("/w/crates/member"),
-            Some(WorkspaceRoot {
-                path: Path::new("/w"),
-                manifest: None,
-            }),
+            Some(WorkspaceRoot { path: Path::new("/w"), manifest: None }),
             HostTarget::default(),
         );
         assert_eq!(s.target_dir.value, "/w/target");
@@ -1661,14 +1473,8 @@ mod tests {
             None,
             HostTarget::default(),
         );
-        assert_eq!(
-            s.target_dir.value, "/w/crates/member/target",
-            "cwd fallback"
-        );
-        assert_eq!(
-            parse_locate_project("/w/Cargo.toml\n"),
-            Some(PathBuf::from("/w"))
-        );
+        assert_eq!(s.target_dir.value, "/w/crates/member/target", "cwd fallback");
+        assert_eq!(parse_locate_project("/w/Cargo.toml\n"), Some(PathBuf::from("/w")));
         assert_eq!(parse_locate_project(""), None);
     }
 
@@ -1680,10 +1486,7 @@ mod tests {
             _ => None,
         };
         let s = resolve_cargo_settings(&[], &env, Path::new("/w"), None, HostTarget::default());
-        assert_eq!(
-            s.rustflags.map(|r| r.value),
-            Some("-C opt-level=3".to_string())
-        );
+        assert_eq!(s.rustflags.map(|r| r.value), Some("-C opt-level=3".to_string()));
     }
 
     #[test]
@@ -1703,10 +1506,7 @@ mod tests {
         let paths: Vec<PathBuf> = layers.iter().map(|l| l.path.clone()).collect();
         assert_eq!(
             paths,
-            [
-                nested.join(".cargo/config.toml"),
-                root.join(".cargo/config")
-            ],
+            [nested.join(".cargo/config.toml"), root.join(".cargo/config")],
             "malformed home config is skipped"
         );
         assert_eq!(layers[1].base, root);
@@ -1719,16 +1519,10 @@ mod tests {
         let dir = tempfile::tempdir().expect("tempdir");
         let root = dir.path();
         std::fs::create_dir_all(root.join(".cargo")).expect("mkdir");
-        std::fs::write(
-            root.join(".cargo/config"),
-            "[profile.dev]\nincremental = false\n",
-        )
-        .expect("write");
-        std::fs::write(
-            root.join(".cargo/config.toml"),
-            "[profile.dev]\nincremental = true\n",
-        )
-        .expect("write");
+        std::fs::write(root.join(".cargo/config"), "[profile.dev]\nincremental = false\n")
+            .expect("write");
+        std::fs::write(root.join(".cargo/config.toml"), "[profile.dev]\nincremental = true\n")
+            .expect("write");
 
         let layers = config_layers(root, None);
         let paths: Vec<PathBuf> = layers.iter().map(|l| l.path.clone()).collect();
@@ -1797,10 +1591,7 @@ mod tests {
                 cargo.join("a.toml"),
             ]
         );
-        assert_eq!(
-            layers[1].base, cargo,
-            "base is the included file's grandparent"
-        );
+        assert_eq!(layers[1].base, cargo, "base is the included file's grandparent");
 
         let profiles = resolve_cargo_settings(&layers, &no_env, root, None, HostTarget::default())
             .incremental_profiles
@@ -1816,18 +1607,12 @@ mod tests {
         assert_eq!(profiles.release.value, "true");
 
         // The including file's own value beats every include.
-        write(
-            "config.toml",
-            "include = [\"a.toml\"]\n[profile.dev]\nincremental = false\n",
-        );
+        write("config.toml", "include = [\"a.toml\"]\n[profile.dev]\nincremental = false\n");
         let layers = config_layers(root, None);
         let profiles = resolve_cargo_settings(&layers, &no_env, root, None, HostTarget::default())
             .incremental_profiles
             .expect("no global override");
-        assert_eq!(
-            profiles.dev.source,
-            cargo.join("config.toml").display().to_string()
-        );
+        assert_eq!(profiles.dev.source, cargo.join("config.toml").display().to_string());
     }
 
     #[test]
@@ -1836,26 +1621,14 @@ mod tests {
             fold_dots(Path::new("/w/.cargo/sub/../config.toml")),
             PathBuf::from("/w/.cargo/config.toml")
         );
-        assert_eq!(
-            fold_dots(Path::new("/w/./.cargo/a.toml")),
-            PathBuf::from("/w/.cargo/a.toml")
-        );
-        assert_eq!(
-            fold_dots(Path::new("../x.toml")),
-            PathBuf::from("../x.toml")
-        );
+        assert_eq!(fold_dots(Path::new("/w/./.cargo/a.toml")), PathBuf::from("/w/.cargo/a.toml"));
+        assert_eq!(fold_dots(Path::new("../x.toml")), PathBuf::from("../x.toml"));
     }
 
     #[test]
     fn parses_load_average_on_both_platforms() {
-        assert_eq!(
-            parse_proc_loadavg("0.52 0.58 0.59 1/1234 5678\n"),
-            Some([0.52, 0.58, 0.59])
-        );
-        assert_eq!(
-            parse_sysctl_loadavg("{ 1.23 1.45 1.67 }\n"),
-            Some([1.23, 1.45, 1.67])
-        );
+        assert_eq!(parse_proc_loadavg("0.52 0.58 0.59 1/1234 5678\n"), Some([0.52, 0.58, 0.59]));
+        assert_eq!(parse_sysctl_loadavg("{ 1.23 1.45 1.67 }\n"), Some([1.23, 1.45, 1.67]));
         assert_eq!(parse_proc_loadavg("garbage"), None);
     }
 
@@ -1864,32 +1637,17 @@ mod tests {
         let out = "    1 systemd\n  200 cargo\n  201 /Users/me/.rustup/toolchains/x/bin/rustc\n  202 cargo-nextest\n  300 cargo\n  400 cargo-watch\n";
         let procs = parse_ps(out, &[300]);
         let names: Vec<(u32, &str)> = procs.iter().map(|p| (p.pid, p.name.as_str())).collect();
-        assert_eq!(
-            names,
-            [(200, "cargo"), (201, "rustc"), (202, "cargo-nextest")]
-        );
+        assert_eq!(names, [(200, "cargo"), (201, "rustc"), (202, "cargo-nextest")]);
     }
 
     #[test]
     fn mount_tables_parse_and_longest_prefix_wins() {
         let linux = "/dev/nvme0n1p2 / ext4 rw 0 0\ntmpfs /tmp tmpfs rw 0 0\n/dev/x /mnt/my\\040disk xfs rw 0 0\n";
         let mounts = parse_proc_mounts(linux);
-        assert_eq!(
-            fs_type_for(&mounts, Path::new("/tmp/build")),
-            Some("tmpfs".to_string())
-        );
-        assert_eq!(
-            fs_type_for(&mounts, Path::new("/home/u")),
-            Some("ext4".to_string())
-        );
-        assert_eq!(
-            fs_type_for(&mounts, Path::new("/mnt/my disk/t")),
-            Some("xfs".to_string())
-        );
-        assert_eq!(
-            fs_type_for(&mounts, Path::new("/tmpx")),
-            Some("ext4".to_string())
-        );
+        assert_eq!(fs_type_for(&mounts, Path::new("/tmp/build")), Some("tmpfs".to_string()));
+        assert_eq!(fs_type_for(&mounts, Path::new("/home/u")), Some("ext4".to_string()));
+        assert_eq!(fs_type_for(&mounts, Path::new("/mnt/my disk/t")), Some("xfs".to_string()));
+        assert_eq!(fs_type_for(&mounts, Path::new("/tmpx")), Some("ext4".to_string()));
 
         let mac = "/dev/disk3s1s1 on / (apfs, sealed, local, read-only, journaled)\n/dev/disk3s5 on /System/Volumes/Data (apfs, local, journaled, nobrowse)\n";
         let mounts = parse_bsd_mount(mac);
@@ -1909,10 +1667,7 @@ mod tests {
     #[test]
     fn parse_rustc_host_reads_the_host_line() {
         let out = "rustc 1.90.0 (abc 2025-01-01)\nbinary: rustc\nhost: aarch64-apple-darwin\nrelease: 1.90.0\n";
-        assert_eq!(
-            parse_rustc_host(out),
-            Some("aarch64-apple-darwin".to_string())
-        );
+        assert_eq!(parse_rustc_host(out), Some("aarch64-apple-darwin".to_string()));
     }
 
     fn sample_report() -> MachineReport {
@@ -1922,10 +1677,7 @@ mod tests {
             os: "linux",
             cores: Some(8),
             load_average: Some([1.0, 0.5, 0.25]),
-            build_processes: vec![BuildProcess {
-                pid: 7,
-                name: "rustc".to_string(),
-            }],
+            build_processes: vec![BuildProcess { pid: 7, name: "rustc".to_string() }],
             cargo: CargoSettings {
                 host: Some("x86_64-unknown-linux-gnu".to_string()),
                 jobs: Some(Setting {
@@ -1967,12 +1719,7 @@ mod tests {
         let value: serde_json::Value = serde_json::from_slice(&out).expect("json");
         assert_eq!(value["schemaVersion"], 1);
         assert_eq!(value["kind"], "about-machine");
-        let keys: Vec<&str> = value
-            .as_object()
-            .unwrap()
-            .keys()
-            .map(String::as_str)
-            .collect();
+        let keys: Vec<&str> = value.as_object().unwrap().keys().map(String::as_str).collect();
         let mut expected = vec![
             "schemaVersion",
             "kind",
@@ -1989,10 +1736,7 @@ mod tests {
         let mut keys_sorted = keys.clone();
         keys_sorted.sort_unstable();
         assert_eq!(keys_sorted, expected);
-        assert_eq!(
-            value["cargo"]["jobs"]["source"],
-            "/home/u/.cargo/config.toml"
-        );
+        assert_eq!(value["cargo"]["jobs"]["source"], "/home/u/.cargo/config.toml");
         assert_eq!(value["cargo"]["targetDir"]["value"], "/w/target");
         assert_eq!(
             value["cargo"]["incremental"],
@@ -2011,15 +1755,9 @@ mod tests {
     #[test]
     fn text_report_flags_tmpfs_and_names_sources() {
         let text = format_machine_report(&sample_report()).join("\n");
-        assert!(
-            text.contains("jobs           2  [/home/u/.cargo/config.toml]"),
-            "{text}"
-        );
+        assert!(text.contains("jobs           2  [/home/u/.cargo/config.toml]"), "{text}");
         assert!(text.contains("WARNING: tmpfs"), "{text}");
-        assert!(
-            text.contains("incremental    0  [env:CARGO_INCREMENTAL]"),
-            "{text}"
-        );
+        assert!(text.contains("incremental    0  [env:CARGO_INCREMENTAL]"), "{text}");
         assert!(!text.contains("    dev "), "{text}");
         assert!(text.contains("rustc (7)"), "{text}");
         assert!(text.contains("1024 MiB (512 MiB free)"), "{text}");

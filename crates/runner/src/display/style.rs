@@ -37,11 +37,7 @@ pub fn build_running_style(
         })?
         .tick_chars(resolved_theme.tick_chars())
         .with_key("elapsed", |state: &ProgressState, w: &mut dyn FmtWrite| {
-            let _ = write!(
-                w,
-                "{}",
-                theme::format_running_elapsed(state.elapsed().as_secs_f64())
-            );
+            let _ = write!(w, "{}", theme::format_running_elapsed(state.elapsed().as_secs_f64()));
         });
     Ok(style)
 }

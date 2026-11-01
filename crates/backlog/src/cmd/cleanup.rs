@@ -56,10 +56,7 @@ pub fn run_cleanup<W: Write>(
     // as a SystemTime and converted, exactly like `clock::UtcStamp`.
     let now: DateTime<Utc> = std::time::SystemTime::now().into();
     let mut input = std::io::stdin().lock();
-    let mut env = CleanupEnv {
-        now,
-        input: &mut input,
-    };
+    let mut env = CleanupEnv { now, input: &mut input };
     let result = cleanup_with(store, cfg, opts, &mut env, out);
     // Release the stdin lock before returning (significant_drop_tightening):
     // nothing after the handler needs it.
@@ -142,32 +139,19 @@ fn preview_aged_tasks<'a, W: Write>(
             .context("printing the no-terminal-tasks notice")?;
         return Ok(Vec::new());
     }
-    writeln!(
-        out,
-        "Found {} tasks marked as {terminal}.",
-        terminal_tasks.len()
-    )
-    .context("printing the terminal-status count")?;
+    writeln!(out, "Found {} tasks marked as {terminal}.", terminal_tasks.len())
+        .context("printing the terminal-status count")?;
 
-    let aged: Vec<&TaskEntry> = terminal_tasks
-        .into_iter()
-        .filter(|e| is_older_than(e, cutoff))
-        .collect();
+    let aged: Vec<&TaskEntry> =
+        terminal_tasks.into_iter().filter(|e| is_older_than(e, cutoff)).collect();
     if aged.is_empty() {
-        writeln!(
-            out,
-            "No tasks found that are older than {older_than_days} days."
-        )
-        .context("printing the no-aged-tasks notice")?;
+        writeln!(out, "No tasks found that are older than {older_than_days} days.")
+            .context("printing the no-aged-tasks notice")?;
         return Ok(Vec::new());
     }
 
-    writeln!(
-        out,
-        "Found {} tasks older than {older_than_days} days:",
-        aged.len()
-    )
-    .context("printing the aged-task count")?;
+    writeln!(out, "Found {} tasks older than {older_than_days} days:", aged.len())
+        .context("printing the aged-task count")?;
     for entry in &aged {
         let fm = &entry.doc.frontmatter;
         let date = fm.updated_date.as_deref().unwrap_or(&fm.created_date);
@@ -204,10 +188,7 @@ fn move_aged_tasks(aged: &[&TaskEntry], store: &Store) -> anyhow::Result<()> {
 /// The terminal status: the last configured column, when it carries a
 /// non-blank name.
 pub(crate) fn terminal_status(statuses: &[String]) -> Option<&str> {
-    statuses
-        .last()
-        .map(String::as_str)
-        .filter(|s| !s.trim().is_empty())
+    statuses.last().map(String::as_str).filter(|s| !s.trim().is_empty())
 }
 
 /// A task's age reads `updated_date` with `created_date` as fallback — the
@@ -215,10 +196,7 @@ pub(crate) fn terminal_status(statuses: &[String]) -> Option<&str> {
 /// (there, an invalid Date compares false; here, `None` does).
 fn is_older_than(entry: &TaskEntry, cutoff: DateTime<Utc>) -> bool {
     let fm = &entry.doc.frontmatter;
-    let raw = fm
-        .updated_date
-        .as_deref()
-        .unwrap_or(fm.created_date.as_str());
+    let raw = fm.updated_date.as_deref().unwrap_or(fm.created_date.as_str());
     parse_frontmatter_date(raw).is_some_and(|dt| dt < cutoff)
 }
 
@@ -237,10 +215,8 @@ pub(crate) fn parse_frontmatter_date(raw: &str) -> Option<DateTime<Utc>> {
 ///
 /// The task file name is not valid UTF-8.
 fn destination_for(from: &Path, completed: &Path) -> anyhow::Result<std::path::PathBuf> {
-    let name = from
-        .file_name()
-        .and_then(|n| n.to_str())
-        .context("task file name is not valid UTF-8")?;
+    let name =
+        from.file_name().and_then(|n| n.to_str()).context("task file name is not valid UTF-8")?;
     Ok(completed.join(name))
 }
 
@@ -253,10 +229,7 @@ fn destination_for(from: &Path, completed: &Path) -> anyhow::Result<std::path::P
 /// The destination exists, or its existence cannot be determined (the error
 /// names the path).
 fn ensure_destination_free(from: &Path, to: &Path) -> anyhow::Result<()> {
-    if to
-        .try_exists()
-        .with_context(|| format!("checking {}", to.display()))?
-    {
+    if to.try_exists().with_context(|| format!("checking {}", to.display()))? {
         anyhow::bail!(
             "{} already exists; refusing to overwrite it with {}",
             to.display(),
@@ -292,11 +265,7 @@ fn move_to_completed(from: &Path, completed: &Path) -> anyhow::Result<()> {
         return Err(err).with_context(|| format!("linking {} to {}", from.display(), to.display()));
     }
     std::fs::remove_file(from).with_context(|| {
-        format!(
-            "removing {} after linking it as {}",
-            from.display(),
-            to.display()
-        )
+        format!("removing {} after linking it as {}", from.display(), to.display())
     })?;
     Ok(())
 }
@@ -347,17 +316,11 @@ mod tests {
     ) -> String {
         let mut out = Vec::new();
         let mut input = answer.as_bytes();
-        let mut env = CleanupEnv {
-            now: now(),
-            input: &mut input,
-        };
+        let mut env = CleanupEnv { now: now(), input: &mut input };
         cleanup_with(
             store,
             cfg,
-            &CleanupOptions {
-                older_than_days: older_than,
-                dry_run,
-            },
+            &CleanupOptions { older_than_days: older_than, dry_run },
             &mut env,
             &mut out,
         )
@@ -372,21 +335,11 @@ mod tests {
         let (dir, store, cfg) = scratch_with(&[
             (
                 "task-0001 - old.md",
-                &fm(
-                    "TASK-0001",
-                    "Done",
-                    Some("2026-01-01 00:00"),
-                    Some("2026-08-06 11:59"),
-                ),
+                &fm("TASK-0001", "Done", Some("2026-01-01 00:00"), Some("2026-08-06 11:59")),
             ),
             (
                 "task-0002 - fresh.md",
-                &fm(
-                    "TASK-0002",
-                    "Done",
-                    Some("2026-01-01 00:00"),
-                    Some("2026-09-06 12:00"),
-                ),
+                &fm("TASK-0002", "Done", Some("2026-01-01 00:00"), Some("2026-09-06 12:00")),
             ),
         ]);
         let text = run(&store, &cfg, 30, false, "y\n");
@@ -409,33 +362,17 @@ mod tests {
             // created long ago, updated yesterday: not old enough.
             (
                 "task-0001 - refreshed.md",
-                &fm(
-                    "TASK-0001",
-                    "Done",
-                    Some("2020-01-01 00:00"),
-                    Some("2026-09-05 12:00"),
-                ),
+                &fm("TASK-0001", "Done", Some("2020-01-01 00:00"), Some("2026-09-05 12:00")),
             ),
             // no updated_date: falls back to created_date, 2026-01-01.
-            (
-                "task-0002 - stale.md",
-                &fm("TASK-0002", "Done", Some("2026-01-01 00:00"), None),
-            ),
+            ("task-0002 - stale.md", &fm("TASK-0002", "Done", Some("2026-01-01 00:00"), None)),
             // seconds form parses too.
             (
                 "task-0003 - seconds.md",
-                &fm(
-                    "TASK-0003",
-                    "Done",
-                    Some("2026-01-01 00:00"),
-                    Some("2026-01-02 03:04:05"),
-                ),
+                &fm("TASK-0003", "Done", Some("2026-01-01 00:00"), Some("2026-01-02 03:04:05")),
             ),
             // unparseable: excluded.
-            (
-                "task-0004 - odd.md",
-                &fm("TASK-0004", "Done", Some("back then"), None),
-            ),
+            ("task-0004 - odd.md", &fm("TASK-0004", "Done", Some("back then"), None)),
         ]);
         let text = run(&store, &cfg, 30, false, "y\n");
         assert!(text.contains("TASK-0002"));
@@ -453,11 +390,7 @@ mod tests {
             &fm("TASK-0001", "done", Some("2026-01-01 00:00"), None),
         )]);
         let cfg = BacklogConfig {
-            statuses: vec![
-                "To Do".to_string(),
-                "In Progress".to_string(),
-                "Done".to_string(),
-            ],
+            statuses: vec!["To Do".to_string(), "In Progress".to_string(), "Done".to_string()],
             ..BacklogConfig::default()
         };
         let text = run(&store, &cfg, 30, false, "y\n");
@@ -473,10 +406,7 @@ mod tests {
         )]);
         let text = run(&store, &cfg, 30, false, "");
         assert!(text.contains("No Done tasks found to clean up."));
-        assert!(dir
-            .path()
-            .join(".backlog/tasks/task-0001 - triage.md")
-            .exists());
+        assert!(dir.path().join(".backlog/tasks/task-0001 - triage.md").exists());
     }
 
     /// Dry run names the same candidates and moves nothing.
@@ -491,10 +421,7 @@ mod tests {
         assert!(text.contains("TASK-0001"));
         assert!(text.contains("Dry run: no files moved."));
         assert!(!text.contains("[y/N]"));
-        assert!(dir
-            .path()
-            .join(".backlog/tasks/task-0001 - old.md")
-            .exists());
+        assert!(dir.path().join(".backlog/tasks/task-0001 - old.md").exists());
         assert!(!dir.path().join(".backlog/completed").exists());
     }
 
@@ -517,17 +444,11 @@ mod tests {
         let cfg = BacklogConfig::default();
         let mut out = Vec::new();
         let mut input: &[u8] = b"y\n";
-        let mut env = CleanupEnv {
-            now: now(),
-            input: &mut input,
-        };
+        let mut env = CleanupEnv { now: now(), input: &mut input };
         let err = cleanup_with(
             &store,
             &cfg,
-            &CleanupOptions {
-                older_than_days: 30,
-                dry_run: false,
-            },
+            &CleanupOptions { older_than_days: 30, dry_run: false },
             &mut env,
             &mut out,
         )
@@ -574,17 +495,11 @@ mod tests {
         let cfg = BacklogConfig::default();
         let mut out = Vec::new();
         let mut input: &[u8] = b"y\n";
-        let mut env = CleanupEnv {
-            now: now(),
-            input: &mut input,
-        };
+        let mut env = CleanupEnv { now: now(), input: &mut input };
         let err = cleanup_with(
             &store,
             &cfg,
-            &CleanupOptions {
-                older_than_days: 30,
-                dry_run: false,
-            },
+            &CleanupOptions { older_than_days: 30, dry_run: false },
             &mut env,
             &mut out,
         )
@@ -634,10 +549,7 @@ mod tests {
             "task-0001 - done.md",
             &fm("TASK-0001", "Done", Some("2026-01-01 00:00"), None),
         )]);
-        let cfg = BacklogConfig {
-            statuses: Vec::new(),
-            ..BacklogConfig::default()
-        };
+        let cfg = BacklogConfig { statuses: Vec::new(), ..BacklogConfig::default() };
         let text = run(&store, &cfg, 30, false, "");
         assert!(text.contains("No terminal status configured for cleanup."));
     }
@@ -653,10 +565,7 @@ mod tests {
         assert!(text.contains("Move 1 tasks to completed folder? [y/N]"));
         assert!(text.contains("Cleanup cancelled."));
         assert!(!text.contains("Moved"));
-        assert!(dir
-            .path()
-            .join(".backlog/tasks/task-0001 - old.md")
-            .exists());
+        assert!(dir.path().join(".backlog/tasks/task-0001 - old.md").exists());
     }
 
     /// EOF / empty input defaults to No — a piped stdin with no answer never
@@ -669,10 +578,7 @@ mod tests {
         )]);
         let text = run(&store, &cfg, 30, false, "");
         assert!(text.contains("Cleanup cancelled."));
-        assert!(dir
-            .path()
-            .join(".backlog/tasks/task-0001 - old.md")
-            .exists());
+        assert!(dir.path().join(".backlog/tasks/task-0001 - old.md").exists());
     }
 
     /// `YES` in any casing is accepted; anything that is not y/yes is not.
@@ -691,9 +597,6 @@ mod tests {
         )]);
         let text = run(&store, &cfg, 30, false, "yeah\n");
         assert!(text.contains("Cleanup cancelled."));
-        assert!(dir
-            .path()
-            .join(".backlog/tasks/task-0002 - old.md")
-            .exists());
+        assert!(dir.path().join(".backlog/tasks/task-0002 - old.md").exists());
     }
 }

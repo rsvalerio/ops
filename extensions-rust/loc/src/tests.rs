@@ -33,9 +33,7 @@ fn rust_loc_provider_schema_has_fields() {
     let schema = RustLocProvider.schema();
     assert!(!schema.description.is_empty());
     let names: Vec<&str> = schema.fields.iter().map(|f| f.name).collect();
-    for expected in [
-        "file", "region", "code", "docs", "comments", "blanks", "lines",
-    ] {
+    for expected in ["file", "region", "code", "docs", "comments", "blanks", "lines"] {
         assert!(names.contains(&expected), "missing field {expected}");
     }
 }
@@ -46,32 +44,17 @@ fn rust_loc_provider_schema_has_fields() {
 fn region_from_path_detects_conventional_layouts() {
     assert_eq!(region_from_path(Path::new("src/lib.rs")), Region::Main);
     assert_eq!(region_from_path(Path::new("src/tests.rs")), Region::Test);
-    assert_eq!(
-        region_from_path(Path::new("crates/theme/src/tests/colour.rs")),
-        Region::Test
-    );
-    assert_eq!(
-        region_from_path(Path::new("crates/cli/tests/e2e.rs")),
-        Region::Test
-    );
-    assert_eq!(
-        region_from_path(Path::new("benches/parse.rs")),
-        Region::Test
-    );
-    assert_eq!(
-        region_from_path(Path::new("examples/demo.rs")),
-        Region::Example
-    );
+    assert_eq!(region_from_path(Path::new("crates/theme/src/tests/colour.rs")), Region::Test);
+    assert_eq!(region_from_path(Path::new("crates/cli/tests/e2e.rs")), Region::Test);
+    assert_eq!(region_from_path(Path::new("benches/parse.rs")), Region::Test);
+    assert_eq!(region_from_path(Path::new("examples/demo.rs")), Region::Example);
 }
 
 /// A directory merely *containing* the substring must not match; only
 /// whole path components count.
 #[test]
 fn region_from_path_requires_whole_component_match() {
-    assert_eq!(
-        region_from_path(Path::new("src/test_support/mod.rs")),
-        Region::Main
-    );
+    assert_eq!(region_from_path(Path::new("src/test_support/mod.rs")), Region::Main);
     assert_eq!(region_from_path(Path::new("src/latest.rs")), Region::Main);
 }
 
@@ -191,11 +174,8 @@ mod tests {
 /// real test gate that must not be counted as production code.
 #[test]
 fn compound_cfg_predicates_are_test_gates() {
-    for gate in [
-        "#[cfg(all(test, unix))]",
-        "#[cfg(any(test, feature = \"x\"))]",
-        "#[cfg( test )]",
-    ] {
+    for gate in ["#[cfg(all(test, unix))]", "#[cfg(any(test, feature = \"x\"))]", "#[cfg( test )]"]
+    {
         let src = format!("{gate}\nmod m {{\n    fn f() {{}}\n}}\n");
         let counts = count_source(&src, Region::Main);
         assert_eq!(
@@ -283,19 +263,12 @@ fn unlexable_source_falls_back_to_blank_versus_nonblank() {
 #[test]
 fn nesting_past_the_depth_cap_degrades_instead_of_overflowing() {
     let depth = MAX_NESTING_DEPTH * 8;
-    let src = format!(
-        "fn f() {{\n    let _ = {}{};\n}}\n",
-        "(".repeat(depth),
-        ")".repeat(depth)
-    );
+    let src = format!("fn f() {{\n    let _ = {}{};\n}}\n", "(".repeat(depth), ")".repeat(depth));
 
     let counts = count_source(&src, Region::Main);
 
     assert_eq!(counts.main.lines(), 3, "every line still counted");
-    assert_eq!(
-        counts.main.code, 3,
-        "the fallback counts each non-blank line as code"
-    );
+    assert_eq!(counts.main.code, 3, "the fallback counts each non-blank line as code");
 }
 
 #[test]
@@ -381,11 +354,7 @@ fn collect_rust_loc_splits_regions_across_a_canned_tree() {
             + record["docs"].as_u64().unwrap()
             + record["comments"].as_u64().unwrap()
             + record["blanks"].as_u64().unwrap();
-        assert_eq!(
-            record["lines"].as_u64().unwrap(),
-            sum,
-            "lines must be total"
-        );
+        assert_eq!(record["lines"].as_u64().unwrap(), sum, "lines must be total");
     }
 }
 
@@ -544,11 +513,7 @@ fn a_single_line_larger_than_the_cap_is_counted_without_buffering_it() {
     );
     let wide: Vec<_> = records.iter().filter(|r| r["file"] == "wide.rs").collect();
     assert_eq!(wide.len(), 1, "one degraded row for the over-cap file");
-    assert_eq!(
-        wide[0]["code"].as_u64(),
-        Some(1),
-        "an unterminated final line counts once"
-    );
+    assert_eq!(wide[0]["code"].as_u64(), Some(1), "an unterminated final line counts once");
     assert_eq!(wide[0]["blanks"].as_u64(), Some(0));
 }
 
@@ -571,16 +536,9 @@ fn blank_state_survives_chunk_boundaries() {
 
     let value = crate::collect_rust_loc(dir.path(), None).expect("collect");
     let records = value.as_array().expect("array");
-    let row = records
-        .iter()
-        .find(|r| r["file"] == "chunks.rs")
-        .expect("chunks.rs row");
+    let row = records.iter().find(|r| r["file"] == "chunks.rs").expect("chunks.rs row");
 
-    assert_eq!(
-        row["code"].as_u64(),
-        Some(1),
-        "only the line carrying a non-blank byte is code"
-    );
+    assert_eq!(row["code"].as_u64(), Some(1), "only the line carrying a non-blank byte is code");
     assert_eq!(
         row["blanks"].as_u64(),
         u64::try_from(cap / 8 + 1).ok(),
@@ -686,10 +644,7 @@ fn source_that_lexes_but_fails_syn_keeps_every_line_in_the_base_region() {
     assert_eq!(counts.test, Locs::default(), "no test split without syn");
     assert_eq!(counts.example, Locs::default());
     assert_eq!(counts.main.lines(), 3, "all three lines counted as main");
-    assert_eq!(
-        counts.main.code, 3,
-        "the lexer still classifies each line as code"
-    );
+    assert_eq!(counts.main.code, 3, "the lexer still classifies each line as code");
 }
 
 #[test]
@@ -707,9 +662,7 @@ fn collect_rust_loc_returns_records_for_this_crate() {
     let records = value.as_array().expect("array");
     assert!(!records.is_empty(), "this crate has .rs files");
     assert!(
-        records
-            .iter()
-            .any(|r| r.get("region").and_then(|v| v.as_str()) == Some("test")),
+        records.iter().any(|r| r.get("region").and_then(|v| v.as_str()) == Some("test")),
         "this file is itself a test region"
     );
 }
@@ -738,14 +691,10 @@ fn rust_loc_collect_and_load_cycle() {
     let db = Sqlite::open_in_memory().expect("open in-memory db");
 
     let ctx = Context::test_context(workspace.path().to_path_buf());
-    RustLocIngestor
-        .collect(&ctx, &dir)
-        .expect("collect should succeed");
+    RustLocIngestor.collect(&ctx, &dir).expect("collect should succeed");
     assert!(dir.entry_path("rust_loc_files.json").exists());
 
-    let load_result = RustLocIngestor
-        .load(&dir, &db)
-        .expect("load should succeed");
+    let load_result = RustLocIngestor.load(&dir, &db).expect("load should succeed");
     assert!(load_result.record_count > 0);
 
     let conn = db.lock().expect("lock");
@@ -753,19 +702,12 @@ fn rust_loc_collect_and_load_cycle() {
         .query_row("SELECT SUM(code) FROM rust_loc_files", [], |row| row.get(0))
         .expect("files sum");
     let view_total: i64 = conn
-        .query_row("SELECT SUM(code) FROM rust_loc_summary", [], |row| {
-            row.get(0)
-        })
+        .query_row("SELECT SUM(code) FROM rust_loc_summary", [], |row| row.get(0))
         .expect("view sum");
-    assert_eq!(
-        files_total, view_total,
-        "summary view must aggregate every file row"
-    );
+    assert_eq!(files_total, view_total, "summary view must aggregate every file row");
 
     let regions: i64 = conn
-        .query_row("SELECT COUNT(*) FROM rust_loc_summary", [], |row| {
-            row.get(0)
-        })
+        .query_row("SELECT COUNT(*) FROM rust_loc_summary", [], |row| row.get(0))
         .expect("region count");
     drop(conn);
     assert!(regions >= 2, "fixture spans main, test and example");
@@ -788,12 +730,8 @@ fn rust_loc_summary_view_satisfies_the_shared_summary_query() {
     let db = Sqlite::open_in_memory().expect("open in-memory db");
 
     let ctx = Context::test_context(workspace.path().to_path_buf());
-    RustLocIngestor
-        .collect(&ctx, &dir)
-        .expect("collect should succeed");
-    let loaded = RustLocIngestor
-        .load(&dir, &db)
-        .expect("load should succeed");
+    RustLocIngestor.collect(&ctx, &dir).expect("collect should succeed");
+    let loaded = RustLocIngestor.load(&dir, &db).expect("load should succeed");
     assert!(loaded.record_count > 0, "fixture rows must reach SQLite");
 
     let stats = ops_sqlite::sql::query_rust_loc_summary(&db).expect("summary query");
@@ -801,21 +739,12 @@ fn rust_loc_summary_view_satisfies_the_shared_summary_query() {
 
     let regions: Vec<&str> = stats.iter().map(|s| s.region.as_str()).collect();
     for expected in ["main", "test", "example"] {
-        assert!(
-            regions.contains(&expected),
-            "fixture covers {expected}: {regions:?}"
-        );
+        assert!(regions.contains(&expected), "fixture covers {expected}: {regions:?}");
     }
 
-    let main = stats
-        .iter()
-        .find(|s| s.region == "main")
-        .expect("main region");
+    let main = stats.iter().find(|s| s.region == "main").expect("main region");
     assert!(main.code > 0, "main region has code lines: {main:?}");
-    assert!(
-        main.docs > 0,
-        "fixture's `//! Docs.` must land in the docs column: {main:?}"
-    );
+    assert!(main.docs > 0, "fixture's `//! Docs.` must land in the docs column: {main:?}");
     assert_eq!(
         main.lines,
         main.code + main.docs + main.comments + main.blanks,
@@ -832,10 +761,7 @@ fn rust_loc_ingestor_load_without_collect_fails() {
         ops_sqlite::IngestDir::open(&data_dir.path().join("ingest")).expect("open ingest dir");
     let db = Sqlite::open_in_memory().expect("open in-memory db");
     init_schema(&db).expect("init schema");
-    assert!(
-        RustLocIngestor.load(&dir, &db).is_err(),
-        "load without prior collect should fail"
-    );
+    assert!(RustLocIngestor.load(&dir, &db).is_err(), "load without prior collect should fail");
 }
 
 // -- the parallel walk honours the dispatch deadline --
@@ -905,10 +831,8 @@ fn spent_deadline() -> ops_extension::Deadline {
             &self,
             ctx: &mut Context,
         ) -> Result<serde_json::Value, ops_extension::DataProviderError> {
-            *self
-                .0
-                .lock()
-                .unwrap_or_else(std::sync::PoisonError::into_inner) = ctx.deadline_handle();
+            *self.0.lock().unwrap_or_else(std::sync::PoisonError::into_inner) =
+                ctx.deadline_handle();
             Ok(serde_json::Value::Array(Vec::new()))
         }
     }
@@ -954,14 +878,7 @@ fn an_expired_deadline_stops_the_streaming_count() {
         .expect("an unbounded count runs to EOF");
     assert_eq!(
         counts.non_empty().collect::<Vec<_>>(),
-        vec![(
-            Region::Main,
-            Locs {
-                code: 2,
-                blanks: 1,
-                ..Locs::default()
-            }
-        )],
+        vec![(Region::Main, Locs { code: 2, blanks: 1, ..Locs::default() })],
         "the control run counts every line"
     );
 }

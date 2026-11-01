@@ -265,9 +265,7 @@ async fn spawn_capped(
     // which lands in the captured stderr the display already renders.
     // Interactive steps must use `--raw` ([`exec_command_raw`]), which keeps
     // `Stdio::inherit()` deliberately.
-    cmd.stdin(Stdio::null())
-        .stdout(Stdio::piped())
-        .stderr(Stdio::piped());
+    cmd.stdin(Stdio::null()).stdout(Stdio::piped()).stderr(Stdio::piped());
     // CONC-9 / TASK-1919: make the child its own process-group leader so
     // cancellation can address the tree it forks, not just the leader.
     configure_process_group(cmd);
@@ -360,12 +358,10 @@ async fn spawn_capped(
     // deliberately backgrounded by the step and closed its pipes, so it is
     // not the runner's to signal.
     group.disarm();
-    let (stdout_bytes, stdout_dropped) = stdout_result
-        .ok_or_else(missing_drain)?
-        .map_err(join_to_io)??;
-    let (stderr_bytes, stderr_dropped) = stderr_result
-        .ok_or_else(missing_drain)?
-        .map_err(join_to_io)??;
+    let (stdout_bytes, stdout_dropped) =
+        stdout_result.ok_or_else(missing_drain)?.map_err(join_to_io)??;
+    let (stderr_bytes, stderr_dropped) =
+        stderr_result.ok_or_else(missing_drain)?.map_err(join_to_io)??;
     Ok(CommandOutput::from_streamed(
         status,
         stdout_bytes,
@@ -468,19 +464,13 @@ fn output_line_events<'a>(
     stdout: &'a Arc<str>,
     stderr: &'a Arc<str>,
 ) -> impl Iterator<Item = RunnerEvent> + 'a {
-    [(stdout, false), (stderr, true)]
-        .into_iter()
-        .flat_map(move |(buf, is_stderr)| {
-            LineRanges {
-                bytes: buf.as_bytes(),
-                start: 0,
-            }
-            .map(move |range| RunnerEvent::StepOutput {
-                id: id.into(),
-                line: crate::command::OutputLine::slice(Arc::clone(buf), range),
-                stderr: is_stderr,
-            })
+    [(stdout, false), (stderr, true)].into_iter().flat_map(move |(buf, is_stderr)| {
+        LineRanges { bytes: buf.as_bytes(), start: 0 }.map(move |range| RunnerEvent::StepOutput {
+            id: id.into(),
+            line: crate::command::OutputLine::slice(Arc::clone(buf), range),
+            stderr: is_stderr,
         })
+    })
 }
 
 /// Byte ranges of the lines in a capture buffer, excluding the terminator.
@@ -505,10 +495,7 @@ impl Iterator for LineRanges<'_> {
             // newline index so `end + 1 <= bytes.len()`.
             let end = start.saturating_add(off);
             let trimmed_end = if end > start
-                && self
-                    .bytes
-                    .get(end.saturating_sub(1))
-                    .is_some_and(|b| *b == b'\r')
+                && self.bytes.get(end.saturating_sub(1)).is_some_and(|b| *b == b'\r')
             {
                 end.saturating_sub(1)
             } else {
@@ -553,11 +540,7 @@ pub fn build_step_result(id: &str, duration: Duration, output: CommandOutput) ->
         duration,
         stdout: output.stdout,
         stderr: output.stderr,
-        message: if output.success {
-            None
-        } else {
-            Some(output.status_message)
-        },
+        message: if output.success { None } else { Some(output.status_message) },
     }
 }
 
@@ -637,10 +620,7 @@ pub async fn exec_command(
     emit: &mut impl FnMut(RunnerEvent),
 ) -> StepResult {
     let display_cmd = Some(spec.display_cmd().into_owned());
-    emit(RunnerEvent::StepStarted {
-        id: id.into(),
-        display_cmd: display_cmd.clone(),
-    });
+    emit(RunnerEvent::StepStarted { id: id.into(), display_cmd: display_cmd.clone() });
 
     let (captured, duration) = capture(spec, env).await;
     let output = match captured {
@@ -661,16 +641,10 @@ pub async fn exec_command(
     // `Arc::clone` (refcount bump), not a fresh `Arc::from(&str)` per call.
     // The original `output.stdout`/`output.stderr` `String`s remain owned
     // and are moved into `StepResult` by `build_step_result` below.
-    let stdout_arc: Arc<str> = if output.stdout.is_empty() {
-        Arc::from("")
-    } else {
-        Arc::from(output.stdout.as_str())
-    };
-    let stderr_arc: Arc<str> = if output.stderr.is_empty() {
-        Arc::from("")
-    } else {
-        Arc::from(output.stderr.as_str())
-    };
+    let stdout_arc: Arc<str> =
+        if output.stdout.is_empty() { Arc::from("") } else { Arc::from(output.stdout.as_str()) };
+    let stderr_arc: Arc<str> =
+        if output.stderr.is_empty() { Arc::from("") } else { Arc::from(output.stderr.as_str()) };
     emit_output_events(id, &stdout_arc, &stderr_arc, emit);
     emit_step_completion(id, duration, &output, display_cmd, emit);
     build_step_result(id, duration, output)
@@ -855,12 +829,7 @@ pub async fn exec_standalone(
         // still `StepSkipped` so the row renders identically — the
         // distinction is internal to the result type.
         let display_cmd = Some(spec.display_cmd().into_owned());
-        let _ = tx
-            .send(RunnerEvent::StepSkipped {
-                id: id.clone(),
-                display_cmd,
-            })
-            .await;
+        let _ = tx.send(RunnerEvent::StepSkipped { id: id.clone(), display_cmd }).await;
         return StepResult::cancelled(id);
     }
     let display_cmd = Some(spec.display_cmd().into_owned());
@@ -869,10 +838,7 @@ pub async fn exec_standalone(
     // condition.
     send_unless_aborted(
         &tx,
-        RunnerEvent::StepStarted {
-            id: id.clone(),
-            display_cmd: display_cmd.clone(),
-        },
+        RunnerEvent::StepStarted { id: id.clone(), display_cmd: display_cmd.clone() },
         &abort,
     )
     .await;
@@ -921,10 +887,8 @@ pub async fn exec_standalone(
     // closed, or abort with a full channel), log a structured warning so the
     // count survives in the log instead of being silently lost.
     if dropped_outputs > 0 {
-        let dropped = RunnerEvent::StepOutputDropped {
-            id: id.clone(),
-            dropped_count: dropped_outputs,
-        };
+        let dropped =
+            RunnerEvent::StepOutputDropped { id: id.clone(), dropped_count: dropped_outputs };
         if !send_unless_aborted(&tx, dropped, &abort).await {
             tracing::warn!(
                 step_id = ?id.as_str(),
@@ -996,9 +960,7 @@ mod drain_grace_knob_tests {
     /// `resolve_env_usize` directly, the way the `OPS_MAX_PARALLEL` tests do.
     fn resolve(value: Option<&str>) -> usize {
         let (default, ceiling) = drain_grace_bounds();
-        with_env(value, || {
-            resolve_env_usize(DRAIN_GRACE_ENV, default, ceiling)
-        })
+        with_env(value, || resolve_env_usize(DRAIN_GRACE_ENV, default, ceiling))
     }
 
     #[test]
@@ -1068,10 +1030,7 @@ mod spawn_error_log_format_tests {
         assert!(!rendered.contains('\n'), "got: {rendered}");
         assert!(!rendered.contains('\u{1b}'), "got: {rendered}");
         assert!(rendered.contains("\\n"), "got: {rendered}");
-        assert!(
-            rendered.starts_with('"') && rendered.ends_with('"'),
-            "got: {rendered}"
-        );
+        assert!(rendered.starts_with('"') && rendered.ends_with('"'), "got: {rendered}");
         assert!(!rendered.contains("CommandId"), "got: {rendered}");
 
         // The Display rendering this replaced would not have escaped.

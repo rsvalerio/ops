@@ -46,13 +46,9 @@ pub fn check_json(bytes: &[u8], allow_json5: bool) -> Result<(), CheckError> {
         }));
     }
     if allow_json5 {
-        json5::from_str::<IgnoredAny>(text)
-            .map(|_| ())
-            .map_err(CheckError::parse)
+        json5::from_str::<IgnoredAny>(text).map(|_| ()).map_err(CheckError::parse)
     } else {
-        serde_json::from_str::<IgnoredAny>(text)
-            .map(|_| ())
-            .map_err(CheckError::parse)
+        serde_json::from_str::<IgnoredAny>(text).map(|_| ()).map_err(CheckError::parse)
     }
 }
 
@@ -201,17 +197,11 @@ mod tests {
         bomb.extend(std::iter::repeat_n(b']', depth));
 
         let err = check_json(&bomb, true).unwrap_err();
-        assert_eq!(
-            err.to_string(),
-            "input exceeds the nesting depth limit of 128"
-        );
+        assert_eq!(err.to_string(), "input exceeds the nesting depth limit of 128");
         // The strict branch is bounded by the same pre-scan, not by
         // `serde_json`'s `Value`-only recursion limit.
         let err = check_json(&bomb, false).unwrap_err();
-        assert_eq!(
-            err.to_string(),
-            "input exceeds the nesting depth limit of 128"
-        );
+        assert_eq!(err.to_string(), "input exceeds the nesting depth limit of 128");
     }
 
     #[test]
@@ -240,12 +230,9 @@ mod tests {
     #[test]
     fn every_json5_line_terminator_closes_a_line_comment() {
         let deep = "[".repeat(usize::try_from(MAX_NESTING_DEPTH).unwrap() + 1);
-        for (name, terminator) in [
-            ("LF", "\n"),
-            ("CR", "\r"),
-            ("U+2028", "\u{2028}"),
-            ("U+2029", "\u{2029}"),
-        ] {
+        for (name, terminator) in
+            [("LF", "\n"), ("CR", "\r"), ("U+2028", "\u{2028}"), ("U+2029", "\u{2029}")]
+        {
             let source = format!("// comment{terminator}{deep}");
             let err = check_json(source.as_bytes(), true).unwrap_err();
             assert_eq!(

@@ -25,11 +25,7 @@ pub struct ExpandError {
 
 impl fmt::Display for ExpandError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(
-            f,
-            "variable expansion failed for `${}`: {}",
-            self.var_name, self.cause
-        )
+        write!(f, "variable expansion failed for `${}`: {}", self.var_name, self.cause)
     }
 }
 
@@ -172,12 +168,10 @@ fn cached_tmpdir_arc() -> Result<Arc<str>, ExpandError> {
 /// Pure renderer behind [`cached_tmpdir_arc`], split out so the non-UTF-8
 /// branch is reachable from a test without touching the process cache.
 fn tmpdir_arc_from(dir: &Path) -> Result<Arc<str>, ExpandError> {
-    dir.to_str()
-        .map(Arc::<str>::from)
-        .ok_or_else(|| ExpandError {
-            var_name: "TMPDIR".to_string(),
-            cause: std::env::VarError::NotUnicode(dir.as_os_str().to_owned()),
-        })
+    dir.to_str().map(Arc::<str>::from).ok_or_else(|| ExpandError {
+        var_name: "TMPDIR".to_string(),
+        cause: std::env::VarError::NotUnicode(dir.as_os_str().to_owned()),
+    })
 }
 
 /// Test-only guard that installs a [`TMPDIR_OVERRIDE`] for the current
@@ -231,12 +225,7 @@ pub(crate) const OPS_ROOT_CACHE_CAP: usize = 64;
 
 fn ops_root_cache() -> &'static Mutex<OpsRootCache> {
     static CACHE: std::sync::OnceLock<Mutex<OpsRootCache>> = std::sync::OnceLock::new();
-    CACHE.get_or_init(|| {
-        Mutex::new(OpsRootCache {
-            map: HashMap::new(),
-            order: VecDeque::new(),
-        })
-    })
+    CACHE.get_or_init(|| Mutex::new(OpsRootCache { map: HashMap::new(), order: VecDeque::new() }))
 }
 
 /// Resolve the `OPS_ROOT` `Arc<str>` for a workspace root, caching the
@@ -300,10 +289,7 @@ fn cached_ops_root_arc(ops_root: &Path) -> Result<Arc<str>, ExpandError> {
     // the real path directly), reuse that `Arc<str>` so a real + symlink
     // pair collapses to one rendering. Without this branch the new entry
     // would shadow the existing one and break `Arc::ptr_eq`.
-    let arc = guard
-        .map
-        .get(key)
-        .map_or_else(|| Arc::<str>::from(rendered), Arc::clone);
+    let arc = guard.map.get(key).map_or_else(|| Arc::<str>::from(rendered), Arc::clone);
     // Evict the oldest entry when at cap so the new
     // distinct root still fits.
     if guard.map.len() >= OPS_ROOT_CACHE_CAP {
@@ -340,9 +326,7 @@ pub(crate) fn ops_root_cache_len() -> usize {
     // sibling panic shows up at the right level instead of looking like a
     // later value-mismatch.
     let cache = ops_root_cache();
-    crate::sync::lock_recover_warn(cache, "ops_root_cache_len")
-        .map
-        .len()
+    crate::sync::lock_recover_warn(cache, "ops_root_cache_len").map.len()
 }
 
 #[cfg(test)]
@@ -391,10 +375,7 @@ fn record_canonicalize_call(path: &Path) {
 
 #[cfg(test)]
 pub(crate) fn canonicalize_call_count(path: &Path) -> usize {
-    crate::sync::lock_recover(canonicalize_calls())
-        .get(path)
-        .copied()
-        .unwrap_or(0)
+    crate::sync::lock_recover(canonicalize_calls()).get(path).copied().unwrap_or(0)
 }
 
 /// Maximum number of distinct
@@ -427,10 +408,7 @@ struct ExpandWarnSeen {
 
 impl ExpandWarnSeen {
     fn new() -> Self {
-        Self {
-            set: HashSet::new(),
-            order: VecDeque::new(),
-        }
+        Self { set: HashSet::new(), order: VecDeque::new() }
     }
 
     /// Insert `var_name`; evict the oldest entry first if at capacity.
@@ -473,9 +451,7 @@ pub(crate) fn expand_warn_seen_count() -> usize {
     // sibling-panic flake is visible at the recovery site rather than
     // masquerading as a later count mismatch.
     let cache = expand_warn_seen();
-    crate::sync::lock_recover_warn(cache, "expand_warn_seen_count")
-        .set
-        .len()
+    crate::sync::lock_recover_warn(cache, "expand_warn_seen_count").set.len()
 }
 
 #[cfg(test)]
@@ -505,10 +481,7 @@ impl Variables {
     /// through unchanged.
     #[must_use]
     pub fn poisoned(err: ExpandError) -> Self {
-        Self {
-            builtins: HashMap::new(),
-            poison: Some(err),
-        }
+        Self { builtins: HashMap::new(), poison: Some(err) }
     }
 
     /// Build from environment and workspace root.
@@ -540,10 +513,7 @@ impl Variables {
         builtins.insert("OPS_ROOT", cached_ops_root_arc(ops_root)?);
         builtins.insert("OPS_BIN", cached_ops_bin_arc());
         builtins.insert("TMPDIR", cached_tmpdir_arc()?);
-        Ok(Self {
-            builtins,
-            poison: None,
-        })
+        Ok(Self { builtins, poison: None })
     }
 
     /// Expand `$VAR`, `${VAR}`, `${VAR:-default}`, and `~` in the input string.
@@ -610,10 +580,7 @@ impl Variables {
         // Delegate to the shared helper so `~` expansion stays in sync
         // with platform path conventions used by the config loader.
         let home_dir = || -> Option<String> {
-            crate::paths::home_dir()
-                .as_deref()
-                .and_then(std::path::Path::to_str)
-                .map(String::from)
+            crate::paths::home_dir().as_deref().and_then(std::path::Path::to_str).map(String::from)
         };
 
         // Builtins are borrowed from `self`; `Cow::Borrowed` avoids
@@ -630,10 +597,8 @@ impl Variables {
             }
         };
 
-        shellexpand::full_with_context(input, home_dir, lookup).map_err(|err| ExpandError {
-            var_name: err.var_name,
-            cause: err.cause,
-        })
+        shellexpand::full_with_context(input, home_dir, lookup)
+            .map_err(|err| ExpandError { var_name: err.var_name, cause: err.cause })
     }
 }
 
@@ -663,9 +628,7 @@ mod tests {
     fn expands_tilde() {
         let vars = test_vars();
         let result = vars.expand("~/config");
-        let home = std::env::var("HOME")
-            .or_else(|_| std::env::var("USERPROFILE"))
-            .unwrap();
+        let home = std::env::var("HOME").or_else(|_| std::env::var("USERPROFILE")).unwrap();
         assert_eq!(result, format!("{home}/config"));
     }
 
@@ -673,9 +636,7 @@ mod tests {
     fn expands_home_var() {
         let vars = test_vars();
         let result = vars.expand("$HOME/.config");
-        let home = std::env::var("HOME")
-            .or_else(|_| std::env::var("USERPROFILE"))
-            .unwrap();
+        let home = std::env::var("HOME").or_else(|_| std::env::var("USERPROFILE")).unwrap();
         assert_eq!(result, format!("{home}/.config"));
     }
 
@@ -707,10 +668,7 @@ mod tests {
         let v2 = test_vars();
         let a = v1.builtins.get("TMPDIR").expect("TMPDIR populated");
         let b = v2.builtins.get("TMPDIR").expect("TMPDIR populated");
-        assert!(
-            Arc::ptr_eq(a, b),
-            "TMPDIR must be the same Arc across from_env calls"
-        );
+        assert!(Arc::ptr_eq(a, b), "TMPDIR must be the same Arc across from_env calls");
     }
 
     /// TASK-2649: `${OPS_BIN}` expands to the running binary's absolute
@@ -769,11 +727,7 @@ mod tests {
         // Force the cache to populate (idempotent if already initialised in
         // this process — that is exactly the contract under test).
         let v_before = test_vars();
-        let cached = v_before
-            .builtins
-            .get("TMPDIR")
-            .expect("TMPDIR populated")
-            .clone();
+        let cached = v_before.builtins.get("TMPDIR").expect("TMPDIR populated").clone();
 
         // Swap TMPDIR to a value the cache could not possibly have captured.
         //
@@ -902,11 +856,7 @@ mod tests {
         unsafe {
             std::env::remove_var(key);
         }
-        assert_eq!(
-            result.as_ref(),
-            input,
-            "non-UTF-8 env value must fall back to original input"
-        );
+        assert_eq!(result.as_ref(), input, "non-UTF-8 env value must fall back to original input");
     }
 
     /// ERR-1 / TASK-1224: when `expand` falls back on a `VarError`, the
@@ -946,11 +896,7 @@ mod tests {
 
         // A new distinct var: ui::warn fires again, set grows.
         let _ = vars.expand(&format!("${key_b}"));
-        assert_eq!(
-            super::expand_warn_seen_count(),
-            2,
-            "distinct var must surface a new ui::warn"
-        );
+        assert_eq!(super::expand_warn_seen_count(), 2, "distinct var must surface a new ui::warn");
 
         // SAFETY: test-only guard via #[serial] attribute.
         unsafe {
@@ -1000,18 +946,11 @@ mod tests {
         super::reset_ops_root_cache();
         let root = PathBuf::from("/synthetic/cache/hit/pin");
         let warm = Variables::from_env(&root).expect("UTF-8 path");
-        let warm_arc = warm
-            .builtins
-            .get("OPS_ROOT")
-            .expect("OPS_ROOT populated")
-            .clone();
+        let warm_arc = warm.builtins.get("OPS_ROOT").expect("OPS_ROOT populated").clone();
         for _ in 0..1024 {
             let v = Variables::from_env(&root).expect("UTF-8 path");
             let got = v.builtins.get("OPS_ROOT").expect("OPS_ROOT populated");
-            assert!(
-                Arc::ptr_eq(got, &warm_arc),
-                "OPS_ROOT Arc must be reused on cache hits"
-            );
+            assert!(Arc::ptr_eq(got, &warm_arc), "OPS_ROOT Arc must be reused on cache hits");
         }
         super::reset_ops_root_cache();
     }
@@ -1146,18 +1085,12 @@ mod tests {
         // it must again return `true` (the user-facing warn fires once more).
         let first_name = "ADVERSARIAL_VAR_0";
         let re_marked = super::mark_expand_warn_emitted(first_name);
-        assert!(
-            re_marked,
-            "evicted name must re-mark as new on next sighting (FIFO eviction)"
-        );
+        assert!(re_marked, "evicted name must re-mark as new on next sighting (FIFO eviction)");
 
         // A name still inside the window must dedupe (warn-once contract).
         let recent_name = format!("ADVERSARIAL_VAR_{}", cap * 2 - 1);
         let recent_dedupe = super::mark_expand_warn_emitted(&recent_name);
-        assert!(
-            !recent_dedupe,
-            "recent name must still dedupe within the capacity window"
-        );
+        assert!(!recent_dedupe, "recent name must still dedupe within the capacity window");
 
         super::reset_expand_warn_seen();
     }
@@ -1204,9 +1137,7 @@ mod tests {
     #[test]
     fn try_expand_propagates_value_for_known_var() {
         let vars = test_vars();
-        let result = vars
-            .try_expand("$OPS_ROOT/src")
-            .expect("known var must succeed");
+        let result = vars.try_expand("$OPS_ROOT/src").expect("known var must succeed");
         assert_eq!(result, "/test/project/src");
     }
 
@@ -1235,11 +1166,7 @@ mod tests {
         let root = PathBuf::from("/bench/root");
         // Warm the OnceLock once.
         let warm = Variables::from_env(&root).expect("UTF-8 path");
-        let warm_tmpdir = warm
-            .builtins
-            .get("TMPDIR")
-            .expect("TMPDIR populated")
-            .clone();
+        let warm_tmpdir = warm.builtins.get("TMPDIR").expect("TMPDIR populated").clone();
         // Subsequent calls must observe the *same* cached `Arc<str>` — not just
         // an equal string. TEST-11 / TASK-1037: a value-equality assertion here
         // would still pass even if `from_env` re-rendered the TMPDIR path on
@@ -1310,8 +1237,7 @@ mod tests {
         let name = "OPS_DEFINITELY_UNSET_TASK_1854";
         assert!(std::env::var_os(name).is_none(), "test precondition");
         assert_eq!(
-            vars.try_expand(&format!("${name}/src"))
-                .expect("undefined variable is not an error"),
+            vars.try_expand(&format!("${name}/src")).expect("undefined variable is not an error"),
             format!("${name}/src")
         );
         assert_eq!(
@@ -1320,8 +1246,7 @@ mod tests {
             format!("${{{name}}}/src")
         );
         assert_eq!(
-            vars.try_expand(&format!("${{{name}:-fallback}}/src"))
-                .expect("default form resolves"),
+            vars.try_expand(&format!("${{{name}:-fallback}}/src")).expect("default form resolves"),
             "fallback/src"
         );
     }

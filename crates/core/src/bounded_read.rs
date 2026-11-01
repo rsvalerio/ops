@@ -182,10 +182,7 @@ fn open_regular_file(path: &Path, max_bytes: u64) -> Result<(File, Metadata), Re
         return Err(Rejected::Skipped(SkipReason::NotRegularFile));
     }
     if md.len() > max_bytes {
-        return Err(Rejected::Skipped(SkipReason::TooLarge {
-            len: md.len(),
-            cap: max_bytes,
-        }));
+        return Err(Rejected::Skipped(SkipReason::TooLarge { len: md.len(), cap: max_bytes }));
     }
     Ok((file, md))
 }
@@ -206,10 +203,7 @@ fn read_bounded(file: File, metadata: Metadata, max_bytes: u64) -> Result<Conten
     // the check that holds, because it measures what was read.
     let read = u64::try_from(bytes.len()).unwrap_or(u64::MAX);
     if read > max_bytes {
-        return Err(Rejected::Skipped(SkipReason::TooLarge {
-            len: read,
-            cap: max_bytes,
-        }));
+        return Err(Rejected::Skipped(SkipReason::TooLarge { len: read, cap: max_bytes }));
     }
     Ok((bytes, metadata))
 }
@@ -428,9 +422,7 @@ mod tests {
             fn adopt_walk_errors(&mut self, _errors: Vec<String>) {}
         }
 
-        let mut sink = Sink {
-            failures: Vec::new(),
-        };
+        let mut sink = Sink { failures: Vec::new() };
         let mut line = Vec::new();
         let failure = FailedFile {
             path: std::path::PathBuf::from("evil\nINJECT.txt"),
@@ -439,15 +431,9 @@ mod tests {
         };
         record_failure(&mut sink, &mut line, "fix", failure).unwrap();
         let rendered = String::from_utf8(line).unwrap();
-        assert_eq!(
-            rendered,
-            "fix: evil\\nINJECT.txt: read: \\u{1b}[31mdenied\n"
-        );
+        assert_eq!(rendered, "fix: evil\\nINJECT.txt: read: \\u{1b}[31mdenied\n");
         // The record keeps the raw path for programmatic consumers.
-        assert_eq!(
-            sink.failures[0].path,
-            std::path::Path::new("evil\nINJECT.txt")
-        );
+        assert_eq!(sink.failures[0].path, std::path::Path::new("evil\nINJECT.txt"));
         // Clean text is untouched.
         assert_eq!(safe_line_text("plain/path.txt"), "plain/path.txt");
     }
@@ -456,15 +442,9 @@ mod tests {
     /// pin it: a wording change must be deliberate and visible here.
     #[test]
     fn skip_reason_wording_is_pinned() {
-        assert_eq!(
-            SkipReason::TooLarge { len: 20, cap: 4 }.to_string(),
-            "size 20 exceeds cap 4"
-        );
+        assert_eq!(SkipReason::TooLarge { len: 20, cap: 4 }.to_string(), "size 20 exceeds cap 4");
         assert_eq!(SkipReason::NotRegularFile.to_string(), "not a regular file");
-        assert_eq!(
-            SkipReason::Vanished.to_string(),
-            "not present in the worktree"
-        );
+        assert_eq!(SkipReason::Vanished.to_string(), "not present in the worktree");
         assert_eq!(SkipReason::NotText.to_string(), "not text");
     }
 }

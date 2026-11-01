@@ -61,10 +61,8 @@ fn has_enclosing_workspace(workspace_root: &Path) -> bool {
         let Ok(relative) = workspace_root.strip_prefix(dir) else {
             return true;
         };
-        let excluded = workspace
-            .get("exclude")
-            .and_then(toml::Value::as_array)
-            .is_some_and(|entries| {
+        let excluded =
+            workspace.get("exclude").and_then(toml::Value::as_array).is_some_and(|entries| {
                 entries
                     .iter()
                     .filter_map(toml::Value::as_str)
@@ -90,10 +88,7 @@ fn is_lib_less_package(workspace_root: &Path) -> bool {
     {
         return false;
     }
-    let autolib = package
-        .get("autolib")
-        .and_then(toml::Value::as_bool)
-        .unwrap_or(true);
+    let autolib = package.get("autolib").and_then(toml::Value::as_bool).unwrap_or(true);
     !(autolib && workspace_root.join("src/lib.rs").exists())
 }
 
@@ -131,11 +126,7 @@ pub(super) fn apply(config: &mut Config, workspace_root: &Path) {
         if !default.commands.iter().any(|c| c == TEST_DOC) {
             continue;
         }
-        let materialized = config
-            .provenance
-            .extended_stack_defaults
-            .iter()
-            .any(|n| n == name);
+        let materialized = config.provenance.extended_stack_defaults.iter().any(|n| n == name);
         match config.commands.get_mut(name) {
             Some(CommandSpec::Composite(composite))
                 if materialized || is_default_copy(&*composite, default) =>
@@ -146,9 +137,7 @@ pub(super) fn apply(config: &mut Config, workspace_root: &Path) {
             None => {
                 let mut composite = default.clone();
                 drop_test_doc(&mut composite);
-                config
-                    .commands
-                    .insert(name.clone(), CommandSpec::Composite(composite));
+                config.commands.insert(name.clone(), CommandSpec::Composite(composite));
                 config.provenance.extended_stack_defaults.push(name.clone());
             }
         }
@@ -187,16 +176,9 @@ mod tests {
         for name in ["qa", "qa-next"] {
             let steps = steps(&config, name);
             assert!(!steps.iter().any(|s| s == TEST_DOC), "{name}: {steps:?}");
+            assert!(steps.iter().any(|s| s != TEST_DOC), "{name} lost its other steps");
             assert!(
-                steps.iter().any(|s| s != TEST_DOC),
-                "{name} lost its other steps"
-            );
-            assert!(
-                config
-                    .provenance
-                    .extended_stack_defaults
-                    .iter()
-                    .any(|n| n == name),
+                config.provenance.extended_stack_defaults.iter().any(|n| n == name),
                 "{name} must be recorded as a stack default"
             );
         }
@@ -207,10 +189,7 @@ mod tests {
     fn a_library_keeps_test_doc() {
         for (manifest, lib) in [
             (PACKAGE, true),
-            (
-                "[package]\nname = \"x\"\n[lib]\npath = \"src/x.rs\"\n",
-                false,
-            ),
+            ("[package]\nname = \"x\"\n[lib]\npath = \"src/x.rs\"\n", false),
             ("[package]\nname = \"x\"\n[workspace]\n", false),
             ("[workspace]\nmembers = [\"a\"]\n", false),
             ("not = [toml", false),
@@ -236,16 +215,12 @@ mod tests {
         let own = CompositeCommandSpec::new(["build", TEST_DOC]);
 
         let mut config = Config::empty();
-        config
-            .commands
-            .insert("qa".into(), CommandSpec::Composite(own.clone()));
+        config.commands.insert("qa".into(), CommandSpec::Composite(own.clone()));
         apply(&mut config, dir.path());
         assert_eq!(steps(&config, "qa"), ["build", TEST_DOC]);
 
         let mut config = Config::empty();
-        config
-            .commands
-            .insert(TEST_DOC.into(), CommandSpec::Composite(own));
+        config.commands.insert(TEST_DOC.into(), CommandSpec::Composite(own));
         apply(&mut config, dir.path());
         assert!(!config.commands.contains_key("qa"));
     }
@@ -262,10 +237,7 @@ mod tests {
         }
         apply(&mut config, dir.path());
         for name in ["qa", "qa-next"] {
-            assert!(
-                !steps(&config, name).iter().any(|s| s == TEST_DOC),
-                "{name}"
-            );
+            assert!(!steps(&config, name).iter().any(|s| s == TEST_DOC), "{name}");
         }
     }
 
@@ -307,10 +279,7 @@ mod tests {
 
             let mut config = Config::empty();
             apply(&mut config, &member);
-            assert!(
-                !steps(&config, "qa").iter().any(|s| s == TEST_DOC),
-                "exclude = {exclude:?}"
-            );
+            assert!(!steps(&config, "qa").iter().any(|s| s == TEST_DOC), "exclude = {exclude:?}");
         }
     }
 

@@ -39,18 +39,9 @@ default-run = "full-crate"
     let pkg = manifest.package.as_ref().expect("package exists");
 
     assert_eq!(pkg.name, "full-crate");
-    assert_eq!(
-        pkg.version,
-        crate::InheritableField::Value("1.2.3".to_string())
-    );
-    assert_eq!(
-        pkg.edition,
-        crate::InheritableField::Value("2021".to_string())
-    );
-    assert_eq!(
-        pkg.rust_version,
-        crate::InheritableField::Value("1.70".to_string())
-    );
+    assert_eq!(pkg.version, crate::InheritableField::Value("1.2.3".to_string()));
+    assert_eq!(pkg.edition, crate::InheritableField::Value("2021".to_string()));
+    assert_eq!(pkg.rust_version, crate::InheritableField::Value("1.70".to_string()));
     assert_eq!(
         pkg.authors,
         crate::InheritableField::Value(vec![
@@ -62,10 +53,7 @@ default-run = "full-crate"
         pkg.description,
         crate::InheritableField::Value("A fully specified crate".to_string())
     );
-    assert_eq!(
-        pkg.license,
-        crate::InheritableField::Value("MIT OR Apache-2.0".to_string())
-    );
+    assert_eq!(pkg.license, crate::InheritableField::Value("MIT OR Apache-2.0".to_string()));
     assert_eq!(
         pkg.keywords,
         crate::InheritableField::Value(vec!["example".to_string(), "test".to_string()])
@@ -206,10 +194,7 @@ full = ["std", "derive", "extra"]
         manifest.features.get("default"),
         Some(&vec!["std".to_string(), "derive".to_string()])
     );
-    assert_eq!(
-        manifest.features.get("derive"),
-        Some(&vec!["serde/derive".to_string()])
-    );
+    assert_eq!(manifest.features.get("derive"), Some(&vec!["serde/derive".to_string()]));
 }
 
 #[test]
@@ -308,10 +293,7 @@ name = "test"
 version = "0.1.0"
 "#;
     let manifest = CargoToml::parse(toml_default).expect("should parse");
-    assert_eq!(
-        manifest.package.unwrap().publish.is_publishable(),
-        Some(true)
-    );
+    assert_eq!(manifest.package.unwrap().publish.is_publishable(), Some(true));
 
     let toml_false = r#"
 [package]
@@ -320,10 +302,7 @@ version = "0.1.0"
 publish = false
 "#;
     let manifest = CargoToml::parse(toml_false).expect("should parse");
-    assert_eq!(
-        manifest.package.unwrap().publish.is_publishable(),
-        Some(false)
-    );
+    assert_eq!(manifest.package.unwrap().publish.is_publishable(), Some(false));
 
     let toml_registry = r#"
 [package]
@@ -332,10 +311,7 @@ version = "0.1.0"
 publish = ["my-registry"]
 "#;
     let manifest = CargoToml::parse(toml_registry).expect("should parse");
-    assert_eq!(
-        manifest.package.unwrap().publish.is_publishable(),
-        Some(true)
-    );
+    assert_eq!(manifest.package.unwrap().publish.is_publishable(), Some(true));
 }
 
 #[test]

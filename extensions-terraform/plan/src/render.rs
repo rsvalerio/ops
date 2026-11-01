@@ -131,10 +131,7 @@ pub fn render_resource_table(
     // prepend a banner so an operator does not miss audit-relevant rows
     // they cannot name. The rows themselves render with `Action::Unknown`
     // styling and sort to the top of the table.
-    let unknown_count = filtered
-        .iter()
-        .filter(|c| matches!(c.action, Action::Unknown))
-        .count();
+    let unknown_count = filtered.iter().filter(|c| matches!(c.action, Action::Unknown)).count();
     let banner = unknown_banner(unknown_count, "resource");
 
     filtered.sort_by(|a, b| {
@@ -156,11 +153,8 @@ pub fn render_resource_table(
     // TTY. Probing it under is_tty=false (piped, tests, CI snapshots) would
     // make render output environment-sensitive and break byte-identical
     // snapshot reproducibility.
-    let term_width = if is_tty {
-        terminal_size::terminal_size().map(|(w, _)| usize::from(w.0))
-    } else {
-        None
-    };
+    let term_width =
+        if is_tty { terminal_size::terminal_size().map(|(w, _)| usize::from(w.0)) } else { None };
 
     for c in &filtered {
         let action_cell = table.cell(c.action.label(), c.action.color());
@@ -188,12 +182,8 @@ pub fn render_resource_table(
 
 /// `["a", "b", "c", "d", "e"]` → `a, b, c +2`.
 fn summarize_changed(changed: &[String]) -> String {
-    let listed = changed
-        .iter()
-        .take(MAX_LISTED_CHANGES)
-        .map(String::as_str)
-        .collect::<Vec<_>>()
-        .join(", ");
+    let listed =
+        changed.iter().take(MAX_LISTED_CHANGES).map(String::as_str).collect::<Vec<_>>().join(", ");
     match changed.len().saturating_sub(MAX_LISTED_CHANGES) {
         0 => listed,
         rest => format!("{listed} +{rest}"),
@@ -260,10 +250,7 @@ fn classify_output_action(name: &str, value: &serde_json::Value) -> Action {
         return Action::Unknown;
     };
 
-    let actions: Vec<String> = array
-        .iter()
-        .filter_map(|v| v.as_str().map(String::from))
-        .collect();
+    let actions: Vec<String> = array.iter().filter_map(|v| v.as_str().map(String::from)).collect();
     if actions.len() != array.len() {
         tracing::warn!(
             output = %sanitize_terminal_text(name),
@@ -323,27 +310,15 @@ mod tests {
         let output = render_summary_table(&changes, false);
         assert!(output.contains("create"), "should contain create: {output}");
         assert!(output.contains("delete"), "should contain delete: {output}");
-        assert!(
-            !output.contains("update"),
-            "should not contain update: {output}"
-        );
-        assert!(
-            output.contains("2 to add"),
-            "should contain '2 to add': {output}"
-        );
-        assert!(
-            output.contains("1 to destroy"),
-            "should contain '1 to destroy': {output}"
-        );
+        assert!(!output.contains("update"), "should not contain update: {output}");
+        assert!(output.contains("2 to add"), "should contain '2 to add': {output}");
+        assert!(output.contains("1 to destroy"), "should contain '1 to destroy': {output}");
     }
 
     #[test]
     fn summary_table_empty_changes() {
         let output = render_summary_table(&[], false);
-        assert!(
-            output.contains("No changes"),
-            "empty should say no changes: {output}"
-        );
+        assert!(output.contains("No changes"), "empty should say no changes: {output}");
     }
 
     /// `ACTION_DISPLAY_ORDER` lists `Unknown` first, so an unrecognized
@@ -376,14 +351,8 @@ mod tests {
         let delete_pos = output.find("delete").expect("delete should be present");
         let create_pos = output.find("create").expect("create should be present");
         let update_pos = output.find("update").expect("update should be present");
-        assert!(
-            delete_pos < create_pos,
-            "delete should appear before create"
-        );
-        assert!(
-            create_pos < update_pos,
-            "create should appear before update"
-        );
+        assert!(delete_pos < create_pos, "delete should appear before create");
+        assert!(create_pos < update_pos, "create should appear before update");
     }
 
     /// The banner exists so an operator cannot miss rows the tool cannot
@@ -413,10 +382,7 @@ mod tests {
     fn resource_table_without_unknown_has_no_banner() {
         let changes = vec![make_change(Action::Create, "aws_instance", "web")];
         let output = render_resource_table(&changes, false, false);
-        assert!(
-            !output.contains("WARNING"),
-            "no banner without unknown rows: {output}"
-        );
+        assert!(!output.contains("WARNING"), "no banner without unknown rows: {output}");
     }
 
     /// `sort_priority() == 0` puts Unknown above Delete, even when Unknown's
@@ -455,20 +421,10 @@ mod tests {
             },
         ];
         let output = render_resource_table(&changes, false, false);
-        for needle in [
-            "Target",
-            "vm1",
-            "core public ip",
-            "private_ip_id",
-            "vm2",
-            "a, b, c +2",
-        ] {
+        for needle in ["Target", "vm1", "core public ip", "private_ip_id", "vm2", "a, b, c +2"] {
             assert!(output.contains(needle), "{needle} must render: {output}");
         }
-        assert!(
-            !output.contains(", d"),
-            "overflow collapses into +N: {output}"
-        );
+        assert!(!output.contains(", d"), "overflow collapses into +N: {output}");
     }
 
     #[test]
@@ -478,14 +434,8 @@ mod tests {
             make_change(Action::NoOp, "aws_s3_bucket", "existing"),
         ];
         let output = render_resource_table(&changes, false, false);
-        assert!(
-            !output.contains("no-op"),
-            "no-op should be filtered: {output}"
-        );
-        assert!(
-            output.contains("aws_instance"),
-            "create should be present: {output}"
-        );
+        assert!(!output.contains("no-op"), "no-op should be filtered: {output}");
+        assert!(output.contains("aws_instance"), "create should be present: {output}");
     }
 
     #[test]
@@ -508,15 +458,9 @@ mod tests {
             "module.a\u{7f}b",
         )];
         let output = render_resource_table(&changes, false, false);
-        assert!(
-            !output.contains('\u{1b}'),
-            "no ESC byte may survive: {output:?}"
-        );
+        assert!(!output.contains('\u{1b}'), "no ESC byte may survive: {output:?}");
         assert!(!output.contains('\r'), "no CR byte may survive: {output:?}");
-        assert!(
-            !output.contains('\u{7f}'),
-            "no DEL byte may survive: {output:?}"
-        );
+        assert!(!output.contains('\u{7f}'), "no DEL byte may survive: {output:?}");
         assert!(
             output.contains("aws_[31minstance"),
             "the visible text must still render: {output}"
@@ -555,10 +499,7 @@ mod tests {
         assert!(output.contains("vpc_id"), "should contain vpc_id: {output}");
         assert!(output.contains("create"), "should contain create: {output}");
         assert!(output.contains("update"), "should contain update: {output}");
-        assert!(
-            !output.contains("WARNING"),
-            "readable outputs need no banner: {output}"
-        );
+        assert!(!output.contains("WARNING"), "readable outputs need no banner: {output}");
     }
 
     #[test]
@@ -575,27 +516,15 @@ mod tests {
     fn outputs_table_degraded_actions_render_as_unknown() {
         for (label, value) in [
             ("missing actions key", serde_json::json!({"before": 1})),
-            (
-                "non-array actions",
-                serde_json::json!({"actions": "create"}),
-            ),
-            (
-                "non-string entries",
-                serde_json::json!({"actions": [1, {"a": 2}, null]}),
-            ),
+            ("non-array actions", serde_json::json!({"actions": "create"})),
+            ("non-string entries", serde_json::json!({"actions": [1, {"a": 2}, null]})),
             ("empty actions array", serde_json::json!({"actions": []})),
         ] {
             let mut outputs = serde_json::Map::new();
             outputs.insert("db_password".into(), value);
             let output = render_outputs_table(&outputs, false);
-            assert!(
-                output.contains("unknown"),
-                "{label} must render as unknown: {output}"
-            );
-            assert!(
-                !output.contains("no-op"),
-                "{label} must not fail open to no-op: {output}"
-            );
+            assert!(output.contains("unknown"), "{label} must render as unknown: {output}");
+            assert!(!output.contains("no-op"), "{label} must not fail open to no-op: {output}");
             assert!(
                 output.starts_with(
                     "WARNING: 1 output change(s) use an action this build does not recognize."
@@ -624,19 +553,10 @@ mod tests {
     #[test]
     fn outputs_table_strips_control_characters_from_keys() {
         let mut outputs = serde_json::Map::new();
-        outputs.insert(
-            "db_\u{1b}[2Kpassword\r".into(),
-            serde_json::json!({"actions": ["create"]}),
-        );
+        outputs.insert("db_\u{1b}[2Kpassword\r".into(), serde_json::json!({"actions": ["create"]}));
         let output = render_outputs_table(&outputs, false);
-        assert!(
-            !output.contains('\u{1b}'),
-            "no ESC byte may survive: {output:?}"
-        );
+        assert!(!output.contains('\u{1b}'), "no ESC byte may survive: {output:?}");
         assert!(!output.contains('\r'), "no CR byte may survive: {output:?}");
-        assert!(
-            output.contains("db_[2Kpassword"),
-            "the visible text must still render: {output}"
-        );
+        assert!(output.contains("db_[2Kpassword"), "the visible text must still render: {output}");
     }
 }

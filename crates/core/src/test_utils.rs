@@ -100,9 +100,7 @@
 #[cfg(test)]
 #[must_use = "canonicalizing without using the resolved root wastes the syscall"]
 pub fn canonical_root(dir: &tempfile::TempDir) -> std::path::PathBuf {
-    dir.path()
-        .canonicalize()
-        .unwrap_or_else(|_| dir.path().to_path_buf())
+    dir.path().canonicalize().unwrap_or_else(|_| dir.path().to_path_buf())
 }
 
 use indexmap::IndexMap;
@@ -168,10 +166,7 @@ pub fn false_cmd() -> ExecCommandSpec {
 pub fn sleep_cmd(secs: u64) -> ExecCommandSpec {
     let secs_str = secs.to_string();
     if cfg!(windows) {
-        exec_spec(
-            "ping",
-            &["-n", &format!("{}", secs.saturating_add(1)), "127.0.0.1"],
-        )
+        exec_spec("ping", &["-n", &format!("{}", secs.saturating_add(1)), "127.0.0.1"])
     } else {
         exec_spec("sleep", &[&secs_str])
     }
@@ -181,10 +176,7 @@ pub fn sleep_cmd(secs: u64) -> ExecCommandSpec {
 #[allow(dead_code)]
 pub fn composite_cmd(commands: &[&str]) -> CompositeCommandSpec {
     CompositeCommandSpec {
-        commands: commands
-            .iter()
-            .map(std::string::ToString::to_string)
-            .collect(),
+        commands: commands.iter().map(std::string::ToString::to_string).collect(),
         parallel: false,
         fail_fast: true,
         help: None,
@@ -198,10 +190,7 @@ pub fn composite_cmd(commands: &[&str]) -> CompositeCommandSpec {
 #[allow(dead_code)]
 pub fn parallel_cmd(commands: &[&str]) -> CompositeCommandSpec {
     CompositeCommandSpec {
-        commands: commands
-            .iter()
-            .map(std::string::ToString::to_string)
-            .collect(),
+        commands: commands.iter().map(std::string::ToString::to_string).collect(),
         parallel: true,
         fail_fast: true,
         help: None,
@@ -235,18 +224,12 @@ pub struct TestConfigBuilder {
 impl TestConfigBuilder {
     #[must_use]
     pub fn new() -> Self {
-        Self {
-            output: OutputConfig::default(),
-            commands: IndexMap::new(),
-        }
+        Self { output: OutputConfig::default(), commands: IndexMap::new() }
     }
 
     #[must_use]
     pub fn exec(mut self, name: &str, program: &str, args: &[&str]) -> Self {
-        self.commands.insert(
-            name.to_string(),
-            CommandSpec::Exec(exec_spec(program, args)),
-        );
+        self.commands.insert(name.to_string(), CommandSpec::Exec(exec_spec(program, args)));
         self
     }
 
@@ -267,19 +250,13 @@ impl TestConfigBuilder {
 
     #[must_use]
     pub fn composite(mut self, name: &str, commands: &[&str]) -> Self {
-        self.commands.insert(
-            name.to_string(),
-            CommandSpec::Composite(composite_cmd(commands)),
-        );
+        self.commands.insert(name.to_string(), CommandSpec::Composite(composite_cmd(commands)));
         self
     }
 
     #[must_use]
     pub fn parallel_composite(mut self, name: &str, commands: &[&str]) -> Self {
-        self.commands.insert(
-            name.to_string(),
-            CommandSpec::Composite(parallel_cmd(commands)),
-        );
+        self.commands.insert(name.to_string(), CommandSpec::Composite(parallel_cmd(commands)));
         self
     }
 
@@ -350,12 +327,7 @@ pub struct ConfigOverlayBuilder {
 impl ConfigOverlayBuilder {
     #[must_use]
     pub const fn new() -> Self {
-        Self {
-            output: None,
-            commands: None,
-            themes: None,
-            extensions: None,
-        }
+        Self { output: None, commands: None, themes: None, extensions: None }
     }
 
     #[must_use]
@@ -366,26 +338,17 @@ impl ConfigOverlayBuilder {
 
     #[must_use]
     pub fn theme(self, theme: impl Into<String>) -> Self {
-        self.output(OutputConfigOverlay {
-            theme: Some(theme.into()),
-            ..Default::default()
-        })
+        self.output(OutputConfigOverlay { theme: Some(theme.into()), ..Default::default() })
     }
 
     #[must_use]
     pub fn columns(self, columns: u16) -> Self {
-        self.output(OutputConfigOverlay {
-            columns: Some(columns),
-            ..Default::default()
-        })
+        self.output(OutputConfigOverlay { columns: Some(columns), ..Default::default() })
     }
 
     #[must_use]
     pub fn show_error_detail(self, show: bool) -> Self {
-        self.output(OutputConfigOverlay {
-            show_error_detail: Some(show),
-            ..Default::default()
-        })
+        self.output(OutputConfigOverlay { show_error_detail: Some(show), ..Default::default() })
     }
 
     #[must_use]
@@ -397,27 +360,15 @@ impl ConfigOverlayBuilder {
     #[must_use]
     pub fn exec(self, name: &str, program: &str, args: &[&str]) -> Self {
         let mut cmds = self.commands.unwrap_or_default();
-        cmds.insert(
-            name.to_string(),
-            CommandSpec::Exec(exec_spec(program, args)),
-        );
-        Self {
-            commands: Some(cmds),
-            ..self
-        }
+        cmds.insert(name.to_string(), CommandSpec::Exec(exec_spec(program, args)));
+        Self { commands: Some(cmds), ..self }
     }
 
     #[must_use]
     pub fn composite(self, name: &str, commands: &[&str]) -> Self {
         let mut cmds = self.commands.unwrap_or_default();
-        cmds.insert(
-            name.to_string(),
-            CommandSpec::Composite(composite_cmd(commands)),
-        );
-        Self {
-            commands: Some(cmds),
-            ..self
-        }
+        cmds.insert(name.to_string(), CommandSpec::Composite(composite_cmd(commands)));
+        Self { commands: Some(cmds), ..self }
     }
 
     #[must_use]
@@ -430,10 +381,7 @@ impl ConfigOverlayBuilder {
     pub fn custom_theme(self, name: &str, theme: ThemeConfig) -> Self {
         let mut themes = self.themes.unwrap_or_default();
         themes.insert(name.to_string(), theme);
-        Self {
-            themes: Some(themes),
-            ..self
-        }
+        Self { themes: Some(themes), ..self }
     }
 
     #[must_use]
@@ -444,9 +392,7 @@ impl ConfigOverlayBuilder {
 
     #[must_use]
     pub fn enabled_extensions(self, enabled: Vec<String>) -> Self {
-        self.extensions(ExtensionConfigOverlay {
-            enabled: Some(enabled),
-        })
+        self.extensions(ExtensionConfigOverlay { enabled: Some(enabled) })
     }
 
     #[must_use]
@@ -636,10 +582,7 @@ impl EnvGuard {
 #[must_use]
 pub fn isolate_global_config(dir: &std::path::Path) -> GlobalConfigIsolation {
     crate::config::reset_global_config_path_cache(crate::config::GlobalConfigPathResetToken::new());
-    let guard = EnvGuard::set(
-        "XDG_CONFIG_HOME",
-        dir.join("xdg-empty").display().to_string(),
-    );
+    let guard = EnvGuard::set("XDG_CONFIG_HOME", dir.join("xdg-empty").display().to_string());
     crate::config::reset_global_config_path_cache(crate::config::GlobalConfigPathResetToken::new());
     GlobalConfigIsolation { _env: guard }
 }
@@ -740,11 +683,9 @@ impl std::fmt::Display for GitFixtureError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
             Self::BinaryAbsent => f.write_str("git is not on PATH"),
-            Self::CommandFailed {
-                cmd,
-                status,
-                stderr,
-            } => write!(f, "`{cmd}` failed ({status}): {stderr}"),
+            Self::CommandFailed { cmd, status, stderr } => {
+                write!(f, "`{cmd}` failed ({status}): {stderr}")
+            }
         }
     }
 }
@@ -764,10 +705,8 @@ impl std::fmt::Display for GitFixtureError {
 /// [`GitFixtureError::CommandFailed`] when git runs and exits non-zero or
 /// cannot be spawned for any other reason.
 pub fn git_fixture(dir: &std::path::Path, args: &[&str]) -> Result<(), GitFixtureError> {
-    let os_args: Vec<&std::ffi::OsStr> = args
-        .iter()
-        .map(std::convert::AsRef::<std::ffi::OsStr>::as_ref)
-        .collect();
+    let os_args: Vec<&std::ffi::OsStr> =
+        args.iter().map(std::convert::AsRef::<std::ffi::OsStr>::as_ref).collect();
     git_fixture_os(dir, &os_args)
 }
 
@@ -783,11 +722,7 @@ pub fn git_fixture_os(
     args: &[&std::ffi::OsStr],
 ) -> Result<(), GitFixtureError> {
     // Diagnostic text only — `to_string_lossy` is fine for a panic message.
-    let rendered = args
-        .iter()
-        .map(|a| a.to_string_lossy())
-        .collect::<Vec<_>>()
-        .join(" ");
+    let rendered = args.iter().map(|a| a.to_string_lossy()).collect::<Vec<_>>().join(" ");
     let cmd = format!("git -C {} {}", dir.display(), rendered);
     match Command::new("git")
         .arg("-C")
@@ -887,10 +822,7 @@ impl CwdGuard {
         unsafe {
             std::env::set_current_dir(target)?;
         };
-        Ok(Self {
-            _lock: lock,
-            original_dir,
-        })
+        Ok(Self { _lock: lock, original_dir })
     }
 }
 
@@ -937,20 +869,14 @@ mod tracing_capture {
         /// splits a multi-byte char by going through `from_utf8_lossy`.
         #[must_use]
         pub fn captured(&self) -> String {
-            let guard = self
-                .0
-                .lock()
-                .unwrap_or_else(std::sync::PoisonError::into_inner);
+            let guard = self.0.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
             String::from_utf8_lossy(&guard).into_owned()
         }
     }
 
     impl Write for TracingBuf {
         fn write(&mut self, b: &[u8]) -> std::io::Result<usize> {
-            self.0
-                .lock()
-                .unwrap_or_else(std::sync::PoisonError::into_inner)
-                .extend_from_slice(b);
+            self.0.lock().unwrap_or_else(std::sync::PoisonError::into_inner).extend_from_slice(b);
             Ok(b.len())
         }
 
@@ -1152,17 +1078,13 @@ mod builder_parity_tests {
     #[test]
     fn both_builders_expose_exec_method() {
         let _ = TestConfigBuilder::new().exec("c", "echo", &["x"]).build();
-        let _ = ConfigOverlayBuilder::new()
-            .exec("c", "echo", &["x"])
-            .build();
+        let _ = ConfigOverlayBuilder::new().exec("c", "echo", &["x"]).build();
     }
 
     #[test]
     fn both_builders_expose_composite_method() {
         let _ = TestConfigBuilder::new().composite("c", &["a", "b"]).build();
-        let _ = ConfigOverlayBuilder::new()
-            .composite("c", &["a", "b"])
-            .build();
+        let _ = ConfigOverlayBuilder::new().composite("c", &["a", "b"]).build();
     }
 }
 

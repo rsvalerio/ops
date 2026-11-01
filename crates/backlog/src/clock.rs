@@ -146,11 +146,6 @@ mod tests {
     fn now_reads_the_host_clock() {
         let stamp = UtcStamp::now().expect("the host clock must be readable");
         assert_eq!(stamp.date.len(), 10, "date shape, got: {}", stamp.date);
-        assert_eq!(
-            stamp.minutes.len(),
-            5,
-            "minutes shape, got: {}",
-            stamp.minutes
-        );
+        assert_eq!(stamp.minutes.len(), 5, "minutes shape, got: {}", stamp.minutes);
     }
 }

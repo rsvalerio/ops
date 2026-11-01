@@ -30,10 +30,7 @@ fn render_slot_separator_depends_only_on_trailing_width() {
 
     // Equal-width trailings → identical separator (only the trailing text
     // itself differs).
-    assert_eq!(
-        slot("None").matches('.').count(),
-        slot("abcd").matches('.').count()
-    );
+    assert_eq!(slot("None").matches('.').count(), slot("abcd").matches('.').count());
     assert_eq!(
         slot("None").replace("None", "abcd"),
         slot("abcd"),
@@ -103,14 +100,8 @@ fn report_icons_come_from_theme_block() {
     report.push(ReportRow::new(ReportStatus::Ok, "Section", "None"));
     let joined = theme.render_report(&report, 80).join("\n");
 
-    assert!(
-        joined.contains("PASS"),
-        "custom report icon must appear in output: {joined}"
-    );
-    assert!(
-        !joined.contains("\u{2713}"),
-        "default glyph must be replaced"
-    );
+    assert!(joined.contains("PASS"), "custom report icon must appear in output: {joined}");
+    assert!(!joined.contains("\u{2713}"), "default glyph must be replaced");
 }
 
 /// A boxed theme draws a full frame around the report: top border with the
@@ -202,11 +193,7 @@ fn boxed_report_row_with_sgr_label_matches_border_width() {
     let mut plain = Report::new("Health");
     plain.push(ReportRow::new(ReportStatus::Ok, "Advisories", "None"));
     let mut styled = Report::new("Health");
-    styled.push(ReportRow::new(
-        ReportStatus::Ok,
-        "\x1b[1;31mAdvisories\x1b[0m",
-        "None",
-    ));
+    styled.push(ReportRow::new(ReportStatus::Ok, "\x1b[1;31mAdvisories\x1b[0m", "None"));
 
     let plain_lines = theme.render_report(&plain, cols);
     let styled_lines = theme.render_report(&styled, cols);
@@ -238,11 +225,7 @@ fn report_title_label_and_result_are_sanitised() {
             ..ThemeConfig::compact()
         });
         let mut report = Report::new("Health\u{1b}[2J");
-        report.push(ReportRow::new(
-            ReportStatus::Ok,
-            "Advisories\u{1b}[31m",
-            "None\u{7}",
-        ));
+        report.push(ReportRow::new(ReportStatus::Ok, "Advisories\u{1b}[31m", "None\u{7}"));
 
         let lines = theme.render_report(&report, 200);
         let joined = lines.join("\n");
@@ -263,17 +246,8 @@ fn report_title_label_and_result_are_sanitised() {
             !joined.contains('\u{7}'),
             "raw control byte from the result must not survive: {joined:?}"
         );
-        assert!(
-            joined.contains("\\x1b[2J"),
-            "title ESC must be escaped: {joined:?}"
-        );
-        assert!(
-            joined.contains("\\x1b[31m"),
-            "label ESC must be escaped: {joined:?}"
-        );
-        assert!(
-            joined.contains("\\x07"),
-            "result control byte must be escaped: {joined:?}"
-        );
+        assert!(joined.contains("\\x1b[2J"), "title ESC must be escaped: {joined:?}");
+        assert!(joined.contains("\\x1b[31m"), "label ESC must be escaped: {joined:?}");
+        assert!(joined.contains("\\x07"), "result control byte must be escaped: {joined:?}");
     }
 }

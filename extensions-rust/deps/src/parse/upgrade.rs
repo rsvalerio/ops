@@ -340,10 +340,7 @@ fn slice_note(line: &str, cols: &[(usize, usize)]) -> Option<String> {
 
 fn parse_upgrade_row(line: &str, cols: &[(usize, usize)]) -> Option<UpgradeEntry> {
     if cols.len() < 5 {
-        tracing::debug!(
-            column_count = cols.len(),
-            "skipping row — fewer than 5 columns"
-        );
+        tracing::debug!(column_count = cols.len(), "skipping row — fewer than 5 columns");
         return None;
     }
     let [name, old_req, compatible, latest, new_req] =
@@ -435,12 +432,7 @@ fn separator_columns(line: &str) -> Vec<(usize, usize)> {
         }
     }
     cols.iter()
-        .zip(
-            cols.iter()
-                .skip(1)
-                .map(|c| c.0)
-                .chain(std::iter::once(COLUMN_END_OF_ROW)),
-        )
+        .zip(cols.iter().skip(1).map(|c| c.0).chain(std::iter::once(COLUMN_END_OF_ROW)))
         .map(|(&(start, _), end)| (start, end))
         .collect()
 }
@@ -469,10 +461,8 @@ pub fn categorize_upgrades(entries: Vec<UpgradeEntry>) -> UpgradeResult {
     let mut incompatible = Vec::new();
 
     for entry in entries {
-        let is_incompatible = entry
-            .note
-            .as_deref()
-            .is_some_and(|n| contains_ascii_ci(n, "incompatible"));
+        let is_incompatible =
+            entry.note.as_deref().is_some_and(|n| contains_ascii_ci(n, "incompatible"));
         if is_incompatible {
             incompatible.push(entry);
         } else {
@@ -480,10 +470,7 @@ pub fn categorize_upgrades(entries: Vec<UpgradeEntry>) -> UpgradeResult {
         }
     }
 
-    UpgradeResult {
-        compatible,
-        incompatible,
-    }
+    UpgradeResult { compatible, incompatible }
 }
 
 #[cfg(test)]

@@ -170,11 +170,7 @@ impl JsonColumn {
             is_valid_json_path_const(json_path),
             "JsonColumn json_path must be a single-level '$.<identifier>' path"
         );
-        Self {
-            name,
-            json_path,
-            col_type,
-        }
+        Self { name, json_path, col_type }
     }
 
     /// The validated column name.
@@ -271,19 +267,13 @@ impl JsonTableLoad {
     /// A load whose staged file is a flat array of objects (one row per
     /// element, one column per spec entry).
     pub const fn flat_array(table: &'static str, columns: &'static [JsonColumn]) -> Self {
-        Self {
-            table: TableName::from_static(table),
-            shape: JsonLoadShape::FlatArray(columns),
-        }
+        Self { table: TableName::from_static(table), shape: JsonLoadShape::FlatArray(columns) }
     }
 
     /// A load storing a single JSON object verbatim in a one-row
     /// `json TEXT NOT NULL` table.
     pub const fn single_object_blob(table: &'static str) -> Self {
-        Self {
-            table: TableName::from_static(table),
-            shape: JsonLoadShape::SingleObjectBlob,
-        }
+        Self { table: TableName::from_static(table), shape: JsonLoadShape::SingleObjectBlob }
     }
 
     /// The const-validated table name this load writes.
@@ -315,9 +305,7 @@ impl JsonTableLoad {
                 .join(", "),
             JsonLoadShape::SingleObjectBlob => "\"json\" TEXT NOT NULL".to_string(),
         };
-        CreateTableSql(format!(
-            "DROP TABLE IF EXISTS {quoted}; CREATE TABLE {quoted} ({columns})"
-        ))
+        CreateTableSql(format!("DROP TABLE IF EXISTS {quoted}; CREATE TABLE {quoted} ({columns})"))
     }
 
     /// Build the parameter-bound insert statement for this load.
@@ -346,11 +334,8 @@ impl JsonTableLoad {
                     })
                     .collect::<Vec<_>>()
                     .join(", ");
-                let column_list = cols
-                    .iter()
-                    .map(|c| format!("\"{}\"", c.name))
-                    .collect::<Vec<_>>()
-                    .join(", ");
+                let column_list =
+                    cols.iter().map(|c| format!("\"{}\"", c.name)).collect::<Vec<_>>().join(", ");
                 format!(
                     "INSERT INTO {quoted} ({column_list}) SELECT {select_list} FROM json_each(?1)"
                 )
@@ -453,11 +438,9 @@ pub fn table_has_data(db: &Sqlite, table_name: &str) -> Result<bool, anyhow::Err
     }
     let quoted = quoted_ident(table_name)?;
     let row_count: i64 = conn
-        .query_row(
-            &format!("SELECT COUNT(*) FROM {quoted}"),
-            [],
-            |row: &rusqlite::Row<'_>| row.get(0),
-        )
+        .query_row(&format!("SELECT COUNT(*) FROM {quoted}"), [], |row: &rusqlite::Row<'_>| {
+            row.get(0)
+        })
         // ERR-7 (TASK-0521): Debug-format the table name to defang
         // control-character/log-injection.
         .with_context(|| format!("counting rows in {table_name:?}"))?;
@@ -482,9 +465,7 @@ where
     use anyhow::Context;
     let conn = db.lock().context("acquiring db lock for query")?;
     let mut stmt = conn.prepare(sql).context("preparing query")?;
-    let rows = stmt
-        .query_map([], |row| row_mapper(row))
-        .context("querying")?;
+    let rows = stmt.query_map([], |row| row_mapper(row)).context("querying")?;
     let mut results = Vec::new();
     for row in rows {
         results.push(row.context("reading row")?);
@@ -514,8 +495,7 @@ mod tests {
         let db = Sqlite::open_in_memory().expect("open in-memory db");
         init_schema(&db).expect("init_schema");
         let conn = db.lock().expect("lock");
-        conn.execute_batch("CREATE TABLE test_table (id INTEGER)")
-            .expect("create table");
+        conn.execute_batch("CREATE TABLE test_table (id INTEGER)").expect("create table");
         drop(conn);
         let result = table_has_data(&db, "test_table").expect("should succeed");
         assert!(!result);
@@ -599,13 +579,11 @@ mod tests {
         let load = JsonTableLoad::flat_array("tokei_files", TOKEI_COLUMNS);
         let sql = load.create_table_sql();
         assert!(
-            sql.as_str()
-                .contains("DROP TABLE IF EXISTS \"tokei_files\";"),
+            sql.as_str().contains("DROP TABLE IF EXISTS \"tokei_files\";"),
             "expected drop+create batch, got: {sql}"
         );
         assert!(
-            sql.as_str()
-                .contains("CREATE TABLE \"tokei_files\" (\"language\" TEXT NOT NULL"),
+            sql.as_str().contains("CREATE TABLE \"tokei_files\" (\"language\" TEXT NOT NULL"),
             "expected quoted, typed columns in: {sql}"
         );
         assert!(
@@ -681,11 +659,8 @@ mod tests {
         let dir_tmp = tempfile::tempdir().expect("tempdir");
         let dir = crate::sql::IngestDir::open(&dir_tmp.path().join("data.db.ingest"))
             .expect("open ingest dir");
-        dir.write_atomic(
-            "tokei_files.json",
-            br#"[{"language":"Rust","file":"src/lib.rs"}]"#,
-        )
-        .expect("stage json");
+        dir.write_atomic("tokei_files.json", br#"[{"language":"Rust","file":"src/lib.rs"}]"#)
+            .expect("stage json");
 
         let db = Sqlite::open_in_memory().expect("db");
         let conn = db.lock().expect("lock");
@@ -707,11 +682,8 @@ mod tests {
         let dir_tmp = tempfile::tempdir().expect("tempdir");
         let dir = crate::sql::IngestDir::open(&dir_tmp.path().join("data.db.ingest"))
             .expect("open ingest dir");
-        dir.write_atomic(
-            "metadata.json",
-            br#"{"workspace_root":"/ws","packages":[{"name":"a"}]}"#,
-        )
-        .expect("stage metadata");
+        dir.write_atomic("metadata.json", br#"{"workspace_root":"/ws","packages":[{"name":"a"}]}"#)
+            .expect("stage metadata");
 
         let db = Sqlite::open_in_memory().expect("db");
         let conn = db.lock().expect("lock");
@@ -728,8 +700,7 @@ mod tests {
         assert_eq!(packages, 1);
 
         // Non-JSON payload: json(?1) must refuse it.
-        dir.write_atomic("bad.json", b"not json at all")
-            .expect("stage bad");
+        dir.write_atomic("bad.json", b"not json at all").expect("stage bad");
         let err = execute_json_load(&conn, &dir, &load, "bad.json")
             .expect_err("non-JSON payload must fail");
         assert!(
@@ -782,20 +753,15 @@ mod tests {
 
     fn seed_rows_table(db: &Sqlite, values: &str) {
         let conn = db.lock().expect("lock");
-        conn.execute_batch(&format!(
-            "CREATE TABLE rows_src (id INTEGER, label TEXT); {values}"
-        ))
-        .expect("seed");
+        conn.execute_batch(&format!("CREATE TABLE rows_src (id INTEGER, label TEXT); {values}"))
+            .expect("seed");
         drop(conn);
     }
 
     #[test]
     fn query_rows_to_json_maps_every_row_of_a_populated_table() {
         let db = Sqlite::open_in_memory().expect("open in-memory db");
-        seed_rows_table(
-            &db,
-            "INSERT INTO rows_src VALUES (1, 'one'), (2, 'two'), (3, 'three');",
-        );
+        seed_rows_table(&db, "INSERT INTO rows_src VALUES (1, 'one'), (2, 'two'), (3, 'three');");
 
         let value = query_rows_to_json(&db, "SELECT id, label FROM rows_src ORDER BY id", |row| {
             Ok(serde_json::json!({
@@ -877,19 +843,15 @@ mod tests {
     fn create_view_sql_batch_replaces_an_existing_view() {
         let db = Sqlite::open_in_memory().expect("db");
         let conn = db.lock().expect("lock");
-        conn.execute_batch("CREATE TABLE t (x INTEGER); INSERT INTO t VALUES (1)")
-            .expect("seed");
+        conn.execute_batch("CREATE TABLE t (x INTEGER); INSERT INTO t VALUES (1)").expect("seed");
         let sql = CreateViewSql::create_or_replace(
             TableName::from_static("v"),
             TableName::from_static("t"),
             "SELECT COUNT(*) AS n FROM <source>",
         );
         conn.execute_batch(sql.as_str()).expect("first create");
-        conn.execute_batch(sql.as_str())
-            .expect("replace must succeed");
-        let n: i64 = conn
-            .query_row("SELECT n FROM v", [], |row| row.get(0))
-            .expect("query view");
+        conn.execute_batch(sql.as_str()).expect("replace must succeed");
+        let n: i64 = conn.query_row("SELECT n FROM v", [], |row| row.get(0)).expect("query view");
         assert_eq!(n, 1);
         drop(conn);
     }

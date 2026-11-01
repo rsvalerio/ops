@@ -34,10 +34,7 @@ impl DataProvider for GoUnitsProvider {
 
 fn collect_units(cwd: &Path) -> Vec<ProjectUnit> {
     if let Some(dirs) = crate::go_work::parse_use_dirs(cwd) {
-        return dirs
-            .into_iter()
-            .map(|dir| unit_from_use_dir(cwd, &dir))
-            .collect();
+        return dirs.into_iter().map(|dir| unit_from_use_dir(cwd, &dir)).collect();
     }
     let (module, go_version) = read_mod_info(cwd);
     // The `Some` arm builds the unit across several statements; a
@@ -96,10 +93,8 @@ fn unit_from_use_dir(cwd: &Path, dir: &str) -> ProjectUnit {
     // `..staging/api` or `..backup-2025`, whose first component merely begins
     // with two dots. Splitting on `/` and `\\` covers go.work entries
     // authored on Windows.
-    let out_of_tree_via_string = normalized
-        .split(['/', '\\'])
-        .next()
-        .is_some_and(|first| first == "..");
+    let out_of_tree_via_string =
+        normalized.split(['/', '\\']).next().is_some_and(|first| first == "..");
     // The two checks above inspect only the first component, so
     // `use ./api/../../../etc` normalises to `api/../../../etc` and reads as
     // in-tree. `Path::join` does not normalise `..` and the OS resolves it
@@ -131,10 +126,8 @@ fn unit_from_use_dir(cwd: &Path, dir: &str) -> ProjectUnit {
     // returns the absolute target verbatim, and an embedded-`..` directive
     // escapes the root the same way, so neither reads a `go.mod`: the unit is
     // emitted with no module or version, the same shape as a missing go.mod.
-    let is_absolute_directive = matches!(
-        first_component,
-        Some(Component::RootDir | Component::Prefix(_))
-    );
+    let is_absolute_directive =
+        matches!(first_component, Some(Component::RootDir | Component::Prefix(_)));
     let (module, go_version) = if is_absolute_directive || has_embedded_traversal {
         (None, None)
     } else {
@@ -164,15 +157,9 @@ fn unit_from_use_dir(cwd: &Path, dir: &str) -> ProjectUnit {
 /// enrichment accepts alongside `"."`: such a unit is enriched from
 /// project-wide stats rather than the per-module path join.
 fn normalize_module_path(dir: &str) -> String {
-    let trimmed = dir
-        .trim_start_matches("./")
-        .trim_start_matches(".\\")
-        .trim_end_matches(['/', '\\']);
-    if trimmed == "." {
-        String::new()
-    } else {
-        trimmed.to_string()
-    }
+    let trimmed =
+        dir.trim_start_matches("./").trim_start_matches(".\\").trim_end_matches(['/', '\\']);
+    if trimmed == "." { String::new() } else { trimmed.to_string() }
 }
 
 /// Extract the module's display name from its path.
@@ -221,11 +208,8 @@ mod tests {
     #[test]
     fn workspace_use_dirs_multi() {
         let dir = tempfile::tempdir().unwrap();
-        std::fs::write(
-            dir.path().join("go.work"),
-            "go 1.21\n\nuse (\n\t./api\n\t./cmd\n)\n",
-        )
-        .unwrap();
+        std::fs::write(dir.path().join("go.work"), "go 1.21\n\nuse (\n\t./api\n\t./cmd\n)\n")
+            .unwrap();
         let dirs = crate::go_work::parse_use_dirs(dir.path()).unwrap();
         assert_eq!(dirs, vec!["./api", "./cmd"]);
     }
@@ -233,11 +217,8 @@ mod tests {
     #[test]
     fn read_mod_info_basic() {
         let dir = tempfile::tempdir().unwrap();
-        std::fs::write(
-            dir.path().join("go.mod"),
-            "module github.com/user/myapp\n\ngo 1.22\n",
-        )
-        .unwrap();
+        std::fs::write(dir.path().join("go.mod"), "module github.com/user/myapp\n\ngo 1.22\n")
+            .unwrap();
         let (module, go_version) = read_mod_info(dir.path());
         assert_eq!(module.as_deref(), Some("github.com/user/myapp"));
         assert_eq!(go_version.as_deref(), Some("1.22"));
@@ -246,11 +227,8 @@ mod tests {
     #[test]
     fn collect_units_workspace() {
         let dir = tempfile::tempdir().unwrap();
-        std::fs::write(
-            dir.path().join("go.work"),
-            "go 1.21\n\nuse (\n\t./api\n\t./cmd\n)\n",
-        )
-        .unwrap();
+        std::fs::write(dir.path().join("go.work"), "go 1.21\n\nuse (\n\t./api\n\t./cmd\n)\n")
+            .unwrap();
         let api = dir.path().join("api");
         std::fs::create_dir(&api).unwrap();
         std::fs::write(api.join("go.mod"), "module example.com/api\n\ngo 1.21\n").unwrap();
@@ -268,11 +246,8 @@ mod tests {
     #[test]
     fn collect_units_single_mod() {
         let dir = tempfile::tempdir().unwrap();
-        std::fs::write(
-            dir.path().join("go.mod"),
-            "module github.com/user/app\n\ngo 1.23\n",
-        )
-        .unwrap();
+        std::fs::write(dir.path().join("go.mod"), "module github.com/user/app\n\ngo 1.23\n")
+            .unwrap();
         let units = collect_units(dir.path());
         assert_eq!(units.len(), 1);
         // `.` is the root-module sentinel: enrichment
@@ -291,22 +266,16 @@ mod tests {
     #[test]
     fn collect_units_single_mod_with_non_go_files_uses_root_sentinel() {
         let dir = tempfile::tempdir().unwrap();
-        std::fs::write(
-            dir.path().join("go.mod"),
-            "module github.com/user/app\n\ngo 1.23\n",
-        )
-        .unwrap();
+        std::fs::write(dir.path().join("go.mod"), "module github.com/user/app\n\ngo 1.23\n")
+            .unwrap();
         // Sprinkle non-Go and Go files at the module root to mimic a real
         // project: vendored JS, generated artefacts, and the actual Go
         // source. The path filter on the resulting unit decides which of
         // these contribute to the single-mod LOC card.
         std::fs::write(dir.path().join("main.go"), "package main\nfunc main(){}\n").unwrap();
         std::fs::create_dir_all(dir.path().join("vendor/js")).unwrap();
-        std::fs::write(
-            dir.path().join("vendor/js/bundle.js"),
-            "console.log('vendored');\n",
-        )
-        .unwrap();
+        std::fs::write(dir.path().join("vendor/js/bundle.js"), "console.log('vendored');\n")
+            .unwrap();
         std::fs::write(dir.path().join("README.md"), "# app\n").unwrap();
 
         let units = collect_units(dir.path());
@@ -326,10 +295,7 @@ mod tests {
 
     #[test]
     fn normalize_strips_dot_slash_prefix() {
-        assert_eq!(
-            normalize_module_path("./staging/src/k8s.io/api"),
-            "staging/src/k8s.io/api"
-        );
+        assert_eq!(normalize_module_path("./staging/src/k8s.io/api"), "staging/src/k8s.io/api");
         assert_eq!(normalize_module_path("./api/"), "api");
         assert_eq!(normalize_module_path("."), "");
         assert_eq!(normalize_module_path("pkg/foo"), "pkg/foo");
@@ -341,18 +307,11 @@ mod tests {
         // the unit's `..` path matches no tokei_files row. The unit is still
         // emitted (with zero LOC) alongside a diagnostic.
         let dir = tempfile::tempdir().unwrap();
-        std::fs::write(
-            dir.path().join("go.work"),
-            "go 1.21\n\nuse (\n\t../shared\n)\n",
-        )
-        .unwrap();
+        std::fs::write(dir.path().join("go.work"), "go 1.21\n\nuse (\n\t../shared\n)\n").unwrap();
         let units = collect_units(dir.path());
         assert_eq!(units.len(), 1);
         assert_eq!(units[0].path, "../shared");
-        assert_eq!(
-            units[0].description.as_deref(),
-            Some("(outside project root)")
-        );
+        assert_eq!(units[0].description.as_deref(), Some("(outside project root)"));
     }
 
     /// The `use` directive reaches `tracing::warn!` through the `?`
@@ -371,18 +330,12 @@ mod tests {
     #[test]
     fn collect_units_dotdot_prefixed_dir_is_in_tree() {
         let dir = tempfile::tempdir().unwrap();
-        std::fs::write(
-            dir.path().join("go.work"),
-            "go 1.21\n\nuse (\n\t./..staging/api\n)\n",
-        )
-        .unwrap();
+        std::fs::write(dir.path().join("go.work"), "go 1.21\n\nuse (\n\t./..staging/api\n)\n")
+            .unwrap();
         let staging_api = dir.path().join("..staging").join("api");
         std::fs::create_dir_all(&staging_api).unwrap();
-        std::fs::write(
-            staging_api.join("go.mod"),
-            "module example.com/staging/api\n\ngo 1.21\n",
-        )
-        .unwrap();
+        std::fs::write(staging_api.join("go.mod"), "module example.com/staging/api\n\ngo 1.21\n")
+            .unwrap();
 
         let (units, warn_count) =
             ops_core::test_utils::count_warnings(|| collect_units(dir.path()));
@@ -390,17 +343,8 @@ mod tests {
         assert_eq!(units.len(), 1);
         assert_eq!(units[0].path, "..staging/api");
         // In-tree: description is the bare module name, no suffix.
-        assert_eq!(
-            units[0].description.as_deref(),
-            Some("example.com/staging/api")
-        );
-        assert!(
-            !units[0]
-                .description
-                .as_deref()
-                .unwrap_or("")
-                .contains("(outside project root)")
-        );
+        assert_eq!(units[0].description.as_deref(), Some("example.com/staging/api"));
+        assert!(!units[0].description.as_deref().unwrap_or("").contains("(outside project root)"));
         assert_eq!(warn_count, 0);
     }
 
@@ -408,27 +352,15 @@ mod tests {
     /// preceding segment rather than the literal `v2`.
     #[test]
     fn last_segment_strips_go_major_version_suffix() {
-        assert_eq!(
-            last_segment(Some("github.com/foo/bar/v2")).as_deref(),
-            Some("bar")
-        );
-        assert_eq!(
-            last_segment(Some("github.com/openbao/openbao/api/v2")).as_deref(),
-            Some("api")
-        );
+        assert_eq!(last_segment(Some("github.com/foo/bar/v2")).as_deref(), Some("bar"));
+        assert_eq!(last_segment(Some("github.com/openbao/openbao/api/v2")).as_deref(), Some("api"));
         // /v10 is also a valid Go major-version suffix.
-        assert_eq!(
-            last_segment(Some("example.com/x/v10")).as_deref(),
-            Some("x")
-        );
+        assert_eq!(last_segment(Some("example.com/x/v10")).as_deref(), Some("x"));
     }
 
     #[test]
     fn last_segment_no_suffix_returns_last_path_component() {
-        assert_eq!(
-            last_segment(Some("github.com/foo/bar")).as_deref(),
-            Some("bar")
-        );
+        assert_eq!(last_segment(Some("github.com/foo/bar")).as_deref(), Some("bar"));
     }
 
     #[test]
@@ -465,11 +397,8 @@ mod tests {
         )
         .unwrap();
         let absolute = other.path().to_string_lossy().to_string();
-        std::fs::write(
-            dir.path().join("go.work"),
-            format!("go 1.21\n\nuse (\n\t{absolute}\n)\n"),
-        )
-        .unwrap();
+        std::fs::write(dir.path().join("go.work"), format!("go 1.21\n\nuse (\n\t{absolute}\n)\n"))
+            .unwrap();
 
         let (units, warn_count) =
             ops_core::test_utils::count_warnings(|| collect_units(dir.path()));
@@ -508,11 +437,8 @@ mod tests {
             format!("{leaf}-sec14"),
         );
         std::fs::create_dir_all(&target).unwrap();
-        std::fs::write(
-            target.join("go.mod"),
-            "module example.com/should-not-be-read\n\ngo 1.21\n",
-        )
-        .unwrap();
+        std::fs::write(target.join("go.mod"), "module example.com/should-not-be-read\n\ngo 1.21\n")
+            .unwrap();
 
         std::fs::write(
             dir.path().join("go.work"),
@@ -535,10 +461,7 @@ mod tests {
             "traversal target's go.mod must not be read: {:?}",
             units[0].description
         );
-        assert_eq!(
-            units[0].description.as_deref(),
-            Some("(outside project root)")
-        );
+        assert_eq!(units[0].description.as_deref(), Some("(outside project root)"));
         assert!(units[0].version.is_none());
         assert_eq!(warn_count, 1);
     }
@@ -553,11 +476,7 @@ mod tests {
         let shared = root.path().join("shared");
         std::fs::create_dir_all(&cwd).unwrap();
         std::fs::create_dir_all(&shared).unwrap();
-        std::fs::write(
-            shared.join("go.mod"),
-            "module example.com/shared\n\ngo 1.21\n",
-        )
-        .unwrap();
+        std::fs::write(shared.join("go.mod"), "module example.com/shared\n\ngo 1.21\n").unwrap();
         std::fs::write(cwd.join("go.work"), "go 1.21\n\nuse (\n\t../shared\n)\n").unwrap();
 
         let units = collect_units(&cwd);
@@ -593,15 +512,11 @@ mod tests {
     #[test]
     fn units_provider_serialises_go_work_modules() {
         let dir = tempfile::tempdir().unwrap();
-        std::fs::write(
-            dir.path().join("go.work"),
-            "go 1.21\n\nuse (\n\t./api\n\t./cmd\n)\n",
-        )
-        .unwrap();
-        for (name, module, version) in [
-            ("api", "example.com/api", "1.21"),
-            ("cmd", "example.com/cmd", "1.22"),
-        ] {
+        std::fs::write(dir.path().join("go.work"), "go 1.21\n\nuse (\n\t./api\n\t./cmd\n)\n")
+            .unwrap();
+        for (name, module, version) in
+            [("api", "example.com/api", "1.21"), ("cmd", "example.com/cmd", "1.22")]
+        {
             std::fs::create_dir_all(dir.path().join(name)).unwrap();
             std::fs::write(
                 dir.path().join(name).join("go.mod"),

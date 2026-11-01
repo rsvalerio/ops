@@ -4,10 +4,7 @@ use crate::connection::Sqlite;
 // READ-4 / TASK-1875: `DbError` is imported for the intra-doc links in the
 // `# Errors` sections below; without it `[`DbError::Io`]` and friends did not
 // resolve. The `use` is doc-only, hence the narrow `expect`.
-#[expect(
-    unused_imports,
-    reason = "referenced only by intra-doc links in this module"
-)]
+#[expect(unused_imports, reason = "referenced only by intra-doc links in this module")]
 use crate::error::DbError;
 use crate::error::DbResult;
 use crate::sql::IngestDir;
@@ -40,10 +37,7 @@ impl LoadResult {
     /// Builds a successful result for `source_name` carrying `record_count`.
     #[must_use = "return the result; building it logs nothing"]
     pub const fn success(source_name: &'static str, record_count: u64) -> Self {
-        Self {
-            source_name,
-            record_count,
-        }
+        Self { source_name, record_count }
     }
 }
 
@@ -231,11 +225,9 @@ impl SidecarIngestorConfig {
     /// the double-quoted identifier returned by `self.count_table.quoted()`.
     fn count_records_with(&self, conn: &rusqlite::Connection, quoted: &str) -> DbResult<u64> {
         let raw_count: i64 = conn
-            .query_row(
-                &format!("SELECT COUNT(*) FROM {quoted}"),
-                [],
-                |row: &rusqlite::Row<'_>| row.get::<_, i64>(0),
-            )
+            .query_row(&format!("SELECT COUNT(*) FROM {quoted}"), [], |row: &rusqlite::Row<'_>| {
+                row.get::<_, i64>(0)
+            })
             .map_err(|e| {
                 crate::error::DbError::query_failed(
                     format!("{} count", self.count_table.as_str()),
@@ -386,11 +378,7 @@ fn unlink_and_remove_sidecar(
 /// operator chasing a half-cleaned crash always sees both names, regardless
 /// of which branch the cleanup hit.
 fn cleanup_artifacts_breadcrumb_paths(original: &Path, effective: &Path) -> String {
-    format!(
-        "original={:?} effective={:?}",
-        original.display(),
-        effective.display()
-    )
+    format!("original={:?} effective={:?}", original.display(), effective.display())
 }
 
 /// Trait for data sources that collect raw data and load it into `SQLite`.
@@ -546,9 +534,7 @@ mod tests {
         let ctx = Context::new(config, std::path::PathBuf::from("."));
         let temp_dir = tempfile::tempdir().expect("tempdir");
         let dir = anchor(&temp_dir);
-        ingestor
-            .collect(&ctx, &dir)
-            .expect("collect should succeed");
+        ingestor.collect(&ctx, &dir).expect("collect should succeed");
         assert!(dir.entry_path("data.json").exists());
     }
 
@@ -575,10 +561,7 @@ mod tests {
             .filter_map(Result::ok)
             .filter(|e| e.file_name().to_string_lossy().contains(".tmp."))
             .collect();
-        assert!(
-            leftovers.is_empty(),
-            "atomic_write left a tmp sibling: {leftovers:?}"
-        );
+        assert!(leftovers.is_empty(), "atomic_write left a tmp sibling: {leftovers:?}");
     }
 
     /// ERR-1 (TASK-0466): if JSON removal fails for a real I/O reason
@@ -613,10 +596,7 @@ mod tests {
             }
         }
         let original = std::fs::metadata(&parent).expect("meta").permissions();
-        let _guard = PermsGuard {
-            path: parent.clone(),
-            original: original.clone(),
-        };
+        let _guard = PermsGuard { path: parent.clone(), original: original.clone() };
         let mut readonly = original.clone();
         readonly.set_mode(0o500);
         std::fs::set_permissions(&parent, readonly).expect("chmod");
@@ -627,10 +607,7 @@ mod tests {
         std::fs::set_permissions(&parent, original).expect("restore");
 
         let sidecar = dir.entry_path(&crate::sql::sidecar_name(config.name));
-        assert!(
-            sidecar.exists(),
-            "sidecar must remain when JSON removal fails: {sidecar:?}"
-        );
+        assert!(sidecar.exists(), "sidecar must remain when JSON removal fails: {sidecar:?}");
     }
 
     /// ARCH-2 / TASK-1008: simulate a `kill -9` between the upsert and
@@ -653,18 +630,14 @@ mod tests {
         let done_path = dir.entry_path("data.json.done");
 
         // Prior crash residue: `.done` file exists but `.json` is gone.
-        dir.write_atomic("data.json.done", b"crash-residue")
-            .unwrap();
+        dir.write_atomic("data.json.done", b"crash-residue").unwrap();
 
         // Re-run a successful ingest path: the staging JSON exists again.
         dir.write_atomic("data.json", b"new-load").unwrap();
         crate::sql::write_workspace_sidecar(&dir, config.name, temp_dir.path()).unwrap();
         config.cleanup_artifacts(&dir);
 
-        assert!(
-            !json_path.exists(),
-            "json staging file must be gone after successful cleanup"
-        );
+        assert!(!json_path.exists(), "json staging file must be gone after successful cleanup");
         // The rename overwrites the prior `.done` residue, then unlink
         // removes the result — so a clean rerun also clears any leftover
         // crash debris on disk. The directory ends up empty (modulo the
@@ -703,8 +676,7 @@ mod tests {
         let temp_dir = tempfile::tempdir().expect("tempdir");
         let dir = anchor(&temp_dir);
         let db = Sqlite::open_in_memory().expect("db");
-        dir.write_atomic("data.json", br#"{"test": "data"}"#)
-            .unwrap();
+        dir.write_atomic("data.json", br#"{"test": "data"}"#).unwrap();
         let result = ingestor.load(&dir, &db).expect("load should succeed");
         assert_eq!(result.source_name, "test");
         assert_eq!(result.record_count, 1);
@@ -750,11 +722,9 @@ mod tests {
             // load_with_sidecar uses `u64::try_from(raw_count)` and maps the
             // failure to DbError::InvalidRecordCount.
             let raw_count: i64 = -1;
-            let result: Result<u64, _> =
-                u64::try_from(raw_count).map_err(|_| DbError::InvalidRecordCount {
-                    table: "tokei_files".to_string(),
-                    count: raw_count,
-                });
+            let result: Result<u64, _> = u64::try_from(raw_count).map_err(|_| {
+                DbError::InvalidRecordCount { table: "tokei_files".to_string(), count: raw_count }
+            });
             match result {
                 Err(DbError::InvalidRecordCount { table, count }) => {
                     assert_eq!(table, "tokei_files");
@@ -783,9 +753,7 @@ mod tests {
             let tmp_b = tempfile::tempdir().expect("dir b");
             let dir_a = anchor(&tmp_a);
             let dir_b = anchor(&tmp_b);
-            dir_a
-                .write_atomic("a.json", br#"[{"i":1},{"i":2},{"i":3}]"#)
-                .expect("write a.json");
+            dir_a.write_atomic("a.json", br#"[{"i":1},{"i":2},{"i":3}]"#).expect("write a.json");
             dir_b
                 .write_atomic("b.json", br#"[{"i":1},{"i":2},{"i":3},{"i":4},{"i":5}]"#)
                 .expect("write b.json");

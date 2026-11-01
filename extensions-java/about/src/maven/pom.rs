@@ -420,9 +420,7 @@ fn match_section_open(line: &str, data: &mut PomData) -> SectionOutcome {
         return SectionOutcome::Entered(PomSection::Modules);
     }
     if line == "<developers>" {
-        return SectionOutcome::Entered(PomSection::Developers {
-            in_developer: false,
-        });
+        return SectionOutcome::Entered(PomSection::Developers { in_developer: false });
     }
     if line == "<scm>" {
         return SectionOutcome::Entered(PomSection::Scm);
@@ -485,12 +483,7 @@ fn match_section_open(line: &str, data: &mut PomData) -> SectionOutcome {
 fn parse_top_level(line: &str, data: &mut PomData) {
     try_set_once(&mut data.artifact_id, line, "<artifactId>", "</artifactId>");
     try_set_once(&mut data.version, line, "<version>", "</version>");
-    try_set_once(
-        &mut data.description,
-        line,
-        "<description>",
-        "</description>",
-    );
+    try_set_once(&mut data.description, line, "<description>", "</description>");
     try_set_once(&mut data.name, line, "<name>", "</name>");
     try_set_once(&mut data.project_url, line, "<url>", "</url>");
 }
@@ -559,8 +552,7 @@ fn extract_xml_value<'a>(
         // `start`/`end` come from `find`, and `open` matched at `start`, so
         // `val_start` is a char boundary too — `get` never returns `None`
         // here; treating it as "no value" is the safe degradation.
-        line.get(val_start..end)
-            .map(|val| decode_xml_entities(val.trim()))
+        line.get(val_start..end).map(|val| decode_xml_entities(val.trim()))
     } else {
         None
     }
@@ -595,10 +587,9 @@ fn decode_xml_entities(s: &str) -> std::borrow::Cow<'_, str> {
                 .get(2..)
                 .and_then(|hex| u32::from_str_radix(hex, 16).ok())
                 .and_then(char::from_u32),
-            other if other.starts_with('#') => other
-                .get(1..)
-                .and_then(|dec| dec.parse::<u32>().ok())
-                .and_then(char::from_u32),
+            other if other.starts_with('#') => {
+                other.get(1..).and_then(|dec| dec.parse::<u32>().ok()).and_then(char::from_u32)
+            }
             _ => None,
         };
         if let Some(c) = decoded {
@@ -622,12 +613,8 @@ mod tests {
     #[test]
     fn extract_xml_value_basic() {
         assert_eq!(
-            extract_xml_value(
-                "<artifactId>camel</artifactId>",
-                "<artifactId>",
-                "</artifactId>"
-            )
-            .as_deref(),
+            extract_xml_value("<artifactId>camel</artifactId>", "<artifactId>", "</artifactId>")
+                .as_deref(),
             Some("camel")
         );
     }
@@ -682,10 +669,7 @@ mod tests {
 
     #[test]
     fn extract_xml_value_no_match() {
-        assert_eq!(
-            extract_xml_value("<name>foo</name>", "<version>", "</version>"),
-            None
-        );
+        assert_eq!(extract_xml_value("<name>foo</name>", "<version>", "</version>"), None);
     }
 
     #[test]
@@ -727,10 +711,7 @@ mod tests {
         assert_eq!(pom.description, Some("A cool app".to_string()));
         assert_eq!(pom.modules, vec!["core", "web"]);
         assert_eq!(pom.developers, vec!["Alice"]);
-        assert_eq!(
-            pom.scm_url,
-            Some("https://github.com/user/myapp".to_string())
-        );
+        assert_eq!(pom.scm_url, Some("https://github.com/user/myapp".to_string()));
         assert_eq!(pom.license, Some("Apache-2.0".to_string()));
     }
 
@@ -884,10 +865,7 @@ mod tests {
         .unwrap();
 
         let pom = parse_pom_xml(dir.path()).unwrap();
-        assert_eq!(
-            pom.scm_url,
-            Some("https://github.com/user/myapp".to_string())
-        );
+        assert_eq!(pom.scm_url, Some("https://github.com/user/myapp".to_string()));
     }
 
     #[test]
@@ -1166,11 +1144,7 @@ mod tests {
 
         let pom = parse_pom_xml(dir.path()).unwrap();
         assert_eq!(pom.artifact_id, Some("camel".to_string()));
-        assert!(
-            pom.name.is_none(),
-            "developer name leaked into the project name: {:?}",
-            pom.name
-        );
+        assert!(pom.name.is_none(), "developer name leaked into the project name: {:?}", pom.name);
         assert_eq!(pom.developers, vec!["Jane Doe".to_string()]);
     }
 
@@ -1270,18 +1244,12 @@ mod tests {
             parse_pom_xml(dir.path());
         });
 
-        assert!(
-            rendered.contains("pom.xml"),
-            "warn should name the manifest: {rendered}"
-        );
+        assert!(rendered.contains("pom.xml"), "warn should name the manifest: {rendered}");
         assert!(
             rendered.contains("scm"),
             "warn should name the unterminated construct: {rendered}"
         );
-        assert!(
-            rendered.contains("unterminated"),
-            "warn should say what is wrong: {rendered}"
-        );
+        assert!(rendered.contains("unterminated"), "warn should say what is wrong: {rendered}");
     }
 
     fn parse_pom_str(content: &str) -> PomData {

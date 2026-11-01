@@ -19,9 +19,7 @@ pub use ops_core::test_utils::*;
 /// why these tests only fail locally). Production callers get the same
 /// guarantee for free from `current_dir()`.
 pub fn canonical_root(dir: &tempfile::TempDir) -> std::path::PathBuf {
-    dir.path()
-        .canonicalize()
-        .unwrap_or_else(|_| dir.path().to_path_buf())
+    dir.path().canonicalize().unwrap_or_else(|_| dir.path().to_path_buf())
 }
 
 #[cfg(test)]
@@ -115,20 +113,12 @@ mod cwd_guard_tests {
         let _guard = CwdGuard::new(dir.path()).expect("CwdGuard");
         let current = std::env::current_dir().expect("current cwd");
         let current_canonical = current.canonicalize().unwrap_or(current);
-        let dir_canonical = dir
-            .path()
-            .canonicalize()
-            .unwrap_or_else(|_| dir.path().to_path_buf());
-        assert_eq!(
-            current_canonical, dir_canonical,
-            "should change to target directory"
-        );
+        let dir_canonical = dir.path().canonicalize().unwrap_or_else(|_| dir.path().to_path_buf());
+        assert_eq!(current_canonical, dir_canonical, "should change to target directory");
     }
 
     #[test]
     fn cwd_guard_mutex_is_recoverable() {
-        let _lock = CWD_MUTEX
-            .lock()
-            .unwrap_or_else(std::sync::PoisonError::into_inner);
+        let _lock = CWD_MUTEX.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
     }
 }

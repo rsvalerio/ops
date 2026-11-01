@@ -46,17 +46,13 @@ const _: () = assert!(
 /// Capitalize the last path segment of a member-style string (e.g. "crates/foo" → "Foo").
 #[must_use = "use the formatted name; the input is left unchanged"]
 pub fn format_unit_name(member: &str) -> String {
-    let name = member
-        .strip_prefix("**/")
-        .unwrap_or(member)
-        .split('/')
-        .next_back()
-        .unwrap_or(member);
+    let name =
+        member.strip_prefix("**/").unwrap_or(member).split('/').next_back().unwrap_or(member);
 
     let mut chars = name.chars();
-    chars.next().map_or_else(String::new, |first| {
-        first.to_uppercase().collect::<String>() + chars.as_str()
-    })
+    chars
+        .next()
+        .map_or_else(String::new, |first| first.to_uppercase().collect::<String>() + chars.as_str())
 }
 
 /// Builds the single `loc · files · deps` stats line for a unit card.
@@ -68,8 +64,7 @@ pub fn build_card_stats_line(unit: &ProjectUnit) -> Option<String> {
         unit.loc.map(|loc| format!("{} loc", format_number(loc))),
         unit.file_count
             .map(|f| format!("{} file{}", format_number(f), if f == 1 { "" } else { "s" })),
-        unit.dep_count
-            .map(|deps| format!("{} deps", format_number(deps))),
+        unit.dep_count.map(|deps| format!("{} deps", format_number(deps))),
     ]
     .into_iter()
     .flatten()
@@ -140,19 +135,11 @@ pub fn render_card(unit: &ProjectUnit, is_tty: bool) -> Vec<String> {
     let mut lines = vec![top_border];
     lines.push(format!(
         "\u{2502}{}\u{2502}",
-        tty_style(
-            &pad_to_width_plain(&title_truncated, inner_width),
-            cyan,
-            is_tty
-        )
+        tty_style(&pad_to_width_plain(&title_truncated, inner_width), cyan, is_tty)
     ));
     lines.push(format!(
         "\u{2502}{}\u{2502}",
-        tty_style(
-            &pad_to_width_plain(&path_truncated, inner_width),
-            grey,
-            is_tty
-        )
+        tty_style(&pad_to_width_plain(&path_truncated, inner_width), grey, is_tty)
     ));
 
     let empty_line = " ".repeat(inner_width);
@@ -210,10 +197,7 @@ pub(crate) fn layout_cards_in_grid(cards: &[Vec<String>]) -> Vec<String> {
 /// by pointer identity in a test, rather than inferred from a wall-clock
 /// ratio that cannot see a per-cell clone.
 fn row_parts(chunk: &[Vec<String>], line_idx: usize) -> Vec<&str> {
-    chunk
-        .iter()
-        .map(|card| card.get(line_idx).map_or("", String::as_str))
-        .collect()
+    chunk.iter().map(|card| card.get(line_idx).map_or("", String::as_str)).collect()
 }
 
 pub fn layout_cards_in_grid_with_width(cards: &[Vec<String>], term_width: usize) -> Vec<String> {
@@ -377,15 +361,9 @@ mod tests {
         assert!(!result.is_empty(), "must not return empty for narrow term");
         // Borders are preserved at fixed CARD_WIDTH (=32 inner cols + 2
         // border chars) regardless of terminal width.
-        assert!(
-            result.iter().any(|l| l.contains('\u{256d}')),
-            "top border missing: {result:?}"
-        );
+        assert!(result.iter().any(|l| l.contains('\u{256d}')), "top border missing: {result:?}");
         // Single-card mode: no two cards on the same line.
-        let top_border_lines = result
-            .iter()
-            .filter(|l| l.matches('\u{256d}').count() > 0)
-            .count();
+        let top_border_lines = result.iter().filter(|l| l.matches('\u{256d}').count() > 0).count();
         let cards_with_top = card.iter().filter(|l| l.contains('\u{256d}')).count();
         assert_eq!(top_border_lines, cards_with_top);
     }

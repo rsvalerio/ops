@@ -30,9 +30,7 @@ async fn run_plan_raw_runs_sequentially_and_collects_results() {
     commands.insert("step_b".to_string(), CommandSpec::Exec(true_cmd()));
     let runner = test_runner(commands);
 
-    let results = runner
-        .run_plan_raw(&["step_a".into(), "step_b".into()], true)
-        .await;
+    let results = runner.run_plan_raw(&["step_a".into(), "step_b".into()], true).await;
 
     assert_eq!(results.len(), 2);
     assert!(results.iter().all(|r| r.success));
@@ -45,9 +43,7 @@ async fn run_plan_raw_fail_fast_stops_on_first_failure() {
     commands.insert("after".to_string(), CommandSpec::Exec(true_cmd()));
     let runner = test_runner(commands);
 
-    let results = runner
-        .run_plan_raw(&["fail".into(), "after".into()], true)
-        .await;
+    let results = runner.run_plan_raw(&["fail".into(), "after".into()], true).await;
 
     assert_eq!(results.len(), 1, "fail_fast must stop after first failure");
     assert!(!results[0].success);
@@ -67,10 +63,7 @@ async fn run_raw_expands_composite_and_runs_leaves() {
     let mut commands = HashMap::new();
     commands.insert("a".to_string(), CommandSpec::Exec(true_cmd()));
     commands.insert("b".to_string(), CommandSpec::Exec(true_cmd()));
-    commands.insert(
-        "both".to_string(),
-        CommandSpec::Composite(composite_cmd(&["a", "b"])),
-    );
+    commands.insert("both".to_string(), CommandSpec::Composite(composite_cmd(&["a", "b"])));
     let runner = test_runner(commands);
 
     let results = runner.run_raw("both").await.unwrap();

@@ -61,10 +61,8 @@ impl LoadedManifest {
         // overwriting the spec with the expanded list on the cached Arc would
         // hide the original glob spec from any future consumer (linter, doc
         // generator) and silently no-op any re-expansion attempt.
-        let resolved_members = Arc::new(resolved_workspace_members(
-            &manifest,
-            workspace_root.as_path(),
-        ));
+        let resolved_members =
+            Arc::new(resolved_workspace_members(&manifest, workspace_root.as_path()));
         Self {
             manifest: Arc::new(manifest),
             workspace_root,
@@ -90,10 +88,7 @@ impl LoadedManifest {
 
     /// The `[workspace.package]` inheritance table, if present.
     pub(crate) fn workspace_package(&self) -> Option<&WorkspacePackage> {
-        self.manifest
-            .workspace
-            .as_ref()
-            .and_then(|w| w.package.as_ref())
+        self.manifest.workspace.as_ref().and_then(|w| w.package.as_ref())
     }
 
     /// Whether this manifest declares a `[workspace]` table at all.
@@ -113,10 +108,7 @@ impl LoadedManifest {
     /// old `Deref` into `CargoToml` allowed.
     #[cfg(test)]
     pub(crate) fn unexpanded_workspace_members_spec(&self) -> &[String] {
-        self.manifest
-            .workspace
-            .as_ref()
-            .map_or(&[][..], |w| w.members.as_slice())
+        self.manifest.workspace.as_ref().map_or(&[][..], |w| w.members.as_slice())
     }
 
     /// Resolved workspace members (post glob expansion, deduped, sorted).
@@ -320,20 +312,13 @@ mod tests {
     fn resolved_workspace_members_are_amortised_via_typed_manifest_cache() {
         let dir = tempfile::tempdir().expect("tempdir");
         let root = dir.path();
-        std::fs::write(
-            root.join("Cargo.toml"),
-            "[workspace]\nmembers = [\"crates/*\"]\n",
-        )
-        .unwrap();
+        std::fs::write(root.join("Cargo.toml"), "[workspace]\nmembers = [\"crates/*\"]\n").unwrap();
         let crates = root.join("crates");
         std::fs::create_dir(&crates).unwrap();
         let foo = crates.join("foo");
         std::fs::create_dir(&foo).unwrap();
-        std::fs::write(
-            foo.join("Cargo.toml"),
-            "[package]\nname=\"foo\"\nversion=\"0.1.0\"\n",
-        )
-        .unwrap();
+        std::fs::write(foo.join("Cargo.toml"), "[package]\nname=\"foo\"\nversion=\"0.1.0\"\n")
+            .unwrap();
         manifest_cache::evict(&canonical(root));
 
         let mut ctx = Context::test_context(root.to_path_buf());
@@ -347,11 +332,8 @@ mod tests {
         // same Arc with the same resolved members.
         let bar = crates.join("bar");
         std::fs::create_dir(&bar).unwrap();
-        std::fs::write(
-            bar.join("Cargo.toml"),
-            "[package]\nname=\"bar\"\nversion=\"0.1.0\"\n",
-        )
-        .unwrap();
+        std::fs::write(bar.join("Cargo.toml"), "[package]\nname=\"bar\"\nversion=\"0.1.0\"\n")
+            .unwrap();
 
         let second = load_workspace_manifest(&mut ctx).expect("second load");
         assert!(
@@ -378,11 +360,7 @@ mod tests {
     fn cached_manifest_preserves_original_glob_spec_across_calls() {
         let dir = tempfile::tempdir().expect("tempdir");
         let root = dir.path();
-        std::fs::write(
-            root.join("Cargo.toml"),
-            "[workspace]\nmembers = [\"crates/*\"]\n",
-        )
-        .unwrap();
+        std::fs::write(root.join("Cargo.toml"), "[workspace]\nmembers = [\"crates/*\"]\n").unwrap();
         std::fs::create_dir_all(root.join("crates/foo")).unwrap();
         std::fs::write(
             root.join("crates/foo/Cargo.toml"),
@@ -396,10 +374,7 @@ mod tests {
         let second = load_workspace_manifest(&mut ctx).expect("second load");
 
         // Same Arc — proves we are inspecting the cached manifest.
-        assert!(
-            first.shares_manifest_with(&second),
-            "second call must serve the cached Arc"
-        );
+        assert!(first.shares_manifest_with(&second), "second call must serve the cached Arc");
 
         // The cached manifest's literal `[workspace].members` must still be
         // the glob spec, NOT the expanded `["crates/foo"]`: the loader stores
@@ -445,11 +420,7 @@ mod tests {
             )
             .unwrap();
         }
-        std::fs::write(
-            root.join("Cargo.toml"),
-            "[workspace]\nmembers = [\"crates/*\"]\n",
-        )
-        .unwrap();
+        std::fs::write(root.join("Cargo.toml"), "[workspace]\nmembers = [\"crates/*\"]\n").unwrap();
         manifest_cache::evict(&canonical(root));
 
         let mut sub_ctx = Context::test_context(root.join("crates/alpha/src"));
@@ -484,11 +455,7 @@ mod tests {
             "[package]\nname=\"alpha\"\nversion=\"0.1.0\"\n",
         )
         .unwrap();
-        std::fs::write(
-            root.join("Cargo.toml"),
-            "[workspace]\nmembers = [\"crates/*\"]\n",
-        )
-        .unwrap();
+        std::fs::write(root.join("Cargo.toml"), "[workspace]\nmembers = [\"crates/*\"]\n").unwrap();
         manifest_cache::evict(&canonical(root));
 
         let mut sub_ctx = Context::test_context(crate_dir.join("src"));
@@ -516,16 +483,9 @@ mod tests {
         let root = dir.path();
         let member = root.join("crates/alpha");
         std::fs::create_dir_all(member.join("src")).unwrap();
-        std::fs::write(
-            member.join("Cargo.toml"),
-            "[package]\nname=\"alpha\"\nversion=\"0.1.0\"\n",
-        )
-        .unwrap();
-        std::fs::write(
-            root.join("Cargo.toml"),
-            "[workspace]\nmembers = [\"crates/*\"]\n",
-        )
-        .unwrap();
+        std::fs::write(member.join("Cargo.toml"), "[package]\nname=\"alpha\"\nversion=\"0.1.0\"\n")
+            .unwrap();
+        std::fs::write(root.join("Cargo.toml"), "[workspace]\nmembers = [\"crates/*\"]\n").unwrap();
         let cwd = member.join("src");
         manifest_cache::evict(&canonical(root));
         workspace_root_cache::evict(&cwd);

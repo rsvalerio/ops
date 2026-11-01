@@ -32,9 +32,7 @@ fn query_data_returns_provider_value() {
     let mut registry = DataRegistry::new();
     let _ = registry.register(
         "fixed",
-        Box::new(FixedProvider {
-            value: serde_json::json!({"hello": "world"}),
-        }),
+        Box::new(FixedProvider { value: serde_json::json!({"hello": "world"}) }),
     );
     let mut runner = test_runner(HashMap::new());
     runner.register_data_providers(registry);
@@ -47,12 +45,7 @@ fn query_data_returns_provider_value() {
 #[test]
 fn query_data_caches_results() {
     let mut registry = DataRegistry::new();
-    let _ = registry.register(
-        "fixed",
-        Box::new(FixedProvider {
-            value: serde_json::json!(42),
-        }),
-    );
+    let _ = registry.register("fixed", Box::new(FixedProvider { value: serde_json::json!(42) }));
     let mut runner = test_runner(HashMap::new());
     runner.register_data_providers(registry);
 
@@ -122,27 +115,15 @@ fn query_data_shares_inner_cache_across_outer_calls() {
     let calls = StdArc::new(AtomicUsize::new(0));
 
     let mut sub_registry = DataRegistry::new();
-    let _ = sub_registry.register(
-        "inner",
-        Box::new(CountingInner {
-            calls: StdArc::clone(&calls),
-        }),
-    );
+    let _ =
+        sub_registry.register("inner", Box::new(CountingInner { calls: StdArc::clone(&calls) }));
     let sub_registry = StdArc::new(sub_registry);
 
     let mut main_registry = DataRegistry::new();
-    let _ = main_registry.register(
-        "inner",
-        Box::new(CountingInner {
-            calls: StdArc::clone(&calls),
-        }),
-    );
-    let _ = main_registry.register(
-        "outer",
-        Box::new(ComposingOuter {
-            sub_registry: StdArc::clone(&sub_registry),
-        }),
-    );
+    let _ =
+        main_registry.register("inner", Box::new(CountingInner { calls: StdArc::clone(&calls) }));
+    let _ = main_registry
+        .register("outer", Box::new(ComposingOuter { sub_registry: StdArc::clone(&sub_registry) }));
 
     let mut runner = test_runner(HashMap::new());
     runner.register_data_providers(main_registry);
@@ -170,24 +151,16 @@ fn query_data_shares_inner_cache_across_outer_calls() {
 #[test]
 fn re_registering_providers_invalidates_cache() {
     let mut registry_a = DataRegistry::new();
-    let _ = registry_a.register(
-        "x",
-        Box::new(FixedProvider {
-            value: serde_json::json!("from-a"),
-        }),
-    );
+    let _ =
+        registry_a.register("x", Box::new(FixedProvider { value: serde_json::json!("from-a") }));
     let mut runner = test_runner(HashMap::new());
     runner.register_data_providers(registry_a);
     let v_a = runner.query_data("x").expect("first query");
     assert_eq!(*v_a, serde_json::json!("from-a"));
 
     let mut registry_b = DataRegistry::new();
-    let _ = registry_b.register(
-        "x",
-        Box::new(FixedProvider {
-            value: serde_json::json!("from-b"),
-        }),
-    );
+    let _ =
+        registry_b.register("x", Box::new(FixedProvider { value: serde_json::json!("from-b") }));
     runner.register_data_providers(registry_b);
 
     let v_b = runner.query_data("x").expect("second query");
@@ -222,9 +195,7 @@ fn query_data_shares_cwd_arc_with_provider() {
     let mut registry = DataRegistry::new();
     let _ = registry.register(
         "arc_capture",
-        Box::new(ArcCapturingProvider {
-            captured: std::sync::Arc::clone(&captured),
-        }),
+        Box::new(ArcCapturingProvider { captured: std::sync::Arc::clone(&captured) }),
     );
     let mut runner = test_runner(HashMap::new());
     runner.register_data_providers(registry);
@@ -236,8 +207,5 @@ fn query_data_shares_cwd_arc_with_provider() {
     // CONC-1: release the capture lock before asserting so a failing assert
     // panics without holding it.
     drop(inner);
-    assert!(
-        strong_count >= 2,
-        "expected shared cwd Arc, got strong_count = {strong_count}"
-    );
+    assert!(strong_count >= 2, "expected shared cwd Arc, got strong_count = {strong_count}");
 }

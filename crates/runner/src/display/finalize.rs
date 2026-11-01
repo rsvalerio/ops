@@ -166,10 +166,7 @@ impl ProgressDisplay {
             // breakdown rather than a single "Failed N/M" — that label
             // conflated terminal-step count with success count.
             let body = if success {
-                format!(
-                    "Done {}/{} in {}",
-                    self.completed_steps, self.total_steps, elapsed
-                )
+                format!("Done {}/{} in {}", self.completed_steps, self.total_steps, elapsed)
             } else {
                 let succeeded = self
                     .completed_steps
@@ -193,17 +190,10 @@ impl ProgressDisplay {
     }
 
     fn render_fallback_separator(&self) {
-        let separator = self
-            .render
-            .theme
-            .render_summary_separator(self.render.columns);
+        let separator = self.render.theme.render_summary_separator(self.render.columns);
 
         if self.render.is_tty {
-            let separator_message = if separator.is_empty() {
-                " ".to_string()
-            } else {
-                separator
-            };
+            let separator_message = if separator.is_empty() { " ".to_string() } else { separator };
             let pb = self.state.bars.last().map_or_else(
                 || self.multi.add(ProgressBar::new(0)),
                 |last_bar| self.multi.insert_after(last_bar, ProgressBar::new(0)),

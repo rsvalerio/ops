@@ -411,11 +411,7 @@ mod tests {
     #[test]
     fn collect_drain_partial_read_with_error_returns_captured_bytes() {
         let handle = thread::spawn(|| -> DrainResult {
-            (
-                b"partial".to_vec(),
-                0,
-                Some(io::Error::other("synthetic mid-read EIO")),
-            )
+            (b"partial".to_vec(), 0, Some(io::Error::other("synthetic mid-read EIO")))
         });
         let buf = collect_drain(Some(handle), "arch-2 test", "stdout")
             .expect("non-empty buf + Some(err) must keep the truncated-Ok contract");
@@ -434,17 +430,8 @@ mod tests {
         let (logs, ()) = crate::test_utils::capture_tracing(tracing::Level::WARN, || {
             drain_after_timeout(Some(panicking), None, "task-1466-test");
         });
-        assert!(
-            logs.contains("task-1466-test"),
-            "warn must name the caller label, got: {logs}"
-        );
-        assert!(
-            logs.contains("stdout"),
-            "warn must name the offending stream, got: {logs}"
-        );
-        assert!(
-            logs.contains("drain"),
-            "warn must mention the drain failure, got: {logs}"
-        );
+        assert!(logs.contains("task-1466-test"), "warn must name the caller label, got: {logs}");
+        assert!(logs.contains("stdout"), "warn must name the offending stream, got: {logs}");
+        assert!(logs.contains("drain"), "warn must mention the drain failure, got: {logs}");
     }
 }

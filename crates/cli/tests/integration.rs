@@ -45,12 +45,8 @@ fn cli_config_check_names_the_rejected_field_and_the_minimum() {
                 .args(["config", "check", "--as", "0.85.1"])
                 .assert()
                 .failure()
-                .stdout(predicate::str::contains(
-                    "commands.b.args (beside clone) needs ops 0.86.0",
-                ))
-                .stdout(predicate::str::contains(
-                    "Minimum ops version for this config: 0.86.0",
-                ));
+                .stdout(predicate::str::contains("commands.b.args (beside clone) needs ops 0.86.0"))
+                .stdout(predicate::str::contains("Minimum ops version for this config: 0.86.0"));
         },
     );
 }
@@ -127,14 +123,9 @@ fn ops() -> Command {
 
 #[test]
 fn cli_version() {
-    ops()
-        .arg("--version")
-        .assert()
-        .success()
-        .stdout(predicate::str::contains("ops"))
-        .stdout(predicate::function(|s: &str| {
-            s.contains("ops") && s.chars().any(|c| c.is_ascii_digit())
-        }));
+    ops().arg("--version").assert().success().stdout(predicate::str::contains("ops")).stdout(
+        predicate::function(|s: &str| s.contains("ops") && s.chars().any(|c| c.is_ascii_digit())),
+    );
 }
 
 #[test]
@@ -191,9 +182,7 @@ fn cli_init_over_malformed_ops_toml_still_creates_the_backlog_tree() {
         .current_dir(dir.path())
         .assert()
         .success()
-        .stdout(predicate::str::contains(
-            "warning: backlog config left untouched",
-        ))
+        .stdout(predicate::str::contains("warning: backlog config left untouched"))
         .stdout(predicate::str::contains("Created .backlog/tasks/"));
 
     assert_eq!(read_ops_toml(dir.path()), "not [ valid toml");
@@ -205,12 +194,7 @@ fn cli_init_force_overwrites() {
     let dir = temp_dir();
     write_ops_toml(dir.path(), "existing content");
 
-    ops()
-        .arg("init")
-        .arg("--force")
-        .current_dir(dir.path())
-        .assert()
-        .success();
+    ops().arg("init").arg("--force").current_dir(dir.path()).assert().success();
 
     assert!(read_ops_toml(dir.path()).contains("[output]"));
 }
@@ -218,17 +202,10 @@ fn cli_init_force_overwrites() {
 #[test]
 fn cli_init_in_rust_project_with_commands_flag_writes_stack_commands() {
     let dir = temp_dir();
-    std::fs::write(
-        dir.path().join("Cargo.toml"),
-        "[package]\nname = \"x\"\nversion = \"0.1.0\"\n",
-    )
-    .expect("write Cargo.toml");
+    std::fs::write(dir.path().join("Cargo.toml"), "[package]\nname = \"x\"\nversion = \"0.1.0\"\n")
+        .expect("write Cargo.toml");
 
-    ops()
-        .args(["init", "--commands"])
-        .current_dir(dir.path())
-        .assert()
-        .success();
+    ops().args(["init", "--commands"]).current_dir(dir.path()).assert().success();
 
     let content = read_ops_toml(dir.path());
     assert!(
@@ -252,40 +229,24 @@ fn cli_init_default_writes_minimal_output_only() {
     ops().arg("init").current_dir(dir.path()).assert().success();
 
     let content = read_ops_toml(dir.path());
-    assert!(
-        content.contains("[output]"),
-        "init must write base [output]"
-    );
+    assert!(content.contains("[output]"), "init must write base [output]");
     // Default init (no flags) should not include themes or commands.
     assert!(
         !content.contains("[themes.classic]"),
         "default init should not include theme definitions"
     );
-    assert!(
-        !content.contains("[commands.build]"),
-        "default init should not add stack commands"
-    );
+    assert!(!content.contains("[commands.build]"), "default init should not add stack commands");
 }
 
 #[test]
 fn cli_init_with_themes_flag_includes_themes() {
     let dir = temp_dir();
 
-    ops()
-        .args(["init", "--themes"])
-        .current_dir(dir.path())
-        .assert()
-        .success();
+    ops().args(["init", "--themes"]).current_dir(dir.path()).assert().success();
 
     let content = read_ops_toml(dir.path());
-    assert!(
-        content.contains("[themes.classic]"),
-        "init --themes must include classic theme"
-    );
-    assert!(
-        content.contains("[themes.compact]"),
-        "init --themes must include compact theme"
-    );
+    assert!(content.contains("[themes.classic]"), "init --themes must include classic theme");
+    assert!(content.contains("[themes.compact]"), "init --themes must include compact theme");
 }
 
 #[test]
@@ -305,9 +266,7 @@ args = ["hello"]
                 .current_dir(path)
                 .assert()
                 .failure()
-                .stderr(predicate::str::contains(
-                    "unknown command: nonexistent_command",
-                ));
+                .stderr(predicate::str::contains("unknown command: nonexistent_command"));
         },
     );
 }
@@ -341,21 +300,14 @@ args = ["integration_test_output"]
 fn cli_run_failing_command() {
     let dir = temp_dir();
     let program = if cfg!(windows) { "cmd" } else { "false" };
-    let args: Vec<&str> = if cfg!(windows) {
-        vec!["/C", "exit", "1"]
-    } else {
-        vec![]
-    };
+    let args: Vec<&str> = if cfg!(windows) { vec!["/C", "exit", "1"] } else { vec![] };
 
     let args_toml = if args.is_empty() {
         String::new()
     } else {
         format!(
             "args = [{}]",
-            args.iter()
-                .map(|a| format!("\"{a}\""))
-                .collect::<Vec<_>>()
-                .join(", ")
+            args.iter().map(|a| format!("\"{a}\"")).collect::<Vec<_>>().join(", ")
         )
     };
 
@@ -942,28 +894,21 @@ fn cli_dry_run_refuses_unpreviewable_builtins_and_writes_nothing() {
     ] {
         ops_in(dir.path(), argv)
             .failure()
-            .stderr(predicate::str::contains(
-                "--dry-run is not supported for `ops ",
-            ));
+            .stderr(predicate::str::contains("--dry-run is not supported for `ops "));
     }
     assert_eq!(
         std::fs::read_to_string(&file).expect("read back"),
         "a  \n",
         "a refused dry run must not rewrite the file"
     );
-    assert!(
-        !dir.path().join(".ops.toml").exists(),
-        "a refused dry run must not write .ops.toml"
-    );
+    assert!(!dir.path().join(".ops.toml").exists(), "a refused dry run must not write .ops.toml");
 }
 
 #[test]
 fn cli_trailing_whitespace_tw_alias_honours_the_same_contract() {
     let dir = temp_dir();
     std::fs::write(dir.path().join("dirty.txt"), "a  \n").expect("write fixture");
-    ops_in(dir.path(), &["tw"])
-        .failure()
-        .stdout(predicate::str::contains("trailing-whitespace"));
+    ops_in(dir.path(), &["tw"]).failure().stdout(predicate::str::contains("trailing-whitespace"));
     ops_in(dir.path(), &["tw"]).success();
 }
 
@@ -992,9 +937,7 @@ fn cli_end_of_file_fixer_rewrites_and_exits_non_zero() {
 fn cli_end_of_file_fixer_eof_alias_honours_the_same_contract() {
     let dir = temp_dir();
     std::fs::write(dir.path().join("no-newline.txt"), "x").expect("write fixture");
-    ops_in(dir.path(), &["eof"])
-        .failure()
-        .stdout(predicate::str::contains("end-of-file-fixer"));
+    ops_in(dir.path(), &["eof"]).failure().stdout(predicate::str::contains("end-of-file-fixer"));
     ops_in(dir.path(), &["eof"]).success();
 }
 
@@ -1009,9 +952,7 @@ fn cli_check_json_fails_on_malformed_and_passes_on_valid() {
 
     std::fs::remove_file(dir.path().join("bad.json")).expect("remove fixture");
     std::fs::write(dir.path().join("good.json"), "{\"a\": 1}\n").expect("write fixture");
-    ops_in(dir.path(), &["check-json"])
-        .success()
-        .stdout(predicate::str::contains("0 failed"));
+    ops_in(dir.path(), &["check-json"]).success().stdout(predicate::str::contains("0 failed"));
 }
 
 #[test]
@@ -1025,9 +966,7 @@ fn cli_check_yaml_fails_on_malformed_and_passes_on_valid() {
 
     std::fs::remove_file(dir.path().join("bad.yaml")).expect("remove fixture");
     std::fs::write(dir.path().join("good.yaml"), "a: 1\n").expect("write fixture");
-    ops_in(dir.path(), &["check-yaml"])
-        .success()
-        .stdout(predicate::str::contains("0 failed"));
+    ops_in(dir.path(), &["check-yaml"]).success().stdout(predicate::str::contains("0 failed"));
 }
 
 // -- `ops sec` (TEST-31 / TASK-1737) --
@@ -1081,15 +1020,7 @@ fn cli_sec_with_every_scan_skipped_fails_closed() {
     let dir = temp_dir();
     let empty = temp_dir();
     ops()
-        .args([
-            "sec",
-            "--skip",
-            "secrets",
-            "--skip",
-            "vuln",
-            "--skip",
-            "misconfig",
-        ])
+        .args(["sec", "--skip", "secrets", "--skip", "vuln", "--skip", "misconfig"])
         .env("PATH", empty.path())
         .current_dir(dir.path())
         .assert()
@@ -1189,25 +1120,18 @@ fn cli_create_review_tasks_dry_run_reports_the_plan_without_writing() {
         .current_dir(dir.path())
         .assert()
         .success()
-        .stdout(predicate::str::contains(
-            "would create TASK-0001 review-request-",
-        ))
+        .stdout(predicate::str::contains("would create TASK-0001 review-request-"))
         .stdout(predicate::str::contains("(1 subtasks)"))
         .stdout(predicate::str::contains(
             "would create TASK-0001.01 REVIEW: Run skill code-review-rust against demo",
         ))
-        .stdout(predicate::str::contains(
-            "list subtasks: backlog task list --parent TASK-0001",
-        ));
+        .stdout(predicate::str::contains("list subtasks: backlog task list --parent TASK-0001"));
 
     let written: Vec<_> = std::fs::read_dir(&tasks)
         .expect("read .backlog/tasks")
         .map(|e| e.expect("dir entry").file_name())
         .collect();
-    assert!(
-        written.is_empty(),
-        "a dry run must not create task files, found: {written:?}"
-    );
+    assert!(written.is_empty(), "a dry run must not create task files, found: {written:?}");
 }
 
 /// The write form is the one that has an effect on disk, and the report is
@@ -1230,9 +1154,7 @@ fn cli_create_review_tasks_writes_the_task_set() {
         .current_dir(dir.path())
         .assert()
         .success()
-        .stdout(predicate::str::contains(
-            "created TASK-0001 review-request-",
-        ))
+        .stdout(predicate::str::contains("created TASK-0001 review-request-"))
         .stdout(predicate::str::contains(
             "created TASK-0001.01 REVIEW: Run skill code-review-rust against demo",
         ));
@@ -1242,11 +1164,7 @@ fn cli_create_review_tasks_writes_the_task_set() {
         .map(|e| e.expect("dir entry").file_name().to_string_lossy().into())
         .collect();
     written.sort();
-    assert_eq!(
-        written.len(),
-        2,
-        "one main task plus one subtask must exist, found: {written:?}"
-    );
+    assert_eq!(written.len(), 2, "one main task plus one subtask must exist, found: {written:?}");
     assert!(
         written[0].starts_with("task-0001 - review-request-"),
         "main task file must be named after the main task, found: {written:?}"
@@ -1339,11 +1257,7 @@ fn git_in(dir: &Path, args: &[&str]) -> String {
         .args(args)
         .output()
         .expect("spawn git");
-    assert!(
-        out.status.success(),
-        "git {args:?}: {}",
-        String::from_utf8_lossy(&out.stderr)
-    );
+    assert!(out.status.success(), "git {args:?}: {}", String::from_utf8_lossy(&out.stderr));
     String::from_utf8_lossy(&out.stdout).into_owned()
 }
 
@@ -1387,9 +1301,7 @@ fn cli_create_coderabbit_tasks_run_files_commits_and_cleans_up() {
             "created TASK-0001 CodeRabbit major: Public function demo has no doc comment.",
         ))
         .stdout(predicate::str::contains("Committed 1 task file(s)"))
-        .stdout(predicate::str::contains(
-            "demo: 1 finding(s), 1 new, 0 already filed",
-        ));
+        .stdout(predicate::str::contains("demo: 1 finding(s), 1 new, 0 already filed"));
 
     let log = std::fs::read_to_string(dir.path().join("cr.log")).expect("cr.log");
     assert!(
@@ -1408,17 +1320,11 @@ fn cli_create_coderabbit_tasks_run_files_commits_and_cleans_up() {
         "chore(backlog): file CodeRabbit findings for demo"
     );
     let committed = git_in(&root, &["show", "--name-only", "--format=", "HEAD"]);
-    assert!(
-        committed.starts_with(".backlog/tasks/task-0001 - "),
-        "{committed}"
-    );
+    assert!(committed.starts_with(".backlog/tasks/task-0001 - "), "{committed}");
     let task = std::fs::read_to_string(root.join(committed.trim())).expect("task file");
     assert!(task.contains("status: Triage\n"), "{task}");
     assert!(task.contains("  - src/lib.rs\n"), "{task}");
-    assert!(
-        task.contains("dedup_key: 'coderabbit:demo:src/lib.rs:"),
-        "{task}"
-    );
+    assert!(task.contains("dedup_key: 'coderabbit:demo:src/lib.rs:"), "{task}");
     assert_main_checkout_untouched(&root);
 
     // A re-run finds the same finding already filed: no task, no commit.
@@ -1451,9 +1357,7 @@ fn cli_create_coderabbit_tasks_failed_review_still_cleans_up() {
 
     assert_main_checkout_untouched(&root);
     assert_eq!(
-        std::fs::read_dir(root.join(".backlog/tasks"))
-            .expect("tasks")
-            .count(),
+        std::fs::read_dir(root.join(".backlog/tasks")).expect("tasks").count(),
         0,
         "a failed review files nothing"
     );
@@ -1528,18 +1432,11 @@ fn cli_create_coderabbit_tasks_run_dry_run_calls_nothing() {
         ["backlog", "create-coderabbit-tasks", "--run", "--dry-run"].as_slice(),
         ["--dry-run", "backlog", "create-coderabbit-tasks", "--run"].as_slice(),
     ] {
-        ops_with_stub(&dir)
-            .args(argv)
-            .assert()
-            .success()
-            .stdout(predicate::str::contains(
+        ops_with_stub(&dir).args(argv).assert().success().stdout(predicate::str::contains(
             "would review demo (.) with coderabbit in a throwaway worktree on branch cr-full-demo",
         ));
     }
-    assert!(
-        !dir.path().join("cr.log").exists(),
-        "coderabbit must not run"
-    );
+    assert!(!dir.path().join("cr.log").exists(), "coderabbit must not run");
     assert_main_checkout_untouched(&root);
 }
 
@@ -1561,9 +1458,7 @@ fn cli_create_coderabbit_tasks_files_the_review_request() {
         .current_dir(dir.path())
         .assert()
         .success()
-        .stdout(predicate::str::contains(
-            "created TASK-0001 coderabbit-review-request-",
-        ))
+        .stdout(predicate::str::contains("created TASK-0001 coderabbit-review-request-"))
         .stdout(predicate::str::contains(
             "created TASK-0001.01 REVIEW: Run CodeRabbit full review against demo",
         ));
@@ -1574,27 +1469,16 @@ fn cli_create_coderabbit_tasks_files_the_review_request() {
         .find(|p| p.to_string_lossy().contains("task-0001.01 - "))
         .expect("subtask file");
     let body = std::fs::read_to_string(subtask).expect("subtask");
-    assert!(
-        body.contains("git checkout --orphan cr-full-demo"),
-        "{body}"
-    );
+    assert!(body.contains("git checkout --orphan cr-full-demo"), "{body}");
     assert!(body.contains("--uncommitted --include-untracked"), "{body}");
     assert!(body.contains("  - coderabbit\n"), "{body}");
 
     ops()
-        .args([
-            "backlog",
-            "create-coderabbit-tasks",
-            "--crate",
-            "nope",
-            "--dry-run",
-        ])
+        .args(["backlog", "create-coderabbit-tasks", "--crate", "nope", "--dry-run"])
         .current_dir(dir.path())
         .assert()
         .failure()
-        .stderr(predicate::str::contains(
-            "no review target named \"nope\"; known targets: demo",
-        ));
+        .stderr(predicate::str::contains("no review target named \"nope\"; known targets: demo"));
 }
 
 /// `ops` clears every `OPS_*` variable already; `SKIP_OPS_RUN_BEFORE_PUSH`
@@ -1620,10 +1504,7 @@ program = "{program}"
             ),
         );
 
-        let assertion = ops_hook()
-            .arg("run-before-push")
-            .current_dir(dir.path())
-            .assert();
+        let assertion = ops_hook().arg("run-before-push").current_dir(dir.path()).assert();
         if expect_success {
             assertion.success();
         } else {
@@ -1650,9 +1531,7 @@ theme = "classic"
         .current_dir(dir.path())
         .assert()
         .failure()
-        .stderr(predicate::str::contains(
-            "no 'run-before-push' command configured",
-        ));
+        .stderr(predicate::str::contains("no 'run-before-push' command configured"));
 }
 
 /// `install` picks the hook's commands from an `inquire` multi-select, so a
@@ -1842,30 +1721,22 @@ fn cli_backlog_create_list_view_edit_flow() {
     .success()
     .stdout(predicate::str::contains("Created TASK-0001"));
 
-    ops_in(
-        dir.path(),
-        &["backlog", "task", "list", "--status", "Triage", "--plain"],
-    )
-    .success()
-    .stdout(predicate::str::contains(
-        "  [HIGH] TASK-0001 - DUP-3: duplicated scaffold (ac: 0/1)",
-    ));
+    ops_in(dir.path(), &["backlog", "task", "list", "--status", "Triage", "--plain"])
+        .success()
+        .stdout(predicate::str::contains(
+            "  [HIGH] TASK-0001 - DUP-3: duplicated scaffold (ac: 0/1)",
+        ));
 
-    let view = ops_in(
-        dir.path(),
-        &["backlog", "task", "view", "TASK-0001", "--plain"],
-    )
-    .success()
-    .get_output()
-    .stdout
-    .clone();
+    let view = ops_in(dir.path(), &["backlog", "task", "view", "TASK-0001", "--plain"])
+        .success()
+        .get_output()
+        .stdout
+        .clone();
     let text = String::from_utf8(view).expect("utf8");
     let first = text.lines().next().expect("first line");
     let path = first.strip_prefix("File: ").expect("File: prefix");
     assert!(
-        std::path::Path::new(path)
-            .extension()
-            .is_some_and(|e| e.eq_ignore_ascii_case("md")),
+        std::path::Path::new(path).extension().is_some_and(|e| e.eq_ignore_ascii_case("md")),
         "path names the task file: {path}"
     );
     // The sed extraction the run-wave skill performs.
@@ -1877,12 +1748,7 @@ fn cli_backlog_create_list_view_edit_flow() {
         .spawn()
         .and_then(|mut child| {
             use std::io::Write as _;
-            child
-                .stdin
-                .take()
-                .expect("stdin")
-                .write_all(text.as_bytes())
-                .ok();
+            child.stdin.take().expect("stdin").write_all(text.as_bytes()).ok();
             child.wait_with_output()
         })
         .expect("sed run");
@@ -1892,39 +1758,21 @@ fn cli_backlog_create_list_view_edit_flow() {
         "sed -n '1s/^File: //p' must yield the path"
     );
 
-    ops_in(
-        dir.path(),
-        &[
-            "backlog",
-            "task",
-            "edit",
-            "TASK-0001",
-            "-s",
-            "To Do",
-            "--plain",
-        ],
-    )
-    .success()
-    .stdout(predicate::str::contains("Updated TASK-0001"));
+    ops_in(dir.path(), &["backlog", "task", "edit", "TASK-0001", "-s", "To Do", "--plain"])
+        .success()
+        .stdout(predicate::str::contains("Updated TASK-0001"));
 
-    ops_in(
-        dir.path(),
-        &["backlog", "task", "list", "-s", "To Do", "--plain"],
-    )
-    .success()
-    .stdout(predicate::str::contains("To Do:"))
-    .stdout(predicate::str::contains("TASK-0001"));
+    ops_in(dir.path(), &["backlog", "task", "list", "-s", "To Do", "--plain"])
+        .success()
+        .stdout(predicate::str::contains("To Do:"))
+        .stdout(predicate::str::contains("TASK-0001"));
 }
 
 /// `--plain` and `--json` are mutually exclusive, matching the backlog CLI.
 #[test]
 fn cli_backlog_view_plain_json_conflict_fails() {
     let dir = backlog_dir();
-    ops_in(
-        dir.path(),
-        &["backlog", "task", "view", "TASK-0001", "--plain", "--json"],
-    )
-    .failure();
+    ops_in(dir.path(), &["backlog", "task", "view", "TASK-0001", "--plain", "--json"]).failure();
 }
 
 /// No `.ops.toml`, no `backlog.config.yml`, no `.backlog/`: reading is an
@@ -1939,16 +1787,10 @@ fn cli_backlog_read_without_a_tree_is_an_empty_backlog() {
     ops_in(dir.path(), &["backlog", "search", "anything", "--plain"])
         .success()
         .stdout(predicate::str::contains("TASK-").not());
-    assert!(
-        !dir.path().join(".backlog").exists(),
-        "reading must not create the tree"
-    );
-    ops_in(
-        dir.path(),
-        &["backlog", "task", "view", "TASK-1", "--plain"],
-    )
-    .failure()
-    .stderr(predicate::str::contains("TASK-1"));
+    assert!(!dir.path().join(".backlog").exists(), "reading must not create the tree");
+    ops_in(dir.path(), &["backlog", "task", "view", "TASK-1", "--plain"])
+        .failure()
+        .stderr(predicate::str::contains("TASK-1"));
 }
 
 /// No config and no tree: `task create` bootstraps `.backlog/tasks/` on
@@ -1957,33 +1799,21 @@ fn cli_backlog_read_without_a_tree_is_an_empty_backlog() {
 #[test]
 fn cli_backlog_task_create_without_init_bootstraps_the_tree() {
     let dir = temp_dir();
-    ops_in(
-        dir.path(),
-        &["backlog", "task", "create", "first", "--plain"],
-    )
-    .success()
-    .stdout(predicate::str::contains("Created .backlog/tasks/"))
-    .stdout(predicate::str::contains("Created TASK-0001"));
+    ops_in(dir.path(), &["backlog", "task", "create", "first", "--plain"])
+        .success()
+        .stdout(predicate::str::contains("Created .backlog/tasks/"))
+        .stdout(predicate::str::contains("Created TASK-0001"));
     assert!(dir.path().join(".backlog/tasks").is_dir());
-    assert!(
-        !dir.path().join(".ops.toml").exists(),
-        "no config is written"
-    );
+    assert!(!dir.path().join(".ops.toml").exists(), "no config is written");
     assert!(!dir.path().join("backlog.config.yml").exists());
 
-    ops_in(
-        dir.path(),
-        &["backlog", "task", "create", "second", "--plain"],
-    )
-    .success()
-    .stdout(predicate::str::contains("Created .backlog/tasks/").not())
-    .stdout(predicate::str::contains("Created TASK-0002"));
-    ops_in(
-        dir.path(),
-        &["backlog", "task", "view", "TASK-0001", "--plain"],
-    )
-    .success()
-    .stdout(predicate::str::contains("first"));
+    ops_in(dir.path(), &["backlog", "task", "create", "second", "--plain"])
+        .success()
+        .stdout(predicate::str::contains("Created .backlog/tasks/").not())
+        .stdout(predicate::str::contains("Created TASK-0002"));
+    ops_in(dir.path(), &["backlog", "task", "view", "TASK-0001", "--plain"])
+        .success()
+        .stdout(predicate::str::contains("first"));
 }
 
 /// `ops backlog init` by default writes only the tasks tree — no
@@ -1996,14 +1826,9 @@ fn cli_backlog_init_default_writes_only_the_tree() {
         .stdout(predicate::str::contains("Created .backlog/tasks/"))
         .stdout(predicate::str::contains(".ops.toml").not());
     assert!(dir.path().join(".backlog/tasks").is_dir());
-    assert!(
-        !dir.path().join(".ops.toml").exists(),
-        "init must not write .ops.toml by default"
-    );
+    assert!(!dir.path().join(".ops.toml").exists(), "init must not write .ops.toml by default");
     assert!(!dir.path().join("backlog.config.yml").exists());
-    ops_in(dir.path(), &["backlog", "init"])
-        .success()
-        .stdout(predicate::str::is_empty());
+    ops_in(dir.path(), &["backlog", "init"]).success().stdout(predicate::str::is_empty());
 }
 
 /// `ops backlog init --ops-toml` also writes the `[backlog]` section into
@@ -2014,9 +1839,7 @@ fn cli_backlog_init_ops_toml_writes_the_section() {
 
     ops_in(dir.path(), &["backlog", "init", "--ops-toml"])
         .success()
-        .stdout(predicate::str::contains(
-            "Created .ops.toml with a [backlog] section",
-        ))
+        .stdout(predicate::str::contains("Created .ops.toml with a [backlog] section"))
         .stdout(predicate::str::contains("Created .backlog/tasks/"));
 
     let toml = std::fs::read_to_string(dir.path().join(".ops.toml")).expect("read toml");
@@ -2024,19 +1847,14 @@ fn cli_backlog_init_ops_toml_writes_the_section() {
     assert!(toml.contains("default_status = \"Triage\""));
     assert!(dir.path().join(".backlog/tasks").is_dir());
 
-    ops_in(
-        dir.path(),
-        &["backlog", "task", "create", "first", "--plain"],
-    )
-    .success()
-    .stdout(predicate::str::contains("Created TASK-0001"));
+    ops_in(dir.path(), &["backlog", "task", "create", "first", "--plain"])
+        .success()
+        .stdout(predicate::str::contains("Created TASK-0001"));
 
     // Rerun: everything exists, nothing is rewritten.
     ops_in(dir.path(), &["backlog", "init", "--ops-toml"])
         .success()
-        .stdout(predicate::str::contains(
-            ".ops.toml already configures [backlog], left unchanged",
-        ));
+        .stdout(predicate::str::contains(".ops.toml already configures [backlog], left unchanged"));
     assert_eq!(
         std::fs::read_to_string(dir.path().join(".ops.toml")).expect("reread toml"),
         toml,
@@ -2048,11 +1866,7 @@ fn cli_backlog_init_ops_toml_writes_the_section() {
 #[test]
 fn cli_backlog_init_rejects_both_config_flags() {
     let dir = temp_dir();
-    ops_in(
-        dir.path(),
-        &["backlog", "init", "--ops-toml", "--backlog-md"],
-    )
-    .failure();
+    ops_in(dir.path(), &["backlog", "init", "--ops-toml", "--backlog-md"]).failure();
 }
 
 /// `ops backlog init --backlog-md` writes `backlog.config.yml` (the
@@ -2066,21 +1880,15 @@ fn cli_backlog_init_backlog_md_writes_the_yml() {
         .success()
         .stdout(predicate::str::contains("Created backlog.config.yml"))
         .stdout(predicate::str::contains("Created .backlog/tasks/"));
-    assert!(
-        !dir.path().join(".ops.toml").exists(),
-        "--backlog-md must not create .ops.toml"
-    );
+    assert!(!dir.path().join(".ops.toml").exists(), "--backlog-md must not create .ops.toml");
 
     let yml = std::fs::read_to_string(dir.path().join("backlog.config.yml")).expect("read yml");
     assert!(yml.contains("default_status: \"Triage\""), "got: {yml}");
     assert!(yml.contains("backlog_directory: \".backlog\""));
 
-    ops_in(
-        dir.path(),
-        &["backlog", "task", "create", "first", "--plain"],
-    )
-    .success()
-    .stdout(predicate::str::contains("Created TASK-0001"));
+    ops_in(dir.path(), &["backlog", "task", "create", "first", "--plain"])
+        .success()
+        .stdout(predicate::str::contains("Created TASK-0001"));
 }
 
 /// Precedence, observed end-to-end: a `[backlog]` section's
@@ -2090,52 +1898,26 @@ fn cli_backlog_init_backlog_md_writes_the_yml() {
 fn cli_backlog_default_status_precedence() {
     // .ops.toml section present → it wins over the yml.
     let toml_dir = temp_dir();
-    std::fs::write(
-        toml_dir.path().join("backlog.config.yml"),
-        "default_status: \"To Do\"\n",
-    )
-    .expect("yml");
+    std::fs::write(toml_dir.path().join("backlog.config.yml"), "default_status: \"To Do\"\n")
+        .expect("yml");
     ops_in(toml_dir.path(), &["backlog", "init"]).success();
-    std::fs::write(
-        toml_dir.path().join(".ops.toml"),
-        "[backlog]\ndefault_status = \"Triage\"\n",
-    )
-    .expect("toml overrides");
-    ops_in(
-        toml_dir.path(),
-        &["backlog", "task", "create", "who wins", "--plain"],
-    )
-    .success();
-    ops_in(
-        toml_dir.path(),
-        &["backlog", "task", "list", "-s", "Triage", "--plain"],
-    )
-    .success()
-    .stdout(predicate::str::contains("TASK-0001"));
+    std::fs::write(toml_dir.path().join(".ops.toml"), "[backlog]\ndefault_status = \"Triage\"\n")
+        .expect("toml overrides");
+    ops_in(toml_dir.path(), &["backlog", "task", "create", "who wins", "--plain"]).success();
+    ops_in(toml_dir.path(), &["backlog", "task", "list", "-s", "Triage", "--plain"])
+        .success()
+        .stdout(predicate::str::contains("TASK-0001"));
 
     // No section → the yml applies.
     let yml_dir = temp_dir();
-    std::fs::write(
-        yml_dir.path().join("backlog.config.yml"),
-        "default_status: \"To Do\"\n",
-    )
-    .expect("yml");
+    std::fs::write(yml_dir.path().join("backlog.config.yml"), "default_status: \"To Do\"\n")
+        .expect("yml");
     ops_in(yml_dir.path(), &["backlog", "init"]).success();
-    assert!(
-        !yml_dir.path().join(".ops.toml").exists(),
-        "init writes no .ops.toml by default"
-    );
-    ops_in(
-        yml_dir.path(),
-        &["backlog", "task", "create", "who wins", "--plain"],
-    )
-    .success();
-    ops_in(
-        yml_dir.path(),
-        &["backlog", "task", "list", "-s", "To Do", "--plain"],
-    )
-    .success()
-    .stdout(predicate::str::contains("TASK-0001"));
+    assert!(!yml_dir.path().join(".ops.toml").exists(), "init writes no .ops.toml by default");
+    ops_in(yml_dir.path(), &["backlog", "task", "create", "who wins", "--plain"]).success();
+    ops_in(yml_dir.path(), &["backlog", "task", "list", "-s", "To Do", "--plain"])
+        .success()
+        .stdout(predicate::str::contains("TASK-0001"));
 }
 
 /// `ops init` bootstraps the backlog too: the generated `.ops.toml` carries
@@ -2145,18 +1927,12 @@ fn cli_ops_init_includes_the_backlog_bootstrap() {
     let dir = temp_dir();
     ops_in(dir.path(), &["init"]).success();
     let toml = std::fs::read_to_string(dir.path().join(".ops.toml")).expect("read toml");
-    assert!(
-        toml.contains("[backlog]"),
-        "ops init must include backlog: {toml}"
-    );
+    assert!(toml.contains("[backlog]"), "ops init must include backlog: {toml}");
     assert!(dir.path().join(".backlog/tasks").is_dir());
 
-    ops_in(
-        dir.path(),
-        &["backlog", "task", "create", "first", "--plain"],
-    )
-    .success()
-    .stdout(predicate::str::contains("Created TASK-0001"));
+    ops_in(dir.path(), &["backlog", "task", "create", "first", "--plain"])
+        .success()
+        .stdout(predicate::str::contains("Created TASK-0001"));
 }
 
 /// Search finds a filed finding by its rule id and the `--modified-file`
@@ -2197,24 +1973,13 @@ fn cli_backlog_search_by_rule_id_and_modified_file() {
 
     ops_in(dir.path(), &["backlog", "search", "DUP-3", "--plain"])
         .success()
-        .stdout(predicate::str::contains(
-            "TASK-0002 - DUP-3: duplicated scaffold",
-        ))
+        .stdout(predicate::str::contains("TASK-0002 - DUP-3: duplicated scaffold"))
         .stdout(predicate::str::contains("[score 0.300]"));
 
-    ops_in(
-        dir.path(),
-        &[
-            "backlog",
-            "search",
-            "--modified-file",
-            "crates/foo",
-            "--plain",
-        ],
-    )
-    .success()
-    .stdout(predicate::str::contains("TASK-0001"))
-    .stdout(predicate::str::contains("(Triage)"));
+    ops_in(dir.path(), &["backlog", "search", "--modified-file", "crates/foo", "--plain"])
+        .success()
+        .stdout(predicate::str::contains("TASK-0001"))
+        .stdout(predicate::str::contains("(Triage)"));
 }
 
 /// Cleanup: `--dry-run` names the candidate without moving it and without
@@ -2232,41 +1997,19 @@ fn cli_backlog_cleanup_moves_aged_done_tasks_to_completed() {
         "---\nid: TASK-0001\ntitle: 'aged finding'\nstatus: Done\nassignee: []\ncreated_date: '2026-01-01 00:00'\nlabels: []\ndependencies: []\n---\n",
     )
     .expect("seed aged task");
-    ops_in(
-        dir.path(),
-        &["backlog", "task", "create", "fresh finding", "--plain"],
-    )
-    .success();
-    ops_in(
-        dir.path(),
-        &[
-            "backlog",
-            "task",
-            "edit",
-            "TASK-0002",
-            "-s",
-            "Done",
-            "--plain",
-        ],
-    )
-    .success();
+    ops_in(dir.path(), &["backlog", "task", "create", "fresh finding", "--plain"]).success();
+    ops_in(dir.path(), &["backlog", "task", "edit", "TASK-0002", "-s", "Done", "--plain"])
+        .success();
 
-    ops_in(
-        dir.path(),
-        &["backlog", "cleanup", "--older-than", "30", "--dry-run"],
-    )
-    .success()
-    .stdout(predicate::str::contains("Found 2 tasks marked as Done."))
-    .stdout(predicate::str::contains(
-        "Found 1 tasks older than 30 days:",
-    ))
-    .stdout(predicate::str::contains("- TASK-0001: aged finding"))
-    .stdout(predicate::str::contains("Dry run: no files moved."))
-    .stdout(predicate::str::contains("[y/N]").not());
+    ops_in(dir.path(), &["backlog", "cleanup", "--older-than", "30", "--dry-run"])
+        .success()
+        .stdout(predicate::str::contains("Found 2 tasks marked as Done."))
+        .stdout(predicate::str::contains("Found 1 tasks older than 30 days:"))
+        .stdout(predicate::str::contains("- TASK-0001: aged finding"))
+        .stdout(predicate::str::contains("Dry run: no files moved."))
+        .stdout(predicate::str::contains("[y/N]").not());
     assert!(
-        dir.path()
-            .join(".backlog/tasks/task-0001 - aged.md")
-            .exists(),
+        dir.path().join(".backlog/tasks/task-0001 - aged.md").exists(),
         "dry run must not move the file"
     );
 
@@ -2277,14 +2020,10 @@ fn cli_backlog_cleanup_moves_aged_done_tasks_to_completed() {
         .write_stdin("n\n")
         .assert()
         .success()
-        .stdout(predicate::str::contains(
-            "Move 1 tasks to completed folder? [y/N]",
-        ))
+        .stdout(predicate::str::contains("Move 1 tasks to completed folder? [y/N]"))
         .stdout(predicate::str::contains("Cleanup cancelled."));
     assert!(
-        dir.path()
-            .join(".backlog/tasks/task-0001 - aged.md")
-            .exists(),
+        dir.path().join(".backlog/tasks/task-0001 - aged.md").exists(),
         "a declined confirmation must not move the file"
     );
 
@@ -2294,19 +2033,13 @@ fn cli_backlog_cleanup_moves_aged_done_tasks_to_completed() {
         .write_stdin("y\n")
         .assert()
         .success()
-        .stdout(predicate::str::contains(
-            "Moved 1 tasks to completed folder.",
-        ));
+        .stdout(predicate::str::contains("Moved 1 tasks to completed folder."));
     assert!(
-        dir.path()
-            .join(".backlog/completed/task-0001 - aged.md")
-            .exists(),
+        dir.path().join(".backlog/completed/task-0001 - aged.md").exists(),
         "the aged task must land in completed/"
     );
     assert!(
-        !dir.path()
-            .join(".backlog/tasks/task-0001 - aged.md")
-            .exists(),
+        !dir.path().join(".backlog/tasks/task-0001 - aged.md").exists(),
         "the aged task must leave tasks/"
     );
 
@@ -2321,30 +2054,19 @@ fn cli_backlog_cleanup_moves_aged_done_tasks_to_completed() {
 #[test]
 fn cli_backlog_view_json_envelope() {
     let dir = backlog_dir();
-    ops_in(
-        dir.path(),
-        &[
-            "backlog", "task", "create", "view me", "-d", "the body", "--plain",
-        ],
-    )
-    .success();
-    let out = ops_in(
-        dir.path(),
-        &["backlog", "task", "view", "TASK-0001", "--json"],
-    )
-    .success()
-    .get_output()
-    .stdout
-    .clone();
+    ops_in(dir.path(), &["backlog", "task", "create", "view me", "-d", "the body", "--plain"])
+        .success();
+    let out = ops_in(dir.path(), &["backlog", "task", "view", "TASK-0001", "--json"])
+        .success()
+        .get_output()
+        .stdout
+        .clone();
     let value: serde_json::Value = serde_json::from_slice(&out).expect("valid json");
     assert_eq!(value["schemaVersion"], 1);
     assert_eq!(value["kind"], "task-view");
     assert_eq!(value["task"]["id"], "TASK-0001");
     assert_eq!(value["task"]["description"], "the body");
-    assert_eq!(
-        value["task"]["path"],
-        ".backlog/tasks/task-0001 - view-me.md"
-    );
+    assert_eq!(value["task"]["path"], ".backlog/tasks/task-0001 - view-me.md");
 }
 
 /// The structural link primitives: `--parent`/`--clear-parent` edit
@@ -2361,15 +2083,7 @@ fn cli_backlog_structural_link_primitives() {
     // via a dependency (both directions of the relationship).
     ops_in(
         dir.path(),
-        &[
-            "backlog",
-            "task",
-            "edit",
-            "TASK-0002",
-            "--parent",
-            "TASK-0001",
-            "--plain",
-        ],
+        &["backlog", "task", "edit", "TASK-0002", "--parent", "TASK-0001", "--plain"],
     )
     .success()
     .stdout(predicate::str::contains("Updated TASK-0002"));
@@ -2390,30 +2104,17 @@ fn cli_backlog_structural_link_primitives() {
     .success();
 
     // Membership from the parent side: -p filters parent_task_id.
-    ops_in(
-        dir.path(),
-        &["backlog", "task", "list", "-p", "TASK-0001", "--plain"],
-    )
-    .success()
-    .stdout(predicate::str::contains("TASK-0002"))
-    .stdout(predicate::str::contains("TASK-0003"))
-    .stdout(predicate::str::contains("TASK-0001").not());
+    ops_in(dir.path(), &["backlog", "task", "list", "-p", "TASK-0001", "--plain"])
+        .success()
+        .stdout(predicate::str::contains("TASK-0002"))
+        .stdout(predicate::str::contains("TASK-0003"))
+        .stdout(predicate::str::contains("TASK-0001").not());
 
     // The reverse query: only TASK-0003 carries the dependency.
-    ops_in(
-        dir.path(),
-        &[
-            "backlog",
-            "task",
-            "list",
-            "--dependents",
-            "TASK-0001",
-            "--plain",
-        ],
-    )
-    .success()
-    .stdout(predicate::str::contains("TASK-0003"))
-    .stdout(predicate::str::contains("TASK-0002").not());
+    ops_in(dir.path(), &["backlog", "task", "list", "--dependents", "TASK-0001", "--plain"])
+        .success()
+        .stdout(predicate::str::contains("TASK-0003"))
+        .stdout(predicate::str::contains("TASK-0002").not());
 }
 
 /// The surgical unlink side of the structural primitives: `--remove-dep`
@@ -2426,15 +2127,7 @@ fn cli_backlog_structural_unlink_primitives() {
     }
     ops_in(
         dir.path(),
-        &[
-            "backlog",
-            "task",
-            "edit",
-            "TASK-0002",
-            "--parent",
-            "TASK-0001",
-            "--plain",
-        ],
+        &["backlog", "task", "edit", "TASK-0002", "--parent", "TASK-0001", "--plain"],
     )
     .success();
     ops_in(
@@ -2456,50 +2149,19 @@ fn cli_backlog_structural_unlink_primitives() {
     // Surgical unlink and parent clear.
     ops_in(
         dir.path(),
-        &[
-            "backlog",
-            "task",
-            "edit",
-            "TASK-0003",
-            "--remove-dep",
-            "TASK-0001",
-            "--plain",
-        ],
+        &["backlog", "task", "edit", "TASK-0003", "--remove-dep", "TASK-0001", "--plain"],
     )
     .success();
-    ops_in(
-        dir.path(),
-        &[
-            "backlog",
-            "task",
-            "list",
-            "--dependents",
-            "TASK-0001",
-            "--plain",
-        ],
-    )
-    .success()
-    .stdout(predicate::str::is_empty());
+    ops_in(dir.path(), &["backlog", "task", "list", "--dependents", "TASK-0001", "--plain"])
+        .success()
+        .stdout(predicate::str::is_empty());
     for member in ["TASK-0002", "TASK-0003"] {
-        ops_in(
-            dir.path(),
-            &[
-                "backlog",
-                "task",
-                "edit",
-                member,
-                "--clear-parent",
-                "--plain",
-            ],
-        )
-        .success();
+        ops_in(dir.path(), &["backlog", "task", "edit", member, "--clear-parent", "--plain"])
+            .success();
     }
-    ops_in(
-        dir.path(),
-        &["backlog", "task", "list", "-p", "TASK-0001", "--plain"],
-    )
-    .success()
-    .stdout(predicate::str::is_empty());
+    ops_in(dir.path(), &["backlog", "task", "list", "-p", "TASK-0001", "--plain"])
+        .success()
+        .stdout(predicate::str::is_empty());
 }
 
 // --- about backlog -----------------------------------------------------------
@@ -2508,11 +2170,8 @@ fn cli_backlog_structural_unlink_primitives() {
 fn seed_backlog_task(dir: &TempDir, sub: &str, id: &str, status: &str) {
     let target = dir.path().join(".backlog").join(sub);
     std::fs::create_dir_all(&target).expect("subdir");
-    let digits: String = id
-        .trim_start_matches("TASK-")
-        .chars()
-        .take_while(char::is_ascii_digit)
-        .collect();
+    let digits: String =
+        id.trim_start_matches("TASK-").chars().take_while(char::is_ascii_digit).collect();
     std::fs::write(
         target.join(format!("task-{digits:0>4} - x.md")),
         format!(
@@ -2535,9 +2194,7 @@ fn cli_about_backlog_counts_completed_and_archived() {
 
     ops_in(dir.path(), &["about", "backlog"])
         .success()
-        .stdout(predicate::str::contains(
-            "Backlog overview — 5 tasks, 3 complete (60.0%)",
-        ))
+        .stdout(predicate::str::contains("Backlog overview — 5 tasks, 3 complete (60.0%)"))
         .stdout(predicate::str::contains("Status"))
         .stdout(predicate::str::contains("Live work"))
         .stdout(predicate::str::contains("Activity"));
@@ -2598,59 +2255,31 @@ fn cli_backlog_definition_of_done_round_trip() {
     .success()
     .stdout(predicate::str::contains("Created TASK-0001"));
 
-    ops_in(
-        dir.path(),
-        &[
-            "backlog",
-            "task",
-            "edit",
-            "TASK-0001",
-            "--check-dod",
-            "2",
-            "--plain",
-        ],
-    )
-    .success();
+    ops_in(dir.path(), &["backlog", "task", "edit", "TASK-0001", "--check-dod", "2", "--plain"])
+        .success();
 
-    ops_in(
-        dir.path(),
-        &["backlog", "task", "view", "TASK-0001", "--plain"],
-    )
-    .success()
-    .stdout(predicate::str::contains("Definition of Done:"))
-    .stdout(predicate::str::contains("- [ ] #1 tests pass"))
-    .stdout(predicate::str::contains("- [x] #2 docs updated"))
-    // The criteria are a separate list with its own numbering.
-    .stdout(predicate::str::contains("- [ ] #1 criterion one"));
+    ops_in(dir.path(), &["backlog", "task", "view", "TASK-0001", "--plain"])
+        .success()
+        .stdout(predicate::str::contains("Definition of Done:"))
+        .stdout(predicate::str::contains("- [ ] #1 tests pass"))
+        .stdout(predicate::str::contains("- [x] #2 docs updated"))
+        // The criteria are a separate list with its own numbering.
+        .stdout(predicate::str::contains("- [ ] #1 criterion one"));
 
-    let json = ops_in(
-        dir.path(),
-        &["backlog", "task", "view", "TASK-0001", "--json"],
-    )
-    .success()
-    .get_output()
-    .stdout
-    .clone();
+    let json = ops_in(dir.path(), &["backlog", "task", "view", "TASK-0001", "--json"])
+        .success()
+        .get_output()
+        .stdout
+        .clone();
     let value: serde_json::Value =
         serde_json::from_slice(&json).expect("view --json is valid JSON");
     assert_eq!(value["task"]["definitionOfDone"][1]["text"], "docs updated");
     assert_eq!(value["task"]["definitionOfDone"][1]["checked"], true);
 
     // An index that does not exist names the section it belongs to.
-    ops_in(
-        dir.path(),
-        &[
-            "backlog",
-            "task",
-            "edit",
-            "TASK-0001",
-            "--check-dod",
-            "9",
-            "--plain",
-        ],
-    )
-    .failure()
-    .stderr(predicate::str::contains("no definition-of-done item #9"));
+    ops_in(dir.path(), &["backlog", "task", "edit", "TASK-0001", "--check-dod", "9", "--plain"])
+        .failure()
+        .stderr(predicate::str::contains("no definition-of-done item #9"));
 }
 
 /// The wave commands the code-review skills drive: `wave list` enumerates
@@ -2679,55 +2308,25 @@ fn cli_backlog_wave_list_members_and_dry_run_migrate() {
     )
     .success();
     for title in ["member one", "member two"] {
-        ops_in(
-            dir.path(),
-            &["backlog", "task", "create", title, "-s", "To Do", "--plain"],
-        )
-        .success();
+        ops_in(dir.path(), &["backlog", "task", "create", title, "-s", "To Do", "--plain"])
+            .success();
     }
     ops_in(
         dir.path(),
-        &[
-            "backlog",
-            "task",
-            "edit",
-            "TASK-0001",
-            "--add-dep",
-            "TASK-0002",
-            "--plain",
-        ],
+        &["backlog", "task", "edit", "TASK-0001", "--add-dep", "TASK-0002", "--plain"],
     )
     .success();
-    ops_in(
-        dir.path(),
-        &[
-            "backlog",
-            "task",
-            "edit",
-            "TASK-0003",
-            "-a",
-            "TASK-0001",
-            "--plain",
-        ],
-    )
-    .success();
+    ops_in(dir.path(), &["backlog", "task", "edit", "TASK-0003", "-a", "TASK-0001", "--plain"])
+        .success();
 
-    ops_in(
-        dir.path(),
-        &["backlog", "wave", "list", "-s", "To Do", "--plain"],
-    )
-    .success()
-    .stdout(predicate::str::contains(
-        "TASK-0001 - code-review-plan-wave1",
-    ))
-    .stdout(predicate::str::contains("member one").not());
+    ops_in(dir.path(), &["backlog", "wave", "list", "-s", "To Do", "--plain"])
+        .success()
+        .stdout(predicate::str::contains("TASK-0001 - code-review-plan-wave1"))
+        .stdout(predicate::str::contains("member one").not());
 
-    ops_in(
-        dir.path(),
-        &["backlog", "wave", "members", "TASK-0001", "--plain"],
-    )
-    .success()
-    .stdout(predicate::str::contains("TASK-0002"));
+    ops_in(dir.path(), &["backlog", "wave", "members", "TASK-0001", "--plain"])
+        .success()
+        .stdout(predicate::str::contains("TASK-0002"));
 
     ops_in(dir.path(), &["backlog", "wave", "migrate", "--dry-run"])
         .success()
@@ -2735,19 +2334,9 @@ fn cli_backlog_wave_list_members_and_dry_run_migrate() {
         .stdout(predicate::str::contains("Dry run: no files changed."));
 
     // Dry run wrote nothing: the marker is still on the assignee.
-    ops_in(
-        dir.path(),
-        &[
-            "backlog",
-            "task",
-            "list",
-            "-a",
-            "code-review-wave",
-            "--plain",
-        ],
-    )
-    .success()
-    .stdout(predicate::str::contains("TASK-0001"));
+    ops_in(dir.path(), &["backlog", "task", "list", "-a", "code-review-wave", "--plain"])
+        .success()
+        .stdout(predicate::str::contains("TASK-0001"));
 }
 
 // -- TASK-2278 / TASK-2280: previews never execute --
@@ -2778,10 +2367,7 @@ fn cli_dry_run_hooks_print_the_plan_and_run_nothing() {
                 .stdout(predicate::str::contains(format!("Command: {hook}")))
                 .stdout(predicate::str::contains("touch-marker"));
         }
-        assert!(
-            !path.join("ran-marker").exists(),
-            "a hook step ran under --dry-run"
-        );
+        assert!(!path.join("ran-marker").exists(), "a hook step ran under --dry-run");
     });
 }
 
@@ -2805,19 +2391,13 @@ fn cli_explain_json_runs_nothing_and_is_versioned() {
 #[test]
 fn cli_backlog_task_create_dry_run_is_refused_and_writes_nothing() {
     let dir = temp_dir();
-    ops()
-        .args(["backlog", "init"])
-        .current_dir(dir.path())
-        .assert()
-        .success();
+    ops().args(["backlog", "init"]).current_dir(dir.path()).assert().success();
     ops()
         .args(["backlog", "task", "create", "x", "--dry-run", "--plain"])
         .current_dir(dir.path())
         .assert()
         .failure()
         .stderr(predicate::str::contains("--dry-run is not supported"));
-    let tasks = std::fs::read_dir(dir.path().join(".backlog/tasks"))
-        .expect("tasks dir")
-        .count();
+    let tasks = std::fs::read_dir(dir.path().join(".backlog/tasks")).expect("tasks dir").count();
     assert_eq!(tasks, 0, "no task file may be written under --dry-run");
 }

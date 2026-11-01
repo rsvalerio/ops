@@ -402,9 +402,7 @@ mod tests {
         let db_path = db_dir.path().join("panicky.db");
         let db = Arc::new(Sqlite::open(&db_path).expect("db"));
         init_schema(&db).expect("init_schema");
-        let ingestor = Arc::new(PanickyIngestor {
-            should_panic: AtomicBool::new(true),
-        });
+        let ingestor = Arc::new(PanickyIngestor { should_panic: AtomicBool::new(true) });
 
         let db1 = Arc::clone(&db);
         let ing1 = Arc::clone(&ingestor);
@@ -466,9 +464,7 @@ mod tests {
         let db_path = db_dir.path().join("panicky_warn.db");
         let db = Arc::new(Sqlite::open(&db_path).expect("db"));
         init_schema(&db).expect("init_schema");
-        let ingestor = Arc::new(PanickyIngestor {
-            should_panic: AtomicBool::new(true),
-        });
+        let ingestor = Arc::new(PanickyIngestor { should_panic: AtomicBool::new(true) });
 
         let db1 = Arc::clone(&db);
         let ing1 = Arc::clone(&ingestor);
@@ -498,10 +494,7 @@ mod tests {
             logs.contains("per-table ingest mutex was poisoned"),
             "expected poison-recovery warn, got: {logs}"
         );
-        assert!(
-            logs.contains("panicky_warn_table"),
-            "expected table name in warn, got: {logs}"
-        );
+        assert!(logs.contains("panicky_warn_table"), "expected table name in warn, got: {logs}");
     }
 
     /// VER-4 / TASK-2598: clearing the per-table poison flag on recovery
@@ -543,9 +536,7 @@ mod tests {
         let db_path = db_dir.path().join("panicky_once.db");
         let db = Arc::new(Sqlite::open(&db_path).expect("db"));
         init_schema(&db).expect("init_schema");
-        let ingestor = Arc::new(PanickyOnceIngestor {
-            should_panic: AtomicBool::new(true),
-        });
+        let ingestor = Arc::new(PanickyOnceIngestor { should_panic: AtomicBool::new(true) });
 
         let db1 = Arc::clone(&db);
         let ing1 = Arc::clone(&ingestor);
@@ -572,10 +563,7 @@ mod tests {
                 .expect("post-poison ingest must not panic");
             }
         });
-        assert_eq!(
-            warns, 1,
-            "recovery warn must fire on the first ingest only, got {warns}"
-        );
+        assert_eq!(warns, 1, "recovery warn must fire on the first ingest only, got {warns}");
     }
 
     /// Refresh-driven DROP serializes behind in-flight `query_fn`.
@@ -662,10 +650,7 @@ mod tests {
         r2.expect("ingest 2 succeeded");
 
         assert_eq!(r1["count"], 1, "thread 1 saw the row mid-query");
-        assert!(
-            q1_was_done,
-            "thread 2 must have been serialized behind thread 1's query_fn",
-        );
+        assert!(q1_was_done, "thread 2 must have been serialized behind thread 1's query_fn",);
     }
 
     /// Same-thread re-entry on the same table panics.
@@ -676,10 +661,7 @@ mod tests {
         let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
             let _inner = ReentryGuard::new("conc2_reentry_test");
         }));
-        assert!(
-            result.is_err(),
-            "ReentryGuard must panic on same-thread re-entry"
-        );
+        assert!(result.is_err(), "ReentryGuard must panic on same-thread re-entry");
     }
 
     /// Distinct tables on the same thread are fine, and a released table
@@ -696,10 +678,7 @@ mod tests {
         let reacquired = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
             let _a_again = ReentryGuard::new("conc2_table_a");
         }));
-        assert!(
-            reacquired.is_ok(),
-            "release-then-reacquire of the same table must be allowed"
-        );
+        assert!(reacquired.is_ok(), "release-then-reacquire of the same table must be allowed");
     }
 
     /// `normalise_pipeline_errors` must preserve the concrete
@@ -716,15 +695,11 @@ mod tests {
             "provide_via_ingestor(t): ingestor collect".to_string(),
         );
         assert!(
-            err.downcast_ref::<ops_extension::DataProviderError>()
-                .is_some(),
+            err.downcast_ref::<ops_extension::DataProviderError>().is_some(),
             "the unboxed concrete type must survive for downcast_ref"
         );
         let rendered = format!("{err:#}");
-        assert!(
-            rendered.contains("ingestor collect"),
-            "phase label must survive: {rendered}"
-        );
+        assert!(rendered.contains("ingestor collect"), "phase label must survive: {rendered}");
     }
 
     /// A failing `collect` must surface the table name
@@ -740,9 +715,7 @@ mod tests {
                 "failing"
             }
             fn collect(&self, _ctx: &ops_extension::Context, _dir: &IngestDir) -> DbResult<()> {
-                Err(DbError::Io(std::io::Error::other(
-                    "simulated collect failure",
-                )))
+                Err(DbError::Io(std::io::Error::other("simulated collect failure")))
             }
             // The panic *is* the assertion: this double exists to prove `load` is
             // never reached once `collect` fails. Returning an `Err` instead would
@@ -817,10 +790,7 @@ mod tests {
         .expect_err("an in-memory database has no ingest staging area");
 
         let rendered = format!("{err:#}");
-        assert!(
-            rendered.contains("not file-backed"),
-            "error must name the real cause: {rendered}"
-        );
+        assert!(rendered.contains("not file-backed"), "error must name the real cause: {rendered}");
 
         // Nothing named after the sentinel may appear in the process CWD.
         let cwd = std::env::current_dir().expect("cwd");

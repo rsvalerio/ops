@@ -214,10 +214,7 @@ mod tests {
         // The rendered message must NOT smuggle U+FFFD
         // (Path::display's lossy substitute) and must encode the offending
         // byte faithfully (Debug escapes invalid UTF-8 as `\xff` or similar).
-        assert!(
-            !msg.contains('\u{FFFD}'),
-            "error message embedded U+FFFD: {msg}"
-        );
+        assert!(!msg.contains('\u{FFFD}'), "error message embedded U+FFFD: {msg}");
         assert!(
             msg.to_ascii_lowercase().contains("\\xff"),
             "error message must encode the invalid 0xff byte via Debug escape: {msg}"

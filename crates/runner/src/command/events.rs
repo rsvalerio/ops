@@ -119,12 +119,8 @@ pub struct PlanLifecycle {
 
 impl PlanLifecycle {
     pub(crate) fn begin(command_ids: &[CommandId], on_event: &mut impl FnMut(RunnerEvent)) -> Self {
-        on_event(RunnerEvent::PlanStarted {
-            command_ids: command_ids.to_vec(),
-        });
-        Self {
-            start: Instant::now(),
-        }
+        on_event(RunnerEvent::PlanStarted { command_ids: command_ids.to_vec() });
+        Self { start: Instant::now() }
     }
 
     /// Take `success` explicitly rather than a full `&[StepResult]`.
@@ -173,34 +169,18 @@ pub enum RunnerEvent {
     /// buffer, so emitting a line costs a refcount bump rather than a heap
     /// allocation. The JSON serialization is preserved (the field still
     /// renders as a plain string).
-    StepOutput {
-        id: CommandId,
-        line: OutputLine,
-        stderr: bool,
-    },
+    StepOutput { id: CommandId, line: OutputLine, stderr: bool },
     /// Emitted when a parallel step stopped forwarding its output because
     /// the run was aborted, so the display can say that `dropped_count`
     /// trailing stdout/stderr lines are missing instead of presenting the
     /// lines it did receive as the end of the output.
     StepOutputDropped { id: CommandId, dropped_count: u64 },
     /// A single command finished successfully.
-    StepFinished {
-        id: CommandId,
-        duration_secs: f64,
-        display_cmd: Option<String>,
-    },
+    StepFinished { id: CommandId, duration_secs: f64, display_cmd: Option<String> },
     /// A single command was skipped (e.g. abort flag set before execution).
-    StepSkipped {
-        id: CommandId,
-        display_cmd: Option<String>,
-    },
+    StepSkipped { id: CommandId, display_cmd: Option<String> },
     /// A single command failed.
-    StepFailed {
-        id: CommandId,
-        duration_secs: f64,
-        message: String,
-        display_cmd: Option<String>,
-    },
+    StepFailed { id: CommandId, duration_secs: f64, message: String, display_cmd: Option<String> },
     /// Entire run finished (total duration, success).
     RunFinished { duration_secs: f64, success: bool },
 }
@@ -211,9 +191,7 @@ mod tests {
 
     #[test]
     fn runner_event_serializes_to_json() {
-        let event = RunnerEvent::PlanStarted {
-            command_ids: vec!["build".into(), "test".into()],
-        };
+        let event = RunnerEvent::PlanStarted { command_ids: vec!["build".into(), "test".into()] };
         let json = serde_json::to_string(&event).expect("should serialize");
         assert!(json.contains("PlanStarted"));
         assert!(json.contains("build"));
@@ -247,14 +225,8 @@ mod tests {
 
     #[test]
     fn run_finished_serializes_success_flag() {
-        let event_success = RunnerEvent::RunFinished {
-            duration_secs: 5.0,
-            success: true,
-        };
-        let event_failure = RunnerEvent::RunFinished {
-            duration_secs: 2.0,
-            success: false,
-        };
+        let event_success = RunnerEvent::RunFinished { duration_secs: 5.0, success: true };
+        let event_failure = RunnerEvent::RunFinished { duration_secs: 2.0, success: false };
         let json_success = serde_json::to_string(&event_success).expect("should serialize");
         let json_failure = serde_json::to_string(&event_failure).expect("should serialize");
         assert!(json_success.contains("true"));

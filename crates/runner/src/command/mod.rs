@@ -250,10 +250,7 @@ impl CommandRunner {
                     command_count = defaults.len(),
                     "loaded stack default commands"
                 );
-                defaults
-                    .into_iter()
-                    .map(|(k, v)| (CommandId::from(k), v))
-                    .collect()
+                defaults.into_iter().map(|(k, v)| (CommandId::from(k), v)).collect()
             });
 
         // ERR-1 / TASK-1462: a non-UTF-8 workspace root would otherwise
@@ -352,9 +349,8 @@ impl CommandRunner {
         use std::collections::hash_map::Entry;
         if let Some(old_spec) = self.extension_commands.get(id) {
             for old_alias in old_spec.aliases() {
-                if let Entry::Occupied(occ) = self
-                    .non_config_alias_map
-                    .entry(old_alias.as_str().to_string())
+                if let Entry::Occupied(occ) =
+                    self.non_config_alias_map.entry(old_alias.as_str().to_string())
                 {
                     if occ.get() == id.as_str() {
                         occ.remove();
@@ -581,9 +577,7 @@ impl CommandRunner {
         // (TASK-2275): `parallel` from the parallel group that roots the
         // stage, `fail_fast` agreed across the stage's subtree, and a
         // sequential group's entries run as their own plans in order.
-        let plan = self
-            .expand_to_plan(command_id)
-            .map_err(anyhow::Error::from)?;
+        let plan = self.expand_to_plan(command_id).map_err(anyhow::Error::from)?;
         debug!(command_id, steps = plan.leaf_ids().len(), "running command");
         Ok(self.run_plan_tree(&plan, false, on_event).await)
     }
@@ -605,11 +599,7 @@ impl CommandRunner {
         on_event: &mut impl FnMut(RunnerEvent),
     ) -> Vec<StepResult> {
         match tree {
-            CommandPlan::Stage {
-                leaf_ids,
-                parallel,
-                fail_fast,
-            } => {
+            CommandPlan::Stage { leaf_ids, parallel, fail_fast } => {
                 if raw {
                     self.run_plan_raw(leaf_ids, *fail_fast).await
                 } else if *parallel {
@@ -618,12 +608,8 @@ impl CommandRunner {
                     self.run_plan(leaf_ids, *fail_fast, on_event).await
                 }
             }
-            CommandPlan::Sequence {
-                children,
-                fail_fast,
-            } => {
-                self.run_plan_sequence(children.iter(), *fail_fast, raw, on_event)
-                    .await
+            CommandPlan::Sequence { children, fail_fast } => {
+                self.run_plan_sequence(children.iter(), *fail_fast, raw, on_event).await
             }
         }
     }
@@ -648,8 +634,7 @@ impl CommandRunner {
     where
         I: IntoIterator<Item = &'a CommandPlan>,
     {
-        self.run_plan_sequence(trees.into_iter(), true, raw, on_event)
-            .await
+        self.run_plan_sequence(trees.into_iter(), true, raw, on_event).await
     }
 
     /// Shared body of every ordered run: children in order, stopping after

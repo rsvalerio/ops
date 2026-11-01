@@ -28,26 +28,11 @@ fn about_card_from_identity_full() {
     // project, stack, license, crates, codebase, repository, author
     // (no coverage — hidden when empty + all-fields mode)
     assert_eq!(card.fields.len(), 7);
-    assert_eq!(
-        card.fields[0],
-        (
-            "project".to_string(),
-            "ops\nv0.10.0\n/home/user/ops".to_string()
-        )
-    );
-    assert_eq!(
-        card.fields[1],
-        ("stack".to_string(), "Rust\nEdition 2021".to_string())
-    );
-    assert_eq!(
-        card.fields[2],
-        ("license".to_string(), "Apache-2.0".to_string())
-    );
+    assert_eq!(card.fields[0], ("project".to_string(), "ops\nv0.10.0\n/home/user/ops".to_string()));
+    assert_eq!(card.fields[1], ("stack".to_string(), "Rust\nEdition 2021".to_string()));
+    assert_eq!(card.fields[2], ("license".to_string(), "Apache-2.0".to_string()));
     assert_eq!(card.fields[3], ("crates".to_string(), "15".to_string()));
-    assert_eq!(
-        card.fields[4],
-        ("codebase".to_string(), "21,324 loc\n96 files".to_string())
-    );
+    assert_eq!(card.fields[4], ("codebase".to_string(), "21,324 loc\n96 files".to_string()));
 }
 
 #[test]
@@ -77,13 +62,7 @@ fn about_card_from_identity_minimal() {
     assert!(card.description.is_none());
     // project, stack — no license, no coverage (empty).
     assert_eq!(card.fields.len(), 2);
-    assert_eq!(
-        card.fields[0],
-        (
-            "project".to_string(),
-            "myproject\n/tmp/myproject".to_string()
-        )
-    );
+    assert_eq!(card.fields[0], ("project".to_string(), "myproject\n/tmp/myproject".to_string()));
     assert_eq!(card.fields[1], ("stack".to_string(), "Generic".to_string()));
 }
 
@@ -114,13 +93,8 @@ fn about_card_codebase_without_regions_renders_bare_totals() {
         regions: vec![],
     };
     let card = AboutCard::from_identity(&id);
-    let codebase = card
-        .fields
-        .iter()
-        .find(|(k, _)| k == "codebase")
-        .expect("codebase field")
-        .1
-        .clone();
+    let codebase =
+        card.fields.iter().find(|(k, _)| k == "codebase").expect("codebase field").1.clone();
     assert_eq!(codebase, "555,910 loc\n4,929 files");
 }
 
@@ -155,13 +129,8 @@ fn about_card_codebase_with_regions() {
         ],
     };
     let card = AboutCard::from_identity(&id);
-    let codebase = card
-        .fields
-        .iter()
-        .find(|(k, _)| k == "codebase")
-        .expect("codebase field")
-        .1
-        .clone();
+    let codebase =
+        card.fields.iter().find(|(k, _)| k == "codebase").expect("codebase field").1.clone();
     let lines: Vec<&str> = codebase.split('\n').collect();
     assert_eq!(lines[0], "467,910 loc", "got: {codebase}");
     // Canonical order regardless of input order: production, test, example.
@@ -203,11 +172,7 @@ fn about_card_coverage_shown_when_explicitly_selected() {
         &id,
         Some(&["project".to_string(), "coverage".to_string()]),
     );
-    let cov = card
-        .fields
-        .iter()
-        .find(|(k, _)| k == "coverage")
-        .expect("coverage");
+    let cov = card.fields.iter().find(|(k, _)| k == "coverage").expect("coverage");
     assert_eq!(cov.1, "not collected");
 }
 
@@ -267,20 +232,14 @@ fn render_tty_contains_ansi_escapes() {
     let card = AboutCard::from_identity(&sample_identity());
     let output = card.render(true);
     // ANSI escape codes start with \x1b[
-    assert!(
-        output.contains("\x1b["),
-        "TTY output should contain ANSI escapes: {output}"
-    );
+    assert!(output.contains("\x1b["), "TTY output should contain ANSI escapes: {output}");
 }
 
 #[test]
 fn render_non_tty_no_ansi_escapes() {
     let card = AboutCard::from_identity(&sample_identity());
     let output = card.render(false);
-    assert!(
-        !output.contains("\x1b["),
-        "non-TTY output should not contain ANSI escapes: {output}"
-    );
+    assert!(!output.contains("\x1b["), "non-TTY output should not contain ANSI escapes: {output}");
 }
 
 #[test]
@@ -331,19 +290,12 @@ fn dependency_count_usize_max_does_not_panic() {
     let mut id = sample_identity();
     id.dependency_count = Some(usize::MAX);
     let card = AboutCard::from_identity(&id);
-    let dep_field = card
-        .fields
-        .iter()
-        .find(|(k, _)| k == "dependencies")
-        .expect("dependencies field present");
+    let dep_field =
+        card.fields.iter().find(|(k, _)| k == "dependencies").expect("dependencies field present");
     assert!(
         dep_field.1.starts_with("9,223,372,036,854,775,807"),
         "should saturate to i64::MAX, got: {}",
         dep_field.1
     );
-    assert!(
-        dep_field.1.ends_with("dependencies"),
-        "expected plural label: {}",
-        dep_field.1
-    );
+    assert!(dep_field.1.ends_with("dependencies"), "expected plural label: {}", dep_field.1);
 }

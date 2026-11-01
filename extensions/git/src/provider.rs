@@ -47,9 +47,7 @@ pub fn resolve_repository_with_git_fallback(
     cwd: &Path,
     manifest_repo: Option<String>,
 ) -> Option<String> {
-    manifest_repo
-        .filter(|s| !s.is_empty())
-        .or_else(|| GitInfo::collect(cwd).remote_url)
+    manifest_repo.filter(|s| !s.is_empty()).or_else(|| GitInfo::collect(cwd).remote_url)
 }
 
 impl GitInfo {
@@ -61,20 +59,11 @@ impl GitInfo {
         };
         let branch = config::read_head_branch(&git_dir);
         let Some(raw) = config::read_origin_url(&git_dir) else {
-            return Self {
-                branch,
-                ..Self::default()
-            };
+            return Self { branch, ..Self::default() };
         };
         // `raw` is a `RedactedUrl`, so the type system guarantees userinfo
         // has been stripped. Pull the inner str only at the parse boundary.
-        if let Some(RemoteInfo {
-            host,
-            owner,
-            repo,
-            url,
-        }) = parse_remote_url(raw.as_str())
-        {
+        if let Some(RemoteInfo { host, owner, repo, url }) = parse_remote_url(raw.as_str()) {
             Self {
                 host: Some(host),
                 owner: Some(owner),
@@ -99,10 +88,7 @@ impl GitInfo {
                 raw_remote = %raw.as_str(),
                 "git remote URL did not match parse_remote_url shape; host/owner/repo and remote_url will be omitted"
             );
-            Self {
-                branch,
-                ..Self::default()
-            }
+            Self { branch, ..Self::default() }
         }
     }
 }
@@ -179,10 +165,7 @@ mod tests {
         assert_eq!(info.host.as_deref(), Some("github.com"));
         assert_eq!(info.owner.as_deref(), Some("openbao"));
         assert_eq!(info.repo.as_deref(), Some("openbao"));
-        assert_eq!(
-            info.remote_url.as_deref(),
-            Some("https://github.com/openbao/openbao")
-        );
+        assert_eq!(info.remote_url.as_deref(), Some("https://github.com/openbao/openbao"));
         assert_eq!(info.branch.as_deref(), Some("main"));
     }
 
@@ -296,10 +279,7 @@ mod tests {
             !s.contains("secret"),
             "read_origin_url_from must redact before returning, got: {s}"
         );
-        assert!(
-            !s.contains("user@"),
-            "read_origin_url_from must strip userinfo, got: {s}"
-        );
+        assert!(!s.contains("user@"), "read_origin_url_from must strip userinfo, got: {s}");
     }
 
     #[test]
@@ -321,10 +301,7 @@ mod tests {
         let mut ctx = ops_extension::Context::test_context(dir.path().to_path_buf());
         let v = GitInfoProvider.provide(&mut ctx).unwrap();
         // Scp-style remote synthesises ssh:// URL.
-        assert_eq!(
-            v.get("remote_url").and_then(|s| s.as_str()),
-            Some("ssh://github.com/o/r")
-        );
+        assert_eq!(v.get("remote_url").and_then(|s| s.as_str()), Some("ssh://github.com/o/r"));
         assert_eq!(v.get("host").and_then(|s| s.as_str()), Some("github.com"));
     }
 }

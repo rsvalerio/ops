@@ -78,10 +78,7 @@ enum RepositoryField {
 #[serde(untagged)]
 enum PersonField {
     Text(String),
-    Object {
-        name: Option<String>,
-        email: Option<String>,
-    },
+    Object { name: Option<String>, email: Option<String> },
 }
 
 #[derive(Debug, Deserialize)]
@@ -169,11 +166,7 @@ fn normalise_repository(repository: RepositoryField) -> Option<String> {
 /// The `author` followed by every contributor, each rendered by
 /// [`format_person`]; a person that renders to nothing is left out.
 fn collect_authors(author: Option<PersonField>, contributors: Vec<PersonField>) -> Vec<String> {
-    author
-        .into_iter()
-        .chain(contributors)
-        .filter_map(format_person)
-        .collect()
+    author.into_iter().chain(contributors).filter_map(format_person).collect()
 }
 
 /// Report a `package.json` that failed to deserialise, once per path for the
@@ -225,9 +218,7 @@ pub fn warn_parse_failure(path: &Path, error: &serde_path_to_error::Error<serde_
 /// the identical chain through the same `ops_about::text_util` helpers.
 fn pick_manifest_url(raw: Option<String>) -> Option<String> {
     use ops_about::text_util::{contains_control_chars, has_allowed_url_scheme};
-    trim_nonempty(raw)
-        .filter(|s| !contains_control_chars(s))
-        .filter(|s| has_allowed_url_scheme(s))
+    trim_nonempty(raw).filter(|s| !contains_control_chars(s)).filter(|s| has_allowed_url_scheme(s))
 }
 
 /// Render an npm `person` field (string or object form) as a display line,
@@ -237,11 +228,7 @@ fn format_person(p: PersonField) -> Option<String> {
     match p {
         PersonField::Text(s) => {
             let trimmed = s.trim();
-            if trimmed.is_empty() {
-                None
-            } else {
-                Some(trimmed.to_string())
-            }
+            if trimmed.is_empty() { None } else { Some(trimmed.to_string()) }
         }
         PersonField::Object { name, email } => {
             let name = trim_nonempty(name);
@@ -272,10 +259,7 @@ mod tests {
 
     #[test]
     fn format_person_email_only_wraps_in_brackets() {
-        let p = PersonField::Object {
-            name: None,
-            email: Some("a@example.com".to_string()),
-        };
+        let p = PersonField::Object { name: None, email: Some("a@example.com".to_string()) };
         assert_eq!(format_person(p), Some("<a@example.com>".to_string()));
     }
 
@@ -290,10 +274,7 @@ mod tests {
 
     #[test]
     fn format_person_name_only() {
-        let p = PersonField::Object {
-            name: Some("Alice".to_string()),
-            email: None,
-        };
+        let p = PersonField::Object { name: Some("Alice".to_string()), email: None };
         assert_eq!(format_person(p), Some("Alice".to_string()));
     }
 
@@ -309,21 +290,15 @@ mod tests {
 
     #[test]
     fn format_person_whitespace_object_components_dropped() {
-        let p = PersonField::Object {
-            name: Some("   ".into()),
-            email: Some("\t".into()),
-        };
+        let p = PersonField::Object { name: Some("   ".into()), email: Some("\t".into()) };
         assert_eq!(format_person(p), None);
     }
 
     #[test]
     fn parse_package_json_whitespace_only_license_text_dropped() {
         let dir = tempfile::tempdir().expect("tempdir");
-        std::fs::write(
-            dir.path().join("package.json"),
-            r#"{"name":"x","license":"   "}"#,
-        )
-        .expect("write");
+        std::fs::write(dir.path().join("package.json"), r#"{"name":"x","license":"   "}"#)
+            .expect("write");
         let pkg = parse_package_json(dir.path()).expect("parse");
         assert_eq!(pkg.license, None);
     }
@@ -331,11 +306,8 @@ mod tests {
     #[test]
     fn parse_package_json_whitespace_only_license_object_type_dropped() {
         let dir = tempfile::tempdir().expect("tempdir");
-        std::fs::write(
-            dir.path().join("package.json"),
-            r#"{"name":"x","license":{"type":"\t"}}"#,
-        )
-        .expect("write");
+        std::fs::write(dir.path().join("package.json"), r#"{"name":"x","license":{"type":"\t"}}"#)
+            .expect("write");
         let pkg = parse_package_json(dir.path()).expect("parse");
         assert_eq!(pkg.license, None);
     }
@@ -343,11 +315,8 @@ mod tests {
     #[test]
     fn parse_package_json_whitespace_only_engine_node_dropped() {
         let dir = tempfile::tempdir().expect("tempdir");
-        std::fs::write(
-            dir.path().join("package.json"),
-            r#"{"name":"x","engines":{"node":"  "}}"#,
-        )
-        .expect("write");
+        std::fs::write(dir.path().join("package.json"), r#"{"name":"x","engines":{"node":"  "}}"#)
+            .expect("write");
         let pkg = parse_package_json(dir.path()).expect("parse");
         assert_eq!(pkg.engines_node, None);
     }
@@ -411,10 +380,7 @@ mod tests {
         .unwrap();
 
         let parsed = parse_package_json(dir.path()).expect("parsed");
-        assert_eq!(
-            parsed.repository.as_deref(),
-            Some("https://github.com/example/mono")
-        );
+        assert_eq!(parsed.repository.as_deref(), Some("https://github.com/example/mono"));
     }
 
     /// A `javascript:` (or `data:`, `file:`) repository value is rejected by
@@ -478,19 +444,15 @@ mod tests {
     /// allowlist closes for `repository`.
     #[test]
     fn parse_drops_homepage_with_data_and_file_schemes() {
-        for homepage in [
-            "data:text/html;base64,PHNjcmlwdD5hbGVydCgxKTwvc2NyaXB0Pg==",
-            "file:///etc/shadow",
-        ] {
+        for homepage in
+            ["data:text/html;base64,PHNjcmlwdD5hbGVydCgxKTwvc2NyaXB0Pg==", "file:///etc/shadow"]
+        {
             let dir = tempfile::tempdir().unwrap();
             let pkg = format!(r#"{{"name":"x","homepage":"{homepage}"}}"#);
             std::fs::write(dir.path().join("package.json"), pkg).unwrap();
 
             let parsed = parse_package_json(dir.path()).expect("parsed");
-            assert_eq!(
-                parsed.homepage, None,
-                "homepage {homepage:?} must be dropped"
-            );
+            assert_eq!(parsed.homepage, None, "homepage {homepage:?} must be dropped");
         }
     }
 
@@ -531,10 +493,7 @@ mod tests {
         for (field, manifest) in [
             ("license", r#"{ "name": "x", "license": 42 }"#),
             ("repository", r#"{ "name": "x", "repository": [1, 2] }"#),
-            (
-                "engines.node",
-                r#"{ "name": "x", "engines": { "node": 18 } }"#,
-            ),
+            ("engines.node", r#"{ "name": "x", "engines": { "node": 18 } }"#),
         ] {
             let dir = tempfile::tempdir().expect("tempdir");
             std::fs::write(dir.path().join("package.json"), manifest).expect("write");
@@ -558,10 +517,7 @@ mod tests {
             Some(PersonField::Text("Alice".into())),
             vec![
                 PersonField::Text("  ".into()),
-                PersonField::Object {
-                    name: Some("Bob".into()),
-                    email: None,
-                },
+                PersonField::Object { name: Some("Bob".into()), email: None },
             ],
         );
         assert_eq!(authors, vec!["Alice".to_string(), "Bob".to_string()]);
@@ -569,10 +525,8 @@ mod tests {
 
     #[test]
     fn normalise_repository_object_without_url_is_dropped() {
-        let repository = RepositoryField::Object {
-            url: None,
-            directory: Some("packages/a".into()),
-        };
+        let repository =
+            RepositoryField::Object { url: None, directory: Some("packages/a".into()) };
         assert_eq!(normalise_repository(repository), None);
     }
 }

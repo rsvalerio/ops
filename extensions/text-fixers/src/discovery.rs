@@ -133,10 +133,7 @@ pub struct Discovery {
 /// What `git ls-files` had to say.
 enum Tracked {
     /// The tracked paths, and how many printed paths could not be decoded.
-    Files {
-        files: Vec<PathBuf>,
-        undecodable: usize,
-    },
+    Files { files: Vec<PathBuf>, undecodable: usize },
     /// git ran, and reported that this is not a repository.
     NotARepository,
     /// No `git` executable on `PATH`.
@@ -164,10 +161,7 @@ enum Tracked {
 pub fn discover(root: &Path, tracked_only: bool) -> io::Result<Discovery> {
     if tracked_only {
         match tracked_files(root)? {
-            Tracked::Files {
-                mut files,
-                undecodable,
-            } => {
+            Tracked::Files { mut files, undecodable } => {
                 retain_regular_files(&mut files);
                 return Ok(Discovery {
                     files,
@@ -185,12 +179,7 @@ pub fn discover(root: &Path, tracked_only: bool) -> io::Result<Discovery> {
 
 fn walked(root: &Path, fallback: Option<Fallback>) -> io::Result<Discovery> {
     let (files, walk_errors) = walk(root)?;
-    Ok(Discovery {
-        files,
-        fallback,
-        undecodable_paths: 0,
-        walk_errors,
-    })
+    Ok(Discovery { files, fallback, undecodable_paths: 0, walk_errors })
 }
 
 /// The one place that decides whether a discovered path is a candidate.
@@ -213,10 +202,10 @@ fn walked(root: &Path, fallback: Option<Fallback>) -> io::Result<Discovery> {
 /// file is not repository content even when a post-interrupt `git add -A`
 /// staged it.
 fn is_candidate(path: &Path) -> bool {
-    if path.file_name().is_some_and(|name| {
-        name.to_string_lossy()
-            .starts_with(crate::atomic::STAGE_PREFIX)
-    }) {
+    if path
+        .file_name()
+        .is_some_and(|name| name.to_string_lossy().starts_with(crate::atomic::STAGE_PREFIX))
+    {
         return false;
     }
     std::fs::symlink_metadata(path).map_or(true, |md| md.file_type().is_file())
@@ -260,9 +249,7 @@ fn walk(root: &Path) -> io::Result<(Vec<PathBuf>, Vec<String>)> {
             // in a directory literally named `build`/`dist` would scan empty.
             entry.depth() == 0
                 || !entry.file_type().is_some_and(|t| t.is_dir())
-                || !SKIP_DIRS
-                    .iter()
-                    .any(|d| *d == entry.file_name().to_string_lossy())
+                || !SKIP_DIRS.iter().any(|d| *d == entry.file_name().to_string_lossy())
         })
         .build();
     let mut out = Vec::new();

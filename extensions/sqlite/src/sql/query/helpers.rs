@@ -65,21 +65,13 @@ impl CrateCoverage {
     /// Builds a coverage record from its raw counts and percentage.
     #[must_use = "store the returned record; it computes nothing"]
     pub const fn new(lines_count: i64, lines_covered: i64, lines_percent: f64) -> Self {
-        Self {
-            lines_count,
-            lines_covered,
-            lines_percent,
-        }
+        Self { lines_count, lines_covered, lines_percent }
     }
 
     /// The all-zero record used when a crate has no coverage data at all.
     #[must_use = "render the returned zero record instead of skipping the crate"]
     pub const fn zero() -> Self {
-        Self {
-            lines_count: 0,
-            lines_covered: 0,
-            lines_percent: 0.0,
-        }
+        Self { lines_count: 0, lines_covered: 0, lines_percent: 0.0 }
     }
 }
 
@@ -125,18 +117,13 @@ where
 {
     use anyhow::Context;
     let label = spec.label;
-    let conn = db
-        .lock()
-        .with_context(|| format!("acquiring db lock for {label}"))?;
+    let conn = db.lock().with_context(|| format!("acquiring db lock for {label}"))?;
     if !table_exists(&conn, spec.table)? {
         return Ok(init);
     }
-    let mut stmt = conn
-        .prepare(spec.sql)
-        .with_context(|| format!("preparing {label}"))?;
-    let rows = stmt
-        .query_map([], |row| row_mapper(row))
-        .with_context(|| format!("querying {label}"))?;
+    let mut stmt = conn.prepare(spec.sql).with_context(|| format!("preparing {label}"))?;
+    let rows =
+        stmt.query_map([], |row| row_mapper(row)).with_context(|| format!("querying {label}"))?;
     let mut acc = init;
     for row in rows {
         let v = row.with_context(|| format!("reading {label} row"))?;
@@ -167,9 +154,7 @@ where
     use anyhow::Context;
 
     let label = spec.label;
-    let conn = db
-        .lock()
-        .with_context(|| format!("acquiring db lock for {label}"))?;
+    let conn = db.lock().with_context(|| format!("acquiring db lock for {label}"))?;
 
     if !table_exists(&conn, spec.table)? {
         return Ok(default);
@@ -224,9 +209,7 @@ pub(super) fn prepare_per_crate<'a>(
         validate_path_chars(path)?;
     }
 
-    let conn = db
-        .lock()
-        .with_context(|| format!("acquiring db lock for {label}"))?;
+    let conn = db.lock().with_context(|| format!("acquiring db lock for {label}"))?;
 
     if !table_exists(&conn, table)? {
         return Ok(PerCrateSetup::NoTable);
@@ -269,12 +252,9 @@ where
 {
     match setup {
         PerCrateSetup::Empty => Resolved::Done(HashMap::new()),
-        PerCrateSetup::NoTable => Resolved::Done(
-            member_paths
-                .iter()
-                .map(|p| ((*p).to_string(), default_fn()))
-                .collect(),
-        ),
+        PerCrateSetup::NoTable => {
+            Resolved::Done(member_paths.iter().map(|p| ((*p).to_string(), default_fn())).collect())
+        }
         PerCrateSetup::Ready(conn, placeholders) => Resolved::Continue(conn, placeholders),
     }
 }
@@ -302,9 +282,7 @@ where
     I: IntoIterator<Item = &'p str>,
 {
     use anyhow::Context;
-    let mut stmt = conn
-        .prepare(sql)
-        .with_context(|| format!("preparing {label}"))?;
+    let mut stmt = conn.prepare(sql).with_context(|| format!("preparing {label}"))?;
     let rows = stmt
         .query_map(rusqlite::params_from_iter(params), |row| row_mapper(row))
         .with_context(|| format!("querying {label}"))?;
@@ -358,13 +336,8 @@ pub(super) fn query_per_crate_i64(
         Resolved::Continue(conn, placeholders) => (conn, placeholders),
     };
 
-    let (table, select_expr, join_alias, join_column, label) = (
-        q.table.as_str(),
-        q.select_expr,
-        q.join_alias.as_str(),
-        q.join_column.as_str(),
-        q.label,
-    );
+    let (table, select_expr, join_alias, join_column, label) =
+        (q.table.as_str(), q.select_expr, q.join_alias.as_str(), q.join_column.as_str(), q.label);
 
     let cte = members_cte_prefix(&placeholders);
     // SQLite port note: DuckDB's `starts_with(x, p)` has no SQLite
@@ -450,11 +423,7 @@ mod tests {
             |row| Ok((row.get::<_, String>(0)?, row.get::<_, i64>(1)?)),
         )
         .unwrap();
-        assert_eq!(
-            res.len(),
-            2,
-            "duplicate-key collision must collapse to one entry per key"
-        );
+        assert_eq!(res.len(), 2, "duplicate-key collision must collapse to one entry per key");
         // The insert-overwrite contract is preserved: the second row wins.
         assert_eq!(res.get("a").copied(), Some(2));
     }

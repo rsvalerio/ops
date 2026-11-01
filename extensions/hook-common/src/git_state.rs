@@ -25,11 +25,7 @@ pub enum HasStagedFilesError {
     #[error("`{program} diff --cached` timed out after {timeout:?}")]
     Timeout { program: String, timeout: Duration },
     #[error("`{program} diff --cached` failed (exit {exit_code:?}): {stderr}")]
-    NonZeroExit {
-        program: String,
-        exit_code: Option<i32>,
-        stderr: String,
-    },
+    NonZeroExit { program: String, exit_code: Option<i32>, stderr: String },
     #[error("failed to read output from `{program} diff --cached`")]
     Io {
         program: String,
@@ -191,10 +187,7 @@ fn spawn_diff_cached(
         .stdout(Stdio::null())
         .stderr(Stdio::piped())
         .spawn()
-        .map_err(|e| HasStagedFilesError::Spawn {
-            program: program.to_string(),
-            source: e,
-        })
+        .map_err(|e| HasStagedFilesError::Spawn { program: program.to_string(), source: e })
 }
 
 /// Take the child's piped stderr and drain it concurrently, returning the
@@ -239,15 +232,9 @@ fn wait_bounded(
         Ok(None) => {
             let _ = child.kill();
             let _ = child.wait();
-            Err(HasStagedFilesError::Timeout {
-                program: program.to_string(),
-                timeout,
-            })
+            Err(HasStagedFilesError::Timeout { program: program.to_string(), timeout })
         }
-        Err(source) => Err(HasStagedFilesError::Io {
-            program: program.to_string(),
-            source,
-        }),
+        Err(source) => Err(HasStagedFilesError::Io { program: program.to_string(), source }),
     }
 }
 
@@ -300,10 +287,7 @@ mod tests {
     #[serial_test::serial]
     fn git_timeout_from_env_valid_value() {
         let _g = EnvGuard::set(TEST_ENV, "10");
-        assert_eq!(
-            git_timeout_from_env(TEST_ENV, 300),
-            Some(Duration::from_secs(10))
-        );
+        assert_eq!(git_timeout_from_env(TEST_ENV, 300), Some(Duration::from_secs(10)));
     }
 
     #[test]
@@ -331,10 +315,7 @@ mod tests {
     #[serial_test::serial]
     fn git_timeout_from_env_clamps_to_ceiling() {
         let _g = EnvGuard::set(TEST_ENV, "999999999");
-        assert_eq!(
-            git_timeout_from_env(TEST_ENV, 300),
-            Some(Duration::from_mins(5))
-        );
+        assert_eq!(git_timeout_from_env(TEST_ENV, 300), Some(Duration::from_mins(5)));
     }
 
     /// The unparseable-value warn renders the

@@ -115,11 +115,8 @@ impl ConfigurableTheme {
         if !matches!(self.config.layout_kind, LayoutKind::Boxed) {
             return None;
         }
-        let title = format!(
-            " {}Running: {} ",
-            self.config.plan_header_prefix,
-            snap.command_ids.join(", ")
-        );
+        let title =
+            format!(" {}Running: {} ", self.config.plan_header_prefix, snap.command_ids.join(", "));
         Some(build_horizontal_border(BorderArgs {
             title: &title,
             left_corner: "╭─",
@@ -152,10 +149,7 @@ impl ConfigurableTheme {
         let title = if snap.success {
             format!(" Done {}/{} in {} ", snap.completed, snap.total, elapsed)
         } else {
-            let succeeded = snap
-                .completed
-                .saturating_sub(snap.failed)
-                .saturating_sub(snap.skipped);
+            let succeeded = snap.completed.saturating_sub(snap.failed).saturating_sub(snap.skipped);
             format!(
                 " {} succeeded, {} skipped, {} failed of {} in {} ",
                 succeeded, snap.skipped, snap.failed, snap.total, elapsed
@@ -191,10 +185,8 @@ impl ConfigurableTheme {
         // Frame overhead = outer margin on both sides + the boxed step reserve.
         // `2 * left_pad` accounts for the left and right outer-pad columns; the
         // reserve itself already includes the two vertical `│` bars.
-        let frame_overhead = self
-            .left_pad()
-            .saturating_mul(2)
-            .saturating_add(usize::from(BOX_STEP_RESERVE));
+        let frame_overhead =
+            self.left_pad().saturating_mul(2).saturating_add(usize::from(BOX_STEP_RESERVE));
         let inner_budget = outer.saturating_sub(frame_overhead);
         // Clamp the content to the interior budget so the
         // closing bar lands in the same column as the borders even when the
@@ -298,15 +290,8 @@ pub(super) struct BorderArgs<'a> {
 /// `columns`. `title_prefix` is the precomputed SGR prefix applied only to
 /// the inline title text so the border itself stays dim/plain.
 pub(super) fn build_horizontal_border(args: BorderArgs<'_>) -> String {
-    let BorderArgs {
-        title,
-        left_corner,
-        right_corner,
-        columns,
-        left_pad,
-        title_prefix,
-        color,
-    } = args;
+    let BorderArgs { title, left_corner, right_corner, columns, left_pad, title_prefix, color } =
+        args;
     let pad = " ".repeat(left_pad);
     let outer = usize::from(columns);
     let inner = outer.saturating_sub(left_pad.saturating_mul(2));

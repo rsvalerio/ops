@@ -57,10 +57,7 @@ mod build_command_error_tests {
         spec.cwd = Some(PathBuf::from("relative/path"));
         let cmd = build_command(&spec, std::path::Path::new("/base"), &test_vars()).unwrap();
         let current_dir = cmd.as_std().get_current_dir();
-        assert_eq!(
-            current_dir,
-            Some(std::path::Path::new("/base/relative/path"))
-        );
+        assert_eq!(current_dir, Some(std::path::Path::new("/base/relative/path")));
     }
 
     #[test]
@@ -89,10 +86,7 @@ mod build_command_error_tests {
 
     #[test]
     fn build_command_with_special_chars_in_args() {
-        let spec = exec_spec(
-            "echo",
-            &["arg with spaces", "arg'with'quotes", "arg\"with\"double"],
-        );
+        let spec = exec_spec("echo", &["arg with spaces", "arg'with'quotes", "arg\"with\"double"]);
         let cmd = build_command(&spec, std::path::Path::new("."), &test_vars()).unwrap();
         let args: Vec<_> = cmd.as_std().get_args().collect();
         assert_eq!(args.len(), 3);

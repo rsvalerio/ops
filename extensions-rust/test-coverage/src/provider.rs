@@ -40,11 +40,7 @@ impl DataProvider for CoverageProvider {
                 data_field!("regions_percent", "float", "Region coverage percentage"),
                 data_field!("branches_count", "int", "Total branches"),
                 data_field!("branches_covered", "int", "Branches covered by tests"),
-                data_field!(
-                    "branches_notcovered",
-                    "int",
-                    "Branches not covered by tests"
-                ),
+                data_field!("branches_notcovered", "int", "Branches not covered by tests"),
                 data_field!("branches_percent", "float", "Branch coverage percentage"),
             ],
         )

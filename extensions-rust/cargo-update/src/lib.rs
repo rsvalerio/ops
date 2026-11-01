@@ -228,12 +228,7 @@ const fn cargo_update_invocation(working_dir: &Path) -> CargoUpdateInvocation<'_
 /// the `OPS_SUBPROCESS_TIMEOUT_SECS` override).
 pub fn run_cargo_update_dry_run(working_dir: &Path) -> Result<Output, RunError> {
     let invocation = cargo_update_invocation(working_dir);
-    run_cargo(
-        invocation.args,
-        invocation.working_dir,
-        invocation.timeout,
-        invocation.label,
-    )
+    run_cargo(invocation.args, invocation.working_dir, invocation.timeout, invocation.label)
 }
 
 /// Strip leading `v` prefix from a version string.
@@ -445,10 +440,7 @@ fn is_index_progress_line(line: &str) -> bool {
 fn match_verb(line: &str) -> Option<(UpdateAction, &str)> {
     ACTION_PREFIXES.iter().find_map(|&(prefix, action)| {
         let rest = line.strip_prefix(prefix)?;
-        rest.chars()
-            .next()
-            .is_none_or(char::is_whitespace)
-            .then(|| (action, rest.trim()))
+        rest.chars().next().is_none_or(char::is_whitespace).then(|| (action, rest.trim()))
     })
 }
 

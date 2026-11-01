@@ -65,11 +65,7 @@ fn scan_line(input: &[u8], start: usize) -> LineSpan {
     // exactly `- 1`; `content_end` only subtracts when `has_crlf` proved it.
     let has_crlf =
         nl.is_some() && line_end > start && input.get(line_end.saturating_sub(1)) == Some(&b'\r');
-    let content_end = if has_crlf {
-        line_end.saturating_sub(1)
-    } else {
-        line_end
-    };
+    let content_end = if has_crlf { line_end.saturating_sub(1) } else { line_end };
 
     let mut trim_to = content_end;
     while trim_to > start {
@@ -250,10 +246,7 @@ mod tests {
                 bytecount(&input, b'\n'),
                 "newline count changed for {input:?} -> {out:?}"
             );
-            assert!(
-                out.len() <= input.len(),
-                "output grew for {input:?} -> {out:?}"
-            );
+            assert!(out.len() <= input.len(), "output grew for {input:?} -> {out:?}");
         }
     }
 

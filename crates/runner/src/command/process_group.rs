@@ -94,10 +94,7 @@ impl ChildGroup {
     #[cfg(unix)]
     pub fn new(child: &tokio::process::Child) -> Self {
         let pgid = child.id().and_then(|id| libc::pid_t::try_from(id).ok());
-        Self {
-            armed: pgid.is_some(),
-            pgid,
-        }
+        Self { armed: pgid.is_some(), pgid }
     }
 
     /// Non-unix: nothing to own; `kill_on_drop` is the fallback.

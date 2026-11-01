@@ -8,9 +8,7 @@ use std::path::PathBuf;
 
 #[test]
 fn display_cmd_for_exec_command() {
-    let config = TestConfigBuilder::new()
-        .exec("build", "cargo", &["build", "--all"])
-        .build();
+    let config = TestConfigBuilder::new().exec("build", "cargo", &["build", "--all"]).build();
     let runner = ops_runner::command::CommandRunner::new(config, PathBuf::from("."));
     assert_eq!(display_cmd_for(&runner, "build"), "cargo build --all");
 }
@@ -27,9 +25,7 @@ fn display_cmd_for_unknown_returns_id() {
 /// internal identifier.
 #[test]
 fn display_cmd_for_composite_returns_child_list() {
-    let config = TestConfigBuilder::new()
-        .composite("verify", &["build", "test"])
-        .build();
+    let config = TestConfigBuilder::new().composite("verify", &["build", "test"]).build();
     let runner = ops_runner::command::CommandRunner::new(config, PathBuf::from("."));
     assert_eq!(display_cmd_for(&runner, "verify"), "build, test");
 }
@@ -76,25 +72,16 @@ args = ["integration_test"]
     setup_extensions(&mut runner).expect("setup_extensions");
 
     let mut events = Vec::new();
-    let results = runner
-        .run("echo_test", &mut |e| events.push(e))
-        .await
-        .expect("run should succeed");
+    let results =
+        runner.run("echo_test", &mut |e| events.push(e)).await.expect("run should succeed");
 
+    assert!(results.iter().all(|r| r.success), "all steps should succeed");
     assert!(
-        results.iter().all(|r| r.success),
-        "all steps should succeed"
-    );
-    assert!(
-        events
-            .iter()
-            .any(|e| matches!(e, ops_runner::command::RunnerEvent::PlanStarted { .. })),
+        events.iter().any(|e| matches!(e, ops_runner::command::RunnerEvent::PlanStarted { .. })),
         "should emit PlanStarted"
     );
     assert!(
-        events
-            .iter()
-            .any(|e| matches!(e, ops_runner::command::RunnerEvent::StepFinished { .. })),
+        events.iter().any(|e| matches!(e, ops_runner::command::RunnerEvent::StepFinished { .. })),
         "should emit StepFinished"
     );
     assert!(
@@ -126,10 +113,7 @@ args = ["test"]
         )
         .expect_err("run_command should return error for unknown command");
         let msg = format!("{err:#}");
-        assert!(
-            msg.contains("nonexistent"),
-            "error chain must name the missing command: {msg}"
-        );
+        assert!(msg.contains("nonexistent"), "error chain must name the missing command: {msg}");
     }
 
     #[test]
@@ -149,11 +133,7 @@ args = ["test"]
         );
         assert!(result.is_ok(), "run_command should not error");
         let exit_code = result.unwrap();
-        assert_eq!(
-            exit_code,
-            ExitCode::SUCCESS,
-            "valid command should return SUCCESS"
-        );
+        assert_eq!(exit_code, ExitCode::SUCCESS, "valid command should return SUCCESS");
     }
 
     #[test]
@@ -175,11 +155,7 @@ args = []"#
         );
         assert!(result.is_ok(), "run_command should not error");
         let exit_code = result.unwrap();
-        assert_eq!(
-            exit_code,
-            ExitCode::FAILURE,
-            "failing command should return FAILURE"
-        );
+        assert_eq!(exit_code, ExitCode::FAILURE, "failing command should return FAILURE");
     }
 
     #[test]
@@ -292,10 +268,7 @@ args = ["hello"]
         let result = run_external_command(
             std::sync::Arc::new(ops_core::config::load_config_or_default("test")),
             &args,
-            RunOptions {
-                dry_run: true,
-                ..RunOptions::default()
-            },
+            RunOptions { dry_run: true, ..RunOptions::default() },
         );
         assert!(result.is_ok());
         assert_eq!(result.unwrap(), ExitCode::SUCCESS);
@@ -318,10 +291,7 @@ args = ["test"]
         let result = run_external_command(
             std::sync::Arc::new(ops_core::config::load_config_or_default("test")),
             &args,
-            RunOptions {
-                dry_run: true,
-                ..RunOptions::default()
-            },
+            RunOptions { dry_run: true, ..RunOptions::default() },
         );
         assert!(result.is_ok());
         assert_eq!(result.unwrap(), ExitCode::SUCCESS);
@@ -338,10 +308,7 @@ args = ["test"]
         )
         .expect_err("run_external_command should fail for unknown command");
         let msg = format!("{err:#}");
-        assert!(
-            msg.contains("nonexistent"),
-            "error chain must name the missing command: {msg}"
-        );
+        assert!(msg.contains("nonexistent"), "error chain must name the missing command: {msg}");
     }
 }
 
@@ -444,10 +411,7 @@ mod run_command_dry_run_tests {
         let result = run_command_dry_run(&runner, "nonexistent");
         let err = result.expect_err("dry_run should fail for unknown command");
         let msg = format!("{err:#}");
-        assert!(
-            msg.contains("nonexistent"),
-            "error must name the missing command: {msg}"
-        );
+        assert!(msg.contains("nonexistent"), "error must name the missing command: {msg}");
     }
 
     /// Composites are expanded: the rendered preview lists each leaf step
@@ -464,14 +428,8 @@ mod run_command_dry_run_tests {
             output.contains("Resolved to 2 step(s)"),
             "expected composite to expand into 2 leaves: {output}"
         );
-        assert!(
-            output.contains("[1] build"),
-            "expected first leaf labelled `build`: {output}"
-        );
-        assert!(
-            output.contains("[2] test"),
-            "expected second leaf labelled `test`: {output}"
-        );
+        assert!(output.contains("[1] build"), "expected first leaf labelled `build`: {output}");
+        assert!(output.contains("[2] test"), "expected second leaf labelled `test`: {output}");
         assert!(output.contains("program: cargo"), "got: {output}");
     }
 
@@ -496,10 +454,7 @@ mod run_command_dry_run_tests {
         let mut buf = Vec::new();
         run_command_dry_run_to(&runner, "next", &mut buf).unwrap();
         let output = String::from_utf8(buf).unwrap();
-        assert!(
-            output.contains("wrap:    ./svc.sh --pg --\n"),
-            "got: {output}"
-        );
+        assert!(output.contains("wrap:    ./svc.sh --pg --\n"), "got: {output}");
         assert!(output.contains("program: cargo\n"), "got: {output}");
         assert!(output.contains("args:    nextest run\n"), "got: {output}");
         assert!(output.contains("after:   build\n"), "got: {output}");
@@ -514,9 +469,7 @@ mod run_command_dry_run_tests {
             ["doc", "--no-deps", "-p", "${matrix.crate}"],
         );
         let mut matrix = ops_core::config::Matrix::default();
-        matrix
-            .axes
-            .insert("crate".into(), vec!["core".into(), "vault".into()]);
+        matrix.axes.insert("crate".into(), vec!["core".into(), "vault".into()]);
         let mut strategy = ops_core::config::Strategy::new(matrix);
         strategy.max_parallel = Some(1);
         spec.strategy = Some(strategy);
@@ -534,25 +487,15 @@ mod run_command_dry_run_tests {
         let core = output.find("- doc-default [crate=core]").expect(&output);
         let vault = output.find("- doc-default [crate=vault]").expect(&output);
         assert!(core < vault, "cells in cell order: {output}");
-        assert!(
-            output.contains("args:    doc --no-deps -p core"),
-            "{output}"
-        );
-        assert!(
-            output.contains("args:    doc --no-deps -p vault"),
-            "{output}"
-        );
-        assert!(
-            !output.contains("${matrix."),
-            "no unexpanded refs: {output}"
-        );
+        assert!(output.contains("args:    doc --no-deps -p core"), "{output}");
+        assert!(output.contains("args:    doc --no-deps -p vault"), "{output}");
+        assert!(!output.contains("${matrix."), "no unexpanded refs: {output}");
     }
 
     #[test]
     fn dry_run_shows_program_and_args() {
-        let config = TestConfigBuilder::new()
-            .exec("echo_test", "echo", &["hello", "world"])
-            .build();
+        let config =
+            TestConfigBuilder::new().exec("echo_test", "echo", &["hello", "world"]).build();
         let runner = ops_runner::command::CommandRunner::new(config, PathBuf::from("."));
         let mut buf = Vec::new();
         let result = run_command_dry_run_to(&runner, "echo_test", &mut buf);
@@ -595,18 +538,9 @@ mod run_command_dry_run_tests {
         let result = run_command_dry_run_to(&runner, "with_secrets", &mut buf);
         assert!(result.is_ok());
         let output = String::from_utf8(buf).unwrap();
-        assert!(
-            !output.contains("secret123"),
-            "should not leak secret: {output}"
-        );
-        assert!(
-            !output.contains("hunter2"),
-            "should not leak password: {output}"
-        );
-        assert!(
-            output.contains("***REDACTED***"),
-            "should show redaction: {output}"
-        );
+        assert!(!output.contains("secret123"), "should not leak secret: {output}");
+        assert!(!output.contains("hunter2"), "should not leak password: {output}");
+        assert!(output.contains("***REDACTED***"), "should show redaction: {output}");
     }
 
     /// An env entry whose name matches a sensitive prefix is
@@ -626,22 +560,14 @@ mod run_command_dry_run_tests {
         let mut spec = ops_core::config::ExecCommandSpec::new("echo", Vec::<String>::new());
         spec.env = env;
         let config = TestConfigBuilder::new()
-            .command(
-                "with_named_secrets",
-                ops_core::config::CommandSpec::Exec(spec),
-            )
+            .command("with_named_secrets", ops_core::config::CommandSpec::Exec(spec))
             .build();
         let runner = ops_runner::command::CommandRunner::new(config, PathBuf::from("."));
         let mut buf = Vec::new();
         let result = run_command_dry_run_to(&runner, "with_named_secrets", &mut buf);
         assert!(result.is_ok());
         let output = String::from_utf8(buf).unwrap();
-        for k in [
-            "MY_AUTH_HEADER",
-            "USER_TOKEN",
-            "DEPLOY_PASSWORD",
-            "APP_API_KEY",
-        ] {
+        for k in ["MY_AUTH_HEADER", "USER_TOKEN", "DEPLOY_PASSWORD", "APP_API_KEY"] {
             assert!(
                 output.contains(&format!("{k}=***REDACTED***")),
                 "key {k} should be redacted via name match alone, got: {output}"
@@ -714,10 +640,7 @@ mod run_command_dry_run_tests {
         let result = run_command_dry_run_to(&runner, "leaks_env", &mut buf);
         let err = result.expect_err("dry-run must propagate non-UTF-8 env failure");
         let msg = format!("{err:#}");
-        assert!(
-            msg.contains(key),
-            "error must name the offending var: {msg}"
-        );
+        assert!(msg.contains(key), "error must name the offending var: {msg}");
     }
 
     /// A non-UTF-8 cwd `PathBuf` is rendered through a
@@ -739,10 +662,7 @@ mod run_command_dry_run_tests {
         let mut buf = Vec::new();
         run_command_dry_run_to(&runner, "non_utf8_cwd", &mut buf).unwrap();
         let output = String::from_utf8(buf).unwrap();
-        assert!(
-            output.contains("(non-UTF-8 path; lossy preview)"),
-            "annotation missing: {output}"
-        );
+        assert!(output.contains("(non-UTF-8 path; lossy preview)"), "annotation missing: {output}");
     }
 
     /// `print_exec_spec` routes program / args / env
@@ -772,10 +692,7 @@ mod run_command_dry_run_tests {
             !output.contains('\u{1b}'),
             "raw ESC byte must not survive in dry-run audit output: {output:?}"
         );
-        assert!(
-            output.contains("\\x1b"),
-            "expected escaped \\x1b form in: {output:?}"
-        );
+        assert!(output.contains("\\x1b"), "expected escaped \\x1b form in: {output:?}");
     }
 
     /// The command name and resolved leaf id printed
@@ -798,10 +715,7 @@ mod run_command_dry_run_tests {
             !output.contains('\u{1b}'),
             "raw ESC byte must not survive in dry-run name/id: {output:?}"
         );
-        assert!(
-            output.contains("\\x1b"),
-            "expected escaped \\x1b form for name/id in: {output:?}"
-        );
+        assert!(output.contains("\\x1b"), "expected escaped \\x1b form for name/id in: {output:?}");
     }
 }
 
@@ -812,10 +726,7 @@ mod raw_warnings_tests {
     #[test]
     fn raw_with_tap_emits_warning() {
         let logs = capture(|| {
-            emit_raw_warnings(RawFlagConflicts {
-                has_tap: true,
-                ..RawFlagConflicts::default()
-            });
+            emit_raw_warnings(RawFlagConflicts { has_tap: true, ..RawFlagConflicts::default() });
         });
         assert!(logs.contains("--tap is ignored under --raw"), "got: {logs}");
     }
@@ -828,10 +739,7 @@ mod raw_warnings_tests {
                 ..RawFlagConflicts::default()
             });
         });
-        assert!(
-            logs.contains("--raw forces sequential execution"),
-            "got: {logs}"
-        );
+        assert!(logs.contains("--raw forces sequential execution"), "got: {logs}");
     }
 
     #[test]
@@ -859,15 +767,9 @@ mod raw_warnings_tests {
     #[test]
     fn raw_with_junit_emits_warning() {
         let logs = capture(|| {
-            emit_raw_warnings(RawFlagConflicts {
-                has_junit: true,
-                ..RawFlagConflicts::default()
-            });
+            emit_raw_warnings(RawFlagConflicts { has_junit: true, ..RawFlagConflicts::default() });
         });
-        assert!(
-            logs.contains("--junit is ignored under --raw"),
-            "got: {logs}"
-        );
+        assert!(logs.contains("--junit is ignored under --raw"), "got: {logs}");
     }
 
     /// `--raw -v` previously emitted nothing — raw mode
@@ -877,15 +779,9 @@ mod raw_warnings_tests {
     #[test]
     fn raw_with_verbose_emits_warning() {
         let logs = capture(|| {
-            emit_raw_warnings(RawFlagConflicts {
-                verbose: true,
-                ..RawFlagConflicts::default()
-            });
+            emit_raw_warnings(RawFlagConflicts { verbose: true, ..RawFlagConflicts::default() });
         });
-        assert!(
-            logs.contains("--verbose is ignored under --raw"),
-            "got: {logs}"
-        );
+        assert!(logs.contains("--verbose is ignored under --raw"), "got: {logs}");
     }
 
     /// Dry-run gets the symmetric `--verbose` warning —
@@ -898,10 +794,7 @@ mod raw_warnings_tests {
                 tracing::warn!("{m}");
             }
         });
-        assert!(
-            logs.contains("--verbose is ignored under --dry-run"),
-            "got: {logs}"
-        );
+        assert!(logs.contains("--verbose is ignored under --dry-run"), "got: {logs}");
     }
 
     /// The single-command `--raw` path used to inline its
@@ -913,9 +806,7 @@ mod raw_warnings_tests {
         use crate::run_cmd::run_command_raw;
         use crate::test_utils::TestConfigBuilder;
 
-        let config = TestConfigBuilder::new()
-            .exec("echo_one", "echo", &["hi"])
-            .build();
+        let config = TestConfigBuilder::new().exec("echo_one", "echo", &["hi"]).build();
         let runner = ops_runner::command::CommandRunner::new(config, std::path::PathBuf::from("."));
         let logs = capture(|| {
             let _ = run_command_raw(&runner, "echo_one", true, false);
@@ -972,14 +863,10 @@ mod config_raw_tests {
 
     #[test]
     fn command_tree_is_raw_composite_itself() {
-        let mut config = TestConfigBuilder::new()
-            .exec("plain", "echo", &["hi"])
-            .build();
+        let mut config = TestConfigBuilder::new().exec("plain", "echo", &["hi"]).build();
         let mut group = CompositeCommandSpec::new(["plain"]);
         group.raw = true;
-        config
-            .commands
-            .insert("group".to_string(), CommandSpec::Composite(group));
+        config.commands.insert("group".to_string(), CommandSpec::Composite(group));
         assert!(command_tree_is_raw(&runner_with(config), "group"));
     }
 
@@ -988,12 +875,8 @@ mod config_raw_tests {
         let a = CompositeCommandSpec::new(["b"]);
         let b = CompositeCommandSpec::new(["a"]);
         let mut config = ops_core::config::Config::empty();
-        config
-            .commands
-            .insert("a".to_string(), CommandSpec::Composite(a));
-        config
-            .commands
-            .insert("b".to_string(), CommandSpec::Composite(b));
+        config.commands.insert("a".to_string(), CommandSpec::Composite(a));
+        config.commands.insert("b".to_string(), CommandSpec::Composite(b));
         assert!(!command_tree_is_raw(&runner_with(config), "a"));
     }
 
@@ -1015,10 +898,7 @@ raw = true
                 run_commands(
                     std::sync::Arc::new(ops_core::config::load_config_or_default("test")),
                     &["echo_test"],
-                    RunOptions {
-                        dry_run: true,
-                        ..RunOptions::default()
-                    },
+                    RunOptions { dry_run: true, ..RunOptions::default() },
                 )
                 .expect("dry run should succeed");
             })
@@ -1045,11 +925,7 @@ raw = true
             run_commands(
                 std::sync::Arc::new(ops_core::config::load_config_or_default("test")),
                 &["echo_test"],
-                RunOptions {
-                    dry_run: true,
-                    raw: true,
-                    ..RunOptions::default()
-                },
+                RunOptions { dry_run: true, raw: true, ..RunOptions::default() },
             )
             .expect("dry run should succeed");
         });
@@ -1076,10 +952,7 @@ raw = true
             let exit = run_commands(
                 std::sync::Arc::new(ops_core::config::load_config_or_default("test")),
                 &["echo_test"],
-                RunOptions {
-                    tap: Some(PathBuf::from("tap.log")),
-                    ..RunOptions::default()
-                },
+                RunOptions { tap: Some(PathBuf::from("tap.log")), ..RunOptions::default() },
             )
             .expect("raw run should succeed");
             assert_eq!(exit, ExitCode::SUCCESS);
@@ -1105,13 +978,9 @@ mod nested_parallel_detection_tests {
     fn detects_top_level_parallel() {
         let mut comp = CompositeCommandSpec::new(["a", "b"]);
         comp.parallel = true;
-        let mut config = TestConfigBuilder::new()
-            .exec("a", "echo", &["a"])
-            .exec("b", "echo", &["b"])
-            .build();
-        config
-            .commands
-            .insert("top".to_string(), CommandSpec::Composite(comp));
+        let mut config =
+            TestConfigBuilder::new().exec("a", "echo", &["a"]).exec("b", "echo", &["b"]).build();
+        config.commands.insert("top".to_string(), CommandSpec::Composite(comp));
         assert!(composite_tree_has_parallel(&runner_with(config), "top"));
     }
 
@@ -1125,12 +994,8 @@ mod nested_parallel_detection_tests {
             .exec("b", "echo", &["b"])
             .exec("tail", "echo", &["t"])
             .build();
-        config
-            .commands
-            .insert("inner".to_string(), CommandSpec::Composite(inner));
-        config
-            .commands
-            .insert("outer".to_string(), CommandSpec::Composite(outer));
+        config.commands.insert("inner".to_string(), CommandSpec::Composite(inner));
+        config.commands.insert("outer".to_string(), CommandSpec::Composite(outer));
         assert!(
             composite_tree_has_parallel(&runner_with(config), "outer"),
             "nested parallel composite should be detected"
@@ -1140,13 +1005,9 @@ mod nested_parallel_detection_tests {
     #[test]
     fn no_parallel_returns_false() {
         let outer = CompositeCommandSpec::new(["a", "b"]);
-        let mut config = TestConfigBuilder::new()
-            .exec("a", "echo", &["a"])
-            .exec("b", "echo", &["b"])
-            .build();
-        config
-            .commands
-            .insert("outer".to_string(), CommandSpec::Composite(outer));
+        let mut config =
+            TestConfigBuilder::new().exec("a", "echo", &["a"]).exec("b", "echo", &["b"]).build();
+        config.commands.insert("outer".to_string(), CommandSpec::Composite(outer));
         assert!(!composite_tree_has_parallel(&runner_with(config), "outer"));
     }
 
@@ -1162,12 +1023,8 @@ mod nested_parallel_detection_tests {
         let a = CompositeCommandSpec::new(["b"]);
         let b = CompositeCommandSpec::new(["a"]);
         let mut config = ops_core::config::Config::empty();
-        config
-            .commands
-            .insert("a".to_string(), CommandSpec::Composite(a));
-        config
-            .commands
-            .insert("b".to_string(), CommandSpec::Composite(b));
+        config.commands.insert("a".to_string(), CommandSpec::Composite(a));
+        config.commands.insert("b".to_string(), CommandSpec::Composite(b));
         assert!(!composite_tree_has_parallel(&runner_with(config), "a"));
     }
 }
@@ -1194,20 +1051,14 @@ mod name_plan_expansion_tests {
 
     fn stage(leaf_ids: &[&str], parallel: bool, fail_fast: bool) -> CommandPlan {
         CommandPlan::Stage {
-            leaf_ids: leaf_ids
-                .iter()
-                .map(|s| ops_core::config::CommandId::from(*s))
-                .collect(),
+            leaf_ids: leaf_ids.iter().map(|s| ops_core::config::CommandId::from(*s)).collect(),
             parallel,
             fail_fast,
         }
     }
 
     fn sequence(children: Vec<CommandPlan>, fail_fast: bool) -> CommandPlan {
-        CommandPlan::Sequence {
-            children,
-            fail_fast,
-        }
+        CommandPlan::Sequence { children, fail_fast }
     }
 
     /// A parallel inner composite under a sequential outer
@@ -1218,16 +1069,10 @@ mod name_plan_expansion_tests {
         let mut inner = CompositeCommandSpec::new(["a", "b"]);
         inner.parallel = true;
         let outer = CompositeCommandSpec::new(["inner"]); // outer.parallel = false
-        let mut config = TestConfigBuilder::new()
-            .exec("a", "echo", &["a"])
-            .exec("b", "echo", &["b"])
-            .build();
-        config
-            .commands
-            .insert("inner".to_string(), CommandSpec::Composite(inner));
-        config
-            .commands
-            .insert("outer".to_string(), CommandSpec::Composite(outer));
+        let mut config =
+            TestConfigBuilder::new().exec("a", "echo", &["a"]).exec("b", "echo", &["b"]).build();
+        config.commands.insert("inner".to_string(), CommandSpec::Composite(inner));
+        config.commands.insert("outer".to_string(), CommandSpec::Composite(outer));
 
         let plans = plans_for_names(&runner_with(config), &["outer"])
             .expect("a sequential root may contain a parallel group");
@@ -1240,10 +1085,7 @@ mod name_plan_expansion_tests {
             },
             "the parallel child must be its own parallel stage"
         );
-        assert!(
-            plans[0].plan.any_parallel(),
-            "the parallel child schedules its own steps"
-        );
+        assert!(plans[0].plan.any_parallel(), "the parallel child schedules its own steps");
     }
 
     /// A sequential group whose entries are groups runs each
@@ -1262,14 +1104,8 @@ mod name_plan_expansion_tests {
             .exec("s2", "echo", &["s2"])
             .exec("tail", "echo", &["tail"])
             .build();
-        for (name, spec) in [
-            ("par_child", par_child),
-            ("seq_child", seq_child),
-            ("root", root),
-        ] {
-            config
-                .commands
-                .insert(name.to_string(), CommandSpec::Composite(spec));
+        for (name, spec) in [("par_child", par_child), ("seq_child", seq_child), ("root", root)] {
+            config.commands.insert(name.to_string(), CommandSpec::Composite(spec));
         }
 
         let plans = plans_for_names(&runner_with(config), &["root"]).expect("root must expand");
@@ -1280,10 +1116,7 @@ mod name_plan_expansion_tests {
                     stage(&["p1", "p2"], true, true),
                     // A sequential child is itself a sequence of its own
                     // entries — the recursion is faithful at every depth.
-                    sequence(
-                        vec![stage(&["s1"], false, true), stage(&["s2"], false, true)],
-                        true,
-                    ),
+                    sequence(vec![stage(&["s1"], false, true), stage(&["s2"], false, true)], true,),
                     stage(&["tail"], false, true),
                 ],
                 true,
@@ -1306,14 +1139,8 @@ mod name_plan_expansion_tests {
             .exec("p2", "echo", &["p2"])
             .exec("s1", "echo", &["s1"])
             .build();
-        for (name, spec) in [
-            ("par_child", par_child),
-            ("seq_child", seq_child),
-            ("root", root),
-        ] {
-            config
-                .commands
-                .insert(name.to_string(), CommandSpec::Composite(spec));
+        for (name, spec) in [("par_child", par_child), ("seq_child", seq_child), ("root", root)] {
+            config.commands.insert(name.to_string(), CommandSpec::Composite(spec));
         }
         let runner = runner_with(config);
 
@@ -1324,19 +1151,13 @@ mod name_plan_expansion_tests {
         let child_trees: Vec<CommandPlan> = named.iter().map(|p| p.plan.clone()).collect();
         assert_eq!(
             grouped[0].plan,
-            CommandPlan::Sequence {
-                children: child_trees,
-                fail_fast: true,
-            },
+            CommandPlan::Sequence { children: child_trees, fail_fast: true },
             "`ops root` must schedule exactly what `ops par_child seq_child` does"
         );
         // The flattened leaf order — what runs — is identical either way.
         assert_eq!(
             grouped[0].plan.leaf_ids(),
-            named
-                .iter()
-                .flat_map(|p| p.plan.leaf_ids())
-                .collect::<Vec<_>>()
+            named.iter().flat_map(|p| p.plan.leaf_ids()).collect::<Vec<_>>()
         );
     }
 
@@ -1349,12 +1170,8 @@ mod name_plan_expansion_tests {
         inner.fail_fast = false;
         let outer = CompositeCommandSpec::new(["inner"]); // fail_fast defaults true
         let mut config = TestConfigBuilder::new().exec("a", "echo", &["a"]).build();
-        config
-            .commands
-            .insert("inner".to_string(), CommandSpec::Composite(inner));
-        config
-            .commands
-            .insert("outer".to_string(), CommandSpec::Composite(outer));
+        config.commands.insert("inner".to_string(), CommandSpec::Composite(inner));
+        config.commands.insert("outer".to_string(), CommandSpec::Composite(outer));
 
         let plans = plans_for_names(&runner_with(config), &["outer"])
             .expect("a sequential root may contain a fail_fast = false group");
@@ -1373,12 +1190,8 @@ mod name_plan_expansion_tests {
         let mut outer = CompositeCommandSpec::new(["inner"]);
         outer.parallel = true; // outer.fail_fast defaults true
         let mut config = TestConfigBuilder::new().exec("a", "echo", &["a"]).build();
-        config
-            .commands
-            .insert("inner".to_string(), CommandSpec::Composite(inner));
-        config
-            .commands
-            .insert("outer".to_string(), CommandSpec::Composite(outer));
+        config.commands.insert("inner".to_string(), CommandSpec::Composite(inner));
+        config.commands.insert("outer".to_string(), CommandSpec::Composite(outer));
 
         let err = plans_for_names(&runner_with(config), &["outer"])
             .expect_err("conflicting `fail_fast` inside one stage must be rejected");
@@ -1398,16 +1211,10 @@ mod name_plan_expansion_tests {
         inner.parallel = true;
         let mut outer = CompositeCommandSpec::new(["inner"]);
         outer.parallel = true;
-        let mut config = TestConfigBuilder::new()
-            .exec("a", "echo", &["a"])
-            .exec("b", "echo", &["b"])
-            .build();
-        config
-            .commands
-            .insert("inner".to_string(), CommandSpec::Composite(inner));
-        config
-            .commands
-            .insert("outer".to_string(), CommandSpec::Composite(outer));
+        let mut config =
+            TestConfigBuilder::new().exec("a", "echo", &["a"]).exec("b", "echo", &["b"]).build();
+        config.commands.insert("inner".to_string(), CommandSpec::Composite(inner));
+        config.commands.insert("outer".to_string(), CommandSpec::Composite(outer));
 
         let plans = plans_for_names(&runner_with(config), &["outer"])
             .expect("agreeing composites must expand");
@@ -1427,16 +1234,10 @@ mod name_plan_expansion_tests {
         let mut par = CompositeCommandSpec::new(["b"]);
         par.parallel = true;
         let seq = CompositeCommandSpec::new(["a"]); // parallel = false
-        let mut config = TestConfigBuilder::new()
-            .exec("a", "echo", &["a"])
-            .exec("b", "echo", &["b"])
-            .build();
-        config
-            .commands
-            .insert("seq".to_string(), CommandSpec::Composite(seq));
-        config
-            .commands
-            .insert("par".to_string(), CommandSpec::Composite(par));
+        let mut config =
+            TestConfigBuilder::new().exec("a", "echo", &["a"]).exec("b", "echo", &["b"]).build();
+        config.commands.insert("seq".to_string(), CommandSpec::Composite(seq));
+        config.commands.insert("par".to_string(), CommandSpec::Composite(par));
 
         let plans = plans_for_names(&runner_with(config), &["seq", "par"])
             .expect("independent roots must not trip the intra-stage agreement check");
@@ -1523,23 +1324,15 @@ mod run_name_plans_tests {
         let mut par = CompositeCommandSpec::new(["p_slow", "p_quick"]);
         par.parallel = true;
         let seq = CompositeCommandSpec::new(["s_slow", "s_quick"]); // parallel = false
-        config
-            .commands
-            .insert("par".to_string(), CommandSpec::Composite(par));
-        config
-            .commands
-            .insert("seq".to_string(), CommandSpec::Composite(seq));
+        config.commands.insert("par".to_string(), CommandSpec::Composite(par));
+        config.commands.insert("seq".to_string(), CommandSpec::Composite(seq));
         let runner = ops_runner::command::CommandRunner::new(config, std::path::PathBuf::from("."));
 
         let plans = plans_for_names(&runner, &["par", "seq"]).expect("both names must expand");
         let mut events = Vec::new();
         let results = run_name_plans(&runner, &plans, false, &mut |e| events.push(e)).await;
 
-        assert_eq!(
-            results.len(),
-            4,
-            "the single result set covers every step of both names"
-        );
+        assert_eq!(results.len(), 4, "the single result set covers every step of both names");
 
         // The parallel name still overlaps its own steps.
         assert!(
@@ -1590,14 +1383,8 @@ mod run_name_plans_tests {
             .iter()
             .filter(|e| matches!(e, ops_runner::command::RunnerEvent::RunFinished { .. }))
             .count();
-        assert_eq!(
-            started, 1,
-            "one outer PlanStarted for the whole sequence: {events:?}"
-        );
-        assert_eq!(
-            finished, 1,
-            "one outer RunFinished for the whole sequence: {events:?}"
-        );
+        assert_eq!(started, 1, "one outer PlanStarted for the whole sequence: {events:?}");
+        assert_eq!(finished, 1, "one outer RunFinished for the whole sequence: {events:?}");
 
         match &events[0] {
             ops_runner::command::RunnerEvent::PlanStarted { command_ids } => {
@@ -1629,10 +1416,7 @@ mod run_name_plans_tests {
         let runner = ops_runner::command::CommandRunner::new(config, std::path::PathBuf::from("."));
 
         let plans = plans_for_names(&runner, &["boom", "after"]).expect("both names must expand");
-        assert!(
-            plans[0].plan.effective_fail_fast(),
-            "fail_fast defaults to true"
-        );
+        assert!(plans[0].plan.effective_fail_fast(), "fail_fast defaults to true");
         let mut events = Vec::new();
         let results = run_name_plans(&runner, &plans, false, &mut |e| events.push(e)).await;
 
@@ -1659,9 +1443,7 @@ mod run_name_plans_tests {
             .build();
         let mut lenient = CompositeCommandSpec::new(["boom"]);
         lenient.fail_fast = false;
-        config
-            .commands
-            .insert("lenient".to_string(), CommandSpec::Composite(lenient));
+        config.commands.insert("lenient".to_string(), CommandSpec::Composite(lenient));
         let runner = ops_runner::command::CommandRunner::new(config, std::path::PathBuf::from("."));
 
         let plans =
@@ -1727,11 +1509,7 @@ args = []
                 RunOptions::default(),
             )
             .expect("both names run");
-            assert_eq!(
-                exit,
-                ExitCode::FAILURE,
-                "a failing name fails the whole invocation"
-            );
+            assert_eq!(exit, ExitCode::FAILURE, "a failing name fails the whole invocation");
         }
     }
 }
@@ -1781,12 +1559,8 @@ mod staged_scheduling_tests {
         let mut grp = CompositeCommandSpec::new(["g_slow", "g_quick"]);
         grp.parallel = true;
         let root = CompositeCommandSpec::new(["grp", "tail"]); // parallel = false
-        config
-            .commands
-            .insert("grp".to_string(), CommandSpec::Composite(grp));
-        config
-            .commands
-            .insert("root".to_string(), CommandSpec::Composite(root));
+        config.commands.insert("grp".to_string(), CommandSpec::Composite(grp));
+        config.commands.insert("root".to_string(), CommandSpec::Composite(root));
         ops_runner::command::CommandRunner::new(config, std::path::PathBuf::from("."))
     }
 
@@ -1829,22 +1603,15 @@ mod staged_scheduling_tests {
             .build();
         let boom_grp = CompositeCommandSpec::new(["boom"]); // fail_fast defaults true
         let root = CompositeCommandSpec::new(["boom_grp", "after"]);
-        config
-            .commands
-            .insert("boom_grp".to_string(), CommandSpec::Composite(boom_grp));
-        config
-            .commands
-            .insert("root".to_string(), CommandSpec::Composite(root));
+        config.commands.insert("boom_grp".to_string(), CommandSpec::Composite(boom_grp));
+        config.commands.insert("root".to_string(), CommandSpec::Composite(root));
         let runner = ops_runner::command::CommandRunner::new(config, std::path::PathBuf::from("."));
 
         let plans = plans_for_names(&runner, &["root"]).expect("root must expand");
         let mut events = Vec::new();
         let results = run_name_plans(&runner, &plans, false, &mut |e| events.push(e)).await;
 
-        assert!(
-            events.iter().any(|e| is_started(e, "boom")),
-            "the failing entry ran: {events:?}"
-        );
+        assert!(events.iter().any(|e| is_started(e, "boom")), "the failing entry ran: {events:?}");
         assert!(
             !events.iter().any(|e| is_started(e, "after")),
             "fail_fast must stop the entries after a failing one: {events:?}"
@@ -1863,9 +1630,7 @@ mod staged_scheduling_tests {
             .build();
         let mut root = CompositeCommandSpec::new(["boom", "after"]);
         root.fail_fast = false;
-        config
-            .commands
-            .insert("root".to_string(), CommandSpec::Composite(root));
+        config.commands.insert("root".to_string(), CommandSpec::Composite(root));
         let runner = ops_runner::command::CommandRunner::new(config, std::path::PathBuf::from("."));
 
         let plans = plans_for_names(&runner, &["root"]).expect("root must expand");
@@ -1898,12 +1663,8 @@ mod staged_scheduling_tests {
             let mut grp = CompositeCommandSpec::new(["a", "b"]);
             grp.parallel = true;
             let root = CompositeCommandSpec::new(["grp", "boom", "c"]);
-            config
-                .commands
-                .insert("grp".to_string(), CommandSpec::Composite(grp));
-            config
-                .commands
-                .insert("root".to_string(), CommandSpec::Composite(root));
+            config.commands.insert("grp".to_string(), CommandSpec::Composite(grp));
+            config.commands.insert("root".to_string(), CommandSpec::Composite(root));
             ops_runner::command::CommandRunner::new(config, std::path::PathBuf::from("."))
         };
 
@@ -1926,11 +1687,7 @@ mod staged_scheduling_tests {
             pairs.sort_unstable();
             pairs
         };
-        assert_eq!(
-            outline(&grouped),
-            outline(&named),
-            "same steps with the same outcomes"
-        );
+        assert_eq!(outline(&grouped), outline(&named), "same steps with the same outcomes");
         // …and the shared tail is real: `boom` stops `c` in both forms.
         assert!(
             !grouped.iter().any(|r| r.id.as_str() == "c"),
@@ -2008,10 +1765,7 @@ mod dry_run_override_warnings_tests {
     #[test]
     fn dry_run_overrides_messages_silent_when_no_conflict() {
         let msgs = super::super::dry_run_overrides_messages(false, false, false);
-        assert!(
-            msgs.is_empty(),
-            "no override flags must not emit any message: got {msgs:?}"
-        );
+        assert!(msgs.is_empty(), "no override flags must not emit any message: got {msgs:?}");
     }
 
     /// Dry-run picks up the symmetric `--verbose`
@@ -2020,11 +1774,7 @@ mod dry_run_override_warnings_tests {
     #[test]
     fn dry_run_overrides_messages_emits_for_verbose() {
         let msgs = super::super::dry_run_overrides_messages(false, false, true);
-        assert_eq!(
-            msgs.len(),
-            1,
-            "verbose alone must produce exactly one message"
-        );
+        assert_eq!(msgs.len(), 1, "verbose alone must produce exactly one message");
         assert!(
             msgs[0].contains("--verbose is ignored under --dry-run"),
             "verbose override message missing: got {msgs:?}"
@@ -2056,10 +1806,7 @@ mod signal_shutdown_tests {
     #[test]
     #[serial_test::serial]
     fn plan_completes_normally_when_no_signal_arrives() {
-        let rt = tokio::runtime::Builder::new_current_thread()
-            .enable_all()
-            .build()
-            .unwrap();
+        let rt = tokio::runtime::Builder::new_current_thread().enable_all().build().unwrap();
         let outcome = rt.block_on(run_until_signal(async { 7_u32 }));
         assert!(matches!(outcome, PlanOutcome::Completed(7)));
     }

@@ -252,11 +252,7 @@ pub fn register_extension_data_providers(
     let mut owners =
         snapshot_initial_owners(registry.provider_names().into_iter().map(str::to_string));
     for ext in extensions {
-        debug!(
-            extension = ext.name(),
-            action = "data_providers",
-            "registering"
-        );
+        debug!(extension = ext.name(), action = "data_providers", "registering");
         let mut local = DataRegistry::new();
         ext.register_data_providers(&mut local);
         warn_in_extension_duplicates(

@@ -35,10 +35,7 @@ fn error_block_color_wraps_top_mid_bottom_with_sgr_when_enabled() {
     let lines = render_with(&boxed_chars("red dim"), true);
     assert_eq!(lines.len(), 3, "top + message + bottom: {lines:?}");
     for line in &lines {
-        assert!(
-            line.contains('\x1b'),
-            "glyph should carry SGR when color enabled: {line}"
-        );
+        assert!(line.contains('\x1b'), "glyph should carry SGR when color enabled: {line}");
     }
 }
 
@@ -46,10 +43,7 @@ fn error_block_color_wraps_top_mid_bottom_with_sgr_when_enabled() {
 fn error_block_rail_remains_unstyled_when_color_set() {
     let lines = render_with(&boxed_chars("red"), true);
     for line in &lines {
-        assert!(
-            line.starts_with('│'),
-            "rail glyph must not be wrapped in SGR: {line}"
-        );
+        assert!(line.starts_with('│'), "rail glyph must not be wrapped in SGR: {line}");
     }
 }
 
@@ -72,20 +66,13 @@ fn error_block_unknown_color_does_not_change_display_width() {
 /// icons is covered by the same assertion.
 #[test]
 fn error_block_gutter_width_tracks_icon_column_width() {
-    let chars = ErrorBlockChars {
-        rail: String::new(),
-        ..boxed_chars("red")
-    };
+    let chars = ErrorBlockChars { rail: String::new(), ..boxed_chars("red") };
     let detail = ErrorDetail::new("exit status: 1".to_string(), vec![]);
     for icon_width in [1usize, 2, 4] {
         let lines = render_error_block_gated(&detail, icon_width, &chars, 0, true);
         let top = &lines[0];
         let leading = top.chars().take_while(|c| *c == ' ').count();
-        assert_eq!(
-            leading,
-            icon_width + 3,
-            "gutter must be icon_column_width + 3 spaces: {top:?}"
-        );
+        assert_eq!(leading, icon_width + 3, "gutter must be icon_column_width + 3 spaces: {top:?}");
     }
 }
 
@@ -102,22 +89,14 @@ fn error_block_stderr_tail_branch_is_colored_and_indented() {
     let lines = render_error_block_gated(&detail, icon_column_width(), &chars, 0, true);
     // top + message + "stderr (last 2 lines):" + 2 entries + bottom
     assert_eq!(lines.len(), 6, "{lines:?}");
-    assert!(
-        crate::strip_ansi(&lines[2]).ends_with("stderr (last 2 lines):"),
-        "{:?}",
-        lines[2]
-    );
+    assert!(crate::strip_ansi(&lines[2]).ends_with("stderr (last 2 lines):"), "{:?}", lines[2]);
     for line in &lines[2..5] {
         assert!(
             line.contains('\x1b'),
             "mid glyph on the stderr_tail branch must carry SGR: {line}"
         );
     }
-    assert!(
-        crate::strip_ansi(&lines[4]).ends_with("   kaboom"),
-        "{:?}",
-        lines[4]
-    );
+    assert!(crate::strip_ansi(&lines[4]).ends_with("   kaboom"), "{:?}", lines[4]);
 
     // With the gate off the same lines carry no SGR at all.
     let plain = render_error_block_gated(&detail, icon_column_width(), &chars, 0, false);

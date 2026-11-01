@@ -44,12 +44,9 @@ pub(super) fn query_identity_metrics(ctx: &Context) -> IdentityMetrics {
 // rendering as zeros.
 
 fn query_dependency_count(db: &Sqlite) -> Option<usize> {
-    query_or_warn(
-        "query_dependency_count",
-        "dependency_count will be None",
-        None,
-        || ops_sqlite::sql::query_dependency_count(db).map(Some),
-    )
+    query_or_warn("query_dependency_count", "dependency_count will be None", None, || {
+        ops_sqlite::sql::query_dependency_count(db).map(Some)
+    })
 }
 
 fn query_coverage_and_languages(db: &Sqlite) -> (Option<f64>, Vec<LanguageStat>) {
@@ -66,12 +63,10 @@ fn query_coverage_and_languages(db: &Sqlite) -> (Option<f64>, Vec<LanguageStat>)
         }
     });
 
-    let languages = query_or_warn(
-        "query_project_languages",
-        "languages will be empty",
-        vec![],
-        || ops_sqlite::sql::query_project_languages(db),
-    );
+    let languages =
+        query_or_warn("query_project_languages", "languages will be empty", vec![], || {
+            ops_sqlite::sql::query_project_languages(db)
+        });
 
     (coverage, languages)
 }
@@ -80,12 +75,9 @@ fn query_loc_from_db(db: &Sqlite) -> (Option<i64>, Option<i64>) {
     let loc = query_or_warn("query_project_loc", "loc will be None", None, || {
         ops_sqlite::sql::query_project_loc(db).map(Some)
     });
-    let files = query_or_warn(
-        "query_project_file_count",
-        "file_count will be None",
-        None,
-        || ops_sqlite::sql::query_project_file_count(db).map(Some),
-    );
+    let files = query_or_warn("query_project_file_count", "file_count will be None", None, || {
+        ops_sqlite::sql::query_project_file_count(db).map(Some)
+    });
     (loc, files)
 }
 
@@ -141,10 +133,7 @@ mod tests {
     fn zero_line_project_reports_no_coverage_percent() {
         let db = seed_coverage(0, 0, 0.0);
         let (coverage, _languages) = query_coverage_and_languages(&db);
-        assert_eq!(
-            coverage, None,
-            "a project with zero measured lines has no coverage percentage"
-        );
+        assert_eq!(coverage, None, "a project with zero measured lines has no coverage percentage");
     }
 
     #[test]

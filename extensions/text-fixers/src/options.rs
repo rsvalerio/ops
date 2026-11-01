@@ -33,12 +33,7 @@ pub struct FixerOptions {
 impl FixerOptions {
     #[must_use]
     pub const fn new(root: PathBuf, tracked_only: bool) -> Self {
-        Self {
-            root,
-            tracked_only,
-            max_bytes: DEFAULT_MAX_BYTES,
-            check: false,
-        }
+        Self { root, tracked_only, max_bytes: DEFAULT_MAX_BYTES, check: false }
     }
 
     #[must_use]

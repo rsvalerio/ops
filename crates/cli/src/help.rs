@@ -72,8 +72,7 @@ fn value_taking_globals() -> &'static [Box<str>] {
 /// has built the command, so fall back to the arg's action, which is set at
 /// declaration time (`SetTrue` / `Count` take none, `Set` / `Append` do).
 fn takes_a_value(arg: &clap::Arg) -> bool {
-    arg.get_num_args()
-        .map_or_else(|| arg.get_action().takes_values(), |n| n.takes_values())
+    arg.get_num_args().map_or_else(|| arg.get_action().takes_values(), |n| n.takes_values())
 }
 
 fn collect_value_taking_globals(cmd: &clap::Command) -> Vec<Box<str>> {
@@ -82,17 +81,11 @@ fn collect_value_taking_globals(cmd: &clap::Command) -> Vec<Box<str>> {
         if !arg.is_global_set() || !takes_a_value(arg) {
             continue;
         }
-        for long in arg
-            .get_long()
-            .into_iter()
-            .chain(arg.get_all_aliases().into_iter().flatten())
-        {
+        for long in arg.get_long().into_iter().chain(arg.get_all_aliases().into_iter().flatten()) {
             spellings.push(format!("--{long}").into_boxed_str());
         }
-        for short in arg
-            .get_short()
-            .into_iter()
-            .chain(arg.get_all_short_aliases().into_iter().flatten())
+        for short in
+            arg.get_short().into_iter().chain(arg.get_all_short_aliases().into_iter().flatten())
         {
             spellings.push(format!("-{short}").into_boxed_str());
         }
@@ -163,19 +156,11 @@ pub fn collect_command_entries(
             continue;
         }
         let name = sub.get_name().to_string();
-        let about = sub
-            .get_about()
-            .map(std::string::ToString::to_string)
-            .unwrap_or_default();
+        let about = sub.get_about().map(std::string::ToString::to_string).unwrap_or_default();
         let category = Some(builtin_category(&name).to_string());
         let aliases = sub.get_visible_aliases().map(String::from).collect();
         seen.insert(name.clone());
-        entries.push(CmdEntry {
-            name,
-            aliases,
-            about,
-            category,
-        });
+        entries.push(CmdEntry { name, aliases, about, category });
     }
 
     // Dynamic commands (config + stack defaults).
@@ -222,18 +207,13 @@ pub fn sort_entries_by_category(entries: &mut [CmdEntry], category_order: &[Stri
     }
     let cat_rank = |cat: Option<&str>| -> CatRank {
         cat.map_or(CatRank::Uncategorized, |c| {
-            category_order
-                .iter()
-                .position(|o| o == c)
-                .map_or(CatRank::Unknown, CatRank::Known)
+            category_order.iter().position(|o| o == c).map_or(CatRank::Unknown, CatRank::Known)
         })
     };
     entries.sort_by(|a, b| {
         let ra = cat_rank(a.category.as_deref());
         let rb = cat_rank(b.category.as_deref());
-        ra.cmp(&rb)
-            .then_with(|| a.category.cmp(&b.category))
-            .then(a.name.cmp(&b.name))
+        ra.cmp(&rb).then_with(|| a.category.cmp(&b.category)).then(a.name.cmp(&b.name))
     });
 }
 
@@ -265,11 +245,7 @@ pub fn render_grouped_sections(entries: &[CmdEntry]) -> String {
     // (here) and reuse the same string for padding below, rather than
     // re-allocating per row in the loop.
     let display_names: Vec<String> = entries.iter().map(CmdEntry::display_name).collect();
-    let max_name_width = display_names
-        .iter()
-        .map(|n| display_width(n))
-        .max()
-        .unwrap_or(0);
+    let max_name_width = display_names.iter().map(|n| display_width(n)).max().unwrap_or(0);
     let mut grouped = String::new();
     let mut heading_state = HeadingState::Unset;
 
@@ -310,19 +286,13 @@ pub fn render_categorized_help(
     // The `collect` ends the immutable borrow of `cmd` before the loop body
     // reassigns it via `mut_subcommand`; iterating lazily would not compile.
     #[allow(clippy::needless_collect)]
-    let names: Vec<String> = cmd
-        .get_subcommands()
-        .map(|s| s.get_name().to_string())
-        .collect();
+    let names: Vec<String> = cmd.get_subcommands().map(|s| s.get_name().to_string()).collect();
     for name in names {
         cmd = cmd.mut_subcommand(&name, |sub| sub.hide(true));
     }
 
-    let help_str = if long {
-        cmd.render_long_help().to_string()
-    } else {
-        cmd.render_help().to_string()
-    };
+    let help_str =
+        if long { cmd.render_long_help().to_string() } else { cmd.render_help().to_string() };
 
     splice_grouped_into_help(&help_str, &grouped)
 }
@@ -433,9 +403,7 @@ mod tests {
     /// arg look like a subcommand.
     #[test]
     fn is_toplevel_help_tap_space_path_then_help_is_toplevel() {
-        assert!(is_toplevel_help(&os(&[
-            "ops", "--tap", "out.log", "--help"
-        ])));
+        assert!(is_toplevel_help(&os(&["ops", "--tap", "out.log", "--help"])));
         assert!(is_toplevel_help(&os(&["ops", "--tap", "out.log", "-h"])));
         // Inline-value form continues to work.
         assert!(is_toplevel_help(&os(&["ops", "--tap=out.log", "--help"])));
@@ -446,9 +414,7 @@ mod tests {
     #[test]
     fn is_toplevel_help_tap_value_before_subcommand_help_is_not_toplevel() {
         assert!(!is_toplevel_help(&os(&["ops", "build", "-h"])));
-        assert!(!is_toplevel_help(&os(&[
-            "ops", "--tap", "out.log", "build", "-h"
-        ])));
+        assert!(!is_toplevel_help(&os(&["ops", "--tap", "out.log", "build", "-h"])));
     }
 
     /// The set of flags `is_toplevel_help` consumes an extra argv slot for
@@ -467,10 +433,8 @@ mod tests {
                 continue;
             }
             let takes_value = takes_a_value(arg);
-            for long in arg
-                .get_long()
-                .into_iter()
-                .chain(arg.get_all_aliases().into_iter().flatten())
+            for long in
+                arg.get_long().into_iter().chain(arg.get_all_aliases().into_iter().flatten())
             {
                 let spelling = format!("--{long}");
                 assert_eq!(
@@ -484,10 +448,8 @@ mod tests {
                     expected.insert(spelling);
                 }
             }
-            for short in arg
-                .get_short()
-                .into_iter()
-                .chain(arg.get_all_short_aliases().into_iter().flatten())
+            for short in
+                arg.get_short().into_iter().chain(arg.get_all_short_aliases().into_iter().flatten())
             {
                 let spelling = format!("-{short}");
                 assert_eq!(
@@ -505,10 +467,7 @@ mod tests {
 
         let expected: std::collections::BTreeSet<&str> =
             expected.iter().map(String::as_str).collect();
-        assert_eq!(
-            derived, expected,
-            "derived value-taking globals disagree with Cli::command()"
-        );
+        assert_eq!(derived, expected, "derived value-taking globals disagree with Cli::command()");
         // `--tap` is the flag the mechanism exists for; if it ever
         // stops being derived the misclassification regression is back.
         assert!(derived.contains("--tap"), "derived set: {derived:?}");
@@ -579,13 +538,7 @@ mod tests {
 
     #[test]
     fn builtin_category_setup_commands() {
-        for name in &[
-            "init",
-            "theme",
-            "extension",
-            "run-before-commit",
-            "run-before-push",
-        ] {
+        for name in &["init", "theme", "extension", "run-before-commit", "run-before-push"] {
             assert_eq!(builtin_category(name), "Setup", "failed for {name}");
         }
     }
@@ -621,11 +574,7 @@ mod tests {
             entry("build", Some("Commands")),
             entry("about", Some("Insights")),
         ];
-        let order = vec![
-            "Commands".to_string(),
-            "Insights".to_string(),
-            "Setup".to_string(),
-        ];
+        let order = vec!["Commands".to_string(), "Insights".to_string(), "Setup".to_string()];
         sort_entries_by_category(&mut entries, &order);
         assert_eq!(entries[0].name, "build");
         assert_eq!(entries[1].name, "about");
@@ -683,10 +632,7 @@ mod tests {
 
     #[test]
     fn render_grouped_sections_aligns_names() {
-        let entries = vec![
-            entry("ab", Some("Commands")),
-            entry("longname", Some("Commands")),
-        ];
+        let entries = vec![entry("ab", Some("Commands")), entry("longname", Some("Commands"))];
         let output = render_grouped_sections(&entries);
         assert!(output.contains("  ab      "));
         assert!(output.contains("  longname"));
@@ -852,17 +798,12 @@ mod tests {
 
         let out = render_categorized_help(cmd, &config, None, false);
         // The grouped section must appear before the Options: block, not after.
-        let options_pos = out
-            .find("Options:")
-            .expect("rendered help contains Options:");
+        let options_pos = out.find("Options:").expect("rendered help contains Options:");
         let commands_pos = out
             .find("\nSetup:\n")
             .or_else(|| out.find("\nCommands:\n"))
             .expect("grouped heading was spliced in");
-        assert!(
-            commands_pos < options_pos,
-            "grouped section should precede Options:\n{out}"
-        );
+        assert!(commands_pos < options_pos, "grouped section should precede Options:\n{out}");
         assert!(out.contains("init"), "init entry is rendered: {out}");
     }
 
@@ -887,9 +828,8 @@ mod tests {
         let out = splice_grouped_into_help(help, grouped);
 
         let grouped_pos = out.find("\nSetup:\n").expect("grouped heading was spliced");
-        let real_options_pos = out
-            .find("\nOptions:\n")
-            .expect("real Options: section is preserved");
+        let real_options_pos =
+            out.find("\nOptions:\n").expect("real Options: section is preserved");
         assert!(
             grouped_pos < real_options_pos,
             "grouped section spliced before real Options block, not into the subcommand line:\n{out}"
@@ -920,10 +860,7 @@ mod tests {
         struct FailingWriter;
         impl Write for FailingWriter {
             fn write(&mut self, _: &[u8]) -> std::io::Result<usize> {
-                Err(std::io::Error::new(
-                    std::io::ErrorKind::BrokenPipe,
-                    "consumer gone",
-                ))
+                Err(std::io::Error::new(std::io::ErrorKind::BrokenPipe, "consumer gone"))
             }
             fn flush(&mut self) -> std::io::Result<()> {
                 Ok(())
@@ -944,10 +881,7 @@ mod tests {
         plain.about = "deps".to_string();
 
         let output = render_grouped_sections(&[aliased, plain]);
-        assert!(
-            output.contains("trailing-whitespace, tw"),
-            "alias rendered inline: {output}"
-        );
+        assert!(output.contains("trailing-whitespace, tw"), "alias rendered inline: {output}");
 
         // Description columns align across aliased and non-aliased rows.
         let cols: std::collections::HashSet<usize> = output
@@ -955,16 +889,12 @@ mod tests {
             .filter_map(|l| {
                 if l.contains("strip") {
                     let idx = l.find("strip").unwrap();
-                    Some(ops_core::output::display_width(
-                        l.get(..idx).expect("char boundary"),
-                    ))
+                    Some(ops_core::output::display_width(l.get(..idx).expect("char boundary")))
                 } else if l.contains("deps") && !l.starts_with('\n') && l.starts_with("  ") {
                     // Skip the "Code Quality:" heading; find the about column,
                     // which is the second occurrence of "deps".
                     let idx = l.rfind("deps")?;
-                    Some(ops_core::output::display_width(
-                        l.get(..idx).expect("char boundary"),
-                    ))
+                    Some(ops_core::output::display_width(l.get(..idx).expect("char boundary")))
                 } else {
                     None
                 }
@@ -981,30 +911,19 @@ mod tests {
     fn render_grouped_sections_no_aliases_renders_bare_name() {
         let entries = vec![entry("build", Some("Commands"))];
         let output = render_grouped_sections(&entries);
-        assert!(
-            output.contains("  build"),
-            "bare name without trailing comma: {output}"
-        );
-        assert!(
-            !output.contains("build,"),
-            "no trailing comma when no aliases: {output}"
-        );
+        assert!(output.contains("  build"), "bare name without trailing comma: {output}");
+        assert!(!output.contains("build,"), "no trailing comma when no aliases: {output}");
     }
 
     #[test]
     fn collect_command_entries_picks_up_clap_visible_aliases() {
         let mut cmd = clap::Command::new("ops");
         cmd = cmd.subcommand(
-            clap::Command::new("trailing-whitespace")
-                .about("strip")
-                .visible_alias("tw"),
+            clap::Command::new("trailing-whitespace").about("strip").visible_alias("tw"),
         );
         let config = ops_core::config::Config::empty();
         let entries = collect_command_entries(&cmd, &config, None);
-        let e = entries
-            .iter()
-            .find(|e| e.name == "trailing-whitespace")
-            .expect("entry present");
+        let e = entries.iter().find(|e| e.name == "trailing-whitespace").expect("entry present");
         assert_eq!(e.aliases, vec!["tw".to_string()]);
     }
 
@@ -1014,16 +933,10 @@ mod tests {
         let mut config = ops_core::config::Config::empty();
         let mut spec = ops_core::config::ExecCommandSpec::new("cargo", ["build"]);
         spec.aliases = vec!["b".to_string()];
-        config.commands.insert(
-            "build".to_string(),
-            ops_core::config::CommandSpec::Exec(spec),
-        );
+        config.commands.insert("build".to_string(), ops_core::config::CommandSpec::Exec(spec));
 
         let entries = collect_command_entries(&cmd, &config, None);
-        let e = entries
-            .iter()
-            .find(|e| e.name == "build")
-            .expect("build entry present");
+        let e = entries.iter().find(|e| e.name == "build").expect("build entry present");
         assert_eq!(e.aliases, vec!["b".to_string()]);
     }
 

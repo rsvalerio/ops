@@ -49,10 +49,8 @@ const DEFAULT_STDERR_TAIL_LINES: usize = 5;
 /// as crashing on stderr write failures would be unexpected behavior.
 #[inline]
 pub(super) fn write_stderr(line: Option<&str>) {
-    let result = line.map_or_else(
-        || writeln!(io::stderr()),
-        |text| writeln!(io::stderr(), "{text}"),
-    );
+    let result =
+        line.map_or_else(|| writeln!(io::stderr()), |text| writeln!(io::stderr(), "{text}"));
     if let Err(e) = result {
         tracing::debug!(error = %e, "stderr write failed");
     }
@@ -168,14 +166,7 @@ impl ProgressDisplay {
     where
         F: FnOnce() -> bool,
     {
-        let DisplayOptions {
-            output,
-            display_map,
-            custom_themes,
-            tap,
-            junit,
-            verbose,
-        } = opts;
+        let DisplayOptions { output, display_map, custom_themes, tap, junit, verbose } = opts;
         let is_tty = is_tty_fn();
         let multi = MultiProgress::with_draw_target(if is_tty {
             ProgressDrawTarget::stderr()
@@ -186,11 +177,7 @@ impl ProgressDisplay {
         let running_style = build_running_style(&resolved_theme, &output.theme)?;
         let tap = tap.map(TapWriter::new);
         let junit = junit.map(JunitReport::new);
-        let github = if is_tty {
-            None
-        } else {
-            GithubActions::from_env()
-        };
+        let github = if is_tty { None } else { GithubActions::from_env() };
         // TASK-0762: verbose → unbounded; otherwise use the user's config value.
         let stderr_tail = if verbose {
             StderrTail::Unbounded
@@ -286,24 +273,18 @@ impl ProgressDisplay {
             RunnerEvent::PlanStarted { command_ids } => self.on_plan_started(&command_ids),
             RunnerEvent::StepStarted { id, .. } => self.on_step_started(&id),
             RunnerEvent::StepOutput { id, line, stderr } => self.on_step_output(&id, &line, stderr),
-            RunnerEvent::StepFinished {
-                id,
-                duration_secs,
-                display_cmd,
-            } => self.on_step_finished(&id, duration_secs, display_cmd.as_deref()),
+            RunnerEvent::StepFinished { id, duration_secs, display_cmd } => {
+                self.on_step_finished(&id, duration_secs, display_cmd.as_deref())
+            }
             RunnerEvent::StepSkipped { id, display_cmd } => {
                 self.on_step_skipped(&id, display_cmd.as_deref());
             }
-            RunnerEvent::StepFailed {
-                id,
-                duration_secs,
-                message,
-                display_cmd,
-            } => self.on_step_failed(&id, duration_secs, &message, display_cmd.as_deref()),
-            RunnerEvent::RunFinished {
-                duration_secs,
-                success,
-            } => self.on_run_finished(duration_secs, success),
+            RunnerEvent::StepFailed { id, duration_secs, message, display_cmd } => {
+                self.on_step_failed(&id, duration_secs, &message, display_cmd.as_deref())
+            }
+            RunnerEvent::RunFinished { duration_secs, success } => {
+                self.on_run_finished(duration_secs, success)
+            }
             RunnerEvent::StepOutputDropped { id, dropped_count } => {
                 // TASK-2437: always shown. Output lines are only dropped once
                 // the run is aborting, and then the failure box's "last
@@ -371,11 +352,9 @@ impl ProgressDisplay {
 
     fn create_header_bar(&mut self) {
         let msg = self.render_header_message();
-        let pb = self.multi.add(
-            ProgressBar::new(0)
-                .with_style(pending_style())
-                .with_message(msg.clone()),
-        );
+        let pb = self
+            .multi
+            .add(ProgressBar::new(0).with_style(pending_style()).with_message(msg.clone()));
         pb.tick();
         self.write_non_tty(&msg);
         self.header_bar = Some(pb);
@@ -385,9 +364,7 @@ impl ProgressDisplay {
     /// Centralized so header/footer live-borders share one source of truth
     /// for `completed_steps`, `failed_steps`, and `elapsed_secs`.
     fn live_box_snapshot(&self) -> BoxSnapshot<'_> {
-        let elapsed = self
-            .run_started_at
-            .map_or(0.0, |t| t.elapsed().as_secs_f64());
+        let elapsed = self.run_started_at.map_or(0.0, |t| t.elapsed().as_secs_f64());
         let success_so_far = self.failed_steps == 0;
         BoxSnapshot {
             completed: self.completed_steps,
@@ -402,10 +379,7 @@ impl ProgressDisplay {
     }
 
     pub(super) fn render_header_message(&self) -> String {
-        self.render
-            .theme
-            .box_top_border(self.live_box_snapshot())
-            .unwrap_or_default()
+        self.render.theme.box_top_border(self.live_box_snapshot()).unwrap_or_default()
     }
 
     /// Compute the vertical-progress cell glyph for a step in `status`.
@@ -432,9 +406,7 @@ impl ProgressDisplay {
         let effective = self.render.columns.saturating_sub(reserve);
         let inner = self.render.theme.render(step, effective);
         let cell = Self::progress_cell(step.status);
-        self.render
-            .theme
-            .wrap_step_line(&inner, cell, self.render.columns)
+        self.render.theme.wrap_step_line(&inner, cell, self.render.columns)
     }
 
     fn create_pending_bars(&mut self) {
@@ -451,9 +423,7 @@ impl ProgressDisplay {
         self.state.bars.clear();
         for line in &pending_lines {
             let pb = self.multi.add(
-                ProgressBar::new_spinner()
-                    .with_style(pending_style())
-                    .with_message(line.clone()),
+                ProgressBar::new_spinner().with_style(pending_style()).with_message(line.clone()),
             );
             pb.tick();
             self.write_non_tty(line);
@@ -477,15 +447,8 @@ impl ProgressDisplay {
             return;
         }
 
-        let separator = self
-            .render
-            .theme
-            .render_summary_separator(self.render.columns);
-        let separator_message = if separator.is_empty() {
-            " ".to_string()
-        } else {
-            separator
-        };
+        let separator = self.render.theme.render_summary_separator(self.render.columns);
+        let separator_message = if separator.is_empty() { " ".to_string() } else { separator };
 
         let sep_pb = self.multi.add(ProgressBar::new(0));
         sep_pb.set_style(pending_style());
@@ -493,11 +456,9 @@ impl ProgressDisplay {
         self.footer_separator = Some(sep_pb);
 
         let footer_msg = self.render_footer_message();
-        let footer_pb = self.multi.add(
-            ProgressBar::new(0)
-                .with_style(pending_style())
-                .with_message(footer_msg),
-        );
+        let footer_pb = self
+            .multi
+            .add(ProgressBar::new(0).with_style(pending_style()).with_message(footer_msg));
         footer_pb.tick();
         self.footer_bar = Some(footer_pb);
     }
@@ -506,11 +467,7 @@ impl ProgressDisplay {
         // Boxed layout: render a live bottom border so the frame stays closed
         // while the plan is still running (mirrors the live top border).
         if self.header_bar.is_some() {
-            if let Some(bottom) = self
-                .render
-                .theme
-                .box_bottom_border(self.live_box_snapshot())
-            {
+            if let Some(bottom) = self.render.theme.box_bottom_border(self.live_box_snapshot()) {
                 return bottom;
             }
         }
@@ -576,8 +533,7 @@ impl ProgressDisplay {
             // PERF-3 / TASK-1925: pass the borrowed text, not the
             // `OutputLine` view — the ring must not retain a handle on the
             // step's whole capture buffer.
-            self.state
-                .record_stderr(id, line.as_str(), self.render.stderr_tail.cap());
+            self.state.record_stderr(id, line.as_str(), self.render.stderr_tail.cap());
         }
         if let Some(ref mut github) = self.github {
             github.record_output(id, line.as_str());
@@ -636,12 +592,8 @@ impl ProgressDisplay {
 
     fn on_step_finished(&mut self, id: &str, duration_secs: f64, display_cmd: Option<&str>) {
         if let Some(i) = self.finish_step(id, StepStatus::Succeeded, duration_secs, display_cmd) {
-            let outcome = StepOutcome {
-                id,
-                status: StepStatus::Succeeded,
-                duration_secs,
-                failure: None,
-            };
+            let outcome =
+                StepOutcome { id, status: StepStatus::Succeeded, duration_secs, failure: None };
             self.emit_step_reports(i, display_cmd, &outcome);
         }
     }
@@ -659,11 +611,7 @@ impl ProgressDisplay {
         if self.github.is_none() && self.junit.is_none() {
             return;
         }
-        let fallback = self
-            .state
-            .steps
-            .get(i)
-            .map_or(outcome.id, |step| step.1.as_str());
+        let fallback = self.state.steps.get(i).map_or(outcome.id, |step| step.1.as_str());
         let display = display_cmd.unwrap_or(fallback);
         if let Some(ref mut junit) = self.junit {
             junit.step_finished(display, outcome);
@@ -725,12 +673,8 @@ impl ProgressDisplay {
         let Some(i) = self.finish_step(id, StepStatus::Failed, duration_secs, display_cmd) else {
             return;
         };
-        let outcome = StepOutcome {
-            id,
-            status: StepStatus::Failed,
-            duration_secs,
-            failure: Some(message),
-        };
+        let outcome =
+            StepOutcome { id, status: StepStatus::Failed, duration_secs, failure: Some(message) };
         self.emit_step_reports(i, display_cmd, &outcome);
 
         if !self.render.show_error_detail {

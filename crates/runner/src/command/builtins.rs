@@ -52,10 +52,7 @@ pub(super) fn builtin_commands() -> IndexMap<CommandId, CommandSpec> {
     for fixer in ["end-of-file-fixer", "trailing-whitespace"] {
         let mut check = ExecCommandSpec::ops_subcommand_check(fixer);
         check.category = Some("Code Quality".to_string());
-        map.insert(
-            CommandId::from(format!("{fixer}-check")),
-            CommandSpec::Exec(check),
-        );
+        map.insert(CommandId::from(format!("{fixer}-check")), CommandSpec::Exec(check));
     }
     map.insert(
         CommandId::from("check-json"),
@@ -65,18 +62,12 @@ pub(super) fn builtin_commands() -> IndexMap<CommandId, CommandSpec> {
         CommandId::from("check-yaml"),
         CommandSpec::Exec(read_only(builtin_exec("check-yaml", &[]))),
     );
-    map.insert(
-        CommandId::from("sec"),
-        CommandSpec::Exec(builtin_exec("sec", &[])),
-    );
+    map.insert(CommandId::from("sec"), CommandSpec::Exec(builtin_exec("sec", &[])));
     map.insert(
         CommandId::from("lint-actions"),
         CommandSpec::Exec(read_only(builtin_exec("lint-actions", &[]))),
     );
-    map.insert(
-        CommandId::from("msrv"),
-        CommandSpec::Exec(builtin_exec("msrv", &[])),
-    );
+    map.insert(CommandId::from("msrv"), CommandSpec::Exec(builtin_exec("msrv", &[])));
     for reader in ["foundation", "doc-ids"] {
         map.insert(
             CommandId::from(reader),
@@ -84,10 +75,7 @@ pub(super) fn builtin_commands() -> IndexMap<CommandId, CommandSpec> {
         );
     }
     for compiling in ["semver", "feature-matrix"] {
-        map.insert(
-            CommandId::from(compiling),
-            CommandSpec::Exec(builtin_exec(compiling, &[])),
-        );
+        map.insert(CommandId::from(compiling), CommandSpec::Exec(builtin_exec(compiling, &[])));
     }
     map
 }
@@ -119,13 +107,9 @@ mod tests {
     #[test]
     fn registers_text_fixers_with_aliases() {
         let map = builtin_commands();
-        let eof = map
-            .get("end-of-file-fixer")
-            .expect("end-of-file-fixer registered");
+        let eof = map.get("end-of-file-fixer").expect("end-of-file-fixer registered");
         assert!(eof.aliases().iter().any(|a| a == "eof"));
-        let tw = map
-            .get("trailing-whitespace")
-            .expect("trailing-whitespace registered");
+        let tw = map.get("trailing-whitespace").expect("trailing-whitespace registered");
         assert!(tw.aliases().iter().any(|a| a == "tw"));
     }
 
@@ -146,14 +130,8 @@ mod tests {
     #[test]
     fn registers_config_checkers() {
         let map = builtin_commands();
-        assert!(
-            map.get("check-json").is_some(),
-            "check-json must be registered as a builtin"
-        );
-        assert!(
-            map.get("check-yaml").is_some(),
-            "check-yaml must be registered as a builtin"
-        );
+        assert!(map.get("check-json").is_some(), "check-json must be registered as a builtin");
+        assert!(map.get("check-yaml").is_some(), "check-yaml must be registered as a builtin");
     }
 
     #[test]

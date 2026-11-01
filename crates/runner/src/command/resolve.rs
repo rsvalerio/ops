@@ -28,20 +28,13 @@ pub enum CommandPlan {
     /// exclusive-split stages when `parallel` (see `parallel.rs`).
     /// `fail_fast` is the value every composite in the stage's subtree
     /// agreed on (`true` for an exec-only stage).
-    Stage {
-        leaf_ids: Vec<CommandId>,
-        parallel: bool,
-        fail_fast: bool,
-    },
+    Stage { leaf_ids: Vec<CommandId>, parallel: bool, fail_fast: bool },
     /// A sequential group's entries, in declaration order. `fail_fast` is the
     /// group's *own* declaration: when false, every entry runs regardless of
     /// failures; when true, a failing entry whose
     /// [`effective_fail_fast`](CommandPlan::effective_fail_fast) is true
     /// stops the entries after it.
-    Sequence {
-        children: Vec<Self>,
-        fail_fast: bool,
-    },
+    Sequence { children: Vec<Self>, fail_fast: bool },
 }
 
 impl CommandPlan {
@@ -93,9 +86,7 @@ impl CommandPlan {
     #[must_use]
     pub fn needs_worker_threads(&self) -> bool {
         match self {
-            Self::Stage {
-                leaf_ids, parallel, ..
-            } => *parallel && leaf_ids.len() > 1,
+            Self::Stage { leaf_ids, parallel, .. } => *parallel && leaf_ids.len() > 1,
             Self::Sequence { children, .. } => children.iter().any(Self::needs_worker_threads),
         }
     }
@@ -192,10 +183,7 @@ fn depth_guard(id: &str, ctx: &PlanCtx<'_>) -> Option<ExpandError> {
             max_depth = ctx.max_depth,
             "composite expansion depth limit exceeded"
         );
-        return Some(ExpandError::DepthExceeded {
-            id: id.to_string(),
-            max_depth: ctx.max_depth,
-        });
+        return Some(ExpandError::DepthExceeded { id: id.to_string(), max_depth: ctx.max_depth });
     }
     None
 }
@@ -237,21 +225,9 @@ impl CommandRunner {
             .commands
             .keys()
             .map(std::string::String::as_str)
-            .chain(
-                self.stack_commands
-                    .keys()
-                    .map(ops_core::config::CommandId::as_str),
-            )
-            .chain(
-                self.extension_commands
-                    .keys()
-                    .map(ops_core::config::CommandId::as_str),
-            )
-            .chain(
-                self.builtin_commands
-                    .keys()
-                    .map(ops_core::config::CommandId::as_str),
-            )
+            .chain(self.stack_commands.keys().map(ops_core::config::CommandId::as_str))
+            .chain(self.extension_commands.keys().map(ops_core::config::CommandId::as_str))
+            .chain(self.builtin_commands.keys().map(ops_core::config::CommandId::as_str))
     }
 
     /// Look up a command by ID across all stores (config → stack → extension → builtin).
@@ -445,11 +421,8 @@ impl CommandRunner {
         /// defense against accidental deep nesting.
         const MAX_DEPTH: usize = 100;
         self.check_after_names()?;
-        let mut ctx = PlanCtx {
-            visited: std::collections::HashSet::new(),
-            depth: 0,
-            max_depth: MAX_DEPTH,
-        };
+        let mut ctx =
+            PlanCtx { visited: std::collections::HashSet::new(), depth: 0, max_depth: MAX_DEPTH };
         self.expand_node(id, &mut ctx)
     }
 
@@ -523,10 +496,7 @@ impl CommandRunner {
                     for sub in &c.commands {
                         children.push(self.expand_node(sub, ctx)?);
                     }
-                    CommandPlan::Sequence {
-                        children,
-                        fail_fast: c.fail_fast,
-                    }
+                    CommandPlan::Sequence { children, fail_fast: c.fail_fast }
                 };
                 ctx.depth = ctx.depth.saturating_sub(1);
                 ctx.visited.remove(canonical);
@@ -581,12 +551,7 @@ impl CommandRunner {
                 // stage. Checked before recursing so the error names the
                 // shallowest offender.
                 check_schedule_flag(&mut flat.parallel_decl, "parallel", canonical, c.parallel)?;
-                check_schedule_flag(
-                    &mut flat.fail_fast_decl,
-                    "fail_fast",
-                    canonical,
-                    c.fail_fast,
-                )?;
+                check_schedule_flag(&mut flat.fail_fast_decl, "fail_fast", canonical, c.fail_fast)?;
                 if !c.fail_fast {
                     flat.fail_fast_disabled = true;
                 }
@@ -615,14 +580,10 @@ impl CommandRunner {
     /// the "Ordering steps with `after`" section of `docs/configuration.md`.
     fn check_after_names(&self) -> Result<(), ExpandError> {
         let configured = self.config.commands.iter().map(|(k, v)| (k.as_str(), v));
-        let stored = [
-            &self.stack_commands,
-            &self.extension_commands,
-            &self.builtin_commands,
-        ]
-        .into_iter()
-        .flatten()
-        .map(|(k, v)| (k.as_str(), v));
+        let stored = [&self.stack_commands, &self.extension_commands, &self.builtin_commands]
+            .into_iter()
+            .flatten()
+            .map(|(k, v)| (k.as_str(), v));
         for (step, spec) in configured.chain(stored) {
             let CommandSpec::Exec(e) = spec else { continue };
             for after in &e.after {
@@ -748,10 +709,7 @@ impl CommandRunner {
                 .collect();
             return Err(ExpandError::AfterCycle { steps });
         }
-        Ok(order
-            .into_iter()
-            .filter_map(|at| leaves.get(at).cloned())
-            .collect())
+        Ok(order.into_iter().filter_map(|at| leaves.get(at).cloned()).collect())
     }
 
     /// Resolve a leaf ID to an owned [`ExecCommandSpec`], producing a typed

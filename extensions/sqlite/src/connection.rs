@@ -177,9 +177,7 @@ impl Sqlite {
         // Intentionally no logging here: callers know the query/operation
         // context and are responsible for either propagating or logging
         // (READ-8). A library primitive should not double-log.
-        self.conn
-            .lock()
-            .map_err(|e| DbError::MutexPoisoned(e.to_string()))
+        self.conn.lock().map_err(|e| DbError::MutexPoisoned(e.to_string()))
     }
 
     /// Return the per-table ingest mutex, creating it on first use.
@@ -216,10 +214,7 @@ impl Sqlite {
 
     #[cfg(test)]
     pub(crate) fn ingest_lock_count(&self) -> usize {
-        self.ingest_locks
-            .lock()
-            .unwrap_or_else(std::sync::PoisonError::into_inner)
-            .len()
+        self.ingest_locks.lock().unwrap_or_else(std::sync::PoisonError::into_inner).len()
     }
 
     /// Resolve the DB path from config and workspace root.
@@ -387,10 +382,7 @@ mod tests {
                 let _second = db.ingest_mutex_for("poison_once_table");
                 let _third = db.ingest_mutex_for("poison_once_other_table");
             });
-            assert_eq!(
-                warns, 1,
-                "recovery warn must fire on the first acquire only, got {warns}"
-            );
+            assert_eq!(warns, 1, "recovery warn must fire on the first acquire only, got {warns}");
         }
     }
 }

@@ -47,10 +47,7 @@ fn deps_report_serialization_round_trip() {
 /// report never re-renders a check that did not run as "None".
 #[test]
 fn unused_not_installed_round_trips() {
-    let report = DepsReport {
-        unused: UnusedDepsResult::NotInstalled,
-        ..Default::default()
-    };
+    let report = DepsReport { unused: UnusedDepsResult::NotInstalled, ..Default::default() };
     let json = serde_json::to_value(&report).unwrap();
     assert_eq!(json["unused"]["status"], "not_installed");
     let deserialized: DepsReport = serde_json::from_value(json).unwrap();

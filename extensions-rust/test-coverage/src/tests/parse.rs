@@ -54,10 +54,7 @@ fn flatten_coverage_json_iterates_all_data_entries() {
         .as_array()
         .cloned()
         .unwrap();
-    let names: Vec<&str> = arr
-        .iter()
-        .map(|r| r["filename"].as_str().unwrap())
-        .collect();
+    let names: Vec<&str> = arr.iter().map(|r| r["filename"].as_str().unwrap()).collect();
     assert_eq!(names, vec!["a.rs", "b.rs"]);
 }
 
@@ -108,11 +105,7 @@ fn flatten_coverage_json_dedups_overlapping_filenames_across_exports() {
     });
     let result = flatten_coverage_json(&raw).expect("flatten must succeed");
     let arr = result.as_array().unwrap();
-    assert_eq!(
-        arr.len(),
-        1,
-        "duplicate filenames across exports must collapse to a single row"
-    );
+    assert_eq!(arr.len(), 1, "duplicate filenames across exports must collapse to a single row");
     // Last-write-wins: the second export's coverage values are kept.
     assert_eq!(arr[0]["filename"], "src/main.rs");
     assert_eq!(arr[0]["lines_count"], 100);
@@ -131,16 +124,9 @@ fn flatten_coverage_json_keeps_distinct_filenames_across_exports() {
             { "files": [{ "filename": "src/a.rs", "summary": {} }] }
         ]
     });
-    let arr = flatten_coverage_json(&raw)
-        .expect("flatten")
-        .as_array()
-        .cloned()
-        .unwrap();
+    let arr = flatten_coverage_json(&raw).expect("flatten").as_array().cloned().unwrap();
     assert_eq!(arr.len(), 2);
-    let filenames: Vec<&str> = arr
-        .iter()
-        .map(|r| r["filename"].as_str().unwrap())
-        .collect();
+    let filenames: Vec<&str> = arr.iter().map(|r| r["filename"].as_str().unwrap()).collect();
     assert!(filenames.contains(&"src/a.rs"));
     assert!(filenames.contains(&"src/b.rs"));
 }

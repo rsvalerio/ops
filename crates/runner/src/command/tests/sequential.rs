@@ -17,19 +17,11 @@ async fn deny_policy_refuses_escaping_cwd_on_hook_path() {
     let mut runner = test_runner(commands);
     runner.set_cwd_escape_policy(crate::command::CwdEscapePolicy::Deny);
 
-    let results = runner
-        .run_plan(&["malicious".into()], true, &mut |_| {})
-        .await;
+    let results = runner.run_plan(&["malicious".into()], true, &mut |_| {}).await;
 
     assert_eq!(results.len(), 1);
-    assert!(
-        !results[0].success,
-        "Deny must refuse to spawn when cwd escapes the workspace"
-    );
-    let msg = results[0]
-        .message
-        .as_deref()
-        .expect("a Deny-refused step carries a message");
+    assert!(!results[0].success, "Deny must refuse to spawn when cwd escapes the workspace");
+    let msg = results[0].message.as_deref().expect("a Deny-refused step carries a message");
     assert!(
         msg.contains("PermissionDenied") || msg.contains("Permission denied"),
         "refusal must surface PermissionDenied, got: {msg}"
@@ -49,9 +41,7 @@ async fn warn_policy_does_not_refuse_escaping_cwd_on_interactive_path() {
     commands.insert("interactive".to_string(), CommandSpec::Exec(spec));
     let runner = test_runner(commands); // default policy = WarnAndAllow
 
-    let results = runner
-        .run_plan(&["interactive".into()], true, &mut |_| {})
-        .await;
+    let results = runner.run_plan(&["interactive".into()], true, &mut |_| {}).await;
 
     assert_eq!(results.len(), 1);
     if let Some(msg) = results[0].message.as_deref() {
@@ -66,26 +56,16 @@ async fn warn_policy_does_not_refuse_escaping_cwd_on_interactive_path() {
 async fn run_plan_unknown_command_emits_failure() {
     let runner = test_runner(HashMap::new());
     let mut events = Vec::new();
-    let results = runner
-        .run_plan(&["nonexistent".into()], true, &mut |e| events.push(e))
-        .await;
+    let results = runner.run_plan(&["nonexistent".into()], true, &mut |e| events.push(e)).await;
     assert!(!results.iter().all(|r| r.success));
-    let failed = events
-        .iter()
-        .find(|e| matches!(e, RunnerEvent::StepFailed { .. }));
-    assert!(
-        failed.is_some(),
-        "should emit StepFailed for unknown command"
-    );
+    let failed = events.iter().find(|e| matches!(e, RunnerEvent::StepFailed { .. }));
+    assert!(failed.is_some(), "should emit StepFailed for unknown command");
     if let Some(RunnerEvent::StepFailed { id, message, .. }) = failed {
         // TEST-11: pin the exact error text so a regression that renders
         // the wrong id (or drops the id entirely) is caught. Substring-only
         // `contains("unknown command")` tolerates both of those bugs.
         assert_eq!(id.as_str(), "nonexistent", "failed event must carry the id");
-        assert_eq!(
-            message, "unknown command: nonexistent",
-            "exact failure message mismatch"
-        );
+        assert_eq!(message, "unknown command: nonexistent", "exact failure message mismatch");
     }
 }
 
@@ -94,24 +74,12 @@ async fn run_sequential_composite() {
     let mut commands = HashMap::new();
     commands.insert("a".to_string(), CommandSpec::Exec(echo_cmd("a")));
     commands.insert("b".to_string(), CommandSpec::Exec(echo_cmd("b")));
-    commands.insert(
-        "both".to_string(),
-        CommandSpec::Composite(composite_cmd(&["a", "b"])),
-    );
+    commands.insert("both".to_string(), CommandSpec::Composite(composite_cmd(&["a", "b"])));
     let runner = test_runner(commands);
     let mut events = Vec::new();
-    let results = runner
-        .run("both", &mut |e| events.push(e))
-        .await
-        .expect("run should not error");
+    let results = runner.run("both", &mut |e| events.push(e)).await.expect("run should not error");
     assert!(results.iter().all(|r| r.success));
-    assert_eq!(
-        events
-            .iter()
-            .filter(|e| matches!(e, RunnerEvent::StepFinished { .. }))
-            .count(),
-        2
-    );
+    assert_eq!(events.iter().filter(|e| matches!(e, RunnerEvent::StepFinished { .. })).count(), 2);
 }
 
 /// PERF-16 / TASK-1923: pins the retention contract documented on
@@ -150,10 +118,8 @@ async fn retained_capture_bytes_scale_with_plan_length() {
     // Test-only tallies over tiny known sizes; the saturating forms keep
     // them total under the workspace `arithmetic_side_effects` lint, which
     // the `serial_test` expansion surfaces in this fn.
-    let retained: usize = results
-        .iter()
-        .map(|r| r.stdout.len().saturating_add(r.stderr.len()))
-        .sum();
+    let retained: usize =
+        results.iter().map(|r| r.stdout.len().saturating_add(r.stderr.len())).sum();
     // Every step keeps its own capture: `echo` writes the line plus a
     // newline, and nothing releases it before the plan returns.
     assert_eq!(

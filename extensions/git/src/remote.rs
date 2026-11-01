@@ -77,12 +77,7 @@ pub fn parse_remote_url(raw: &str) -> Option<RemoteInfo> {
     let port_suffix = port.map_or_else(String::new, |p| format!(":{p}"));
     let url = format!("{scheme}://{host}{port_suffix}/{owner}/{repo}");
 
-    Some(RemoteInfo {
-        host,
-        owner: owner.to_string(),
-        repo: repo.to_string(),
-        url,
-    })
+    Some(RemoteInfo { host, owner: owner.to_string(), repo: repo.to_string(), url })
 }
 
 /// Schemes accepted by [`parse_remote_url`] on the `scheme://…` branch.
@@ -165,10 +160,7 @@ fn split_scheme_host_and_path(raw: &str) -> Option<(&'static str, &str, Option<u
         // `ALLOWED_SCHEMES` gates only the `://` branch below, so a
         // single-colon value needs its own scheme gate: reject the pre-colon
         // token when it names a URI scheme — see `SCHEME_LIKE_HOSTS`.
-        if SCHEME_LIKE_HOSTS
-            .iter()
-            .any(|s| s.eq_ignore_ascii_case(host))
-        {
+        if SCHEME_LIKE_HOSTS.iter().any(|s| s.eq_ignore_ascii_case(host)) {
             return None;
         }
         return Some(("ssh", host, None, path));
@@ -176,10 +168,8 @@ fn split_scheme_host_and_path(raw: &str) -> Option<(&'static str, &str, Option<u
 
     // URL form: scheme://[user@]host[:port]/path
     let (scheme, after_scheme) = raw.split_once("://")?;
-    let canonical_scheme = ALLOWED_SCHEMES
-        .iter()
-        .find(|s| s.eq_ignore_ascii_case(scheme))
-        .copied()?;
+    let canonical_scheme =
+        ALLOWED_SCHEMES.iter().find(|s| s.eq_ignore_ascii_case(scheme)).copied()?;
     let (authority, path) = after_scheme.split_once('/')?;
     let host_part = authority.rsplit('@').next()?;
     // Preserve an explicit `:port` instead of
@@ -217,15 +207,10 @@ fn is_valid_host(host: &str) -> bool {
     if matches!(bytes.first(), Some(b'-' | b'.')) || matches!(bytes.last(), Some(b'-' | b'.')) {
         return false;
     }
-    if host
-        .split('.')
-        .any(|label| label.is_empty() || label.len() > MAX_HOST_LABEL_BYTES)
-    {
+    if host.split('.').any(|label| label.is_empty() || label.len() > MAX_HOST_LABEL_BYTES) {
         return false;
     }
-    bytes
-        .iter()
-        .all(|b| b.is_ascii_alphanumeric() || *b == b'.' || *b == b'-')
+    bytes.iter().all(|b| b.is_ascii_alphanumeric() || *b == b'.' || *b == b'-')
 }
 
 /// RFC 1035 caps a DNS name at 253 presentation bytes.
@@ -318,8 +303,7 @@ fn is_valid_path_segment(segment: &str) -> bool {
     if rest.iter().all(|b| *b == b'.') {
         return false;
     }
-    rest.iter()
-        .all(|b| b.is_ascii_alphanumeric() || matches!(b, b'.' | b'-' | b'_'))
+    rest.iter().all(|b| b.is_ascii_alphanumeric() || matches!(b, b'.' | b'-' | b'_'))
 }
 
 #[cfg(test)]
@@ -347,10 +331,7 @@ mod tests {
     #[test]
     fn dot_only_owner_segment_rejected() {
         assert_eq!(parse_remote_url("https://github.com/../etc.git"), None);
-        assert_eq!(
-            parse_remote_url("https://gitlab.com/group/../repo.git"),
-            None
-        );
+        assert_eq!(parse_remote_url("https://gitlab.com/group/../repo.git"), None);
         assert_eq!(parse_remote_url("https://github.com/owner/.."), None);
         assert_eq!(parse_remote_url("https://github.com/./repo.git"), None);
         assert_eq!(parse_remote_url("https://github.com/.../repo.git"), None);
@@ -447,14 +428,8 @@ mod tests {
     /// than silently dropped or re-emitted.
     #[test]
     fn invalid_port_fails_closed() {
-        assert_eq!(
-            parse_remote_url("ssh://git@git.example.com:22x/o/r.git"),
-            None
-        );
-        assert_eq!(
-            parse_remote_url("https://gitea.internal:99999/o/r.git"),
-            None
-        );
+        assert_eq!(parse_remote_url("ssh://git@git.example.com:22x/o/r.git"), None);
+        assert_eq!(parse_remote_url("https://gitea.internal:99999/o/r.git"), None);
         assert_eq!(parse_remote_url("https://gitea.internal:0/o/r.git"), None);
     }
 

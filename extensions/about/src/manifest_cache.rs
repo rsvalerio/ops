@@ -125,10 +125,7 @@ impl ArcTextCache {
     /// is attributable to the right manifest type.
     #[must_use = "keep the returned cache; a dropped one loses its memoised manifests"]
     pub const fn new(filename: &'static str) -> Self {
-        Self {
-            filename,
-            cache: OnceLock::new(),
-        }
+        Self { filename, cache: OnceLock::new() }
     }
 
     /// Read `<root>/<self.filename>` once per process per `root`,
@@ -137,9 +134,7 @@ impl ArcTextCache {
     /// `manifest_io::read_optional_text` which logs non-NotFound IO errors
     /// at warn).
     pub fn read(&self, root: &Path) -> Option<Arc<str>> {
-        let cache = self
-            .cache
-            .get_or_init(|| Mutex::new(BoundedLruCache::new(CACHE_MAX_ENTRIES)));
+        let cache = self.cache.get_or_init(|| Mutex::new(BoundedLruCache::new(CACHE_MAX_ENTRIES)));
         let path = root.join(self.filename);
         // Take the outer mutex only long enough to get-or-insert a per-key
         // OnceLock and bump the LRU tick. The file read happens *outside*
@@ -370,9 +365,7 @@ mod tests {
         }
 
         let mutex = cache.raw_mutex().expect("initialised by the reads above");
-        let guard = mutex
-            .lock()
-            .unwrap_or_else(std::sync::PoisonError::into_inner);
+        let guard = mutex.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
         let map_len = guard.len();
         let queue_len = guard.victim_queue_len();
         // Release the cache mutex before asserting so a failing
@@ -431,10 +424,7 @@ mod tests {
         let cache = ArcTextCache::new("manifest.txt");
         let dir = tempfile::tempdir().unwrap();
         assert!(!cache.invalidate(dir.path()));
-        assert!(
-            cache.raw_mutex().is_none(),
-            "a cold invalidate must not initialise the cache"
-        );
+        assert!(cache.raw_mutex().is_none(), "a cold invalidate must not initialise the cache");
     }
 
     #[test]
@@ -524,9 +514,7 @@ mod tests {
 
         // The map size never exceeds the cap.
         let mutex = cache.raw_mutex().expect("initialised");
-        let guard = mutex
-            .lock()
-            .unwrap_or_else(std::sync::PoisonError::into_inner);
+        let guard = mutex.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
         let cached_len = guard.len();
         // Release the cache mutex before asserting so a failing
         // assert panics without holding it.

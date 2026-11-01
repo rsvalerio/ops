@@ -113,14 +113,10 @@ impl ProgressState {
     /// the id itself.
     pub fn resolve_step_display(&self, id: &CommandId) -> (String, String) {
         let id_str = id.to_string();
-        let display = self
-            .display_map
-            .get(id.as_str())
-            .cloned()
-            .unwrap_or_else(|| {
-                tracing::trace!(id = ?id.as_str(), "display_map fallback: using id as display");
-                id_str.clone()
-            });
+        let display = self.display_map.get(id.as_str()).cloned().unwrap_or_else(|| {
+            tracing::trace!(id = ?id.as_str(), "display_map fallback: using id as display");
+            id_str.clone()
+        });
         (id_str, display)
     }
 
@@ -157,14 +153,8 @@ impl ProgressState {
     /// Replace the per-plan `steps` list and the parallel `plan_command_ids`
     /// from a fresh `command_ids` array. Clears any previous run's state.
     pub fn reset_for_plan(&mut self, command_ids: &[CommandId]) {
-        self.steps = command_ids
-            .iter()
-            .map(|id| self.resolve_step_display(id))
-            .collect();
-        self.plan_command_ids = command_ids
-            .iter()
-            .map(std::string::ToString::to_string)
-            .collect();
+        self.steps = command_ids.iter().map(|id| self.resolve_step_display(id)).collect();
+        self.plan_command_ids = command_ids.iter().map(std::string::ToString::to_string).collect();
         self.index_by_id.clear();
         self.index_by_id.reserve(self.steps.len());
         for (idx, (sid, _)) in self.steps.iter().enumerate() {
@@ -212,9 +202,7 @@ mod tests {
     /// even with the index populated.
     #[test]
     fn step_index_resolves_via_o1_map_for_large_plan() {
-        let ids: Vec<CommandId> = (0..32)
-            .map(|i| CommandId::from(format!("step{i}")))
-            .collect();
+        let ids: Vec<CommandId> = (0..32).map(|i| CommandId::from(format!("step{i}"))).collect();
         let mut s = ProgressState::new(HashMap::new());
         s.reset_for_plan(&ids);
         for (i, id) in ids.iter().enumerate() {
@@ -254,15 +242,11 @@ mod tests {
         s.record_stderr("a", "line1", 16);
         s.record_stderr("a", "line2", 16);
         s.record_stderr("b", "other", 16);
-        let a: Vec<String> = s.step_stderr["a"]
-            .iter()
-            .map(std::string::ToString::to_string)
-            .collect();
+        let a: Vec<String> =
+            s.step_stderr["a"].iter().map(std::string::ToString::to_string).collect();
         assert_eq!(a, vec!["line1".to_string(), "line2".to_string()]);
-        let b: Vec<String> = s.step_stderr["b"]
-            .iter()
-            .map(std::string::ToString::to_string)
-            .collect();
+        let b: Vec<String> =
+            s.step_stderr["b"].iter().map(std::string::ToString::to_string).collect();
         assert_eq!(b, vec!["other".to_string()]);
     }
 
@@ -276,10 +260,8 @@ mod tests {
             s.record_stderr("noisy", &format!("line {i}"), cap);
             assert!(s.step_stderr["noisy"].len() <= cap);
         }
-        let tail: Vec<String> = s.step_stderr["noisy"]
-            .iter()
-            .map(std::string::ToString::to_string)
-            .collect();
+        let tail: Vec<String> =
+            s.step_stderr["noisy"].iter().map(std::string::ToString::to_string).collect();
         assert_eq!(
             tail,
             vec![
@@ -320,14 +302,9 @@ mod tests {
             "the ring must not retain a handle on the step's capture buffer"
         );
         // The retained tail still carries its own bytes.
-        let tail: Vec<String> = s.step_stderr["noisy"]
-            .iter()
-            .map(std::string::ToString::to_string)
-            .collect();
-        assert_eq!(
-            tail,
-            vec!["line three".to_string(), "line four".to_string()]
-        );
+        let tail: Vec<String> =
+            s.step_stderr["noisy"].iter().map(std::string::ToString::to_string).collect();
+        assert_eq!(tail, vec!["line three".to_string(), "line four".to_string()]);
     }
 
     #[test]
@@ -351,16 +328,12 @@ mod tests {
     fn reset_for_plan_clears_previous_state_and_seeds_steps() {
         let mut s = ProgressState::new(HashMap::new());
         s.steps = vec![("old".into(), "old".into())];
-        s.step_stderr
-            .insert("old".into(), VecDeque::from(vec!["leak".into()]));
+        s.step_stderr.insert("old".into(), VecDeque::from(vec!["leak".into()]));
         s.plan_command_ids = vec!["old".into()];
         s.reset_for_plan(&["new".into()]);
         assert_eq!(s.steps, vec![("new".to_string(), "new".to_string())]);
         assert_eq!(s.plan_command_ids, vec!["new".to_string()]);
-        assert!(
-            s.step_stderr.is_empty(),
-            "stderr from prior plan must not leak"
-        );
+        assert!(s.step_stderr.is_empty(), "stderr from prior plan must not leak");
         assert!(s.bars.is_empty());
     }
 
@@ -373,11 +346,7 @@ mod tests {
     #[test]
     fn duplicate_ids_route_to_distinct_bars_via_consume() {
         let mut s = ProgressState::new(HashMap::new());
-        s.reset_for_plan(&[
-            CommandId::from("x"),
-            CommandId::from("y"),
-            CommandId::from("x"),
-        ]);
+        s.reset_for_plan(&[CommandId::from("x"), CommandId::from("y"), CommandId::from("x")]);
         // Both "x" rows exist as separate slots in `steps`.
         assert_eq!(s.steps.len(), 3);
         assert_eq!(s.steps[0].0, "x");

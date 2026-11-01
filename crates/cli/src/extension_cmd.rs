@@ -80,24 +80,14 @@ const PROVIDER_DESC_TRUNCATION_WIDTH: u16 = 50;
 // condition (docs/clippy.md layer 3).
 #[allow(clippy::expect_used)]
 fn description_col(headers: &[&str]) -> usize {
-    headers
-        .iter()
-        .position(|&h| h == "Description")
-        .expect("Description header must exist")
+    headers.iter().position(|&h| h == "Description").expect("Description header must exist")
 }
 
 fn write_extension_table(
     w: &mut dyn Write,
     exts: &[(&str, &dyn ops_extension::Extension)],
 ) -> anyhow::Result<()> {
-    let headers = [
-        "Name",
-        "Shortname",
-        "Types",
-        "Commands",
-        "Data Provider",
-        "Description",
-    ];
+    let headers = ["Name", "Shortname", "Types", "Commands", "Data Provider", "Description"];
     let desc_col = description_col(&headers);
 
     let mut table = OpsTable::new();
@@ -176,15 +166,9 @@ fn extension_summary(ext: &dyn ops_extension::Extension) -> (Vec<String>, Vec<St
         // site (`audit_command_self_shadow`); the summary stays pure so
         // callers that just want the (types, commands) tuple don't have to
         // thread a dedupe set.
-        cmd_registry
-            .keys()
-            .map(std::string::ToString::to_string)
-            .collect()
+        cmd_registry.keys().map(std::string::ToString::to_string).collect()
     } else {
-        info.command_names
-            .iter()
-            .map(|s| (*s).to_string())
-            .collect()
+        info.command_names.iter().map(|s| (*s).to_string()).collect()
     };
     (types, commands)
 }
@@ -229,10 +213,8 @@ fn build_extension_row(
     let info = ext.info();
     let (types, commands) = summary;
 
-    let data_provider = info
-        .data_provider_name
-        .map(std::string::ToString::to_string)
-        .unwrap_or_default();
+    let data_provider =
+        info.data_provider_name.map(std::string::ToString::to_string).unwrap_or_default();
 
     // Extension metadata is registry-supplied text, so
     // every cell here is built through `OpsTable`'s sanitising constructors.
@@ -258,12 +240,7 @@ pub fn run_extension_show(
     config: &ops_core::config::Config,
     name: Option<&str>,
 ) -> anyhow::Result<()> {
-    run_extension_show_to(
-        &mut std::io::stdout(),
-        config,
-        name,
-        crate::tty::is_prompt_tty,
-    )
+    run_extension_show_to(&mut std::io::stdout(), config, name, crate::tty::is_prompt_tty)
 }
 
 /// Writer-injected entry point for `ops extension show`.
@@ -360,9 +337,8 @@ fn print_extension_details(
         (*config_name, ext.info(), summary.0, summary.1)
     };
 
-    let data_provider = info
-        .data_provider_name
-        .map_or_else(|| "-".to_string(), std::string::ToString::to_string);
+    let data_provider =
+        info.data_provider_name.map_or_else(|| "-".to_string(), std::string::ToString::to_string);
 
     write_object_header(w, "EXTENSION", name, info.description, is_tty)?;
     writeln!(w, "  Shortname:     {}", info.shortname)?;
@@ -391,10 +367,7 @@ fn print_extension_details(
                 // bypassed tracing's field-recorder escaping for newline
                 // / ANSI bytes embedded in workspace paths or subprocess
                 // stderr).
-                writeln!(
-                    w,
-                    "\nschema unavailable for provider '{provider_name}': {e:#}"
-                )?;
+                writeln!(w, "\nschema unavailable for provider '{provider_name}': {e:#}")?;
             }
         }
     }
@@ -477,10 +450,7 @@ mod tests {
 
         let config = ops_core::config::load_config_or_default("test");
         let result = run_extension_show(&config, Some("nonexistent"));
-        assert!(
-            result.is_err(),
-            "run_extension_show should error for unknown extension"
-        );
+        assert!(result.is_err(), "run_extension_show should error for unknown extension");
         let err = result.unwrap_err().to_string();
         assert!(err.contains("nonexistent"), "error should mention the name");
     }
@@ -505,14 +475,8 @@ mod tests {
         let config = ops_core::config::load_config_or_default("test");
         let mut buf = Vec::new();
         let result = run_extension_show_to(&mut buf, &config, None, || false);
-        assert!(
-            result.is_err(),
-            "run_extension_show should fail without TTY when no name given"
-        );
-        assert!(result
-            .unwrap_err()
-            .to_string()
-            .contains("interactive terminal"));
+        assert!(result.is_err(), "run_extension_show should fail without TTY when no name given");
+        assert!(result.unwrap_err().to_string().contains("interactive terminal"));
     }
 
     /// When no extensions are compiled in, the
@@ -831,19 +795,15 @@ enabled = []
     /// `ops: error:` frame), not as a plain anyhow failure exiting 1.
     #[test]
     fn extension_show_cancel_exits_130_without_an_error_frame() {
-        for err in [
-            inquire::InquireError::OperationCanceled,
-            inquire::InquireError::OperationInterrupted,
-        ] {
+        for err in
+            [inquire::InquireError::OperationCanceled, inquire::InquireError::OperationInterrupted]
+        {
             let err = crate::prompt::require_answer(
                 Err::<crate::tty::SelectOption, _>(err),
                 "extension show",
             )
             .expect_err("a cancelled prompt must not yield an answer");
-            assert_eq!(
-                crate::extract_exit_code_override(&err),
-                Some(crate::SIGINT_EXIT)
-            );
+            assert_eq!(crate::extract_exit_code_override(&err), Some(crate::SIGINT_EXIT));
             assert_eq!(
                 crate::prompt::cancellation_of(&err).map(ToString::to_string),
                 Some("extension show cancelled".to_string()),

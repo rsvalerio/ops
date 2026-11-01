@@ -121,10 +121,7 @@ fn is_hard_failure(err: &anyhow::Error) -> bool {
 /// stop at this comment instead of "fixing" the lossy call.
 #[must_use]
 pub fn relativize_path(path: &std::path::Path, workspace_root: &std::path::Path) -> String {
-    path.strip_prefix(workspace_root)
-        .unwrap_or(path)
-        .to_string_lossy()
-        .into_owned()
+    path.strip_prefix(workspace_root).unwrap_or(path).to_string_lossy().into_owned()
 }
 
 pub use ingest::{
@@ -187,11 +184,7 @@ mod tests {
 
     #[test]
     fn is_hard_failure_classifies_timeout() {
-        let err: anyhow::Error = DbError::Timeout {
-            label: "load".into(),
-            timeout_secs: 5,
-        }
-        .into();
+        let err: anyhow::Error = DbError::Timeout { label: "load".into(), timeout_secs: 5 }.into();
         assert!(is_hard_failure(&err));
     }
 
@@ -230,11 +223,8 @@ mod tests {
     /// ERR-7 / TASK-1859: same for a `Timeout` nested under `External`.
     #[test]
     fn is_hard_failure_sees_timeout_nested_under_external() {
-        let nested: anyhow::Error = DbError::Timeout {
-            label: "load".into(),
-            timeout_secs: 5,
-        }
-        .into();
+        let nested: anyhow::Error =
+            DbError::Timeout { label: "load".into(), timeout_secs: 5 }.into();
         let err: anyhow::Error = DbError::External(nested).into();
         assert!(is_hard_failure(&err));
     }

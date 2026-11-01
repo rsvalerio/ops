@@ -60,12 +60,7 @@ impl TapWriter {
                 None
             }
         };
-        Self {
-            file,
-            path: Some(path),
-            truncation: None,
-            truncation_kind: None,
-        }
+        Self { file, path: Some(path), truncation: None, truncation_kind: None }
     }
 
     /// Append `line` plus a newline to the tap file. On the first IO error
@@ -113,10 +108,7 @@ impl TapWriter {
     /// Disable the tap and record the first failure. See `write_line`.
     fn record_failure(&mut self, e: &std::io::Error, step_id: Option<&str>) {
         tracing::debug!(error = %e, "tap file write failed; disabling further tap writes");
-        self.truncation = Some((
-            step_id.unwrap_or("<unknown>").to_string(),
-            e.kind().to_string(),
-        ));
+        self.truncation = Some((step_id.unwrap_or("<unknown>").to_string(), e.kind().to_string()));
         self.truncation_kind = Some(e.kind());
         // Dropping the `BufWriter` discards whatever it still holds. The
         // buffer could not be written anyway — that is what just failed —
@@ -155,10 +147,7 @@ impl TapWriter {
         // not worth a second round of blocking IO. Other kinds (EACCES
         // recovered after a chmod, transient EIO) fall through to the
         // existing append attempt.
-        if matches!(
-            self.truncation_kind,
-            Some(ErrorKind::StorageFull | ErrorKind::BrokenPipe)
-        ) {
+        if matches!(self.truncation_kind, Some(ErrorKind::StorageFull | ErrorKind::BrokenPipe)) {
             tracing::debug!(
                 target: "ops::tap",
                 kind = ?self.truncation_kind,
@@ -323,19 +312,13 @@ mod tests {
         let mut tap = TapWriter::new(path);
         tap.write_line("before", Some("step-a"));
         // Simulate the failure the buffered writer would report on spill.
-        tap.record_failure(
-            &std::io::Error::from(ErrorKind::StorageFull),
-            Some("step-b"),
-        );
+        tap.record_failure(&std::io::Error::from(ErrorKind::StorageFull), Some("step-b"));
         assert!(tap.file.is_none(), "tap must be disabled after a failure");
         tap.write_line("after", Some("step-c"));
         let (step_id, kind) = tap.take_truncation().expect("truncation recorded");
         assert_eq!(step_id, "step-b");
         assert!(kind.contains("storage") || kind.contains("space"), "{kind}");
-        assert!(
-            tap.take_truncation().is_none(),
-            "the truncation record is drained exactly once"
-        );
+        assert!(tap.take_truncation().is_none(), "the truncation record is drained exactly once");
     }
 
     #[test]

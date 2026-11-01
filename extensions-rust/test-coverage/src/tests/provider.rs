@@ -59,10 +59,7 @@ fn query_coverage_files_round_trip() {
     let arr = rows.as_array().unwrap();
     assert_eq!(arr.len(), 2);
 
-    let filenames: Vec<&str> = arr
-        .iter()
-        .map(|r| r["filename"].as_str().unwrap())
-        .collect();
+    let filenames: Vec<&str> = arr.iter().map(|r| r["filename"].as_str().unwrap()).collect();
     assert!(filenames.contains(&"src/main.rs"));
     assert!(filenames.contains(&"src/lib.rs"));
 
@@ -105,10 +102,8 @@ fn provide_reads_rows_from_attached_db_without_running_cargo() {
     let value = CoverageProvider.provide(&mut ctx).expect("provide");
     let arr = value.as_array().expect("rows array");
     assert_eq!(arr.len(), 2, "both fixture rows come back: {value}");
-    let filenames: Vec<&str> = arr
-        .iter()
-        .map(|r| r["filename"].as_str().expect("filename"))
-        .collect();
+    let filenames: Vec<&str> =
+        arr.iter().map(|r| r["filename"].as_str().expect("filename")).collect();
     assert!(filenames.contains(&"src/main.rs"));
     assert!(filenames.contains(&"src/lib.rs"));
 }

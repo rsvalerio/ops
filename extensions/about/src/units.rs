@@ -29,12 +29,7 @@ pub fn run_about_units(data_registry: &DataRegistry) -> anyhow::Result<()> {
     // Buffer-writing call sites must hand in an explicit width via
     // `run_about_units_with` so the 120-column fallback never sneaks into
     // output destined for a `Vec<u8>` or pipe.
-    run_about_units_with(
-        data_registry,
-        &mut std::io::stdout(),
-        is_tty,
-        get_terminal_width(),
-    )
+    run_about_units_with(data_registry, &mut std::io::stdout(), is_tty, get_terminal_width())
 }
 
 /// `is_tty` is supplied by the caller and reflects the `writer` they hand
@@ -127,10 +122,7 @@ impl UnitRecord {
     pub fn from_unit(unit: &ProjectUnit) -> Self {
         let (manifest_dir, in_tree) = normalize_unit_path(&unit.path);
         Self {
-            name: unit
-                .package_name
-                .clone()
-                .unwrap_or_else(|| unit.name.clone()),
+            name: unit.package_name.clone().unwrap_or_else(|| unit.name.clone()),
             version: unit.version.clone(),
             manifest_dir,
             in_tree,
@@ -189,16 +181,8 @@ pub struct UnitsDocument {
 #[must_use]
 pub fn units_json(units: &[ProjectUnit]) -> UnitsDocument {
     let mut crates: Vec<UnitRecord> = units.iter().map(UnitRecord::from_unit).collect();
-    crates.sort_by(|a, b| {
-        a.manifest_dir
-            .cmp(&b.manifest_dir)
-            .then_with(|| a.name.cmp(&b.name))
-    });
-    UnitsDocument {
-        schema_version: UNITS_JSON_SCHEMA_VERSION,
-        kind: "about-crates",
-        crates,
-    }
+    crates.sort_by(|a, b| a.manifest_dir.cmp(&b.manifest_dir).then_with(|| a.name.cmp(&b.name)));
+    UnitsDocument { schema_version: UNITS_JSON_SCHEMA_VERSION, kind: "about-crates", crates }
 }
 
 /// `ops about crates --json`: the project units as a versioned JSON
@@ -251,11 +235,8 @@ fn enrich_from_db(ctx: &Context, units: &mut [ProjectUnit]) {
     };
     // Root-module entries (path == "" or ".") need project-wide totals; the
     // per-crate `starts_with(file, path || '/')` join never matches them.
-    let per_crate_paths: Vec<&str> = units
-        .iter()
-        .map(|u| u.path.as_str())
-        .filter(|p| !p.is_empty() && *p != ".")
-        .collect();
+    let per_crate_paths: Vec<&str> =
+        units.iter().map(|u| u.path.as_str()).filter(|p| !p.is_empty() && *p != ".").collect();
 
     let unit_count = units.len();
     // A query failure must NOT silently overwrite provider-supplied unit
@@ -277,11 +258,8 @@ fn enrich_from_db(ctx: &Context, units: &mut [ProjectUnit]) {
         "crate_file_count",
         ops_sqlite::sql::query_crate_file_count(db, &per_crate_paths),
     );
-    let project_loc = try_query(
-        &mut partial_failures,
-        "project_loc",
-        ops_sqlite::sql::query_project_loc(db),
-    );
+    let project_loc =
+        try_query(&mut partial_failures, "project_loc", ops_sqlite::sql::query_project_loc(db));
     let project_files = try_query(
         &mut partial_failures,
         "project_file_count",
@@ -485,14 +463,8 @@ mod tests {
 
     #[test]
     fn normalize_unit_path_never_emits_an_absolute_path() {
-        assert_eq!(
-            normalize_unit_path("./crates/a/"),
-            ("crates/a".to_string(), true)
-        );
-        assert_eq!(
-            normalize_unit_path("crates/a/../b"),
-            ("crates/b".to_string(), true)
-        );
+        assert_eq!(normalize_unit_path("./crates/a/"), ("crates/a".to_string(), true));
+        assert_eq!(normalize_unit_path("crates/a/../b"), ("crates/b".to_string(), true));
         assert_eq!(normalize_unit_path("/home/u/x"), ("x".to_string(), false));
         assert_eq!(normalize_unit_path("."), (".".to_string(), true));
     }

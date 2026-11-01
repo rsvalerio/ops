@@ -32,9 +32,6 @@ impl<'a> ErrorDetailRenderer<'a> {
     /// capture buffer at all — see `ProgressState`'s type-level docs.
     #[must_use]
     pub fn extract_stderr_tail(stderr_lines: &[Box<str>], max_lines: usize) -> Vec<String> {
-        tail_lines(stderr_lines, max_lines)
-            .iter()
-            .map(std::string::ToString::to_string)
-            .collect()
+        tail_lines(stderr_lines, max_lines).iter().map(std::string::ToString::to_string).collect()
     }
 }

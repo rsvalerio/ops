@@ -82,11 +82,7 @@ impl FixerReport {
 /// Propagates writer I/O errors so a broken pipe in CI is not silently hidden
 /// from the caller.
 pub fn write_summary(report: &FixerReport, label: &str, writer: &mut dyn Write) -> io::Result<()> {
-    let changed = if report.check_only {
-        "would change"
-    } else {
-        "changed"
-    };
+    let changed = if report.check_only { "would change" } else { "changed" };
     writeln!(
         writer,
         "{label}: scanned {} file(s), {} {changed}, {} skipped, {} failed, {} walk error(s)",
@@ -165,10 +161,7 @@ mod tests {
             walk_errors: vec!["IO error for operation on /x: permission denied".to_owned()],
             ..FixerReport::default()
         };
-        assert!(
-            report.failed(),
-            "a traversal that lost candidates must not report success"
-        );
+        assert!(report.failed(), "a traversal that lost candidates must not report success");
         assert!(!report.changed(), "a walk error is not a change");
         assert!(!FixerReport::default().failed());
 

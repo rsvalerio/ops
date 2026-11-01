@@ -65,9 +65,7 @@ impl DataProvider for RustReviewTargetsProvider {
             return Err(neither_reviewable_shape(&manifest, &root));
         }
         targets.extend(
-            members
-                .iter()
-                .map(|member| (member_target_name(member, &root), member.clone())),
+            members.iter().map(|member| (member_target_name(member, &root), member.clone())),
         );
         disambiguate_target_names(&mut targets);
 
@@ -180,11 +178,8 @@ mod tests {
     ) -> (tempfile::TempDir, std::path::PathBuf) {
         let dir = tempfile::tempdir().expect("tempdir");
         let root = dir.path().to_path_buf();
-        std::fs::write(
-            root.join("Cargo.toml"),
-            format!("[workspace]\nmembers = [{members}]\n"),
-        )
-        .expect("root manifest");
+        std::fs::write(root.join("Cargo.toml"), format!("[workspace]\nmembers = [{members}]\n"))
+            .expect("root manifest");
         for (dir_name, pkg_name) in crates {
             let crate_dir = root.join(dir_name);
             std::fs::create_dir_all(&crate_dir).expect("member dir");
@@ -236,24 +231,15 @@ mod tests {
     fn payload_decodes_into_the_consumers_review_targets_type() {
         let (_dir, root) = scratch_workspace(
             "\"crates/*\"",
-            &[
-                ("crates/core", Some("ops-core")),
-                ("crates/cli", Some("ops-cli")),
-            ],
+            &[("crates/core", Some("ops-core")), ("crates/cli", Some("ops-cli"))],
         );
         let value = provide(&root).expect("provide");
         let decoded: ops_create_review_tasks::ReviewTargets =
             serde_json::from_value(value).expect("payload must decode into ReviewTargets");
         assert_eq!(decoded.skill, SKILL_NAME);
-        let pairs: Vec<(&str, &str)> = decoded
-            .targets
-            .iter()
-            .map(|t| (t.name.as_str(), t.path.as_str()))
-            .collect();
-        assert_eq!(
-            pairs,
-            vec![("ops-cli", "crates/cli"), ("ops-core", "crates/core")]
-        );
+        let pairs: Vec<(&str, &str)> =
+            decoded.targets.iter().map(|t| (t.name.as_str(), t.path.as_str())).collect();
+        assert_eq!(pairs, vec![("ops-cli", "crates/cli"), ("ops-core", "crates/core")]);
     }
 
     /// A member without a usable manifest must not disappear — it falls back
@@ -274,17 +260,11 @@ mod tests {
     fn member_with_malformed_manifest_falls_back_to_display_name() {
         let dir = tempfile::tempdir().expect("tempdir");
         let root = dir.path();
-        std::fs::write(
-            root.join("Cargo.toml"),
-            "[workspace]\nmembers = [\"crates/broken\"]\n",
-        )
-        .expect("root manifest");
+        std::fs::write(root.join("Cargo.toml"), "[workspace]\nmembers = [\"crates/broken\"]\n")
+            .expect("root manifest");
         std::fs::create_dir_all(root.join("crates/broken")).expect("member dir");
-        std::fs::write(
-            root.join("crates/broken/Cargo.toml"),
-            "[package\nname = \"unterminated\n",
-        )
-        .expect("malformed manifest");
+        std::fs::write(root.join("crates/broken/Cargo.toml"), "[package\nname = \"unterminated\n")
+            .expect("malformed manifest");
         let value = provide(root).expect("provide");
         assert_eq!(
             value["targets"][0],
@@ -307,11 +287,8 @@ mod tests {
         .expect("root manifest");
         for member in ["crates/parser", "tools/parser"] {
             std::fs::create_dir_all(root.join(member)).expect("member dir");
-            std::fs::write(
-                root.join(member).join("Cargo.toml"),
-                "[package\nname = \"x\n",
-            )
-            .expect("malformed manifest");
+            std::fs::write(root.join(member).join("Cargo.toml"), "[package\nname = \"x\n")
+                .expect("malformed manifest");
         }
         let value = provide(root).expect("provide");
         let decoded: ops_create_review_tasks::ReviewTargets =
@@ -378,11 +355,8 @@ mod tests {
         let value = provide(&root).expect("provide");
         let decoded: ops_create_review_tasks::ReviewTargets =
             serde_json::from_value(value).expect("decode");
-        let pairs: Vec<(&str, &str)> = decoded
-            .targets
-            .iter()
-            .map(|t| (t.name.as_str(), t.path.as_str()))
-            .collect();
+        let pairs: Vec<(&str, &str)> =
+            decoded.targets.iter().map(|t| (t.name.as_str(), t.path.as_str())).collect();
         assert_eq!(
             pairs,
             vec![
@@ -410,11 +384,7 @@ mod tests {
         let value = provide(&root).expect("provide");
         let decoded: ops_create_review_tasks::ReviewTargets =
             serde_json::from_value(value).expect("decode");
-        let root_hits = decoded
-            .targets
-            .iter()
-            .filter(|t| t.path == ROOT_PACKAGE_PATH)
-            .count();
+        let root_hits = decoded.targets.iter().filter(|t| t.path == ROOT_PACKAGE_PATH).count();
         assert_eq!(
             root_hits, 1,
             "the root path must appear exactly once, got {:?}",
@@ -429,11 +399,8 @@ mod tests {
     fn manifest_with_neither_workspace_nor_package_is_a_typed_error() {
         let dir = tempfile::tempdir().expect("tempdir");
         let root = dir.path();
-        std::fs::write(
-            root.join("Cargo.toml"),
-            "[profile.release]\nopt-level = 3\n",
-        )
-        .expect("root manifest");
+        std::fs::write(root.join("Cargo.toml"), "[profile.release]\nopt-level = 3\n")
+            .expect("root manifest");
         let err = provide(root).expect_err("must fail");
         let rendered = err.to_string();
         assert!(
@@ -475,10 +442,7 @@ mod tests {
 
         for member in ["../outside", outside.to_str().expect("utf-8 path")] {
             let name = member_target_name(member, &root);
-            assert_ne!(
-                name, "escaped",
-                "unsafe member {member} must not be read outside the root"
-            );
+            assert_ne!(name, "escaped", "unsafe member {member} must not be read outside the root");
             assert_eq!(name, format_unit_name(member));
         }
     }
@@ -507,10 +471,7 @@ mod tests {
             "the fallback breadcrumb must have been emitted, got: {logs:?}"
         );
         ops_about::test_support::assert_debug_escapes_control_chars(member);
-        assert!(
-            !logs.contains('\u{1b}'),
-            "raw ANSI ESC leaked into the breadcrumb: {logs:?}"
-        );
+        assert!(!logs.contains('\u{1b}'), "raw ANSI ESC leaked into the breadcrumb: {logs:?}");
         assert!(
             logs.contains("\\n") && logs.contains("\\u{1b}"),
             "member must be rendered through the `?` formatter, got: {logs:?}"

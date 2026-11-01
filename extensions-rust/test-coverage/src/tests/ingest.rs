@@ -18,19 +18,15 @@ fn coverage_load_creates_table_and_view() {
 
     // Verify a specific row
     let filename: String = conn
-        .query_row(
-            "SELECT filename FROM coverage_files WHERE lines_count = 100",
-            [],
-            |row| row.get(0),
-        )
+        .query_row("SELECT filename FROM coverage_files WHERE lines_count = 100", [], |row| {
+            row.get(0)
+        })
         .expect("filename query");
     assert_eq!(filename, "src/main.rs");
 
     // Verify view
     let summary_lines: i64 = conn
-        .query_row("SELECT lines_count FROM coverage_summary", [], |row| {
-            row.get(0)
-        })
+        .query_row("SELECT lines_count FROM coverage_summary", [], |row| row.get(0))
         .expect("summary query");
     drop(conn);
     assert_eq!(summary_lines, 300, "summary should aggregate lines");
@@ -58,9 +54,8 @@ fn coverage_load_is_idempotent() {
     let _ = ingestor.load(&dir, &db).expect("second load");
 
     let conn = db.lock().expect("lock");
-    let count: i64 = conn
-        .query_row("SELECT COUNT(*) FROM coverage_files", [], |row| row.get(0))
-        .expect("count");
+    let count: i64 =
+        conn.query_row("SELECT COUNT(*) FROM coverage_files", [], |row| row.get(0)).expect("count");
     drop(conn);
     assert_eq!(count, 2, "idempotent load should not duplicate rows");
 }

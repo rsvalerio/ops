@@ -30,15 +30,12 @@ impl DataIngestor for MetadataIngestor {
         // of the directory this anchor exists to pin.
         let working_dir = ctx.working_directory();
         let output = run_cargo_metadata(working_dir).map_err(|e| match e {
-            ops_core::subprocess::RunError::Io(io) => io_at(
-                "running `cargo metadata` in working directory",
-                working_dir,
-                io,
-            ),
-            ops_core::subprocess::RunError::Timeout(t) => DbError::Timeout {
-                label: t.label,
-                timeout_secs: t.timeout.as_secs(),
-            },
+            ops_core::subprocess::RunError::Io(io) => {
+                io_at("running `cargo metadata` in working directory", working_dir, io)
+            }
+            ops_core::subprocess::RunError::Timeout(t) => {
+                DbError::Timeout { label: t.label, timeout_secs: t.timeout.as_secs() }
+            }
             other => external_err(anyhow::Error::new(other).context("cargo metadata")),
         })?;
         check_metadata_output(&output).map_err(external_err)?;
@@ -270,9 +267,7 @@ fn reject_non_object(conn: &rusqlite::Connection, observed: &str) -> DbError {
 /// otherwise (see [`reject_non_object`]).
 fn ensure_object_payload(conn: &rusqlite::Connection) -> DbResult<()> {
     let shape: String = conn
-        .query_row("SELECT json_type(json) FROM metadata_raw", [], |row| {
-            row.get(0)
-        })
+        .query_row("SELECT json_type(json) FROM metadata_raw", [], |row| row.get(0))
         .map_err(|e| DbError::query_failed("metadata_raw payload shape", e))?;
     if shape != "object" {
         return Err(reject_non_object(conn, &shape));
@@ -301,14 +296,10 @@ fn drop_metadata_tables(conn: &rusqlite::Connection, reason: &'static str) {
 /// project's `InvalidRecordCount` policy.
 fn query_record_count(conn: &rusqlite::Connection) -> DbResult<u64> {
     let raw: i64 = conn
-        .query_row("SELECT count(*) FROM metadata_raw", [], |row| {
-            row.get::<_, i64>(0)
-        })
+        .query_row("SELECT count(*) FROM metadata_raw", [], |row| row.get::<_, i64>(0))
         .map_err(|e| DbError::query_failed("metadata_raw count", e))?;
-    u64::try_from(raw).map_err(|_| DbError::InvalidRecordCount {
-        table: "metadata_raw".to_string(),
-        count: raw,
-    })
+    u64::try_from(raw)
+        .map_err(|_| DbError::InvalidRecordCount { table: "metadata_raw".to_string(), count: raw })
 }
 
 /// Reads `workspace_root` out of the loaded JSON blob.
@@ -317,11 +308,9 @@ fn query_record_count(conn: &rusqlite::Connection) -> DbResult<u64> {
 /// so a payload whose `workspace_root` is not a string names the type it
 /// found rather than only the query.
 fn extract_workspace_root(conn: &rusqlite::Connection) -> DbResult<String> {
-    conn.query_row(
-        "SELECT json_extract(json, '$.workspace_root') FROM metadata_raw",
-        [],
-        |row| row.get(0),
-    )
+    conn.query_row("SELECT json_extract(json, '$.workspace_root') FROM metadata_raw", [], |row| {
+        row.get(0)
+    })
     .map_err(|e| {
         let observed_type = conn
             .query_row(
@@ -541,9 +530,7 @@ mod tests {
         let data_dir = tempfile::tempdir().expect("tempdir");
         let dir = ingest_anchor(&data_dir);
         let ingestor = MetadataIngestor;
-        ingestor
-            .collect(&ctx, &dir)
-            .expect("collect succeeds against this crate's manifest");
+        ingestor.collect(&ctx, &dir).expect("collect succeeds against this crate's manifest");
         let json_path = dir.entry_path(METADATA_JSON);
         assert!(json_path.exists(), "metadata.json was written");
         let leftovers: Vec<_> = std::fs::read_dir(dir.path())
@@ -551,10 +538,7 @@ mod tests {
             .filter_map(Result::ok)
             .filter(|e| e.file_name().to_string_lossy().contains(".tmp."))
             .collect();
-        assert!(
-            leftovers.is_empty(),
-            "atomic_write left a tmp sibling: {leftovers:?}"
-        );
+        assert!(leftovers.is_empty(), "atomic_write left a tmp sibling: {leftovers:?}");
     }
 
     #[test]
@@ -608,9 +592,7 @@ mod tests {
 
         let conn = db.lock().unwrap();
         let total: i64 = conn
-            .query_row("SELECT COUNT(*) FROM crate_dependencies", [], |row| {
-                row.get(0)
-            })
+            .query_row("SELECT COUNT(*) FROM crate_dependencies", [], |row| row.get(0))
             .unwrap();
         assert_eq!(total, 2, "both registry and path deps should be present");
 
@@ -682,9 +664,7 @@ mod tests {
 
         let db = Sqlite::open_in_memory().expect("open in-memory db");
         let ingestor = MetadataIngestor;
-        ingestor
-            .load(&dir, &db)
-            .expect_err("non-object load must fail");
+        ingestor.load(&dir, &db).expect_err("non-object load must fail");
 
         // The reader is the other half of the invariant: it must fail too,
         // and for the *absence* of the table rather than a row-count
@@ -724,9 +704,7 @@ mod tests {
         write_metadata_json(&dir, &metadata_json);
 
         let db = Sqlite::open_in_memory().unwrap();
-        MetadataIngestor
-            .load(&dir, &db)
-            .expect_err("a numeric workspace_root must fail the load");
+        MetadataIngestor.load(&dir, &db).expect_err("a numeric workspace_root must fail the load");
 
         let conn = db.lock().unwrap();
         let objects: i64 = conn
@@ -738,10 +716,7 @@ mod tests {
             )
             .unwrap();
         drop(conn);
-        assert_eq!(
-            objects, 0,
-            "no metadata objects may survive a post-publication rejection"
-        );
+        assert_eq!(objects, 0, "no metadata objects may survive a post-publication rejection");
     }
 
     /// The rejection path is the most likely way out of `load` that is not
@@ -760,14 +735,9 @@ mod tests {
         let json_path = write_metadata_json(&dir, &metadata_json);
 
         let db = Sqlite::open_in_memory().expect("open in-memory db");
-        MetadataIngestor
-            .load(&dir, &db)
-            .expect_err("two-row load must fail");
+        MetadataIngestor.load(&dir, &db).expect_err("two-row load must fail");
 
-        assert!(
-            !json_path.exists(),
-            "the staged metadata.json must not survive a rejected load"
-        );
+        assert!(!json_path.exists(), "the staged metadata.json must not survive a rejected load");
     }
 
     /// The guard is armed before the first fallible step, so a failure that
@@ -780,13 +750,10 @@ mod tests {
         let data_dir = tempfile::tempdir().unwrap();
         let dir = ingest_anchor(&data_dir);
         let json_path = dir.entry_path(METADATA_JSON);
-        dir.write_atomic(METADATA_JSON, b"this is not JSON at all")
-            .unwrap();
+        dir.write_atomic(METADATA_JSON, b"this is not JSON at all").unwrap();
 
         let db = Sqlite::open_in_memory().expect("open in-memory db");
-        MetadataIngestor
-            .load(&dir, &db)
-            .expect_err("unparseable staged JSON must fail the load");
+        MetadataIngestor.load(&dir, &db).expect_err("unparseable staged JSON must fail the load");
 
         assert!(
             !json_path.exists(),
@@ -840,9 +807,7 @@ mod tests {
             .unwrap();
         let rows = stmt
             .query_map([], |row| {
-                Ok(row
-                    .get::<_, Option<String>>(0)?
-                    .unwrap_or_else(|| "<null>".to_string()))
+                Ok(row.get::<_, Option<String>>(0)?.unwrap_or_else(|| "<null>".to_string()))
             })
             .unwrap();
         for r in rows {
@@ -863,13 +828,9 @@ mod tests {
     fn extract_workspace_root_typeof_probe_surfaces_observed_type() {
         let db = Sqlite::open_in_memory().expect("open in-memory db");
         let conn = db.lock().expect("acquire connection");
-        conn.execute("CREATE TABLE metadata_raw (json TEXT NOT NULL)", [])
-            .expect("create table");
-        conn.execute(
-            "INSERT INTO metadata_raw VALUES ('{\"workspace_root\": 42}')",
-            [],
-        )
-        .expect("seed row");
+        conn.execute("CREATE TABLE metadata_raw (json TEXT NOT NULL)", []).expect("create table");
+        conn.execute("INSERT INTO metadata_raw VALUES ('{\"workspace_root\": 42}')", [])
+            .expect("seed row");
         let err = super::extract_workspace_root(&conn)
             .expect_err("numeric workspace_root cannot deserialise to String");
         drop(conn);

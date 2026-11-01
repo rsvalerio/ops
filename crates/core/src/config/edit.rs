@@ -196,20 +196,12 @@ pub fn atomic_write(path: &Path, bytes: &[u8]) -> std::io::Result<()> {
     let tmp = parent.join(build_tmp_basename(file_name));
 
     if let Err(e) = write_tmp_and_sync(&tmp, path, bytes) {
-        cleanup_tmp(
-            &tmp,
-            false,
-            "leaked atomic_write temp file after write/sync failure",
-        );
+        cleanup_tmp(&tmp, false, "leaked atomic_write temp file after write/sync failure");
         return Err(e);
     }
 
     if let Err(e) = std::fs::rename(&tmp, path) {
-        cleanup_tmp(
-            &tmp,
-            true,
-            "leaked atomic_write temp file after rename failure",
-        );
+        cleanup_tmp(&tmp, true, "leaked atomic_write temp file after rename failure");
         return Err(e);
     }
 
@@ -281,9 +273,7 @@ fn build_tmp_basename(file_name: &OsStr) -> OsString {
     // `nanos` is best-effort entropy only — falls
     // back to 0 when the clock is set before `UNIX_EPOCH`. Real
     // uniqueness comes from `(pid, counter)`.
-    let nanos = SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .map_or(0, |d| d.as_nanos());
+    let nanos = SystemTime::now().duration_since(UNIX_EPOCH).map_or(0, |d| d.as_nanos());
 
     let name_bytes = file_name.as_encoded_bytes();
     let stem_bytes = name_bytes.strip_prefix(b".").unwrap_or(name_bytes);
@@ -294,12 +284,8 @@ fn build_tmp_basename(file_name: &OsStr) -> OsString {
     // One allocation for the suffix, one for the OsString.
     let mut suffix = String::with_capacity(48);
     let _ = write!(suffix, ".tmp.{pid}.{counter}.{nanos}");
-    let mut tmp_name = OsString::with_capacity(
-        name_bytes
-            .len()
-            .saturating_add(suffix.len())
-            .saturating_add(1),
-    );
+    let mut tmp_name =
+        OsString::with_capacity(name_bytes.len().saturating_add(suffix.len()).saturating_add(1));
     tmp_name.push(".");
     tmp_name.push(stem);
     tmp_name.push(&suffix);
@@ -440,10 +426,7 @@ mod tests {
 
         let err = result.expect_err("oversized .ops.toml must error");
         let msg = format!("{err:#}");
-        assert!(
-            msg.contains("exceeds 64 bytes"),
-            "error must name the cap, got: {msg}"
-        );
+        assert!(msg.contains("exceeds 64 bytes"), "error must name the cap, got: {msg}");
     }
 
     #[test]
@@ -490,9 +473,8 @@ mod tests {
 
         let content = std::fs::read_to_string(&path).unwrap();
         assert!(content.contains("theme = \"classic\""));
-        let entries: Vec<_> = std::fs::read_dir(crate::test_utils::canonical_root(&dir))
-            .unwrap()
-            .collect();
+        let entries: Vec<_> =
+            std::fs::read_dir(crate::test_utils::canonical_root(&dir)).unwrap().collect();
         assert_eq!(entries.len(), 1, "temp file should have been renamed away");
     }
 
@@ -566,10 +548,7 @@ mod tests {
                 s.starts_with(".target.tmp.")
             })
             .collect();
-        assert!(
-            leftovers.is_empty(),
-            "expected tmp cleanup, leftovers: {leftovers:?}"
-        );
+        assert!(leftovers.is_empty(), "expected tmp cleanup, leftovers: {leftovers:?}");
     }
 
     #[test]
@@ -656,10 +635,7 @@ mod tests {
 
         atomic_write(&path, b"second").unwrap();
         let mode = std::fs::metadata(&path).unwrap().permissions().mode() & 0o7777;
-        assert_eq!(
-            mode, 0o600,
-            "expected 0o600 preserved across atomic_write, got {mode:o}"
-        );
+        assert_eq!(mode, 0o600, "expected 0o600 preserved across atomic_write, got {mode:o}");
         assert_eq!(std::fs::read(&path).unwrap(), b"second");
     }
 
@@ -673,10 +649,7 @@ mod tests {
         let path = crate::test_utils::canonical_root(&dir).join("fresh.toml");
         atomic_write(&path, b"hello").unwrap();
         let mode = std::fs::metadata(&path).unwrap().permissions().mode() & 0o7777;
-        assert_eq!(
-            mode, 0o600,
-            "expected 0o600 default for new file, got {mode:o}"
-        );
+        assert_eq!(mode, 0o600, "expected 0o600 default for new file, got {mode:o}");
     }
 
     /// SEC-25 / TASK-1388: if the destination is a symlink, the mode probe
@@ -752,10 +725,7 @@ mod tests {
         result.unwrap();
 
         let mode = std::fs::metadata(&path).unwrap().permissions().mode() & 0o7777;
-        assert_eq!(
-            mode, 0o644,
-            "expected 0o644 preserved under umask 0o077, got {mode:o}"
-        );
+        assert_eq!(mode, 0o644, "expected 0o644 preserved under umask 0o077, got {mode:o}");
         assert_eq!(std::fs::read(&path).unwrap(), b"second");
     }
 
@@ -793,12 +763,7 @@ mod tests {
         let leftovers: Vec<_> = std::fs::read_dir(crate::test_utils::canonical_root(&dir))
             .unwrap()
             .filter_map(Result::ok)
-            .filter(|e| {
-                e.file_name()
-                    .as_encoded_bytes()
-                    .windows(5)
-                    .any(|w| w == b".tmp.")
-            })
+            .filter(|e| e.file_name().as_encoded_bytes().windows(5).any(|w| w == b".tmp."))
             .collect();
         assert!(leftovers.is_empty(), "leaked tmp: {leftovers:?}");
     }
@@ -852,10 +817,7 @@ mod tests {
     /// `.ops.toml` write path (which IS a bare filename).
     #[test]
     #[serial_test::serial]
-    #[cfg_attr(
-        miri,
-        ignore = "Miri cannot open a directory, which is what this asserts"
-    )]
+    #[cfg_attr(miri, ignore = "Miri cannot open a directory, which is what this asserts")]
     fn atomic_write_bare_filename_fsyncs_cwd_parent() {
         let dir = tempfile::tempdir().unwrap();
         let saved_cwd = std::env::current_dir().unwrap();
@@ -903,10 +865,7 @@ mod tests {
         // If the rename succeeded after all (rare on some platforms) the
         // assertion below trivially passes since `entries` is empty.
         for name in entries {
-            assert!(
-                !name.starts_with(".."),
-                "tmp basename must not start with two dots: {name}"
-            );
+            assert!(!name.starts_with(".."), "tmp basename must not start with two dots: {name}");
         }
     }
 }

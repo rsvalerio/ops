@@ -112,10 +112,7 @@ const fn is_droppable_control(c: char) -> bool {
 /// True for the code points that can begin an escape sequence: `ESC` and
 /// the six 8-bit C1 introducers the grammar recognises.
 const fn is_escape_introducer(c: char) -> bool {
-    matches!(
-        c,
-        '\x1b' | '\u{90}' | '\u{98}' | '\u{9b}' | '\u{9d}' | '\u{9e}' | '\u{9f}'
-    )
+    matches!(c, '\x1b' | '\u{90}' | '\u{98}' | '\u{9b}' | '\u{9d}' | '\u{9e}' | '\u{9f}')
 }
 
 /// What a tab is rewritten to by the display policies.
@@ -425,17 +422,8 @@ impl BodyBudget {
     /// ellipsis marker. A string that already fits (and is only being
     /// stripped of control characters) keeps the full budget.
     const fn new(fits: bool, max_cols: usize) -> Self {
-        let body_cols = if fits {
-            max_cols
-        } else {
-            max_cols.saturating_sub(1)
-        };
-        Self {
-            body_cols,
-            max_cols,
-            used: 0,
-            truncated: false,
-        }
+        let body_cols = if fits { max_cols } else { max_cols.saturating_sub(1) };
+        Self { body_cols, max_cols, used: 0, truncated: false }
     }
 
     /// Whether the cut has already been marked.

@@ -140,10 +140,7 @@ pub fn ensure_backlog_config_to(
     }
     if config == InitConfig::BacklogMd {
         let yml = cwd.join("backlog.config.yml");
-        if yml
-            .try_exists()
-            .with_context(|| format!("checking {}", yml.display()))?
-        {
+        if yml.try_exists().with_context(|| format!("checking {}", yml.display()))? {
             writeln!(out, "backlog.config.yml already exists, left unchanged")
                 .context("printing the already-exists notice")?;
         } else {
@@ -158,31 +155,20 @@ pub fn ensure_backlog_config_to(
     }
 
     let yml = cwd.join("backlog.config.yml");
-    if yml
-        .try_exists()
-        .with_context(|| format!("checking {}", yml.display()))?
-    {
-        writeln!(
-            out,
-            "backlog.config.yml already configures the backlog, left unchanged"
-        )
-        .context("printing the yml-owns-the-config notice")?;
+    if yml.try_exists().with_context(|| format!("checking {}", yml.display()))? {
+        writeln!(out, "backlog.config.yml already configures the backlog, left unchanged")
+            .context("printing the yml-owns-the-config notice")?;
         return Ok(());
     }
 
     let path = cwd.join(".ops.toml");
-    let existed = path
-        .try_exists()
-        .with_context(|| format!("checking {}", path.display()))?;
+    let existed = path.try_exists().with_context(|| format!("checking {}", path.display()))?;
     // Missing file → empty document; malformed → hard error rather than
     // an edit that could clobber the user's config.
     let mut doc = ops_core::config::read_ops_toml(&path)?;
     if doc.contains_key("backlog") {
-        writeln!(
-            out,
-            ".ops.toml already configures [backlog], left unchanged"
-        )
-        .context("printing the already-configured notice")?;
+        writeln!(out, ".ops.toml already configures [backlog], left unchanged")
+            .context("printing the already-configured notice")?;
         return Ok(());
     }
     let section = BacklogSection::sane_defaults();
@@ -231,12 +217,8 @@ pub fn ensure_tasks_tree_with(
         return Ok(());
     }
     std::fs::create_dir_all(&tasks).with_context(|| format!("creating {}", tasks.display()))?;
-    writeln!(
-        out,
-        "Created {}/tasks/",
-        cfg.backlog_directory.trim_end_matches('/')
-    )
-    .context("printing the created-tree notice")
+    writeln!(out, "Created {}/tasks/", cfg.backlog_directory.trim_end_matches('/'))
+        .context("printing the created-tree notice")
 }
 
 /// Land the section's set keys in a fresh `[backlog]` table, in the yml
@@ -376,11 +358,7 @@ pub fn run_backlog(
         }
     }
     // init runs without a store — creating the tree is its job.
-    if let BacklogAction::Init {
-        ops_toml,
-        backlog_md,
-    } = action
-    {
+    if let BacklogAction::Init { ops_toml, backlog_md } = action {
         return run_backlog_init(cwd, init_config(ops_toml, backlog_md));
     }
     let cfg = resolve_backlog_config(cwd, Some(&config.backlog))?;
@@ -397,13 +375,7 @@ pub fn run_backlog(
     }
     // create-coderabbit-tasks without --run files a request through the
     // same store-less engine; with --run it files findings through the store.
-    if let BacklogAction::CreateCoderabbitTasks {
-        crates,
-        run: false,
-        dry_run,
-        ..
-    } = &action
-    {
+    if let BacklogAction::CreateCoderabbitTasks { crates, run: false, dry_run, .. } = &action {
         return crate::subcommands::run_create_coderabbit_request(config, crates, *dry_run);
     }
     let backlog_root = cwd.join(&cfg.backlog_directory);
@@ -429,22 +401,15 @@ fn run_with_store(
         // cannot express "not Init" — so the arm repeats the idempotent
         // call rather than panicking; if a refactor ever drops the early
         // return, init still lands here.
-        BacklogAction::Init {
-            ops_toml,
-            backlog_md,
-        } => run_backlog_init(cwd, init_config(ops_toml, backlog_md)),
+        BacklogAction::Init { ops_toml, backlog_md } => {
+            run_backlog_init(cwd, init_config(ops_toml, backlog_md))
+        }
         // Same shape as Init: unreachable past the early return above, and
         // the repeated call keeps the arm total if that return ever moves.
         BacklogAction::CreateReviewTasks { dry_run } => {
             crate::subcommands::run_create_review_tasks(config, dry_run)
         }
-        BacklogAction::CreateCoderabbitTasks {
-            crates,
-            run,
-            fresh,
-            use_credits,
-            dry_run,
-        } => {
+        BacklogAction::CreateCoderabbitTasks { crates, run, fresh, use_credits, dry_run } => {
             if !run {
                 // Unreachable past the early return above; kept total.
                 return crate::subcommands::run_create_coderabbit_request(config, &crates, dry_run);
@@ -464,24 +429,14 @@ fn run_with_store(
             crate::subcommands::run_create_coderabbit_reviews(config, backlog, &opts)
         }
         BacklogAction::Task { action } => run_task_action(store, cfg, cwd, action),
-        BacklogAction::Search {
-            query,
-            modified_file,
-            exclude_status,
-            plain: _,
-            json,
-        } => {
+        BacklogAction::Search { query, modified_file, exclude_status, plain: _, json } => {
             let opts = cmd::SearchOptions {
                 query,
                 modified_file,
                 exclude_status,
                 // `--plain` and the default render identically, so only
                 // `--json` selects the format.
-                format: if json {
-                    cmd::OutputFormat::Json
-                } else {
-                    cmd::OutputFormat::Plain
-                },
+                format: if json { cmd::OutputFormat::Json } else { cmd::OutputFormat::Plain },
             };
             cmd::run_search(store, &opts, &mut std::io::stdout())
         }
@@ -490,14 +445,8 @@ fn run_with_store(
             let opts = cmd::CommitOptions { task_ids, message };
             cmd::run_commit(store, cwd, &opts, &mut std::io::stdout())
         }
-        BacklogAction::Cleanup {
-            older_than,
-            dry_run,
-        } => {
-            let opts = cmd::CleanupOptions {
-                older_than_days: older_than,
-                dry_run,
-            };
+        BacklogAction::Cleanup { older_than, dry_run } => {
+            let opts = cmd::CleanupOptions { older_than_days: older_than, dry_run };
             cmd::run_cleanup(store, cfg, &opts, &mut std::io::stdout())
         }
     }
@@ -585,38 +534,16 @@ fn run_wave_action(
     use crate::args::BacklogWaveAction;
 
     match action {
-        BacklogWaveAction::List {
-            status,
-            marker,
-            plain: _,
-            json,
-        } => {
-            let opts = cmd::WaveListOptions {
-                marker,
-                statuses: status,
-                json,
-            };
+        BacklogWaveAction::List { status, marker, plain: _, json } => {
+            let opts = cmd::WaveListOptions { marker, statuses: status, json };
             cmd::run_wave_list(store, cfg, &opts, &mut std::io::stdout())
         }
-        BacklogWaveAction::Members {
-            wave_id,
-            plain: _,
-            json,
-        } => {
+        BacklogWaveAction::Members { wave_id, plain: _, json } => {
             let opts = cmd::WaveMembersOptions { wave_id, json };
             cmd::run_wave_members(store, cfg, &opts, &mut std::io::stdout())
         }
-        BacklogWaveAction::Overlap {
-            wave_ids,
-            marker,
-            plain: _,
-            json,
-        } => {
-            let opts = cmd::WaveOverlapOptions {
-                wave_ids,
-                marker,
-                json,
-            };
+        BacklogWaveAction::Overlap { wave_ids, marker, plain: _, json } => {
+            let opts = cmd::WaveOverlapOptions { wave_ids, marker, json };
             cmd::run_wave_overlap(store, cfg, &opts, &mut std::io::stdout())
         }
         BacklogWaveAction::Create {
@@ -645,32 +572,12 @@ fn run_wave_action(
             };
             cmd::run_wave_create(store, cfg, &opts, &mut std::io::stdout())
         }
-        BacklogWaveAction::Claim {
-            wave_id,
-            branch,
-            worktree,
-            marker,
-        } => {
-            let opts = cmd::WaveClaimOptions {
-                wave_id,
-                marker,
-                branch,
-                worktree,
-            };
+        BacklogWaveAction::Claim { wave_id, branch, worktree, marker } => {
+            let opts = cmd::WaveClaimOptions { wave_id, marker, branch, worktree };
             cmd::run_wave_claim(store, cwd, &opts, &mut std::io::stdout())
         }
-        BacklogWaveAction::Park {
-            wave_id,
-            reason,
-            status,
-            branch,
-        } => {
-            let opts = cmd::WaveParkOptions {
-                wave_id,
-                reason,
-                status,
-                branch,
-            };
+        BacklogWaveAction::Park { wave_id, reason, status, branch } => {
+            let opts = cmd::WaveParkOptions { wave_id, reason, status, branch };
             cmd::run_wave_park(store, cwd, &opts, &mut std::io::stdout())
         }
         BacklogWaveAction::Migrate { marker, dry_run } => {
@@ -742,26 +649,14 @@ fn run_task_action(
                 dependents,
                 // `--plain` and the default render identically, so only
                 // `--json` selects the format.
-                format: if json {
-                    cmd::OutputFormat::Json
-                } else {
-                    cmd::OutputFormat::Plain
-                },
+                format: if json { cmd::OutputFormat::Json } else { cmd::OutputFormat::Plain },
             };
             cmd::run_list(store, cfg, &opts, &mut std::io::stdout())
         }
-        BacklogTaskAction::View {
-            task_id,
-            plain: _,
-            json,
-        } => {
+        BacklogTaskAction::View { task_id, plain: _, json } => {
             let opts = cmd::ViewOptions {
                 task_id,
-                format: if json {
-                    cmd::OutputFormat::Json
-                } else {
-                    cmd::OutputFormat::Plain
-                },
+                format: if json { cmd::OutputFormat::Json } else { cmd::OutputFormat::Plain },
             };
             cmd::run_view(store, &opts, cwd, &mut std::io::stdout())
         }
@@ -792,19 +687,13 @@ mod tests {
     fn task_create_in_an_empty_workspace_bootstraps_the_tree() {
         let dir = tempfile::tempdir().expect("tempdir");
         let root = crate::test_utils::canonical_root(&dir);
-        run_in(
-            root.as_path(),
-            &["ops", "backlog", "task", "create", "first"],
-        )
-        .expect("create without init");
+        run_in(root.as_path(), &["ops", "backlog", "task", "create", "first"])
+            .expect("create without init");
         assert!(root.join(".backlog/tasks").is_dir(), "the tree is created");
         assert!(!root.join(".ops.toml").exists(), "no config is written");
         assert!(!root.join("backlog.config.yml").exists());
         let store = Store::open(&root.join(".backlog")).expect("open");
-        let task = store
-            .find("TASK-0001")
-            .expect("find")
-            .expect("the created task is readable");
+        let task = store.find("TASK-0001").expect("find").expect("the created task is readable");
         assert_eq!(task.doc.frontmatter.title, "first");
     }
 
@@ -822,16 +711,10 @@ mod tests {
             run_in(root.as_path(), argv).unwrap_or_else(|e| panic!("{argv:?}: {e:#}"));
         }
         assert!(!root.join(".backlog").exists(), "reading must not create");
-        let err = run_in(
-            root.as_path(),
-            &["ops", "backlog", "task", "view", "TASK-1"],
-        )
-        .expect_err("view of a missing task must fail");
+        let err = run_in(root.as_path(), &["ops", "backlog", "task", "view", "TASK-1"])
+            .expect_err("view of a missing task must fail");
         let msg = format!("{err:#}");
-        assert!(
-            msg.contains("TASK-1"),
-            "the error names the task, got: {msg}"
-        );
+        assert!(msg.contains("TASK-1"), "the error names the task, got: {msg}");
     }
 
     /// Only task-adding actions bootstrap the tree; a local `--dry-run`
@@ -840,43 +723,16 @@ mod tests {
     fn bootstraps_tree_classifies_every_action() {
         for (argv, expected) in [
             (["ops", "backlog", "task", "create", "x"].as_slice(), true),
-            (
-                [
-                    "ops",
-                    "backlog",
-                    "wave",
-                    "create",
-                    "w",
-                    "--members",
-                    "TASK-1",
-                ]
-                .as_slice(),
-                true,
-            ),
-            (
-                ["ops", "backlog", "wave", "claim", "TASK-1"].as_slice(),
-                true,
-            ),
+            (["ops", "backlog", "wave", "create", "w", "--members", "TASK-1"].as_slice(), true),
+            (["ops", "backlog", "wave", "claim", "TASK-1"].as_slice(), true),
             (["ops", "backlog", "wave", "migrate"].as_slice(), true),
-            (
-                ["ops", "backlog", "wave", "migrate", "--dry-run"].as_slice(),
-                false,
-            ),
+            (["ops", "backlog", "wave", "migrate", "--dry-run"].as_slice(), false),
             (["ops", "backlog", "create-review-tasks"].as_slice(), true),
-            (
-                ["ops", "backlog", "create-review-tasks", "--dry-run"].as_slice(),
-                false,
-            ),
-            (
-                ["ops", "backlog", "task", "edit", "TASK-1", "-s", "Done"].as_slice(),
-                false,
-            ),
+            (["ops", "backlog", "create-review-tasks", "--dry-run"].as_slice(), false),
+            (["ops", "backlog", "task", "edit", "TASK-1", "-s", "Done"].as_slice(), false),
             (["ops", "backlog", "task", "list"].as_slice(), false),
             (["ops", "backlog", "search"].as_slice(), false),
-            (
-                ["ops", "backlog", "commit", "TASK-1", "-m", "x"].as_slice(),
-                false,
-            ),
+            (["ops", "backlog", "commit", "TASK-1", "-m", "x"].as_slice(), false),
             (["ops", "backlog", "cleanup"].as_slice(), false),
             (["ops", "backlog", "init"].as_slice(), false),
         ] {
@@ -910,20 +766,11 @@ mod tests {
     fn sane_defaults_agree_with_backlog_config_defaults() {
         let section = BacklogSection::sane_defaults();
         let defaults = BacklogConfig::default();
-        assert_eq!(
-            section.default_status.as_deref(),
-            Some(defaults.default_status.as_str())
-        );
+        assert_eq!(section.default_status.as_deref(), Some(defaults.default_status.as_str()));
         assert_eq!(section.statuses, Some(defaults.statuses.clone()));
         assert_eq!(section.zero_padded_ids, Some(defaults.zero_padded_ids));
-        assert_eq!(
-            section.task_prefix.as_deref(),
-            Some(defaults.task_prefix.as_str())
-        );
-        assert_eq!(
-            section.backlog_directory.as_deref(),
-            Some(defaults.backlog_directory.as_str())
-        );
+        assert_eq!(section.task_prefix.as_deref(), Some(defaults.task_prefix.as_str()));
+        assert_eq!(section.backlog_directory.as_deref(), Some(defaults.backlog_directory.as_str()));
     }
 
     /// A non-default `.ops.toml` section wins entirely; its unset keys fall
@@ -932,11 +779,8 @@ mod tests {
     fn ops_toml_section_wins_over_the_yml() {
         let dir = tempfile::tempdir().expect("tempdir");
         let root = crate::test_utils::canonical_root(&dir);
-        std::fs::write(
-            root.join(".ops.toml"),
-            "[backlog]\ndefault_status = \"Triage\"\n",
-        )
-        .expect("toml");
+        std::fs::write(root.join(".ops.toml"), "[backlog]\ndefault_status = \"Triage\"\n")
+            .expect("toml");
         std::fs::write(
             root.join("backlog.config.yml"),
             "default_status: \"To Do\"\ntask_prefix: \"ISSUE\"\n",
@@ -966,10 +810,7 @@ mod tests {
         // An explicitly empty section is still "not configured here".
         std::fs::write(root.join(".ops.toml"), "[backlog]\n").expect("toml");
         let cfg = effective_backlog_config(root.as_path()).expect("resolve");
-        assert_eq!(
-            cfg.default_status, "To Do",
-            "empty section must not mask the yml"
-        );
+        assert_eq!(cfg.default_status, "To Do", "empty section must not mask the yml");
     }
 
     /// `--ops-toml` in an empty workspace: `.ops.toml` with the
@@ -979,10 +820,7 @@ mod tests {
         let dir = tempfile::tempdir().expect("tempdir");
         let root = crate::test_utils::canonical_root(&dir);
         let text = run_init(root.as_path(), InitConfig::OpsToml);
-        assert!(
-            text.contains("Created .ops.toml with a [backlog] section"),
-            "got: {text}"
-        );
+        assert!(text.contains("Created .ops.toml with a [backlog] section"), "got: {text}");
         assert!(text.contains("Created .backlog/tasks/"), "got: {text}");
         let toml = std::fs::read_to_string(root.join(".ops.toml")).expect("read");
         assert!(toml.contains("[backlog]"), "got: {toml}");
@@ -1006,10 +844,7 @@ mod tests {
         let text = run_init(root.as_path(), InitConfig::OpsToml);
         assert!(text.contains("Added [backlog] to .ops.toml"), "got: {text}");
         let toml = std::fs::read_to_string(root.join(".ops.toml")).expect("read");
-        assert!(
-            toml.starts_with("# my config\n"),
-            "comment must survive: {toml}"
-        );
+        assert!(toml.starts_with("# my config\n"), "comment must survive: {toml}");
         assert!(toml.contains("theme = \"compact\""));
         assert!(toml.contains("[backlog]"));
     }
@@ -1044,10 +879,7 @@ mod tests {
         let text = run_init(root.as_path(), InitConfig::BacklogMd);
         assert!(text.contains("Created backlog.config.yml"), "got: {text}");
         assert!(text.contains("Created .backlog/tasks/"), "got: {text}");
-        assert!(
-            !root.join(".ops.toml").exists(),
-            "--backlog-md must not create .ops.toml"
-        );
+        assert!(!root.join(".ops.toml").exists(), "--backlog-md must not create .ops.toml");
         let yml = std::fs::read_to_string(root.join("backlog.config.yml")).expect("read");
         assert_eq!(
             yml,
@@ -1057,10 +889,7 @@ mod tests {
         // And the rerun refuses to overwrite it.
         std::fs::write(root.join("backlog.config.yml"), "kept").expect("seed");
         let text = run_init(root.as_path(), InitConfig::BacklogMd);
-        assert!(
-            text.contains("backlog.config.yml already exists, left unchanged"),
-            "got: {text}"
-        );
+        assert!(text.contains("backlog.config.yml already exists, left unchanged"), "got: {text}");
         assert_eq!(
             std::fs::read_to_string(root.join("backlog.config.yml")).expect("reread"),
             "kept"
@@ -1074,11 +903,8 @@ mod tests {
     fn tasks_tree_honours_an_existing_sections_directory() {
         let dir = tempfile::tempdir().expect("tempdir");
         let root = crate::test_utils::canonical_root(&dir);
-        std::fs::write(
-            root.join(".ops.toml"),
-            "[backlog]\nbacklog_directory = \"tasks-tree\"\n",
-        )
-        .expect("seed");
+        std::fs::write(root.join(".ops.toml"), "[backlog]\nbacklog_directory = \"tasks-tree\"\n")
+            .expect("seed");
         let text = run_init(root.as_path(), InitConfig::TreeOnly);
         assert!(
             root.join("tasks-tree/tasks").is_dir(),
@@ -1099,19 +925,14 @@ mod tests {
         )
         .expect("seed yml");
         let text = run_init(root.as_path(), InitConfig::OpsToml);
-        assert!(
-            text.contains("backlog.config.yml already configures the backlog"),
-            "got: {text}"
-        );
+        assert!(text.contains("backlog.config.yml already configures the backlog"), "got: {text}");
         assert!(
             !root.join(".ops.toml").exists(),
             "no .ops.toml section may be written beside an existing yml"
         );
         assert!(root.join(".backlog/tasks").is_dir());
         assert_eq!(
-            effective_backlog_config(root.as_path())
-                .expect("resolve")
-                .task_prefix,
+            effective_backlog_config(root.as_path()).expect("resolve").task_prefix,
             "ISSUE",
             "the yml's values must stay in effect"
         );
@@ -1176,42 +997,13 @@ mod tests {
         for argv in [
             ["ops", "--dry-run", "backlog", "task", "create", "x"].as_slice(),
             ["ops", "backlog", "task", "create", "x", "--dry-run"].as_slice(),
-            [
-                "ops",
-                "--dry-run",
-                "backlog",
-                "task",
-                "edit",
-                "TASK-1",
-                "-s",
-                "Done",
-            ]
-            .as_slice(),
+            ["ops", "--dry-run", "backlog", "task", "edit", "TASK-1", "-s", "Done"].as_slice(),
             ["ops", "--dry-run", "backlog", "init"].as_slice(),
             ["ops", "--dry-run", "backlog", "commit", "TASK-1", "-m", "x"].as_slice(),
-            [
-                "ops",
-                "--dry-run",
-                "backlog",
-                "wave",
-                "create",
-                "w",
-                "--members",
-                "TASK-1",
-            ]
-            .as_slice(),
+            ["ops", "--dry-run", "backlog", "wave", "create", "w", "--members", "TASK-1"]
+                .as_slice(),
             ["ops", "--dry-run", "backlog", "wave", "claim", "TASK-1"].as_slice(),
-            [
-                "ops",
-                "--dry-run",
-                "backlog",
-                "wave",
-                "park",
-                "TASK-1",
-                "--reason",
-                "x",
-            ]
-            .as_slice(),
+            ["ops", "--dry-run", "backlog", "wave", "park", "TASK-1", "--reason", "x"].as_slice(),
         ] {
             let err = run_backlog(root.as_path(), &config, parse_backlog(argv), true)
                 .expect_err("dry-run of an unpreviewable mutation must fail");

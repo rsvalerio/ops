@@ -75,9 +75,7 @@ pub(crate) fn parse_byte_cap_env(
             Ok(n) if n > 0 => (n, None),
             Ok(_) => (
                 default,
-                Some(format!(
-                    "{env_var}={s:?} is not a positive integer; using default {default}"
-                )),
+                Some(format!("{env_var}={s:?} is not a positive integer; using default {default}")),
             ),
             Err(e) => (
                 default,
@@ -125,11 +123,7 @@ pub fn cached_byte_cap_env(slot: &OnceLock<u64>, env_var: &'static str, default:
 /// `tracing::warn!` from the `OnceLock` initialiser.
 #[must_use]
 pub fn manifest_max_bytes() -> u64 {
-    cached_byte_cap_env(
-        &MANIFEST_MAX_BYTES,
-        MANIFEST_MAX_BYTES_ENV,
-        MANIFEST_MAX_BYTES_DEFAULT,
-    )
+    cached_byte_cap_env(&MANIFEST_MAX_BYTES, MANIFEST_MAX_BYTES_ENV, MANIFEST_MAX_BYTES_DEFAULT)
 }
 
 /// Open `path` for reading, enforcing that the opened object is a **regular
@@ -361,10 +355,7 @@ mod unix_open {
         CString::new(bytes).map_err(|_| {
             io::Error::new(
                 io::ErrorKind::InvalidInput,
-                format!(
-                    "path component contains an interior NUL at {:?}",
-                    path.display()
-                ),
+                format!("path component contains an interior NUL at {:?}", path.display()),
             )
         })
     }
@@ -499,10 +490,7 @@ fn read_capped_to_string_with(path: &Path, cap: u64) -> std::io::Result<String> 
     // that never got it. Size first, decode second.
     let mut bytes = Vec::new();
     let limit = cap.saturating_add(1);
-    (&mut file)
-        .take(limit)
-        .read_to_end(&mut bytes)
-        .map_err(|e| with_path(&e, path))?;
+    (&mut file).take(limit).read_to_end(&mut bytes).map_err(|e| with_path(&e, path))?;
     // `usize` is never wider than `u64` on any target rustc supports, so the
     // widening is total and the fallback is unreachable; saturating to
     // `u64::MAX` would report the file as oversize, which is the safe
@@ -519,10 +507,7 @@ fn read_capped_to_string_with(path: &Path, cap: u64) -> std::io::Result<String> 
     // Under the cap: a UTF-8 failure here is a genuinely corrupt file, and
     // keeps the same `InvalidData` kind `read_to_string` produced before.
     String::from_utf8(bytes).map_err(|e| {
-        with_path(
-            &std::io::Error::new(std::io::ErrorKind::InvalidData, e.utf8_error()),
-            path,
-        )
+        with_path(&std::io::Error::new(std::io::ErrorKind::InvalidData, e.utf8_error()), path)
     })
 }
 
@@ -608,9 +593,7 @@ pub fn contains_unsafe_display_chars(raw: &str) -> bool {
 #[must_use]
 pub fn capitalize(s: &str) -> String {
     let mut c = s.chars();
-    c.next().map_or_else(String::new, |f| {
-        f.to_uppercase().collect::<String>() + c.as_str()
-    })
+    c.next().map_or_else(String::new, |f| f.to_uppercase().collect::<String>() + c.as_str())
 }
 
 /// Format a number with comma separators (e.g. 1234 → "1,234").
@@ -619,10 +602,9 @@ pub fn format_number(n: i64) -> String {
     if n < 0 {
         // checked_neg() returns None only for i64::MIN; format the magnitude
         // via unsigned to avoid the overflow on negation.
-        let magnitude = n.checked_neg().map_or_else(
-            || n.unsigned_abs().to_string(),
-            |positive| positive.to_string(),
-        );
+        let magnitude = n
+            .checked_neg()
+            .map_or_else(|| n.unsigned_abs().to_string(), |positive| positive.to_string());
         return format!("-{}", insert_thousands_separators(&magnitude));
     }
     // Sub-1000 magnitudes (the dominant case in
@@ -679,9 +661,7 @@ fn insert_thousands_separators(digits: &str) -> Cow<'_, str> {
 /// Extract the last path component as a project name, falling back to `"project"`.
 #[must_use]
 pub fn dir_name(path: &Path) -> &str {
-    path.file_name()
-        .and_then(|n| n.to_str())
-        .unwrap_or("project")
+    path.file_name().and_then(|n| n.to_str()).unwrap_or("project")
 }
 
 /// Read `path` as UTF-8 text and invoke `f` on each line, with surrounding
@@ -811,9 +791,7 @@ mod tests {
     /// space inside an otherwise clean URL are rejected (SEC-2 / TASK-1238).
     #[test]
     fn contains_unsafe_display_chars_rejects_bidi_and_zero_width() {
-        assert!(contains_unsafe_display_chars(
-            "https://host/\u{202e}fake/repo"
-        ));
+        assert!(contains_unsafe_display_chars("https://host/\u{202e}fake/repo"));
         assert!(contains_unsafe_display_chars("https://host/\u{200b}repo"));
     }
 
@@ -876,10 +854,7 @@ mod tests {
 
     #[test]
     fn dir_name_normal_path() {
-        assert_eq!(
-            dir_name(&PathBuf::from("/home/user/myproject")),
-            "myproject"
-        );
+        assert_eq!(dir_name(&PathBuf::from("/home/user/myproject")), "myproject");
     }
 
     #[test]
@@ -906,10 +881,8 @@ mod tests {
     #[test]
     fn for_each_trimmed_line_missing_file_returns_none() {
         let dir = tempfile::tempdir().unwrap();
-        let res = for_each_trimmed_line(
-            &crate::test_utils::canonical_root(&dir).join("nope"),
-            |_| {},
-        );
+        let res =
+            for_each_trimmed_line(&crate::test_utils::canonical_root(&dir).join("nope"), |_| {});
         assert!(res.is_none());
     }
 
@@ -961,10 +934,7 @@ mod tests {
         assert_eq!(err.kind(), std::io::ErrorKind::InvalidData);
         let msg = err.to_string();
         assert!(msg.contains("4-byte cap"), "must name the cap, got: {msg}");
-        assert!(
-            msg.contains(MANIFEST_MAX_BYTES_ENV),
-            "must name the override env var, got: {msg}"
-        );
+        assert!(msg.contains(MANIFEST_MAX_BYTES_ENV), "must name the override env var, got: {msg}");
     }
 
     /// ERR-2 / TASK-1855: the reorder must not swallow a genuine encoding
@@ -979,14 +949,8 @@ mod tests {
 
         assert_eq!(err.kind(), std::io::ErrorKind::InvalidData);
         let msg = err.to_string();
-        assert!(
-            !msg.contains("cap"),
-            "an under-cap file must not report the size cap, got: {msg}"
-        );
-        assert!(
-            msg.contains("garbage"),
-            "error must name the file, got: {msg}"
-        );
+        assert!(!msg.contains("cap"), "an under-cap file must not report the size cap, got: {msg}");
+        assert!(msg.contains("garbage"), "error must name the file, got: {msg}");
     }
 
     #[test]
@@ -1021,10 +985,7 @@ mod tests {
 
         let err = read_capped_to_string_with(&link, 1024).expect_err("symlink must be rejected");
         assert_eq!(err.kind(), std::io::ErrorKind::InvalidInput);
-        assert!(
-            err.to_string().contains("symlink"),
-            "error should mention symlink, got {err}"
-        );
+        assert!(err.to_string().contains("symlink"), "error should mention symlink, got {err}");
         assert!(
             err.to_string().contains("manifest.toml"),
             "error should name the offending path, got {err}"
@@ -1047,10 +1008,7 @@ mod tests {
         let err = read_capped_to_string_with(&link.join("Cargo.toml"), 1024)
             .expect_err("a symlinked intermediate component must be rejected");
         assert_eq!(err.kind(), std::io::ErrorKind::InvalidInput);
-        assert!(
-            err.to_string().contains("symlink"),
-            "error should mention symlink, got {err}"
-        );
+        assert!(err.to_string().contains("symlink"), "error should mention symlink, got {err}");
     }
 
     /// ARCH-2 / TASK-2038: the intermediate-component refusal must leave a
@@ -1235,14 +1193,8 @@ mod tests {
         let (cap, warn) = parse_byte_cap_env("X", Some(&u64::MAX.to_string()), 100);
         assert_eq!(cap, BYTE_CAP_ENV_MAX);
         let msg = warn.expect("clamp must surface a warn message");
-        assert!(
-            msg.contains("exceeds upper bound"),
-            "warn must explain clamp: {msg}"
-        );
-        assert!(
-            msg.contains(&BYTE_CAP_ENV_MAX.to_string()),
-            "warn must name the bound: {msg}"
-        );
+        assert!(msg.contains("exceeds upper bound"), "warn must explain clamp: {msg}");
+        assert!(msg.contains(&BYTE_CAP_ENV_MAX.to_string()), "warn must name the bound: {msg}");
     }
 
     /// ERR-1 / TASK-1443: a value exactly at [`BYTE_CAP_ENV_MAX`] is the

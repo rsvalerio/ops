@@ -296,9 +296,7 @@ mod tests {
 
     fn config_with_clone(name: &str, decl: CloneCommandSpec) -> Config {
         let mut config = Config::empty();
-        config
-            .commands
-            .insert(name.to_string(), CommandSpec::Clone(decl));
+        config.commands.insert(name.to_string(), CommandSpec::Clone(decl));
         config
     }
 
@@ -319,14 +317,8 @@ mod tests {
                 _ => None,
             })
             .unwrap();
-        assert_eq!(
-            fuzz_clippy.program, default.program,
-            "clone copies the source program"
-        );
-        assert_eq!(
-            fuzz_clippy.args, default.args,
-            "clone copies the source args"
-        );
+        assert_eq!(fuzz_clippy.program, default.program, "clone copies the source program");
+        assert_eq!(fuzz_clippy.args, default.args, "clone copies the source args");
     }
 
     /// TASK-2280: a materialized clone records its source and whether it
@@ -337,10 +329,9 @@ mod tests {
         let mut decl = CloneCommandSpec::new("clippy");
         decl.exclusive = Some(true);
         let mut config = config_with_clone("fuzz-clippy", decl);
-        config.commands.insert(
-            "fuzz-build".to_string(),
-            CommandSpec::Clone(CloneCommandSpec::new("build")),
-        );
+        config
+            .commands
+            .insert("fuzz-build".to_string(), CommandSpec::Clone(CloneCommandSpec::new("build")));
         apply(&mut config, dir.path()).expect("clone must apply");
 
         assert_eq!(
@@ -368,10 +359,7 @@ mod tests {
         let Some(CommandSpec::Composite(my_verify)) = config.commands.get("my-verify") else {
             panic!("clone must materialize as a config composite");
         };
-        assert!(
-            !my_verify.commands.is_empty(),
-            "clone copies the source command list"
-        );
+        assert!(!my_verify.commands.is_empty(), "clone copies the source command list");
     }
 
     /// The stack defaults live in a process-wide memoized cache; cloning
@@ -422,9 +410,7 @@ mod tests {
         let mut config = config_with_clone("fuzz-fmt", exec_decl);
         let mut composite_decl = CloneCommandSpec::new("verify");
         composite_decl.raw = Some(true);
-        config
-            .commands
-            .insert("my-verify".to_string(), CommandSpec::Clone(composite_decl));
+        config.commands.insert("my-verify".to_string(), CommandSpec::Clone(composite_decl));
         apply(&mut config, dir.path()).unwrap();
 
         let Some(CommandSpec::Exec(fmt)) = config.commands.get("fuzz-fmt") else {
@@ -449,10 +435,7 @@ mod tests {
             let err = toml::from_str::<crate::config::Config>(toml)
                 .expect_err("payload beside clone must be a parse error");
             let msg = err.to_string();
-            assert!(
-                msg.contains("[extend.<name>]"),
-                "error must point at [extend.<name>]: {msg}"
-            );
+            assert!(msg.contains("[extend.<name>]"), "error must point at [extend.<name>]: {msg}");
         }
     }
 
@@ -482,9 +465,8 @@ mod tests {
         let Some(CommandSpec::Exec(fuzz_clippy)) = config.commands.get("fuzz-clippy") else {
             panic!("clone must materialize as a config exec");
         };
-        let Some(CommandSpec::Exec(default)) = crate::stack::Stack::Rust
-            .default_commands_ref()
-            .get("clippy")
+        let Some(CommandSpec::Exec(default)) =
+            crate::stack::Stack::Rust.default_commands_ref().get("clippy")
         else {
             panic!("rust clippy default must be exec");
         };
@@ -520,10 +502,7 @@ mod tests {
         let mut config = config_with_clone("fuzz-clippy", CloneCommandSpec::new("nope"));
         let err = apply(&mut config, dir.path()).expect_err("unknown source must error");
         let msg = format!("{err:#}");
-        assert!(
-            msg.contains("fuzz-clippy"),
-            "error must name the clone: {msg}"
-        );
+        assert!(msg.contains("fuzz-clippy"), "error must name the clone: {msg}");
         assert!(msg.contains("nope"), "error must name the source: {msg}");
     }
 
@@ -537,10 +516,7 @@ mod tests {
         let msg = format!("{err:#}");
         assert!(msg.contains("stack-default"), "error must say why: {msg}");
         assert!(msg.contains("'fmt'"), "error must name the target: {msg}");
-        assert!(
-            msg.contains("'clippy'"),
-            "error must name the source: {msg}"
-        );
+        assert!(msg.contains("'clippy'"), "error must name the source: {msg}");
     }
 
     /// AC #4: clone cycles (self and mutual) are load errors naming both
@@ -556,14 +532,8 @@ mod tests {
         );
 
         let mut config = Config::empty();
-        config.commands.insert(
-            "a".to_string(),
-            CommandSpec::Clone(CloneCommandSpec::new("b")),
-        );
-        config.commands.insert(
-            "b".to_string(),
-            CommandSpec::Clone(CloneCommandSpec::new("a")),
-        );
+        config.commands.insert("a".to_string(), CommandSpec::Clone(CloneCommandSpec::new("b")));
+        config.commands.insert("b".to_string(), CommandSpec::Clone(CloneCommandSpec::new("a")));
         let err = apply(&mut config, dir.path()).expect_err("clone cycle must error");
         let msg = format!("{err:#}");
         assert!(msg.contains("cycle"), "error must say cycle: {msg}");
@@ -577,14 +547,10 @@ mod tests {
     fn clone_chain_resolves_in_order() {
         let dir = rust_workspace();
         let mut config = Config::empty();
-        config.commands.insert(
-            "b".to_string(),
-            CommandSpec::Clone(CloneCommandSpec::new("clippy")),
-        );
-        config.commands.insert(
-            "a".to_string(),
-            CommandSpec::Clone(CloneCommandSpec::new("b")),
-        );
+        config
+            .commands
+            .insert("b".to_string(), CommandSpec::Clone(CloneCommandSpec::new("clippy")));
+        config.commands.insert("a".to_string(), CommandSpec::Clone(CloneCommandSpec::new("b")));
         apply(&mut config, dir.path()).expect("chain must resolve");
 
         assert!(
@@ -614,10 +580,7 @@ mod tests {
         };
         assert_eq!(spec.wrap, ["./with-services.sh", "--"]);
         assert_eq!(spec.after, ["build"]);
-        assert_eq!(
-            spec.program, "cargo",
-            "the wrapped command stays the source's"
-        );
+        assert_eq!(spec.program, "cargo", "the wrapped command stays the source's");
         assert_eq!(spec.spawn_program(), "./with-services.sh");
     }
 
@@ -632,9 +595,7 @@ mod tests {
         decl.wrap = Some(Vec::new());
         decl.after = Some(Vec::new());
         let mut config = config_with_clone("plain-test", decl);
-        config
-            .commands
-            .insert("my-test".to_string(), CommandSpec::Exec(source));
+        config.commands.insert("my-test".to_string(), CommandSpec::Exec(source));
         apply(&mut config, dir.path()).expect("clone must apply");
 
         let Some(CommandSpec::Exec(spec)) = config.commands.get("plain-test") else {
@@ -670,10 +631,7 @@ mod tests {
         let mut config = config_with_clone("my-verify", decl);
         let err = apply(&mut config, dir.path()).expect_err("exec override must error");
         let msg = format!("{err:#}");
-        assert!(
-            msg.contains("timeout_secs"),
-            "error must name the field: {msg}"
-        );
+        assert!(msg.contains("timeout_secs"), "error must name the field: {msg}");
         assert!(msg.contains("verify"), "error must name the source: {msg}");
     }
 
@@ -687,10 +645,7 @@ mod tests {
         let mut config = config_with_clone("fuzz-clippy", CloneCommandSpec::new("clippy"));
         config.extend.insert(
             "clippy".to_string(),
-            crate::config::ExtendEntry {
-                args: vec!["--locked".to_string()],
-                ..Default::default()
-            },
+            crate::config::ExtendEntry { args: vec!["--locked".to_string()], ..Default::default() },
         );
         apply(&mut config, dir.path()).expect("clone must apply");
 
@@ -747,18 +702,13 @@ mod tests {
         let mut config = Config::empty();
         let mut source = ExecCommandSpec::new("cargo", ["fmt"]);
         source.aliases = vec!["fmt-alias".to_string()];
+        config.commands.insert("my-fmt".to_string(), CommandSpec::Exec(source));
         config
             .commands
-            .insert("my-fmt".to_string(), CommandSpec::Exec(source));
-        config.commands.insert(
-            "plain-clone".to_string(),
-            CommandSpec::Clone(CloneCommandSpec::new("my-fmt")),
-        );
+            .insert("plain-clone".to_string(), CommandSpec::Clone(CloneCommandSpec::new("my-fmt")));
         let mut decl = CloneCommandSpec::new("my-fmt");
         decl.aliases = vec!["variant".to_string()];
-        config
-            .commands
-            .insert("aliased-clone".to_string(), CommandSpec::Clone(decl));
+        config.commands.insert("aliased-clone".to_string(), CommandSpec::Clone(decl));
         apply(&mut config, dir.path()).expect("clones must apply");
 
         let Some(CommandSpec::Exec(plain)) = config.commands.get("plain-clone") else {
@@ -780,8 +730,6 @@ mod tests {
 
         // The pre-fix behaviour failed here with "alias 'fmt-alias' is
         // declared by both commands" — the load-time gate the old rule broke.
-        config
-            .validate()
-            .expect("source and clone may share no alias, so validate passes");
+        config.validate().expect("source and clone may share no alias, so validate passes");
     }
 }

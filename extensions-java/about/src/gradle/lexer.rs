@@ -53,9 +53,7 @@ impl MultilineStripper {
     /// removed, updating the state carried into the next line.
     pub(super) fn strip<'a>(&mut self, line: &'a str) -> Cow<'a, str> {
         let opens_nothing = !line.contains("/*")
-            && TRIPLE_QUOTES
-                .iter()
-                .all(|(delimiter, _)| !line.contains(delimiter));
+            && TRIPLE_QUOTES.iter().all(|(delimiter, _)| !line.contains(delimiter));
         if self.open == Open::Code && opens_nothing {
             return Cow::Borrowed(line);
         }
@@ -308,9 +306,8 @@ pub(super) fn split_at_unquoted_close_paren(s: &str) -> Option<(&str, &str)> {
 /// the include path strips comments.
 pub(super) fn strip_trailing_comment(s: &str) -> &str {
     let cut = scan_unquoted(s, |i, c| {
-        let opens_comment = c == '/'
-            && s.get(i.saturating_add(1)..)
-                .is_some_and(|rest| rest.starts_with('/'));
+        let opens_comment =
+            c == '/' && s.get(i.saturating_add(1)..).is_some_and(|rest| rest.starts_with('/'));
         opens_comment.then_some(i)
     });
     // `/` is ASCII, so `cut` is a char boundary and the slice always exists;

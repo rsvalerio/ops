@@ -21,11 +21,7 @@ async fn handle_parallel_events_receives_all() {
     let (tx, rx) = mpsc::channel(8);
     let abort = Arc::new(AbortSignal::new());
 
-    tx.try_send(RunnerEvent::StepStarted {
-        id: "a".into(),
-        display_cmd: None,
-    })
-    .unwrap();
+    tx.try_send(RunnerEvent::StepStarted { id: "a".into(), display_cmd: None }).unwrap();
     tx.try_send(RunnerEvent::StepFinished {
         id: "a".into(),
         duration_secs: 0.1,
@@ -56,10 +52,7 @@ async fn handle_parallel_events_sets_abort_on_fail_fast() {
 
     CommandRunner::handle_parallel_events(rx, true, Arc::clone(&abort), &mut |_| {}).await;
 
-    assert!(
-        abort.is_set(),
-        "abort should be set on failure with fail_fast=true"
-    );
+    assert!(abort.is_set(), "abort should be set on failure with fail_fast=true");
 }
 
 #[tokio::test(flavor = "multi_thread")]
@@ -147,11 +140,7 @@ async fn fail_fast_aborts_siblings_when_a_task_panics() {
     // Two harvested entries: the panic (Err) and the cancelled sibling
     // (Ok with success=false from `StepResult::cancelled`, OR Err with
     // is_cancelled — abort_all aborts the JoinSet which yields Err).
-    assert_eq!(
-        harvested.len(),
-        2,
-        "both tasks must have been harvested before the loop exited"
-    );
+    assert_eq!(harvested.len(), 2, "both tasks must have been harvested before the loop exited");
 }
 
 /// CONC-3 / TASK-1921: the panic trigger must fire while a sibling is still
@@ -224,10 +213,7 @@ async fn fail_fast_trips_on_panic_while_a_sibling_floods_output() {
     .await
     .expect("panicked task must trip fail_fast while the sibling is still flooding");
 
-    assert!(
-        abort.is_set(),
-        "abort must be tripped by the panicked task despite the ongoing flood"
-    );
+    assert!(abort.is_set(), "abort must be tripped by the panicked task despite the ongoing flood");
     assert_eq!(harvested.len(), 2, "both tasks must have been harvested");
     // The flood is unbounded; a bounded event count is the observable proof
     // that the abort landed mid-flood rather than after it drained.

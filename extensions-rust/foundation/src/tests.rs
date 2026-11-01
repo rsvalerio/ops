@@ -50,10 +50,8 @@ fn the_lints_template_polices_unsafe_code_at_a_warn_floor() {
 fn scaffold_then_check_is_clean() {
     let dir = workspace();
     let written = scaffold(dir.path(), false).expect("scaffold");
-    let targets: Vec<(&str, &Outcome)> = written
-        .iter()
-        .map(|w| (w.target.as_str(), &w.outcome))
-        .collect();
+    let targets: Vec<(&str, &Outcome)> =
+        written.iter().map(|w| (w.target.as_str(), &w.outcome)).collect();
     assert_eq!(
         targets,
         vec![
@@ -71,15 +69,9 @@ fn scaffold_then_check_is_clean() {
     assert!(report.drift.is_empty(), "{:?}", report.drift);
 
     let manifest = read(&dir, "Cargo.toml");
-    assert!(
-        manifest.starts_with(WORKSPACE),
-        "existing content kept: {manifest}"
-    );
+    assert!(manifest.starts_with(WORKSPACE), "existing content kept: {manifest}");
     assert!(manifest.contains("[workspace.lints.clippy]"));
-    assert!(
-        !manifest.contains("\n[lints."),
-        "headers rewritten for a workspace"
-    );
+    assert!(!manifest.contains("\n[lints."), "headers rewritten for a workspace");
     assert!(read(&dir, "crates/a/Cargo.toml").ends_with("\n\n[lints]\nworkspace = true\n"));
 }
 
@@ -90,10 +82,7 @@ fn clippy_msrv_follows_rust_version_and_is_not_baseline() {
     assert!(read(&dir, "clippy.toml").contains("\nmsrv = \"1.85\"\n"));
     let edited = read(&dir, "clippy.toml").replace("msrv = \"1.85\"", "msrv = \"1.90\"");
     std::fs::write(dir.path().join("clippy.toml"), edited).expect("write");
-    assert!(check(dir.path(), &no_waivers(), &[])
-        .expect("check")
-        .drift
-        .is_empty());
+    assert!(check(dir.path(), &no_waivers(), &[]).expect("check").drift.is_empty());
 }
 
 #[test]
@@ -114,16 +103,8 @@ fn scaffold_keeps_local_edits_without_force() {
     assert_eq!(read(&dir, "deny.toml"), "# mine\n");
 
     let again = scaffold(dir.path(), false).expect("second scaffold");
-    assert!(
-        again.iter().all(|w| w.outcome == Outcome::Kept),
-        "{again:?}"
-    );
-    assert_eq!(
-        read(&dir, "Cargo.toml")
-            .matches("[workspace.lints.clippy]")
-            .count(),
-        1
-    );
+    assert!(again.iter().all(|w| w.outcome == Outcome::Kept), "{again:?}");
+    assert_eq!(read(&dir, "Cargo.toml").matches("[workspace.lints.clippy]").count(), 1);
 }
 
 #[test]
@@ -141,10 +122,7 @@ fn force_replaces_files_and_the_lint_table() {
     let manifest = read(&dir, "Cargo.toml");
     assert_eq!(manifest.matches("[workspace.lints.clippy]").count(), 1);
     assert!(manifest.contains("\npanic = \"warn\""));
-    assert!(check(dir.path(), &no_waivers(), &[])
-        .expect("check")
-        .drift
-        .is_empty());
+    assert!(check(dir.path(), &no_waivers(), &[]).expect("check").drift.is_empty());
 }
 
 #[test]
@@ -152,16 +130,11 @@ fn check_reports_drift_with_locations() {
     let dir = workspace();
     scaffold(dir.path(), false).expect("scaffold");
     std::fs::remove_file(dir.path().join("rustfmt.toml")).expect("rm");
-    let clippy = read(&dir, "clippy.toml").replace(
-        "cognitive-complexity-threshold = 25",
-        "cognitive-complexity-threshold = 30",
-    );
+    let clippy = read(&dir, "clippy.toml")
+        .replace("cognitive-complexity-threshold = 25", "cognitive-complexity-threshold = 30");
     std::fs::write(dir.path().join("clippy.toml"), clippy).expect("edit");
-    std::fs::write(
-        dir.path().join("crates/b/Cargo.toml"),
-        "[package]\nname = \"b\"\n",
-    )
-    .expect("edit");
+    std::fs::write(dir.path().join("crates/b/Cargo.toml"), "[package]\nname = \"b\"\n")
+        .expect("edit");
 
     let report = check(dir.path(), &no_waivers(), &[]).expect("check");
     let locations: Vec<&str> = report.drift.iter().map(|d| d.location.as_str()).collect();
@@ -179,17 +152,12 @@ fn check_reports_drift_with_locations() {
 fn additions_are_not_drift_and_stricter_lints_pass() {
     let dir = workspace();
     scaffold(dir.path(), false).expect("scaffold");
-    let deny = read(&dir, "deny.toml").replace(
-        "yanked = \"warn\"",
-        "yanked = \"warn\"\nignore = [\"RUSTSEC-2020-0163\"]",
-    );
+    let deny = read(&dir, "deny.toml")
+        .replace("yanked = \"warn\"", "yanked = \"warn\"\nignore = [\"RUSTSEC-2020-0163\"]");
     std::fs::write(dir.path().join("deny.toml"), deny).expect("edit");
     let manifest = read(&dir, "Cargo.toml").replace("= \"warn\"", "= \"deny\"");
     std::fs::write(dir.path().join("Cargo.toml"), manifest).expect("edit");
-    assert!(check(dir.path(), &no_waivers(), &[])
-        .expect("check")
-        .drift
-        .is_empty());
+    assert!(check(dir.path(), &no_waivers(), &[]).expect("check").drift.is_empty());
 }
 
 #[test]
@@ -218,18 +186,9 @@ fn waivers_cover_files_and_tables_and_stale_ones_are_reported() {
 fn waiver_prefix_matching_respects_segment_boundaries() {
     assert!(waiver_covers("rustfmt.toml", "rustfmt.toml"));
     assert!(waiver_covers("rustfmt.toml", "rustfmt.toml:max_width"));
-    assert!(waiver_covers(
-        "Cargo.toml:workspace.lints",
-        "Cargo.toml:workspace.lints.clippy.panic"
-    ));
-    assert!(!waiver_covers(
-        "clippy.toml:allow",
-        "clippy.toml:allow-unwrap-in-tests"
-    ));
-    assert!(!waiver_covers(
-        "Cargo.toml",
-        "crates/a/Cargo.toml:lints.workspace"
-    ));
+    assert!(waiver_covers("Cargo.toml:workspace.lints", "Cargo.toml:workspace.lints.clippy.panic"));
+    assert!(!waiver_covers("clippy.toml:allow", "clippy.toml:allow-unwrap-in-tests"));
+    assert!(!waiver_covers("Cargo.toml", "crates/a/Cargo.toml:lints.workspace"));
 }
 
 #[test]
@@ -241,17 +200,11 @@ fn single_package_gets_lints_directly() {
     )
     .expect("manifest");
     let written = scaffold(dir.path(), false).expect("scaffold");
-    assert_eq!(
-        written.last().map(|w| w.target.as_str()),
-        Some("Cargo.toml:lints")
-    );
+    assert_eq!(written.last().map(|w| w.target.as_str()), Some("Cargo.toml:lints"));
     let manifest = read(&dir, "Cargo.toml");
     assert!(manifest.contains("\n[lints.clippy]\n"));
     assert!(read(&dir, "clippy.toml").contains("msrv = \"1.80\""));
-    assert!(check(dir.path(), &no_waivers(), &[])
-        .expect("check")
-        .drift
-        .is_empty());
+    assert!(check(dir.path(), &no_waivers(), &[]).expect("check").drift.is_empty());
 }
 
 #[test]
@@ -261,14 +214,8 @@ fn a_root_that_is_also_a_package_opts_itself_in() {
     std::fs::write(dir.path().join("Cargo.toml"), root).expect("manifest");
     scaffold(dir.path(), false).expect("scaffold");
     let manifest = read(&dir, "Cargo.toml");
-    assert!(
-        manifest.contains("\n[lints]\nworkspace = true\n"),
-        "{manifest}"
-    );
-    assert!(check(dir.path(), &no_waivers(), &[])
-        .expect("check")
-        .drift
-        .is_empty());
+    assert!(manifest.contains("\n[lints]\nworkspace = true\n"), "{manifest}");
+    assert!(check(dir.path(), &no_waivers(), &[]).expect("check").drift.is_empty());
 }
 
 #[test]
@@ -290,10 +237,8 @@ fn a_symlinked_config_dir_is_refused() {
 }
 
 fn mise_template() -> Value {
-    let file = FILES
-        .iter()
-        .find(|f| f.path == "mise.toml")
-        .expect("mise.toml is a foundation file");
+    let file =
+        FILES.iter().find(|f| f.path == "mise.toml").expect("mise.toml is a foundation file");
     template_value(file.template).expect("mise template")
 }
 
@@ -302,19 +247,10 @@ fn mise_template_pins_rust_components_and_a_check_only_ops() {
     let mise = mise_template();
     let tools = mise.get("tools").expect("[tools]");
     let rust = tools.get("rust").expect("rust pin");
-    assert_eq!(
-        rust.get("components").and_then(Value::as_str),
-        Some("rustfmt,clippy")
-    );
+    assert_eq!(rust.get("components").and_then(Value::as_str), Some("rustfmt,clippy"));
     let ops = tools.get("ops").and_then(Value::as_str).expect("ops pin");
-    let parts: Vec<u64> = ops
-        .split('.')
-        .map(|p| p.parse().expect("numeric ops pin"))
-        .collect();
-    assert!(
-        parts >= vec![0, 77, 0],
-        "ops {ops} predates check-only verify"
-    );
+    let parts: Vec<u64> = ops.split('.').map(|p| p.parse().expect("numeric ops pin")).collect();
+    assert!(parts >= vec![0, 77, 0], "ops {ops} predates check-only verify");
     for tool in [
         "cargo-deny",
         "cargo-machete",
@@ -326,10 +262,7 @@ fn mise_template_pins_rust_components_and_a_check_only_ops() {
         assert!(tools.get(tool).is_some(), "{tool} is pinned");
     }
     for alias in ["ops", "cargo-nextest", "cargo-machete", "cargo-edit"] {
-        assert!(
-            mise.get("tool_alias").and_then(|a| a.get(alias)).is_some(),
-            "{alias} is aliased"
-        );
+        assert!(mise.get("tool_alias").and_then(|a| a.get(alias)).is_some(), "{alias} is aliased");
     }
 }
 
@@ -342,13 +275,7 @@ fn ops_own_mise_toml_matches_the_template() {
     let mut drift = Vec::new();
     // The ops pin is a floor, so this repo may run a newer release than the template names.
     check_ops_pin(&mut expected, &actual, &mut drift);
-    compare::compare(
-        &expected,
-        Some(&actual),
-        "mise.toml",
-        Rule::Exact,
-        &mut drift,
-    );
+    compare::compare(&expected, Some(&actual), "mise.toml", Rule::Exact, &mut drift);
     assert!(drift.is_empty(), "{drift:?}");
 }
 
@@ -367,18 +294,12 @@ fn mise_pin_drift_is_reported_and_tool_additions_are_not() {
         report.drift,
         vec![
             Drift::new("mise.toml:tools.cargo-deny", "missing"),
-            Drift::new(
-                "mise.toml:tools.trivy",
-                "expected \"0.70.0\", found \"0.69.0\""
-            ),
+            Drift::new("mise.toml:tools.trivy", "expected \"0.70.0\", found \"0.69.0\""),
         ]
     );
 
     let waivers: IndexMap<String, String> = [
-        (
-            "mise.toml:tools.trivy",
-            "held back until the scanner fix ships",
-        ),
+        ("mise.toml:tools.trivy", "held back until the scanner fix ships"),
         ("mise.toml:tools.cargo-deny", "installed by the distro"),
     ]
     .into_iter()
@@ -399,15 +320,9 @@ fn a_missing_mise_toml_is_drift_and_scaffold_writes_it() {
     assert_eq!(report.drift, vec![Drift::new("mise.toml", "missing")]);
 
     let written = scaffold(dir.path(), false).expect("rescaffold");
-    let mise = written
-        .iter()
-        .find(|w| w.target == "mise.toml")
-        .expect("mise.toml target");
+    let mise = written.iter().find(|w| w.target == "mise.toml").expect("mise.toml target");
     assert_eq!(mise.outcome, Outcome::Created);
-    assert!(check(dir.path(), &no_waivers(), &[])
-        .expect("check")
-        .drift
-        .is_empty());
+    assert!(check(dir.path(), &no_waivers(), &[]).expect("check").drift.is_empty());
 }
 
 fn check_with_ops_pin(pin: &str) -> Vec<Drift> {
@@ -442,19 +357,13 @@ fn the_ops_pin_is_a_floor_so_the_running_ops_passes_unwaived() {
 fn a_config_field_newer_than_the_ops_pin_is_drift_and_waivable() {
     let dir = workspace();
     scaffold(dir.path(), false).expect("scaffold");
-    std::fs::write(
-        dir.path().join(".ops.toml"),
-        "[commands.a]\nprogram = \"x\"\nraw = true\n",
-    )
-    .expect("write");
+    std::fs::write(dir.path().join(".ops.toml"), "[commands.a]\nprogram = \"x\"\nraw = true\n")
+        .expect("write");
     let location = ".ops.toml:commands.a.raw";
     let report = check(dir.path(), &no_waivers(), &[]).expect("check");
     assert_eq!(
         report.drift,
-        vec![Drift::new(
-            location,
-            "needs ops 0.85.0, but mise.toml pins 0.77.0"
-        )]
+        vec![Drift::new(location, "needs ops 0.85.0, but mise.toml pins 0.77.0")]
     );
 
     let waivers = IndexMap::from([(location.to_owned(), "held back".to_owned())]);
@@ -474,15 +383,7 @@ fn a_config_that_does_not_parse_is_drift_against_the_pin_not_an_error() {
 
 #[test]
 fn an_ops_pin_below_the_floor_or_unversioned_is_drift() {
-    for pin in [
-        "\"0.76.9\"",
-        "\"0.9.0\"",
-        "\"latest\"",
-        "77",
-        "\"77\"",
-        "\"1.0\"",
-        "\"1.0.0.0\"",
-    ] {
+    for pin in ["\"0.76.9\"", "\"0.9.0\"", "\"latest\"", "77", "\"77\"", "\"1.0\"", "\"1.0.0.0\""] {
         assert_eq!(
             check_with_ops_pin(pin),
             vec![Drift::new(
@@ -498,23 +399,15 @@ fn an_ops_pin_below_the_floor_or_unversioned_is_drift() {
 fn a_malformed_foundation_file_is_drift_naming_the_line_and_column() {
     let dir = workspace();
     scaffold(dir.path(), false).expect("scaffold");
-    std::fs::write(
-        dir.path().join("deny.toml"),
-        "[graph]\nall-features = true\nbroken = = 1\n",
-    )
-    .expect("edit");
+    std::fs::write(dir.path().join("deny.toml"), "[graph]\nall-features = true\nbroken = = 1\n")
+        .expect("edit");
 
     let drift = check(dir.path(), &no_waivers(), &[]).expect("check").drift;
     let [only] = drift.as_slice() else {
         panic!("expected one drift, got {drift:?}");
     };
     assert_eq!(only.location, "deny.toml");
-    assert!(
-        only.message
-            .starts_with("does not parse at line 3, column 10: "),
-        "{}",
-        only.message
-    );
+    assert!(only.message.starts_with("does not parse at line 3, column 10: "), "{}", only.message);
     assert!(!only.message.contains('\n'), "{}", only.message);
 }
 
@@ -522,28 +415,16 @@ fn a_malformed_foundation_file_is_drift_naming_the_line_and_column() {
 fn a_malformed_member_manifest_is_its_own_drift_and_a_scaffold_error() {
     let dir = workspace();
     scaffold(dir.path(), false).expect("scaffold");
-    std::fs::write(
-        dir.path().join("crates/b/Cargo.toml"),
-        "[package]\nname = \"b\n",
-    )
-    .expect("edit");
+    std::fs::write(dir.path().join("crates/b/Cargo.toml"), "[package]\nname = \"b\n")
+        .expect("edit");
 
     let drift = check(dir.path(), &no_waivers(), &[]).expect("check").drift;
     let [only] = drift.as_slice() else {
         panic!("expected one drift, got {drift:?}");
     };
     assert_eq!(only.location, "crates/b/Cargo.toml");
-    assert!(
-        only.message
-            .starts_with("does not parse at line 2, column "),
-        "{}",
-        only.message
-    );
-    assert!(
-        !only.message.contains("workspace = true"),
-        "{}",
-        only.message
-    );
+    assert!(only.message.starts_with("does not parse at line 2, column "), "{}", only.message);
+    assert!(!only.message.contains("workspace = true"), "{}", only.message);
 
     let err = scaffold(dir.path(), false).expect_err("malformed member");
     let chain = format!("{err:#}");
@@ -557,11 +438,8 @@ fn unresolvable_workspace_members_fail_check_and_scaffold() {
     scaffold(dir.path(), false).expect("scaffold");
     let manifest = read(&dir, "Cargo.toml").replace("[\"crates/*\"]", "\"crates/*\"");
     std::fs::write(dir.path().join("Cargo.toml"), manifest).expect("edit");
-    std::fs::write(
-        dir.path().join("crates/b/Cargo.toml"),
-        "[package]\nname = \"b\"\n",
-    )
-    .expect("edit");
+    std::fs::write(dir.path().join("crates/b/Cargo.toml"), "[package]\nname = \"b\"\n")
+        .expect("edit");
 
     let err = check(dir.path(), &no_waivers(), &[])
         .expect_err("check must not pass clean on unresolvable members");
@@ -586,10 +464,7 @@ fn an_unreadable_foundation_file_is_an_error_naming_the_file() {
     std::fs::create_dir(dir.path().join("deny.toml")).expect("park a dir on the file name");
 
     let err = check(dir.path(), &no_waivers(), &[]).expect_err("a directory is not readable");
-    assert!(
-        format!("{err:#}").starts_with("reading deny.toml: "),
-        "{err:#}"
-    );
+    assert!(format!("{err:#}").starts_with("reading deny.toml: "), "{err:#}");
 }
 
 #[test]
@@ -605,31 +480,19 @@ fn force_replaces_the_lint_table_of_a_single_package() {
     std::fs::write(dir.path().join("Cargo.toml"), manifest).expect("edit");
     let drift = check(dir.path(), &no_waivers(), &[]).expect("check").drift;
     assert_eq!(
-        drift
-            .iter()
-            .map(|d| d.location.as_str())
-            .collect::<Vec<_>>(),
+        drift.iter().map(|d| d.location.as_str()).collect::<Vec<_>>(),
         vec!["Cargo.toml:lints.clippy.panic"]
     );
 
     let written = scaffold(dir.path(), true).expect("force scaffold");
     assert_eq!(
         written.last(),
-        Some(&Written {
-            target: "Cargo.toml:lints".to_owned(),
-            outcome: Outcome::Replaced,
-        })
+        Some(&Written { target: "Cargo.toml:lints".to_owned(), outcome: Outcome::Replaced })
     );
     let manifest = read(&dir, "Cargo.toml");
     assert_eq!(manifest.matches("[lints.clippy]").count(), 1);
-    assert!(
-        manifest.starts_with("[package]\nname = \"solo\"\n"),
-        "{manifest}"
-    );
-    assert!(check(dir.path(), &no_waivers(), &[])
-        .expect("check")
-        .drift
-        .is_empty());
+    assert!(manifest.starts_with("[package]\nname = \"solo\"\n"), "{manifest}");
+    assert!(check(dir.path(), &no_waivers(), &[]).expect("check").drift.is_empty());
 }
 
 fn nested_fuzz(dir: &tempfile::TempDir) {
@@ -680,10 +543,7 @@ fn a_listed_directory_that_is_no_workspace_is_drift() {
     assert_eq!(
         workspace_drift(&report),
         [
-            (
-                ".ops.toml:cargo.workspaces.gone",
-                "lists 'gone', which has no Cargo.toml"
-            ),
+            (".ops.toml:cargo.workspaces.gone", "lists 'gone', which has no Cargo.toml"),
             (
                 ".ops.toml:cargo.workspaces.crates/a",
                 "lists 'crates/a', which is not a separate cargo workspace"

@@ -135,10 +135,7 @@ fn workspace_member_globs(root: &Path) -> (Vec<String>, Vec<String>) {
         if let Some(content) =
             ops_about::manifest_io::read_optional_text(&pnpm_path, root, "pnpm-workspace.yaml")
         {
-            let PnpmParse {
-                items,
-                saw_packages_key,
-            } = parse_pnpm_workspace_yaml(&content);
+            let PnpmParse { items, saw_packages_key } = parse_pnpm_workspace_yaml(&content);
             // Distinguish "no packages: key" from "packages: key matched
             // but produced 0 entries" — the second case is the symptom of a
             // YAML shape this parser does not recognise (block scalar,
@@ -285,10 +282,7 @@ fn parse_pnpm_workspace_yaml(content: &str) -> PnpmParse {
             }
         }
     }
-    PnpmParse {
-        items: out,
-        saw_packages_key,
-    }
+    PnpmParse { items: out, saw_packages_key }
 }
 
 /// Split a YAML flow-sequence body on `,` while
@@ -429,20 +423,14 @@ mod tests {
     #[test]
     fn wrong_typed_workspaces_warn_names_the_field() {
         let dir = tempfile::tempdir().unwrap();
-        write(
-            &dir.path().join("package.json"),
-            r#"{ "name": "x", "workspaces": 7 }"#,
-        );
+        write(&dir.path().join("package.json"), r#"{ "name": "x", "workspaces": 7 }"#);
 
         let (logs, units) = ops_core::test_utils::capture_tracing(tracing::Level::WARN, || {
             collect_units(dir.path())
         });
 
         assert!(units.is_empty());
-        assert!(
-            logs.contains("field=workspaces"),
-            "the warn must name the failing field: {logs}"
-        );
+        assert!(logs.contains("field=workspaces"), "the warn must name the failing field: {logs}");
     }
 
     /// A member manifest with a wrong-typed field keeps its unit (named
@@ -454,10 +442,7 @@ mod tests {
             &dir.path().join("package.json"),
             r#"{ "name": "root", "workspaces": ["packages/*"] }"#,
         );
-        write(
-            &dir.path().join("packages/a/package.json"),
-            r#"{ "name": "a", "version": 3 }"#,
-        );
+        write(&dir.path().join("packages/a/package.json"), r#"{ "name": "a", "version": 3 }"#);
 
         let (logs, units) = ops_core::test_utils::capture_tracing(tracing::Level::WARN, || {
             collect_units(dir.path())
@@ -573,11 +558,7 @@ mod tests {
             "    - esbuild\n",
         );
         let r = parse_pnpm_workspace_yaml(yaml);
-        assert!(
-            r.items.is_empty(),
-            "nested entries must not leak: {:?}",
-            r.items
-        );
+        assert!(r.items.is_empty(), "nested entries must not leak: {:?}", r.items);
         assert!(!r.saw_packages_key);
     }
 
@@ -587,12 +568,8 @@ mod tests {
     /// out of the workspace globs.
     #[test]
     fn packages_block_ends_at_sibling_key_of_equal_indentation() {
-        let yaml = concat!(
-            "packages:\n",
-            "  - apps/*\n",
-            "ignoredBuiltDependencies:\n",
-            "  - esbuild\n",
-        );
+        let yaml =
+            concat!("packages:\n", "  - apps/*\n", "ignoredBuiltDependencies:\n", "  - esbuild\n",);
         let r = parse_pnpm_workspace_yaml(yaml);
         assert_eq!(r.items, vec!["apps/*".to_string()]);
         assert!(r.saw_packages_key);
@@ -622,14 +599,8 @@ mod tests {
             &dir.path().join("pnpm-workspace.yaml"),
             "packages:\n  - 'libs/*'\n  - \"apps/web\"\n",
         );
-        write(
-            &dir.path().join("libs/foo/package.json"),
-            r#"{ "name": "foo" }"#,
-        );
-        write(
-            &dir.path().join("apps/web/package.json"),
-            r#"{ "name": "web" }"#,
-        );
+        write(&dir.path().join("libs/foo/package.json"), r#"{ "name": "foo" }"#);
+        write(&dir.path().join("apps/web/package.json"), r#"{ "name": "web" }"#);
         let units = collect_units(dir.path());
         assert_eq!(units.len(), 2);
         let names: Vec<&str> = units.iter().map(|u| u.name.as_str()).collect();
@@ -646,14 +617,8 @@ mod tests {
             &dir.path().join("package.json"),
             r#"{ "name": "root", "workspaces": ["packages/*", "!packages/ignored"] }"#,
         );
-        write(
-            &dir.path().join("packages/keep/package.json"),
-            r#"{ "name": "keep" }"#,
-        );
-        write(
-            &dir.path().join("packages/ignored/package.json"),
-            r#"{ "name": "ignored" }"#,
-        );
+        write(&dir.path().join("packages/keep/package.json"), r#"{ "name": "keep" }"#);
+        write(&dir.path().join("packages/ignored/package.json"), r#"{ "name": "ignored" }"#);
         let units = collect_units(dir.path());
         let names: Vec<&str> = units.iter().map(|u| u.name.as_str()).collect();
         assert!(names.contains(&"keep"));
@@ -667,10 +632,7 @@ mod tests {
             &dir.path().join("package.json"),
             r#"{ "name": "root", "workspaces": ["packages/*", "!packages/internal-*"] }"#,
         );
-        write(
-            &dir.path().join("packages/web/package.json"),
-            r#"{ "name": "web" }"#,
-        );
+        write(&dir.path().join("packages/web/package.json"), r#"{ "name": "web" }"#);
         write(
             &dir.path().join("packages/internal-tools/package.json"),
             r#"{ "name": "internal-tools" }"#,
@@ -688,10 +650,7 @@ mod tests {
             &dir.path().join("package.json"),
             r#"{ "name": "root", "workspaces": ["packages/*"] }"#,
         );
-        write(
-            &dir.path().join("packages/quiet/package.json"),
-            r#"{ "version": "0.1.0" }"#,
-        );
+        write(&dir.path().join("packages/quiet/package.json"), r#"{ "version": "0.1.0" }"#);
         let units = collect_units(dir.path());
         assert_eq!(units.len(), 1);
         assert_eq!(units[0].name, "Quiet");
@@ -707,10 +666,7 @@ mod tests {
             &dir.path().join("pnpm-workspace.yaml"),
             "packages:\n  - 'packages/*'\n  - '!packages/internal-*'\n",
         );
-        write(
-            &dir.path().join("packages/keep/package.json"),
-            r#"{ "name": "keep" }"#,
-        );
+        write(&dir.path().join("packages/keep/package.json"), r#"{ "name": "keep" }"#);
         write(
             &dir.path().join("packages/internal-thing/package.json"),
             r#"{ "name": "internal-thing" }"#,
@@ -731,14 +687,8 @@ mod tests {
             &dir.path().join("package.json"),
             r#"{ "name": "root", "workspaces": ["!packages/legacy"] }"#,
         );
-        write(
-            &dir.path().join("pnpm-workspace.yaml"),
-            "packages:\n  - 'libs/*'\n",
-        );
-        write(
-            &dir.path().join("libs/foo/package.json"),
-            r#"{ "name": "foo" }"#,
-        );
+        write(&dir.path().join("pnpm-workspace.yaml"), "packages:\n  - 'libs/*'\n");
+        write(&dir.path().join("libs/foo/package.json"), r#"{ "name": "foo" }"#);
         let units = collect_units(dir.path());
         assert!(units.iter().any(|u| u.name == "foo"));
     }
@@ -889,10 +839,7 @@ mod tests {
     #[test]
     fn blank_workspaces_entry_yields_no_units() {
         let dir = tempfile::tempdir().unwrap();
-        write(
-            &dir.path().join("package.json"),
-            r#"{ "name": "root", "workspaces": [""] }"#,
-        );
+        write(&dir.path().join("package.json"), r#"{ "name": "root", "workspaces": [""] }"#);
         assert!(collect_units(dir.path()).is_empty());
     }
 
@@ -901,14 +848,8 @@ mod tests {
     #[test]
     fn whitespace_only_workspaces_entry_falls_back_to_pnpm() {
         let dir = tempfile::tempdir().unwrap();
-        write(
-            &dir.path().join("package.json"),
-            r#"{ "name": "root", "workspaces": ["  "] }"#,
-        );
-        write(
-            &dir.path().join("pnpm-workspace.yaml"),
-            "packages:\n  - packages/*\n",
-        );
+        write(&dir.path().join("package.json"), r#"{ "name": "root", "workspaces": ["  "] }"#);
+        write(&dir.path().join("pnpm-workspace.yaml"), "packages:\n  - packages/*\n");
         write(
             &dir.path().join("packages/alpha/package.json"),
             r#"{ "name": "alpha", "version": "1.0.0" }"#,
@@ -925,10 +866,7 @@ mod tests {
     fn blank_pnpm_packages_entry_yields_no_root_unit() {
         let dir = tempfile::tempdir().unwrap();
         write(&dir.path().join("package.json"), r#"{ "name": "root" }"#);
-        write(
-            &dir.path().join("pnpm-workspace.yaml"),
-            "packages:\n  - \"\"\n  - packages/*\n",
-        );
+        write(&dir.path().join("pnpm-workspace.yaml"), "packages:\n  - \"\"\n  - packages/*\n");
         write(
             &dir.path().join("packages/alpha/package.json"),
             r#"{ "name": "alpha", "version": "1.0.0" }"#,

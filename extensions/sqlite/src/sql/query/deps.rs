@@ -75,18 +75,10 @@ pub fn query_crate_deps(db: &Sqlite) -> anyhow::Result<HashMap<String, Vec<(Stri
                   ORDER BY crate_name, dependency_name",
             label: "query_crate_deps",
         },
-        |row| {
-            Ok((
-                row.get::<_, String>(0)?,
-                row.get::<_, String>(1)?,
-                row.get::<_, String>(2)?,
-            ))
-        },
+        |row| Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?, row.get::<_, String>(2)?)),
         HashMap::new(),
         |map, (crate_name, dep_name, version_req)| {
-            map.entry(crate_name)
-                .or_default()
-                .push((dep_name, version_req));
+            map.entry(crate_name).or_default().push((dep_name, version_req));
         },
     )
 }
@@ -119,13 +111,7 @@ pub fn query_crate_dep_counts(db: &Sqlite) -> anyhow::Result<HashMap<String, i64
                   GROUP BY crate_manifest_path, crate_name",
             label: "query_crate_dep_counts",
         },
-        |row| {
-            Ok((
-                row.get::<_, String>(0)?,
-                row.get::<_, String>(1)?,
-                row.get::<_, i64>(2)?,
-            ))
-        },
+        |row| Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?, row.get::<_, i64>(2)?)),
         Vec::<(String, String, i64)>::new(),
         |acc, (manifest_path, name, count)| {
             acc.push((manifest_path, name, count));

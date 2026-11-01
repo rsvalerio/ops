@@ -189,10 +189,7 @@ where
 #[serde(untagged)]
 enum LicenseField {
     Text(String),
-    Table {
-        text: Option<String>,
-        file: Option<String>,
-    },
+    Table { text: Option<String>, file: Option<String> },
 }
 
 #[derive(Debug, Deserialize)]
@@ -282,16 +279,9 @@ fn parse_pyproject(project_root: &Path) -> Option<Pyproject> {
 fn apply_project_table(project: &toml::Table, manifest_path: &Path, out: &mut Pyproject) {
     out.name = trim_nonempty(project_field::<String>(project, "name", manifest_path));
     out.version = trim_nonempty(project_field::<String>(project, "version", manifest_path));
-    out.description = trim_nonempty(project_field::<String>(
-        project,
-        "description",
-        manifest_path,
-    ));
-    out.requires_python = trim_nonempty(project_field::<String>(
-        project,
-        "requires-python",
-        manifest_path,
-    ));
+    out.description = trim_nonempty(project_field::<String>(project, "description", manifest_path));
+    out.requires_python =
+        trim_nonempty(project_field::<String>(project, "requires-python", manifest_path));
     out.license = project_field::<LicenseField>(project, "license", manifest_path)
         .and_then(normalize_license);
     out.authors = format_authors(
@@ -419,14 +409,7 @@ fn extract_urls(
     let homepage = pick_url(&normalized, &["homepage", "home", "home-page"]);
     let repository = pick_url(
         &normalized,
-        &[
-            "repository",
-            "source",
-            "source-code",
-            "sourcecode",
-            "code",
-            "repo",
-        ],
+        &["repository", "source", "source-code", "sourcecode", "code", "repo"],
     );
     (homepage, repository)
 }
@@ -506,9 +489,7 @@ fn pick_url(
     // scheme-less values are rejected rather than guessed at. Both rejections
     // drop the field rather than emit a partial URL — the same policy
     // `extensions-node/about::repo_url::normalize_repo_url` applies.
-    trim_nonempty(raw)
-        .filter(|s| !contains_control_chars(s))
-        .filter(|s| has_allowed_url_scheme(s))
+    trim_nonempty(raw).filter(|s| !contains_control_chars(s)).filter(|s| has_allowed_url_scheme(s))
 }
 
 fn normalize_url_key(key: &str) -> String {
@@ -569,10 +550,7 @@ mod tests {
 
     #[test]
     fn build_stack_detail_python_only() {
-        assert_eq!(
-            build_stack_detail(Some(">=3.11"), false),
-            Some("Python >=3.11".to_string())
-        );
+        assert_eq!(build_stack_detail(Some(">=3.11"), false), Some("Python >=3.11".to_string()));
     }
 
     #[test]
@@ -628,25 +606,13 @@ requires-python = "  "
 
     #[test]
     fn pick_url_repository_takes_precedence_over_source_and_source_code() {
-        const REPO_KEYS: &[&str] = &[
-            "repository",
-            "source",
-            "source-code",
-            "sourcecode",
-            "code",
-            "repo",
-        ];
+        const REPO_KEYS: &[&str] =
+            &["repository", "source", "source-code", "sourcecode", "code", "repo"];
 
         let mut urls = std::collections::BTreeMap::new();
-        urls.insert(
-            "Source-Code".to_string(),
-            "https://example.com/sc".to_string(),
-        );
+        urls.insert("Source-Code".to_string(), "https://example.com/sc".to_string());
         urls.insert("source".to_string(), "https://example.com/src".to_string());
-        urls.insert(
-            "Repository".to_string(),
-            "https://example.com/repo".to_string(),
-        );
+        urls.insert("Repository".to_string(), "https://example.com/repo".to_string());
 
         let picked = pick_url(&normalize_urls(&urls), REPO_KEYS);
         assert_eq!(picked.as_deref(), Some("https://example.com/repo"));
@@ -1088,10 +1054,7 @@ Documentation = "https://docs.x"
             logs.contains("duplicate_url=\"https://second.dev\""),
             "warn must carry the discarded URL: {logs}"
         );
-        assert!(
-            logs.contains("recovery=\"keep-first\""),
-            "warn must state the recovery: {logs}"
-        );
+        assert!(logs.contains("recovery=\"keep-first\""), "warn must state the recovery: {logs}");
     }
 
     /// `normalize_url_key` only trims the *ends* of the key, so an
@@ -1102,21 +1065,12 @@ Documentation = "https://docs.x"
     fn colliding_url_keys_escape_control_chars_in_the_normalized_key() {
         let mut urls = std::collections::BTreeMap::new();
         // Both collapse to "home\n\u{1b}[31m page" under `normalize_url_key`.
-        urls.insert(
-            "Home\n\u{1b}[31m-Page".to_string(),
-            "https://first.dev".to_string(),
-        );
-        urls.insert(
-            "home\n\u{1b}[31m page".to_string(),
-            "https://second.dev".to_string(),
-        );
+        urls.insert("Home\n\u{1b}[31m-Page".to_string(), "https://first.dev".to_string());
+        urls.insert("home\n\u{1b}[31m page".to_string(), "https://second.dev".to_string());
 
         let (logs, _) = capture_tracing(tracing::Level::WARN, || normalize_urls(&urls));
 
-        assert!(
-            logs.contains("normalized_key="),
-            "the collision warn must fire: {logs}"
-        );
+        assert!(logs.contains("normalized_key="), "the collision warn must fire: {logs}");
         assert!(
             logs.contains("normalized_key=\"home\\n\\u{1b}[31m page\""),
             "normalized_key must arrive Debug-escaped: {logs}"
@@ -1164,10 +1118,7 @@ Home-Page = "https://first.dev"
 
         let (logs, id) = capture_tracing(tracing::Level::WARN, || identity_at(dir.path()));
 
-        assert!(
-            !id.name.is_empty(),
-            "the directory-name fallback must still yield a name"
-        );
+        assert!(!id.name.is_empty(), "the directory-name fallback must still yield a name");
         assert_ne!(id.name, "demo", "the broken manifest must not be trusted");
         assert!(id.version.is_none(), "got: {:?}", id.version);
         assert!(id.stack_detail.is_none(), "got: {:?}", id.stack_detail);
@@ -1175,10 +1126,7 @@ Home-Page = "https://first.dev"
             logs.contains("recovery=\"default-identity\""),
             "warn must state the recovery: {logs}"
         );
-        assert!(
-            logs.contains("pyproject.toml"),
-            "warn must name the manifest path: {logs}"
-        );
+        assert!(logs.contains("pyproject.toml"), "warn must name the manifest path: {logs}");
     }
 
     /// `authors` written as a list of bare strings is
@@ -1230,10 +1178,7 @@ requires-python = ">=3.11"
             logs.contains("field=project.version"),
             "warn must name the offending field path: {logs}"
         );
-        assert!(
-            logs.contains("recovery=\"skip-field\""),
-            "warn must state the recovery: {logs}"
-        );
+        assert!(logs.contains("recovery=\"skip-field\""), "warn must state the recovery: {logs}");
     }
 
     /// An author entry that is neither the PEP 621
@@ -1298,10 +1243,7 @@ authors = [
 name = "demo"
 version = "0.1.0"
 "#,
-            &[(
-                ".git/config",
-                "[remote \"origin\"]\n\turl = https://github.com/o/r.git\n",
-            )],
+            &[(".git/config", "[remote \"origin\"]\n\turl = https://github.com/o/r.git\n")],
         );
 
         assert_eq!(id.repository.as_deref(), Some("https://github.com/o/r"));
@@ -1343,13 +1285,11 @@ members = ["packages/alpha"]
             "[project]\nname = \"alpha\"\nversion = \"1.0.0\"\n",
         );
         let mut ctx = ops_extension::Context::test_context(dir.path().to_path_buf());
-        let identity = registry
-            .provide("project_identity", &mut ctx)
-            .expect("identity provider must answer");
+        let identity =
+            registry.provide("project_identity", &mut ctx).expect("identity provider must answer");
         assert_eq!(identity["stack_label"], serde_json::json!("Python"));
-        let units = registry
-            .provide("project_units", &mut ctx)
-            .expect("units provider must answer");
+        let units =
+            registry.provide("project_units", &mut ctx).expect("units provider must answer");
         assert_eq!(
             units
                 .as_array()

@@ -84,10 +84,8 @@ impl DataProvider for GoIdentityProvider {
                 .and_then(|m| m.module.as_deref())
                 .and_then(|m| modules::last_segment(Some(m)));
 
-            let stack_detail = go_mod
-                .as_ref()
-                .and_then(|m| m.go_version.clone())
-                .map(|v| format!("Go {v}"));
+            let stack_detail =
+                go_mod.as_ref().and_then(|m| m.go_version.clone()).map(|v| format!("Go {v}"));
 
             let module_count = compute_module_count(go_work_use_dirs.as_deref());
 
@@ -180,11 +178,8 @@ mod tests {
     #[test]
     fn provide_simple_go_project() {
         let dir = tempfile::tempdir().unwrap();
-        std::fs::write(
-            dir.path().join("go.mod"),
-            "module github.com/user/myapp\n\ngo 1.22\n",
-        )
-        .unwrap();
+        std::fs::write(dir.path().join("go.mod"), "module github.com/user/myapp\n\ngo 1.22\n")
+            .unwrap();
 
         let provider = GoIdentityProvider;
         let mut ctx = ops_extension::Context::test_context(dir.path().to_path_buf());
@@ -247,15 +242,9 @@ mod tests {
         let units: Vec<ops_core::project_identity::ProjectUnit> =
             serde_json::from_value(modules::GoUnitsProvider.provide(&mut ctx).unwrap()).unwrap();
 
-        assert_eq!(
-            units.len(),
-            1,
-            "a go.mod-only project lists exactly the root module"
-        );
+        assert_eq!(units.len(), 1, "a go.mod-only project lists exactly the root module");
         assert!(
-            identity
-                .module_count
-                .is_none_or(|count| count == units.len()),
+            identity.module_count.is_none_or(|count| count == units.len()),
             "module_count {:?} must be None or equal the units length {}; \
              the card and the units table must count the same things",
             identity.module_count,
@@ -267,11 +256,8 @@ mod tests {
     #[test]
     fn provide_go_workspace_module_count_from_go_work() {
         let dir = tempfile::tempdir().unwrap();
-        std::fs::write(
-            dir.path().join("go.mod"),
-            "module github.com/user/ws\n\ngo 1.21\n",
-        )
-        .unwrap();
+        std::fs::write(dir.path().join("go.mod"), "module github.com/user/ws\n\ngo 1.21\n")
+            .unwrap();
         std::fs::write(
             dir.path().join("go.work"),
             "go 1.21\n\nuse (\n\t./svc-a\n\t./svc-b\n\t./lib\n)\n",
@@ -297,12 +283,7 @@ mod tests {
         let id: ProjectIdentity = serde_json::from_value(value).unwrap();
 
         // Falls back to directory name
-        let expected = dir
-            .path()
-            .file_name()
-            .unwrap()
-            .to_string_lossy()
-            .to_string();
+        let expected = dir.path().file_name().unwrap().to_string_lossy().to_string();
         assert_eq!(id.name, expected);
         assert_eq!(id.stack_label, "Go");
         assert!(id.stack_detail.is_none());
@@ -312,11 +293,8 @@ mod tests {
     #[test]
     fn provide_populates_repository_from_git_remote() {
         let dir = tempfile::tempdir().unwrap();
-        std::fs::write(
-            dir.path().join("go.mod"),
-            "module github.com/openbao/openbao\n\ngo 1.21\n",
-        )
-        .unwrap();
+        std::fs::write(dir.path().join("go.mod"), "module github.com/openbao/openbao\n\ngo 1.21\n")
+            .unwrap();
         let git_dir = dir.path().join(".git");
         std::fs::create_dir(&git_dir).unwrap();
         std::fs::write(
@@ -330,20 +308,13 @@ mod tests {
         let value = provider.provide(&mut ctx).unwrap();
         let id: ProjectIdentity = serde_json::from_value(value).unwrap();
 
-        assert_eq!(
-            id.repository.as_deref(),
-            Some("https://github.com/openbao/openbao")
-        );
+        assert_eq!(id.repository.as_deref(), Some("https://github.com/openbao/openbao"));
     }
 
     #[test]
     fn provide_no_git_leaves_repository_empty() {
         let dir = tempfile::tempdir().unwrap();
-        std::fs::write(
-            dir.path().join("go.mod"),
-            "module example.com/foo\n\ngo 1.21\n",
-        )
-        .unwrap();
+        std::fs::write(dir.path().join("go.mod"), "module example.com/foo\n\ngo 1.21\n").unwrap();
 
         let provider = GoIdentityProvider;
         let mut ctx = ops_extension::Context::test_context(dir.path().to_path_buf());
@@ -366,12 +337,7 @@ mod tests {
         let value = provider.provide(&mut ctx).unwrap();
         let id: ProjectIdentity = serde_json::from_value(value).unwrap();
 
-        let expected = dir
-            .path()
-            .file_name()
-            .unwrap()
-            .to_string_lossy()
-            .to_string();
+        let expected = dir.path().file_name().unwrap().to_string_lossy().to_string();
         assert_eq!(id.name, expected);
         assert_eq!(id.stack_detail.as_deref(), Some("Go 1.22"));
     }
@@ -411,20 +377,14 @@ mod tests {
         // Distinct payloads prove distinct providers, not one key answering
         // twice: identity is a ProjectIdentity object, units an array.
         let dir = tempfile::tempdir().unwrap();
-        std::fs::write(
-            dir.path().join("go.mod"),
-            "module example.com/app\n\ngo 1.22\n",
-        )
-        .unwrap();
+        std::fs::write(dir.path().join("go.mod"), "module example.com/app\n\ngo 1.22\n").unwrap();
         std::fs::write(dir.path().join("go.work"), "go 1.22\n\nuse (\n\t.\n)\n").unwrap();
         let mut ctx = ops_extension::Context::test_context(dir.path().to_path_buf());
-        let identity = registry
-            .provide("project_identity", &mut ctx)
-            .expect("identity provider must answer");
+        let identity =
+            registry.provide("project_identity", &mut ctx).expect("identity provider must answer");
         assert_eq!(identity["stack_label"], serde_json::json!("Go"));
-        let units = registry
-            .provide("project_units", &mut ctx)
-            .expect("units provider must answer");
+        let units =
+            registry.provide("project_units", &mut ctx).expect("units provider must answer");
         assert!(
             units.as_array().is_some_and(|a| !a.is_empty()),
             "units payload must be a non-empty array over a go.work fixture: {units}"

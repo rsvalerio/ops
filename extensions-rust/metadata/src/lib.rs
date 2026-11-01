@@ -209,12 +209,7 @@ pub(crate) fn metadata_max_bytes() -> u64 {
 /// update the lockfile, surfacing the drift rather than rewriting on the
 /// operator's behalf.
 pub(crate) fn run_cargo_metadata(working_dir: &Path) -> Result<Output, RunError> {
-    run_cargo(
-        &CARGO_METADATA_ARGS,
-        working_dir,
-        CARGO_METADATA_TIMEOUT,
-        "cargo metadata",
-    )
+    run_cargo(&CARGO_METADATA_ARGS, working_dir, CARGO_METADATA_TIMEOUT, "cargo metadata")
 }
 
 /// The argument list [`run_cargo_metadata`] hands to `cargo`: the
@@ -309,111 +304,39 @@ impl DataProvider for MetadataProvider {
 /// A name is a path into the JSON: `.` descends into an object and `[]` into
 /// every element of an array.
 const SCHEMA_FIELDS: [(&str, &str, &str); 25] = [
-    (
-        "workspace_root",
-        "String",
-        "Absolute path to the workspace root directory",
-    ),
-    (
-        "target_directory",
-        "String",
-        "Absolute path to the build artifacts directory",
-    ),
-    (
-        "version",
-        "u64",
-        "Format version of the document (always 1)",
-    ),
-    (
-        "workspace_members",
-        "Vec<String>",
-        "Package ids of the workspace members",
-    ),
-    (
-        "workspace_default_members",
-        "Vec<String>",
-        "Package ids of the default workspace members",
-    ),
-    (
-        "resolve",
-        "Option<Object>",
-        "Resolved dependency graph (`nodes`, `root`)",
-    ),
-    (
-        "packages",
-        "Vec<Object>",
-        "Every package in the dependency graph, members included",
-    ),
-    (
-        "packages[].id",
-        "String",
-        "Package id, as listed in `workspace_members`",
-    ),
+    ("workspace_root", "String", "Absolute path to the workspace root directory"),
+    ("target_directory", "String", "Absolute path to the build artifacts directory"),
+    ("version", "u64", "Format version of the document (always 1)"),
+    ("workspace_members", "Vec<String>", "Package ids of the workspace members"),
+    ("workspace_default_members", "Vec<String>", "Package ids of the default workspace members"),
+    ("resolve", "Option<Object>", "Resolved dependency graph (`nodes`, `root`)"),
+    ("packages", "Vec<Object>", "Every package in the dependency graph, members included"),
+    ("packages[].id", "String", "Package id, as listed in `workspace_members`"),
     ("packages[].name", "String", "Package name"),
     ("packages[].version", "String", "Package version string"),
     ("packages[].edition", "String", "Rust edition (e.g., 2021)"),
     ("packages[].license", "Option<String>", "License identifier"),
-    (
-        "packages[].manifest_path",
-        "String",
-        "Absolute path to the package's Cargo.toml",
-    ),
-    (
-        "packages[].source",
-        "Option<String>",
-        "Registry or git source; null for a path package",
-    ),
-    (
-        "packages[].dependencies",
-        "Vec<Object>",
-        "Declared dependencies of every kind",
-    ),
-    (
-        "packages[].dependencies[].name",
-        "String",
-        "Dependency name",
-    ),
-    (
-        "packages[].dependencies[].req",
-        "String",
-        "Version requirement (e.g., ^1.0)",
-    ),
+    ("packages[].manifest_path", "String", "Absolute path to the package's Cargo.toml"),
+    ("packages[].source", "Option<String>", "Registry or git source; null for a path package"),
+    ("packages[].dependencies", "Vec<Object>", "Declared dependencies of every kind"),
+    ("packages[].dependencies[].name", "String", "Dependency name"),
+    ("packages[].dependencies[].req", "String", "Version requirement (e.g., ^1.0)"),
     (
         "packages[].dependencies[].kind",
         "Option<String>",
         "null for a normal dependency, else `dev` or `build`",
     ),
-    (
-        "packages[].dependencies[].optional",
-        "bool",
-        "Whether the dependency is optional",
-    ),
-    (
-        "packages[].dependencies[].features",
-        "Vec<String>",
-        "Enabled features",
-    ),
+    ("packages[].dependencies[].optional", "bool", "Whether the dependency is optional"),
+    ("packages[].dependencies[].features", "Vec<String>", "Enabled features"),
     (
         "packages[].dependencies[].target",
         "Option<String>",
         "The `cfg(...)` the dependency is declared under; null for all targets",
     ),
-    (
-        "packages[].targets",
-        "Vec<Object>",
-        "Build targets (lib, bins, tests, examples, benches)",
-    ),
+    ("packages[].targets", "Vec<Object>", "Build targets (lib, bins, tests, examples, benches)"),
     ("packages[].targets[].name", "String", "Target name"),
-    (
-        "packages[].targets[].kind",
-        "Vec<String>",
-        "Target kinds (lib, bin, test, example, bench)",
-    ),
-    (
-        "packages[].targets[].src_path",
-        "String",
-        "Absolute path to the target's root source file",
-    ),
+    ("packages[].targets[].kind", "Vec<String>", "Target kinds (lib, bin, test, example, bench)"),
+    ("packages[].targets[].src_path", "String", "Absolute path to the target's root source file"),
 ];
 
 /// Bounds the JSON payload size **before** materialising the full blob into a
@@ -447,16 +370,9 @@ fn query_metadata_raw_with_cap(db: &Sqlite, cap: u64) -> Result<serde_json::Valu
     // inserts more (re-collect without truncate, a schema version row); a
     // `LIMIT 1` read would silently pick an arbitrary one instead.
     let count: i64 = conn
-        .query_row(
-            "SELECT count(*) FROM metadata_raw",
-            [],
-            |row: &rusqlite::Row<'_>| row.get(0),
-        )
+        .query_row("SELECT count(*) FROM metadata_raw", [], |row: &rusqlite::Row<'_>| row.get(0))
         .context("counting metadata_raw rows")?;
-    anyhow::ensure!(
-        count == 1,
-        "metadata_raw must contain exactly one row, found {count}"
-    );
+    anyhow::ensure!(count == 1, "metadata_raw must contain exactly one row, found {count}");
     let (len, json_text): (i64, Option<String>) = conn
         .query_row(
             CAP_GUARD_SQL,

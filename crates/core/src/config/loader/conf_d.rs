@@ -37,10 +37,7 @@ pub(in crate::config) fn read_conf_d_files(dir: &Path) -> anyhow::Result<Option<
     let mut files: Vec<PathBuf> = Vec::new();
     for entry in entries {
         let entry = entry.with_context(|| {
-            format!(
-                "failed to read entry in .ops.d directory: {:?}",
-                dir.display()
-            )
+            format!("failed to read entry in .ops.d directory: {:?}", dir.display())
         })?;
         let path = entry.path();
         if path.extension().is_some_and(|ext| ext == "toml") {
@@ -114,15 +111,9 @@ mod tests {
         let dir = tempfile::tempdir().unwrap();
         fs::write(crate::test_utils::canonical_root(&dir).join("b.toml"), "").unwrap();
         fs::write(crate::test_utils::canonical_root(&dir).join("a.toml"), "").unwrap();
-        fs::write(
-            crate::test_utils::canonical_root(&dir).join("readme.md"),
-            "",
-        )
-        .unwrap();
+        fs::write(crate::test_utils::canonical_root(&dir).join("readme.md"), "").unwrap();
 
-        let files = read_conf_d_files(&crate::test_utils::canonical_root(&dir))
-            .unwrap()
-            .unwrap();
+        let files = read_conf_d_files(&crate::test_utils::canonical_root(&dir)).unwrap().unwrap();
         assert_eq!(files.len(), 2);
         assert!(files[0].ends_with("a.toml"));
         assert!(files[1].ends_with("b.toml"));
@@ -137,14 +128,8 @@ mod tests {
     fn conf_d_path_debug_escapes_control_characters() {
         let p = PathBuf::from("malicious\n[fake] info: pwned\u{1b}[31m.toml");
         let rendered = format!("{:?}", p.display());
-        assert!(
-            !rendered.contains('\n'),
-            "raw newline must be escaped, got: {rendered}"
-        );
-        assert!(
-            !rendered.contains('\u{1b}'),
-            "ANSI escape must be escaped, got: {rendered}"
-        );
+        assert!(!rendered.contains('\n'), "raw newline must be escaped, got: {rendered}");
+        assert!(!rendered.contains('\u{1b}'), "ANSI escape must be escaped, got: {rendered}");
         assert!(
             rendered.contains("\\n"),
             "newline must render as escape sequence, got: {rendered}"
@@ -239,10 +224,7 @@ args = ["hello"]
 
         let err = result.expect_err("broken symlink overlay must error");
         let msg = format!("{err:#}");
-        assert!(
-            msg.contains("dangling.toml"),
-            "error must name the broken overlay, got: {msg}"
-        );
+        assert!(msg.contains("dangling.toml"), "error must name the broken overlay, got: {msg}");
         assert!(
             msg.contains("refusing to follow symlink"),
             "a dangling symlink must take the SEC-25 refusal branch (ELOOP), \

@@ -30,9 +30,7 @@ struct StatusRow {
 
 impl StatusRow {
     const fn total(&self) -> usize {
-        self.live
-            .saturating_add(self.completed)
-            .saturating_add(self.archived)
+        self.live.saturating_add(self.completed).saturating_add(self.archived)
     }
 }
 
@@ -113,49 +111,31 @@ fn about_with<W: Write>(
 /// Aggregate every metric over the scanned tree.
 fn overview(tasks: &[LocatedTask], cfg: &BacklogConfig, now: DateTime<Utc>) -> BacklogOverview {
     let terminal = terminal_status(&cfg.statuses).map(str::to_string);
-    let is_terminal = |status: &str| {
-        terminal
-            .as_deref()
-            .is_some_and(|t| status.eq_ignore_ascii_case(t))
-    };
+    let is_terminal =
+        |status: &str| terminal.as_deref().is_some_and(|t| status.eq_ignore_ascii_case(t));
 
     let live: Vec<&LocatedTask> = tasks.iter().filter(|t| t.location.is_live()).collect();
-    let live_open: Vec<&LocatedTask> = live
-        .iter()
-        .copied()
-        .filter(|t| !is_terminal(&t.doc.frontmatter.status))
-        .collect();
+    let live_open: Vec<&LocatedTask> =
+        live.iter().copied().filter(|t| !is_terminal(&t.doc.frontmatter.status)).collect();
     let (ready, blocked) = readiness_counts(&live_open, &live);
     let (created_7d, created_30d, done_7d, done_30d) = activity_counts(tasks, &is_terminal, now);
 
     BacklogOverview {
         total: tasks.len(),
         live: live.len(),
-        completed: tasks
-            .iter()
-            .filter(|t| matches!(t.location, TaskLocation::Completed))
-            .count(),
+        completed: tasks.iter().filter(|t| matches!(t.location, TaskLocation::Completed)).count(),
         archived: tasks
             .iter()
             .filter(|t| {
-                matches!(
-                    t.location,
-                    TaskLocation::ArchiveTasks | TaskLocation::ArchiveCompleted
-                )
+                matches!(t.location, TaskLocation::ArchiveTasks | TaskLocation::ArchiveCompleted)
             })
             .count(),
-        complete: tasks
-            .iter()
-            .filter(|t| is_terminal(&t.doc.frontmatter.status))
-            .count(),
+        complete: tasks.iter().filter(|t| is_terminal(&t.doc.frontmatter.status)).count(),
         terminal,
         rows: status_rows(tasks, cfg),
         ready,
         blocked,
-        unassigned: live
-            .iter()
-            .filter(|t| t.doc.frontmatter.assignees.is_empty())
-            .count(),
+        unassigned: live.iter().filter(|t| t.doc.frontmatter.assignees.is_empty()).count(),
         oldest_open: oldest_open(&live_open, now),
         priority: priority_counts(&live),
         created_7d,
@@ -180,12 +160,7 @@ fn status_rows(tasks: &[LocatedTask], cfg: &BacklogConfig) -> Vec<StatusRow> {
     order
         .into_iter()
         .filter_map(|status| {
-            let mut row = StatusRow {
-                status,
-                live: 0,
-                completed: 0,
-                archived: 0,
-            };
+            let mut row = StatusRow { status, live: 0, completed: 0, archived: 0 };
             let mut seen = false;
             for task in tasks {
                 if task.doc.frontmatter.status == row.status {
@@ -217,18 +192,9 @@ fn readiness_counts(live_open: &[&LocatedTask], live: &[&LocatedTask]) -> (usize
     // missing — non-blocking — and flip a blocked task to ready.
     let live_statuses: HashMap<String, &str> = live
         .iter()
-        .map(|t| {
-            (
-                t.doc.frontmatter.id.to_ascii_lowercase(),
-                t.doc.frontmatter.status.as_str(),
-            )
-        })
+        .map(|t| (t.doc.frontmatter.id.to_ascii_lowercase(), t.doc.frontmatter.status.as_str()))
         .collect();
-    let lookup = |id: &str| {
-        live_statuses
-            .get(&id.to_ascii_lowercase())
-            .map(|s| (*s).to_string())
-    };
+    let lookup = |id: &str| live_statuses.get(&id.to_ascii_lowercase()).map(|s| (*s).to_string());
     let mut ready: usize = 0;
     let mut blocked: usize = 0;
     for task in live_open {
@@ -265,18 +231,12 @@ fn priority_counts(live: &[&LocatedTask]) -> Vec<(&'static str, usize)> {
     let count = |name: &str| {
         live.iter()
             .filter(|t| {
-                t.doc
-                    .frontmatter
-                    .priority
-                    .as_deref()
-                    .is_some_and(|p| p.eq_ignore_ascii_case(name))
+                t.doc.frontmatter.priority.as_deref().is_some_and(|p| p.eq_ignore_ascii_case(name))
             })
             .count()
     };
-    let unset = live
-        .iter()
-        .filter(|t| priority_rank(t.doc.frontmatter.priority.as_deref()) == 0)
-        .count();
+    let unset =
+        live.iter().filter(|t| priority_rank(t.doc.frontmatter.priority.as_deref()) == 0).count();
     vec![
         ("critical", count("critical")),
         ("high", count("high")),
@@ -313,10 +273,7 @@ fn activity_counts(
             created_30d = created_30d.saturating_add(1);
         }
         if is_terminal(&fm.status) {
-            let last = fm
-                .updated_date
-                .as_deref()
-                .unwrap_or(fm.created_date.as_str());
+            let last = fm.updated_date.as_deref().unwrap_or(fm.created_date.as_str());
             if in_window(last, cutoff(7)) {
                 done_7d = done_7d.saturating_add(1);
             }
@@ -337,10 +294,8 @@ fn top_label_counts(live: &[&LocatedTask]) -> Vec<(String, usize)> {
             *slot = slot.saturating_add(1);
         }
     }
-    let mut top: Vec<(String, usize)> = counts
-        .into_iter()
-        .map(|(label, count)| (label.to_string(), count))
-        .collect();
+    let mut top: Vec<(String, usize)> =
+        counts.into_iter().map(|(label, count)| (label.to_string(), count)).collect();
     top.sort_by(|a, b| b.1.cmp(&a.1).then_with(|| a.0.cmp(&b.0)));
     top.truncate(5);
     top
@@ -534,11 +489,7 @@ mod tests {
                 } else {
                     format!(
                         "\n{}",
-                        items
-                            .iter()
-                            .map(|i| format!("  - {i}"))
-                            .collect::<Vec<_>>()
-                            .join("\n")
+                        items.iter().map(|i| format!("  - {i}")).collect::<Vec<_>>().join("\n")
                     )
                 }
             };
@@ -621,10 +572,7 @@ mod tests {
         let to_do = row(&data, "To Do");
         assert_eq!((to_do.live, to_do.completed, to_do.archived), (1, 0, 1));
         let blocked = row(&data, "Blocked");
-        assert_eq!(
-            (blocked.live, blocked.completed, blocked.archived),
-            (1, 0, 0)
-        );
+        assert_eq!((blocked.live, blocked.completed, blocked.archived), (1, 0, 0));
     }
 
     /// An empty tree (only the required, empty `tasks/`) says so and nothing
@@ -658,20 +606,14 @@ mod tests {
             "headline must carry the rate, got: {text}"
         );
 
-        let cfg_no_terminal = BacklogConfig {
-            statuses: Vec::new(),
-            ..BacklogConfig::default()
-        };
+        let cfg_no_terminal = BacklogConfig { statuses: Vec::new(), ..BacklogConfig::default() };
         let data = overview(&scan(&store), &cfg_no_terminal, now());
         assert_eq!(data.terminal, None);
         assert_eq!(data.complete, 0);
         let mut out = Vec::new();
         about_with(&scan(&store), &cfg_no_terminal, now(), &mut out).expect("about");
         let text = String::from_utf8(out).expect("utf8");
-        assert!(
-            text.contains("completion n/a"),
-            "no terminal status must render n/a, got: {text}"
-        );
+        assert!(text.contains("completion n/a"), "no terminal status must render n/a, got: {text}");
     }
 
     /// Ready/blocked run over live non-terminal tasks against live ids only:
@@ -681,35 +623,23 @@ mod tests {
     fn ready_and_blocked_read_live_statuses_only() {
         let (_dir, store, cfg) = scratch(&[
             // 0001 is blocked: its dependency 0003 is live and not Done.
-            Seed {
-                deps: &["TASK-0003"],
-                ..Seed::new("tasks", "TASK-0001", "To Do")
-            },
+            Seed { deps: &["TASK-0003"], ..Seed::new("tasks", "TASK-0001", "To Do") },
             Seed::new("tasks", "TASK-0003", "In Progress"),
             // 0004 is ready: its dependency 0002 is live Done — even though
             // an archive duplicate of 0002 carries a To Do status, which
             // would flip 0004 to blocked if the lookup read archives.
-            Seed {
-                deps: &["TASK-0002"],
-                ..Seed::new("tasks", "TASK-0004", "To Do")
-            },
+            Seed { deps: &["TASK-0002"], ..Seed::new("tasks", "TASK-0004", "To Do") },
             Seed::new("tasks", "TASK-0002", "Done"),
             Seed::new("archive/tasks", "TASK-0002", "To Do"),
             // 0005 is ready: its unresolved dependency is missing, not
             // blocking (readiness_of's rule, shared with `task list`).
-            Seed {
-                deps: &["TASK-9999"],
-                ..Seed::new("tasks", "TASK-0005", "To Do")
-            },
+            Seed { deps: &["TASK-9999"], ..Seed::new("tasks", "TASK-0005", "To Do") },
             // Done is finished, never ready or blocked.
             Seed::new("tasks", "TASK-0006", "Done"),
             // 0007 is blocked: its dependency is the live TASK-0003,
             // referenced with different casing — the lookup must resolve
             // it, not treat it as missing.
-            Seed {
-                deps: &["task-0003"],
-                ..Seed::new("tasks", "TASK-0007", "To Do")
-            },
+            Seed { deps: &["task-0003"], ..Seed::new("tasks", "TASK-0007", "To Do") },
         ]);
         let data = overview(&scan(&store), &cfg, now());
         assert_eq!(data.ready, 3, "0003 (no deps), 0004, 0005 (missing dep)");
@@ -724,22 +654,10 @@ mod tests {
     #[test]
     fn oldest_open_excludes_terminal_and_unparseable_dates() {
         let (_dir, store, cfg) = scratch(&[
-            Seed {
-                created: "2020-01-01 00:00",
-                ..Seed::new("tasks", "TASK-0001", "Done")
-            },
-            Seed {
-                created: "back then",
-                ..Seed::new("tasks", "TASK-0002", "To Do")
-            },
-            Seed {
-                created: "2026-01-05 08:00",
-                ..Seed::new("tasks", "TASK-0003", "To Do")
-            },
-            Seed {
-                created: "2026-02-01 00:00",
-                ..Seed::new("tasks", "TASK-0004", "Triage")
-            },
+            Seed { created: "2020-01-01 00:00", ..Seed::new("tasks", "TASK-0001", "Done") },
+            Seed { created: "back then", ..Seed::new("tasks", "TASK-0002", "To Do") },
+            Seed { created: "2026-01-05 08:00", ..Seed::new("tasks", "TASK-0003", "To Do") },
+            Seed { created: "2026-02-01 00:00", ..Seed::new("tasks", "TASK-0004", "Triage") },
         ]);
         let data = overview(&scan(&store), &cfg, now());
         let oldest = data.oldest_open.as_ref().expect("oldest open");
@@ -754,15 +672,9 @@ mod tests {
     fn activity_windows_count_created_and_done() {
         let (_dir, store, cfg) = scratch(&[
             // Created 3 days ago: both windows.
-            Seed {
-                created: "2026-09-03 12:00",
-                ..Seed::new("tasks", "TASK-0001", "To Do")
-            },
+            Seed { created: "2026-09-03 12:00", ..Seed::new("tasks", "TASK-0001", "To Do") },
             // Created 20 days ago: 30d window only.
-            Seed {
-                created: "2026-08-17 12:00",
-                ..Seed::new("tasks", "TASK-0002", "To Do")
-            },
+            Seed { created: "2026-08-17 12:00", ..Seed::new("tasks", "TASK-0002", "To Do") },
             // Done, updated 2 days ago: done 7d + 30d.
             Seed {
                 created: "2026-01-01 00:00",
@@ -771,10 +683,7 @@ mod tests {
             },
             // Done, no updated_date: falls back to a January created_date —
             // outside both windows.
-            Seed {
-                created: "2026-01-02 00:00",
-                ..Seed::new("completed", "TASK-0004", "Done")
-            },
+            Seed { created: "2026-01-02 00:00", ..Seed::new("completed", "TASK-0004", "Done") },
             // To Do but bumped yesterday: counts nowhere — Done requires the
             // terminal status.
             Seed {
@@ -802,29 +711,17 @@ mod tests {
         // One live task carrying six labels of count 1 each: truncation
         // keeps five, the tie breaking by name.
         let labels_many = ["alpha", "beta", "gamma", "delta", "epsilon", "zeta"];
-        let label_task = Seed {
-            labels: &labels_many,
-            ..Seed::new("tasks", "TASK-0001", "To Do")
-        };
+        let label_task = Seed { labels: &labels_many, ..Seed::new("tasks", "TASK-0001", "To Do") };
         let (_dir, store, cfg) = scratch(&[
             label_task,
-            Seed {
-                priority: Some("critical"),
-                ..Seed::new("tasks", "TASK-0002", "To Do")
-            },
+            Seed { priority: Some("critical"), ..Seed::new("tasks", "TASK-0002", "To Do") },
             Seed {
                 priority: Some("high"),
                 assignees: &["someone"],
                 ..Seed::new("tasks", "TASK-0003", "In Progress")
             },
-            Seed {
-                priority: Some("low"),
-                ..Seed::new("tasks", "TASK-0004", "To Do")
-            },
-            Seed {
-                priority: Some("odd"),
-                ..Seed::new("tasks", "TASK-0005", "To Do")
-            },
+            Seed { priority: Some("low"), ..Seed::new("tasks", "TASK-0004", "To Do") },
+            Seed { priority: Some("odd"), ..Seed::new("tasks", "TASK-0005", "To Do") },
             // Completed-dir tasks are not live: no priority, no labels.
             Seed {
                 priority: Some("critical"),
@@ -835,13 +732,7 @@ mod tests {
         let data = overview(&scan(&store), &cfg, now());
         assert_eq!(
             data.priority,
-            vec![
-                ("critical", 1),
-                ("high", 1),
-                ("medium", 0),
-                ("low", 1),
-                ("unset", 2),
-            ],
+            vec![("critical", 1), ("high", 1), ("medium", 0), ("low", 1), ("unset", 2),],
             "odd priority and none both land in unset; completed-dir excluded"
         );
         assert_eq!(data.unassigned, 4, "only TASK-0003 has an assignee");
@@ -861,10 +752,7 @@ mod tests {
     #[test]
     fn render_carries_all_sections_and_omits_live_sections_when_no_live() {
         let (_dir, store, cfg) = scratch(&[
-            Seed {
-                labels: &["security"],
-                ..Seed::new("tasks", "TASK-0001", "To Do")
-            },
+            Seed { labels: &["security"], ..Seed::new("tasks", "TASK-0001", "To Do") },
             Seed::new("completed", "TASK-0002", "Done"),
         ]);
         let mut out = Vec::new();
@@ -892,9 +780,6 @@ mod tests {
         assert!(!text.contains("Live work"), "no live tasks: {text}");
         assert!(!text.contains("Priority (live):"), "no live tasks: {text}");
         assert!(!text.contains("Top labels"), "no live tasks: {text}");
-        assert!(
-            text.contains("Activity"),
-            "activity counts all dirs: {text}"
-        );
+        assert!(text.contains("Activity"), "activity counts all dirs: {text}");
     }
 }

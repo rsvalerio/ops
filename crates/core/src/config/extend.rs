@@ -124,11 +124,7 @@ fn append_matrix(target: &str, spec: &mut ExecCommandSpec, extra: &Matrix) -> an
              no [commands.{target}.strategy]"
         );
     };
-    if let Some(key) = extra
-        .axes
-        .keys()
-        .find(|key| !strategy.matrix.axes.contains_key(*key))
-    {
+    if let Some(key) = extra.axes.keys().find(|key| !strategy.matrix.axes.contains_key(*key)) {
         let axes: Vec<&str> = strategy.matrix.axes.keys().map(String::as_str).collect();
         anyhow::bail!(
             "[extend.{target}]: matrix.{key} names no axis of '{target}' (axes: {})",
@@ -264,10 +260,7 @@ pub(super) fn apply(config: &mut Config, workspace_root: &Path) -> anyhow::Resul
             let mut extended = default_spec.clone();
             apply_to_spec(target, &mut extended, entry)?;
             config.commands.insert(target.clone(), extended);
-            config
-                .provenance
-                .extended_stack_defaults
-                .push(target.clone());
+            config.provenance.extended_stack_defaults.push(target.clone());
         } else {
             anyhow::bail!(
                 "[extend.{target}]: no command named '{target}' to extend \
@@ -353,16 +346,10 @@ mod tests {
         );
         config.extend.insert(
             "own".to_string(),
-            ExtendEntry {
-                commands: vec!["extra".to_string()],
-                ..ExtendEntry::default()
-            },
+            ExtendEntry { commands: vec!["extra".to_string()], ..ExtendEntry::default() },
         );
         apply(&mut config, dir.path()).expect("extend must apply");
-        assert_eq!(
-            config.provenance.extended_stack_defaults,
-            vec!["verify".to_string()]
-        );
+        assert_eq!(config.provenance.extended_stack_defaults, vec!["verify".to_string()]);
     }
 
     /// The stack defaults live in a process-wide memoized cache; extending
@@ -421,10 +408,7 @@ mod tests {
         let mut config = config_with_extend("fmt", &["extra"]);
         let err = apply(&mut config, dir.path()).expect_err("exec target must error");
         let msg = format!("{err:#}");
-        assert!(
-            msg.contains("exec command"),
-            "error must say only composites extend: {msg}"
-        );
+        assert!(msg.contains("exec command"), "error must say only composites extend: {msg}");
         assert!(msg.contains("fmt"), "error must name the target: {msg}");
     }
 
@@ -481,10 +465,7 @@ mod tests {
         let mut config = config_with_extend_args("doc", &["--document-private-items"]);
         config.commands.insert(
             "doc".to_string(),
-            CommandSpec::Exec(crate::config::ExecCommandSpec::new(
-                "cargo",
-                ["doc", "--no-deps"],
-            )),
+            CommandSpec::Exec(crate::config::ExecCommandSpec::new("cargo", ["doc", "--no-deps"])),
         );
         apply(&mut config, dir.path()).unwrap();
 
@@ -510,10 +491,7 @@ mod tests {
         let mut config = config_with_extend_args("verify", &["--flag"]);
         let err = apply(&mut config, dir.path()).expect_err("args on composite must error");
         let msg = format!("{err:#}");
-        assert!(
-            msg.contains("composite"),
-            "error must say only exec commands take args: {msg}"
-        );
+        assert!(msg.contains("composite"), "error must say only exec commands take args: {msg}");
         assert!(msg.contains("verify"), "error must name the target: {msg}");
     }
 
@@ -524,15 +502,10 @@ mod tests {
     fn entry_with_neither_commands_nor_args_errors() {
         let dir = rust_workspace();
         let mut config = Config::empty();
-        config
-            .extend
-            .insert("verify".to_string(), ExtendEntry::default());
+        config.extend.insert("verify".to_string(), ExtendEntry::default());
         let err = apply(&mut config, dir.path()).expect_err("empty entry must error");
         let msg = format!("{err:#}");
-        assert!(
-            msg.contains("none of"),
-            "error must say the entry sets nothing: {msg}"
-        );
+        assert!(msg.contains("none of"), "error must say the entry sets nothing: {msg}");
     }
 
     /// TASK-2274 AC #1: `[extend.<name>] help = "..."` replaces the target's
@@ -606,10 +579,7 @@ mod tests {
         let Some(CommandSpec::Composite(verify)) = config.commands.get("verify") else {
             panic!("verify must be materialized");
         };
-        assert_eq!(
-            verify.help.as_deref(),
-            Some("The workspace verification gate")
-        );
+        assert_eq!(verify.help.as_deref(), Some("The workspace verification gate"));
         let default_len = crate::stack::Stack::Rust
             .default_commands_ref()
             .get("verify")
@@ -644,10 +614,7 @@ mod tests {
         let Some(CommandSpec::Exec(clippy)) = config.commands.get("clippy") else {
             panic!("clippy must be materialized as a config exec");
         };
-        assert_eq!(
-            clippy.help.as_deref(),
-            Some("Lint with the workspace's flags")
-        );
+        assert_eq!(clippy.help.as_deref(), Some("Lint with the workspace's flags"));
         assert_eq!(clippy.category.as_deref(), Some("Code Quality"));
     }
 
@@ -664,10 +631,7 @@ mod tests {
         );
         config.extend.insert(
             "gate".to_string(),
-            ExtendEntry {
-                commands: vec!["build".to_string()],
-                ..ExtendEntry::default()
-            },
+            ExtendEntry { commands: vec!["build".to_string()], ..ExtendEntry::default() },
         );
         apply(&mut config, dir.path()).expect("extend must apply");
 
@@ -695,18 +659,12 @@ mod tests {
         let mut config = Config::empty();
         config.extend.insert(
             "verify".to_string(),
-            ExtendEntry {
-                commands: vec!["first".to_string()],
-                ..ExtendEntry::default()
-            },
+            ExtendEntry { commands: vec!["first".to_string()], ..ExtendEntry::default() },
         );
         let overlay = super::super::ConfigOverlay {
             extend: Some(IndexMap::from([(
                 "verify".to_string(),
-                ExtendEntry {
-                    commands: vec!["second".to_string()],
-                    ..ExtendEntry::default()
-                },
+                ExtendEntry { commands: vec!["second".to_string()], ..ExtendEntry::default() },
             )])),
             ..Default::default()
         };
@@ -717,10 +675,8 @@ mod tests {
             panic!("verify must be materialized");
         };
         let len = verify.commands.len();
-        let tail: Vec<&str> = verify.commands[len.saturating_sub(2)..]
-            .iter()
-            .map(String::as_str)
-            .collect();
+        let tail: Vec<&str> =
+            verify.commands[len.saturating_sub(2)..].iter().map(String::as_str).collect();
         assert_eq!(tail, vec!["first", "second"]);
     }
 
@@ -747,10 +703,7 @@ mod tests {
         let overlay = super::super::ConfigOverlay {
             extend: Some(IndexMap::from([(
                 "verify".to_string(),
-                ExtendEntry {
-                    commands: vec!["second".to_string()],
-                    ..ExtendEntry::default()
-                },
+                ExtendEntry { commands: vec!["second".to_string()], ..ExtendEntry::default() },
             )])),
             ..Default::default()
         };

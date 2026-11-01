@@ -13,10 +13,7 @@ ops_extension::test_datasource_extension!(
 
 #[test]
 fn coverage_extension_stack_is_none() {
-    assert!(
-        CoverageExtension.stack().is_none(),
-        "coverage should be language-agnostic"
-    );
+    assert!(CoverageExtension.stack().is_none(), "coverage should be language-agnostic");
 }
 
 #[test]

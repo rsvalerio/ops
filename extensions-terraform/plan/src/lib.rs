@@ -232,11 +232,7 @@ fn plan_pipeline_body(
         }
     }
 
-    let code = if opts.detailed_exitcode && changes_present {
-        2u8
-    } else {
-        0u8
-    };
+    let code = if opts.detailed_exitcode && changes_present { 2u8 } else { 0u8 };
     Ok(code)
 }
 
@@ -532,10 +528,7 @@ fn create_artifact_dir(dir: &Path) -> std::io::Result<()> {
     #[cfg(unix)]
     {
         use std::os::unix::fs::DirBuilderExt as _;
-        std::fs::DirBuilder::new()
-            .recursive(true)
-            .mode(0o700)
-            .create(dir)?;
+        std::fs::DirBuilder::new().recursive(true).mode(0o700).create(dir)?;
         verify_artifact_dir(dir)
     }
     #[cfg(not(unix))]
@@ -581,10 +574,7 @@ fn verify_artifact_dir(dir: &Path) -> std::io::Result<()> {
     if !file_type.is_dir() {
         return Err(Error::new(
             ErrorKind::InvalidInput,
-            format!(
-                "artifact directory {} exists but is not a directory",
-                dir.display()
-            ),
+            format!("artifact directory {} exists but is not a directory", dir.display()),
         ));
     }
     let mode = lstat.permissions().mode() & 0o7777;
@@ -676,11 +666,7 @@ fn write_plan_json(path: &Path, contents: &str) -> std::io::Result<()> {
         Ok(file) => file,
         #[cfg(unix)]
         Err(e) if e.raw_os_error() == Some(libc::ELOOP) => {
-            return Err(symlink_refusal_error(
-                path,
-                "plan JSON",
-                "refusing to write through it",
-            ));
+            return Err(symlink_refusal_error(path, "plan JSON", "refusing to write through it"));
         }
         Err(e) => return Err(e),
     };
@@ -696,14 +682,8 @@ fn write_plan_json(path: &Path, contents: &str) -> std::io::Result<()> {
 /// depends on, each paired with the hint naming the `ops plans` flag to use
 /// instead.
 const RESERVED_PASSTHROUGH_FLAGS: [(&str, &str); 4] = [
-    (
-        "out",
-        "use the `--out` flag so the pipeline reads back the plan it just wrote",
-    ),
-    (
-        "input",
-        "the pipeline always runs terraform with -input=false and a null stdout",
-    ),
+    ("out", "use the `--out` flag so the pipeline reads back the plan it just wrote"),
+    ("input", "the pipeline always runs terraform with -input=false and a null stdout"),
     ("detailed-exitcode", "use the `--detailed-exitcode` flag"),
     ("json", "use `--json-file` to supply plan JSON directly"),
 ];
@@ -726,9 +706,8 @@ fn reject_reserved_passthrough(passthrough: &[String]) -> anyhow::Result<()> {
         };
         let rest = rest.strip_prefix('-').unwrap_or(rest);
         let name = rest.split('=').next().unwrap_or(rest);
-        if let Some((flag, hint)) = RESERVED_PASSTHROUGH_FLAGS
-            .iter()
-            .find(|(f, _)| f.eq_ignore_ascii_case(name))
+        if let Some((flag, hint)) =
+            RESERVED_PASSTHROUGH_FLAGS.iter().find(|(f, _)| f.eq_ignore_ascii_case(name))
         {
             bail!(
                 "`-{flag}` is reserved by `ops plans` and cannot be passed through to `terraform plan`: {hint}"
@@ -839,11 +818,7 @@ fn plan_status_result(
     code: Option<i32>,
     success: bool,
 ) -> anyhow::Result<()> {
-    let ok = if detailed_exitcode {
-        matches!(code, Some(0 | 2))
-    } else {
-        success
-    };
+    let ok = if detailed_exitcode { matches!(code, Some(0 | 2)) } else { success };
     if ok {
         Ok(())
     } else {
@@ -871,25 +846,19 @@ fn capture_plan_json(binary_path: &Path, env: &PipelineEnv) -> anyhow::Result<St
         .spawn()
         .context("failed to run `terraform show -json`")?;
 
-    let mut stderr = child
-        .stderr
-        .take()
-        .context("`terraform show -json` stderr was not captured")?;
+    let mut stderr =
+        child.stderr.take().context("`terraform show -json` stderr was not captured")?;
     let stderr_reader = std::thread::spawn(move || {
         use std::io::Read as _;
         let mut buf = Vec::new();
-        let _ = (&mut stderr)
-            .take(TERRAFORM_STDERR_MAX_BYTES)
-            .read_to_end(&mut buf);
+        let _ = (&mut stderr).take(TERRAFORM_STDERR_MAX_BYTES).read_to_end(&mut buf);
         // Drain the remainder so the child never blocks on a full pipe.
         let _ = std::io::copy(&mut stderr, &mut std::io::sink());
         buf
     });
 
-    let mut stdout = child
-        .stdout
-        .take()
-        .context("`terraform show -json` stdout was not captured")?;
+    let mut stdout =
+        child.stdout.take().context("`terraform show -json` stdout was not captured")?;
     let cap = env.json_cap;
     let stdout_reader =
         std::thread::spawn(move || read_capped(&mut stdout, "from `terraform show -json`", cap));
@@ -897,9 +866,7 @@ fn capture_plan_json(binary_path: &Path, env: &PipelineEnv) -> anyhow::Result<St
     let status = wait_for_child(&mut child, "terraform show -json", env.timeout)?;
     let stderr_bytes = stderr_reader.join().unwrap_or_default();
     let json_str = stdout_reader.join().unwrap_or_else(|_| {
-        Err(anyhow::anyhow!(
-            "the `terraform show -json` stdout reader panicked"
-        ))
+        Err(anyhow::anyhow!("the `terraform show -json` stdout reader panicked"))
     })?;
 
     if status.success() {
@@ -1004,10 +971,7 @@ mod tests {
     }
 
     fn opts_for_fixture(path: &Path) -> PlanOptions {
-        PlanOptions {
-            json_file: Some(path.to_string_lossy().into_owned()),
-            ..test_opts()
-        }
+        PlanOptions { json_file: Some(path.to_string_lossy().into_owned()), ..test_opts() }
     }
 
     fn stage_fixture(dir: &Path, contents: &str) -> PathBuf {
@@ -1026,10 +990,7 @@ mod tests {
         assert!(actions.contains(&Action::Create));
         assert!(actions.contains(&Action::Delete));
         assert!(actions.contains(&Action::NoOp));
-        assert!(
-            plan.format_version.as_deref() == Some("1.2"),
-            "format_version should be 1.2"
-        );
+        assert!(plan.format_version.as_deref() == Some("1.2"), "format_version should be 1.2");
     }
 
     #[test]
@@ -1161,10 +1122,7 @@ mod tests {
         let result = read_json_file(path.to_string_lossy().as_ref(), 64);
         let err = result.expect_err("oversized plan JSON must error");
         let msg = format!("{err}");
-        assert!(
-            msg.contains("exceeds 64 bytes"),
-            "error must name the cap, got: {msg}"
-        );
+        assert!(msg.contains("exceeds 64 bytes"), "error must name the cap, got: {msg}");
     }
 
     /// The stdin branch applies the same cap as the file branch: without it
@@ -1176,10 +1134,7 @@ mod tests {
         let result = read_capped(&mut reader, "on stdin", 64);
         let err = result.expect_err("oversized stdin plan JSON must error");
         let msg = format!("{err}");
-        assert!(
-            msg.contains("exceeds 64 bytes"),
-            "error must name the cap, got: {msg}"
-        );
+        assert!(msg.contains("exceeds 64 bytes"), "error must name the cap, got: {msg}");
         assert!(
             msg.contains(PLAN_JSON_MAX_BYTES_ENV),
             "error must name the override env var, got: {msg}"
@@ -1199,10 +1154,7 @@ mod tests {
             msg.contains("from `terraform show -json`"),
             "error must name the source, got: {msg}"
         );
-        assert!(
-            msg.contains("exceeds 32 bytes"),
-            "error must name the cap, got: {msg}"
-        );
+        assert!(msg.contains("exceeds 32 bytes"), "error must name the cap, got: {msg}");
         assert!(
             msg.contains(PLAN_JSON_MAX_BYTES_ENV),
             "error must name the override env var, got: {msg}"
@@ -1223,10 +1175,7 @@ mod tests {
         let payload = format!("{}{}", "x".repeat(62), "€".repeat(8));
         let mut reader = std::io::Cursor::new(payload.into_bytes());
         let result = read_capped(&mut reader, "from `terraform show -json`", 64);
-        let msg = format!(
-            "{}",
-            result.expect_err("oversized payload must be a cap error")
-        );
+        let msg = format!("{}", result.expect_err("oversized payload must be a cap error"));
         assert!(
             msg.contains("exceeds 64 bytes"),
             "error must name the cap even when the cut splits a character, got: {msg}"
@@ -1254,10 +1203,7 @@ mod tests {
             msg.contains("not valid UTF-8"),
             "error must name the encoding problem, got: {msg}"
         );
-        assert!(
-            msg.contains("on stdin"),
-            "error must name the source, got: {msg}"
-        );
+        assert!(msg.contains("on stdin"), "error must name the source, got: {msg}");
         assert!(
             !msg.contains("exceeds"),
             "an under-cap payload must not be reported as a cap error, got: {msg}"
@@ -1294,10 +1240,7 @@ mod tests {
             "the link target must not be written through"
         );
         let mode = std::fs::metadata(&target).unwrap().permissions().mode() & 0o777;
-        assert_eq!(
-            mode, 0o644,
-            "the link target must keep its mode, not be chmod-ed to 0600"
-        );
+        assert_eq!(mode, 0o644, "the link target must keep its mode, not be chmod-ed to 0600");
     }
 
     /// `DirBuilder::mode(0o700)` only stamps directories
@@ -1377,12 +1320,7 @@ mod tests {
             .spawn()
             .unwrap();
         // Dropping stdin closes the pipe so `cat` sees EOF.
-        child
-            .stdin
-            .take()
-            .unwrap()
-            .write_all(script.as_bytes())
-            .unwrap();
+        child.stdin.take().unwrap().write_all(script.as_bytes()).unwrap();
         assert!(child.wait().unwrap().success(), "writing stub {path:?}");
     }
 
@@ -1394,14 +1332,8 @@ mod tests {
         let dir = tempfile::tempdir().unwrap();
         let stub = dir.path().join("stub");
         write_stub(&stub, "#!/bin/sh\necho \"$1\"\n");
-        assert_eq!(
-            std::fs::metadata(&stub).unwrap().permissions().mode() & 0o777,
-            0o755
-        );
-        let out = std::process::Command::new(&stub)
-            .arg("hi")
-            .output()
-            .unwrap();
+        assert_eq!(std::fs::metadata(&stub).unwrap().permissions().mode() & 0o777, 0o755);
+        let out = std::process::Command::new(&stub).arg("hi").output().unwrap();
         assert_eq!(out.stdout, b"hi\n");
     }
 
@@ -1423,16 +1355,10 @@ mod tests {
         }
         // Stub: write the (partial) artifact, then never exit.
         let stub = dir.path().join("terraform");
-        write_stub(
-            &stub,
-            "#!/bin/sh\nout=${2#-out=}\nprintf partial > \"$out\"\nexec sleep 600\n",
-        );
+        write_stub(&stub, "#!/bin/sh\nout=${2#-out=}\nprintf partial > \"$out\"\nexec sleep 600\n");
 
         let binary = dir.path().join("tfplan.binary");
-        let opts = PlanOptions {
-            out: Some(binary.display().to_string()),
-            ..test_opts()
-        };
+        let opts = PlanOptions { out: Some(binary.display().to_string()), ..test_opts() };
 
         // The stub is injected as the terraform
         // program and the bound as a value — no PATH or timeout env
@@ -1449,10 +1375,7 @@ mod tests {
             },
         );
 
-        let msg = format!(
-            "{:#}",
-            result.expect_err("a hung terraform plan must time out")
-        );
+        let msg = format!("{:#}", result.expect_err("a hung terraform plan must time out"));
         assert!(
             msg.contains("`terraform plan` produced no result within 1 seconds"),
             "error must name the invocation and the limit, got: {msg}"
@@ -1485,10 +1408,7 @@ mod tests {
         );
 
         let binary = dir.path().join("tfplan.binary");
-        let opts = PlanOptions {
-            out: Some(binary.display().to_string()),
-            ..test_opts()
-        };
+        let opts = PlanOptions { out: Some(binary.display().to_string()), ..test_opts() };
 
         // Stub program and timeout injected as values.
         let mut out = Vec::new();
@@ -1508,10 +1428,7 @@ mod tests {
             msg.contains("`terraform show -json` produced no result within 1 seconds"),
             "error must name the invocation and the limit, got: {msg}"
         );
-        assert!(
-            !binary.exists(),
-            "artifact cleanup must still remove the plan artifact"
-        );
+        assert!(!binary.exists(), "artifact cleanup must still remove the plan artifact");
     }
 
     /// A stdin payload at or below the cap must read
@@ -1544,10 +1461,7 @@ mod tests {
         assert!(out.contains("create"), "must contain create row: {out}");
         assert!(out.contains("delete"), "must contain delete row: {out}");
         // No-op rows are filtered from the resource table.
-        assert!(
-            !out.contains("aws_s3_bucket"),
-            "no-op must be filtered: {out}"
-        );
+        assert!(!out.contains("aws_s3_bucket"), "no-op must be filtered: {out}");
     }
 
     /// `--detailed-exitcode` with changes present is
@@ -1557,10 +1471,7 @@ mod tests {
     fn detailed_exitcode_yields_two_when_changes_present() {
         let dir = tempfile::tempdir().unwrap();
         let path = stage_fixture(dir.path(), include_str!("../tests/fixtures/minimal.json"));
-        let opts = PlanOptions {
-            detailed_exitcode: true,
-            ..opts_for_fixture(&path)
-        };
+        let opts = PlanOptions { detailed_exitcode: true, ..opts_for_fixture(&path) };
 
         let mut buf: Vec<u8> = Vec::new();
         let code = run_plan_pipeline_code(&opts, &mut buf, false).expect("pipeline ok");
@@ -1574,10 +1485,7 @@ mod tests {
 
         let no_changes = dir.path().join("empty-plan.json");
         std::fs::write(&no_changes, include_str!("../tests/fixtures/empty.json")).unwrap();
-        let opts = PlanOptions {
-            detailed_exitcode: true,
-            ..opts_for_fixture(&no_changes)
-        };
+        let opts = PlanOptions { detailed_exitcode: true, ..opts_for_fixture(&no_changes) };
         let mut buf: Vec<u8> = Vec::new();
         assert_eq!(
             run_plan_pipeline_code(&opts, &mut buf, false).expect("pipeline ok"),
@@ -1602,21 +1510,12 @@ mod tests {
         let dir = tempfile::tempdir().unwrap();
         let path = stage_fixture(dir.path(), include_str!("../tests/fixtures/outputs.json"));
 
-        let opts = PlanOptions {
-            show_outputs: true,
-            ..opts_for_fixture(&path)
-        };
+        let opts = PlanOptions { show_outputs: true, ..opts_for_fixture(&path) };
         let mut buf: Vec<u8> = Vec::new();
         run_plan_pipeline_code(&opts, &mut buf, false).expect("pipeline ok");
         let out = String::from_utf8(buf).expect("utf-8");
-        assert!(
-            out.contains("Output"),
-            "outputs table header must appear: {out}"
-        );
-        assert!(
-            out.contains("db_password"),
-            "output name must appear: {out}"
-        );
+        assert!(out.contains("Output"), "outputs table header must appear: {out}");
+        assert!(out.contains("db_password"), "output name must appear: {out}");
 
         // Without the flag the same fixture must not render it.
         let opts = opts_for_fixture(&path);
@@ -1677,10 +1576,7 @@ mod tests {
         // there is one canonical "buffered sink" rendering.
         let mut buf_c: Vec<u8> = Vec::new();
         run_plan_pipeline_to_with_tty(&make_opts(), &mut buf_c, false).expect("pipeline ok");
-        assert_eq!(
-            buf_a, buf_c,
-            "run_plan_pipeline_to must default is_tty=false"
-        );
+        assert_eq!(buf_a, buf_c, "run_plan_pipeline_to must default is_tty=false");
     }
 
     #[test]
@@ -1721,10 +1617,7 @@ mod tests {
 
         let out = with_artifact_cleanup(&opts, &created, result);
         assert!(out.is_err(), "the original error must be preserved");
-        assert!(
-            !artifact.exists(),
-            "artifact must be removed on the error path"
-        );
+        assert!(!artifact.exists(), "artifact must be removed on the error path");
     }
 
     /// `--keep-plan` still wins on the error path.
@@ -1734,19 +1627,13 @@ mod tests {
         let artifact = dir.path().join("tfplan.binary");
         std::fs::write(&artifact, b"binary plan").unwrap();
 
-        let opts = PlanOptions {
-            keep_plan: true,
-            ..test_opts()
-        };
+        let opts = PlanOptions { keep_plan: true, ..test_opts() };
         let created = vec![artifact.clone()];
         let result: anyhow::Result<()> = Err(anyhow::anyhow!("plan JSON is empty"));
 
         let out = with_artifact_cleanup(&opts, &created, result);
         assert!(out.is_err());
-        assert!(
-            artifact.exists(),
-            "--keep-plan must retain the artifact even when the run failed"
-        );
+        assert!(artifact.exists(), "--keep-plan must retain the artifact even when the run failed");
     }
 
     /// A default run never writes the `--json-out` path, so cleanup must not
@@ -1760,19 +1647,14 @@ mod tests {
         let artifact = dir.path().join("tfplan.binary");
         std::fs::write(&artifact, b"binary plan").unwrap();
 
-        let opts = PlanOptions {
-            json_out: Some(notes.to_string_lossy().into_owned()),
-            ..test_opts()
-        };
+        let opts =
+            PlanOptions { json_out: Some(notes.to_string_lossy().into_owned()), ..test_opts() };
         // Only the binary plan was actually created by this run.
         let created = vec![artifact.clone()];
         with_artifact_cleanup(&opts, &created, Ok(())).expect("cleanup path returns Ok");
 
         assert!(!artifact.exists(), "our own artifact is still removed");
-        assert!(
-            notes.exists(),
-            "a file this run never wrote must not be deleted"
-        );
+        assert!(notes.exists(), "a file this run never wrote must not be deleted");
         assert_eq!(std::fs::read(&notes).unwrap(), b"the user's own file");
     }
 
@@ -1797,11 +1679,7 @@ mod tests {
         let dir = tempfile::tempdir().unwrap();
         let artifact_dir = dir.path().join("nested/.ops");
         create_artifact_dir(&artifact_dir).expect("dir creation ok");
-        let dir_mode = std::fs::metadata(&artifact_dir)
-            .unwrap()
-            .permissions()
-            .mode()
-            & 0o777;
+        let dir_mode = std::fs::metadata(&artifact_dir).unwrap().permissions().mode() & 0o777;
         assert_eq!(dir_mode, 0o700, "artifact directory must be 0700");
 
         let json_path = artifact_dir.join("tfplan.json");
@@ -1816,11 +1694,7 @@ mod tests {
         std::fs::write(&binary_path, b"binary plan").unwrap();
         std::fs::set_permissions(&binary_path, std::fs::Permissions::from_mode(0o644)).unwrap();
         harden_artifact_permissions(&binary_path);
-        let binary_mode = std::fs::metadata(&binary_path)
-            .unwrap()
-            .permissions()
-            .mode()
-            & 0o777;
+        let binary_mode = std::fs::metadata(&binary_path).unwrap().permissions().mode() & 0o777;
         assert_eq!(binary_mode, 0o600, "binary plan must be narrowed to 0600");
 
         // A missing artifact is not an error worth failing the run for.
@@ -1860,10 +1734,8 @@ mod tests {
             json_out: Some(blocked.join("tfplan.json").to_string_lossy().into_owned()),
             ..test_opts()
         };
-        let msg = format!(
-            "{}",
-            prepare_artifact_paths(&opts).expect_err("unwritable parent must error")
-        );
+        let msg =
+            format!("{}", prepare_artifact_paths(&opts).expect_err("unwritable parent must error"));
         assert!(
             msg.contains("JSON plan artifact directory"),
             "the two directory errors must be distinguishable, got: {msg}"
@@ -1877,10 +1749,7 @@ mod tests {
     fn unexpandable_paths_error_identically_for_out_and_json_file() {
         let unexpandable = "$OPS_TFPLAN_DEFINITELY_UNSET_1948/plan.binary";
 
-        let opts = PlanOptions {
-            out: Some(unexpandable.to_string()),
-            ..test_opts()
-        };
+        let opts = PlanOptions { out: Some(unexpandable.to_string()), ..test_opts() };
         let out_msg = format!(
             "{}",
             prepare_artifact_paths(&opts).expect_err("unexpandable --out must error")
@@ -1922,10 +1791,7 @@ mod tests {
             !msg.contains("invalid provider credentials"),
             "no part of the stderr body may appear: {msg}"
         );
-        assert!(
-            msg.contains("exit code 1"),
-            "the exit status must be reported: {msg}"
-        );
+        assert!(msg.contains("exit code 1"), "the exit status must be reported: {msg}");
 
         let signalled = format!("{}", show_failure_error(None, b""));
         assert!(
@@ -1953,10 +1819,7 @@ mod tests {
                 msg.contains("reserved by `ops plans`"),
                 "{arg} must be reported as reserved, got: {msg}"
             );
-            assert!(
-                msg.contains(expected),
-                "{arg} must point at {expected}, got: {msg}"
-            );
+            assert!(msg.contains(expected), "{arg} must point at {expected}, got: {msg}");
         }
     }
 
@@ -1988,10 +1851,7 @@ mod tests {
         let err = run_terraform_pipeline(&opts, &mut created, &PipelineEnv::from_env())
             .expect_err("reserved flag must error");
         assert!(format!("{err}").contains("reserved by `ops plans`"));
-        assert!(
-            created.is_empty(),
-            "nothing may be recorded as created before terraform runs"
-        );
+        assert!(created.is_empty(), "nothing may be recorded as created before terraform runs");
     }
 
     /// The two exit-status interpretations share one failure constructor;

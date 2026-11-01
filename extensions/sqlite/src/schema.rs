@@ -170,8 +170,7 @@ mod tests {
         let db = Sqlite::open_in_memory().unwrap();
         init_schema(&db).unwrap();
         let conn = db.lock().unwrap();
-        conn.execute("SELECT 1 FROM data_sources LIMIT 0", [])
-            .unwrap();
+        conn.execute("SELECT 1 FROM data_sources LIMIT 0", []).unwrap();
     }
 
     /// The checksum stored for `(source_name, workspace_root)`, if any.
@@ -269,10 +268,7 @@ mod tests {
             ),
         )
         .unwrap();
-        assert_eq!(
-            stored_checksum(&db, "metadata", "/ws").as_deref(),
-            Some("abc123")
-        );
+        assert_eq!(stored_checksum(&db, "metadata", "/ws").as_deref(), Some("abc123"));
 
         upsert_data_source(
             &db,
@@ -285,9 +281,6 @@ mod tests {
             ),
         )
         .unwrap();
-        assert_eq!(
-            stored_checksum(&db, "metadata", "/ws").as_deref(),
-            Some("def456")
-        );
+        assert_eq!(stored_checksum(&db, "metadata", "/ws").as_deref(), Some("def456"));
     }
 }

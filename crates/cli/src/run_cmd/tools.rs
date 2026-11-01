@@ -41,11 +41,7 @@ pub struct Tool {
 
 impl Tool {
     fn required(name: impl Into<String>, install: Option<&str>) -> Self {
-        Self {
-            name: name.into(),
-            install: install.map(str::to_string),
-            optional: false,
-        }
+        Self { name: name.into(), install: install.map(str::to_string), optional: false }
     }
 }
 
@@ -103,9 +99,7 @@ const CARGO_BUILTINS: &[&str] = &[
 /// args (see the module docs for the rules).
 pub fn exec_tools(spec: &ExecCommandSpec, program: &str, args: &[String]) -> Vec<Tool> {
     if spec.display_program.as_deref() == Some("ops") || program == "ops" {
-        return args
-            .first()
-            .map_or_else(Vec::new, |sub| ops_subcommand_tools(sub));
+        return args.first().map_or_else(Vec::new, |sub| ops_subcommand_tools(sub));
     }
     if program.contains(['/', '\\']) {
         return Vec::new();
@@ -149,11 +143,7 @@ fn ops_subcommand_tools(sub: &str) -> Vec<Tool> {
         #[cfg(feature = "stack-rust")]
         "deps" => ops_deps::external_tools()
             .into_iter()
-            .map(|t| Tool {
-                name: t.binary,
-                install: Some(t.install),
-                optional: t.optional,
-            })
+            .map(|t| Tool { name: t.binary, install: Some(t.install), optional: t.optional })
             .collect(),
         _ => Vec::new(),
     }
@@ -231,20 +221,14 @@ mod tests {
     fn tools(program: &str, args: &[&str]) -> Vec<String> {
         let args: Vec<String> = args.iter().map(ToString::to_string).collect();
         let spec = ExecCommandSpec::new(program, args.clone());
-        exec_tools(&spec, program, &args)
-            .into_iter()
-            .map(|t| t.name)
-            .collect()
+        exec_tools(&spec, program, &args).into_iter().map(|t| t.name).collect()
     }
 
     #[test]
     fn cargo_plugins_are_reported_and_builtins_are_not() {
         assert_eq!(tools("cargo", &["build"]), ["cargo"]);
         assert_eq!(tools("cargo", &["t"]), ["cargo"]);
-        assert_eq!(
-            tools("cargo", &["nextest", "run"]),
-            ["cargo", "cargo-nextest"]
-        );
+        assert_eq!(tools("cargo", &["nextest", "run"]), ["cargo", "cargo-nextest"]);
         assert_eq!(tools("cargo", &["+nightly", "fmt"]), ["cargo", "cargo-fmt"]);
         assert_eq!(tools("cargo", &["-q", "nextest"]), ["cargo"]);
         assert_eq!(tools("cargo", &[]), ["cargo"]);
@@ -263,10 +247,7 @@ mod tests {
         let got = exec_tools(&spec, &spec.program, &spec.args);
         assert_eq!(got.len(), 1);
         assert_eq!(got[0].name, "trivy");
-        assert!(got[0]
-            .install
-            .as_deref()
-            .is_some_and(|i| i.contains("trivy")));
+        assert!(got[0].install.as_deref().is_some_and(|i| i.contains("trivy")));
         assert!(tools("ops", &["end-of-file-fixer"]).is_empty());
         assert!(tools("ops", &["lint-actions"]).is_empty());
         assert_eq!(tools("ops", &["msrv"]), ["rustup"]);
@@ -287,28 +268,16 @@ mod tests {
         let cargo = installed_version(&Tool::required("cargo", None))
             .expect("cargo runs the test suite, so it is installed");
         assert!(cargo.starts_with("cargo "), "{cargo}");
-        assert_eq!(
-            installed_version(&Tool::required("ops-no-such-tool-2335", None)),
-            None
-        );
-        assert_eq!(
-            installed_version(&Tool::required("cargo-ops-no-such-plugin-2335", None)),
-            None
-        );
+        assert_eq!(installed_version(&Tool::required("ops-no-such-tool-2335", None)), None);
+        assert_eq!(installed_version(&Tool::required("cargo-ops-no-such-plugin-2335", None)), None);
     }
 
     #[test]
     fn first_line_skips_blanks_and_caps_length() {
-        assert_eq!(
-            first_line(b"\n  trivy 0.58.1 \nextra").as_deref(),
-            Some("trivy 0.58.1")
-        );
+        assert_eq!(first_line(b"\n  trivy 0.58.1 \nextra").as_deref(), Some("trivy 0.58.1"));
         assert_eq!(first_line(b" \n"), None);
         let long = "v".repeat(MAX_VERSION_LEN * 2);
-        assert_eq!(
-            first_line(long.as_bytes()).map(|l| l.len()),
-            Some(MAX_VERSION_LEN)
-        );
+        assert_eq!(first_line(long.as_bytes()).map(|l| l.len()), Some(MAX_VERSION_LEN));
     }
 
     #[cfg(feature = "stack-rust")]
@@ -318,10 +287,7 @@ mod tests {
         // program recognised through its `ops` display name.
         let spec = ExecCommandSpec::ops_subcommand("deps");
         let got = exec_tools(&spec, &spec.program, &spec.args);
-        let machete = got
-            .iter()
-            .find(|t| t.name == "cargo-machete")
-            .expect("machete listed");
+        let machete = got.iter().find(|t| t.name == "cargo-machete").expect("machete listed");
         assert!(machete.optional);
         assert!(got.iter().any(|t| t.name == "cargo-deny" && !t.optional));
     }

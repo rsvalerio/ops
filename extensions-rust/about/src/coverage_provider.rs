@@ -67,9 +67,7 @@ struct ProjectCoverageCache {
 
 impl ProjectCoverageCache {
     fn new() -> Self {
-        Self {
-            cache: BoundedLruCache::new(MAX_COVERAGE_CACHE_ENTRIES),
-        }
+        Self { cache: BoundedLruCache::new(MAX_COVERAGE_CACHE_ENTRIES) }
     }
 
     /// Return the slot for `key`, inserting one and evicting the
@@ -89,8 +87,7 @@ impl ProjectCoverageCache {
             return Arc::clone(slot);
         }
         let slot: CoverageSlot = Arc::new(OnceLock::new());
-        self.cache
-            .insert_filtered(key, Arc::clone(&slot), |slot| slot.get().is_some());
+        self.cache.insert_filtered(key, Arc::clone(&slot), |slot| slot.get().is_some());
         slot
     }
 }
@@ -124,12 +121,9 @@ pub fn cached_query_project_coverage(db: &Sqlite) -> Option<CrateCoverage> {
     };
 
     slot.get_or_init(|| {
-        query_or_warn(
-            "query_project_coverage",
-            "reporting empty coverage",
-            None,
-            || query_project_coverage(db).map(Some),
-        )
+        query_or_warn("query_project_coverage", "reporting empty coverage", None, || {
+            query_project_coverage(db).map(Some)
+        })
     })
     .clone()
 }
@@ -188,10 +182,7 @@ impl DataProvider for RustCoverageProvider {
                         workspace_root = ?root.display(),
                         "non-UTF-8 workspace root; skipping per-crate coverage to avoid lossy SQL key collapse"
                     );
-                    return Ok(serde_json::to_value(ProjectCoverage::new(
-                        total,
-                        Vec::new(),
-                    ))?);
+                    return Ok(serde_json::to_value(ProjectCoverage::new(total, Vec::new()))?);
                 };
                 per_crate_units(db, manifest.resolved_members(), root, root_str)
             }
@@ -223,10 +214,8 @@ fn per_crate_units(
     let mut display_names: HashMap<&str, String> = HashMap::with_capacity(per_crate.len());
     for member in members {
         if per_crate.contains_key(member.as_str()) {
-            display_names.insert(
-                member.as_str(),
-                resolve_crate_display_name(member, workspace_root),
-            );
+            display_names
+                .insert(member.as_str(), resolve_crate_display_name(member, workspace_root));
         }
     }
     members
@@ -272,9 +261,7 @@ mod cache_tests {
     }
 
     fn contains(key: u64) -> bool {
-        lock_recover(project_coverage_cache())
-            .cache
-            .contains_key(&key)
+        lock_recover(project_coverage_cache()).cache.contains_key(&key)
     }
 
     /// The identity-metrics and coverage providers used
@@ -436,10 +423,7 @@ mod cache_tests {
             let a = Sqlite::open_in_memory().expect("open a");
             let id = a.id();
             let _primed = cached_query_project_coverage(&a);
-            assert!(
-                contains(id),
-                "priming must insert a slot for instance a's id"
-            );
+            assert!(contains(id), "priming must insert a slot for instance a's id");
             id
         };
         // After `a` drops, a fresh instance must mint a new id even if
@@ -452,10 +436,7 @@ mod cache_tests {
             "ABA-resistant id allocator: post-drop reallocation must not reuse a's id"
         );
         let _b_payload = cached_query_project_coverage(&b);
-        assert!(
-            contains(b_id),
-            "b's lookup must populate a slot under its own id"
-        );
+        assert!(contains(b_id), "b's lookup must populate a slot under its own id");
     }
 
     /// The memoization map is bounded. Every
@@ -552,11 +533,7 @@ mod tests {
             "[package]\nname=\"foo\"\nversion=\"0.1.0\"\n",
         )
         .unwrap();
-        std::fs::write(
-            root.join("Cargo.toml"),
-            "[workspace]\nmembers = [\"crates/*\"]\n",
-        )
-        .unwrap();
+        std::fs::write(root.join("Cargo.toml"), "[workspace]\nmembers = [\"crates/*\"]\n").unwrap();
 
         let db = Sqlite::open_in_memory().expect("open in-memory db");
         {
@@ -631,11 +608,8 @@ mod provider_tests {
              );",
         );
         for (filename, count, covered) in rows {
-            write!(
-                sql,
-                " INSERT INTO coverage_files VALUES ('{filename}', {count}, {covered});"
-            )
-            .expect("write to String cannot fail");
+            write!(sql, " INSERT INTO coverage_files VALUES ('{filename}', {count}, {covered});")
+                .expect("write to String cannot fail");
         }
         let conn = db.lock().expect("lock");
         conn.execute_batch(&sql).expect("seed coverage_files");
@@ -665,11 +639,8 @@ mod provider_tests {
             )
             .expect("member manifest");
         }
-        std::fs::write(
-            root.join("Cargo.toml"),
-            "[workspace]\nmembers = [\"crates/*\"]\n",
-        )
-        .expect("root manifest");
+        std::fs::write(root.join("Cargo.toml"), "[workspace]\nmembers = [\"crates/*\"]\n")
+            .expect("root manifest");
         (dir, root)
     }
 
@@ -787,10 +758,8 @@ mod provider_tests {
 
         let units = value["units"].as_array().expect("units array");
         assert_eq!(units.len(), 2, "foo and bar covered, baz not: {value}");
-        let by_path: std::collections::BTreeMap<&str, &serde_json::Value> = units
-            .iter()
-            .map(|u| (u["unit_path"].as_str().expect("path"), u))
-            .collect();
+        let by_path: std::collections::BTreeMap<&str, &serde_json::Value> =
+            units.iter().map(|u| (u["unit_path"].as_str().expect("path"), u)).collect();
         let foo = by_path.get("crates/foo").expect("foo unit");
         assert_eq!(foo["unit_name"], "alpha-crate");
         assert_eq!(foo["stats"]["lines_percent"], serde_json::json!(70.0));

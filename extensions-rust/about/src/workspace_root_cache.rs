@@ -58,9 +58,7 @@ struct WorkspaceRootCache {
 
 impl WorkspaceRootCache {
     fn new() -> Self {
-        Self {
-            cache: BoundedLruCache::new(MAX_WORKSPACE_ROOT_CACHE_ENTRIES),
-        }
+        Self { cache: BoundedLruCache::new(MAX_WORKSPACE_ROOT_CACHE_ENTRIES) }
     }
 
     fn probe(&mut self, cwd: &Path) -> Option<Arc<PathBuf>> {
@@ -154,10 +152,7 @@ mod tests {
             Arc::ptr_eq(&hit, &root),
             "the hit must share the memoized allocation, not clone the path"
         );
-        assert!(
-            probe(Path::new("/ws/beta/crates/foo")).is_none(),
-            "an unrelated cwd must not hit"
-        );
+        assert!(probe(Path::new("/ws/beta/crates/foo")).is_none(), "an unrelated cwd must not hit");
         clear_cache();
     }
 
@@ -193,22 +188,12 @@ mod tests {
 
         for i in 0..MAX_WORKSPACE_ROOT_CACHE_ENTRIES {
             // Keep `hot` the most-recently-used entry throughout.
-            assert!(
-                probe(&hot).is_some(),
-                "hot entry must survive iteration {i}"
-            );
+            assert!(probe(&hot).is_some(), "hot entry must survive iteration {i}");
             insert(&PathBuf::from(format!("/ws/cold-{i}")), &root_of("cold"));
         }
 
-        assert_eq!(
-            cache_len(),
-            MAX_WORKSPACE_ROOT_CACHE_ENTRIES,
-            "the cap must hold"
-        );
-        assert!(
-            probe(&hot).is_some(),
-            "LRU eviction must spare the repeatedly touched cwd"
-        );
+        assert_eq!(cache_len(), MAX_WORKSPACE_ROOT_CACHE_ENTRIES, "the cap must hold");
+        assert!(probe(&hot).is_some(), "LRU eviction must spare the repeatedly touched cwd");
         assert!(
             probe(Path::new("/ws/cold-0")).is_none(),
             "the least-recently-used cwd must be the evicted one"
@@ -227,9 +212,7 @@ mod tests {
         for _ in 0..500 {
             assert!(probe(&cwd).is_some());
         }
-        let bound = cache_len()
-            .saturating_mul(2)
-            .saturating_add(VICTIM_QUEUE_SLACK);
+        let bound = cache_len().saturating_mul(2).saturating_add(VICTIM_QUEUE_SLACK);
         assert!(
             victim_queue_len() <= bound,
             "victim queue must compact instead of growing per hit: {}",

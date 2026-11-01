@@ -115,10 +115,9 @@ fn find_required_version(root: &Path) -> Option<String> {
         }
     }
     for path in fallback_tf_paths(root) {
-        let kind = path.file_name().map_or_else(
-            || "<unnamed>.tf".to_string(),
-            |n| n.to_string_lossy().into_owned(),
-        );
+        let kind = path
+            .file_name()
+            .map_or_else(|| "<unnamed>.tf".to_string(), |n| n.to_string_lossy().into_owned());
         if let Some(content) = ops_about::manifest_io::read_optional_text(&path, root, &kind) {
             if let Some(v) = extract_required_version(&content, &kind) {
                 return Some(v);
@@ -197,16 +196,12 @@ fn read_dir_logged<'a>(
 /// candidate list, which already resolves case-insensitively via the
 /// filesystem.
 fn has_tf_extension(path: &Path) -> bool {
-    path.extension()
-        .and_then(|e| e.to_str())
-        .is_some_and(|s| s.eq_ignore_ascii_case("tf"))
+    path.extension().and_then(|e| e.to_str()).is_some_and(|s| s.eq_ignore_ascii_case("tf"))
 }
 
 /// Whether `path`'s file name is one the named-candidate loop already read.
 fn is_named_candidate(path: &Path) -> bool {
-    path.file_name()
-        .and_then(|n| n.to_str())
-        .is_some_and(|n| CANDIDATE_FILES.contains(&n))
+    path.file_name().and_then(|n| n.to_str()).is_some_and(|n| CANDIDATE_FILES.contains(&n))
 }
 
 /// Cap on the rendered `required_version` string.
@@ -229,9 +224,7 @@ const REQUIRED_VERSION_MAX_LEN: usize = 64;
 /// string. This is the one place a [`Refusal`] is reported.
 fn extract_required_version(content: &str, source: &str) -> Option<String> {
     match scan_required_version(content) {
-        Ok(found) => found
-            .as_deref()
-            .and_then(|v| sanitize_required_version(v, source)),
+        Ok(found) => found.as_deref().and_then(|v| sanitize_required_version(v, source)),
         Err(refusal) => {
             // The warn names the file: the fallback walk feeds every root
             // `.tf` through here, and the repeats are otherwise
@@ -376,11 +369,7 @@ impl Heredoc {
     /// trailing space behave the same; leading whitespace is tolerated only
     /// for `<<-`.
     fn closes(&self, line: &str) -> bool {
-        let candidate = if self.indented {
-            line.trim()
-        } else {
-            line.trim_end()
-        };
+        let candidate = if self.indented { line.trim() } else { line.trim_end() };
         candidate == self.terminator
     }
 }
@@ -442,13 +431,7 @@ impl HeredocTracker {
 
 impl ScanState {
     const fn new() -> Self {
-        Self {
-            stack: BlockStack::new(),
-            heredoc: HeredocTracker {
-                pending: None,
-                body: None,
-            },
-        }
+        Self { stack: BlockStack::new(), heredoc: HeredocTracker { pending: None, body: None } }
     }
 
     /// The refusal owed once the last line has been scanned, if any: a
@@ -577,9 +560,7 @@ fn scan_code_chars(line: &str, state: &mut ScanState, walk: &mut LineWalk) -> Op
             }
             '{' => {
                 let prefix = line.get(walk.segment_start..idx).unwrap_or_default();
-                state
-                    .stack
-                    .push(block_open_ident(prefix).map(ToOwned::to_owned));
+                state.stack.push(block_open_ident(prefix).map(ToOwned::to_owned));
                 walk.segment_start = after_brace;
             }
             '}' => {
@@ -618,10 +599,7 @@ fn open_heredoc_at(line: &str, idx: usize, heredoc: &mut HeredocTracker) -> bool
     else {
         return false;
     };
-    heredoc.open(Heredoc {
-        terminator: terminator.to_owned(),
-        indented,
-    });
+    heredoc.open(Heredoc { terminator: terminator.to_owned(), indented });
     true
 }
 
@@ -654,11 +632,7 @@ fn heredoc_terminator(after_marker: &str) -> Option<(&str, bool)> {
     let rest = after_marker.strip_prefix('-').unwrap_or(after_marker);
     let mut end = 0usize;
     for (idx, ch) in rest.char_indices() {
-        let ok = if idx == 0 {
-            is_heredoc_ident_start(ch)
-        } else {
-            is_heredoc_ident_char(ch)
-        };
+        let ok = if idx == 0 { is_heredoc_ident_start(ch) } else { is_heredoc_ident_char(ch) };
         if !ok {
             break;
         }
@@ -992,10 +966,7 @@ fn push_heredoc_opener(
             (after_marker.get(..consumed), after_marker.get(consumed..))
         {
             out.push_str(opener);
-            heredoc.open(Heredoc {
-                terminator: terminator.to_owned(),
-                indented,
-            });
+            heredoc.open(Heredoc { terminator: terminator.to_owned(), indented });
             *chars = rest.chars();
         }
     }
@@ -1078,9 +1049,7 @@ fn blank_block_comment_line(chars: &mut std::str::Chars<'_>, out: &mut String) -
 /// IO policy ([`read_dir_logged`]).
 fn count_local_modules(root: &Path) -> Option<usize> {
     let modules_dir = root.join("modules");
-    let count = read_dir_logged(&modules_dir, "modules directory")?
-        .filter(is_module_dir)
-        .count();
+    let count = read_dir_logged(&modules_dir, "modules directory")?.filter(is_module_dir).count();
     (count > 0).then_some(count)
 }
 
@@ -1133,14 +1102,9 @@ fn is_terraform_source_name(name: &std::ffi::OsStr) -> bool {
     }
     // `<name>.tf.json` — terraform's native JSON syntax. `Path` exposes only
     // the last extension, so the `.tf` half is read off the file stem.
-    let is_json = path
-        .extension()
-        .and_then(|e| e.to_str())
-        .is_some_and(|e| e.eq_ignore_ascii_case("json"));
-    is_json
-        && path
-            .file_stem()
-            .is_some_and(|stem| has_tf_extension(Path::new(stem)))
+    let is_json =
+        path.extension().and_then(|e| e.to_str()).is_some_and(|e| e.eq_ignore_ascii_case("json"));
+    is_json && path.file_stem().is_some_and(|stem| has_tf_extension(Path::new(stem)))
 }
 
 #[cfg(test)]
@@ -1186,10 +1150,7 @@ mod tests {
         let provider = registry.get("project_identity").expect("provider");
 
         let dir = tempfile::tempdir().unwrap();
-        write(
-            &dir.path().join("versions.tf"),
-            "terraform {\n  required_version = \">= 1.5\"\n}\n",
-        );
+        write(&dir.path().join("versions.tf"), "terraform {\n  required_version = \">= 1.5\"\n}\n");
         let mut ctx = ops_extension::Context::test_context(dir.path().to_path_buf());
         let value = provider.provide(&mut ctx).expect("provide");
         let id: ProjectIdentity = serde_json::from_value(value).unwrap();
@@ -1231,22 +1192,14 @@ mod tests {
     #[test]
     fn provide_simple_terraform_project() {
         let dir = tempfile::tempdir().unwrap();
-        write(
-            &dir.path().join("main.tf"),
-            "resource \"null_resource\" \"test\" {}\n",
-        );
+        write(&dir.path().join("main.tf"), "resource \"null_resource\" \"test\" {}\n");
 
         let provider = TerraformIdentityProvider;
         let mut ctx = ops_extension::Context::test_context(dir.path().to_path_buf());
         let value = provider.provide(&mut ctx).unwrap();
         let id: ProjectIdentity = serde_json::from_value(value).unwrap();
 
-        let expected = dir
-            .path()
-            .file_name()
-            .unwrap()
-            .to_string_lossy()
-            .to_string();
+        let expected = dir.path().file_name().unwrap().to_string_lossy().to_string();
         assert_eq!(id.name, expected);
         assert_eq!(id.stack_label, "Terraform");
         assert_eq!(id.module_label, "modules");
@@ -1278,10 +1231,7 @@ mod tests {
         let dir = tempfile::tempdir().unwrap();
         write(&dir.path().join("main.tf"), "");
         write(&dir.path().join("modules").join("api").join("main.tf"), "");
-        write(
-            &dir.path().join("modules").join("network").join("main.tf"),
-            "",
-        );
+        write(&dir.path().join("modules").join("network").join("main.tf"), "");
         // Not a module (no main.tf)
         std::fs::create_dir_all(dir.path().join("modules").join("empty")).unwrap();
 
@@ -1302,12 +1252,7 @@ mod tests {
         let value = provider.provide(&mut ctx).unwrap();
         let id: ProjectIdentity = serde_json::from_value(value).unwrap();
 
-        let expected = dir
-            .path()
-            .file_name()
-            .unwrap()
-            .to_string_lossy()
-            .to_string();
+        let expected = dir.path().file_name().unwrap().to_string_lossy().to_string();
         assert_eq!(id.name, expected);
         assert_eq!(id.stack_label, "Terraform");
         assert!(id.module_count.is_none());
@@ -1369,10 +1314,7 @@ mod tests {
         let dir = tempfile::tempdir().unwrap();
         // Use a name outside the targeted candidate list so we exercise
         // the read_dir fallback specifically.
-        write(
-            &dir.path().join("Custom.TF"),
-            "terraform {\n  required_version = \"~> 1.7\"\n}\n",
-        );
+        write(&dir.path().join("Custom.TF"), "terraform {\n  required_version = \"~> 1.7\"\n}\n");
         let v = find_required_version(dir.path());
         assert_eq!(
             v,
@@ -1425,10 +1367,7 @@ mod tests {
   required_version = "~> 1.0"
 }
 "#;
-        assert_eq!(
-            extract_required_version(content, "test.tf"),
-            Some("~> 1.0".to_string())
-        );
+        assert_eq!(extract_required_version(content, "test.tf"), Some("~> 1.0".to_string()));
     }
 
     #[test]
@@ -1439,18 +1378,12 @@ mod tests {
 required_version = ">= 1.5"
 }
 "#;
-        assert_eq!(
-            extract_required_version(content, "test.tf"),
-            Some(">= 1.5".to_string())
-        );
+        assert_eq!(extract_required_version(content, "test.tf"), Some(">= 1.5".to_string()));
     }
 
     #[test]
     fn extract_required_version_none_when_absent() {
-        assert_eq!(
-            extract_required_version("resource \"test\" \"x\" {}\n", "test.tf"),
-            None
-        );
+        assert_eq!(extract_required_version("resource \"test\" \"x\" {}\n", "test.tf"), None);
     }
 
     /// A `required_version` declared inside a non-terraform block (e.g. a
@@ -1469,10 +1402,7 @@ terraform {
   required_version = "~> 1.5"
 }
 "#;
-        assert_eq!(
-            extract_required_version(content, "test.tf"),
-            Some("~> 1.5".to_string())
-        );
+        assert_eq!(extract_required_version(content, "test.tf"), Some("~> 1.5".to_string()));
     }
 
     /// When the only `required_version` lives in a
@@ -1598,10 +1528,7 @@ terraform {
     #[test]
     fn extract_required_version_uses_live_value_after_block_comment() {
         let content = "terraform {\n  /* TODO bump\n     required_version = \">= 99\" */ required_version = \"~> 1.5\"\n}\n";
-        assert_eq!(
-            extract_required_version(content, "test.tf"),
-            Some("~> 1.5".to_string())
-        );
+        assert_eq!(extract_required_version(content, "test.tf"), Some("~> 1.5".to_string()));
     }
 
     /// A `/*` that appears inside a quoted HCL
@@ -1635,10 +1562,7 @@ terraform {
   required_version = ">= 1.5"
 }
 "#;
-        assert_eq!(
-            extract_required_version(content, "test.tf"),
-            Some(">= 1.5".to_string())
-        );
+        assert_eq!(extract_required_version(content, "test.tf"), Some(">= 1.5".to_string()));
     }
 
     /// The same file with the declaration order reversed: both orders must
@@ -1654,10 +1578,7 @@ terraform {
   }
 }
 "#;
-        assert_eq!(
-            extract_required_version(content, "test.tf"),
-            Some(">= 1.5".to_string())
-        );
+        assert_eq!(extract_required_version(content, "test.tf"), Some(">= 1.5".to_string()));
     }
 
     /// Nested object-valued attributes at any depth keep the brace stack
@@ -1673,10 +1594,7 @@ terraform {
   required_version = "~> 1.6"
 }
 "#;
-        assert_eq!(
-            extract_required_version(content, "test.tf"),
-            Some("~> 1.6".to_string())
-        );
+        assert_eq!(extract_required_version(content, "test.tf"), Some("~> 1.6".to_string()));
     }
 
     /// A `}` with nothing to close means the braces do
@@ -1706,10 +1624,7 @@ terraform {
             "  required_version = \">= 1.5\"\n",
             "}\n",
         );
-        assert_eq!(
-            extract_required_version(content, "test.tf"),
-            Some(">= 1.5".to_string())
-        );
+        assert_eq!(extract_required_version(content, "test.tf"), Some(">= 1.5".to_string()));
     }
 
     /// The `#` half of the same shape. The `#`
@@ -1727,10 +1642,7 @@ terraform {
             "  required_version = \"~> 1.6\"\n",
             "}\n",
         );
-        assert_eq!(
-            extract_required_version(content, "test.tf"),
-            Some("~> 1.6".to_string())
-        );
+        assert_eq!(extract_required_version(content, "test.tf"), Some("~> 1.6".to_string()));
     }
 
     /// The two pipeline stages must agree on what opens a heredoc.
@@ -1877,10 +1789,7 @@ terraform {
             "  required_version = \">= 1.9\"\n",
             "}\n",
         );
-        assert_eq!(
-            extract_required_version(content, "test.tf"),
-            Some(">= 1.9".to_string())
-        );
+        assert_eq!(extract_required_version(content, "test.tf"), Some(">= 1.9".to_string()));
     }
 
     /// HCL identifiers are Unicode, so `<<終端` opens a heredoc like any other.
@@ -1899,10 +1808,7 @@ terraform {
             "  required_version = \">= 1.7\"\n",
             "}\n",
         );
-        assert_eq!(
-            extract_required_version(content, "test.tf"),
-            Some(">= 1.7".to_string())
-        );
+        assert_eq!(extract_required_version(content, "test.tf"), Some(">= 1.7".to_string()));
     }
 
     /// A terminator carrying a combining mark (`U+0301 COMBINING ACUTE
@@ -1922,10 +1828,7 @@ terraform {
             "  required_version = \">= 1.10\"\n",
             "}\n",
         );
-        assert_eq!(
-            extract_required_version(content, "test.tf"),
-            Some(">= 1.10".to_string())
-        );
+        assert_eq!(extract_required_version(content, "test.tf"), Some(">= 1.10".to_string()));
     }
 
     /// The precomposed spelling of the same name is a different identifier —
@@ -1944,10 +1847,7 @@ terraform {
             "  required_version = \">= 1.11\"\n",
             "}\n",
         );
-        assert_eq!(
-            extract_required_version(content, "test.tf"),
-            Some(">= 1.11".to_string())
-        );
+        assert_eq!(extract_required_version(content, "test.tf"), Some(">= 1.11".to_string()));
     }
 
     /// An *indented* line equal to the terminator does not close a plain `<<`
@@ -1967,10 +1867,7 @@ terraform {
             "  required_version = \">= 1.8\"\n",
             "}\n",
         );
-        assert_eq!(
-            extract_required_version(content, "test.tf"),
-            Some(">= 1.8".to_string())
-        );
+        assert_eq!(extract_required_version(content, "test.tf"), Some(">= 1.8".to_string()));
     }
 
     /// The `<<-` half of the same rule still accepts the indented terminator
@@ -1987,22 +1884,14 @@ terraform {
             "  required_version = \">= 1.9\"\n",
             "}\n",
         );
-        assert_eq!(
-            extract_required_version(content, "test.tf"),
-            Some(">= 1.9".to_string())
-        );
+        assert_eq!(extract_required_version(content, "test.tf"), Some(">= 1.9".to_string()));
     }
 
     /// `strip_comments` applies the same spelling rule, so a `#` line after an
     /// indented look-alike terminator inside a plain heredoc stays verbatim.
     #[test]
     fn strip_comments_keeps_a_plain_heredoc_open_past_an_indented_terminator() {
-        let content = concat!(
-            "x = <<EOT\n",
-            "  EOT\n",
-            "# still inside the body\n",
-            "EOT\n",
-        );
+        let content = concat!("x = <<EOT\n", "  EOT\n", "# still inside the body\n", "EOT\n",);
         let (stripped, _) = strip_comments(content);
         assert!(
             stripped.contains("# still inside the body"),
@@ -2022,10 +1911,7 @@ terraform {
             "  required_version = \">= 1.4\"\n",
             "}\n",
         );
-        assert_eq!(
-            extract_required_version(content, "test.tf"),
-            Some(">= 1.4".to_string())
-        );
+        assert_eq!(extract_required_version(content, "test.tf"), Some(">= 1.4".to_string()));
     }
 
     /// A trailing `#` comment on the block opener is ordinary human-written
@@ -2035,30 +1921,21 @@ terraform {
     fn extract_required_version_with_commented_block_opener() {
         let content =
             "terraform { # pinned for the shared modules\n  required_version = \">= 1.5\"\n}\n";
-        assert_eq!(
-            extract_required_version(content, "test.tf"),
-            Some(">= 1.5".to_string())
-        );
+        assert_eq!(extract_required_version(content, "test.tf"), Some(">= 1.5".to_string()));
     }
 
     /// The `//` spelling of the same shape.
     #[test]
     fn extract_required_version_with_slash_commented_block_opener() {
         let content = "terraform { // pinned\n  required_version = \"~> 1.5\"\n}\n";
-        assert_eq!(
-            extract_required_version(content, "test.tf"),
-            Some("~> 1.5".to_string())
-        );
+        assert_eq!(extract_required_version(content, "test.tf"), Some("~> 1.5".to_string()));
     }
 
     /// A closing brace on the same line as the value.
     #[test]
     fn extract_required_version_with_same_line_closing_brace() {
         let content = "terraform {\n  required_version = \">= 1.5\" }\n";
-        assert_eq!(
-            extract_required_version(content, "test.tf"),
-            Some(">= 1.5".to_string())
-        );
+        assert_eq!(extract_required_version(content, "test.tf"), Some(">= 1.5".to_string()));
     }
 
     /// A `/*` inside a `#` line comment — a URL with a glob is enough — must
@@ -2067,10 +1944,7 @@ terraform {
     fn extract_required_version_ignores_block_marker_inside_line_comment() {
         let content =
             "terraform {\n  # see https://example.com/*note\n  required_version = \"~> 1.5\"\n}\n";
-        assert_eq!(
-            extract_required_version(content, "test.tf"),
-            Some("~> 1.5".to_string())
-        );
+        assert_eq!(extract_required_version(content, "test.tf"), Some("~> 1.5".to_string()));
     }
 
     /// An unbalanced `"` inside a line comment must not put the scanner into
@@ -2085,10 +1959,7 @@ terraform {
             "  required_version = \"~> 1.5\"\n",
             "}\n"
         );
-        assert_eq!(
-            extract_required_version(content, "test.tf"),
-            Some("~> 1.5".to_string())
-        );
+        assert_eq!(extract_required_version(content, "test.tf"), Some("~> 1.5".to_string()));
     }
 
     /// An ANSI escape sequence well under the 64-char cap
@@ -2133,10 +2004,7 @@ terraform {
             assert!(found.is_none(), "the control-char value must be dropped");
         });
 
-        assert!(
-            logs.contains("required_version"),
-            "expected the drop breadcrumb, got: {logs}"
-        );
+        assert!(logs.contains("required_version"), "expected the drop breadcrumb, got: {logs}");
         assert!(
             logs.contains("versions.tf"),
             "the warn must name the offending .tf file, got: {logs}"
@@ -2149,10 +2017,7 @@ terraform {
     #[test]
     fn extract_required_version_unbalanced_brace_warn_names_the_file() {
         let dir = tempfile::tempdir().unwrap();
-        write(
-            &dir.path().join("weird.tf"),
-            "}\n\"unbalanced from the start\"\n",
-        );
+        write(&dir.path().join("weird.tf"), "}\n\"unbalanced from the start\"\n");
 
         let logs = capture_warn(|| {
             let found = find_required_version(dir.path());
@@ -2187,10 +2052,7 @@ terraform {
     fn strip_comments_borrows_when_no_comment_present() {
         let content = "terraform {\n  required_version = \">= 1.5\"\n}\n";
         assert!(matches!(strip_comments(content).0, Cow::Borrowed(_)));
-        assert!(matches!(
-            strip_comments("terraform { # note\n}\n").0,
-            Cow::Owned(_)
-        ));
+        assert!(matches!(strip_comments("terraform { # note\n}\n").0, Cow::Owned(_)));
     }
 
     /// A heredoc whose terminator never
@@ -2200,11 +2062,8 @@ terraform {
     /// "no constraint declared".
     #[test]
     fn extract_required_version_reports_unterminated_heredoc() {
-        let content = concat!(
-            "locals {\n",
-            "  script = <<EOT\n",
-            "body that never sees its terminator\n",
-        );
+        let content =
+            concat!("locals {\n", "  script = <<EOT\n", "body that never sees its terminator\n",);
         let mut out = None;
         let logs = capture_warn(|| out = extract_required_version(content, "test.tf"));
         assert_eq!(out, None);

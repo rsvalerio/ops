@@ -36,10 +36,7 @@ pub fn write_workspace_sidecar(
     // torn sidecar, and anchored: the temp is created and renamed through the
     // verified directory descriptor, so swapping the ingest dir's *name*
     // after verification cannot redirect the staged sidecar.
-    dir.write_atomic(
-        &sidecar_name(name),
-        working_directory.as_os_str().as_encoded_bytes(),
-    )
+    dir.write_atomic(&sidecar_name(name), working_directory.as_os_str().as_encoded_bytes())
 }
 
 /// Hard cap on workspace sidecar read size.
@@ -216,10 +213,7 @@ mod tests {
             .filter_map(Result::ok)
             .map(|e| e.file_name().to_string_lossy().into_owned())
             .find(|name| name.starts_with(".tokei_workspace.txt.tmp."));
-        assert!(
-            leftover.is_none(),
-            "anchored write left a temp: {leftover:?}"
-        );
+        assert!(leftover.is_none(), "anchored write left a temp: {leftover:?}");
     }
 
     /// SEC-33 / TASK-0951: oversized sidecar errors out.
@@ -250,11 +244,8 @@ mod tests {
     fn read_workspace_sidecar_rejects_embedded_newline() {
         let tmp = tempfile::tempdir().expect("tempdir");
         let dir = anchor(&tmp);
-        std::fs::write(
-            dir.entry_path("tampered_workspace.txt"),
-            b"/ws/path\nfake/path",
-        )
-        .expect("plant tampered sidecar");
+        std::fs::write(dir.entry_path("tampered_workspace.txt"), b"/ws/path\nfake/path")
+            .expect("plant tampered sidecar");
 
         let err =
             read_workspace_sidecar(&dir, "tampered").expect_err("control-byte sidecar must error");
@@ -282,10 +273,7 @@ mod tests {
 
         let err =
             read_workspace_sidecar(&dir, "linked").expect_err("symlinked sidecar must not be read");
-        assert!(
-            matches!(err, DbError::Io(_)),
-            "expected an IO error, got {err:?}"
-        );
+        assert!(matches!(err, DbError::Io(_)), "expected an IO error, got {err:?}");
     }
 
     #[test]

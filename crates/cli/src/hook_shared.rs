@@ -118,10 +118,7 @@ pub fn run_hook_install(
     // Surface which path operation failed when the process cannot resolve
     // its cwd (EACCES, ENOENT on a deleted dir).
     let cwd = std::env::current_dir().with_context(|| {
-        format!(
-            "could not determine working directory while installing {} hook",
-            ops.hook_name
-        )
+        format!("could not determine working directory while installing {} hook", ops.hook_name)
     })?;
     let git_dir = (ops.find_git_dir)(&cwd)
         .ok_or_else(|| anyhow::anyhow!("not inside a git repository (no .git found)"))?;
@@ -200,10 +197,7 @@ pub fn gather_available_commands(
         let description = command_description(spec);
         let owned = name.to_string();
         seen.insert(owned.clone());
-        options.push(SelectOption {
-            name: owned,
-            description,
-        });
+        options.push(SelectOption { name: owned, description });
     };
 
     for (name, spec) in &config.commands {
@@ -224,10 +218,7 @@ pub fn gather_available_commands(
 /// The one-line description of `spec` for hook listings: its help text when
 /// it has one, else the rendered command fallback.
 pub fn command_description(spec: &CommandSpec) -> String {
-    spec.help().map_or_else(
-        || spec.display_cmd_fallback(),
-        std::string::ToString::to_string,
-    )
+    spec.help().map_or_else(|| spec.display_cmd_fallback(), std::string::ToString::to_string)
 }
 
 #[cfg(test)]
@@ -391,19 +382,15 @@ mod tests {
     /// `ops: error:` frame), not as a plain anyhow failure exiting 1.
     #[test]
     fn hook_install_selection_cancel_exits_130_without_an_error_frame() {
-        for err in [
-            inquire::InquireError::OperationCanceled,
-            inquire::InquireError::OperationInterrupted,
-        ] {
+        for err in
+            [inquire::InquireError::OperationCanceled, inquire::InquireError::OperationInterrupted]
+        {
             let err = crate::prompt::require_answer(
                 Err::<Vec<crate::tty::SelectOption>, _>(err),
                 "command selection for run-before-commit install",
             )
             .expect_err("a cancelled prompt must not yield an answer");
-            assert_eq!(
-                crate::extract_exit_code_override(&err),
-                Some(crate::SIGINT_EXIT)
-            );
+            assert_eq!(crate::extract_exit_code_override(&err), Some(crate::SIGINT_EXIT));
             assert_eq!(
                 crate::prompt::cancellation_of(&err).map(ToString::to_string),
                 Some("command selection for run-before-commit install cancelled".to_string()),

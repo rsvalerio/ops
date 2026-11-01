@@ -227,13 +227,7 @@ impl AcItem {
     /// replacement builds: a replacement always starts unchecked.
     #[must_use]
     pub fn unchecked_all(texts: &[String]) -> Vec<Self> {
-        texts
-            .iter()
-            .map(|text| Self {
-                checked: false,
-                text: text.clone(),
-            })
-            .collect()
+        texts.iter().map(|text| Self { checked: false, text: text.clone() }).collect()
     }
 }
 
@@ -262,11 +256,7 @@ pub fn split_frontmatter(src: &str) -> anyhow::Result<(&str, &str)> {
     let mut offset = start;
     for line in lines {
         if line.trim_end() == "---" {
-            let fm = src
-                .get(start..offset)
-                .unwrap_or("")
-                .strip_suffix('\n')
-                .unwrap_or("");
+            let fm = src.get(start..offset).unwrap_or("").strip_suffix('\n').unwrap_or("");
             let after_marker = offset.saturating_add(line.len());
             let body = src.get(after_marker..).unwrap_or("");
             let body = body.strip_prefix('\n').unwrap_or(body);
@@ -287,12 +277,7 @@ impl TaskDoc {
     pub fn parse(src: &str) -> anyhow::Result<Self> {
         let (fm_src, body) = split_frontmatter(src)?;
         let frontmatter = Frontmatter::parse(fm_src)?;
-        Ok(Self {
-            frontmatter,
-            body: Body {
-                raw: body.to_string(),
-            },
-        })
+        Ok(Self { frontmatter, body: Body { raw: body.to_string() } })
     }
 
     /// Render the whole file: canonical frontmatter between `---` delimiters,
@@ -339,9 +324,7 @@ impl Frontmatter {
     pub fn set_extra_scalar(&mut self, key: &str, value: &str) {
         match self.extras.iter_mut().find(|(k, _)| k == key) {
             Some((_, v)) => *v = FmValue::Scalar(value.to_string()),
-            None => self
-                .extras
-                .push((key.to_string(), FmValue::Scalar(value.to_string()))),
+            None => self.extras.push((key.to_string(), FmValue::Scalar(value.to_string()))),
         }
     }
 
@@ -439,10 +422,7 @@ fn split_key(line: &str, index: usize) -> anyhow::Result<(&str, &str)> {
     };
     let key = line.get(..colon).unwrap_or("");
     if key.is_empty()
-        || !key
-            .bytes()
-            .next()
-            .is_some_and(|b| b.is_ascii_alphabetic() || b == b'_')
+        || !key.bytes().next().is_some_and(|b| b.is_ascii_alphabetic() || b == b'_')
         || !key.bytes().all(|b| b.is_ascii_alphanumeric() || b == b'_')
     {
         anyhow::bail!("frontmatter line {line_no}: {line:?} is not `key: value`");
@@ -638,15 +618,8 @@ impl Body {
     pub fn section(&self, begin: &str, end: &str) -> Option<&str> {
         let begin_line = format!("{begin}\n");
         let end_line = format!("\n{end}");
-        let start = self
-            .raw
-            .find(&begin_line)
-            .and_then(|p| p.checked_add(begin_line.len()))?;
-        let stop = self
-            .raw
-            .get(start..)?
-            .find(&end_line)
-            .and_then(|p| p.checked_add(start))?;
+        let start = self.raw.find(&begin_line).and_then(|p| p.checked_add(begin_line.len()))?;
+        let stop = self.raw.get(start..)?.find(&end_line).and_then(|p| p.checked_add(start))?;
         Some(self.raw.get(start..stop)?.trim_matches('\n'))
     }
 
@@ -664,15 +637,8 @@ impl Body {
     fn replace_between_opt(&self, begin: &str, end: &str, content: &str) -> Option<String> {
         let begin_line = format!("{begin}\n");
         let end_line = format!("\n{end}");
-        let start = self
-            .raw
-            .find(&begin_line)
-            .and_then(|p| p.checked_add(begin_line.len()))?;
-        let stop = self
-            .raw
-            .get(start..)?
-            .find(&end_line)
-            .and_then(|p| p.checked_add(start))?;
+        let start = self.raw.find(&begin_line).and_then(|p| p.checked_add(begin_line.len()))?;
+        let stop = self.raw.get(start..)?.find(&end_line).and_then(|p| p.checked_add(start))?;
         let mut out = String::with_capacity(self.raw.len());
         out.push_str(self.raw.get(..start)?);
         if !content.is_empty() {
@@ -731,10 +697,7 @@ impl Body {
                 // Census: 100% of checkbox lines carry `#N `; strip it when
                 // present so the number is owned by list position on write.
                 let text = strip_ac_index(checked);
-                Some(AcItem {
-                    checked: line.starts_with("- [x] "),
-                    text: text.to_string(),
-                })
+                Some(AcItem { checked: line.starts_with("- [x] "), text: text.to_string() })
             })
             .collect()
     }
@@ -769,12 +732,7 @@ impl Body {
         let mut block = String::new();
         for (idx, item) in items.iter().enumerate() {
             let mark = if item.checked { "x" } else { " " };
-            let _ = writeln!(
-                &mut block,
-                "- [{mark}] #{} {}",
-                idx.saturating_add(1),
-                item.text
-            );
+            let _ = writeln!(&mut block, "- [{mark}] #{} {}", idx.saturating_add(1), item.text);
         }
         let block = block.trim_matches('\n');
         let (begin, end) = markers;
@@ -818,23 +776,13 @@ impl Body {
         if self.replace_between(NOTES_BEGIN, NOTES_END, &merged) {
             return;
         }
-        self.push_section(
-            "## Implementation Notes",
-            true,
-            (NOTES_BEGIN, NOTES_END),
-            text,
-        );
+        self.push_section("## Implementation Notes", true, (NOTES_BEGIN, NOTES_END), text);
     }
 
     /// Set the implementation plan section.
     pub fn set_plan(&mut self, content: &str) {
         if !self.replace_between(PLAN_BEGIN, PLAN_END, content) {
-            self.push_section(
-                "## Implementation Plan",
-                true,
-                (PLAN_BEGIN, PLAN_END),
-                content,
-            );
+            self.push_section("## Implementation Plan", true, (PLAN_BEGIN, PLAN_END), content);
         }
     }
 
@@ -881,10 +829,7 @@ fn check_item_at(
     checked: bool,
     what: &str,
 ) -> anyhow::Result<()> {
-    let Some(item) = index
-        .checked_sub(1)
-        .and_then(|zero_based| items.get_mut(zero_based))
-    else {
+    let Some(item) = index.checked_sub(1).and_then(|zero_based| items.get_mut(zero_based)) else {
         anyhow::bail!("no {what} #{index}");
     };
     item.checked = checked;
@@ -900,9 +845,7 @@ fn strip_ac_index(text: &str) -> &str {
     if digits_len == 0 {
         return text;
     }
-    rest.get(digits_len..)
-        .and_then(|tail| tail.strip_prefix(' '))
-        .unwrap_or(text)
+    rest.get(digits_len..).and_then(|tail| tail.strip_prefix(' ')).unwrap_or(text)
 }
 
 /// Write a task file body from scratch, in the CLI's create-time shape.
@@ -1083,14 +1026,8 @@ priority: low
         assert_eq!(
             doc.frontmatter.extras,
             vec![
-                (
-                    "type".to_string(),
-                    FmValue::Scalar("enhancement".to_string())
-                ),
-                (
-                    "parent_task_id".to_string(),
-                    FmValue::Scalar("TASK-2000".to_string())
-                ),
+                ("type".to_string(), FmValue::Scalar("enhancement".to_string())),
+                ("parent_task_id".to_string(), FmValue::Scalar("TASK-2000".to_string())),
             ]
         );
         let rendered = doc.render();
@@ -1105,9 +1042,7 @@ priority: low
         assert_eq!(after, before);
         // parent_task_id renders right after dependencies, before priority.
         let deps = rendered.find("dependencies: []").expect("deps");
-        let parent = rendered
-            .find("parent_task_id: 'TASK-2000'")
-            .expect("parent");
+        let parent = rendered.find("parent_task_id: 'TASK-2000'").expect("parent");
         let priority = rendered.find("priority: high").expect("priority");
         assert!(deps < parent && parent < priority);
     }
@@ -1186,10 +1121,7 @@ priority: low
     fn render_body_from_scratch_matches_cli_create_shape() {
         let body = render_body(
             "**File**: `crates/foo/src/lib.rs:42`",
-            &[AcItem {
-                checked: false,
-                text: "criterion one".to_string(),
-            }],
+            &[AcItem { checked: false, text: "criterion one".to_string() }],
             &[],
             None,
             None,
@@ -1203,14 +1135,8 @@ priority: low
     fn render_body_places_dod_between_criteria_and_plan() {
         let body = render_body(
             "desc",
-            &[AcItem {
-                checked: false,
-                text: "criterion one".to_string(),
-            }],
-            &[DodItem {
-                checked: false,
-                text: "gate one".to_string(),
-            }],
+            &[AcItem { checked: false, text: "criterion one".to_string() }],
+            &[DodItem { checked: false, text: "gate one".to_string() }],
             Some("the plan"),
             None,
         );
@@ -1241,10 +1167,7 @@ priority: low
         assert!(rendered.contains("- [x] #2 gate two"));
         assert!(rendered.contains("- [ ] #1 criterion"));
         assert!(doc.body.ac_items().iter().all(|item| !item.checked));
-        let err = doc
-            .body
-            .set_dod_checked(9, true)
-            .expect_err("index out of range");
+        let err = doc.body.set_dod_checked(9, true).expect_err("index out of range");
         assert!(err.to_string().contains("no definition-of-done item #9"));
     }
 
@@ -1284,14 +1207,9 @@ priority: low
     #[test]
     fn extra_mutators_set_clear_and_replace() {
         let mut doc = TaskDoc::parse(SAMPLE).expect("must parse");
-        doc.frontmatter
-            .set_extra_scalar("parent_task_id", "TASK-2000");
-        assert_eq!(
-            doc.frontmatter.extra_scalar("parent_task_id"),
-            Some("TASK-2000")
-        );
-        doc.frontmatter
-            .set_extra_scalar("parent_task_id", "TASK-3000");
+        doc.frontmatter.set_extra_scalar("parent_task_id", "TASK-2000");
+        assert_eq!(doc.frontmatter.extra_scalar("parent_task_id"), Some("TASK-2000"));
+        doc.frontmatter.set_extra_scalar("parent_task_id", "TASK-3000");
         assert_eq!(
             doc.frontmatter.extra_scalar("parent_task_id"),
             Some("TASK-3000"),

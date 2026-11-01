@@ -133,9 +133,6 @@ mod tests {
         // The harness env may already carry OPS__ vars from prior tests; this
         // assertion only pins the non-UTF-8 counter, not the presence flag.
         let (_, non_utf8) = scan_ops_env_keys();
-        assert_eq!(
-            non_utf8, 0,
-            "no non-UTF-8 OPS__ keys expected in baseline env"
-        );
+        assert_eq!(non_utf8, 0, "no non-UTF-8 OPS__ keys expected in baseline env");
     }
 }

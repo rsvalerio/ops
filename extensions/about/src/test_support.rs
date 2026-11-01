@@ -30,10 +30,7 @@
 pub fn assert_debug_escapes_control_chars<T: std::fmt::Debug>(value: T) {
     let rendered = format!("{value:?}");
     assert_rendered_escapes_control_chars(&rendered);
-    assert!(
-        rendered.contains("\\n"),
-        "expected escaped newline in Debug rendering: {rendered}"
-    );
+    assert!(rendered.contains("\\n"), "expected escaped newline in Debug rendering: {rendered}");
 }
 
 /// The half of [`assert_debug_escapes_control_chars`] that applies to an
@@ -49,14 +46,8 @@ pub fn assert_debug_escapes_control_chars<T: std::fmt::Debug>(value: T) {
 /// If `rendered` carries a raw newline or a raw ANSI `ESC` — that is the
 /// assertion this helper exists to make.
 pub fn assert_rendered_escapes_control_chars(rendered: &str) {
-    assert!(
-        !rendered.contains('\n'),
-        "raw newline leaked into rendered output: {rendered}"
-    );
-    assert!(
-        !rendered.contains('\u{1b}'),
-        "raw ANSI ESC leaked into rendered output: {rendered}"
-    );
+    assert!(!rendered.contains('\n'), "raw newline leaked into rendered output: {rendered}");
+    assert!(!rendered.contains('\u{1b}'), "raw ANSI ESC leaked into rendered output: {rendered}");
 }
 
 /// Write `content` to `path`, creating any missing parent directories.
@@ -76,18 +67,8 @@ pub fn write_file(path: &std::path::Path, content: &str) {
     // "broken fixture" semantics.
     if let Some(parent) = path.parent() {
         let created = std::fs::create_dir_all(parent);
-        assert!(
-            created.is_ok(),
-            "create fixture dir {}: {:?}",
-            parent.display(),
-            created.err()
-        );
+        assert!(created.is_ok(), "create fixture dir {}: {:?}", parent.display(), created.err());
     }
     let written = std::fs::write(path, content);
-    assert!(
-        written.is_ok(),
-        "write fixture file {}: {:?}",
-        path.display(),
-        written.err()
-    );
+    assert!(written.is_ok(), "write fixture file {}: {:?}", path.display(), written.err());
 }

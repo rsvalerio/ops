@@ -32,13 +32,7 @@ pub struct ReviewWorktree {
 /// and `-` kept, anything else turned into `-`.
 pub fn slug(name: &str) -> String {
     name.chars()
-        .map(|c| {
-            if c.is_ascii_alphanumeric() || matches!(c, '.' | '_' | '-') {
-                c
-            } else {
-                '-'
-            }
-        })
+        .map(|c| if c.is_ascii_alphanumeric() || matches!(c, '.' | '_' | '-') { c } else { '-' })
         .collect::<String>()
         .trim_start_matches(['.', '-'])
         .to_string()
@@ -91,12 +85,7 @@ impl ReviewWorktree {
             ],
         )
         .with_context(|| format!("adding the review worktree for {target}"))?;
-        let mut worktree = Self {
-            top: top.to_path_buf(),
-            path,
-            branch: None,
-            _scratch: scratch,
-        };
+        let mut worktree = Self { top: top.to_path_buf(), path, branch: None, _scratch: scratch };
         git::run(&worktree.path, ["checkout", "--quiet", "--orphan", &branch])?;
         worktree.branch = Some(branch);
         // Files stay on disk, untracked; only the index is emptied.
@@ -178,11 +167,7 @@ mod tests {
             .args(args)
             .output()
             .expect("spawn git");
-        assert!(
-            out.status.success(),
-            "git {args:?}: {}",
-            String::from_utf8_lossy(&out.stderr)
-        );
+        assert!(out.status.success(), "git {args:?}: {}", String::from_utf8_lossy(&out.stderr));
         String::from_utf8_lossy(&out.stdout).into_owned()
     }
 

@@ -64,26 +64,16 @@ fn shown_field_specs(id: &ProjectIdentity, show: &dyn Fn(&str) -> bool) -> Vec<F
         .copied()
         .filter(|fid| show(fid))
         .map(|fid| match fid {
-            "project" => FieldSpec {
-                label: "project".into(),
-                value: compose_project_value(id),
-            },
-            "stack" => FieldSpec {
-                label: "stack".into(),
-                value: compose_stack_value(id),
-            },
-            "license" => FieldSpec {
-                label: "license".into(),
-                value: non_empty_clone(id.license.as_ref()),
-            },
+            "project" => FieldSpec { label: "project".into(), value: compose_project_value(id) },
+            "stack" => FieldSpec { label: "stack".into(), value: compose_stack_value(id) },
+            "license" => {
+                FieldSpec { label: "license".into(), value: non_empty_clone(id.license.as_ref()) }
+            }
             "modules" => FieldSpec {
                 label: id.module_label.clone(),
                 value: id.module_count.map(|c| c.to_string()),
             },
-            "codebase" => FieldSpec {
-                label: "codebase".into(),
-                value: compose_codebase_value(id),
-            },
+            "codebase" => FieldSpec { label: "codebase".into(), value: compose_codebase_value(id) },
             "dependencies" => FieldSpec {
                 label: "dependencies".into(),
                 value: id.dependency_count.filter(|&c| c > 0).map(|c| {
@@ -91,28 +81,20 @@ fn shown_field_specs(id: &ProjectIdentity, show: &dyn Fn(&str) -> bool) -> Vec<F
                     // unrealistically large usize still renders a sensible string
                     // instead of wrapping into a negative i64.
                     let n = i64::try_from(c).unwrap_or(i64::MAX);
-                    format!(
-                        "{} dependenc{}",
-                        format_number(n),
-                        if c == 1 { "y" } else { "ies" }
-                    )
+                    format!("{} dependenc{}", format_number(n), if c == 1 { "y" } else { "ies" })
                 }),
             },
             "repository" => FieldSpec {
                 label: "repository".into(),
                 value: non_empty_clone(id.repository.as_ref()),
             },
-            "homepage" => FieldSpec {
-                label: "homepage".into(),
-                value: non_empty_clone(id.homepage.as_ref()),
-            },
+            "homepage" => {
+                FieldSpec { label: "homepage".into(), value: non_empty_clone(id.homepage.as_ref()) }
+            }
             // Unreachable: `ids` is the array literal a few lines above and
             // every entry has an arm. Rendering an empty field keeps the
             // helper total if the two ever drift.
-            _ => FieldSpec {
-                label: (*fid).to_string(),
-                value: None,
-            },
+            _ => FieldSpec { label: (*fid).to_string(), value: None },
         })
         .collect()
 }
@@ -124,11 +106,7 @@ fn push_special_fields(
     explicit_filter: bool,
 ) {
     if show("authors") && !id.authors.is_empty() {
-        let label = if id.authors.len() == 1 {
-            "author"
-        } else {
-            "authors"
-        };
+        let label = if id.authors.len() == 1 { "author" } else { "authors" };
         fields.push((label.to_string(), id.authors.join(", ")));
     }
     // Coverage: show the percentage when known. When unknown, only render the
@@ -181,10 +159,7 @@ impl AboutCard {
 
         push_special_fields(&mut fields, id, &show, visible_fields.is_some());
 
-        Self::builder()
-            .description(id.description.clone())
-            .fields(fields)
-            .build()
+        Self::builder().description(id.description.clone()).fields(fields).build()
     }
 
     /// Render the about card as styled text lines.
@@ -210,12 +185,7 @@ impl AboutCard {
             // multi-byte keys do not shift the value column by one cell per
             // non-ASCII char. Mirrors the format_language_breakdown / theme_cmd
             // alignment pattern.
-            let max_key_len = self
-                .fields
-                .iter()
-                .map(|(k, _)| display_width(k))
-                .max()
-                .unwrap_or(0);
+            let max_key_len = self.fields.iter().map(|(k, _)| display_width(k)).max().unwrap_or(0);
             let cont_indent = continuation_indent(max_key_len);
             for (key, value) in &self.fields {
                 lines.extend(render_field(key, value, max_key_len, &cont_indent, is_tty));
@@ -257,10 +227,7 @@ impl AboutCardBuilder {
     /// Builds the card from the setter-supplied description and fields.
     #[must_use]
     pub fn build(self) -> AboutCard {
-        AboutCard {
-            description: self.description,
-            fields: self.fields,
-        }
+        AboutCard { description: self.description, fields: self.fields }
     }
 }
 
@@ -328,12 +295,7 @@ fn render_field(
     // Route through the shared pad helper so a future
     // tightening of width-aware padding lands once.
     let padded_key = pad_to_display_width(key, max_key_len.saturating_add(KEY_PAD_COLS));
-    let mut out = vec![format!(
-        "  {} {} {}",
-        emoji,
-        padded_key,
-        styled(&sanitised(first))
-    )];
+    let mut out = vec![format!("  {} {} {}", emoji, padded_key, styled(&sanitised(first)))];
     for cont in value_lines {
         out.push(format!("{}{}", cont_indent, styled(&sanitised(cont))));
     }
@@ -449,10 +411,7 @@ mod tests {
         assert_eq!(non_empty_clone(Some(&String::new())), None);
         assert_eq!(non_empty_clone(Some(&"   ".to_string())), None);
         assert_eq!(non_empty_clone(Some(&"\t\n".to_string())), None);
-        assert_eq!(
-            non_empty_clone(Some(&"foo".to_string())),
-            Some("foo".to_string())
-        );
+        assert_eq!(non_empty_clone(Some(&"foo".to_string())), Some("foo".to_string()));
     }
 
     /// PERF-3 / TASK-1417: filtered card rendering must skip computing
@@ -491,10 +450,7 @@ mod tests {
             ..Default::default()
         };
         let out = AboutCard::from_identity(&id).render(false);
-        assert!(
-            !out.contains('\x1b'),
-            "raw ESC must not reach rendered output: {out:?}"
-        );
+        assert!(!out.contains('\x1b'), "raw ESC must not reach rendered output: {out:?}");
         assert!(out.contains("\\x1b"), "ESC should be hex-escaped: {out:?}");
     }
 }

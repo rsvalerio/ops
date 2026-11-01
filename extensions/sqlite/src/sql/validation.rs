@@ -178,9 +178,7 @@ pub fn validate_path_chars(path: &str) -> Result<(), SqlError> {
     if path.is_empty() {
         return Err(SqlError::EmptyPath);
     }
-    path.chars()
-        .find(|ch| ch.is_control())
-        .map_or(Ok(()), |ch| Err(SqlError::InvalidPathChar(ch)))
+    path.chars().find(|ch| ch.is_control()).map_or(Ok(()), |ch| Err(SqlError::InvalidPathChar(ch)))
 }
 
 /// Reject a path that contains a parent-directory (`..`) component.
@@ -270,18 +268,12 @@ mod tests {
 
     #[test]
     fn validate_identifier_rejects_empty() {
-        assert!(matches!(
-            validate_identifier(""),
-            Err(SqlError::InvalidIdentifier(_))
-        ));
+        assert!(matches!(validate_identifier(""), Err(SqlError::InvalidIdentifier(_))));
     }
 
     #[test]
     fn validate_identifier_rejects_leading_digit() {
-        assert!(matches!(
-            validate_identifier("1table"),
-            Err(SqlError::InvalidIdentifier(_))
-        ));
+        assert!(matches!(validate_identifier("1table"), Err(SqlError::InvalidIdentifier(_))));
     }
 
     #[test]

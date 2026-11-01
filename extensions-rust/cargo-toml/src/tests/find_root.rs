@@ -62,19 +62,13 @@ fn find_root_terminates_on_symlink_loop() {
 fn find_root_prefers_workspace_over_member() {
     let temp_dir = tempfile::tempdir().expect("create temp dir");
     let root = temp_dir.path();
-    fs::write(
-        root.join("Cargo.toml"),
-        "[workspace]\nmembers = [\"crates/foo\"]\n",
-    )
-    .expect("write workspace");
+    fs::write(root.join("Cargo.toml"), "[workspace]\nmembers = [\"crates/foo\"]\n")
+        .expect("write workspace");
 
     let member = root.join("crates").join("foo");
     fs::create_dir_all(&member).expect("create member dir");
-    fs::write(
-        member.join("Cargo.toml"),
-        "[package]\nname = \"foo\"\nversion = \"0.1.0\"\n",
-    )
-    .expect("write member");
+    fs::write(member.join("Cargo.toml"), "[package]\nname = \"foo\"\nversion = \"0.1.0\"\n")
+        .expect("write member");
 
     let found = find_workspace_root(&member).expect("should find workspace root");
     assert_eq!(found, fs::canonicalize(root).unwrap());
@@ -87,11 +81,8 @@ fn find_root_prefers_workspace_over_member() {
 fn find_root_returns_innermost_workspace_when_workspaces_are_nested() {
     let temp_dir = tempfile::tempdir().expect("create temp dir");
     let outer = temp_dir.path();
-    fs::write(
-        outer.join("Cargo.toml"),
-        "[workspace]\nmembers = [\"inner\"]\n",
-    )
-    .expect("write outer workspace");
+    fs::write(outer.join("Cargo.toml"), "[workspace]\nmembers = [\"inner\"]\n")
+        .expect("write outer workspace");
 
     let inner = outer.join("inner");
     fs::create_dir_all(&inner).expect("create inner dir");
@@ -100,11 +91,8 @@ fn find_root_returns_innermost_workspace_when_workspaces_are_nested() {
 
     let leaf = inner.join("crates").join("leaf");
     fs::create_dir_all(&leaf).expect("create leaf dir");
-    fs::write(
-        leaf.join("Cargo.toml"),
-        "[package]\nname = \"leaf\"\nversion = \"0.1.0\"\n",
-    )
-    .expect("write leaf member");
+    fs::write(leaf.join("Cargo.toml"), "[package]\nname = \"leaf\"\nversion = \"0.1.0\"\n")
+        .expect("write leaf member");
 
     let found = find_workspace_root(&leaf).expect("should find workspace root");
     assert_eq!(
@@ -120,11 +108,8 @@ fn find_root_returns_innermost_workspace_when_workspaces_are_nested() {
 fn find_root_falls_back_to_nearest_when_no_workspace_in_chain() {
     let temp_dir = tempfile::tempdir().expect("create temp dir");
     let root = temp_dir.path();
-    fs::write(
-        root.join("Cargo.toml"),
-        "[package]\nname = \"loner\"\nversion = \"0.1.0\"\n",
-    )
-    .expect("write package");
+    fs::write(root.join("Cargo.toml"), "[package]\nname = \"loner\"\nversion = \"0.1.0\"\n")
+        .expect("write package");
 
     let sub = root.join("src");
     fs::create_dir_all(&sub).expect("create src");
@@ -143,16 +128,10 @@ fn find_root_resolves_symlinked_parent_in_start_path() {
     let real_root = temp_dir.path().join("real");
     let real_member = real_root.join("crates").join("foo");
     fs::create_dir_all(&real_member).expect("create real member");
-    fs::write(
-        real_root.join("Cargo.toml"),
-        "[workspace]\nmembers = [\"crates/foo\"]\n",
-    )
-    .expect("write workspace");
-    fs::write(
-        real_member.join("Cargo.toml"),
-        "[package]\nname = \"foo\"\nversion = \"0.1.0\"\n",
-    )
-    .expect("write member");
+    fs::write(real_root.join("Cargo.toml"), "[workspace]\nmembers = [\"crates/foo\"]\n")
+        .expect("write workspace");
+    fs::write(real_member.join("Cargo.toml"), "[package]\nname = \"foo\"\nversion = \"0.1.0\"\n")
+        .expect("write member");
 
     // Create a symlink that aliases `real/crates` → accessed via a sibling path.
     let alias = temp_dir.path().join("alias_crates");
@@ -180,10 +159,7 @@ fn find_root_respects_injected_depth_bound() {
 
     let bounded = find_workspace_root_with_depth(&leaf, 1);
     assert!(
-        matches!(
-            bounded,
-            Err(FindWorkspaceRootError::NotFound { depth: 1, .. })
-        ),
+        matches!(bounded, Err(FindWorkspaceRootError::NotFound { depth: 1, .. })),
         "depth=1 must NotFound before reaching grandparent, got: {bounded:?}"
     );
 
@@ -197,10 +173,7 @@ fn find_root_not_found() {
 
     let result = find_workspace_root(temp_dir.path());
     assert!(result.is_err());
-    assert!(result
-        .unwrap_err()
-        .to_string()
-        .contains("no Cargo.toml found"));
+    assert!(result.unwrap_err().to_string().contains("no Cargo.toml found"));
 }
 
 /// ARCH-2 / TASK-0871: `NotFound` and `CanonicalizeFailed` must be
@@ -284,11 +257,8 @@ fn find_root_strict_accepts_on_chain_canonical_ancestor() {
     let legit = real_root.join("legit");
     let leaf = legit.join("leaf");
     fs::create_dir_all(&leaf).unwrap();
-    fs::write(
-        leaf.join("Cargo.toml"),
-        "[package]\nname = \"leaf\"\nversion = \"0.1.0\"\n",
-    )
-    .unwrap();
+    fs::write(leaf.join("Cargo.toml"), "[package]\nname = \"leaf\"\nversion = \"0.1.0\"\n")
+        .unwrap();
 
     // The strict variant must accept the legit leaf manifest because
     // its canonical parent is on the canonical-start chain.
@@ -421,12 +391,7 @@ fn strict_candidate_action_skips_ancestor_that_fails_to_canonicalize() {
         lexical_parent,
         &cargo_toml,
         start_canonical,
-        &|_| {
-            Err(std::io::Error::new(
-                std::io::ErrorKind::PermissionDenied,
-                "denied",
-            ))
-        },
+        &|_| Err(std::io::Error::new(std::io::ErrorKind::PermissionDenied, "denied")),
     );
 
     assert_eq!(
@@ -552,10 +517,7 @@ fn content_declares_workspace_ignores_triple_quotes_in_comments() {
         "[package]\na = 1 # '''\n[workspace]\n",
         "[package]\nname = 'x' # \"\"\" and ''' and \"\"\"\n[workspace]\n",
     ] {
-        assert!(
-            content_declares_workspace(content),
-            "should detect workspace in: {content:?}"
-        );
+        assert!(content_declares_workspace(content), "should detect workspace in: {content:?}");
     }
 }
 
@@ -568,10 +530,7 @@ fn content_declares_workspace_tracks_single_line_strings() {
         "[package]\ndescription = \"say \\\"\\\"\\\" twice\"\n[workspace]\n",
         "[package]\ndescription = \"it's\" # it's '''\n[workspace]\n",
     ] {
-        assert!(
-            content_declares_workspace(content),
-            "should detect workspace in: {content:?}"
-        );
+        assert!(content_declares_workspace(content), "should detect workspace in: {content:?}");
     }
     // `#` inside a string does not end the scan, so the multi-line string
     // opened after it still hides its body.
@@ -588,10 +547,7 @@ fn content_declares_workspace_tracks_multiline_string_state_across_lines() {
         "[package]\na = \"\"\"x\"\"\" # done\n[workspace]\n",
         "[package]\na = \"\"\"\nx\n\"\"\" # '''\n[workspace]\n",
     ] {
-        assert!(
-            content_declares_workspace(content),
-            "should detect workspace in: {content:?}"
-        );
+        assert!(content_declares_workspace(content), "should detect workspace in: {content:?}");
     }
     for content in [
         "[package]\na = \"\"\"\nx \\\"\"\"\n[workspace]\n\"\"\"\n",
@@ -622,10 +578,7 @@ fn content_declares_workspace_accepts_trailing_comment() {
         "[workspace.package]   # shared metadata\nversion = \"1.0.0\"\n",
         "  [workspace]\t# indented header with a tab-separated comment\n",
     ] {
-        assert!(
-            content_declares_workspace(content),
-            "should detect workspace in: {content:?}"
-        );
+        assert!(content_declares_workspace(content), "should detect workspace in: {content:?}");
     }
 }
 
@@ -639,10 +592,7 @@ fn content_declares_workspace_accepts_quoted_key() {
         "[ 'workspace' . package ] # shared\nversion = \"1.0.0\"\n",
         "[\"workspace\".package]\nversion = \"1.0.0\"\n",
     ] {
-        assert!(
-            content_declares_workspace(content),
-            "should detect workspace in: {content:?}"
-        );
+        assert!(content_declares_workspace(content), "should detect workspace in: {content:?}");
     }
 }
 

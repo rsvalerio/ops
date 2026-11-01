@@ -65,13 +65,7 @@ impl RenderConfig {
         show_error_detail: bool,
         stderr_tail: StderrTail,
     ) -> Self {
-        Self {
-            theme,
-            columns,
-            is_tty,
-            show_error_detail,
-            stderr_tail,
-        }
+        Self { theme, columns, is_tty, show_error_detail, stderr_tail }
     }
 }
 
@@ -97,14 +91,7 @@ impl<'a> DisplayOptions<'a> {
         tap: Option<PathBuf>,
         verbose: bool,
     ) -> Self {
-        Self {
-            output,
-            display_map,
-            custom_themes,
-            tap,
-            junit: None,
-            verbose,
-        }
+        Self { output, display_map, custom_themes, tap, junit: None, verbose }
     }
 
     /// Request a `JUnit` XML report (`--junit <file>`) of the run's steps.

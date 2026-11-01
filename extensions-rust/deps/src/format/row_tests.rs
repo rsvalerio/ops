@@ -87,10 +87,7 @@ fn known_severities_round_trip_through_classifier() {
             "\u{2139}" => SeverityClass::Info,
             other => panic!("unexpected icon `{other}` for severity `{sev}`"),
         };
-        assert_eq!(
-            class, icon_class,
-            "icon and classifier disagree for severity `{sev}`"
-        );
+        assert_eq!(class, icon_class, "icon and classifier disagree for severity `{sev}`");
     }
 }
 
@@ -180,24 +177,15 @@ fn bans_row_warns_once_on_unknown_severity() {
 fn unused_row_statuses() {
     let checked = |entries| UnusedDepsResult::Checked { entries };
     let row = unused_row(&checked(vec![]));
-    assert_eq!(
-        (row.status, row.result.as_str()),
-        (ReportStatus::Ok, "None")
-    );
+    assert_eq!((row.status, row.result.as_str()), (ReportStatus::Ok, "None"));
 
     let row = unused_row(&checked(vec![crate::UnusedDepEntry {
         package: "app".into(),
         manifest_path: "./Cargo.toml".into(),
         dependency: "serde".into(),
     }]));
-    assert_eq!(
-        (row.status, row.result.as_str()),
-        (ReportStatus::Warning, "1 dependency")
-    );
+    assert_eq!((row.status, row.result.as_str()), (ReportStatus::Warning, "1 dependency"));
 
     let row = unused_row(&UnusedDepsResult::NotInstalled);
-    assert_eq!(
-        (row.status, row.result.as_str()),
-        (ReportStatus::Info, "Skipped")
-    );
+    assert_eq!((row.status, row.result.as_str()), (ReportStatus::Info, "Skipped"));
 }

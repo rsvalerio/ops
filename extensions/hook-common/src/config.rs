@@ -232,10 +232,7 @@ mod tests {
         );
 
         // The user's file is left alone.
-        assert_eq!(
-            std::fs::read_to_string(&path).unwrap(),
-            "commands = \"verify\"\n"
-        );
+        assert_eq!(std::fs::read_to_string(&path).unwrap(), "commands = \"verify\"\n");
     }
 
     #[test]

@@ -24,11 +24,7 @@ pub fn query_project_coverage(db: &Sqlite) -> anyhow::Result<CrateCoverage> {
     let sql = format!("SELECT {} FROM coverage_files", coverage_col_select(None));
     query_project_row(
         db,
-        &QuerySpec {
-            table: "coverage_files",
-            sql: &sql,
-            label: "query_project_coverage",
-        },
+        &QuerySpec { table: "coverage_files", sql: &sql, label: "query_project_coverage" },
         CrateCoverage::zero(),
         |row| Ok(CrateCoverage::new(row.get(0)?, row.get(1)?, row.get(2)?)),
     )
@@ -112,10 +108,7 @@ pub fn query_crate_coverage(
         .chain(std::iter::once(workspace_root));
 
     collect_per_crate_map(&conn, &sql, label, params, |row| {
-        Ok((
-            row.get::<_, String>(0)?,
-            CrateCoverage::new(row.get(1)?, row.get(2)?, row.get(3)?),
-        ))
+        Ok((row.get::<_, String>(0)?, CrateCoverage::new(row.get(1)?, row.get(2)?, row.get(3)?)))
     })
 }
 

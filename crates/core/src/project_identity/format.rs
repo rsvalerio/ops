@@ -144,16 +144,9 @@ fn format_region_breakdown(regions: &[RegionStat]) -> Vec<String> {
     // Align by display width, not byte length — an unknown region keeps its
     // raw key verbatim, so a future non-ASCII key would otherwise misalign
     // the column. Pattern mirrors theme_cmd / help.rs.
-    let name_width = sorted
-        .iter()
-        .map(|r| display_width(region_display(&r.region).1))
-        .max()
-        .unwrap_or(0);
-    let code_width = sorted
-        .iter()
-        .map(|r| format_number(r.code).len())
-        .max()
-        .unwrap_or(0);
+    let name_width =
+        sorted.iter().map(|r| display_width(region_display(&r.region).1)).max().unwrap_or(0);
+    let code_width = sorted.iter().map(|r| format_number(r.code).len()).max().unwrap_or(0);
 
     for region in sorted {
         let (_, name) = region_display(&region.region);
@@ -236,11 +229,7 @@ pub(super) fn compose_codebase_value(id: &ProjectIdentity) -> Option<String> {
     }
     if let Some(f) = id.file_count {
         if f > 0 {
-            parts.push(format!(
-                "{} file{}",
-                format_number(f),
-                if f == 1 { "" } else { "s" }
-            ));
+            parts.push(format!("{} file{}", format_number(f), if f == 1 { "" } else { "s" }));
         }
     }
     if parts.is_empty() {
@@ -290,10 +279,7 @@ mod tests {
     /// column.
     #[test]
     fn region_breakdown_aligns_non_ascii_names_by_display_width() {
-        let regions = vec![
-            RegionStat::new("日本語", 1, 100),
-            RegionStat::new("main", 1, 100),
-        ];
+        let regions = vec![RegionStat::new("日本語", 1, 100), RegionStat::new("main", 1, 100)];
         let lines = format_region_breakdown(&regions);
         assert_eq!(lines.len(), 3);
 
@@ -301,9 +287,7 @@ mod tests {
         // display_width on the prefix preceding the value gives the column
         // position. Both rows must put "100" at the same column.
         let col = |line: &str| -> usize {
-            let idx = line
-                .find(|c: char| c.is_ascii_digit())
-                .expect("value digit present");
+            let idx = line.find(|c: char| c.is_ascii_digit()).expect("value digit present");
             display_width(line.get(..idx).expect("find returns a char boundary"))
         };
         assert_eq!(col(&lines[1]), col(&lines[2]));

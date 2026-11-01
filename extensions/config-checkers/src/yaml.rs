@@ -162,10 +162,7 @@ mod tests {
     #[test]
     fn invalid_yaml_fails() {
         let err = check_yaml(b"a: : :\n").unwrap_err();
-        assert!(
-            matches!(err, CheckError::Parse(_)),
-            "expected Parse, got {err:?}"
-        );
+        assert!(matches!(err, CheckError::Parse(_)), "expected Parse, got {err:?}");
         assert!(!err.to_string().is_empty());
     }
 
@@ -184,23 +181,13 @@ mod tests {
         // the allocator aborts.
         let mut doc = String::from("a0: &a0 \"lol\"\n");
         for level in 1..=9 {
-            let aliases = (0..9)
-                .map(|_| format!("*a{}", level - 1))
-                .collect::<Vec<_>>()
-                .join(",");
+            let aliases = (0..9).map(|_| format!("*a{}", level - 1)).collect::<Vec<_>>().join(",");
             writeln!(doc, "a{level}: &a{level} [{aliases}]").unwrap();
         }
-        assert!(
-            doc.len() < 500,
-            "bomb should stay tiny: {} bytes",
-            doc.len()
-        );
+        assert!(doc.len() < 500, "bomb should stay tiny: {} bytes", doc.len());
 
         let err = check_yaml(doc.as_bytes()).unwrap_err();
-        assert_eq!(
-            err.to_string(),
-            "input exceeds the expanded node count limit of 20000000"
-        );
+        assert_eq!(err.to_string(), "input exceeds the expanded node count limit of 20000000");
     }
 
     #[test]
@@ -208,19 +195,13 @@ mod tests {
         let depth = usize::try_from(MAX_NESTING_DEPTH).unwrap() + 10;
         let doc = format!("{}{}", "[".repeat(depth), "]".repeat(depth));
         let err = check_yaml(doc.as_bytes()).unwrap_err();
-        assert_eq!(
-            err.to_string(),
-            "input exceeds the nesting depth limit of 128"
-        );
+        assert_eq!(err.to_string(), "input exceeds the nesting depth limit of 128");
     }
 
     #[test]
     fn non_utf8_input_reports_invalid_utf8() {
         let err = check_yaml(b"a: \xff\n").unwrap_err();
-        assert!(
-            matches!(err, CheckError::InvalidUtf8(_)),
-            "expected InvalidUtf8, got {err:?}"
-        );
+        assert!(matches!(err, CheckError::InvalidUtf8(_)), "expected InvalidUtf8, got {err:?}");
         assert!(err.to_string().starts_with("invalid UTF-8: "));
     }
 

@@ -66,11 +66,8 @@ fn provider_invalid_toml() {
 fn provider_unreadable_file_returns_error() {
     let temp_dir = tempfile::tempdir().expect("create temp dir");
     let cargo_toml = temp_dir.path().join("Cargo.toml");
-    std::fs::write(
-        &cargo_toml,
-        "[package]\nname = \"test\"\nversion = \"0.1.0\"",
-    )
-    .expect("write cargo toml");
+    std::fs::write(&cargo_toml, "[package]\nname = \"test\"\nversion = \"0.1.0\"")
+        .expect("write cargo toml");
 
     let Some(_guard) = PermGuard::deny_all(&cargo_toml, |p| std::fs::read(p).map(|_| ())) else {
         skip_no_dac_enforcement("provider_unreadable_file_returns_error");
@@ -139,11 +136,7 @@ fn provider_schema_names_match_serialized_manifest() {
         let mut cursor = &value;
         let mut walked = String::new();
         for (i, segment) in field.name.split('.').enumerate() {
-            let key = if i == 0 {
-                segment.to_ascii_lowercase()
-            } else {
-                segment.to_string()
-            };
+            let key = if i == 0 { segment.to_ascii_lowercase() } else { segment.to_string() };
             walked.push('/');
             walked.push_str(&key);
             cursor = cursor.get(&key).unwrap_or_else(|| {
@@ -202,11 +195,8 @@ fn provider_dependency_sections_round_trip_in_both_spellings() {
 fn provider_resolve_root_auto_discovers() {
     let temp_dir = tempfile::tempdir().expect("create temp dir");
     let cargo_toml = temp_dir.path().join("Cargo.toml");
-    std::fs::write(
-        &cargo_toml,
-        "[package]\nname = \"test\"\nversion = \"0.1.0\"",
-    )
-    .expect("write cargo toml");
+    std::fs::write(&cargo_toml, "[package]\nname = \"test\"\nversion = \"0.1.0\"")
+        .expect("write cargo toml");
 
     let subdir = temp_dir.path().join("src");
     std::fs::create_dir_all(&subdir).expect("create subdir");
@@ -266,14 +256,8 @@ serde = "1.0"
 
     // Both dep inheritance and package inheritance should be resolved
     assert_eq!(manifest.dependencies["serde"].version(), Some("1.0"));
-    assert_eq!(
-        manifest.package.as_ref().unwrap().version.as_str(),
-        Some("2.0.0")
-    );
-    assert_eq!(
-        manifest.package.as_ref().unwrap().edition.as_str(),
-        Some("2024")
-    );
+    assert_eq!(manifest.package.as_ref().unwrap().version.as_str(), Some("2.0.0"));
+    assert_eq!(manifest.package.as_ref().unwrap().edition.as_str(), Some("2024"));
 }
 
 /// SEC-25 / TASK-2143: the auto-discovering provider (the no-root shape the
@@ -308,16 +292,11 @@ fn auto_discovering_provider_uses_the_strict_root_walk() {
     // Pin the disagreement the provider's choice is made against.
     let lenient = crate::workspace_root::find_workspace_root(&legit)
         .expect("lenient walk returns its first-seen fallback");
-    assert_eq!(
-        lenient, legit,
-        "lenient walk resolves to the symlink-manifested directory"
-    );
+    assert_eq!(lenient, legit, "lenient walk resolves to the symlink-manifested directory");
 
     let provider = CargoTomlProvider::new();
     let mut ctx = test_context(legit);
-    let err = provider
-        .provide(&mut ctx)
-        .expect_err("strict walk finds no root");
+    let err = provider.provide(&mut ctx).expect_err("strict walk finds no root");
     assert!(
         matches!(err, DataProviderError::ComputationFailed(_)),
         "expected ComputationFailed, got: {err:?}"
@@ -343,10 +322,7 @@ fn auto_discovering_provider_finds_the_workspace_root_from_a_member() {
     let manifest: CargoToml =
         serde_json::from_value(value).expect("should deserialize to CargoToml");
     assert!(
-        manifest
-            .workspace
-            .as_ref()
-            .is_some_and(|w| !w.members.is_empty()),
+        manifest.workspace.as_ref().is_some_and(|w| !w.members.is_empty()),
         "the resolved root must be the real workspace root, not the member manifest"
     );
 }

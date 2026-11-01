@@ -112,11 +112,7 @@ impl AboutOptions {
     /// Build the options from `refresh`, `visible_fields` and `is_tty`.
     #[must_use = "pass the options to `run_about`; a discarded one renders nothing"]
     pub const fn new(refresh: bool, visible_fields: Option<Vec<String>>, is_tty: bool) -> Self {
-        Self {
-            refresh,
-            visible_fields,
-            is_tty,
-        }
+        Self { refresh, visible_fields, is_tty }
     }
 }
 
@@ -325,10 +321,7 @@ mod tests {
         );
         assert_eq!(exec.display_cmd(), "ops about");
         assert_eq!(exec.args, vec!["about".to_string()]);
-        assert!(
-            !exec.exclusive,
-            "about only reads, so it may overlap other steps"
-        );
+        assert!(!exec.exclusive, "about only reads, so it may overlap other steps");
     }
 
     /// `run_about` composes `resolve_identity`, the
@@ -441,12 +434,7 @@ mod tests {
     #[test]
     fn fallback_identity_name_from_dir() {
         let dir = tempfile::tempdir().unwrap();
-        let expected = dir
-            .path()
-            .file_name()
-            .unwrap()
-            .to_string_lossy()
-            .to_string();
+        let expected = dir.path().file_name().unwrap().to_string_lossy().to_string();
         let id = build_fallback_identity(dir.path());
         assert_eq!(id.name, expected);
     }
@@ -461,11 +449,7 @@ mod tests {
         assert!(opts.refresh);
         assert_eq!(opts.visible_fields.unwrap().len(), 2);
 
-        let opts_default = AboutOptions {
-            refresh: false,
-            visible_fields: None,
-            is_tty: false,
-        };
+        let opts_default = AboutOptions { refresh: false, visible_fields: None, is_tty: false };
         assert!(!opts_default.refresh);
         assert!(opts_default.visible_fields.is_none());
     }
@@ -526,9 +510,8 @@ mod tests {
         identity.file_count = Some(10);
         identity.dependency_count = Some(5);
         identity.coverage_percent = Some(85.0);
-        identity.languages = vec![ops_core::project_identity::LanguageStat::new(
-            "Rust", 100, 10, 100.0, 100.0,
-        )];
+        identity.languages =
+            vec![ops_core::project_identity::LanguageStat::new("Rust", 100, 10, 100.0, 100.0)];
         identity.regions = vec![ops_core::project_identity::RegionStat::new("main", 10, 100)];
 
         let lang_count_before = identity.languages.len();
@@ -582,11 +565,7 @@ mod tests {
         assert_eq!(identity.loc, Some(650), "summed region code");
         assert_eq!(identity.file_count, Some(3), "distinct files, not 4");
         assert_eq!(identity.regions.len(), 3);
-        let main = identity
-            .regions
-            .iter()
-            .find(|r| r.region == "main")
-            .expect("main region");
+        let main = identity.regions.iter().find(|r| r.region == "main").expect("main region");
         assert_eq!((main.files, main.code), (2, 500));
     }
 

@@ -83,9 +83,7 @@ pub fn normalize_dir(dir: &str) -> &str {
 fn excluded(exclude: &[String], dir: &str) -> bool {
     exclude.iter().map(|e| normalize_dir(e)).any(|e| {
         !e.is_empty()
-            && dir
-                .strip_prefix(e)
-                .is_some_and(|rest| rest.is_empty() || rest.starts_with('/'))
+            && dir.strip_prefix(e).is_some_and(|rest| rest.is_empty() || rest.starts_with('/'))
     })
 }
 
@@ -113,9 +111,8 @@ fn table_of(path: &Path) -> Option<toml::Table> {
 /// unparseable nested manifests are skipped.
 #[must_use]
 pub fn nested_workspaces(root: &Path) -> Vec<NestedWorkspace> {
-    let root_exclude = table_of(&root.join("Cargo.toml"))
-        .map(|t| exclude_of(&t))
-        .unwrap_or_default();
+    let root_exclude =
+        table_of(&root.join("Cargo.toml")).map(|t| exclude_of(&t)).unwrap_or_default();
 
     let walker = WalkBuilder::new(root)
         .require_git(false)
@@ -123,9 +120,7 @@ pub fn nested_workspaces(root: &Path) -> Vec<NestedWorkspace> {
         .filter_entry(|entry| {
             entry.depth() == 0
                 || !entry.file_type().is_some_and(|t| t.is_dir())
-                || !SKIP_DIRS
-                    .iter()
-                    .any(|d| *d == entry.file_name().to_string_lossy())
+                || !SKIP_DIRS.iter().any(|d| *d == entry.file_name().to_string_lossy())
         })
         .build();
 
@@ -165,9 +160,7 @@ pub fn nested_workspaces(root: &Path) -> Vec<NestedWorkspace> {
                     (
                         w.dir.as_str(),
                         &w.exclude,
-                        m.dir
-                            .get(w.dir.len().saturating_add(1)..)
-                            .unwrap_or_default(),
+                        m.dir.get(w.dir.len().saturating_add(1)..).unwrap_or_default(),
                     )
                 });
             let excluded_from = excluded(exclude, rel).then(|| from.to_string());
@@ -190,19 +183,13 @@ fn exclude_of(table: &toml::Table) -> Vec<String> {
         .get("workspace")
         .and_then(|w| w.get("exclude"))
         .and_then(toml::Value::as_array)
-        .map(|entries| {
-            entries
-                .iter()
-                .filter_map(|e| e.as_str().map(str::to_string))
-                .collect()
-        })
+        .map(|entries| entries.iter().filter_map(|e| e.as_str().map(str::to_string)).collect())
         .unwrap_or_default()
 }
 
 /// Whether `dir` lies strictly below `ancestor` (both `/`-separated).
 fn is_under(dir: &str, ancestor: &str) -> bool {
-    dir.strip_prefix(ancestor)
-        .is_some_and(|rest| rest.starts_with('/'))
+    dir.strip_prefix(ancestor).is_some_and(|rest| rest.starts_with('/'))
 }
 
 /// `dir` relative to `root`, `/`-separated; `None` for a non-UTF-8 path.
@@ -223,10 +210,7 @@ mod tests {
     }
 
     fn dirs(found: &[NestedWorkspace]) -> Vec<String> {
-        found
-            .iter()
-            .map(|w| format!("{}: {}", w.dir, w.reason()))
-            .collect()
+        found.iter().map(|w| format!("{}: {}", w.dir, w.reason())).collect()
     }
 
     #[test]
@@ -239,11 +223,7 @@ mod tests {
             "[workspace]\nmembers = [\"crates/*\"]\nexclude = [\"./fuzz\", \"tools/\"]\n",
         );
         write(root, "crates/a/Cargo.toml", "[package]\nname = \"a\"\n");
-        write(
-            root,
-            "fuzz/Cargo.toml",
-            "[package]\nname = \"f\"\n[workspace]\nmembers = [\".\"]\n",
-        );
+        write(root, "fuzz/Cargo.toml", "[package]\nname = \"f\"\n[workspace]\nmembers = [\".\"]\n");
         write(root, "tools/gen/Cargo.toml", "[package]\nname = \"gen\"\n");
         write(root, "bench/Cargo.toml", "[workspace]\nmembers = []\n");
 
@@ -266,11 +246,7 @@ mod tests {
         write(root, "Cargo.toml", "[workspace]\nexclude = [\"tools\"]\n");
         write(root, "tools/Cargo.toml", "[workspace]\nmembers = [\"a\"]\n");
         write(root, "tools/a/Cargo.toml", "[package]\nname = \"a\"\n");
-        write(
-            root,
-            "tools/b/Cargo.toml",
-            "[package]\nname = \"b\"\n[workspace]\n",
-        );
+        write(root, "tools/b/Cargo.toml", "[package]\nname = \"b\"\n[workspace]\n");
         assert_eq!(
             dirs(&nested_workspaces(root)),
             [
@@ -286,11 +262,7 @@ mod tests {
         let dir = tempfile::tempdir().unwrap();
         let root = dir.path();
         write(root, "Cargo.toml", "[workspace]\nexclude = [\"tools\"]\n");
-        write(
-            root,
-            "tools/Cargo.toml",
-            "[workspace]\nmembers = [\"a\"]\nexclude = [\"b\"]\n",
-        );
+        write(root, "tools/Cargo.toml", "[workspace]\nmembers = [\"a\"]\nexclude = [\"b\"]\n");
         write(root, "tools/a/Cargo.toml", "[package]\nname = \"a\"\n");
         write(root, "tools/b/Cargo.toml", "[package]\nname = \"b\"\n");
         assert_eq!(
@@ -309,21 +281,11 @@ mod tests {
         let ws = "[workspace]\nmembers = [\".\"]\n";
         write(root, "Cargo.toml", "[package]\nname = \"r\"\n");
         write(root, ".gitignore", "/scratch/\n");
-        for skipped in [
-            "target/x",
-            "fuzz/target/y",
-            "vendor/z",
-            ".hidden/w",
-            "scratch/v",
-        ] {
+        for skipped in ["target/x", "fuzz/target/y", "vendor/z", ".hidden/w", "scratch/v"] {
             write(root, &format!("{skipped}/Cargo.toml"), ws);
         }
         write(root, "broken/Cargo.toml", "[workspace\n");
-        write(
-            root,
-            "fixtures/member/Cargo.toml",
-            "[package]\nname = \"m\"\n",
-        );
+        write(root, "fixtures/member/Cargo.toml", "[package]\nname = \"m\"\n");
         assert!(nested_workspaces(root).is_empty());
     }
 
@@ -331,10 +293,7 @@ mod tests {
     fn root_without_a_manifest_still_finds_declared_workspaces() {
         let dir = tempfile::tempdir().unwrap();
         write(dir.path(), "fuzz/Cargo.toml", "[workspace]\n");
-        assert_eq!(
-            dirs(&nested_workspaces(dir.path())),
-            ["fuzz: own [workspace]"]
-        );
+        assert_eq!(dirs(&nested_workspaces(dir.path())), ["fuzz: own [workspace]"]);
     }
 
     #[test]

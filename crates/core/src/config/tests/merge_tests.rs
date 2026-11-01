@@ -13,10 +13,7 @@ fn merge_config_overlay_adds_commands() {
         ..Default::default()
     };
     merge_config(&mut base, overlay);
-    assert!(
-        base.commands.contains_key("build"),
-        "base command preserved"
-    );
+    assert!(base.commands.contains_key("build"), "base command preserved");
     assert!(base.commands.contains_key("test"), "overlay command added");
 }
 
@@ -26,10 +23,7 @@ fn merge_config_overlay_overrides_existing_command() {
     let overlay = ConfigOverlay {
         commands: Some({
             let mut m = IndexMap::new();
-            m.insert(
-                "build".into(),
-                make_exec_spec("cargo", &["build", "--release"]),
-            );
+            m.insert("build".into(), make_exec_spec("cargo", &["build", "--release"]));
             m
         }),
         ..Default::default()
@@ -77,18 +71,9 @@ fn merge_config_partial_overlay_preserves_base() {
     merge_config(&mut base, overlay);
     assert_eq!(base.output.theme, "classic", "theme preserved from base");
     assert_eq!(base.output.columns, 200, "columns overridden by overlay");
-    assert!(
-        base.output.show_error_detail,
-        "show_error_detail preserved from base"
-    );
-    assert_eq!(
-        base.output.stderr_tail_lines, 5,
-        "stderr_tail_lines preserved from base"
-    );
-    assert!(
-        base.commands.contains_key("build"),
-        "commands preserved from base"
-    );
+    assert!(base.output.show_error_detail, "show_error_detail preserved from base");
+    assert_eq!(base.output.stderr_tail_lines, 5, "stderr_tail_lines preserved from base");
+    assert!(base.commands.contains_key("build"), "commands preserved from base");
 }
 
 /// TQ-015: `DataConfigOverlay` merging preserves base when overlay is None.
@@ -97,9 +82,7 @@ fn merge_config_data_overlay_sets_path() {
     let mut base = base_config();
     base.data.path = Some(std::path::PathBuf::from("/original/path"));
     let overlay = ConfigOverlay {
-        data: Some(DataConfigOverlay {
-            path: Some(std::path::PathBuf::from("/new/path")),
-        }),
+        data: Some(DataConfigOverlay { path: Some(std::path::PathBuf::from("/new/path")) }),
         ..Default::default()
     };
     merge_config(&mut base, overlay);
@@ -114,10 +97,8 @@ fn merge_config_data_overlay_sets_path() {
 fn merge_config_data_overlay_none_path_preserves_base() {
     let mut base = base_config();
     base.data.path = Some(std::path::PathBuf::from("/original/path"));
-    let overlay = ConfigOverlay {
-        data: Some(DataConfigOverlay { path: None }),
-        ..Default::default()
-    };
+    let overlay =
+        ConfigOverlay { data: Some(DataConfigOverlay { path: None }), ..Default::default() };
     merge_config(&mut base, overlay);
     assert_eq!(
         base.data.path,
@@ -131,9 +112,7 @@ fn merge_config_data_overlay_none_path_preserves_base() {
 fn merge_config_extension_overlay_sets_enabled() {
     let mut base = base_config();
     let overlay = ConfigOverlay {
-        extensions: Some(ExtensionConfigOverlay {
-            enabled: Some(vec!["metadata".to_string()]),
-        }),
+        extensions: Some(ExtensionConfigOverlay { enabled: Some(vec!["metadata".to_string()]) }),
         ..Default::default()
     };
     merge_config(&mut base, overlay);
@@ -185,10 +164,7 @@ fn merge_config_overlay_enables_extensions() {
         ..Default::default()
     };
     merge_config(&mut base, overlay);
-    assert_eq!(
-        base.extensions.enabled,
-        Some(vec!["metadata".into(), "cargo-toml".into()])
-    );
+    assert_eq!(base.extensions.enabled, Some(vec!["metadata".into(), "cargo-toml".into()]));
 }
 
 mod proptest_tests {

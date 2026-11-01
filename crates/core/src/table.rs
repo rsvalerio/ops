@@ -144,10 +144,7 @@ impl OpsTable {
 /// visible `\xNN` / `\u{NNNN}` text so an operator can see they were there.
 #[must_use]
 pub fn sanitise_table_text(value: &str) -> String {
-    value
-        .chars()
-        .filter(|c| !crate::text::is_unsafe_display_char(*c))
-        .collect()
+    value.chars().filter(|c| !crate::text::is_unsafe_display_char(*c)).collect()
 }
 
 impl fmt::Display for OpsTable {
@@ -314,10 +311,7 @@ mod tests {
             sanitise_table_text("aws_db_instance.\u{202e}etaerc\u{202c}"),
             "aws_db_instance.etaerc"
         );
-        assert_eq!(
-            sanitise_table_text("\u{2066}mod\u{2067}ule\u{2068}.a\u{2069}"),
-            "module.a"
-        );
+        assert_eq!(sanitise_table_text("\u{2066}mod\u{2067}ule\u{2068}.a\u{2069}"), "module.a");
         assert_eq!(
             sanitise_table_text("aws\u{200b}_db\u{200d}_inst\u{feff}ance"),
             "aws_db_instance"

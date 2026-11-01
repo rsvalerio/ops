@@ -175,9 +175,8 @@ impl Stack {
         CACHE.get_or_init(|| {
             Self::iter()
                 .map(|stack| {
-                    let commands = stack
-                        .default_commands_toml()
-                        .map_or_else(IndexMap::new, |toml| {
+                    let commands =
+                        stack.default_commands_toml().map_or_else(IndexMap::new, |toml| {
                             parse_default_commands(stack, toml, &mut std::io::stderr().lock())
                         });
                     (stack, commands)
@@ -267,11 +266,7 @@ pub fn is_generated_build_dir(parent: &Path, dir_name: &str) -> bool {
     let Ok(entries) = std::fs::read_dir(parent) else {
         return false;
     };
-    entries.flatten().any(|e| {
-        e.file_name()
-            .to_str()
-            .is_some_and(|n| manifests.contains(&n))
-    })
+    entries.flatten().any(|e| e.file_name().to_str().is_some_and(|n| manifests.contains(&n)))
 }
 
 /// Parse an embedded `.default.<stack>.ops.toml` payload, falling back to an
@@ -445,18 +440,9 @@ mod tests {
         restore.set_mode(0o755);
         std::fs::set_permissions(&locked, restore).unwrap();
 
-        assert!(
-            !found,
-            "an unreadable directory must still be reported as 'no manifest here'"
-        );
-        assert!(
-            log.contains("read_dir failed"),
-            "expected a read_dir breadcrumb, got: {log}"
-        );
-        assert!(
-            log.contains("locked"),
-            "breadcrumb must name the directory, got: {log}"
-        );
+        assert!(!found, "an unreadable directory must still be reported as 'no manifest here'");
+        assert!(log.contains("read_dir failed"), "expected a read_dir breadcrumb, got: {log}");
+        assert!(log.contains("locked"), "breadcrumb must name the directory, got: {log}");
     }
 
     #[test]
@@ -630,10 +616,7 @@ mod tests {
     #[test]
     fn vite_defines_typecheck() {
         let cmds = Stack::Vite.default_commands_ref();
-        assert!(
-            cmds.contains_key("typecheck"),
-            "vite must define a typecheck command"
-        );
+        assert!(cmds.contains_key("typecheck"), "vite must define a typecheck command");
     }
 
     #[test]
@@ -844,10 +827,7 @@ mod tests {
     fn rust_clippy_aliased_to_lint() {
         let cmds = Stack::Rust.default_commands_ref();
         let clippy = cmds.get("clippy").expect("clippy must exist");
-        assert!(
-            clippy.aliases().iter().any(|a| a == "lint"),
-            "rust clippy must alias `lint`"
-        );
+        assert!(clippy.aliases().iter().any(|a| a == "lint"), "rust clippy must alias `lint`");
         assert!(
             !cmds.contains_key("lint"),
             "rust must not define a duplicate top-level `lint` command"
@@ -981,24 +961,16 @@ mod tests {
     /// form: no step of `verify` may rewrite the files it gates.
     #[test]
     fn every_stack_verify_names_no_rewriter() {
-        const REWRITERS: [&str; 5] = [
-            "fmt",
-            "trailing-whitespace",
-            "end-of-file-fixer",
-            "ruff-fix",
-            "black-fmt",
-        ];
+        const REWRITERS: [&str; 5] =
+            ["fmt", "trailing-whitespace", "end-of-file-fixer", "ruff-fix", "black-fmt"];
         // Generic ships no default commands.
         for stack in Stack::iter().filter(|s| *s != Stack::Generic) {
             let cmds = stack.default_commands_ref();
             let Some(CommandSpec::Composite(verify)) = cmds.get("verify") else {
                 panic!("{stack:?} `verify` must be a composite");
             };
-            let rewriters: Vec<&String> = verify
-                .commands
-                .iter()
-                .filter(|c| REWRITERS.contains(&c.as_str()))
-                .collect();
+            let rewriters: Vec<&String> =
+                verify.commands.iter().filter(|c| REWRITERS.contains(&c.as_str())).collect();
             assert!(
                 rewriters.is_empty(),
                 "{stack:?} `verify` runs rewriter(s) {rewriters:?}; they belong in `verify-fix`"
@@ -1029,8 +1001,7 @@ mod tests {
             .collect();
         assert_eq!(composite("verify"), expected);
         assert!(
-            cmds.get("verify")
-                .is_some_and(|v| v.aliases().iter().any(|a| a == "verify-check")),
+            cmds.get("verify").is_some_and(|v| v.aliases().iter().any(|a| a == "verify-check")),
             "rust `verify` must keep the `verify-check` alias"
         );
 
@@ -1045,10 +1016,7 @@ mod tests {
     fn go_vet_aliased_to_lint() {
         let cmds = Stack::Go.default_commands_ref();
         let vet = cmds.get("vet").expect("vet must exist");
-        assert!(
-            vet.aliases().iter().any(|a| a == "lint"),
-            "go vet must alias `lint`"
-        );
+        assert!(vet.aliases().iter().any(|a| a == "lint"), "go vet must alias `lint`");
         assert!(
             !cmds.contains_key("lint"),
             "go must not define a duplicate top-level `lint` command"
@@ -1058,10 +1026,7 @@ mod tests {
     #[test]
     fn python_defines_lint_composite() {
         let cmds = Stack::Python.default_commands_ref();
-        assert!(
-            cmds.contains_key("lint"),
-            "python must define `lint` composite"
-        );
+        assert!(cmds.contains_key("lint"), "python must define `lint` composite");
     }
 
     /// Collect every composite reachable from `root` that carries
@@ -1113,12 +1078,7 @@ mod tests {
                     continue;
                 }
                 let mut found = Vec::new();
-                parallel_descendants(
-                    cmds,
-                    name,
-                    &mut std::collections::HashSet::new(),
-                    &mut found,
-                );
+                parallel_descendants(cmds, name, &mut std::collections::HashSet::new(), &mut found);
                 assert!(
                     found.is_empty(),
                     "stack `{}`: `{name}` declares parallel = false but has parallel \
@@ -1174,12 +1134,7 @@ mod tests {
         );
 
         let mut found = Vec::new();
-        parallel_descendants(
-            cmds,
-            "verify-fix",
-            &mut std::collections::HashSet::new(),
-            &mut found,
-        );
+        parallel_descendants(cmds, "verify-fix", &mut std::collections::HashSet::new(), &mut found);
         assert!(
             found.is_empty(),
             "python `verify-fix` has parallel descendant(s) {found:?}; the flattened plan \
@@ -1195,11 +1150,7 @@ mod tests {
         };
         let fmt = pos("fmt");
         for reader in ["lint", "type"] {
-            assert!(
-                fmt < pos(reader),
-                "fmt must precede {reader}, got: {:?}",
-                verify.commands
-            );
+            assert!(fmt < pos(reader), "fmt must precede {reader}, got: {:?}", verify.commands);
         }
     }
 
@@ -1263,10 +1214,7 @@ mod tests {
         let map = super::parse_default_commands(Stack::Rust, "not [valid toml", &mut buf);
         assert!(map.is_empty(), "parse failure must degrade to empty map");
         let out = String::from_utf8(buf).expect("utf8");
-        assert!(
-            out.starts_with("ops: warning:"),
-            "expected ui::warn prefix, got: {out}"
-        );
+        assert!(out.starts_with("ops: warning:"), "expected ui::warn prefix, got: {out}");
         assert!(out.contains("rust"), "warn must name the stack, got: {out}");
     }
 
@@ -1301,10 +1249,7 @@ mod tests {
         assert_eq!(Stack::JavaGradle.build_dirs(), ["build", ".gradle"]);
         assert_eq!(Stack::Vite.build_dirs(), ["node_modules", "dist"]);
         assert_eq!(Stack::Node.build_dirs(), ["node_modules", "dist"]);
-        assert_eq!(
-            Stack::Python.build_dirs(),
-            [".venv", "venv", "__pycache__", "build", "dist"]
-        );
+        assert_eq!(Stack::Python.build_dirs(), [".venv", "venv", "__pycache__", "build", "dist"]);
         assert_eq!(Stack::Go.build_dirs(), ["vendor"]);
         assert_eq!(Stack::Terraform.build_dirs(), [".terraform"]);
         // Ansible's collection/role caches default to $HOME/.ansible, not

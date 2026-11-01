@@ -63,13 +63,7 @@ pub fn render_error_block_gated(
     let mut lines = Vec::new();
     lines.push(format!("{pad}{gutter}{top}"));
     if !detail.message.is_empty() {
-        lines.push(format!(
-            "{}{}{} {}",
-            pad,
-            gutter,
-            mid,
-            sanitise(&detail.message)
-        ));
+        lines.push(format!("{}{}{} {}", pad, gutter, mid, sanitise(&detail.message)));
     }
     if !detail.stderr_tail.is_empty() {
         lines.push(format!(

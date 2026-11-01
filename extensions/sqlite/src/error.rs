@@ -108,10 +108,7 @@ impl DbError {
     /// underlying `rusqlite` error.
     #[must_use = "return the constructed error; building it reports nothing"]
     pub fn query_failed(context: impl Into<String>, source: rusqlite::Error) -> Self {
-        Self::QueryFailed {
-            context: context.into(),
-            source,
-        }
+        Self::QueryFailed { context: context.into(), source }
     }
 }
 
@@ -144,13 +141,7 @@ impl std::error::Error for IoContext {
 /// that branch on `NotFound` and friends still can, and exposes `source`
 /// itself through [`std::error::Error::source`].
 pub fn io_context(context: impl Into<String>, source: std::io::Error) -> std::io::Error {
-    std::io::Error::new(
-        source.kind(),
-        IoContext {
-            context: context.into(),
-            source,
-        },
-    )
+    std::io::Error::new(source.kind(), IoContext { context: context.into(), source })
 }
 
 /// Result alias for database operations.
@@ -187,14 +178,8 @@ mod tests {
         );
         // Escaped form should still carry the original substrings so the
         // operator can recover the panic payload by reading the log.
-        assert!(
-            rendered.contains("\\n"),
-            "expected escaped newline; got: {rendered:?}"
-        );
-        assert!(
-            rendered.contains("FAKE ERROR"),
-            "payload text preserved; got: {rendered:?}"
-        );
+        assert!(rendered.contains("\\n"), "expected escaped newline; got: {rendered:?}");
+        assert!(rendered.contains("FAKE ERROR"), "payload text preserved; got: {rendered:?}");
     }
 
     /// Render `err` the way anyhow's `{:#}` does: every link of the source
@@ -222,17 +207,11 @@ mod tests {
             chain(DbError::Sqlite(sqlite())),
             chain(DbError::query_failed("test_op", sqlite())),
             chain(DbError::Io(std::io::Error::other("needle"))),
-            chain(DbError::SqlValidation(
-                crate::sql::SqlError::InvalidIdentifier("needle".into()),
-            )),
+            chain(DbError::SqlValidation(crate::sql::SqlError::InvalidIdentifier("needle".into()))),
             chain(DbError::External(anyhow::anyhow!("needle"))),
         ];
         for line in rendered {
-            assert_eq!(
-                line.matches("needle").count(),
-                1,
-                "cause must appear exactly once: {line}"
-            );
+            assert_eq!(line.matches("needle").count(), 1, "cause must appear exactly once: {line}");
         }
     }
 
@@ -247,10 +226,7 @@ mod tests {
         let wrapped = io_context("creating /some/dir", original);
         assert_eq!(wrapped.kind(), std::io::ErrorKind::PermissionDenied);
         assert_eq!(wrapped.to_string(), "creating /some/dir");
-        assert_eq!(
-            wrapped.source().map(ToString::to_string).as_deref(),
-            Some(cause.as_str())
-        );
+        assert_eq!(wrapped.source().map(ToString::to_string).as_deref(), Some(cause.as_str()));
         assert_eq!(
             chain(DbError::Io(wrapped)),
             format!("filesystem operation failed: creating /some/dir: {cause}")
@@ -267,10 +243,8 @@ mod tests {
 
     #[test]
     fn db_error_query_failed_context() {
-        let err = DbError::query_failed(
-            "test_op",
-            rusqlite::Error::InvalidParameterName("test".into()),
-        );
+        let err =
+            DbError::query_failed("test_op", rusqlite::Error::InvalidParameterName("test".into()));
         assert!(err.to_string().contains("test_op"));
     }
 }

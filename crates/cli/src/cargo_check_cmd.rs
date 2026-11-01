@@ -97,11 +97,7 @@ pub fn run_cargo_check(check: &CargoCheck, root: &Path, dry_run: bool) -> anyhow
         .current_dir(root)
         .status()
         .with_context(|| format!("failed to spawn {}", check.command_line()))?;
-    Ok(if status.success() {
-        ExitCode::SUCCESS
-    } else {
-        ExitCode::FAILURE
-    })
+    Ok(if status.success() { ExitCode::SUCCESS } else { ExitCode::FAILURE })
 }
 
 #[cfg(test)]
@@ -117,9 +113,7 @@ mod tests {
     #[test]
     fn a_missing_plugin_reports_its_install_command() {
         let dir = tempfile::tempdir().unwrap();
-        let err = run_cargo_check(&MISSING, dir.path(), false)
-            .unwrap_err()
-            .to_string();
+        let err = run_cargo_check(&MISSING, dir.path(), false).unwrap_err().to_string();
         assert!(
             err.contains("cargo ops-no-such-plugin is not installed")
                 && err.contains("cargo install cargo-ops-no-such-plugin"),
@@ -130,18 +124,12 @@ mod tests {
     #[test]
     fn dry_run_spawns_nothing_even_for_a_missing_plugin() {
         let dir = tempfile::tempdir().unwrap();
-        assert_eq!(
-            run_cargo_check(&MISSING, dir.path(), true).unwrap(),
-            ExitCode::SUCCESS
-        );
+        assert_eq!(run_cargo_check(&MISSING, dir.path(), true).unwrap(), ExitCode::SUCCESS);
     }
 
     #[test]
     fn command_lines_name_the_plugin_and_its_arguments() {
         assert_eq!(SEMVER.command_line(), "cargo semver-checks --workspace");
-        assert_eq!(
-            FEATURE_MATRIX.command_line(),
-            "cargo hack check --workspace --each-feature"
-        );
+        assert_eq!(FEATURE_MATRIX.command_line(), "cargo hack check --workspace --each-feature");
     }
 }

@@ -18,11 +18,7 @@ pub fn commit_config() -> HookConfig {
         hook_filename: "pre-commit",
         hook_script: "#!/bin/sh\nexec ops run-before-commit\n",
         skip_env_var: "SKIP_OPS_RUN_BEFORE_COMMIT",
-        legacy_markers: &[
-            "ops run-before-commit",
-            "ops before-commit",
-            "ops pre-commit",
-        ],
+        legacy_markers: &["ops run-before-commit", "ops before-commit", "ops pre-commit"],
         command_help: "Run run-before-commit checks before committing",
     }
 }
@@ -49,8 +45,5 @@ pub fn push_config() -> HookConfig {
 pub fn truncated_hook_script(cfg: &HookConfig) -> &'static str {
     // Everything up to and including the first `ops ` token: still inside the
     // second line, so the result cannot equal the whole script.
-    cfg.hook_script
-        .split_inclusive("ops ")
-        .next()
-        .unwrap_or(cfg.hook_script)
+    cfg.hook_script.split_inclusive("ops ").next().unwrap_or(cfg.hook_script)
 }

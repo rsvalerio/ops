@@ -60,11 +60,7 @@ fn run_check_to(
         }
     }
     writeln!(w, "Minimum ops version for this config: {minimum}")?;
-    Ok(if rejected == 0 {
-        ExitCode::SUCCESS
-    } else {
-        ExitCode::FAILURE
-    })
+    Ok(if rejected == 0 { ExitCode::SUCCESS } else { ExitCode::FAILURE })
 }
 
 /// Field names and fragment file names come from the repo's own files.
@@ -140,10 +136,7 @@ mod tests {
 
     #[test]
     fn a_hostile_key_stays_on_one_inert_line() {
-        let dir = project(
-            "[commands.\"a\\u001b[31m\\nb\"]\nprogram = \"x\"\nraw = true\n",
-            None,
-        );
+        let dir = project("[commands.\"a\\u001b[31m\\nb\"]\nprogram = \"x\"\nraw = true\n", None);
         let (_, out) = check(&dir, Some("0.1.0"));
         assert!(!out.contains('\u{1b}'), "{out:?}");
         assert_eq!(out.lines().count(), 3, "{out:?}");

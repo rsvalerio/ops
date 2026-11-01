@@ -55,10 +55,7 @@ fn tokei_extension_type_is_datasource() {
 
 #[test]
 fn tokei_extension_stack_is_none() {
-    assert!(
-        TokeiExtension.stack().is_none(),
-        "tokei should be language-agnostic"
-    );
+    assert!(TokeiExtension.stack().is_none(), "tokei should be language-agnostic");
 }
 
 // -- Provider tests --
@@ -80,9 +77,7 @@ fn tokei_provider_returns_valid_json_on_canned_dir() {
     .expect("write source");
 
     let mut ctx = Context::test_context(dir.path().to_path_buf());
-    let value = TokeiProvider
-        .provide(&mut ctx)
-        .expect("tokei should succeed on tempdir");
+    let value = TokeiProvider.provide(&mut ctx).expect("tokei should succeed on tempdir");
     assert!(value.is_array(), "should return a JSON array");
     let arr = value.as_array().unwrap();
     assert!(!arr.is_empty(), "should find the canned source file");
@@ -103,9 +98,7 @@ fn tokei_provider_returns_valid_json_on_canned_dir() {
 fn tokei_provider_returns_valid_json_on_real_project() {
     let manifest_dir = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"));
     let mut ctx = Context::test_context(manifest_dir);
-    let value = TokeiProvider
-        .provide(&mut ctx)
-        .expect("tokei should succeed on this project");
+    let value = TokeiProvider.provide(&mut ctx).expect("tokei should succeed on this project");
     assert!(value.is_array(), "should return a JSON array");
     assert!(!value.as_array().unwrap().is_empty());
 }
@@ -114,14 +107,9 @@ fn tokei_provider_returns_valid_json_on_real_project() {
 fn tokei_provider_empty_dir() {
     let dir = tempfile::tempdir().expect("tempdir");
     let mut ctx = Context::test_context(dir.path().to_path_buf());
-    let value = TokeiProvider
-        .provide(&mut ctx)
-        .expect("tokei should succeed on empty dir");
+    let value = TokeiProvider.provide(&mut ctx).expect("tokei should succeed on empty dir");
     assert!(value.is_array());
-    assert!(
-        value.as_array().unwrap().is_empty(),
-        "empty dir should produce no records"
-    );
+    assert!(value.as_array().unwrap().is_empty(), "empty dir should produce no records");
 }
 
 #[test]
@@ -159,10 +147,8 @@ fn collect_tokei_excludes_every_default_excluded_dir() {
     let value = super::collect_tokei(dir.path(), None).expect("collect");
     let arr = value.as_array().expect("array");
 
-    let files: Vec<String> = arr
-        .iter()
-        .map(|v| v["file"].as_str().unwrap_or("").to_string())
-        .collect();
+    let files: Vec<String> =
+        arr.iter().map(|v| v["file"].as_str().unwrap_or("").to_string()).collect();
     assert!(files.iter().any(|f| f.ends_with("src/lib.rs")));
     for excluded in super::TOKEI_DEFAULT_EXCLUDED {
         assert!(
@@ -192,11 +178,7 @@ fn collect_tokei_counts_build_dir_nested_under_src() {
         .map(|v| v["file"].as_str().unwrap_or_default().to_owned())
         .collect();
 
-    assert_eq!(
-        files.len(),
-        1,
-        "expected only the nested source; got {files:?}"
-    );
+    assert_eq!(files.len(), 1, "expected only the nested source; got {files:?}");
     assert!(
         files.iter().any(|f| f.ends_with("src/build/gen.rs")),
         "nested build/ holds real source and must be counted; got {files:?}"
@@ -229,10 +211,7 @@ fn scan_tokei_skips_files_over_the_byte_cap() {
     let big = "fn b() {}\n".repeat(64);
     std::fs::write(dir.path().join("big.rs"), &big).expect("write big");
 
-    let limits = super::ScanLimits {
-        file_bytes: 32,
-        ..super::ScanLimits::DEFAULT
-    };
+    let limits = super::ScanLimits { file_bytes: 32, ..super::ScanLimits::DEFAULT };
     let scan = super::scan_tokei(dir.path(), limits, None).expect("scan");
 
     assert_eq!(scan.skipped_oversize, 1);
@@ -248,10 +227,7 @@ fn scan_tokei_truncates_at_the_file_cap() {
         std::fs::write(dir.path().join(name), "fn x() {}\n").expect("write source");
     }
 
-    let limits = super::ScanLimits {
-        files: 2,
-        ..super::ScanLimits::DEFAULT
-    };
+    let limits = super::ScanLimits { files: 2, ..super::ScanLimits::DEFAULT };
     let scan = super::scan_tokei(dir.path(), limits, None).expect("scan");
 
     assert_eq!(scan.records.len(), 2, "cap must bound what is materialised");
@@ -312,10 +288,7 @@ fn unsupported_files_do_not_consume_the_file_cap() {
     }
     std::fs::write(dir.path().join("only.rs"), "fn x() {}\n").expect("write source");
 
-    let limits = super::ScanLimits {
-        files: 2,
-        ..super::ScanLimits::DEFAULT
-    };
+    let limits = super::ScanLimits { files: 2, ..super::ScanLimits::DEFAULT };
     let scan = super::scan_tokei(dir.path(), limits, None).expect("scan");
 
     assert_eq!(
@@ -325,10 +298,7 @@ fn unsupported_files_do_not_consume_the_file_cap() {
         scan.records
     );
     assert_eq!(scan.records[0]["file"], "only.rs");
-    assert!(
-        !scan.truncated,
-        "one candidate against a cap of two is not a truncated scan"
-    );
+    assert!(!scan.truncated, "one candidate against a cap of two is not a truncated scan");
 }
 
 #[test]
@@ -338,10 +308,7 @@ fn scan_tokei_honours_the_depth_cap() {
     std::fs::create_dir_all(dir.path().join("a/b")).expect("mkdir nested");
     std::fs::write(dir.path().join("a/b/deep.rs"), "fn deep() {}\n").expect("write deep");
 
-    let limits = super::ScanLimits {
-        depth: 1,
-        ..super::ScanLimits::DEFAULT
-    };
+    let limits = super::ScanLimits { depth: 1, ..super::ScanLimits::DEFAULT };
     let scan = super::scan_tokei(dir.path(), limits, None).expect("scan");
 
     assert_eq!(scan.records.len(), 1);
@@ -559,9 +526,7 @@ fn tokei_collect_and_load_cycle() {
 
     // Collect
     let ingestor = TokeiIngestor;
-    ingestor
-        .collect(&ctx, &dir)
-        .expect("collect should succeed");
+    ingestor.collect(&ctx, &dir).expect("collect should succeed");
     assert!(dir.entry_path("tokei_files.json").exists());
     assert!(dir.entry_path("tokei_workspace.txt").exists());
 
@@ -632,17 +597,10 @@ fn load_tokei_succeeds_after_collect() {
     // Collect data first
     let ctx = Context::test_context(project.path().to_path_buf());
     let ingestor = TokeiIngestor;
-    ingestor
-        .collect(&ctx, &dir)
-        .expect("collect should succeed");
+    ingestor.collect(&ctx, &dir).expect("collect should succeed");
 
-    let load_result = ingestor
-        .load(&dir, &db)
-        .expect("ingestor.load should succeed");
-    assert_eq!(
-        load_result.record_count,
-        u64::try_from(FIXTURE_FILE_COUNT).expect("fits")
-    );
+    let load_result = ingestor.load(&dir, &db).expect("ingestor.load should succeed");
+    assert_eq!(load_result.record_count, u64::try_from(FIXTURE_FILE_COUNT).expect("fits"));
 
     let conn = db.lock().expect("lock");
     let count: i64 = conn
@@ -701,9 +659,7 @@ fn tokei_ingestor_collect_empty_dir() {
     let ctx = Context::test_context(workspace.path().to_path_buf());
 
     let ingestor = TokeiIngestor;
-    ingestor
-        .collect(&ctx, &dir)
-        .expect("collect on empty dir should succeed");
+    ingestor.collect(&ctx, &dir).expect("collect on empty dir should succeed");
 
     // JSON file should exist even for empty dir (empty array)
     let json_path = dir.entry_path("tokei_files.json");
@@ -794,9 +750,7 @@ fn tokei_languages_view_aggregates_correctly() {
 
     // Get total from languages view
     let view_total: i64 = conn
-        .query_row("SELECT SUM(code) FROM tokei_languages", [], |row| {
-            row.get(0)
-        })
+        .query_row("SELECT SUM(code) FROM tokei_languages", [], |row| row.get(0))
         .expect("view sum");
 
     assert_eq!(
@@ -807,20 +761,13 @@ fn tokei_languages_view_aggregates_correctly() {
 
     // Verify language count matches distinct languages
     let distinct_langs: i64 = conn
-        .query_row(
-            "SELECT COUNT(DISTINCT language) FROM tokei_files",
-            [],
-            |row| row.get(0),
-        )
+        .query_row("SELECT COUNT(DISTINCT language) FROM tokei_files", [], |row| row.get(0))
         .expect("distinct langs");
     let view_langs: i64 = conn
         .query_row("SELECT COUNT(*) FROM tokei_languages", [], |row| row.get(0))
         .expect("view lang count");
     drop(conn);
-    assert_eq!(
-        distinct_langs, view_langs,
-        "view should have one row per language"
-    );
+    assert_eq!(distinct_langs, view_langs, "view should have one row per language");
     assert_eq!(distinct_langs, FIXTURE_LANGUAGE_COUNT);
 }
 

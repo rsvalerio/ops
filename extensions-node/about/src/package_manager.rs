@@ -67,19 +67,13 @@ mod tests {
     #[test]
     fn package_manager_field_recognizes_bun() {
         let dir = tempfile::tempdir().unwrap();
-        assert_eq!(
-            detect_package_manager(dir.path(), Some("bun@1.1.0")),
-            Some("bun")
-        );
+        assert_eq!(detect_package_manager(dir.path(), Some("bun@1.1.0")), Some("bun"));
     }
 
     #[test]
     fn package_manager_field_without_version() {
         let dir = tempfile::tempdir().unwrap();
-        assert_eq!(
-            detect_package_manager(dir.path(), Some("pnpm")),
-            Some("pnpm")
-        );
+        assert_eq!(detect_package_manager(dir.path(), Some("pnpm")), Some("pnpm"));
         assert_eq!(detect_package_manager(dir.path(), Some("bun")), Some("bun"));
     }
 
@@ -87,14 +81,8 @@ mod tests {
     fn unknown_package_manager_falls_through_to_lockfile_probe() {
         let dir = tempfile::tempdir().unwrap();
         std::fs::write(dir.path().join("pnpm-lock.yaml"), "").unwrap();
-        assert_eq!(
-            detect_package_manager(dir.path(), Some("deno@2.0.0")),
-            Some("pnpm")
-        );
-        assert_eq!(
-            detect_package_manager(dir.path(), Some("pnmp@8.6.1")),
-            Some("pnpm")
-        );
+        assert_eq!(detect_package_manager(dir.path(), Some("deno@2.0.0")), Some("pnpm"));
+        assert_eq!(detect_package_manager(dir.path(), Some("pnmp@8.6.1")), Some("pnpm"));
     }
 
     #[test]
@@ -107,10 +95,7 @@ mod tests {
     #[test]
     fn known_package_manager_with_version_still_recognised() {
         let dir = tempfile::tempdir().unwrap();
-        assert_eq!(
-            detect_package_manager(dir.path(), Some("pnpm@8.6.1")),
-            Some("pnpm")
-        );
+        assert_eq!(detect_package_manager(dir.path(), Some("pnpm@8.6.1")), Some("pnpm"));
     }
 
     #[test]
@@ -118,9 +103,6 @@ mod tests {
         let dir = tempfile::tempdir().unwrap();
         std::fs::write(dir.path().join("pnpm-lock.yaml"), "").unwrap();
         assert_eq!(detect_package_manager(dir.path(), Some("")), Some("pnpm"));
-        assert_eq!(
-            detect_package_manager(dir.path(), Some("   ")),
-            Some("pnpm")
-        );
+        assert_eq!(detect_package_manager(dir.path(), Some("   ")), Some("pnpm"));
     }
 }

@@ -58,11 +58,7 @@ fn collect_theme_options(config: &ops_core::config::Config) -> Vec<ThemeOption> 
         .iter()
         .map(|(name, theme_config)| ThemeOption {
             name: name.clone(),
-            description: theme_config
-                .description
-                .as_deref()
-                .unwrap_or("Custom theme")
-                .to_string(),
+            description: theme_config.description.as_deref().unwrap_or("Custom theme").to_string(),
             is_custom: !builtins.contains(name),
         })
         .collect();
@@ -88,11 +84,7 @@ fn run_theme_list_to(config: &config::Config, w: &mut dyn Write) -> anyhow::Resu
     // name, dim description + marker, padded to `max_name_width`) routes
     // through [`crate::row::write_list_row`] so the `theme list` and
     // `tools list` surfaces share a single colour / padding policy.
-    let max_name_width = options
-        .iter()
-        .map(|o| display_width(&o.name))
-        .max()
-        .unwrap_or(0);
+    let max_name_width = options.iter().map(|o| display_width(&o.name)).max().unwrap_or(0);
 
     for option in options {
         let marker = theme_custom_marker(option.is_custom);
@@ -151,10 +143,8 @@ where
 
     let current_theme = &config.output.theme;
 
-    let starting_cursor = options
-        .iter()
-        .position(|o| o.name == *current_theme)
-        .unwrap_or_else(|| {
+    let starting_cursor =
+        options.iter().position(|o| o.name == *current_theme).unwrap_or_else(|| {
             tracing::debug!(
                 current_theme = %current_theme,
                 available_themes = ?options.iter().map(|o| &o.name).collect::<Vec<_>>(),
@@ -218,13 +208,7 @@ impl std::fmt::Display for ThemeOption {
         // the same shape (sans column padding / colour) — the list adds
         // alignment padding around `name` and TTY colour, the picker omits
         // both since inquire's prompt does its own selection-cursor styling.
-        write!(
-            f,
-            "{}   {}{}",
-            self.name,
-            self.description,
-            theme_custom_marker(self.is_custom),
-        )
+        write!(f, "{}   {}{}", self.name, self.description, theme_custom_marker(self.is_custom))
     }
 }
 
@@ -251,9 +235,7 @@ fn set_theme(doc: &mut toml_edit::DocumentMut, theme_name: &str) -> anyhow::Resu
 /// Update the theme value in TOML content, preserving formatting.
 #[cfg(test)]
 fn update_toml_theme(content: &str, theme_name: &str) -> String {
-    let mut doc = content
-        .parse::<toml_edit::DocumentMut>()
-        .expect("test input must be valid TOML");
+    let mut doc = content.parse::<toml_edit::DocumentMut>().expect("test input must be valid TOML");
     set_theme(&mut doc, theme_name).expect("test input must contain a table at [output] or none");
     doc.to_string()
 }
@@ -289,9 +271,7 @@ columns = 80
             80,
             "sibling key under [output] must survive the rewrite unchanged"
         );
-        let output_table = doc["output"]
-            .as_table()
-            .expect("[output] must remain a table");
+        let output_table = doc["output"].as_table().expect("[output] must remain a table");
         let keys: Vec<&str> = output_table.iter().map(|(k, _)| k).collect();
         assert_eq!(
             keys,
@@ -407,10 +387,7 @@ build = "cargo build"
     fn embedded_default_config_parse_failure_panic_message_is_named() {
         // The constant is the load-bearing contract — any rename would
         // break operator-visible diagnostics on a broken default.
-        assert_eq!(
-            EMBEDDED_DEFAULT_CONFIG_PARSE_EXPECT,
-            "embedded default config must parse",
-        );
+        assert_eq!(EMBEDDED_DEFAULT_CONFIG_PARSE_EXPECT, "embedded default config must parse",);
         // And on a healthy build the embedded TOML must parse, so the
         // expect path is never taken in practice.
         assert!(
@@ -444,10 +421,7 @@ build = "cargo build"
         let mut buf = Vec::new();
         let result = run_theme_select_with_tty_check(&config, dir.path(), &mut buf, || false);
         assert!(result.is_err(), "run_theme_select should fail without TTY");
-        assert!(result
-            .unwrap_err()
-            .to_string()
-            .contains("interactive terminal"));
+        assert!(result.unwrap_err().to_string().contains("interactive terminal"));
         assert!(buf.is_empty(), "non-TTY path must not write anything");
     }
 
@@ -464,10 +438,7 @@ build = "cargo build"
             .expect("write_theme_select_result");
         let out = String::from_utf8(buf).unwrap();
         assert_eq!(out, "Theme already set to 'classic'\n");
-        assert!(
-            !dir.path().join(".ops.toml").exists(),
-            "no-op path must not touch .ops.toml"
-        );
+        assert!(!dir.path().join(".ops.toml").exists(), "no-op path must not touch .ops.toml");
     }
 
     #[test]
@@ -643,10 +614,7 @@ theme = "compact"
             );
             let options = collect_theme_options(&config);
             let names: Vec<&str> = options.iter().map(|o| o.name.as_str()).collect();
-            assert!(
-                names.contains(&"my-custom"),
-                "should include custom theme: {names:?}"
-            );
+            assert!(names.contains(&"my-custom"), "should include custom theme: {names:?}");
             let custom = options.iter().find(|o| o.name == "my-custom").unwrap();
             assert!(custom.is_custom, "custom theme should be marked as custom");
         }
@@ -685,19 +653,15 @@ theme = "compact"
     /// `ops: error:` frame), not as a plain anyhow failure exiting 1.
     #[test]
     fn theme_select_cancel_exits_130_without_an_error_frame() {
-        for err in [
-            inquire::InquireError::OperationCanceled,
-            inquire::InquireError::OperationInterrupted,
-        ] {
+        for err in
+            [inquire::InquireError::OperationCanceled, inquire::InquireError::OperationInterrupted]
+        {
             let err = crate::prompt::require_answer(
                 Err::<crate::tty::SelectOption, _>(err),
                 "theme select",
             )
             .expect_err("a cancelled prompt must not yield an answer");
-            assert_eq!(
-                crate::extract_exit_code_override(&err),
-                Some(crate::SIGINT_EXIT)
-            );
+            assert_eq!(crate::extract_exit_code_override(&err), Some(crate::SIGINT_EXIT));
             assert_eq!(
                 crate::prompt::cancellation_of(&err).map(ToString::to_string),
                 Some("theme select cancelled".to_string()),
