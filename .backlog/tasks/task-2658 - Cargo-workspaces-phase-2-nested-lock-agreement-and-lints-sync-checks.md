@@ -20,7 +20,7 @@ ordinal: 1000
 <!-- SECTION:DESCRIPTION:BEGIN -->
 **File**: `crates/core/src/config/workspaces.rs`
 
-**What**: A nested workspace named in `[cargo] workspaces` runs fmt/clippy/build/deps, but the drift between it and the root is unchecked: its Cargo.lock must agree with the root lockfile for shared crates, and its [lints] tables must copy [workspace.lants]. dbsec checks both with ~490 lines of script (scripts/fuzz-lock-check.sh, scripts/lint-sync-check.sh).
+**What**: A nested workspace named in `[cargo] workspaces` runs fmt/clippy/build/deps, but the drift between it and the root is unchecked: its Cargo.lock must agree with the root lockfile for shared crates, and its [lints] tables must copy [workspace.lints]. dbsec checks both with ~490 lines of script (scripts/fuzz-lock-check.sh, scripts/lint-sync-check.sh).
 
 **Why it matters**: without a built-in, every repo with a fuzz workspace re-adds the scripts by hand — the same hand-rolling `[cargo] workspaces` removed for the run commands.
 
