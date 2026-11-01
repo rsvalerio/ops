@@ -2,6 +2,32 @@
 All notable changes to this project will be documented in this file. See [conventional commits](https://www.conventionalcommits.org/) for commit guidelines.
 
 - - -
+## [v0.91.0](https://github.com/rsvalerio/ops/compare/9f0c13d01c2206a37716d64cf0984c8a7d535dd3..v0.91.0) - 2026-11-01
+#### 🚀 Features
+- (**config**) track config values and all mise pin locations - ([8ac5f02](https://github.com/rsvalerio/ops/commit/8ac5f021b1d2a66b912dac58587018af03e063e4)) - [@rsvalerio](https://github.com/rsvalerio)
+- (**core**) add OPS_BIN builtin for re-invoking the running ops from config - ([a439bf3](https://github.com/rsvalerio/ops/commit/a439bf3b54f6e5800a79d54c40854841616dac45)) - [@rsvalerio](https://github.com/rsvalerio)
+#### 🐛 Bug Fixes
+- (**config**) count only the value in effect across config files - ([316447c](https://github.com/rsvalerio/ops/commit/316447c12d1ccb70c477f9a403a84ce745901d17)) - [@rsvalerio](https://github.com/rsvalerio)
+- (**foundation**) report unreadable mise pin locations instead of skipping the check - ([cfc58a4](https://github.com/rsvalerio/ops/commit/cfc58a4dd91cf51b0fd5176f448c2fc54ad23553)) - [@rsvalerio](https://github.com/rsvalerio)
+- (**workspace**) settle sibling-wave code under the doc-ids gate and rustfmt Max - ([8a3bf2a](https://github.com/rsvalerio/ops/commit/8a3bf2a0171693d658abf04feceddeb621e4fa58)) - [@rsvalerio](https://github.com/rsvalerio)
+#### 📚 Documentation
+- (**runner**) record why plan-less commands skip after-name validation - ([dcb6a5a](https://github.com/rsvalerio/ops/commit/dcb6a5ad5531d761f1eadc2ce0c118665b2a0886)) - [@rsvalerio](https://github.com/rsvalerio)
+- (**workspace**) drop task and review-rule ids from doc comments - ([92a8dc3](https://github.com/rsvalerio/ops/commit/92a8dc3bba8cdf48b3cf5e599be2310747bad04e)) - [@rsvalerio](https://github.com/rsvalerio)
+#### 🔧 Build System
+- (**ops**) run doc-ids as part of verify - ([f133f55](https://github.com/rsvalerio/ops/commit/f133f55c3bce774189171bd73c1c2aeecf183b98)) - [@rsvalerio](https://github.com/rsvalerio)
+#### 🚜 Refactoring
+- (**foundation**) parse the ops pin with OpsVersion - ([7e8f90b](https://github.com/rsvalerio/ops/commit/7e8f90b5e9a4087f35d756c6e239fbd1a4c3e222)) - [@rsvalerio](https://github.com/rsvalerio)
+#### ⚙️ Miscellaneous
+- (**backlog**) close code-review wave 80 - ([e4e4938](https://github.com/rsvalerio/ops/commit/e4e4938cb3b7b44d1a669b7d877e0a53f6d8ee32)) - [@rsvalerio](https://github.com/rsvalerio)
+- (**backlog**) close code-review wave 78 - ([51fa3bc](https://github.com/rsvalerio/ops/commit/51fa3bca8fbd8a26b2aa2b1cd8836d6fdf92fb92)) - [@rsvalerio](https://github.com/rsvalerio)
+- (**backlog**) close code-review wave 79 - ([f271a6f](https://github.com/rsvalerio/ops/commit/f271a6face6ab091dc868236308ec0687d93b735)) - [@rsvalerio](https://github.com/rsvalerio)
+- (**backlog**) close TASK-2328 and wave35 after forge#35 - ([115875f](https://github.com/rsvalerio/ops/commit/115875f866e8929af9c6178be3d9a85067e62810)) - [@rsvalerio](https://github.com/rsvalerio)
+- (**tools**) pin ops 0.90.1 in mise.toml (#122) - ([9f0c13d](https://github.com/rsvalerio/ops/commit/9f0c13d01c2206a37716d64cf0984c8a7d535dd3)) - [@rsvalerio](https://github.com/rsvalerio)
+#### 🎨 Styling
+- (**workspace**) adopt rustfmt.toml and reformat the tree - ([0c670f5](https://github.com/rsvalerio/ops/commit/0c670f563a6fdfe1f6cd26894898eafdbdeb8f62)) - [@rsvalerio](https://github.com/rsvalerio)
+
+- - -
+
 ## [v0.90.1](https://github.com/rsvalerio/ops/compare/17dbf6f83da4216ebc8881f6628ef81a4f5e5bb8..v0.90.1) - 2026-11-01
 #### 🐛 Bug Fixes
 - (**release**) build aarch64-apple-darwin on macos-15 (#121) - ([58bbe68](https://github.com/rsvalerio/ops/commit/58bbe6823e2fedee647cf5ea3650b4c35e2e4030)) - [@rsvalerio](https://github.com/rsvalerio)
