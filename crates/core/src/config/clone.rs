@@ -52,8 +52,8 @@ use super::Config;
 ///
 /// If a clone source is defined nowhere, a clone cycle exists, the clone
 /// target names an existing stack-default command, or an exec-only override
-/// (`args`, `env`, `cwd`, `timeout_secs`, `exclusive`, `strategy`) is set beside a composite
-/// source — each naming the clone and the source.
+/// (`args`, `env`, `cwd`, `timeout_secs`, `exclusive`, `strategy`, `after`, `wrap`) is set
+/// beside a composite source — each naming the clone and the source.
 pub(super) fn apply(config: &mut Config, workspace_root: &Path) -> anyhow::Result<()> {
     let mut pending: Vec<String> = config
         .commands
@@ -186,8 +186,8 @@ fn resolve_source(
 ///
 /// # Errors
 ///
-/// If an exec-only override (`args`, `env`, `cwd`, `timeout_secs`, `exclusive`, `strategy`) is
-/// set beside a composite source — silently dropping it would hide a
+/// If an exec-only override (`args`, `env`, `cwd`, `timeout_secs`, `exclusive`, `strategy`,
+/// `after`, `wrap`) is set beside a composite source — silently dropping it would hide a
 /// copy-paste mistake behind a clone that quietly ignores it.
 fn materialize(
     name: &str,
@@ -226,6 +226,12 @@ fn materialize(
             if decl.strategy.is_some() {
                 copy.strategy.clone_from(&decl.strategy);
             }
+            if let Some(after) = &decl.after {
+                copy.after.clone_from(after);
+            }
+            if let Some(wrap) = &decl.wrap {
+                copy.wrap.clone_from(wrap);
+            }
             CommandSpec::Exec(copy)
         }
         CommandSpec::Composite(c) => {
@@ -236,6 +242,8 @@ fn materialize(
                 ("timeout_secs", decl.timeout_secs.is_some()),
                 ("exclusive", decl.exclusive.is_some()),
                 ("strategy", decl.strategy.is_some()),
+                ("after", decl.after.is_some()),
+                ("wrap", decl.wrap.is_some()),
             ] {
                 if is_set {
                     anyhow::bail!(
@@ -587,6 +595,69 @@ mod tests {
             matches!(config.commands.get("a"), Some(CommandSpec::Exec(_))),
             "a must materialize from the concrete b"
         );
+    }
+
+    /// `wrap` and `after` beside `clone` replace the copied lists, so a
+    /// stack default can run inside a wrapper with its args still appended.
+    #[test]
+    fn wrap_and_after_override_the_copy() {
+        let dir = rust_workspace();
+        let mut decl = CloneCommandSpec::new("clippy");
+        decl.wrap = Some(vec!["./with-services.sh".to_string(), "--".to_string()]);
+        decl.after = Some(vec!["build".to_string()]);
+        decl.args = vec!["--locked".to_string()];
+        let mut config = config_with_clone("clippy-all", decl);
+        apply(&mut config, dir.path()).expect("clone must apply");
+
+        let Some(CommandSpec::Exec(spec)) = config.commands.get("clippy-all") else {
+            panic!("clone must materialize");
+        };
+        assert_eq!(spec.wrap, ["./with-services.sh", "--"]);
+        assert_eq!(spec.after, ["build"]);
+        assert_eq!(
+            spec.program, "cargo",
+            "the wrapped command stays the source's"
+        );
+        assert_eq!(spec.spawn_program(), "./with-services.sh");
+    }
+
+    /// An empty list beside `clone` clears the copied one.
+    #[test]
+    fn empty_wrap_and_after_clear_the_copy() {
+        let dir = rust_workspace();
+        let mut source = ExecCommandSpec::new("cargo", ["test"]);
+        source.wrap = vec!["./with-services.sh".to_string()];
+        source.after = vec!["build".to_string()];
+        let mut decl = CloneCommandSpec::new("my-test");
+        decl.wrap = Some(Vec::new());
+        decl.after = Some(Vec::new());
+        let mut config = config_with_clone("plain-test", decl);
+        config
+            .commands
+            .insert("my-test".to_string(), CommandSpec::Exec(source));
+        apply(&mut config, dir.path()).expect("clone must apply");
+
+        let Some(CommandSpec::Exec(spec)) = config.commands.get("plain-test") else {
+            panic!("clone must materialize");
+        };
+        assert!(spec.wrap.is_empty() && spec.after.is_empty());
+    }
+
+    /// `wrap` and `after` are exec-only, like the other overrides.
+    #[test]
+    fn wrap_and_after_on_composite_clone_error() {
+        let dir = rust_workspace();
+        let mut decl = CloneCommandSpec::new("verify");
+        decl.wrap = Some(vec!["./with-services.sh".to_string()]);
+        let mut config = config_with_clone("my-verify", decl);
+        let err = apply(&mut config, dir.path()).expect_err("wrap on a composite must error");
+        assert!(format!("{err:#}").contains("`wrap`"), "{err:#}");
+
+        let mut decl = CloneCommandSpec::new("verify");
+        decl.after = Some(vec!["build".to_string()]);
+        let mut config = config_with_clone("my-verify", decl);
+        let err = apply(&mut config, dir.path()).expect_err("after on a composite must error");
+        assert!(format!("{err:#}").contains("`after`"), "{err:#}");
     }
 
     /// Exec-only overrides beside a composite source are load errors — a

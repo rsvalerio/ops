@@ -130,6 +130,8 @@ struct PlanCtx<'a> {
 /// `parallel = true` group). Every composite in that subtree must agree on
 /// both flags; a disagreement is rejected naming the parallel root.
 struct FlatFlags<'a> {
+    /// Whether a leaf declared `after`, which the stage must then honour.
+    any_after: bool,
     /// `(name, value)` of the flat plan's root composite's `parallel`.
     parallel_decl: Option<(&'a str, bool)>,
     /// Same, for `fail_fast`.
@@ -429,7 +431,10 @@ impl CommandRunner {
     ///
     /// [`ExpandError`] if `id` is unknown, the composite tree cycles, expansion
     /// exceeds the depth limit, a parallel group contains a sequential one,
-    /// or a parallel group's subtree declares conflicting `fail_fast` values.
+    /// a parallel group's subtree declares conflicting `fail_fast` values, or
+    /// an `after` entry anywhere is invalid. That check spans every command,
+    /// not just this plan: it is the load error the loader cannot raise
+    /// itself, since it never sees the extension and builtin stores.
     pub fn expand_to_plan(&self, id: &str) -> Result<CommandPlan, ExpandError> {
         /// Maximum recursion depth for composite expansion.
         ///
@@ -439,6 +444,7 @@ impl CommandRunner {
         /// The cycle detection already catches circular references, so this is a
         /// defense against accidental deep nesting.
         const MAX_DEPTH: usize = 100;
+        self.check_after_names()?;
         let mut ctx = PlanCtx {
             visited: std::collections::HashSet::new(),
             depth: 0,
@@ -495,11 +501,15 @@ impl CommandRunner {
                     // values so any disagreement names this group as the
                     // plan the conflicting flag belongs to.
                     let mut flat = FlatFlags {
+                        any_after: false,
                         parallel_decl: Some((canonical, true)),
                         fail_fast_decl: Some((canonical, c.fail_fast)),
                         fail_fast_disabled: !c.fail_fast,
                     };
-                    let leaf_ids = self.expand_flat(&c.commands, ctx, &mut flat)?;
+                    let mut leaf_ids = self.expand_flat(&c.commands, ctx, &mut flat)?;
+                    if flat.any_after {
+                        leaf_ids = self.order_by_after(&leaf_ids)?;
+                    }
                     CommandPlan::Stage {
                         leaf_ids,
                         parallel: true,
@@ -556,7 +566,10 @@ impl CommandRunner {
             .canonical_with_spec(id)
             .ok_or_else(|| ExpandError::Unknown(UnknownCommand::new(id)))?;
         match spec {
-            CommandSpec::Exec(_) => Ok(vec![CommandId::from(canonical)]),
+            CommandSpec::Exec(e) => {
+                flat.any_after |= !e.after.is_empty();
+                Ok(vec![CommandId::from(canonical)])
+            }
             CommandSpec::Composite(c) => {
                 if !ctx.visited.insert(canonical) {
                     return Err(ExpandError::Cycle(canonical.to_string()));
@@ -588,6 +601,148 @@ impl CommandRunner {
             }
             CommandSpec::Clone(_) => Err(ExpandError::UnmaterializedClone(canonical.to_string())),
         }
+    }
+
+    /// Check every `after` entry in every store names an exec command.
+    fn check_after_names(&self) -> Result<(), ExpandError> {
+        let configured = self.config.commands.iter().map(|(k, v)| (k.as_str(), v));
+        let stored = [
+            &self.stack_commands,
+            &self.extension_commands,
+            &self.builtin_commands,
+        ]
+        .into_iter()
+        .flatten()
+        .map(|(k, v)| (k.as_str(), v));
+        for (step, spec) in configured.chain(stored) {
+            let CommandSpec::Exec(e) = spec else { continue };
+            for after in &e.after {
+                match self.canonical_with_spec(after) {
+                    Some((_, CommandSpec::Exec(_))) => {}
+                    Some(_) => {
+                        return Err(ExpandError::AfterComposite {
+                            step: step.to_string(),
+                            after: after.clone(),
+                        })
+                    }
+                    None => {
+                        return Err(ExpandError::UnknownAfter {
+                            step: step.to_string(),
+                            after: after.clone(),
+                        })
+                    }
+                }
+            }
+        }
+        Ok(())
+    }
+
+    /// `spec`'s `after` entries as canonical command names.
+    #[must_use]
+    pub fn after_ids(&self, spec: &ExecCommandSpec) -> Vec<&str> {
+        spec.after
+            .iter()
+            .filter_map(|name| self.canonical_with_spec(name))
+            .map(|(canonical, _)| canonical)
+            .collect()
+    }
+
+    /// Reorder a parallel stage's leaves so each follows the steps it runs
+    /// `after`, otherwise keeping list order.
+    ///
+    /// Stage boundaries stay put: steps only move within the run of
+    /// non-exclusive steps they share, so the leaf list still splits as
+    /// [`super::parallel::stage_lengths`] says. Listing dependencies first is
+    /// also what keeps `--raw`, which walks this list one step at a time, and
+    /// the batch scheduler, which wires only backward edges, correct.
+    ///
+    /// # Errors
+    ///
+    /// [`ExpandError::AfterLaterStage`] when a dependency sits behind an
+    /// exclusive step, [`ExpandError::AfterCycle`] when no order exists.
+    fn order_by_after(&self, leaves: &[CommandId]) -> Result<Vec<CommandId>, ExpandError> {
+        use std::collections::{BTreeSet, HashMap};
+
+        let specs: Vec<Option<&ExecCommandSpec>> = leaves
+            .iter()
+            .map(|id| match self.resolve(id) {
+                Some(CommandSpec::Exec(e)) => Some(e),
+                _ => None,
+            })
+            .collect();
+        let lengths =
+            super::parallel::stage_lengths(specs.iter().map(|e| e.is_some_and(|e| e.exclusive)));
+        let stage_of: Vec<usize> = lengths
+            .into_iter()
+            .enumerate()
+            .flat_map(|(stage, len)| std::iter::repeat_n(stage, len))
+            .collect();
+        let mut positions: HashMap<&str, Vec<usize>> = HashMap::new();
+        for (at, id) in leaves.iter().enumerate() {
+            positions.entry(id.as_str()).or_default().push(at);
+        }
+
+        // Kahn's algorithm, always taking the earliest ready position: every
+        // edge stays inside one stage, so stages cannot interleave.
+        let mut dependents: Vec<Vec<usize>> = vec![Vec::new(); leaves.len()];
+        let mut blockers: Vec<usize> = vec![0; leaves.len()];
+        let stages = leaves.iter().zip(&specs).zip(&stage_of);
+        for (at, ((id, spec), stage)) in stages.enumerate() {
+            let Some(spec) = spec else { continue };
+            for after in self.after_ids(spec) {
+                let found = positions.get(after).map_or(&[][..], Vec::as_slice);
+                for &dep in found {
+                    match stage_of.get(dep).map(|dep_stage| dep_stage.cmp(stage)) {
+                        Some(std::cmp::Ordering::Greater) => {
+                            return Err(ExpandError::AfterLaterStage {
+                                step: id.to_string(),
+                                after: after.to_string(),
+                            })
+                        }
+                        Some(std::cmp::Ordering::Equal) => {
+                            if let (Some(out), Some(count)) =
+                                (dependents.get_mut(dep), blockers.get_mut(at))
+                            {
+                                out.push(at);
+                                *count = count.saturating_add(1);
+                            }
+                        }
+                        Some(std::cmp::Ordering::Less) | None => {}
+                    }
+                }
+            }
+        }
+        let mut ready: BTreeSet<usize> = blockers
+            .iter()
+            .enumerate()
+            .filter(|(_, count)| **count == 0)
+            .map(|(at, _)| at)
+            .collect();
+        let mut order = Vec::with_capacity(leaves.len());
+        while let Some(at) = ready.pop_first() {
+            order.push(at);
+            for &next in dependents.get(at).map_or(&[][..], Vec::as_slice) {
+                if let Some(count) = blockers.get_mut(next) {
+                    *count = count.saturating_sub(1);
+                    if *count == 0 {
+                        ready.insert(next);
+                    }
+                }
+            }
+        }
+        if order.len() != leaves.len() {
+            let steps = leaves
+                .iter()
+                .zip(&blockers)
+                .filter(|(_, count)| **count > 0)
+                .map(|(id, _)| id.to_string())
+                .collect();
+            return Err(ExpandError::AfterCycle { steps });
+        }
+        Ok(order
+            .into_iter()
+            .filter_map(|at| leaves.get(at).cloned())
+            .collect())
     }
 
     /// Resolve a leaf ID to an owned [`ExecCommandSpec`], producing a typed

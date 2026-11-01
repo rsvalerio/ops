@@ -114,6 +114,9 @@ pub fn print_exec_spec(
     // Use strict expansion so a non-UTF-8 env var
     // surfaces in the dry-run preview instead of being silently logged while
     // the literal `${VAR}` flows to display.
+    if let Some(wrap) = e.expanded_wrap_display(vars)? {
+        writeln!(w, "      wrap:    {}", audit_safe(&wrap))?;
+    }
     writeln!(
         w,
         "      program: {}",
@@ -169,6 +172,9 @@ pub fn print_exec_spec(
     }
     if let Some(timeout) = e.timeout_secs {
         writeln!(w, "      timeout: {timeout}s")?;
+    }
+    if !e.after.is_empty() {
+        writeln!(w, "      after:   {}", audit_safe(&e.after.join(", ")))?;
     }
     Ok(())
 }

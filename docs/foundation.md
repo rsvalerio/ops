@@ -37,6 +37,12 @@ is the repo's own value and not part of the baseline.
 Compares the project with the templates in the running ops and exits 1 on drift. It
 writes nothing, so it is safe in CI and under `--dry-run`.
 
+`ops foundation` is the same check as a built-in command, so a composite can name it
+with no definition of its own, through `[extend.qa] commands = ["foundation"]` for
+instance. It re-invokes the running ops, so the version a repo pins decides the
+templates, not whatever `ops` is on `PATH`. A `[commands.foundation]` entry left over from
+before the built-in is reported as shadowed; delete it.
+
 The comparison is semantic, not textual. Each template is a baseline:
 
 - Every key the template sets must be present with the same value. Comments and
@@ -52,6 +58,9 @@ The comparison is semantic, not textual. Each template is a baseline:
   exception: the template's version is a floor, so any `x.y.z` release from it on
   passes, including the ops running the check. A pin below the floor, or one that is
   not a plain version such as `latest`, is drift at `mise.toml:tools.ops`.
+- A config field newer than the ops pin is drift at `<file>:<field>`, such as
+  `.ops.toml:commands.build.raw`, because CI runs the pin and fails on it. This is the
+  same check as [`ops config check`](configuration.md#checking-a-config-against-an-ops-version).
 - Lint levels only need to be at least as strict: `deny` or `forbid` satisfies the
   template's `warn`.
 - `unsafe_code` is policed. The template sets it to `warn`, so a repo with no

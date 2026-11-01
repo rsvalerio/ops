@@ -25,7 +25,7 @@ use super::super::{merge::merge_config, Config};
 /// single overlay file must not make it disappear while the rest of the
 /// merge proceeds, producing a config that differs
 /// from what the operator authored.
-fn read_conf_d_files(dir: &Path) -> anyhow::Result<Option<Vec<PathBuf>>> {
+pub(in crate::config) fn read_conf_d_files(dir: &Path) -> anyhow::Result<Option<Vec<PathBuf>>> {
     let entries = match std::fs::read_dir(dir) {
         Ok(e) => e,
         Err(e) if e.kind() == std::io::ErrorKind::NotFound => return Ok(None),

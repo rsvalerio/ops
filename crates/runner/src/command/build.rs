@@ -683,14 +683,17 @@ pub fn build_command_with(
     vars: &Variables,
     policy: CwdEscapePolicy,
 ) -> Result<Command, std::io::Error> {
-    let program = vars.try_expand(&spec.program).map_err(expand_err_to_io)?;
+    // `argv` always yields `program`, so the fallback is never taken.
+    let mut argv = spec.argv();
+    let head = argv.next().unwrap_or(&spec.program);
+    let program = vars.try_expand(head).map_err(expand_err_to_io)?;
     let mut cmd = Command::new(program.as_ref());
     // PERF-2 / TASK-0772: stream expanded args directly into `cmd.arg`. The
     // common case (no `${VAR}` substitution) returns `Cow::Borrowed`, so
     // `arg(expanded.as_ref())` does not allocate at all — the prior path
     // collected into a fresh `Vec<String>` regardless. Errors short-circuit
     // on the first failing arg, matching the previous behaviour.
-    for a in &spec.args {
+    for a in argv {
         let expanded = vars.try_expand(a).map_err(expand_err_to_io)?;
         cmd.arg(expanded.as_ref());
     }
@@ -717,6 +720,25 @@ mod tests {
     use ops_core::test_utils::{exec_spec, exec_spec_with_cwd};
     use std::sync::atomic::{AtomicUsize, Ordering};
     use std::sync::Arc;
+
+    /// `wrap` spawns first, with the wrapped command after it as plain argv.
+    #[test]
+    fn wrap_prepends_to_the_spawned_command_line() {
+        let mut spec = exec_spec("cargo", &["nextest", "run"]);
+        spec.wrap = vec!["./svc.sh".to_string(), "--pg".to_string(), "--".to_string()];
+        let cache = WorkspaceCanonicalCache::new();
+        let cmd = build_command_with(
+            &cache,
+            &spec,
+            std::path::Path::new("."),
+            &Variables::from_env(std::path::Path::new(".")).expect("UTF-8 path"),
+            CwdEscapePolicy::WarnAndAllow,
+        )
+        .expect("builds");
+        assert_eq!(cmd.as_std().get_program(), "./svc.sh");
+        let args: Vec<_> = cmd.as_std().get_args().collect();
+        assert_eq!(args, ["--pg", "--", "cargo", "nextest", "run"]);
+    }
 
     /// The async variant dispatches its canonicalize work to the blocking
     /// pool, so a single-threaded runtime can still drive other tasks while

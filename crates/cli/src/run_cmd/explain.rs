@@ -3,8 +3,9 @@
 //! The plan comes from the same [`super::plan::plans_for_names`] expansion the run path
 //! uses, so what is printed is what `ops <cmd>...` would schedule: each named
 //! command's plan tree, every composite's `parallel` / `fail_fast`, the
-//! stages a parallel group splits into at its `exclusive` steps, and each
-//! step's program, args, env, cwd and origin. Nothing here spawns a process:
+//! stages a parallel group splits into at its `exclusive` steps, the `after`
+//! edges between its steps, and each step's wrapper, program, args, env, cwd
+//! and origin. Nothing here spawns a process:
 //! the module only resolves specs and renders them. The one exception is
 //! opt-in: `--json --tool-versions` hands [`write_json`] a version prober
 //! that runs each listed tool's `--version`.
@@ -157,6 +158,10 @@ fn node_json(runner: &CommandRunner, plan: &CommandPlan) -> Value {
             "parallel": parallel,
             "failFast": fail_fast,
             "steps": leaf_ids.iter().map(ToString::to_string).collect::<Vec<_>>(),
+            "edges": after_edges(runner, leaf_ids, *parallel)
+                .into_iter()
+                .map(|(step, after)| json!({ "step": step, "after": after }))
+                .collect::<Vec<_>>(),
             "stages": stages(runner, leaf_ids, *parallel)
                 .into_iter()
                 .map(|batch| json!({
@@ -195,6 +200,39 @@ fn stages(
         .into_iter()
         .map(|len| rest.by_ref().take(len).collect())
         .collect()
+}
+
+/// The `after` edges a stage honours, as `(step, steps it waits for)`: only
+/// a parallel stage has any, and only names in the stage are edges.
+fn after_edges(
+    runner: &CommandRunner,
+    leaf_ids: &[ops_core::config::CommandId],
+    parallel: bool,
+) -> Vec<(String, Vec<String>)> {
+    if !parallel {
+        return Vec::new();
+    }
+    let in_stage: HashSet<&str> = leaf_ids
+        .iter()
+        .map(ops_core::config::CommandId::as_str)
+        .collect();
+    let mut seen = HashSet::new();
+    let mut edges = Vec::new();
+    for id in leaf_ids {
+        let Some(CommandSpec::Exec(e)) = runner.resolve(id) else {
+            continue;
+        };
+        let after: Vec<String> = runner
+            .after_ids(e)
+            .into_iter()
+            .filter(|name| in_stage.contains(name))
+            .map(str::to_string)
+            .collect();
+        if !after.is_empty() && seen.insert(id.as_str()) {
+            edges.push((id.to_string(), after));
+        }
+    }
+    edges
 }
 
 fn is_exclusive(runner: &CommandRunner, id: &str) -> bool {
@@ -244,6 +282,7 @@ fn step_json(
     match runner.resolve(id) {
         Some(CommandSpec::Exec(e)) => {
             step.insert("exclusive".into(), json!(e.exclusive));
+            step.insert("after".into(), json!(e.after));
             merge_tools(&mut tools, exec_fields(&mut step, e, vars)?);
             if let Some(strategy) = &e.strategy {
                 let cells = e
@@ -294,7 +333,7 @@ fn merge_tools(tools: &mut Vec<Tool>, more: Vec<Tool>) {
     }
 }
 
-/// Program, args, env, cwd, timeout and the tools they need, expanded
+/// Wrapper, program, args, env, cwd, timeout and the tools they need, expanded
 /// exactly as the dry-run preview expands them, with the dry-run's
 /// env-secret redaction. Returns the tools too, for the plan-level list.
 fn exec_fields(
@@ -308,11 +347,21 @@ fn exec_fields(
         .iter()
         .map(|a| Ok(vars.try_expand(a)?.into_owned()))
         .collect::<anyhow::Result<Vec<_>>>()?;
-    let tools = exec_tools(e, &program, &args);
+    let wrap = e
+        .wrap
+        .iter()
+        .map(|a| Ok(vars.try_expand(a)?.into_owned()))
+        .collect::<anyhow::Result<Vec<_>>>()?;
+    let mut tools = match wrap.split_first() {
+        Some((head, tail)) => exec_tools(&ExecCommandSpec::default(), head, tail),
+        None => Vec::new(),
+    };
+    merge_tools(&mut tools, exec_tools(e, &program, &args));
     obj.insert(
         "tools".into(),
         json!(tools.iter().map(|t| &t.name).collect::<Vec<_>>()),
     );
+    obj.insert("wrap".into(), json!(wrap));
     obj.insert("program".into(), json!(program));
     obj.insert("args".into(), json!(args));
     obj.insert("display".into(), json!(e.display_cmd()));
@@ -365,7 +414,8 @@ fn origin_json(runner: &CommandRunner, config: &Config, id: &str) -> Value {
     json!({ "source": source, "extended": extended })
 }
 
-/// Human-readable rendering: each named command's tree with its stages.
+/// Human-readable rendering: each named command's tree with its stages, the
+/// `after` edges between steps and any wrapper a step runs inside.
 /// Per-step program/args/env detail is what `--json` (or `--dry-run`) is
 /// for; this view answers "what runs together, and in what order".
 ///
@@ -434,6 +484,27 @@ fn write_node(
                     i.saturating_add(1),
                     steps.join(", ")
                 )?;
+            }
+            for (step, after) in after_edges(runner, leaf_ids, *parallel) {
+                let after: Vec<String> = after.iter().map(|id| audit_safe(id)).collect();
+                writeln!(
+                    w,
+                    "{indent}  {} after {}",
+                    audit_safe(&step),
+                    after.join(", ")
+                )?;
+            }
+            for id in leaf_ids {
+                if let Some(CommandSpec::Exec(e)) = runner.resolve(id) {
+                    if let Some(wrap) = e.expanded_wrap_display(runner.variables())? {
+                        writeln!(
+                            w,
+                            "{indent}  {} wrapped by {}",
+                            audit_safe(id),
+                            audit_safe(&wrap)
+                        )?;
+                    }
+                }
             }
         }
         CommandPlan::Sequence {
@@ -769,6 +840,77 @@ parallel = true
             text.contains("stage 1 [concurrent]: lint [workspace=.], lint [workspace=fuzz], other"),
             "{text}"
         );
+    }
+
+    const AFTER_AND_WRAP: &str = r#"
+[commands.build]
+program = "echo"
+
+[commands.next]
+program = "echo"
+args = ["run"]
+after = ["build", "not-in-gate"]
+wrap = ["./svc.sh", "--pg", "--"]
+
+[commands.not-in-gate]
+program = "echo"
+
+[commands.gate]
+commands = ["next", "build"]
+parallel = true
+"#;
+
+    /// TASK-2637 AC #3: both views show the edges, the plan is listed in
+    /// dependency order, and a name outside the stage is no edge.
+    /// TASK-2641 AC #2: the wrapper stays apart from the wrapped command.
+    #[test]
+    #[serial_test::serial]
+    fn explain_shows_after_edges_and_wrapper() {
+        let (_dir, _guard) = crate::test_utils::with_temp_config(AFTER_AND_WRAP);
+        let doc: serde_json::Value =
+            serde_json::from_str(&explain(&["gate"], true)).expect("valid JSON");
+        let plan = &doc["commands"][0]["plan"];
+        assert_eq!(plan["steps"], serde_json::json!(["build", "next"]));
+        assert_eq!(
+            plan["edges"],
+            serde_json::json!([{ "step": "next", "after": ["build"] }])
+        );
+        let next = doc["steps"]
+            .as_array()
+            .and_then(|s| s.iter().find(|s| s["id"] == "next"))
+            .expect("next step");
+        assert_eq!(next["after"], serde_json::json!(["build", "not-in-gate"]));
+        assert_eq!(next["wrap"], serde_json::json!(["./svc.sh", "--pg", "--"]));
+        assert_eq!(next["program"], "echo");
+        assert_eq!(next["args"], serde_json::json!(["run"]));
+        assert_eq!(next["display"], "./svc.sh --pg -- echo run");
+
+        let text = explain(&["gate"], false);
+        assert!(text.contains("stage 1 [concurrent]: build, next"), "{text}");
+        assert!(text.contains("next after build\n"), "{text}");
+        assert!(
+            text.contains("next wrapped by ./svc.sh --pg --\n"),
+            "{text}"
+        );
+    }
+
+    /// A wrapper named on `PATH` is a tool the plan needs; a script path is
+    /// not, like any other path program.
+    #[test]
+    #[serial_test::serial]
+    fn explain_lists_the_wrapper_as_a_tool() {
+        let (_dir, _guard) = crate::test_utils::with_temp_config(
+            r#"
+[commands.wrapped]
+program = "cargo"
+args = ["build"]
+wrap = ["direnv", "exec", "."]
+"#,
+        );
+        let doc: serde_json::Value =
+            serde_json::from_str(&explain(&["wrapped"], true)).expect("valid JSON");
+        let step = &doc["steps"][0];
+        assert_eq!(step["tools"], serde_json::json!(["direnv", "cargo"]));
     }
 
     /// An unknown command fails the whole explain rather than printing a

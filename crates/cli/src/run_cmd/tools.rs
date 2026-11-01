@@ -7,8 +7,8 @@
 //!
 //! - an `ops` subcommand reports the tools that subcommand spawns (`sec` →
 //!   Trivy, `deps` → cargo-edit / cargo-deny / cargo-machete, `msrv` →
-//!   rustup), never `ops`
-//!   itself;
+//!   rustup, `semver` → cargo-semver-checks, `feature-matrix` → cargo-hack),
+//!   never `ops` itself;
 //! - any other bare program name is a tool; a program given as a path
 //!   (`./gradlew`, `/usr/bin/env`) lives in the repo or at a fixed location
 //!   and is not reported;
@@ -144,6 +144,8 @@ fn ops_subcommand_tools(sub: &str) -> Vec<Tool> {
         "sec" => vec![Tool::required("trivy", Some(crate::sec_cmd::TRIVY_INSTALL))],
         // `rustup run <rust-version> cargo check …`.
         "msrv" => vec![Tool::required("rustup", Some("https://rustup.rs"))],
+        "semver" => cargo_check_tools(&crate::cargo_check_cmd::SEMVER),
+        "feature-matrix" => cargo_check_tools(&crate::cargo_check_cmd::FEATURE_MATRIX),
         #[cfg(feature = "stack-rust")]
         "deps" => ops_deps::external_tools()
             .into_iter()
@@ -155,6 +157,15 @@ fn ops_subcommand_tools(sub: &str) -> Vec<Tool> {
             .collect(),
         _ => Vec::new(),
     }
+}
+
+/// `cargo` and the plugin a [`CargoCheck`](crate::cargo_check_cmd::CargoCheck)
+/// dispatches to.
+fn cargo_check_tools(check: &crate::cargo_check_cmd::CargoCheck) -> Vec<Tool> {
+    vec![
+        Tool::required("cargo", None),
+        Tool::required(check.binary(), Some(&check.install_command())),
+    ]
 }
 
 /// Budget for one `--version` probe. A version flag answers instantly; the
@@ -259,6 +270,10 @@ mod tests {
         assert!(tools("ops", &["end-of-file-fixer"]).is_empty());
         assert!(tools("ops", &["lint-actions"]).is_empty());
         assert_eq!(tools("ops", &["msrv"]), ["rustup"]);
+        assert_eq!(tools("ops", &["semver"]), ["cargo", "cargo-semver-checks"]);
+        assert_eq!(tools("ops", &["feature-matrix"]), ["cargo", "cargo-hack"]);
+        assert!(tools("ops", &["foundation"]).is_empty());
+        assert!(tools("ops", &["doc-ids"]).is_empty());
         assert!(tools("ops", &[]).is_empty());
     }
 

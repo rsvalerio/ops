@@ -10,7 +10,7 @@ async fn spawn_parallel_tasks_creates_correct_count() {
         ("cmd3".into(), echo_cmd("c")),
     ];
     let (rx, _abort, join_set, id_map) =
-        CommandRunner::spawn_parallel_tasks(steps, &test_exec_env());
+        CommandRunner::spawn_parallel_tasks(steps, &[], true, &test_exec_env());
     drop(rx);
     let results = CommandRunner::collect_join_results(join_set, &id_map).await;
     assert_eq!(results.len(), 3);

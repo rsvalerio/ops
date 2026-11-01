@@ -243,6 +243,25 @@ pub struct ExecCommandSpec {
     /// enclosing plan — [`Self::exclusive`] covers every cell.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub strategy: Option<Strategy>,
+    /// Steps of the same parallel plan this step starts after.
+    ///
+    /// The step waits until every named step has finished, without blocking
+    /// anything else: unlike [`Self::exclusive`] it splits no stage. A name
+    /// not in the plan is no constraint, and a sequential plan already has
+    /// its order. Under `fail_fast` a failed dependency skips the step.
+    ///
+    /// Each name must be an exec command. Cycles are load errors; unknown
+    /// names need the extension and builtin stores, so the runner rejects
+    /// them before a plan starts.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub after: Vec<String>,
+    /// Command line prepended at spawn time, so the step runs as
+    /// `<wrap...> <program> <args...>`. The first entry is what gets spawned;
+    /// `program` and `args` stay the wrapped command, so `clone`, `[extend]`
+    /// and the `cargo --locked` pass keep working on them. `${VAR}` expands
+    /// as in `args`; `${matrix.<key>}` is not substituted.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub wrap: Vec<String>,
 }
 
 /// One cell of a matrix command: the cell's values and the command with
@@ -359,6 +378,12 @@ impl ExecCommandSpec {
         for (idx, arg) in self.args.iter().enumerate() {
             check_control_chars(name, &format!("args[{idx}]"), arg)?;
         }
+        for (idx, part) in self.wrap.iter().enumerate() {
+            check_control_chars(name, &format!("wrap[{idx}]"), part)?;
+        }
+        if self.wrap.first().is_some_and(String::is_empty) {
+            anyhow::bail!("command '{name}': wrap[0] must not be empty");
+        }
         if let Some(cwd) = &self.cwd {
             let cwd_str = cwd.to_string_lossy();
             check_control_chars(name, "cwd", &cwd_str)?;
@@ -387,6 +412,14 @@ impl ExecCommandSpec {
                 "command '{name}': program contains {e}; ${{matrix.<key>}} is substituted \
                  only in args, env values and cwd"
             );
+        }
+        for (idx, part) in self.wrap.iter().enumerate() {
+            if let Err(e) = substitute(part, no_match) {
+                anyhow::bail!(
+                    "command '{name}': wrap[{idx}] contains {e}; ${{matrix.<key>}} is \
+                     substituted only in args, env values and cwd"
+                );
+            }
         }
         for key in self.env.keys() {
             if let Err(e) = substitute(key, no_match) {
@@ -531,6 +564,22 @@ impl ExecCommandSpec {
         Ok(())
     }
 
+    /// The spawned command line: `wrap`, then `program`, then `args`,
+    /// unexpanded. Its first item is the process that actually starts, so
+    /// anything reporting a spawn must read that, not `program`.
+    pub fn argv(&self) -> impl Iterator<Item = &String> {
+        self.wrap
+            .iter()
+            .chain(std::iter::once(&self.program))
+            .chain(&self.args)
+    }
+
+    /// The program the spawn starts: `wrap[0]` when wrapped, else `program`.
+    #[must_use]
+    pub fn spawn_program(&self) -> &str {
+        self.wrap.first().unwrap_or(&self.program)
+    }
+
     /// The configured timeout as a `Duration`, or `None` when
     /// `timeout_secs` is unset.
     pub fn timeout(&self) -> Option<Duration> {
@@ -542,7 +591,8 @@ impl ExecCommandSpec {
     /// When [`Self::display_program`] is set, that name renders in place of
     /// `program` — spawn still uses `program`. Builtins use this so a
     /// `current_exe()`-spawned command displays as `ops sec`, matching the
-    /// extension-registered `ops check-json` style.
+    /// extension-registered `ops check-json` style. A `wrap` renders in
+    /// front: it is what spawns, so hiding it would misstate the command.
     ///
     /// Each argument is shell-quoted so an arg containing whitespace,
     /// quotes, `;`, newlines, or backticks renders unambiguously. The actual
@@ -554,14 +604,20 @@ impl ExecCommandSpec {
     #[must_use]
     pub fn display_cmd(&self) -> Cow<'_, str> {
         let program = self.display_program.as_deref().unwrap_or(&self.program);
-        if self.args.is_empty() {
+        if self.args.is_empty() && self.wrap.is_empty() {
             return shell_quote(program);
         }
-        Cow::Owned(format!(
-            "{} {}",
-            shell_quote(program),
-            join_shell_quoted(&self.args)
-        ))
+        let mut line = String::new();
+        if !self.wrap.is_empty() {
+            line.push_str(&join_shell_quoted(&self.wrap));
+            line.push(' ');
+        }
+        line.push_str(&shell_quote(program));
+        if !self.args.is_empty() {
+            line.push(' ');
+            line.push_str(&join_shell_quoted(&self.args));
+        }
+        Cow::Owned(line)
     }
 
     /// Expand and join args for display; returns None when args is empty.
@@ -582,15 +638,36 @@ impl ExecCommandSpec {
         &self,
         vars: &crate::expand::Variables,
     ) -> Result<Option<String>, crate::expand::ExpandError> {
-        if self.args.is_empty() {
-            return Ok(None);
-        }
-        let mut expanded = Vec::with_capacity(self.args.len());
-        for arg in &self.args {
-            expanded.push(vars.try_expand(arg)?.into_owned());
-        }
-        Ok(Some(join_shell_quoted(&expanded)))
+        expand_quoted(&self.args, vars)
     }
+
+    /// [`Self::expanded_args_display`] for `wrap`, the part of the command
+    /// line previews show apart from the wrapped command.
+    ///
+    /// # Errors
+    ///
+    /// As [`Self::expanded_args_display`].
+    pub fn expanded_wrap_display(
+        &self,
+        vars: &crate::expand::Variables,
+    ) -> Result<Option<String>, crate::expand::ExpandError> {
+        expand_quoted(&self.wrap, vars)
+    }
+}
+
+/// Expand `parts` strictly and join them shell-quoted; `None` when empty.
+fn expand_quoted(
+    parts: &[String],
+    vars: &crate::expand::Variables,
+) -> Result<Option<String>, crate::expand::ExpandError> {
+    if parts.is_empty() {
+        return Ok(None);
+    }
+    let mut expanded = Vec::with_capacity(parts.len());
+    for part in parts {
+        expanded.push(vars.try_expand(part)?.into_owned());
+    }
+    Ok(Some(join_shell_quoted(&expanded)))
 }
 
 /// Render `value` for display so the result is an unambiguous
@@ -757,8 +834,8 @@ impl CompositeCommandSpec {
 /// replacing them would leave little worth cloning. `program`/`commands` are
 /// rejected at parse time (see [`CommandSpec::deserialize`]).
 ///
-/// Exec-only overrides (`args`, `env`, `cwd`, `timeout_secs`, `exclusive`, `strategy`) set beside
-/// a composite source are load errors; a composite clone can only override
+/// Exec-only overrides (`args`, `env`, `cwd`, `timeout_secs`, `exclusive`, `strategy`, `after`,
+/// `wrap`) set beside a composite source are load errors; a composite clone can only override
 /// `help`, `category`, `aliases` and `raw` (both variants take it).
 #[derive(Debug, Clone, PartialEq, Eq, Deserialize, Serialize)]
 #[serde(deny_unknown_fields)]
@@ -807,6 +884,14 @@ pub struct CloneCommandSpec {
     /// (exec sources only). Without it the clone copies the source's.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub strategy: Option<Strategy>,
+    /// Plan-order dependencies; replaces the source's `after` when set, and
+    /// an empty list clears it (exec sources only).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub after: Option<Vec<String>>,
+    /// Wrapper command line; replaces the source's `wrap` when set, and an
+    /// empty list clears it (exec sources only).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub wrap: Option<Vec<String>>,
 }
 
 impl CommandMeta for CloneCommandSpec {
@@ -826,8 +911,8 @@ impl CloneCommandSpec {
     ///
     /// Preferred over struct-literal syntax because [`CloneCommandSpec`] is
     /// `#[non_exhaustive]`. Adjust the override fields (`args`, `help`, `aliases`,
-    /// `category`, `env`, `cwd`, `timeout_secs`, `exclusive`, `strategy`) via direct
-    /// field access.
+    /// `category`, `env`, `cwd`, `timeout_secs`, `exclusive`, `strategy`, `after`,
+    /// `wrap`) via direct field access.
     #[must_use]
     pub fn new(clone: impl Into<String>) -> Self {
         Self {
@@ -842,6 +927,8 @@ impl CloneCommandSpec {
             exclusive: None,
             raw: None,
             strategy: None,
+            after: None,
+            wrap: None,
         }
     }
 

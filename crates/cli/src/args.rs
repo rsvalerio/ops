@@ -105,6 +105,11 @@ pub enum CoreSubcommand {
     /// `--rust` writes the Rust foundation config instead, and `--rust --check`
     /// reports where the project has drifted from this ops version's copy.
     Init(InitArgs),
+    /// Check `.ops.toml` against the ops version a project pins.
+    Config {
+        #[command(subcommand)]
+        action: ConfigAction,
+    },
     /// Manage output themes.
     Theme {
         #[command(subcommand)]
@@ -324,6 +329,30 @@ pub enum CoreSubcommand {
         #[arg(long)]
         install: bool,
     },
+    /// Check the Rust foundation for drift (`ops init --rust --check`).
+    ///
+    /// Compares the project with the templates in the running ops and exits
+    /// non-zero on drift. Composites can list it with no `[commands.foundation]`
+    /// entry, and it always runs the ops of the outer process.
+    Foundation,
+    /// Check public API compatibility with cargo-semver-checks.
+    ///
+    /// Runs `cargo semver-checks --workspace` against each crate's latest
+    /// crates.io release. Needs `cargo install cargo-semver-checks`. The
+    /// global `--dry-run` prints the command.
+    Semver,
+    /// Check each feature on its own with cargo-hack.
+    ///
+    /// Runs `cargo hack check --workspace --each-feature`. Needs `cargo
+    /// install cargo-hack`. The global `--dry-run` prints the command.
+    #[command(name = "feature-matrix")]
+    FeatureMatrix,
+    /// Fail on task or review-rule ids in Rust doc comments.
+    ///
+    /// Scans `///` and `//!` lines of every non-ignored `*.rs` file under the
+    /// current directory, nested workspaces included. Needs no external tool.
+    #[command(name = "doc-ids")]
+    DocIds,
     /// Lint GitHub workflows: full-SHA action pins, no `secrets: inherit`.
     ///
     /// Every `uses:` under `.github/workflows/` and in composite action
@@ -345,10 +374,11 @@ pub enum CoreSubcommand {
     ///
     /// Resolves each command exactly as `ops <cmd>...` would and prints the
     /// plan: every composite's `parallel` / `fail_fast`, the stages a
-    /// parallel group splits into at its `exclusive` steps, and each step's
-    /// program, args, env, cwd and origin (stack default, config, `clone`,
-    /// `[extend]`, extension or builtin). Never executes a step — not even
-    /// for `run-before-commit` / `run-before-push`.
+    /// parallel group splits into at its `exclusive` steps, the `after`
+    /// edges between its steps, and each step's `wrap`, program, args, env,
+    /// cwd and origin (stack default, config, `clone`, `[extend]`, extension
+    /// or builtin). Never executes a step — not even for `run-before-commit`
+    /// / `run-before-push`.
     Explain(ExplainArgs),
     /// Manage `.backlog` task files (backlog.md-compatible subset).
     Backlog {
@@ -367,6 +397,22 @@ pub enum CoreSubcommand {
     /// Catch-all for dynamic config-defined commands (e.g. `ops verify`).
     #[command(external_subcommand)]
     External(Vec<OsString>),
+}
+
+/// `ops config` actions.
+#[derive(clap::Subcommand, Debug, Clone)]
+pub enum ConfigAction {
+    /// Name the fields an ops version would reject, and print the minimum
+    /// version that accepts `.ops.toml` and `.ops.d/*.toml`.
+    ///
+    /// Exits non-zero when the target version rejects a field. Field values
+    /// are not checked.
+    Check {
+        /// The ops version to check against; defaults to the `ops` pin in
+        /// `mise.toml`, when there is one.
+        #[arg(long = "as", value_name = "VERSION")]
+        target: Option<ops_core::config::OpsVersion>,
+    },
 }
 
 /// Arguments of `ops explain`.
@@ -957,6 +1003,10 @@ const fn stack_specific_commands() -> &'static [(&'static str, Stack)] {
         ("plans", Stack::Terraform),
         ("clippy-findings", Stack::Rust),
         ("msrv", Stack::Rust),
+        ("foundation", Stack::Rust),
+        ("semver", Stack::Rust),
+        ("feature-matrix", Stack::Rust),
+        ("doc-ids", Stack::Rust),
     ]
 }
 

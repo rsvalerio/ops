@@ -33,6 +33,31 @@ fail_fast = true
 
 Config is merged in order (later overrides earlier): built-in defaults → global config (`~/.config/ops/config.toml`) → local `.ops.toml` → `.ops.d/*.toml` fragments (sorted by filename) → `OPS__*` environment variables. When run inside a project with a detected stack (e.g. Rust), `ops init` pre-fills stack-specific commands.
 
+## Checking a config against an ops version
+
+CI usually installs the `ops` pinned in `mise.toml`, while a local `ops` built from source
+can be newer. A field newer than the pin then passes every local gate and fails every `ops`
+step in CI. `ops config check` finds that without installing the pinned version:
+
+```console
+$ ops config check --as 0.85.1
+.ops.toml: commands.lint-all.args (beside clone) needs ops 0.86.0
+ops 0.85.1 (--as) rejects 1 field(s).
+Minimum ops version for this config: 0.86.0
+```
+
+Without `--as` it targets the `ops` pin under `[tools]` in `mise.toml`. A pin that names no
+exact release, such as `latest` or `0.85`, is an error until you pass `--as`. With no pin
+and no `--as` it prints only the minimum. It exits non-zero when the target rejects a field.
+
+The check reads `.ops.toml` and `.ops.d/*.toml`, the files a project commits. It knows the
+release each field became loadable, including a field that gained a new place (`args` beside
+`clone`). It does not check values, such as a theme name, and it cannot see a behaviour
+change that no field marks.
+
+`ops` records each field's release in `crates/core/src/config/history.rs`, and a test fails
+until a new field is listed there.
+
 ## Extending existing commands
 
 To add steps to a command that already exists — typically a stack default like the Rust `verify` — without copying (and going stale on) its whole `commands` list, use an `[extend.<name>]` section:
@@ -138,9 +163,23 @@ args = ["--manifest-path", "fuzz/Cargo.toml"]
 
 - The source resolves like an `[extend]` target: your `[commands]` entry if you defined one, otherwise the detected stack's default. Extension-registered commands cannot be cloned — they register after config load — and naming one is an unknown-source load error.
 - `args` beside `clone` is appended to the source's args, not substituted for them, inserted before any `--` exactly like `[extend.<name>] args` (exec sources only). `[extend.<clone>] args` still works too; if both are set, the inline `args` come first and the extend's after them.
-- Scalar fields beside `clone` (`help`, `category`, `aliases`, `raw`, and for exec sources `env`, `cwd`, `timeout_secs`, `exclusive`, `strategy`) override the copy; fields left unset keep the source's value. Given maps and lists replace the copy (`env` replaces, it does not merge). `aliases` are the exception: they are never inherited — a clone with no `aliases` has none, because inheriting the source's would either collide at load or silently redirect the source's alias to the clone. `program` and `commands` beside `clone` are load errors — extra composite entries go through `[extend.<name>] commands`.
+- Scalar fields beside `clone` (`help`, `category`, `aliases`, `raw`, and for exec sources `env`, `cwd`, `timeout_secs`, `exclusive`, `strategy`, `after`, `wrap`) override the copy; fields left unset keep the source's value. Given maps and lists replace the copy (`env` replaces, it does not merge; an empty `after` or `wrap` clears the copied one). `aliases` are the exception: they are never inherited — a clone with no `aliases` has none, because inheriting the source's would either collide at load or silently redirect the source's alias to the clone. `program` and `commands` beside `clone` are load errors — extra composite entries go through `[extend.<name>] commands`.
 - A clone copies the source **before** the source's own `[extend.<source>]` applies: extends stay per-name, so the clone never inherits them. `[extend.<clone>]` applies to the materialized copy.
 - Unknown sources, clone cycles (including self-clones; non-cyclic clone-of-clone chains do resolve), cloning into an existing stack-default name, and exec-only fields beside a composite source are load errors naming the command and the source.
+
+## Command categories
+
+`category = "..."` sets the heading a command appears under in `ops --help`; a command
+without one appears under **Commands**. It affects nothing else.
+
+There is deliberately no default category, neither a `[commands]`-level or per-section
+default nor one inherited from a composite. `[commands]` keys are command names, so a
+default there needs a reserved name or a new section whose scope across config layers
+would have to be defined for a help heading. Inheritance from a composite is ambiguous:
+one command can sit in several composites, as `clippy` sits in both `verify` and
+`verify-fix`, and a heading that changes when a composite gains a member is worse than a
+repeated line. Writing `category` on each command stays explicit and greppable, and
+`clone` already carries it to a copy.
 
 ## Command groups and scheduling
 
@@ -220,6 +259,86 @@ The list order is the schedule. With `a` and `c` exclusive,
 `a → c → (b | d)`. Under `fail_fast = true` a failing stage stops the plan and
 later stages never start. `exclusive` has no effect in a sequential group or
 under `--raw`, which always runs sequentially.
+
+## Ordering steps with `after`
+
+`exclusive` means "nothing else at the same time". To say only "not before that
+step", give the step an `after` list. It starts once every named step in the
+same parallel plan has finished, and nothing else waits:
+
+```toml
+[commands.next]
+program = "cargo"
+args = ["nextest", "run"]
+after = ["build"]    # reuse build's artifacts instead of racing it for the cargo lock
+
+[commands.verify]
+commands = ["fmt-check", "clippy", "build", "next", "lint-sync"]
+parallel = true
+# runs: fmt-check | clippy | build | lint-sync, and next once build has finished
+```
+
+- A name that is not in the plan is no constraint, so a step can share its
+  `after` across plans. Under `fail_fast = true` a failed dependency skips the
+  steps waiting on it, directly or through a chain. Under `fail_fast = false`
+  they run once it has finished, like every other step.
+- `exclusive` still splits the stages. A dependency in an earlier stage has
+  already finished. A dependency in a later stage is an error: list it before
+  the exclusive step between them.
+- A step moves ahead of the steps listed before it only as far as `after`
+  needs, within its stage, so `--raw` and `ops --dry-run` show a valid order.
+  `after` has no effect in a sequential group, where the list is the order, or
+  on a step run alone.
+- A matrix step is one step here too: it waits as one, and its dependents wait
+  for every cell.
+- Each name must be an exec command; a group is not a step, so name its steps.
+  Cycles fail the config load, naming the commands. Unknown names and groups
+  fail any plan expansion (`ops <cmd>`, `--dry-run`, `ops explain`) before a
+  step starts, because extension commands only register after the config loads.
+- `ops explain` prints the edges (`next after build`), and `--json` lists them
+  as `edges` on the stage.
+
+## Running a command inside a wrapper
+
+Some commands need services or environment set up around them. `wrap` runs an
+exec command inside a wrapper script, keeping the real command in `program` and
+`args` rather than burying it after a `--`:
+
+```toml
+[commands.next-all]
+clone = "next"
+args = ["--run-ignored", "all"]
+wrap = ["./scripts/e2e-services.sh", "--pg", "--bao", "--"]
+```
+
+`wrap` is prepended when the command spawns, after `clone`, `[extend]` and every
+other load step have settled the args, so the line above runs
+`./scripts/e2e-services.sh --pg --bao -- cargo nextest run ... --run-ignored all`.
+The wrapper is an ordinary command line: the first entry is spawned, `${VAR}`
+expands as in `args`, and `timeout_secs` covers the wrapper. Each matrix cell
+runs inside its own wrapper, and `${matrix.<key>}` in `wrap` is a load error.
+`ops --dry-run` shows `wrap` apart from `program` and `args`, and `ops explain`
+prints `next-all wrapped by ...` (`wrap` in `--json`). Step lines show the full
+command, wrapper first.
+
+`wrap` is exec-only: a group has no single process to wrap. To keep one service
+lifetime across several steps, wrap an `ops` invocation of a sequential group:
+
+```toml
+[commands.release-steps]
+commands = ["release-nextest", "embedded-example"]
+
+[commands.release-tests]
+program = "ops"
+args = ["release-steps"]
+wrap = ["./scripts/e2e-services.sh", "--pg", "--bao", "--"]
+```
+
+The services outlive both steps, and each step stays a real command that can be
+cloned and run on its own. ops deliberately has no `setup`/`teardown` commands
+on a group: teardown has to survive failures, timeouts and cancellation, which
+a wrapper script's `trap` already does, and the wrapper is the one place that
+owns the services' lifetime.
 
 ## Raw commands
 

@@ -35,6 +35,38 @@ use std::path::{Path, PathBuf};
 use std::sync::OnceLock;
 use tempfile::TempDir;
 
+#[test]
+fn cli_config_check_names_the_rejected_field_and_the_minimum() {
+    with_ops_toml(
+        "[commands.a]\nprogram = \"x\"\n[commands.b]\nclone = \"a\"\nargs = [\"z\"]\n",
+        |dir| {
+            ops()
+                .current_dir(dir)
+                .args(["config", "check", "--as", "0.85.1"])
+                .assert()
+                .failure()
+                .stdout(predicate::str::contains(
+                    "commands.b.args (beside clone) needs ops 0.86.0",
+                ))
+                .stdout(predicate::str::contains(
+                    "Minimum ops version for this config: 0.86.0",
+                ));
+        },
+    );
+}
+
+#[test]
+fn cli_config_check_refuses_a_version_that_names_no_release() {
+    with_ops_toml("", |dir| {
+        ops()
+            .current_dir(dir)
+            .args(["config", "check", "--as", "latest"])
+            .assert()
+            .failure()
+            .stderr(predicate::str::contains("not a release version"));
+    });
+}
+
 fn with_ops_toml(content: &str, f: impl FnOnce(&Path)) {
     let dir = tempfile::tempdir().expect("tempdir");
     std::fs::write(dir.path().join(".ops.toml"), content).expect("write .ops.toml");
