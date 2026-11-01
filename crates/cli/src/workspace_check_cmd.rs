@@ -255,6 +255,13 @@ fn normalise(value: &toml::Value) -> String {
             parts.sort();
             format!("{{{}}}", parts.join(","))
         }
+        // A list a lint takes (`check-cfg`) names a set, and a set's order
+        // is not policy.
+        toml::Value::Array(a) => {
+            let mut parts: Vec<String> = a.iter().map(normalise).collect();
+            parts.sort();
+            format!("[{}]", parts.join(","))
+        }
         other => other.to_string(),
     }
 }
@@ -842,6 +849,27 @@ mod tests {
         let (code, out) = run(dir.path(), &section(&[".", "fuzz"], &[]));
         assert_eq!(code, ExitCode::FAILURE, "{out}");
         assert!(out.contains("rust.unexpected_cfgs"), "{out}");
+    }
+
+    #[test]
+    fn a_reordered_check_cfg_list_is_the_same_policy() {
+        let dir = tempfile::tempdir().unwrap();
+        // The two lists name the same cfgs in a different order: one policy.
+        std::fs::write(
+            dir.path().join("Cargo.toml"),
+            "[workspace]\nmembers = [\"crates/*\"]\n[workspace.lints.rust]\nunexpected_cfgs = { level = \"warn\", check-cfg = [\"cfg(ops_dev)\", \"cfg(ops_ci)\"] }\n",
+        )
+        .unwrap();
+        std::fs::write(dir.path().join("Cargo.lock"), "version = 4\n").unwrap();
+        std::fs::create_dir_all(dir.path().join("fuzz")).unwrap();
+        std::fs::write(
+            dir.path().join("fuzz/Cargo.toml"),
+            "[workspace]\n\n[lints.rust]\nunexpected_cfgs = { level = \"warn\", check-cfg = [\"cfg(ops_ci)\", \"cfg(ops_dev)\"] }\n",
+        )
+        .unwrap();
+        std::fs::write(dir.path().join("fuzz/Cargo.lock"), "version = 4\n").unwrap();
+        let (code, out) = run(dir.path(), &section(&[".", "fuzz"], &[]));
+        assert_eq!(code, ExitCode::SUCCESS, "{out}");
     }
 
     #[test]
