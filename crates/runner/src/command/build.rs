@@ -719,7 +719,7 @@ mod tests {
         assert_eq!(args, ["--pg", "--", "cargo", "nextest", "run"]);
     }
 
-    /// TASK-2649: `program = "${OPS_BIN}"` is the config-side spelling for
+    /// `program = "${OPS_BIN}"` is the config-side spelling for
     /// re-invoking the running ops (e.g. wrapping a group). The spawn head
     /// must expand to the running binary's absolute path — never a bare
     /// name `PATH` (or a wrapper that rewrote it) resolves.

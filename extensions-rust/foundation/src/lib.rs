@@ -391,7 +391,7 @@ fn check_config_against_pin(root: &Path, out: &mut Vec<Drift>) {
                     format!("{}:{}", used.file, used.field),
                     format!("needs ops {}, but {} pins {}", used.since, pin.file, pin.version),
                 )
-            }))
+            }));
         }
         Err(e) => out.push(Drift::new(".ops.toml", format!("{e:#}"))),
     }

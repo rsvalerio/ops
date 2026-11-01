@@ -570,7 +570,7 @@ impl CommandRunner {
 
     /// Check every `after` entry in every store names an exec command.
     ///
-    /// Runs inside [`Self::expand_to_plan`] only, by decision (TASK-2653):
+    /// Runs inside [`Self::expand_to_plan`] only, by decision:
     /// resolving a name needs the extension and builtin stores, which exist
     /// solely on the plan-expansion path — the loader and the plan-less
     /// commands (`ops about`, `ops config`, …) never see them, so they cannot
