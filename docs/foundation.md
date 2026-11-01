@@ -56,7 +56,8 @@ The comparison is semantic, not textual. Each template is a baseline:
   reported at `mise.toml:tools.<tool>`), and tools the repo adds, such as `cocogitto`,
   are its own. Hold a pin back with a waiver on that location. The ops pin is the one
   exception: the template's version is a floor, so any `x.y.z` release from it on
-  passes, including the ops running the check. A pin below the floor, or one that is
+  passes, including the ops running the check, and a leading `v` (`v0.90.1`) is read
+  the same way `ops config check` reads it. A pin below the floor, or one that is
   not a plain version such as `latest`, is drift at `mise.toml:tools.ops`.
 - A config field newer than the ops pin is drift at `<file>:<field>`, such as
   `.ops.toml:commands.build.raw`, because CI runs the pin and fails on it. This is the

@@ -23,7 +23,7 @@ use std::path::Path;
 
 use anyhow::Context;
 use indexmap::IndexMap;
-use ops_core::config::{atomic_write, fields_used, mise_ops_pin};
+use ops_core::config::{atomic_write, fields_used, mise_ops_pin, OpsVersion};
 use toml::Value;
 
 pub use compare::{Drift, Rule};
@@ -438,18 +438,23 @@ pub fn check(
 /// Report each field of the project's config that its own `ops` pin would
 /// reject, at `<file>:<field>`: CI runs the pin, so those fail every step
 /// there. A pin naming no release is already [`check_ops_pin`]'s drift, and
-/// a `mise.toml` that does not parse is [`check_file`]'s.
+/// a mise file that does not parse is [`check_file`]'s.
 fn check_config_against_pin(root: &Path, out: &mut Vec<Drift>) {
     let Ok(Some(pin)) = mise_ops_pin(root) else {
         return;
     };
     match fields_used(root) {
-        Ok(fields) => out.extend(fields.iter().filter(|used| used.since > pin).map(|used| {
-            Drift::new(
-                format!("{}:{}", used.file, used.field),
-                format!("needs ops {}, but {MISE} pins {pin}", used.since),
-            )
-        })),
+        Ok(fields) => out.extend(fields.iter().filter(|used| used.since > pin.version).map(
+            |used| {
+                Drift::new(
+                    format!("{}:{}", used.file, used.field),
+                    format!(
+                        "needs ops {}, but {} pins {}",
+                        used.since, pin.file, pin.version
+                    ),
+                )
+            },
+        )),
         Err(e) => out.push(Drift::new(".ops.toml", format!("{e:#}"))),
     }
 }
@@ -555,7 +560,11 @@ fn check_ops_pin(expected: &mut Value, actual: &Value, out: &mut Vec<Drift>) {
         out.push(Drift::new(location, "missing"));
         return;
     };
-    let version = |v: &Value| parse_version(v.as_str().or_else(|| v.get("version")?.as_str())?);
+    let version = |v: &Value| {
+        v.as_str()
+            .or_else(|| v.get("version")?.as_str())
+            .and_then(|v| v.parse::<OpsVersion>().ok())
+    };
     if version(pin)
         .zip(version(&floor))
         .is_none_or(|(have, want)| have < want)
@@ -565,14 +574,6 @@ fn check_ops_pin(expected: &mut Value, actual: &Value, out: &mut Vec<Drift>) {
             format!("expected {floor} or later, found {pin}"),
         ));
     }
-}
-
-/// `1.2.3` as `[1, 2, 3]`, which orders the way versions do. Anything else,
-/// such as `latest` or a partial `77`, has no place against a floor.
-fn parse_version(v: &str) -> Option<[u64; 3]> {
-    let mut parts = v.split('.').map(|part| part.parse().ok());
-    let version = [parts.next()??, parts.next()??, parts.next()??];
-    parts.next().is_none().then_some(version)
 }
 
 fn check_lints(manifest: &Root, out: &mut Vec<Drift>) -> anyhow::Result<()> {

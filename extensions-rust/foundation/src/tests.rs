@@ -428,6 +428,9 @@ fn the_ops_pin_is_a_floor_so_the_running_ops_passes_unwaived() {
         "\"0.77.0\"".to_owned(),
         "\"0.77.1\"".to_owned(),
         "\"1.0.0\"".to_owned(),
+        // The config check reads a pin through `OpsVersion`, which takes a
+        // leading `v`; the floor check parses it the same way.
+        "\"v1.0.0\"".to_owned(),
         "{ version = \"0.100.0\" }".to_owned(),
     ] {
         let drift = check_with_ops_pin(&pin);
