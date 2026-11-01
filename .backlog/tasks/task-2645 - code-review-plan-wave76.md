@@ -1,10 +1,10 @@
 ---
 id: TASK-2645
 title: 'code-review-plan-wave76'
-status: To Do
+status: Done
 assignee: []
 created_date: '2026-10-31 23:55'
-updated_date: '2026-10-31 23:55'
+updated_date: '2026-11-01 00:27'
 labels:
   - code-review-wave
 dependencies:
@@ -50,4 +50,8 @@ Removes repetition from Rust repos on the foundation: stack built-ins (semver, f
 
 <!-- SECTION:NOTES:BEGIN -->
 Overlaps: TASK-2644 (crates/cli/src/dry_run.rs, crates/core/src/config/commands.rs, docs/commands.md, docs/configuration.md); TASK-2646 (crates/cli/src/args.rs, crates/cli/src/main.rs, docs/configuration.md, docs/foundation.md)
+
+Branch: code-review/TASK-2645
+Worktree: /home/rsvalerio/projects/.wave-TASK-2645
+
 <!-- SECTION:NOTES:END -->

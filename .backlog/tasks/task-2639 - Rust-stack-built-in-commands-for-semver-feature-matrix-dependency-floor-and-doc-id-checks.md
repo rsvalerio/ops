@@ -1,10 +1,10 @@
 ---
 id: TASK-2639
 title: 'Rust stack: built-in commands for semver, feature-matrix, dependency-floor and doc-id checks'
-status: To Do
+status: Done
 assignee: []
 created_date: '2026-10-26 22:12'
-updated_date: '2026-10-31 23:55'
+updated_date: '2026-11-01 00:27'
 labels:
   - feature
   - rust
@@ -31,6 +31,19 @@ Each should be a stack-gated command with its tool named when missing, as ops de
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 Each adopted check is documented in docs/commands.md with its required tool
-- [ ] #2 A missing tool reports the install hint instead of failing obscurely
+- [x] #1 Each adopted check is documented in docs/commands.md with its required tool
+- [x] #2 A missing tool reports the install hint instead of failing obscurely
+
 <!-- AC:END -->
+
+## Implementation Notes
+
+<!-- SECTION:NOTES:BEGIN -->
+Adopted: ops semver (cargo-semver-checks), ops feature-matrix (cargo-hack, named so a generic `features` config command stays free) and ops doc-ids (native, no tool). All are stack-gated, composable built-ins documented in docs/commands.md; a missing cargo plugin fails with its install command.
+
+Not adopted:
+- dep-floors: needs a nightly toolchain and rewrites Cargo.lock to resolve minimum versions, so it does not fit a single fixed read-mostly command. dbsec's 169-line script carries policy a built-in would have to guess. Repos keep their script.
+- cog-check: cocogitto and conventional-commit policy are not Rust-specific, so it is not a Rust stack check, and it would need tag-tolerance logic. A repo can define it in .ops.toml.
+
+Verified: the missing-plugin path ran for real here (cargo-semver-checks is not installed) and is unit-tested. feature-matrix ran on a scratch crate. The passing path of ops semver was not exercised on this machine. doc-ids is not in this repo's gates: it reports 989 ids (TASK-2647).
+<!-- SECTION:NOTES:END -->
